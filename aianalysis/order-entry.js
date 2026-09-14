@@ -65,7 +65,15 @@
     function bindSearch(sqlTemplate, text) {
         // :SEARCH placeholder -> escaped uppercase literal
         var lit = String(text || '').replace(/'/g, "''").toUpperCase();
-        return String(sqlTemplate).replace(/:SEARCH/g, "'%" + lit + "%'");
+        var sql = String(sqlTemplate).replace(/:SEARCH/g, "'%" + lit + "%'");
+        console.log('[OrderEntry] lookup SQL:', sql);
+        return sql;
+    }
+
+    // Debug footer under picker results: shows the SQL that actually ran
+    function sqlDebugHtml(sql) {
+        return '<details style="margin-top:6px;"><summary style="font-size:9px;color:#94a3b8;cursor:pointer;">view SQL</summary>' +
+               '<pre style="font-size:9px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:6px;white-space:pre-wrap;word-break:break-all;margin:4px 0 0;">' + esc2(sql) + '</pre></details>';
     }
 
     // ── line math ───────────────────────────────────────────
@@ -249,7 +257,7 @@
 
         var doSearch = function () {
             var q = document.getElementById('oe-picker-q').value.trim();
-            if (q.length < 2) return;
+            // empty search = browse the first 50
             document.getElementById('oe-picker-res').innerHTML = '<div style="padding:1rem;text-align:center;color:#64748b;"><i class="fas fa-spinner fa-spin"></i> Searching…</div>';
             onSearch(q);
         };
@@ -264,12 +272,13 @@
             alert('Customer search SQL was not provided when this form was opened.\n\nClose the form and ask the assistant again — it must include _lookups.customersSql when opening the order form.');
             return;
         }
-        pickerDialog('Search Customer', 'name / account number…', function (q) {
-            runSql(bindSearch(st.lookups.customersSql, q), function (err, rows) {
+        pickerDialog('Search Customer', 'name / account number… (empty = browse first 50)', function (q) {
+            var sql = bindSearch(st.lookups.customersSql, q);
+            runSql(sql, function (err, rows) {
                 var box = document.getElementById('oe-picker-res');
                 if (!box) return;
-                if (err) { box.innerHTML = '<div style="padding:1rem;color:#dc2626;font-size:11px;">' + esc2(err) + '</div>'; return; }
-                if (!rows.length) { box.innerHTML = '<div style="padding:1rem;color:#94a3b8;font-size:11px;text-align:center;">No customers match.</div>'; return; }
+                if (err) { box.innerHTML = '<div style="padding:1rem;color:#dc2626;font-size:11px;">' + esc2(err) + sqlDebugHtml(sql) + '</div>'; return; }
+                if (!rows.length) { box.innerHTML = '<div style="padding:1rem;color:#94a3b8;font-size:11px;text-align:center;">No customers match.' + sqlDebugHtml(sql) + '</div>'; return; }
                 box.innerHTML = rows.map(function (r, i) {
                     return '<div class="oe-cust-row" data-i="' + i + '" style="padding:7px 9px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:11.5px;" onmouseover="this.style.background=\'#f5f3ff\'" onmouseout="this.style.background=\'\'">' +
                         '<b>' + esc2(r.ACCOUNT_NAME) + '</b> <span style="color:#64748b;">' + esc2(r.BILL_TO_CUSTOMER_NUMBER) + '</span>' +
@@ -304,8 +313,8 @@
             runSql(sql, function (err, rows) {
                 var box = document.getElementById('oe-picker-res');
                 if (!box) return;
-                if (err) { box.innerHTML = '<div style="padding:1rem;color:#dc2626;font-size:11px;">' + esc2(err) + '</div>'; return; }
-                if (!rows.length) { box.innerHTML = '<div style="padding:1rem;color:#94a3b8;font-size:11px;text-align:center;">No items match on this price list.</div>'; return; }
+                if (err) { box.innerHTML = '<div style="padding:1rem;color:#dc2626;font-size:11px;">' + esc2(err) + sqlDebugHtml(sql) + '</div>'; return; }
+                if (!rows.length) { box.innerHTML = '<div style="padding:1rem;color:#94a3b8;font-size:11px;text-align:center;">No items match on this price list.' + sqlDebugHtml(sql) + '</div>'; return; }
                 found = rows;
                 box.innerHTML =
                     '<table style="width:100%;border-collapse:collapse;font-size:11px;">' +
@@ -412,6 +421,14 @@
     window.openOrderEntryForm = function (cfg) {
         var v = cfg.values || {};
         var lk = v._lookups || {};
+        // Pinned lookups (window.WMS_ORDER_LOOKUPS, e.g. set in api-catalog.js)
+        // always win over what the model supplied - once the correct tenant
+        // SQL is known, hardcode it there for deterministic behavior.
+        var pin = window.WMS_ORDER_LOOKUPS || {};
+        ['customersSql', 'itemsSql', 'salesrepsSql', 'orderTypesSql', 'warehousesSql', 'subinventoriesSql',
+         'salesreps', 'orderTypes', 'warehouses', 'subinventories'].forEach(function (k) {
+            if (pin[k]) lk[k] = pin[k];
+        });
         st = {
             header: {
                 order_date: v.order_date || new Date().toISOString().slice(0, 10),
