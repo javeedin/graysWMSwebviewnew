@@ -3310,7 +3310,7 @@
                             <i class="fas fa-clock"></i> &nbsp;1 — Refresh Interval
                         </div>
                         <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
-                            ${[['5 min',300],['10 min',600],['15 min',900],['30 min',1800],['60 min',3600]].map(([label,secs]) => `
+                            ${[['30 min',1800],['1 hour',3600],['1.5 hours',5400],['2 hours',7200]].map(([label,secs]) => `
                             <button id="sa-dlg-int-${secs}" onclick="saStartDlgSelectInterval(${secs})"
                                 style="padding:0.4rem 0.8rem;border:2px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer;font-size:11px;font-weight:700;color:#475569;transition:all 0.15s;">
                                 ${label}
@@ -3353,11 +3353,11 @@
             </div>`;
         document.body.appendChild(dlg);
 
-        // Pre-select 5min interval
-        saStartDlgSelectInterval(300);
+        // Pre-select 30min interval
+        saStartDlgSelectInterval(1800);
     };
 
-    window._saStartDlgInterval = 300;
+    window._saStartDlgInterval = 1800;
 
     window.saStartDlgSelectInterval = function(secs) {
         window._saStartDlgInterval = secs;
@@ -3390,7 +3390,7 @@
         const agent = window._saCurrentAgent;
         if (!agent) return;
 
-        const intervalSeconds = window._saStartDlgInterval || 300;
+        const intervalSeconds = window._saStartDlgInterval || 1800;
         if (!intervalSeconds) {
             document.getElementById('sa-dlg-int-warn').style.display = 'block';
             return;
