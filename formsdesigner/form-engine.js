@@ -434,27 +434,77 @@
         if (!skipCapture) captureHeader();
         headerComputed();
         var def = st.def;
+        var mob = st.mobile ? (def.mobile || {}) : null;
+
         var hTabs = headerTabs();
         var hAct = hTabs.length ? (hTabs.indexOf(st.ui.headerTab) >= 0 ? st.ui.headerTab : hTabs[0]) : null;
-        var hFields = ((def.header && def.header.fields) || []).filter(function (f) { return !hTabs.length || (f.tab || hTabs[0]) === hAct; });
+        // wizard: header tab pages become steps with Back/Next
+        var wiz = !!def.wizard && hTabs.length > 1;
+        var stepIdx = wiz ? hTabs.indexOf(hAct) : -1;
+        var lastStep = !wiz || stepIdx === hTabs.length - 1;
+
+        var allFields = ((def.header && def.header.fields) || []).slice();
+        if (mob) {
+            var hid = mob.hidden || [];
+            allFields = allFields.filter(function (f) { return hid.indexOf(f.key) < 0; });
+            var ord = mob.order || [];
+            if (ord.length) allFields.sort(function (a, b) {
+                var ia = ord.indexOf(a.key), ib = ord.indexOf(b.key);
+                return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+            });
+        }
+        var hFields = allFields.filter(function (f) { return !hTabs.length || (f.tab || hTabs[0]) === hAct; });
+        var hCols = mob ? (mob.columns || 1) : ((def.header && def.header.columns) || 4);
+
         var dTabs = detailTabs();
         var dAct = dTabs.length ? (dTabs.indexOf(st.ui.detailTab) >= 0 ? st.ui.detailTab : dTabs[0]) : null;
-        var dets = (def.details || []).filter(function (d) { return !dTabs.length || (d.tab || dTabs[0]) === dAct; });
+        var dets = (def.details || []).filter(function (d) {
+            if (wiz) return d.tab ? d.tab === hAct : lastStep;
+            return !dTabs.length || (d.tab || dTabs[0]) === dAct;
+        });
+        var reps = (wiz && !lastStep) ? [] : (def.reports || []);
+
+        var wizBar = wiz
+            ? '<div style="display:flex;align-items:flex-end;gap:6px;margin-bottom:14px;">' +
+              hTabs.map(function (t, i) {
+                  return '<div style="flex:1;text-align:center;">' +
+                      '<div style="height:4px;border-radius:2px;background:' + (i <= stepIdx ? '#0f766e' : '#e2e8f0') + ';margin-bottom:3px;"></div>' +
+                      '<div style="font-size:9.5px;font-weight:' + (i === stepIdx ? '800' : '600') + ';color:' + (i === stepIdx ? '#0f766e' : '#94a3b8') + ';">' + (i + 1) + '. ' + esc(t) + '</div></div>';
+              }).join('') + '</div>'
+            : '';
 
         var bodyHtml =
             '<div style="padding:0.9rem 1.2rem;overflow-y:auto;flex:1;">' +
-              tabBarHtml(hTabs, hAct, '_htab') +
-              '<div style="display:grid;grid-template-columns:repeat(' + ((def.header && def.header.columns) || 4) + ',1fr);gap:8px 12px;">' +
+              (wiz ? wizBar : tabBarHtml(hTabs, hAct, '_htab')) +
+              '<div style="display:grid;grid-template-columns:repeat(' + hCols + ',1fr);gap:8px 12px;">' +
                 hFields.map(fieldHtml).join('') +
               '</div>' +
-              tabBarHtml(dTabs, dAct, '_dtab').replace('margin-bottom:9px', 'margin-top:12px;margin-bottom:2px') +
+              (wiz ? '' : tabBarHtml(dTabs, dAct, '_dtab').replace('margin-bottom:9px', 'margin-top:12px;margin-bottom:2px')) +
               dets.map(detailHtml).join('') +
-              ((def.reports || []).map(reportHtml).join('')) +
+              reps.map(reportHtml).join('') +
             '</div>';
+
+        // side panel with icon buttons wired to actions
+        var sb = (def.sidebar && Array.isArray(def.sidebar.items) && def.sidebar.items.length) ? def.sidebar : null;
+        var sbHtml = sb
+            ? '<div style="width:52px;flex-shrink:0;background:#f8fafc;border-' + (sb.position === 'left' ? 'right' : 'left') + ':1px solid #e2e8f0;display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:7px;">' +
+              sb.items.map(function (it) {
+                  return '<button onclick="WMSFormEngine._sideAct(\'' + esc(it.action || '') + '\')" title="' + esc(it.label || it.action || '') + '" style="width:38px;height:38px;border:1px solid #e2e8f0;border-radius:9px;background:white;color:#0f766e;cursor:pointer;font-size:14px;"><i class="fas fa-' + esc(it.icon || 'circle') + '"></i></button>';
+              }).join('') + '</div>'
+            : '';
+        var middleHtml = '<div style="display:flex;flex:1;overflow:hidden;min-height:0;">' +
+            (sb && sb.position === 'left' ? sbHtml : '') + bodyHtml + (sb && sb.position !== 'left' ? sbHtml : '') + '</div>';
+
+        var wizBtnsHtml = wiz
+            ? '<button onclick="WMSFormEngine._wizStep(-1)" ' + (stepIdx === 0 ? 'disabled ' : '') + 'style="padding:7px 16px;border:1px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer;font-size:12px;font-weight:700;color:#334155;' + (stepIdx === 0 ? 'opacity:0.4;' : '') + '"><i class="fas fa-chevron-left"></i> Back</button>' +
+              (!lastStep ? '<button onclick="WMSFormEngine._wizStep(1)" style="padding:7px 20px;border:none;border-radius:8px;background:#0f766e;cursor:pointer;font-size:12px;font-weight:800;color:white;">Next <i class="fas fa-chevron-right"></i></button>' : '')
+            : '';
         var footHtml =
             '<div style="padding:0.7rem 1.2rem;border-top:1px solid #f1f5f9;flex-shrink:0;">' +
               '<div id="fe-result" style="font-size:11px;margin-bottom:6px;"></div>' +
-              '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">' + actionsHtml() + '</div>' +
+              '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">' +
+                wizBtnsHtml + (lastStep ? actionsHtml() : '') +
+              '</div>' +
             '</div>';
         var titleHtml =
             '<div style="padding:0.8rem 1.2rem;background:linear-gradient(135deg,#0f766e,#134e4a);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">' +
@@ -974,10 +1024,14 @@
             if (!def || !def.header) { alert('Invalid form definition (no header section).'); return; }
             var container = opts.container;
             if (typeof container === 'string') container = document.getElementById(container);
+            // mobile layout: forced via opts.layout, else by viewport width
+            var mobile = opts.layout === 'mobile' ||
+                (opts.layout !== 'desktop' && typeof window !== 'undefined' && window.innerWidth <= 700);
             st = {
                 def: def, formKey: opts.formKey || '', mode: opts.mode || 'run',
                 values: {}, details: {}, lists: {}, reports: {},
                 ui: { headerTab: null, detailTab: null },
+                mobile: mobile,
                 container: container || null,
                 chatHandoff: opts.chatHandoff, onClose: opts.onClose
             };
@@ -1031,6 +1085,20 @@
         },
         _htab: function (t) { captureHeader(); st.ui.headerTab = t; render(); },
         _dtab: function (t) { captureHeader(); st.ui.detailTab = t; render(); },
+        _wizStep: function (dir) {
+            captureHeader();
+            var tabs = headerTabs();
+            var idx = tabs.indexOf(st.ui.headerTab);
+            if (idx < 0) idx = 0;
+            var next = Math.min(Math.max(idx + dir, 0), tabs.length - 1);
+            st.ui.headerTab = tabs[next];
+            render();
+        },
+        _sideAct: function (key) {
+            var i = (st.def.actions || []).findIndex(function (a) { return a.key === key; });
+            if (i >= 0) runAction(i);
+            else showResult(false, 'Sidebar button points to unknown action "' + key + '".');
+        },
         _runReport: runReport,
         _print: doPrint,
         _pick: pickHeaderField,
