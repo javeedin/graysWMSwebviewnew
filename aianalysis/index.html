@@ -346,6 +346,7 @@
         <div class="main-tab" id="ptab-jobs" onclick="switchPage('jobs')"><i class="fas fa-clock"></i> Scheduled Jobs</div>
         <div class="main-tab" id="ptab-apis" onclick="switchPage('apis')"><i class="fas fa-plug"></i> APIs</div>
         <div class="main-tab" id="ptab-policies" onclick="switchPage('policies')"><i class="fas fa-user-shield"></i> Policies</div>
+        <div class="main-tab" id="ptab-processes" onclick="switchPage('processes')"><i class="fas fa-diagram-project"></i> Processes</div>
         <div class="main-tab" id="ptab-learn" onclick="switchPage('learn')"><i class="fas fa-graduation-cap"></i> Learn</div>
         <div class="main-tab" id="ptab-cando" onclick="switchPage('cando')"><i class="fas fa-wand-magic-sparkles"></i> What can I do?</div>
     </div>
@@ -572,6 +573,25 @@
     </div><!-- /page-policies -->
 
     <!-- ══════════ PAGE: LEARN (training material) ══════════ -->
+    <!-- ══════════ PAGE: Processes (train the bot) ══════════ -->
+    <div class="page" id="page-processes" style="display:none;">
+        <div style="display:flex;gap:14px;height:100%;padding:12px;box-sizing:border-box;">
+            <div style="width:270px;flex-shrink:0;display:flex;flex-direction:column;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                    <div style="font-size:12px;font-weight:800;color:#334155;"><i class="fas fa-diagram-project"></i> Trained Processes</div>
+                    <button onclick="newProcess()" style="border:none;background:#7c3aed;color:white;border-radius:7px;cursor:pointer;padding:4px 10px;font-size:11px;font-weight:700;"><i class="fas fa-plus"></i> New</button>
+                </div>
+                <div id="proc-list" style="flex:1;overflow-y:auto;"><div style="font-size:11px;color:#94a3b8;">Loading…</div></div>
+                <div style="font-size:9.5px;color:#94a3b8;margin-top:6px;">One row = one process the bot follows. Changes take effect on its next question — no rebuild.</div>
+            </div>
+            <div style="flex:1;overflow-y:auto;">
+                <div id="proc-editor" style="max-width:820px;">
+                    <div style="font-size:11px;color:#94a3b8;padding:2rem;text-align:center;">Select a process on the left, or create a new one.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="page" id="page-learn" style="display:none;">
         <!-- Left: topics -->
         <div class="rp-left" style="width:290px;min-width:290px;">
@@ -2355,10 +2375,11 @@ function copySqlData(d) {
 const AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
 
 function switchPage(which) {
-    ['chatbot', 'reports', 'jobs', 'apis', 'policies', 'learn', 'cando'].forEach(p => {
+    ['chatbot', 'reports', 'jobs', 'apis', 'policies', 'processes', 'learn', 'cando'].forEach(p => {
         document.getElementById('ptab-' + p).classList.toggle('active', which === p);
         document.getElementById('page-' + p).style.display = which === p ? '' : 'none';
     });
+    if (which === 'processes') loadProcessesPage();
     if (which === 'reports' && !window._reportsLoaded) loadReports();
     if (which === 'jobs') loadJobs();
     if (which === 'apis') renderApiList();
@@ -4064,6 +4085,152 @@ function showHelpBubble() {
         setTimeout(() => { document.getElementById('slash-menu').style.display = 'none'; }, 150);
     });
 })();
+</script>
+<script>
+// ============================================================
+// PROCESSES TAB - train the bot: CRUD over WMS_AI_PROCESSES.
+// Reads via the SQL gateway, writes via ai/executewrite.
+// ============================================================
+let _procRows = [];
+let _procKey = null;
+
+const PROC_FIELDS = [
+    { key: 'process_key', label: 'Process key', type: 'text', hint: 'unique id, e.g. order.creation (cannot change later)' },
+    { key: 'name', label: 'Name', type: 'text', hint: 'e.g. Create Sales Order' },
+    { key: 'process_type', label: 'Type', type: 'select', options: ['FORM', 'REPORT', 'ACTION', 'PIPELINE'], hint: 'FORM opens a data entry form; REPORT runs a query; ACTION performs writes; PIPELINE is a multi-stage flow' },
+    { key: 'trigger_phrases', label: 'Trigger phrases', type: 'text', hint: 'comma separated - how users ask for this, e.g. create order, new order' },
+    { key: 'pipeline_stages', label: 'Pipeline stages', type: 'text', hint: 'e.g. Find customer -> Validate -> Form -> Create -> Verify' },
+    { key: 'data_sources', label: 'Data sources', type: 'area', hint: 'where the data lives - tables, columns, APIs. One fact per line.' },
+    { key: 'validations', label: 'Validations', type: 'area', hint: 'plain rules; add a deterministic check on its own line as CHECK_SQL: SELECT ... ({placeholders} allowed, must return a row to pass)' },
+    { key: 'interfaces', label: 'Interfaces', type: 'area', hint: 'one per line: form: <apiId> | ords: METHOD /path | fusion: METHOD /path | sql: <what>' },
+    { key: 'steps', label: 'Steps', type: 'area', hint: 'numbered flow the bot follows, including what to ask the user' },
+    { key: 'lookups', label: 'Form lookups (optional)', type: 'area', hint: 'pinned SQL for form pickers, if this process opens a form' }
+];
+
+function loadProcessesPage() {
+    const sql = "SELECT process_key, name, process_type, trigger_phrases, pipeline_stages, data_sources, validations, interfaces, steps, lookups, active FROM wms_ai_processes ORDER BY name";
+    sendMessageToCSharp({
+        action: 'executePost', fullUrl: AI_BASE + '/executequery',
+        body: JSON.stringify({ sql: sql, maxRows: 200, appUser: appUserName() })
+    }, function (err, data) {
+        const box = document.getElementById('proc-list');
+        if (err) { box.innerHTML = '<div style="font-size:11px;color:#b91c1c;">' + esc(String(err)) + '</div>'; return; }
+        let d = null;
+        try { d = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
+        if (!d || d.success !== true || !Array.isArray(d.columns)) {
+            box.innerHTML = '<div style="font-size:11px;color:#b91c1c;">Could not load processes: ' + esc((d && d.error) || 'unexpected response') + '<br><br>Has apex_sql/45_ai_processes.sql been run?</div>';
+            return;
+        }
+        const ix = {}; d.columns.forEach((c, i) => ix[String(c).toUpperCase()] = i);
+        _procRows = (d.rows || []).map(r => ({
+            process_key: String(r[ix.PROCESS_KEY] || ''), name: String(r[ix.NAME] || ''),
+            process_type: String(r[ix.PROCESS_TYPE] || 'ACTION'),
+            trigger_phrases: r[ix.TRIGGER_PHRASES] || '', pipeline_stages: r[ix.PIPELINE_STAGES] || '',
+            data_sources: r[ix.DATA_SOURCES] || '', validations: r[ix.VALIDATIONS] || '',
+            interfaces: r[ix.INTERFACES] || '', steps: r[ix.STEPS] || '', lookups: r[ix.LOOKUPS] || '',
+            active: String(r[ix.ACTIVE] || 'Y')
+        }));
+        renderProcessList();
+        if (_procKey) renderProcessEditor();
+    });
+}
+
+function renderProcessList() {
+    const box = document.getElementById('proc-list');
+    if (!_procRows.length) { box.innerHTML = '<div style="font-size:11px;color:#94a3b8;">No processes yet - click New.</div>'; return; }
+    const typeColors = { FORM: '#0e7490', REPORT: '#7c3aed', ACTION: '#b45309', PIPELINE: '#16a34a' };
+    box.innerHTML = _procRows.map(p => `
+        <div onclick="openProcess('${esc(p.process_key)}')" style="border:1px solid ${_procKey === p.process_key ? '#c4b5fd' : 'var(--border)'};background:${_procKey === p.process_key ? '#f5f3ff' : 'white'};border-radius:8px;padding:8px 10px;margin-bottom:5px;cursor:pointer;${p.active !== 'Y' ? 'opacity:0.55;' : ''}">
+            <div style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:8.5px;font-weight:800;padding:1px 7px;border-radius:8px;background:${(typeColors[p.process_type] || '#64748b')}22;color:${typeColors[p.process_type] || '#64748b'};">${esc(p.process_type)}</span>
+                <span style="font-size:11.5px;font-weight:700;color:#0f172a;">${esc(p.name)}</span>
+                ${p.active !== 'Y' ? '<span style="font-size:8.5px;color:#b91c1c;font-weight:700;">INACTIVE</span>' : ''}
+            </div>
+            <div style="font-size:9.5px;color:#94a3b8;margin-top:2px;">${esc(p.process_key)}</div>
+        </div>`).join('');
+}
+
+function openProcess(key) { _procKey = key; renderProcessList(); renderProcessEditor(); }
+
+function newProcess() {
+    _procKey = '';
+    renderProcessList();
+    renderProcessEditor({
+        process_key: '', name: '', process_type: 'ACTION', trigger_phrases: '', pipeline_stages: '',
+        data_sources: '', validations: '', interfaces: '', steps: '', lookups: '', active: 'Y', _isNew: true
+    });
+}
+
+function renderProcessEditor(row) {
+    const p = row || _procRows.find(r => r.process_key === _procKey);
+    const box = document.getElementById('proc-editor');
+    if (!p) { box.innerHTML = ''; return; }
+    const isNew = !!p._isNew;
+    let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+        '<div style="font-size:13px;font-weight:800;color:#334155;">' + (isNew ? 'New Process' : esc(p.name)) + '</div>' +
+        '<label style="font-size:11px;color:#475569;cursor:pointer;"><input type="checkbox" id="proc-f-active" ' + (p.active === 'Y' ? 'checked' : '') + '> Active</label></div>';
+    PROC_FIELDS.forEach(f => {
+        const v = p[f.key] || (f.key === 'process_type' ? 'ACTION' : '');
+        const dis = (f.key === 'process_key' && !isNew) ? 'disabled style="background:#f8fafc;"' : '';
+        html += '<div style="margin-bottom:9px;"><label style="display:block;font-size:10.5px;font-weight:700;color:#475569;margin-bottom:2px;">' + f.label + '</label>';
+        if (f.type === 'select')
+            html += '<select id="proc-f-' + f.key + '" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">' +
+                f.options.map(o => '<option' + (o === v ? ' selected' : '') + '>' + o + '</option>').join('') + '</select>';
+        else if (f.type === 'area')
+            html += '<textarea id="proc-f-' + f.key + '" style="width:100%;box-sizing:border-box;min-height:74px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:11.5px;font-family:monospace;resize:vertical;">' + esc(String(v)) + '</textarea>';
+        else
+            html += '<input type="text" id="proc-f-' + f.key + '" value="' + esc(String(v)) + '" ' + dis + ' style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">';
+        html += '<div style="font-size:9px;color:#94a3b8;margin-top:2px;">' + f.hint + '</div></div>';
+    });
+    html += '<div style="display:flex;gap:8px;align-items:center;margin-top:12px;">' +
+        '<button onclick="saveProcess(' + isNew + ')" style="border:none;background:#16a34a;color:white;border-radius:8px;cursor:pointer;padding:8px 20px;font-size:12px;font-weight:800;"><i class="fas fa-floppy-disk"></i> Save Process</button>' +
+        '<span id="proc-save-status" style="font-size:11px;"></span></div>';
+    box.innerHTML = html;
+}
+
+function saveProcess(isNew) {
+    const q = s => "'" + String(s === undefined || s === null ? '' : s).replace(/'/g, "''") + "'";
+    const val = k => (document.getElementById('proc-f-' + k) || {}).value || '';
+    const key = val('process_key').trim();
+    const status = document.getElementById('proc-save-status');
+    if (!key || !/^[A-Za-z0-9._\-]{2,100}$/.test(key)) { status.innerHTML = '<span style="color:#b91c1c;">Process key is required (letters, digits, dots).</span>'; return; }
+    if (!val('name').trim()) { status.innerHTML = '<span style="color:#b91c1c;">Name is required.</span>'; return; }
+    const active = document.getElementById('proc-f-active').checked ? 'Y' : 'N';
+    const user = q(appUserName());
+
+    let sql;
+    if (isNew) {
+        sql = 'INSERT INTO wms_ai_processes (process_key, name, process_type, trigger_phrases, pipeline_stages, data_sources, validations, interfaces, steps, lookups, active, updated_by, updated_on) VALUES (' +
+            [q(key), q(val('name')), q(val('process_type')), q(val('trigger_phrases')), q(val('pipeline_stages')),
+             q(val('data_sources')), q(val('validations')), q(val('interfaces')), q(val('steps')), q(val('lookups')),
+             q(active), user, 'SYSDATE'].join(', ') + ')';
+    } else {
+        sql = 'UPDATE wms_ai_processes SET ' +
+            'name = ' + q(val('name')) + ', process_type = ' + q(val('process_type')) +
+            ', trigger_phrases = ' + q(val('trigger_phrases')) + ', pipeline_stages = ' + q(val('pipeline_stages')) +
+            ', data_sources = ' + q(val('data_sources')) + ', validations = ' + q(val('validations')) +
+            ', interfaces = ' + q(val('interfaces')) + ', steps = ' + q(val('steps')) +
+            ', lookups = ' + q(val('lookups')) + ', active = ' + q(active) +
+            ', updated_by = ' + user + ', updated_on = SYSDATE' +
+            ' WHERE process_key = ' + q(key);
+    }
+
+    status.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-spinner fa-spin"></i> Saving…</span>';
+    sendMessageToCSharp({
+        action: 'executePost', fullUrl: AI_BASE + '/executewrite',
+        body: JSON.stringify({ sql: sql, appUser: appUserName() })
+    }, function (err, data) {
+        let d = null;
+        try { d = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
+        if (err || !d || d.success !== true) {
+            status.innerHTML = '<span style="color:#b91c1c;">Save failed: ' + esc(String(err || (d && d.error) || 'unknown')) + '</span>';
+            return;
+        }
+        status.innerHTML = '<span style="color:#15803d;"><i class="fas fa-check-circle"></i> Saved — the bot uses this on its next question.</span>';
+        _procKey = key;
+        loadProcessesPage();
+    });
+}
 </script>
 </body>
 </html>
