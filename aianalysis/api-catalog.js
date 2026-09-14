@@ -26,6 +26,22 @@
 (function () {
     var ORDS = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP';
 
+    // ============================================================
+    // Pinned order-entry lookups - always win over model-supplied
+    // SQL (see order-entry.js). Confirmed tenant sources:
+    //   GRFU_CUSTOMER = customer master with the Fusion ids
+    // Add itemsSql here once the price list items table is confirmed.
+    // ============================================================
+    window.WMS_ORDER_LOOKUPS = {
+        customersSql:
+            "SELECT ACCOUNT_NAME, ACCOUNT_NUMBER AS BILL_TO_CUSTOMER_NUMBER, CUST_ACCOUNT_ID, PARTY_ID, " +
+            "BILL_TO_SITE_USE_ID AS SITE_USE_ID, SHIP_TO_PARTY_SITE_ID AS PARTY_SITE_ID, " +
+            "PRICE_LIST AS PRICELIST, CITY AS LOCATION " +
+            "FROM GRFU_CUSTOMER " +
+            "WHERE (UPPER(ACCOUNT_NAME) LIKE :SEARCH OR UPPER(ACCOUNT_NUMBER) LIKE :SEARCH) " +
+            "ORDER BY ACCOUNT_NAME FETCH FIRST 50 ROWS ONLY"
+    };
+
     window.WMS_API_CATALOG = [
 
         // ---------------- Trips ----------------

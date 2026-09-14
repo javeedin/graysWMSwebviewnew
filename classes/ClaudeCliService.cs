@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V29";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V30";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -370,6 +370,9 @@ namespace WMSApp
             sb.AppendLine("### Creating sales orders (TWO ROUTES - always ask which one first)");
             sb.AppendLine();
             sb.AppendLine("Order creation metadata (customers, their price lists, price list items, order types, salesreps) lives in the APEX DB - gather it with action sql against the schema catalog below; you do NOT need Fusion GETs for the data. After showing the composed order plan, ALWAYS ask the user (action answer) which route to use - never pick silently unless they already said:");
+            sb.AppendLine();
+            sb.AppendLine("KNOWN DATA LOCATIONS (confirmed - use these, do not guess alternatives):");
+            sb.AppendLine("- Customer master = table GRFU_CUSTOMER: ACCOUNT_NAME, ACCOUNT_NUMBER, CITY, PRICE_LIST, STATUS, CUST_ACCOUNT_ID, PARTY_ID, BILL_TO_SITE_USE_ID, SHIP_TO_PARTY_SITE_ID. This is THE source for customer searches and for the order ids (bill_to number = ACCOUNT_NUMBER, site_use_id = BILL_TO_SITE_USE_ID, party_site_id = SHIP_TO_PARTY_SITE_ID, price list = PRICE_LIST). The table named CUSTOMER is NOT the one to use.");
             sb.AppendLine();
             sb.AppendLine("CUSTOMER SELECTION (do this FIRST - there are ~10k customers, users never remember exact names):");
             sb.AppendLine("- If the user gave a name or fragment: action sql with a case-insensitive LIKE on the customer metadata (name, account number), max 50 rows. Exactly ONE match -> use it and say so. Several matches -> show an action grid titled 'Select the customer' with columns Name / Account # / Location / Price list, one action { id: 'use_customer', label: 'Use this customer for the order' }, and data carrying EVERY id the order needs: account name, bill_to/account number, cust_account_id, party_id, site_use_id, party_site_id, price list. The GRID_ACTION selection continues the flow with those ids.");
