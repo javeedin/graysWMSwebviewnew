@@ -303,33 +303,166 @@
         }).join('');
     }
 
+    // ── tab pages (header + details) ────────────────────────
+    function headerTabs() {
+        var fields = (st.def.header && st.def.header.fields) || [];
+        if (!fields.some(function (f) { return f.tab; })) return [];
+        var tabs = [];
+        fields.forEach(function (f) { var t = f.tab || 'Main'; if (tabs.indexOf(t) < 0) tabs.push(t); });
+        return tabs;
+    }
+    function detailTabs() {
+        var dets = st.def.details || [];
+        if (!dets.some(function (d) { return d.tab; })) return [];
+        var tabs = [];
+        dets.forEach(function (d) { var t = d.tab || 'Main'; if (tabs.indexOf(t) < 0) tabs.push(t); });
+        return tabs;
+    }
+    function tabBarHtml(tabs, active, fn) {
+        if (!tabs.length) return '';
+        return '<div style="display:flex;gap:4px;border-bottom:2px solid #e2e8f0;margin-bottom:9px;flex-wrap:wrap;">' +
+            tabs.map(function (t) {
+                var on = t === active;
+                return '<div onclick="WMSFormEngine.' + fn + '(\'' + esc(t).replace(/'/g, "\\'") + '\')" style="padding:5px 14px;font-size:11px;font-weight:800;cursor:pointer;border-radius:7px 7px 0 0;' +
+                    (on ? 'background:#0f766e;color:white;' : 'background:#f1f5f9;color:#475569;') + '">' + esc(t) + '</div>';
+            }).join('') + '</div>';
+    }
+
+    // ── reports (query grids with print) ────────────────────
+    function reportHtml(r) {
+        var data = st.reports[r.key];
+        var body;
+        if (!data) body = '<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;">Click Refresh to run this report.</div>';
+        else if (data.error) body = '<div style="padding:1rem;color:#dc2626;font-size:11px;">' + esc(data.error) + '</div>';
+        else if (!data.rows.length) body = '<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;">No data.</div>';
+        else {
+            var cols = Object.keys(data.rows[0]);
+            body = '<table style="width:100%;border-collapse:collapse;font-size:11px;">' +
+                '<thead><tr style="background:#f8fafc;position:sticky;top:0;">' + cols.map(function (c) { return '<th style="padding:6px;text-align:left;">' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+                data.rows.map(function (row) {
+                    return '<tr style="border-bottom:1px solid #f1f5f9;">' + cols.map(function (c) { return '<td style="padding:5px 6px;">' + esc(row[c]) + '</td>'; }).join('') + '</tr>';
+                }).join('') + '</tbody></table>';
+        }
+        return '<div style="margin-top:12px;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+              '<div style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.4px;"><i class="fas fa-chart-simple"></i> ' + esc(r.title || r.key) +
+              (data && data.rows ? ' (' + data.rows.length + ')' : '') + '</div>' +
+              '<div style="display:flex;gap:6px;">' +
+                '<button onclick="WMSFormEngine._runReport(\'' + esc(r.key) + '\')" style="border:1px solid #e2e8f0;background:white;color:#334155;border-radius:7px;cursor:pointer;padding:5px 12px;font-size:11px;font-weight:700;"><i class="fas fa-rotate"></i> Refresh</button>' +
+                '<button onclick="WMSFormEngine._print(\'' + esc(r.key) + '\')" style="border:1px solid #e2e8f0;background:white;color:#334155;border-radius:7px;cursor:pointer;padding:5px 12px;font-size:11px;font-weight:700;"><i class="fas fa-print"></i> Print</button>' +
+              '</div></div>' +
+            '<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:auto;max-height:320px;">' + body + '</div></div>';
+    }
+    function runReport(key) {
+        var r = (st.def.reports || []).find(function (x) { return x.key === key; });
+        if (!r || !r.sql) return;
+        captureHeader();
+        st.reports[key] = null;
+        runSql(bindHeaderSql(r.sql), function (err, rows) {
+            if (!st) return;
+            st.reports[key] = err ? { error: err, rows: [] } : { rows: rows };
+            render();
+        });
+    }
+
+    // ── printing ────────────────────────────────────────────
+    function printableTable(title, rows) {
+        if (!rows || !rows.length) return '';
+        var cols = Object.keys(rows[0]).filter(function (c) { return c.charAt(0) !== '_'; });
+        return '<h3>' + esc(title) + '</h3><table><thead><tr>' +
+            cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+            rows.map(function (r) { return '<tr>' + cols.map(function (c) { return '<td>' + esc(r[c]) + '</td>'; }).join('') + '</tr>'; }).join('') +
+            '</tbody></table>';
+    }
+    function buildPrintHtml(scope) {
+        var def = st.def;
+        var payload = buildPayload();
+        var body = '<h2>' + esc(def.title || st.formKey) + '</h2>' +
+            '<div class="meta">' + esc(new Date().toLocaleString()) + ' — ' + esc(userName()) + '</div>';
+        if (scope === 'form' || !scope) {
+            body += '<table class="hdr">' + ((def.header && def.header.fields) || []).map(function (f) {
+                return '<tr><th>' + esc(f.label || f.key) + '</th><td>' + esc(payload.header[f.key]) + '</td></tr>';
+            }).join('') + '</table>';
+            (def.details || []).forEach(function (det) {
+                body += printableTable(det.title || det.key, payload[det.key]);
+            });
+            (def.reports || []).forEach(function (r) {
+                var data = st.reports[r.key];
+                if (data && data.rows && data.rows.length) body += printableTable(r.title || r.key, data.rows);
+            });
+        } else {
+            var rep = (def.reports || []).find(function (x) { return x.key === scope; });
+            var data = st.reports[scope];
+            body += printableTable((rep && rep.title) || scope, (data && data.rows) || []);
+        }
+        return '<html><head><title>' + esc(def.title || 'Form') + '</title><style>' +
+            'body{font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#111;margin:24px;}' +
+            'h2{margin:0 0 2px;}h3{margin:16px 0 4px;}.meta{color:#666;font-size:10px;margin-bottom:12px;}' +
+            'table{border-collapse:collapse;width:100%;margin-bottom:8px;}th,td{border:1px solid #bbb;padding:4px 7px;text-align:left;font-size:11px;}' +
+            'th{background:#f0f0f0;}.hdr th{width:180px;}' +
+            '</style></head><body>' + body + '</body></html>';
+    }
+    function doPrint(scope) {
+        var html = buildPrintHtml(scope);
+        var frame = document.createElement('iframe');
+        frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+        document.body.appendChild(frame);
+        frame.contentDocument.open();
+        frame.contentDocument.write(html);
+        frame.contentDocument.close();
+        setTimeout(function () {
+            try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch (e) { console.warn('[FormEngine] print failed:', e); }
+            setTimeout(function () { frame.remove(); }, 3000);
+        }, 250);
+    }
+
     function render() {
         captureHeader();
         headerComputed();
-        var old = document.getElementById('fe-modal');
-        if (old) old.remove();
         var def = st.def;
-        var html =
-        '<div id="fe-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:29000;display:flex;align-items:center;justify-content:center;">' +
-          '<div style="background:white;width:96%;max-width:' + (def.width || 1000) + 'px;max-height:94vh;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
-            '<div style="padding:0.8rem 1.2rem;background:linear-gradient(135deg,#0f766e,#134e4a);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">' +
-              '<div style="font-weight:800;font-size:14px;color:white;"><i class="fas fa-' + esc(def.icon || 'wpforms') + '"></i> ' + esc(def.title || st.formKey || 'Form') +
-              (st.mode === 'preview' ? ' <span style="font-size:9px;background:rgba(255,255,255,0.25);padding:2px 8px;border-radius:8px;">PREVIEW</span>' : '') + '</div>' +
-              '<button onclick="WMSFormEngine.close()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
-            '</div>' +
-            '<div style="padding:0.9rem 1.2rem;overflow-y:auto;">' +
+        var hTabs = headerTabs();
+        var hAct = hTabs.length ? (hTabs.indexOf(st.ui.headerTab) >= 0 ? st.ui.headerTab : hTabs[0]) : null;
+        var hFields = ((def.header && def.header.fields) || []).filter(function (f) { return !hTabs.length || (f.tab || hTabs[0]) === hAct; });
+        var dTabs = detailTabs();
+        var dAct = dTabs.length ? (dTabs.indexOf(st.ui.detailTab) >= 0 ? st.ui.detailTab : dTabs[0]) : null;
+        var dets = (def.details || []).filter(function (d) { return !dTabs.length || (d.tab || dTabs[0]) === dAct; });
+
+        var bodyHtml =
+            '<div style="padding:0.9rem 1.2rem;overflow-y:auto;flex:1;">' +
+              tabBarHtml(hTabs, hAct, '_htab') +
               '<div style="display:grid;grid-template-columns:repeat(' + ((def.header && def.header.columns) || 4) + ',1fr);gap:8px 12px;">' +
-                ((def.header && def.header.fields) || []).map(fieldHtml).join('') +
+                hFields.map(fieldHtml).join('') +
               '</div>' +
-              (def.details || []).map(detailHtml).join('') +
-            '</div>' +
+              tabBarHtml(dTabs, dAct, '_dtab').replace('margin-bottom:9px', 'margin-top:12px;margin-bottom:2px') +
+              dets.map(detailHtml).join('') +
+              ((def.reports || []).map(reportHtml).join('')) +
+            '</div>';
+        var footHtml =
             '<div style="padding:0.7rem 1.2rem;border-top:1px solid #f1f5f9;flex-shrink:0;">' +
               '<div id="fe-result" style="font-size:11px;margin-bottom:6px;"></div>' +
               '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">' + actionsHtml() + '</div>' +
-            '</div>' +
-          '</div>' +
-        '</div>';
-        document.body.insertAdjacentHTML('beforeend', html);
+            '</div>';
+        var titleHtml =
+            '<div style="padding:0.8rem 1.2rem;background:linear-gradient(135deg,#0f766e,#134e4a);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">' +
+              '<div style="font-weight:800;font-size:14px;color:white;"><i class="fas fa-' + esc(def.icon || 'wpforms') + '"></i> ' + esc(def.title || st.formKey || 'Form') +
+              (st.mode === 'preview' ? ' <span style="font-size:9px;background:rgba(255,255,255,0.25);padding:2px 8px;border-radius:8px;">PREVIEW</span>' : '') + '</div>' +
+              (st.container ? '' : '<button onclick="WMSFormEngine.close()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>') +
+            '</div>';
+        var hStyle = def.height ? 'height:' + def.height + 'px;max-height:94vh;' : 'max-height:94vh;';
+
+        if (st.container) {
+            st.container.innerHTML =
+                '<div id="fe-modal" style="background:white;width:100%;max-width:' + (def.width || 1000) + 'px;' + (def.height ? 'height:' + def.height + 'px;' : '') +
+                'border:1px solid #e2e8f0;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,0.08);">' +
+                titleHtml + bodyHtml + footHtml + '</div>';
+        } else {
+            var old = document.getElementById('fe-overlay');
+            if (old) old.remove();
+            document.body.insertAdjacentHTML('beforeend',
+                '<div id="fe-overlay" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:29000;display:flex;align-items:center;justify-content:center;">' +
+                '<div id="fe-modal" style="background:white;width:96%;max-width:' + (def.width || 1000) + 'px;' + hStyle + 'border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+                titleHtml + bodyHtml + footHtml + '</div></div>');
+        }
 
         // header inputs: keep state + dependent lists + computed in sync
         Array.prototype.forEach.call(document.querySelectorAll('#fe-modal .fe-hin'), function (el) {
@@ -646,6 +779,7 @@
         var a = (st.def.actions || [])[i];
         if (!a) return;
         if (a.type === 'close') { WMSFormEngine.close(); return; }
+        if (a.type === 'print') { doPrint('form'); return; }
         if (st.mode === 'preview') { showResult(true, 'Preview mode — "' + (a.label || a.key) + '" would run type=' + a.type + '.'); return; }
         if (a.confirm && !window.confirm(strSub(a.confirm, buildPayload()))) return;
 
@@ -729,9 +863,13 @@
         open: function (def, opts) {
             opts = opts || {};
             if (!def || !def.header) { alert('Invalid form definition (no header section).'); return; }
+            var container = opts.container;
+            if (typeof container === 'string') container = document.getElementById(container);
             st = {
                 def: def, formKey: opts.formKey || '', mode: opts.mode || 'run',
-                values: {}, details: {}, lists: {},
+                values: {}, details: {}, lists: {}, reports: {},
+                ui: { headerTab: null, detailTab: null },
+                container: container || null,
                 chatHandoff: opts.chatHandoff, onClose: opts.onClose
             };
             var pre = opts.values || {};
@@ -758,6 +896,8 @@
                     if (idxs.length && det.lineRulesSql)
                         applyLineRules(det, idxs, function (added) { if (st && added) { captureHeader(); render(); } });
                 });
+                // auto-run reports flagged autoRun
+                (def.reports || []).forEach(function (r) { if (r.autoRun) runReport(r.key); });
             });
             render();   // immediate paint; lists re-render when loaded
         },
@@ -772,11 +912,16 @@
             });
         },
         close: function () {
-            var m = document.getElementById('fe-modal'); if (m) m.remove();
+            if (st && st.container) st.container.innerHTML = '';
+            var o = document.getElementById('fe-overlay'); if (o) o.remove();
             var p = document.getElementById('fe-picker'); if (p) p.remove();
             if (st && typeof st.onClose === 'function') st.onClose();
             st = null;
         },
+        _htab: function (t) { captureHeader(); st.ui.headerTab = t; render(); },
+        _dtab: function (t) { captureHeader(); st.ui.detailTab = t; render(); },
+        _runReport: runReport,
+        _print: doPrint,
         _pick: pickHeaderField,
         _pickRows: pickDetailRows,
         _addRow: function (detKey) {

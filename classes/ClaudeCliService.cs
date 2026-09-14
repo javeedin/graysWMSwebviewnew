@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V38";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V39";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -449,23 +449,30 @@ namespace WMSApp
             sb.AppendLine("The app loads the definition and renders it - you supply NO _lookups for stored forms. If nothing matches, say which forms exist and offer to build a new one.");
             sb.AppendLine();
             sb.AppendLine("BUILDING or CHANGING a form (the user says 'build me a form...', 'add a button to form X', or sends TRAIN FORM REQUEST): compose/patch the definition JSON and save it with INSERT/UPDATE on wms_ai_forms through the database write flow (approval card). Verify every table/column you reference against the schema catalog first. Definition JSON schema:");
-            sb.AppendLine("  { title, icon (font-awesome name), width,");
+            sb.AppendLine("  { title, icon (font-awesome name), width, height (px, optional),");
             sb.AppendLine("    header: { columns, fields: [ { key, label, type: text|number|date|textarea|checkbox|select|picker|readonly|computed,");
-            sb.AppendLine("      default ('$TODAY'|'$USER'|literal), required, span, min, max, pattern, hint,");
+            sb.AppendLine("      default ('$TODAY'|'$USER'|literal), required, span, min, max, pattern, hint, tab (fields sharing a tab name group into header TAB PAGES),");
             sb.AppendLine("      select -> listSql (aliases VALUE,LABEL; reference another header field as :FIELDKEY to make a DEPENDENT list) or options:[...],");
             sb.AppendLine("      picker -> pickerSql (:SEARCH placeholder), display (column shown), map { headerKey: SQLCOLUMN },");
             sb.AppendLine("      computed -> formula over header keys, e.g. \"qty_total * 1.15\" } ] },");
-            sb.AppendLine("    details: [ { key, title, required, allowManualRow, allowDelete, qtyKey (default qty),");
+            sb.AppendLine("    details: [ { key, title, tab (detail blocks sharing a tab name group into TAB PAGES), required, allowManualRow, allowDelete, qtyKey (default qty),");
             sb.AppendLine("      pickerSql (:SEARCH + header :FIELDKEY placeholders), pickerMap { columnKey: SQLCOLUMN },");
             sb.AppendLine("      columns: [ { key, label, type: text|number|computed, editable, formula, width, default } ],");
             sb.AppendLine("      totals: [columnKeys], lineRulesSql (companion rows: :COLUMNKEY from the parent row; result aliases = column keys; BUY_QTY/GET_QTY drive the companion qty - same idea as BOGO) } ],");
+            sb.AppendLine("    reports: [ { key, title, sql (read-only SELECT; header :FIELDKEY placeholders follow the form values), autoRun } ] - each renders as a grid under the form with Refresh and Print buttons,");
             sb.AppendLine("    rules: { submitChecks: [ { sql (header :FIELDKEY placeholders), message, mode: FAIL_IF_ROWS|FAIL_IF_NO_ROWS } ] },");
             sb.AppendLine("    actions: [ { key, label, icon, style: primary|default|danger, validate, confirm,");
             sb.AppendLine("      type 'ords' -> method, url, bodyTemplate (strings \"{HEADER}\" \"{TOTALS}\" \"{VALUES}\" \"{<detailKey>}\" become objects/arrays; \"{field}\" substitutes header values),");
             sb.AppendLine("      type 'sql' -> statement ({field} placeholders; single statement via the guarded write endpoint),");
             sb.AppendLine("      type 'local_file' -> folder (under C:\\fusion), fileName ({field}/{TIMESTAMP}/{FORM_KEY} ok),");
-            sb.AppendLine("      type 'chat' -> prompt (form values come back to you as a message), type 'close' } ] }");
+            sb.AppendLine("      type 'chat' -> prompt (form values come back to you as a message), type 'print' (prints the whole form: header + details + reports), type 'close' } ] }");
             sb.AppendLine("After saving, confirm and offer to open it (api_form with the formKey). Users can also edit forms visually in the Forms Designer module - your JSON and theirs are the same rows.");
+            sb.AppendLine();
+            sb.AppendLine("BUILD FORM DEFINITION REQUEST (from the Forms Designer): a message starting with this marker asks you to DESIGN a form and hand the JSON back - NOT to save it. If screenshot paths are given, READ each image with your Read tool and reproduce its layout faithfully: sections/tab pages, field labels and their order, grids with their columns, totals, buttons. Verify tables/columns via the schema catalog (a couple of sql rounds are fine). Then reply with action answer whose markdown contains EXACTLY ONE fenced block:");
+            sb.AppendLine("  ```json");
+            sb.AppendLine("  { \"form_key\": \"...\", \"name\": \"...\", \"description\": \"...\", \"definition\": { ...full definition... } }");
+            sb.AppendLine("  ```");
+            sb.AppendLine("plus a SHORT summary of what you designed and any assumptions. For these requests NEVER answer api_form and NEVER run the db write flow - the designer loads your JSON for the user to review, test and save themselves. If something essential is unknowable (e.g. which table holds the data), still return your best definition and list the open points in the summary.");
             sb.AppendLine();
             sb.AppendLine("### Discovering Fusion SCM APIs you don't know (self-describe)");
             sb.AppendLine();

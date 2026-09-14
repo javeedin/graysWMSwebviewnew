@@ -65,8 +65,12 @@
         <div class="side">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
                 <div style="font-size:12px;font-weight:800;color:#334155;"><i class="fas fa-layer-group"></i> Forms</div>
-                <button class="btn btn-p" onclick="newForm()"><i class="fas fa-plus"></i> New</button>
+                <div style="display:flex;gap:5px;">
+                    <button class="btn btn-o" onclick="loadForms()" title="Refresh list"><i class="fas fa-rotate"></i></button>
+                    <button class="btn btn-p" onclick="newForm()"><i class="fas fa-plus"></i> New</button>
+                </div>
             </div>
+            <button class="btn" onclick="openBuildAI()" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;margin-bottom:8px;width:100%;"><i class="fas fa-wand-magic-sparkles"></i> Build from AI</button>
             <div id="form-list" style="flex:1;overflow-y:auto;"><div style="font-size:11px;color:#94a3b8;">Loading…</div></div>
             <div style="font-size:9.5px;color:#94a3b8;margin-top:6px;">
                 Tip: you can also ask the <b>AI Digital Employee</b> to build or change a form in plain words — it writes the same definition.
@@ -108,6 +112,11 @@ if (window.chrome && window.chrome.webview) {
         }
         else cb(null, r);
     });
+    // live status while the AI designs a form (no requestId on these)
+    window.chrome.webview.addEventListener('message', function (event) {
+        const r = event.data;
+        if (r && r.action === 'aiChatEvent') baiEvent(r);
+    });
 }
 
 const AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
@@ -147,9 +156,22 @@ const EMPTY_DEF = () => ({
     title: 'New Form', icon: 'wpforms', width: 950,
     header: { columns: 4, fields: [] },
     details: [],
+    reports: [],
     rules: { submitChecks: [] },
     actions: [ { key: 'close', label: 'Close', type: 'close', style: 'default' } ]
 });
+let pageTab = 'design';   // 'design' | 'test'
+
+function normalizeLoadedDef(def) {
+    def.header = def.header || { columns: 4, fields: [] };
+    def.header.fields = def.header.fields || [];
+    def.details = def.details || [];
+    def.reports = def.reports || [];
+    def.rules = def.rules || {};
+    def.rules.submitChecks = def.rules.submitChecks || [];
+    def.actions = def.actions || [];
+    return def;
+}
 
 // ── forms list ──────────────────────────────────────────────
 function loadForms() {
@@ -178,15 +200,11 @@ function openForm(key) {
         const r = rows[0];
         let def;
         try { def = JSON.parse(r.DEFINITION); } catch (e) { def = EMPTY_DEF(); alert('Stored definition is not valid JSON — starting from an empty layout. Fix and save.'); }
-        def.header = def.header || { columns: 4, fields: [] };
-        def.header.fields = def.header.fields || [];
-        def.details = def.details || [];
-        def.rules = def.rules || { submitChecks: [] };
-        def.rules.submitChecks = def.rules.submitChecks || [];
-        def.actions = def.actions || [];
+        normalizeLoadedDef(def);
         cur = { form_key: String(r.FORM_KEY), name: String(r.NAME || ''), description: String(r.DESCRIPTION || ''), active: String(r.ACTIVE || 'Y'), def: def, isNew: false };
         curKey = cur.form_key;
         jsonMode = false;
+        pageTab = 'design';
         renderList(); renderEditor();
     });
 }
@@ -249,7 +267,7 @@ function moveBtns(fn, i, len) {
 
 const FIELD_TYPES = ['text', 'number', 'date', 'textarea', 'checkbox', 'select', 'picker', 'readonly', 'computed'];
 const COL_TYPES = ['text', 'number', 'computed'];
-const ACTION_TYPES = ['ords', 'sql', 'local_file', 'chat', 'close'];
+const ACTION_TYPES = ['ords', 'sql', 'local_file', 'chat', 'print', 'close'];
 const ACTION_STYLES = ['primary', 'default', 'danger'];
 
 function headerFieldCard(f, i, len) {
@@ -265,8 +283,8 @@ function headerFieldCard(f, i, len) {
         fld('Default', inTxt(p + 'default', f.default), '$TODAY, $USER or a literal') +
         fld('Required', inChk(p + 'required', f.required, 'required')) +
         fld('Span (cols)', inNum(p + 'span', f.span)) +
-        fld('Min', inNum(p + 'min', f.min)) +
-        fld('Max', inNum(p + 'max', f.max)) +
+        fld('Tab page', inTxt(p + 'tab', f.tab), 'fields with the same tab name group into a header tab page') +
+        fld('Min / Max', inNum(p + 'min', f.min) + '<div style="height:4px;"></div>' + inNum(p + 'max', f.max)) +
         '</div>' +
         '<div class="grid2" style="margin-top:7px;">' +
         fld('List SQL (select)', inArea(p + 'listSql', f.listSql, '', 2), 'aliases VALUE, LABEL. Use :OTHERFIELD to make a DEPENDENT list — it reloads when that field changes') +
@@ -306,6 +324,7 @@ function detailCard(d, di, len) {
         '<div class="grid4">' +
         fld('Key', inTxt(p + 'key', d.key), 'used in body templates as {' + esc(d.key || 'key') + '}') +
         fld('Title', inTxt(p + 'title', d.title)) +
+        fld('Tab page', inTxt(p + 'tab', d.tab), 'detail blocks with the same tab name group into a tab page') +
         fld('Qty column key', inTxt(p + 'qtyKey', d.qtyKey), 'for line rules (default qty)') +
         fld('Totals columns', inTxt(p + '_totalsCsv', (d.totals || []).join(','), 'placeholder="qty,net"'), 'comma separated column keys') +
         fld('Manual rows', inChk(p + 'allowManualRow', d.allowManualRow, 'allow empty row add')) +
@@ -323,6 +342,19 @@ function detailCard(d, di, len) {
         '<button class="btn btn-o" style="padding:3px 10px;" onclick="addCol(' + di + ')"><i class="fas fa-plus"></i> Column</button></div>' +
         (d.columns || []).map((c, ci) => detailColCard(di, ci, c, (d.columns || []).length)).join('') +
         '</div></div>';
+}
+
+function reportCard(r, i, len) {
+    const p = 'def.reports.' + i + '.';
+    return '<div class="card"><div class="card-h"><span class="tag" style="background:#ede9fe;color:#6d28d9;">REPORT ' + (i + 1) + ' — ' + esc(r.key || '?') + '</span>' +
+        '<button class="btn btn-d" style="padding:3px 8px;" onclick="delReport(' + i + ')"><i class="fas fa-trash"></i></button></div>' +
+        '<div class="grid3">' +
+        fld('Key', inTxt(p + 'key', r.key)) +
+        fld('Title', inTxt(p + 'title', r.title)) +
+        fld('Auto run on open', inChk(p + 'autoRun', r.autoRun, 'run automatically')) +
+        '</div>' +
+        fld('Report SQL', inArea(p + 'sql', r.sql, '', 3), 'read-only SELECT; header :FIELDKEY placeholders make it follow the form values. Rendered as a grid with Refresh + Print buttons') +
+        '</div>';
 }
 
 function checkCard(c, i, len) {
@@ -368,15 +400,30 @@ function renderEditor() {
     let html =
     '<div style="max-width:1050px;">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">' +
-        '<div style="font-size:14px;font-weight:800;color:#0f172a;">' + (cur.isNew ? 'New Form' : esc(cur.name)) + '</div>' +
+        '<div style="display:flex;align-items:center;gap:14px;">' +
+          '<div style="font-size:14px;font-weight:800;color:#0f172a;">' + (cur.isNew ? 'New Form' : esc(cur.name)) + '</div>' +
+          '<div style="display:flex;gap:4px;">' +
+            '<div onclick="setPageTab(\'design\')" style="padding:5px 16px;font-size:11.5px;font-weight:800;cursor:pointer;border-radius:8px;' + (pageTab === 'design' ? 'background:var(--primary);color:white;' : 'background:#e2e8f0;color:#475569;') + '"><i class="fas fa-pen-ruler"></i> Designer</div>' +
+            '<div onclick="setPageTab(\'test\')" style="padding:5px 16px;font-size:11.5px;font-weight:800;cursor:pointer;border-radius:8px;' + (pageTab === 'test' ? 'background:var(--primary);color:white;' : 'background:#e2e8f0;color:#475569;') + '"><i class="fas fa-vial"></i> Preview &amp; Test</div>' +
+          '</div>' +
+        '</div>' +
         '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
-          '<button class="btn btn-o" onclick="toggleJson()"><i class="fas fa-code"></i> ' + (jsonMode ? 'Designer' : 'JSON') + '</button>' +
-          '<button class="btn btn-o" onclick="previewForm(\'preview\')"><i class="fas fa-eye"></i> Preview</button>' +
-          '<button class="btn btn-p" onclick="previewForm(\'run\')"><i class="fas fa-play"></i> Run</button>' +
+          (pageTab === 'design' ? '<button class="btn btn-o" onclick="toggleJson()"><i class="fas fa-code"></i> ' + (jsonMode ? 'Designer' : 'JSON') + '</button>' : '') +
           '<button class="btn btn-g" onclick="saveForm()"><i class="fas fa-floppy-disk"></i> Save</button>' +
         '</div>' +
       '</div>' +
       '<div id="save-status" style="font-size:11px;margin-bottom:8px;"></div>';
+
+    if (pageTab === 'test') {
+        html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">' +
+            '<button class="btn btn-p" onclick="reloadTestForm()"><i class="fas fa-rotate"></i> Reload form</button>' +
+            '<span style="font-size:10.5px;color:#64748b;">This is the REAL form — pickers, lists, rules and buttons all execute (validations, saves, prints). Unsaved designer changes are included.</span>' +
+        '</div>' +
+        '<div id="test-container"></div></div>';
+        box.innerHTML = html;
+        reloadTestForm();
+        return;
+    }
 
     if (jsonMode) {
         html += '<div class="sec"><div class="sec-h">Definition JSON (power editing)</div><div class="sec-b">' +
@@ -398,6 +445,7 @@ function renderEditor() {
         fld('Dialog title', inTxt('def.title', d.title)) +
         fld('Icon (fa)', inTxt('def.icon', d.icon)) +
         fld('Width px', inNum('def.width', d.width)) +
+        fld('Height px', inNum('def.height', d.height), 'empty = auto height') +
         fld('Header columns', inNum('def.header.columns', d.header.columns)) +
       '</div></div>' +
 
@@ -411,6 +459,12 @@ function renderEditor() {
       '<div class="sec"><div class="sec-h"><span><i class="fas fa-table-list"></i> Detail blocks (grids) — ' + d.details.length + '</span>' +
         '<button class="btn btn-p" style="padding:4px 10px;" onclick="addDetail()"><i class="fas fa-plus"></i> Detail block</button></div><div class="sec-b">' +
         (d.details.map((dd, di) => detailCard(dd, di, d.details.length)).join('') || '<div style="font-size:11px;color:#94a3b8;">No detail grids — header-only form.</div>') +
+      '</div></div>' +
+
+      // reports
+      '<div class="sec"><div class="sec-h"><span><i class="fas fa-chart-simple"></i> Reports (query grids with print) — ' + (d.reports || []).length + '</span>' +
+        '<button class="btn btn-p" style="padding:4px 10px;" onclick="addReport()"><i class="fas fa-plus"></i> Report</button></div><div class="sec-b">' +
+        ((d.reports || []).map((r, i) => reportCard(r, i, d.reports.length)).join('') || '<div style="font-size:11px;color:#94a3b8;">No reports. A report is a read-only grid under the form with Refresh and Print — its SQL can follow the header values.</div>') +
       '</div></div>' +
 
       // rules
@@ -440,6 +494,8 @@ function moveDetail(i, dir) { const a = cur.def.details; const t = a[i]; a[i] = 
 function addCol(di) { const d = cur.def.details[di]; (d.columns = d.columns || []).push({ key: 'col' + (d.columns.length + 1), label: '', type: 'text', editable: true }); renderEditor(); }
 function delCol(di, ci) { cur.def.details[di].columns.splice(ci, 1); renderEditor(); }
 function moveCol(di, ci, dir) { const a = cur.def.details[di].columns; const t = a[ci]; a[ci] = a[ci + dir]; a[ci + dir] = t; renderEditor(); }
+function addReport() { (cur.def.reports = cur.def.reports || []).push({ key: 'report' + (cur.def.reports.length + 1), title: '', sql: '', autoRun: false }); renderEditor(); }
+function delReport(i) { cur.def.reports.splice(i, 1); renderEditor(); }
 function addCheck() { cur.def.rules.submitChecks.push({ sql: '', message: '', mode: 'FAIL_IF_ROWS' }); renderEditor(); }
 function delCheck(i) { cur.def.rules.submitChecks.splice(i, 1); renderEditor(); }
 function addAction() { cur.def.actions.push({ key: 'action' + (cur.def.actions.length + 1), label: 'New Button', type: 'ords', style: 'default', method: 'POST' }); renderEditor(); }
@@ -452,13 +508,7 @@ function applyJson() {
     const el = document.getElementById('json-editor');
     const status = document.getElementById('json-status');
     try {
-        cur.def = JSON.parse(el.value);
-        cur.def.header = cur.def.header || { columns: 4, fields: [] };
-        cur.def.header.fields = cur.def.header.fields || [];
-        cur.def.details = cur.def.details || [];
-        cur.def.rules = cur.def.rules || {};
-        cur.def.rules.submitChecks = cur.def.rules.submitChecks || [];
-        cur.def.actions = cur.def.actions || [];
+        cur.def = normalizeLoadedDef(JSON.parse(el.value));
         jsonMode = false;
         renderEditor();
     } catch (e) {
@@ -476,10 +526,18 @@ function normalizeDef() {
     });
 }
 
-// ── preview / run ───────────────────────────────────────────
-function previewForm(mode) {
+// ── preview & test tab ──────────────────────────────────────
+function setPageTab(t) {
+    if (t === pageTab) return;
+    if (pageTab === 'test') WMSFormEngine.close();
+    pageTab = t;
+    renderEditor();
+}
+function reloadTestForm() {
     normalizeDef();
-    WMSFormEngine.open(JSON.parse(JSON.stringify(cur.def)), { formKey: cur.form_key || 'preview', mode: mode });
+    WMSFormEngine.open(JSON.parse(JSON.stringify(cur.def)), {
+        formKey: cur.form_key || 'preview', mode: 'run', container: 'test-container'
+    });
 }
 
 // ── save ────────────────────────────────────────────────────
@@ -506,6 +564,140 @@ function saveForm() {
         cur.form_key = key; cur.isNew = false; curKey = key;
         loadForms();
     });
+}
+
+// ── Build from AI ───────────────────────────────────────────
+// Describe the form (and paste/attach a sample screenshot). The AI
+// designs the definition JSON; the designer loads it for review -
+// nothing is saved until the user clicks Save.
+let baiImgs = [];   // { name, b64 }
+
+function openBuildAI() {
+    baiImgs = [];
+    const html =
+    '<div id="bai-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:30000;display:flex;align-items:center;justify-content:center;">' +
+      '<div style="background:white;width:94%;max-width:680px;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+        '<div style="padding:0.8rem 1.2rem;background:linear-gradient(135deg,#7c3aed,#5b21b6);display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-weight:800;font-size:14px;color:white;"><i class="fas fa-wand-magic-sparkles"></i> Build a form with AI</div>' +
+          '<button onclick="document.getElementById(\'bai-modal\').remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
+        '</div>' +
+        '<div style="padding:1rem 1.2rem;">' +
+          '<label class="lbl">Describe the form — fields, where the data comes from, validations, buttons, reports…</label>' +
+          '<textarea id="bai-desc" class="in" style="min-height:130px;resize:vertical;" placeholder="e.g. Goods return form: customer search (with price list), return date, reason dropdown (DAMAGED/EXPIRED/OTHER), lines with item search on the customer price list, qty and amount, total amount, a validation that qty > 0, buttons: Save to DB (POST /RETURNS/NEW), Save Local, Print, Close"></textarea>' +
+          '<div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+            '<label class="btn btn-o" style="cursor:pointer;"><i class="fas fa-image"></i> Attach screenshot <input type="file" accept="image/*" multiple style="display:none;" onchange="baiFiles(this.files)"></label>' +
+            '<span style="font-size:10px;color:#94a3b8;">…or paste an image here (Ctrl+V)</span>' +
+            '<span id="bai-chips" style="display:flex;gap:5px;flex-wrap:wrap;"></span>' +
+          '</div>' +
+          '<div id="bai-status" style="font-size:11px;color:#0e7490;margin-top:10px;min-height:16px;"></div>' +
+        '</div>' +
+        '<div style="padding:0.7rem 1.2rem;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:8px;">' +
+          '<button class="btn btn-o" onclick="document.getElementById(\'bai-modal\').remove()">Cancel</button>' +
+          '<button id="bai-go" class="btn" style="background:#7c3aed;color:white;" onclick="baiBuild()"><i class="fas fa-wand-magic-sparkles"></i> Build the form</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+    document.getElementById('bai-modal').addEventListener('paste', function (e) {
+        const items = (e.clipboardData || {}).items || [];
+        for (const it of items) {
+            if (it.type && it.type.startsWith('image/')) {
+                e.preventDefault();
+                baiAddFile(it.getAsFile());
+            }
+        }
+    });
+    setTimeout(() => document.getElementById('bai-desc').focus(), 60);
+}
+function baiFiles(files) { for (const f of files) baiAddFile(f); }
+function baiAddFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function () {
+        const b64 = String(reader.result).split(',')[1] || '';
+        baiImgs.push({ name: file.name || ('pasted_' + Date.now() + '.png'), b64: b64 });
+        renderBaiChips();
+    };
+    reader.readAsDataURL(file);
+}
+function renderBaiChips() {
+    const box = document.getElementById('bai-chips');
+    if (!box) return;
+    box.innerHTML = baiImgs.map((f, i) =>
+        '<span style="font-size:10px;background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:8px;font-weight:700;">' +
+        '<i class="fas fa-image"></i> ' + esc(f.name) + ' <i class="fas fa-times" style="cursor:pointer;" onclick="baiImgs.splice(' + i + ',1);renderBaiChips()"></i></span>').join('');
+}
+function baiEvent(evt) {
+    const s = document.getElementById('bai-status');
+    if (!s) return;
+    if (evt.eventType === 'status') s.textContent = evt.text || '';
+    else if (evt.eventType === 'sqlRound') s.textContent = 'AI is checking the schema/data (round ' + (evt.round || '') + ')…';
+}
+function baiSetBusy(b) {
+    const go = document.getElementById('bai-go');
+    if (go) { go.disabled = b; go.innerHTML = b ? '<i class="fas fa-spinner fa-spin"></i> Designing…' : '<i class="fas fa-wand-magic-sparkles"></i> Build the form'; }
+}
+function baiBuild() {
+    const desc = (document.getElementById('bai-desc') || {}).value.trim();
+    const status = document.getElementById('bai-status');
+    if (!desc && !baiImgs.length) { status.innerHTML = '<span style="color:#b91c1c;">Describe the form or attach a screenshot first.</span>'; return; }
+    baiSetBusy(true);
+
+    // 1) upload screenshots into the AI workspace
+    const paths = [];
+    const queue = baiImgs.slice();
+    (function uploadNext() {
+        if (queue.length) {
+            status.textContent = 'Uploading screenshot ' + (paths.length + 1) + ' of ' + baiImgs.length + '…';
+            const f = queue.shift();
+            sendMessageToCSharp({ action: 'aiSaveAttachment', fileName: f.name, dataBase64: f.b64 }, function (err, d) {
+                if (err || !d || d.success === false) { baiSetBusy(false); status.innerHTML = '<span style="color:#b91c1c;">Screenshot upload failed: ' + esc(String(err || (d && d.error) || '')) + '</span>'; return; }
+                paths.push(d.path);
+                uploadNext();
+            });
+            return;
+        }
+        // 2) ask the AI to design the definition
+        status.textContent = 'Asking the AI to design the form… this can take a minute.';
+        const prompt =
+            'BUILD FORM DEFINITION REQUEST\n\n' +
+            'The user described the form they want built in the Forms Designer:\n"""\n' + (desc || '(no text - design from the screenshot)') + '\n"""\n' +
+            (paths.length
+                ? 'Sample screenshot(s) of the desired form are saved at:\n' + paths.map(p => '- ' + p).join('\n') +
+                  '\nREAD each image with your Read tool and reproduce its layout: sections and tab pages, field labels and order, grids with their columns, totals and buttons.\n'
+                : '') +
+            'Design the COMPLETE form definition JSON per the USER-DEFINED FORMS schema in your instructions (header fields with lists/pickers, detail grids, reports, rules.submitChecks, actions). ' +
+            'Verify every table and column you reference against the schema catalog; use the KNOWN DATA LOCATIONS (customers = GRFU_CUSTOMER). ' +
+            'Reply with action answer whose markdown contains EXACTLY ONE fenced code block: ```json { "form_key": "...", "name": "...", "description": "...", "definition": { ... } } ``` ' +
+            'Do NOT open any form and do NOT write to the database - the Forms Designer loads your JSON for the user to review, test and save.';
+        sendMessageToCSharp({ action: 'aiChatSend', text: '[CURRENT_INSTANCE: PROD]\n' + prompt, sessionId: null, instance: 'PROD' }, function (err, resp) {
+            baiSetBusy(false);
+            if (err) { status.innerHTML = '<span style="color:#b91c1c;">AI request failed: ' + esc(String(err)) + '</span>'; return; }
+            if (resp && resp.requiresApproval) { status.innerHTML = '<span style="color:#b91c1c;">The AI tried to execute a write instead of replying with the design — please try again.</span>'; return; }
+            const md = (resp && (resp.markdown || resp.answer)) || '';
+            const m = md.match(/```json\s*([\s\S]*?)```/i) || md.match(/```\s*(\{[\s\S]*?\})\s*```/);
+            if (!m) { status.innerHTML = '<span style="color:#b91c1c;">Could not find the definition JSON in the AI reply. Reply was: ' + esc(md.slice(0, 220)) + '…</span>'; return; }
+            let env;
+            try { env = JSON.parse(m[1]); } catch (e) { status.innerHTML = '<span style="color:#b91c1c;">AI returned invalid JSON: ' + esc(e.message) + '</span>'; return; }
+            const def = env.definition || (env.header ? env : null);
+            if (!def || !def.header) { status.innerHTML = '<span style="color:#b91c1c;">AI reply had no usable definition.</span>'; return; }
+            normalizeLoadedDef(def);
+            cur = {
+                form_key: String(env.form_key || 'form.' + Date.now()),
+                name: String(env.name || def.title || 'AI Form'),
+                description: String(env.description || ''),
+                active: 'Y', def: def, isNew: true
+            };
+            curKey = '';
+            const modal = document.getElementById('bai-modal');
+            if (modal) modal.remove();
+            jsonMode = false;
+            pageTab = 'test';   // land straight on the live preview
+            renderList(); renderEditor();
+            const ss = document.getElementById('save-status');
+            if (ss) ss.innerHTML = '<span style="color:#6d28d9;font-weight:700;"><i class="fas fa-wand-magic-sparkles"></i> AI draft loaded — test it here, adjust in the Designer tab, then Save.</span>';
+        });
+    })();
 }
 
 loadForms();
