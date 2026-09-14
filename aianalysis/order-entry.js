@@ -260,7 +260,10 @@
     }
 
     window._oePickCustomer = function () {
-        if (!st.lookups.customersSql) { alert('Customer search is not configured for this form.'); return; }
+        if (!st.lookups.customersSql) {
+            alert('Customer search SQL was not provided when this form was opened.\n\nClose the form and ask the assistant again — it must include _lookups.customersSql when opening the order form.');
+            return;
+        }
         pickerDialog('Search Customer', 'name / account number…', function (q) {
             runSql(bindSearch(st.lookups.customersSql, q), function (err, rows) {
                 var box = document.getElementById('oe-picker-res');
@@ -296,7 +299,9 @@
         if (!st.lookups.itemsSql) { alert('Item search is not configured for this form.'); return; }
         var found = [];
         pickerDialog('Search Items — price list ' + (st.header.pricelist || ''), 'item code / description…', function (q) {
-            runSql(bindSearch(st.lookups.itemsSql, q), function (err, rows) {
+            var sql = bindSearch(st.lookups.itemsSql, q)
+                .replace(/:PRICELIST/g, "'" + String(st.header.pricelist || '').replace(/'/g, "''") + "'");
+            runSql(sql, function (err, rows) {
                 var box = document.getElementById('oe-picker-res');
                 if (!box) return;
                 if (err) { box.innerHTML = '<div style="padding:1rem;color:#dc2626;font-size:11px;">' + esc2(err) + '</div>'; return; }
@@ -436,6 +441,43 @@
             },
             onSubmit: cfg.onSubmit, onCancel: cfg.onCancel
         };
+        console.log('[OrderEntry] lookups received:', {
+            customersSql: !!lk.customersSql, itemsSql: !!lk.itemsSql,
+            salesreps: (lk.salesreps || []).length || (lk.salesrepsSql ? 'sql' : 0),
+            orderTypes: (lk.orderTypes || []).length || (lk.orderTypesSql ? 'sql' : 0),
+            warehouses: (lk.warehouses || []).length || (lk.warehousesSql ? 'sql' : 0),
+            subinventories: (lk.subinventories || []).length || (lk.subinventoriesSql ? 'sql' : 0)
+        });
         render();
+
+        // Dropdown lists may arrive as SQL instead of arrays - the form
+        // loads them itself on open (saves the model's round budget)
+        var pendingLoads = 0;
+        function loadList(sql, map, assign) {
+            if (!sql) return;
+            pendingLoads++;
+            runSql(sql, function (err, rows) {
+                pendingLoads--;
+                if (err) { console.warn('[OrderEntry] list load failed:', err); return; }
+                assign(rows.map(map));
+                if (pendingLoads === 0 && st) { captureHeader(); render(); }
+            });
+        }
+        if (!st.lookups.salesreps.length && lk.salesrepsSql)
+            loadList(lk.salesrepsSql,
+                function (r) { return { number: r.SALESREP_NUMBER || r.NUMBER || Object.values(r)[0], name: r.SALESREP_NAME || r.NAME || Object.values(r)[1] || '' }; },
+                function (v) { st.lookups.salesreps = v; });
+        if (!st.lookups.orderTypes.length && lk.orderTypesSql)
+            loadList(lk.orderTypesSql,
+                function (r) { return r.ORDER_TYPE || Object.values(r)[0]; },
+                function (v) { st.lookups.orderTypes = v; });
+        if (!st.lookups.warehouses.length && lk.warehousesSql)
+            loadList(lk.warehousesSql,
+                function (r) { return r.WAREHOUSE || Object.values(r)[0]; },
+                function (v) { st.lookups.warehouses = v; });
+        if (!st.lookups.subinventories.length && lk.subinventoriesSql)
+            loadList(lk.subinventoriesSql,
+                function (r) { return r.SUBINVENTORY || Object.values(r)[0]; },
+                function (v) { st.lookups.subinventories = v; });
     };
 })();
