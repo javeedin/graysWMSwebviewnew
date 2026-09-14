@@ -161,6 +161,8 @@ const EMPTY_DEF = () => ({
     reports: [],
     rules: { submitChecks: [] },
     mobile: { columns: 1, hidden: [], order: [] },
+    sections: [],
+    style: {},
     actions: [ { key: 'close', label: 'Close', type: 'close', style: 'default' } ]
 });
 let pageTab = 'design';   // 'design' | 'test'
@@ -174,6 +176,9 @@ function normalizeLoadedDef(def) {
     def.rules.submitChecks = def.rules.submitChecks || [];
     def.actions = def.actions || [];
     def.mobile = def.mobile || { columns: 1, hidden: [], order: [] };
+    def.sections = def.sections || [];
+    def.sections.forEach(s => { s.style = s.style || {}; });
+    def.style = def.style || {};
     return def;
 }
 
@@ -458,10 +463,10 @@ function headerFieldsTable(fields) {
               fld('Picker map (picker)', inArea(p + 'map', f.map, 'json', 2), 'JSON: { "headerFieldKey": "SQLCOLUMN" } — which columns fill which fields') +
               '</div>' +
               '<div class="grid4" style="margin-top:7px;">' +
+              fld('Section', inSel(p + 'section', f.section, [''].concat(((cur.def.sections) || []).map(s => s.key))), 'region this field belongs to') +
               fld('Display column (picker)', inTxt(p + 'display', f.display), 'column shown in the field') +
               fld('Formula (computed)', inTxt(p + 'formula', f.formula), 'over header keys') +
-              fld('Min', inNum(p + 'min', f.min)) +
-              fld('Max', inNum(p + 'max', f.max)) +
+              fld('Min / Max', inNum(p + 'min', f.min) + '<div style="height:4px;"></div>' + inNum(p + 'max', f.max)) +
               '</div></div></td></tr>';
     }).join('');
     return '<table style="width:100%;border-collapse:collapse;font-size:11px;background:white;border:1px dashed var(--border);border-radius:7px;">' +
@@ -519,6 +524,7 @@ function detailCard(d, di, len) {
         fld('Key', inTxt(p + 'key', d.key), 'used in body templates as {' + esc(d.key || 'key') + '}') +
         fld('Title', inTxt(p + 'title', d.title)) +
         fld('Tab page', inTxt(p + 'tab', d.tab), 'detail blocks with the same tab name group into a tab page') +
+        fld('Section', inSel(p + 'section', d.section, [''].concat(((cur.def.sections) || []).map(s => s.key))), 'render inside this region instead') +
         fld('Qty column key', inTxt(p + 'qtyKey', d.qtyKey), 'for line rules (default qty)') +
         fld('Totals columns', inTxt(p + '_totalsCsv', (d.totals || []).join(','), 'placeholder="qty,net"'), 'comma separated column keys') +
         fld('Manual rows', inChk(p + 'allowManualRow', d.allowManualRow, 'allow empty row add')) +
@@ -528,6 +534,7 @@ function detailCard(d, di, len) {
         '<div class="grid2" style="margin-top:7px;">' +
         sqlFld('Row picker SQL', p + 'pickerSql', d.pickerSql, ':SEARCH + header :FIELDKEY placeholders (e.g. :PRICELIST)') +
         fld('Picker map', inArea(p + 'pickerMap', d.pickerMap, 'json', 2), 'JSON { "columnKey": "SQLCOLUMN" } — fills added rows') +
+        sqlFld('Source SQL (load rows on open)', p + 'sourceSql', d.sourceSql, 'grid starts filled with these rows (editable); aliases = column keys; header :FIELDKEY placeholders allowed') +
         '</div>' +
         sqlFld('Line rules SQL (companion rows, e.g. BOGO)', p + 'lineRulesSql', d.lineRulesSql,
             ':COLUMNKEY placeholders from the parent row + header placeholders. Aliases = column keys; BUY_QTY/GET_QTY compute the companion qty') +
@@ -536,6 +543,73 @@ function detailCard(d, di, len) {
         '<button class="btn btn-o" style="padding:3px 10px;" onclick="addCol(' + di + ')"><i class="fas fa-plus"></i> Column</button></div>' +
         detailColumnsTable(d, di) +
         '</div></div>';
+}
+
+function sectionCard(s, i) {
+    const p = 'def.sections.' + i + '.';
+    return '<div class="card"><div class="card-h"><span class="tag" style="background:#e2f1ef;color:#0f766e;">SECTION ' + (i + 1) + ' — ' + esc(s.key || '?') + '</span>' +
+        '<button class="btn btn-d" style="padding:3px 8px;" onclick="delSection(' + i + ')"><i class="fas fa-trash"></i></button></div>' +
+        '<div class="grid4">' +
+        fld('Key', inTxt(p + 'key', s.key)) +
+        fld('Heading', inTxt(p + 'title', s.title)) +
+        fld('Tab page', inTxt(p + 'tab', s.tab)) +
+        fld('Display', inSel(p + 'display', s.display || 'inline', ['inline', 'card', 'plain']), 'inline = heading + rule; card = boxed; plain = no heading') +
+        fld('Columns', inNum(p + 'columns', s.columns), 'empty = form default') +
+        fld('Heading color', inTxt(p + 'style.headingColor', (s.style || {}).headingColor), 'e.g. #0f766e') +
+        fld('Line color', inTxt(p + 'style.lineColor', (s.style || {}).lineColor)) +
+        fld('Background', inTxt(p + 'style.background', (s.style || {}).background)) +
+        fld('Font family', inTxt(p + 'style.font', (s.style || {}).font)) +
+        fld('Heading size px', inNum(p + 'style.fontSize', (s.style || {}).fontSize)) +
+        fld('Fetch on open', inChk(p + 'fetchOnOpen', s.fetchOnOpen, 'first row of Source SQL fills the fields')) +
+        '</div>' +
+        sqlFld('Source SQL (record query)', p + 'sourceSql', s.sourceSql, '') +
+        '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+          '<span class="hint">column aliases should match field keys (uppercase); header :FIELDKEY placeholders allowed</span>' +
+          '<button class="btn btn-p" style="padding:3px 12px;font-size:10.5px;" onclick="generateSectionFields(' + i + ')"><i class="fas fa-wand-magic-sparkles"></i> Generate fields from SQL</button>' +
+        '</div></div>';
+}
+function addSection() {
+    (cur.def.sections = cur.def.sections || []).push({ key: 'section' + (cur.def.sections.length + 1), title: 'New Section', display: 'inline', style: {} });
+    renderEditor();
+}
+function delSection(i) {
+    const key = (cur.def.sections[i] || {}).key;
+    cur.def.sections.splice(i, 1);
+    (cur.def.header.fields || []).forEach(f => { if (f.section === key) delete f.section; });
+    (cur.def.details || []).forEach(dd => { if (dd.section === key) delete dd.section; });
+    renderEditor();
+}
+// Run the section's Source SQL and create a field per result column
+// (APEX form-on-table style). Placeholders are bound to '' for the probe.
+function generateSectionFields(i) {
+    const s = cur.def.sections[i];
+    if (!s || !s.sourceSql || !s.sourceSql.trim()) { alert('Enter the Source SQL first.'); return; }
+    let sql = String(s.sourceSql).replace(/:[A-Za-z_]\w*/g, "''");
+    sql = 'SELECT * FROM (' + sql.replace(/;\s*$/, '') + ') WHERE ROWNUM <= 1';
+    runQuery(sql, function (err, rows) {
+        if (err) { alert('Could not probe the SQL:\n' + err); return; }
+        const sample = rows[0] || null;
+        let cols = sample ? Object.keys(sample) : [];
+        if (!cols.length) { alert('The query returned no columns to generate from (0 rows and no metadata). Add sample data or check the SQL.'); return; }
+        const existing = cur.def.header.fields.map(f => f.key);
+        let added = 0;
+        cols.forEach(cn => {
+            const key = cn.toLowerCase();
+            if (existing.indexOf(key) >= 0) return;
+            const v = sample ? sample[cn] : null;
+            let type = 'text';
+            if (typeof v === 'number') type = 'number';
+            else if (/(^|_)(date|_on)$/i.test(cn) || /^\d{4}-\d{2}-\d{2}/.test(String(v || ''))) type = 'date';
+            cur.def.header.fields.push({
+                key: key,
+                label: cn.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, ch => ch.toUpperCase()),
+                type: type, section: s.key
+            });
+            added++;
+        });
+        renderEditor();
+        alert(added + ' field(s) generated into section "' + (s.title || s.key) + '". Adjust types/labels as needed.');
+    });
 }
 
 function reportCard(r, i, len) {
@@ -620,14 +694,18 @@ function renderEditor() {
     }
 
     if (pageTab === 'test') {
-        html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">' +
+        html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">' +
             '<button class="btn btn-p" onclick="reloadTestForm()"><i class="fas fa-rotate"></i> Reload form</button>' +
-            '<span style="font-size:10.5px;color:#64748b;">The REAL form — pickers, lists, rules and buttons all execute. It keeps its state while you switch tabs; click Reload to pick up designer changes.</span>' +
+            '<div style="display:flex;gap:4px;">' +
+              '<button class="btn ' + (testLayout === 'desktop' ? 'btn-p' : 'btn-o') + '" onclick="setTestLayout(\'desktop\')"><i class="fas fa-desktop"></i></button>' +
+              '<button class="btn ' + (testLayout === 'mobile' ? 'btn-p' : 'btn-o') + '" onclick="setTestLayout(\'mobile\')" title="Test the phone layout"><i class="fas fa-mobile-screen"></i></button>' +
+            '</div>' +
+            '<span style="font-size:10.5px;color:#64748b;">The REAL form — pickers, lists, rules and buttons all execute. State survives tab switches; Reload picks up designer changes.</span>' +
         '</div>' +
-        '<div id="test-mount"></div></div>';
+        '<div id="test-mount"' + (testLayout === 'mobile' ? ' style="max-width:400px;"' : '') + '></div></div>';
         box.innerHTML = html;
         document.getElementById('test-mount').appendChild(getTestContainer());
-        if (testLoadedKey !== (cur.form_key || '~new')) reloadTestForm();
+        if (testLoadedKey !== (cur.form_key || '~new') + ':' + testLayout) reloadTestForm();
         return;
     }
 
@@ -655,6 +733,16 @@ function renderEditor() {
         fld('Header columns', inNum('def.header.columns', d.header.columns)) +
         fld('Wizard mode', inChk('def.wizard', d.wizard, 'tab pages become steps (Back / Next)')) +
         fld('Mobile columns', inNum('def.mobile.columns', (d.mobile || {}).columns), 'phone layout; hide/order fields in the Visual tab\'s Mobile mode') +
+        fld('Font family', inTxt('def.style.font', (d.style || {}).font), 'e.g. Segoe UI, Georgia — applies to the whole form') +
+        fld('Body background', inTxt('def.style.background', (d.style || {}).background), 'CSS color, e.g. #fbfcfe') +
+        fld('Title bar color', inTxt('def.style.accent', (d.style || {}).accent), 'CSS color; empty = default teal') +
+      '</div></div>' +
+
+      // sections (regions)
+      '<div class="sec"><div class="sec-h"><span><i class="fas fa-layer-group"></i> Sections / Regions — ' + (d.sections || []).length + '</span>' +
+        '<button class="btn btn-p" style="padding:4px 10px;" onclick="addSection()"><i class="fas fa-plus"></i> Section</button></div><div class="sec-b">' +
+        ((d.sections || []).map((s, i) => sectionCard(s, i)).join('') ||
+         '<div style="font-size:11px;color:#94a3b8;">No sections. A section is a styled region (heading + rule, or a card) that groups fields and grids inside a tab page — assign items to it via their Section property. A section with Source SQL can GENERATE its fields from the query columns and fetch the record on open (APEX form-on-table style).</div>') +
       '</div></div>' +
 
       // header fields
@@ -739,7 +827,14 @@ function normalizeDef() {
 // the editor and an off-screen stash on tab switches, so its state
 // (picked customer, typed lines) survives; only Reload rebuilds it.
 let testLoadedKey = null;
+let testLayout = 'desktop';
 let _testContainer = null, _testStash = null;
+function setTestLayout(l) {
+    if (l === testLayout) return;
+    testLayout = l;
+    resetTestPreview();
+    renderEditor();
+}
 function testStash() {
     if (!_testStash) { _testStash = document.createElement('div'); _testStash.style.display = 'none'; document.body.appendChild(_testStash); }
     return _testStash;
@@ -761,9 +856,9 @@ function setPageTab(t) {
 }
 function reloadTestForm() {
     normalizeDef();
-    testLoadedKey = cur.form_key || '~new';
+    testLoadedKey = (cur.form_key || '~new') + ':' + testLayout;
     WMSFormEngine.open(JSON.parse(JSON.stringify(cur.def)), {
-        formKey: cur.form_key || 'preview', mode: 'run', container: getTestContainer()
+        formKey: cur.form_key || 'preview', mode: 'run', container: getTestContainer(), layout: testLayout
     });
 }
 

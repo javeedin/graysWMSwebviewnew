@@ -249,6 +249,68 @@
             || ((d.actions || []).some(function (x) { return x.showWhen; }));
     }
 
+    // ── sections (regions) ──────────────────────────────────
+    // def.sections = [ { key, title, tab, columns, display:
+    //   'inline' (heading + rule) | 'card' (boxed) | 'plain',
+    //   sourceSql (a record query; with fetchOnOpen the first row
+    //   fills matching field keys - APEX form-on-table style),
+    //   style: { headingColor, lineColor, background, font, fontSize } } ]
+    // Items join a section via field.section / detail.section.
+    function fetchSection(s) {
+        runSql(bindHeaderSql(s.sourceSql), function (err, rows) {
+            if (!st) return;
+            if (err) { console.warn('[FormEngine] section fetch', s.key, 'failed:', err); return; }
+            if (!rows.length) return;
+            var r0 = rows[0];
+            var touched = false;
+            ((st.def.header && st.def.header.fields) || []).forEach(function (f) {
+                var v = r0[f.key.toUpperCase()];
+                if (v !== undefined) { st.values[f.key] = v === null ? '' : v; touched = true; }
+            });
+            if (touched) { headerComputed(); render(true); }
+        });
+    }
+    // detail.sourceSql: rows loaded on open into the editable grid
+    function loadDetailRows(det) {
+        runSql(bindHeaderSql(det.sourceSql), function (err, rows) {
+            if (!st) return;
+            if (err) { console.warn('[FormEngine] detail source', det.key, 'failed:', err); return; }
+            st.details[det.key] = rows.map(function (r) {
+                var row = {};
+                (det.columns || []).forEach(function (c) {
+                    var v = r[c.key.toUpperCase()];
+                    row[c.key] = v !== undefined && v !== null ? v : (c.type === 'number' ? 0 : '');
+                });
+                computeRow(det, row);
+                return row;
+            });
+            render(true);
+        });
+    }
+
+    function fieldsGrid(fs, cols) {
+        return '<div style="display:grid;grid-template-columns:repeat(' + cols + ',1fr);gap:8px 12px;">' +
+            fs.map(fieldHtml).join('') + '</div>';
+    }
+    function sectionHtml(s, fs, sdets, defaultCols) {
+        var stl = s.style || {};
+        var cols = s.columns || defaultCols;
+        var inner = fieldsGrid(fs, cols) + sdets.map(detailHtml).join('');
+        var headHtml = '';
+        if (s.display !== 'plain' && (s.title || s.key)) {
+            headHtml = '<div style="display:flex;align-items:center;gap:10px;margin:0 0 9px;">' +
+                '<div style="font-size:' + (stl.fontSize || 12) + 'px;font-weight:800;color:' + esc(stl.headingColor || '#0f766e') + ';' +
+                (stl.font ? 'font-family:' + esc(stl.font) + ';' : '') + '">' + esc(s.title || s.key) + '</div>' +
+                '<div style="flex:1;height:2px;background:' + esc(stl.lineColor || '#e2e8f0') + ';border-radius:1px;"></div></div>';
+        }
+        if (s.display === 'card') {
+            return '<div style="background:' + esc(stl.background || '#f8fafc') + ';border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-top:12px;' +
+                (stl.font ? 'font-family:' + esc(stl.font) + ';' : '') + '">' + headHtml + inner + '</div>';
+        }
+        return '<div style="margin-top:14px;' + (stl.background ? 'background:' + esc(stl.background) + ';border-radius:10px;padding:8px 10px;' : '') +
+            (stl.font ? 'font-family:' + esc(stl.font) + ';' : '') + '">' + headHtml + inner + '</div>';
+    }
+
     // ── rendering ───────────────────────────────────────────
     function inputCss() { return 'width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;outline:none;'; }
 
@@ -491,10 +553,23 @@
         var hFields = allFields.filter(function (f) { return (!hTabs.length || (f.tab || hTabs[0]) === hAct) && visibleNow(f); });
         var hCols = mob ? (mob.columns || 1) : ((def.header && def.header.columns) || 4);
 
+        // sections visible on this tab/step
+        var secKeys = (def.sections || []).map(function (s) { return s.key; });
+        var secs = (def.sections || []).filter(function (s) {
+            if (!visibleNow(s)) return false;
+            if (wiz) return s.tab ? s.tab === hAct : true;
+            return !hTabs.length || (s.tab || hTabs[0]) === hAct;
+        });
+        var visSecKeys = secs.map(function (s) { return s.key; });
+        // fields not owned by any section render in the main grid
+        var looseFields = hFields.filter(function (f) { return !f.section || secKeys.indexOf(f.section) < 0; });
+
+        var allDets = (def.details || []).filter(visibleNow);
         var dTabs = detailTabs();
         var dAct = dTabs.length ? (dTabs.indexOf(st.ui.detailTab) >= 0 ? st.ui.detailTab : dTabs[0]) : null;
-        var dets = (def.details || []).filter(function (d) {
-            if (!visibleNow(d)) return false;
+        // a detail owned by a section follows the section's placement
+        var dets = allDets.filter(function (d) {
+            if (d.section && secKeys.indexOf(d.section) >= 0) return false;
             if (wiz) return d.tab ? d.tab === hAct : lastStep;
             return !dTabs.length || (d.tab || dTabs[0]) === dAct;
         });
@@ -509,12 +584,19 @@
               }).join('') + '</div>'
             : '';
 
+        var fstyle = def.style || {};
+        var secsHtml = secs.map(function (s) {
+            var fs = hFields.filter(function (f) { return f.section === s.key; });
+            var sdets = allDets.filter(function (dd) { return dd.section === s.key; });
+            return sectionHtml(s, fs, sdets, hCols);
+        }).join('');
         var bodyHtml =
-            '<div style="padding:0.9rem 1.2rem;overflow-y:auto;flex:1;">' +
+            '<div style="padding:0.9rem 1.2rem;overflow-y:auto;flex:1;' +
+            (fstyle.background ? 'background:' + esc(fstyle.background) + ';' : '') +
+            (fstyle.font ? 'font-family:' + esc(fstyle.font) + ';' : '') + '">' +
               (wiz ? wizBar : tabBarHtml(hTabs, hAct, '_htab')) +
-              '<div style="display:grid;grid-template-columns:repeat(' + hCols + ',1fr);gap:8px 12px;">' +
-                hFields.map(fieldHtml).join('') +
-              '</div>' +
+              fieldsGrid(looseFields, hCols) +
+              secsHtml +
               (wiz ? '' : tabBarHtml(dTabs, dAct, '_dtab').replace('margin-bottom:9px', 'margin-top:12px;margin-bottom:2px')) +
               dets.map(detailHtml).join('') +
               reps.map(reportHtml).join('') +
@@ -543,7 +625,7 @@
               '</div>' +
             '</div>';
         var titleHtml =
-            '<div style="padding:0.8rem 1.2rem;background:linear-gradient(135deg,#0f766e,#134e4a);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">' +
+            '<div style="padding:0.8rem 1.2rem;background:' + (fstyle.accent ? esc(fstyle.accent) : 'linear-gradient(135deg,#0f766e,#134e4a)') + ';display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">' +
               '<div style="font-weight:800;font-size:14px;color:white;"><i class="fas fa-' + esc(def.icon || 'wpforms') + '"></i> ' + esc(def.title || st.formKey || 'Form') +
               (st.mode === 'preview' ? ' <span style="font-size:9px;background:rgba(255,255,255,0.25);padding:2px 8px;border-radius:8px;">PREVIEW</span>' : '') + '</div>' +
               (st.container ? '' : '<button onclick="WMSFormEngine.close()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>') +
@@ -1102,6 +1184,12 @@
                 (def.reports || []).forEach(function (r) { if (r.autoRun) runReport(r.key); });
                 // lookup fields whose referenced values were prefilled
                 initLookups();
+                // SQL-sourced sections fill their fields from the first row
+                (def.sections || []).forEach(function (s) { if (s.sourceSql && s.fetchOnOpen) fetchSection(s); });
+                // SQL-sourced details load their rows (unless prefilled)
+                (def.details || []).forEach(function (det) {
+                    if (det.sourceSql && !(st.details[det.key] || []).length) loadDetailRows(det);
+                });
             });
             render();   // immediate paint; lists re-render when loaded
         },

@@ -98,15 +98,20 @@
     VD.render = function () {
         var mount = document.getElementById('vd-mount');
         if (!mount) return;
+        var def = d();
         mount.innerHTML = css() +
             '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">' +
               '<div style="display:flex;gap:4px;">' +
                 '<button class="btn ' + (device === 'desktop' ? 'btn-p' : 'btn-o') + '" onclick="VD.dev(\'desktop\')"><i class="fas fa-desktop"></i> Desktop</button>' +
                 '<button class="btn ' + (device === 'mobile' ? 'btn-p' : 'btn-o') + '" onclick="VD.dev(\'mobile\')"><i class="fas fa-mobile-screen"></i> Mobile</button>' +
               '</div>' +
+              '<div style="display:flex;gap:4px;align-items:center;font-size:10px;color:#475569;font-weight:700;">' +
+                'W <input type="number" value="' + esc(def.width || 950) + '" style="width:70px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;font-size:11px;" onchange="VD.setSize(\'width\', this.value)">' +
+                'H <input type="number" value="' + esc(def.height || '') + '" placeholder="auto" style="width:70px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;font-size:11px;" onchange="VD.setSize(\'height\', this.value)">' +
+              '</div>' +
               '<span style="font-size:10px;color:#94a3b8;">' +
               (device === 'desktop'
-                ? 'Drag fields to re-order or drop them on a tab page · click anything to edit it on the right · drag the corner to resize'
+                ? 'Drag fields between sections and tab pages · click anything to edit it on the right · drag the corner or set W/H to resize'
                 : 'Mobile layout: drag to set the phone order · click the eye to hide a field on mobile') +
               '</span>' +
             '</div>' +
@@ -114,13 +119,17 @@
             '<div class="vd-insp" id="vd-insp"></div></div>';
         VD.canvas(); VD.insp();
     };
+    VD.setSize = function (k, v) {
+        if (v === '' || Number(v) <= 0) delete d()[k]; else d()[k] = Number(v);
+        VD.canvas();
+    };
 
     VD.canvas = function () {
         var box = document.getElementById('vd-canvas');
         if (!box) return;
         var def = d();
         var isM = device === 'mobile';
-        var width = isM ? 390 : Math.min(def.width || 950, 1100);
+        var width = isM ? 390 : (def.width || 950);
         var cols = isM ? ((def.mobile && def.mobile.columns) || 1) : ((def.header && def.header.columns) || 4);
         var tabs = hTabs();
         var act = curHTab();
@@ -139,9 +148,8 @@
                 '</div>';
         }
 
-        var blocks = orderedFields().filter(function (x) {
-            return !tabs.length || (x.f.tab || 'Main') === act;
-        }).map(function (x) {
+        var secKeys = (def.sections || []).map(function (s) { return s.key; });
+        function fieldBlock(x, secArg) {
             var f = x.f, i = x.i;
             var isHid = hidden.indexOf(f.key) >= 0;
             var span = (!isM && f.span) ? 'grid-column:span ' + Math.min(f.span, cols) + ';' : '';
@@ -149,12 +157,40 @@
             return '<div class="vd-fld ' + (sel && sel.kind === 'field' && sel.i === i ? 'vd-seld' : '') + (isHid ? ' vd-hidden' : '') + '" style="' + span + '"' +
                 ' draggable="true" ondragstart="VD.dragStart(event,\'field\',' + i + ')"' +
                 ' ondragover="event.preventDefault();this.classList.add(\'vd-drop\')" ondragleave="this.classList.remove(\'vd-drop\')"' +
-                ' ondrop="VD.dropOnField(event,' + i + ')"' +
+                ' ondrop="VD.dropInto(event,' + secArg + ',' + i + ')"' +
                 ' onclick="VD.sel(\'field\',' + i + ')">' +
                 (isM ? '<span class="eye" onclick="event.stopPropagation();VD.toggleHidden(\'' + esc(f.key).replace(/'/g, "\\'") + '\')"><i class="fas fa-eye' + (isHid ? '-slash' : '') + '"></i></span>' : '') +
                 '<div class="lb">' + esc(f.label || f.key) + (f.required ? ' <span style="color:#dc2626;">*</span>' : '') + '</div>' +
                 '<div class="ctl"><i class="fas fa-' + typeIco + '"></i> ' + esc(f.type || 'text') + '</div>' +
                 '<div class="ky">' + esc(f.key) + (f.showWhen ? ' · <i class="fas fa-eye-low-vision" title="conditional"></i>' : '') + '</div>' +
+                '</div>';
+        }
+        var tabFields = orderedFields().filter(function (x) {
+            return !tabs.length || (x.f.tab || 'Main') === act;
+        });
+        var looseBlocks = tabFields.filter(function (x) {
+            return !x.f.section || secKeys.indexOf(x.f.section) < 0;
+        }).map(function (x) { return fieldBlock(x, 'null'); }).join('');
+
+        // sections (regions) on this tab, rendered as drop-target containers
+        var secsHtml = (def.sections || []).map(function (s, si) {
+            if (tabs.length && (s.tab || 'Main') !== act) return '';
+            var stl = s.style || {};
+            var secBlocks = tabFields.filter(function (x) { return x.f.section === s.key; })
+                .map(function (x) { return fieldBlock(x, "'" + esc(s.key).replace(/'/g, "\\'") + "'"); }).join('');
+            var head = s.display === 'plain' ? '' :
+                '<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;">' +
+                '<div style="font-size:' + (stl.fontSize || 11) + 'px;font-weight:800;color:' + esc(stl.headingColor || '#0f766e') + ';">' + esc(s.title || s.key) + '</div>' +
+                '<div style="flex:1;height:2px;background:' + esc(stl.lineColor || '#e2e8f0') + ';"></div>' +
+                (s.sourceSql ? '<i class="fas fa-database" style="font-size:9px;color:#94a3b8;" title="SQL-sourced region"></i>' : '') + '</div>';
+            return '<div class="' + (sel && sel.kind === 'section' && sel.i === si ? 'vd-seld ' : '') + '" ' +
+                'style="border:1.5px dashed ' + (sel && sel.kind === 'section' && sel.i === si ? '#f59e0b' : '#cbd5e1') + ';border-radius:10px;padding:9px 11px;margin-top:12px;background:' + esc(stl.background || (s.display === 'card' ? '#f8fafc' : 'transparent')) + ';cursor:pointer;"' +
+                ' onclick="VD.sel(\'section\',' + si + ')"' +
+                ' ondragover="event.preventDefault();this.classList.add(\'vd-drop\')" ondragleave="this.classList.remove(\'vd-drop\')"' +
+                ' ondrop="VD.dropInto(event,\'' + esc(s.key).replace(/'/g, "\\'") + '\',-1)">' +
+                head +
+                '<div style="display:grid;grid-template-columns:repeat(' + (isM ? cols : (s.columns || cols)) + ',1fr);gap:7px 10px;">' + secBlocks +
+                '<div class="vd-add" onclick="event.stopPropagation();VD.addField(\'' + esc(s.key).replace(/'/g, "\\'") + '\')"><i class="fas fa-plus"></i>&nbsp;Field</div></div>' +
                 '</div>';
         }).join('');
 
@@ -199,16 +235,18 @@
             '</div>';
 
         box.innerHTML =
-            '<div class="vd-form" style="width:' + width + 'px;' + (def.height && !isM ? 'min-height:' + Math.min(def.height, 900) + 'px;' : '') + '">' +
+            '<div class="vd-form" style="width:' + width + 'px;' + (def.height && !isM ? 'min-height:' + def.height + 'px;' : '') + '">' +
               '<div style="flex:1;display:flex;flex-direction:column;min-width:0;">' +
                 '<div class="vd-title ' + (sel && sel.kind === 'form' ? 'vd-seld' : '') + '" onclick="VD.sel(\'form\')"><i class="fas fa-' + esc(def.icon || 'wpforms') + '"></i> ' + esc(def.title || 'Form') +
                 (def.wizard ? ' <span style="font-size:9px;background:rgba(255,255,255,0.25);padding:1px 7px;border-radius:8px;">WIZARD</span>' : '') +
                 (isM ? ' <span style="font-size:9px;background:rgba(255,255,255,0.25);padding:1px 7px;border-radius:8px;">MOBILE</span>' : '') + '</div>' +
                 '<div class="vd-body">' + tabHtml +
                   '<div style="display:grid;grid-template-columns:repeat(' + cols + ',1fr);gap:7px 10px;"' +
-                    ' ondragover="event.preventDefault()" ondrop="VD.dropOnField(event,-1)">' + blocks +
+                    ' ondragover="event.preventDefault()" ondrop="VD.dropInto(event,null,-1)">' + looseBlocks +
                     '<div class="vd-add" onclick="VD.addField()"><i class="fas fa-plus"></i>&nbsp;Field</div>' +
                   '</div>' +
+                  secsHtml +
+                  '<div class="vd-add" style="margin-top:10px;padding:7px;" onclick="VD.addSection()"><i class="fas fa-plus"></i>&nbsp;Section / Region</div>' +
                   detHtml +
                   '<div class="vd-add" style="margin-top:10px;padding:7px;" onclick="VD.addDetail()"><i class="fas fa-plus"></i>&nbsp;Detail grid</div>' +
                   repHtml +
@@ -231,6 +269,7 @@
     function selObj() {
         if (!sel) return null;
         if (sel.kind === 'form') return d();
+        if (sel.kind === 'section') return (d().sections || [])[sel.i];
         if (sel.kind === 'field') return fields()[sel.i];
         if (sel.kind === 'detail') return (d().details || [])[sel.di];
         if (sel.kind === 'column') return ((d().details || [])[sel.di].columns || [])[sel.ci];
@@ -247,6 +286,14 @@
         VD.canvas();
     };
     VD.propNum = function (key, value) { VD.prop(key, value === '' ? '' : Number(value)); };
+    // nested style.* property on the selected object
+    VD.sprop = function (key, value) {
+        var o = selObj(); if (!o) return;
+        o.style = o.style || {};
+        if (value === '' || value === undefined) delete o.style[key];
+        else o.style[key] = key === 'fontSize' ? Number(value) : value;
+        VD.canvas();
+    };
     VD.propBool = function (key, checked) { var o = selObj(); if (!o) return; if (checked) o[key] = true; else delete o[key]; VD.canvas(); };
 
     function iin(label, prop, val, kind) {
@@ -335,10 +382,32 @@
                     iin('Default', 'default', f.default) +
                     iin('Span (columns)', 'span', f.span, 'num') +
                     iin('Tab page', 'tab', f.tab) +
+                    isel('Section / region', 'section', f.section, [''].concat((d().sections || []).map(function (s) { return s.key; }))) +
                     ichk('Required', 'required', f.required) +
                     swHtml(f) +
                     '<button class="btn btn-o" style="margin-top:12px;width:100%;" onclick="VD.openFull(' + sel.i + ')"><i class="fas fa-pen-ruler"></i> SQL &amp; advanced (Designer tab)</button>';
             }
+        } else if (sel.kind === 'section') {
+            var s = (d().sections || [])[sel.i];
+            var stl2 = (s && s.style) || {};
+            h = head('<i class="fas fa-layer-group"></i> Section — ' + esc(s.key), 'VD.delSection(' + sel.i + ')') +
+                iin('Key', 'key', s.key) + iin('Heading', 'title', s.title) +
+                iin('Tab page', 'tab', s.tab) +
+                isel('Display', 'display', s.display || 'inline', ['inline', 'card', 'plain']) +
+                iin('Columns', 'columns', s.columns, 'num') +
+                ichk('Fetch record on open', 'fetchOnOpen', s.fetchOnOpen) +
+                '<label class="vd-ilbl" style="margin-top:10px;">Style</label>' +
+                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">' +
+                '<input class="vd-iin" placeholder="heading color" value="' + esc(stl2.headingColor || '') + '" onchange="VD.sprop(\'headingColor\', this.value)">' +
+                '<input class="vd-iin" placeholder="line color" value="' + esc(stl2.lineColor || '') + '" onchange="VD.sprop(\'lineColor\', this.value)">' +
+                '<input class="vd-iin" placeholder="background" value="' + esc(stl2.background || '') + '" onchange="VD.sprop(\'background\', this.value)">' +
+                '<input class="vd-iin" placeholder="font family" value="' + esc(stl2.font || '') + '" onchange="VD.sprop(\'font\', this.value)">' +
+                '<input class="vd-iin" type="number" placeholder="heading px" value="' + esc(stl2.fontSize || '') + '" onchange="VD.sprop(\'fontSize\', this.value)">' +
+                '</div>' +
+                swHtml(s) +
+                (s.sourceSql
+                    ? '<button class="btn btn-p" style="margin-top:12px;width:100%;" onclick="VD.genFields(' + sel.i + ')"><i class="fas fa-wand-magic-sparkles"></i> Generate fields from SQL</button>'
+                    : '<div style="font-size:9.5px;color:#94a3b8;margin-top:10px;">Add a Source SQL in the Designer tab to fetch a record on open and generate fields from its columns.</div>');
         } else if (sel.kind === 'htab') {
             h = head('<i class="fas fa-folder"></i> Tab page — ' + esc(sel.name)) +
                 '<label class="vd-ilbl">Rename tab</label><input class="vd-iin" value="' + esc(sel.name) + '" onchange="VD.renameTab(this.value)">' +
@@ -397,28 +466,34 @@
         drag = { kind: kind, i: i, di: di };
         ev.dataTransfer.effectAllowed = 'move';
     };
-    VD.dropOnField = function (ev, targetI) {
+    // drop a field into a grid: secKey = section key or null for the main
+    // grid; targetI = the field dropped onto (-1 = end of that grid)
+    VD.dropInto = function (ev, secKey, targetI) {
         ev.preventDefault(); ev.stopPropagation();
         document.querySelectorAll('.vd-drop').forEach(function (el) { el.classList.remove('vd-drop'); });
-        if (!drag || drag.kind !== 'field') return;
+        if (!drag || drag.kind !== 'field') { drag = null; return; }
+        var moved = fields()[drag.i];
+        if (!moved) { drag = null; return; }
+        // section membership follows the grid it was dropped in
+        if (secKey) moved.section = secKey; else delete moved.section;
         if (device === 'mobile') {
-            // reorder the mobile key order
             var keys = orderedFields().map(function (x) { return x.f.key; });
-            var fromKey = fields()[drag.i].key;
-            keys.splice(keys.indexOf(fromKey), 1);
+            keys.splice(keys.indexOf(moved.key), 1);
             var at = targetI < 0 ? keys.length : keys.indexOf(fields()[targetI].key);
             if (at < 0) at = keys.length;
-            keys.splice(at, 0, fromKey);
+            keys.splice(at, 0, moved.key);
             mob().order = keys;
         } else {
             var arr = fields();
-            var f = arr.splice(drag.i, 1)[0];
-            var at2 = targetI < 0 ? arr.length : (targetI > drag.i ? targetI - 1 : targetI);
-            arr.splice(at2, 0, f);
-            if (sel && sel.kind === 'field') sel.i = arr.indexOf(f);
+            var targetObj = targetI >= 0 ? arr[targetI] : null;
+            arr.splice(drag.i, 1);
+            var at2 = targetObj ? arr.indexOf(targetObj) : arr.length;
+            if (at2 < 0) at2 = arr.length;
+            arr.splice(at2, 0, moved);
+            if (sel && sel.kind === 'field') sel.i = arr.indexOf(moved);
         }
         drag = null;
-        VD.canvas();
+        VD.canvas(); VD.insp();
     };
     VD.dropOnTab = function (ev, tab) {
         ev.preventDefault();
@@ -441,13 +516,34 @@
     };
 
     // ── add / delete ────────────────────────────────────────
-    VD.addField = function () {
+    VD.addField = function (secKey) {
         var t = curHTab();
         var f = { key: 'field' + (fields().length + 1), label: 'New field', type: 'text' };
         if (t && t !== 'Main') f.tab = t;
+        if (secKey) f.section = secKey;
         fields().push(f);
         sel = { kind: 'field', i: fields().length - 1 };
         VD.canvas(); VD.insp();
+    };
+    VD.addSection = function () {
+        var secs = (d().sections = d().sections || []);
+        secs.push({ key: 'section' + (secs.length + 1), title: 'New Section', display: 'inline', style: {} });
+        var t = curHTab();
+        if (t && t !== 'Main') secs[secs.length - 1].tab = t;
+        sel = { kind: 'section', i: secs.length - 1 };
+        VD.canvas(); VD.insp();
+    };
+    VD.delSection = function (i) {
+        var s = d().sections[i];
+        d().sections.splice(i, 1);
+        if (s) {
+            fields().forEach(function (f) { if (f.section === s.key) delete f.section; });
+            (d().details || []).forEach(function (dd) { if (dd.section === s.key) delete dd.section; });
+        }
+        sel = null; VD.canvas(); VD.insp();
+    };
+    VD.genFields = function (i) {
+        if (typeof generateSectionFields === 'function') generateSectionFields(i);
     };
     VD.delField = function (i) { fields().splice(i, 1); sel = null; VD.canvas(); VD.insp(); };
     VD.addTab = function () {
@@ -540,8 +636,8 @@
             def.width = Math.max(420, Math.round(w0 + (e.clientX - startX)));
             if (h0 || e.clientY - startY > 24) def.height = Math.max(300, Math.round((h0 || 500) + (e.clientY - startY)));
             if (frame) {
-                frame.style.width = Math.min(def.width, 1100) + 'px';
-                if (def.height) frame.style.minHeight = Math.min(def.height, 900) + 'px';
+                frame.style.width = def.width + 'px';
+                if (def.height) frame.style.minHeight = def.height + 'px';
             }
         }
         function up() {
