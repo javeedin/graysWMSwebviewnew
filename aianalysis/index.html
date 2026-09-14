@@ -362,10 +362,16 @@
                 <div class="left-tab active" id="tab-chats" onclick="switchTab('chats')"><i class="fas fa-comments"></i> Chats</div>
                 <div class="left-tab" id="tab-objects" onclick="switchTab('objects')"><i class="fas fa-table"></i> Objects</div>
                 <div class="left-tab" id="tab-reports" onclick="switchTab('reports')"><i class="fas fa-chart-line"></i> Reports</div>
+                <div class="left-tab" id="tab-forms" onclick="switchTab('forms')"><i class="fas fa-object-group"></i> Forms</div>
             </div>
             <div class="left-body" id="pane-chats">
                 <button class="new-chat-btn" onclick="newChat()"><i class="fas fa-plus"></i> New Chat</button>
                 <div id="chat-list"></div>
+            </div>
+            <div class="left-body" id="pane-forms" style="display:none;">
+                <button class="new-chat-btn" onclick="loadChatForms(true)"><i class="fas fa-sync-alt"></i> Refresh Forms</button>
+                <div id="chat-form-list"><div style="font-size:11px;color:#94a3b8;">Loading forms…</div></div>
+                <div style="font-size:9.5px;color:#94a3b8;margin-top:8px;">Click a form to open it instantly — no AI round. Build new forms in the <b>Forms Designer</b> module or with <code>/forms</code>.</div>
             </div>
             <div class="left-body" id="pane-objects" style="display:none;">
                 <input class="obj-search" id="obj-search" placeholder="Search tables / views…" oninput="renderObjects()">
@@ -906,11 +912,69 @@ const METADATA_URL = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oracl
 let allObjects = [];
 
 function switchTab(which) {
-    ['chats', 'objects', 'reports'].forEach(t => {
+    ['chats', 'objects', 'reports', 'forms'].forEach(t => {
         document.getElementById('tab-' + t).classList.toggle('active', which === t);
         document.getElementById('pane-' + t).style.display = which === t ? '' : 'none';
     });
     if (which === 'reports' && !window._reportsLoaded) loadReports();
+    if (which === 'forms' && !window._chatFormsLoaded) loadChatForms();
+}
+
+// ── saved forms (WMS_AI_FORMS) in the chat left panel ───────
+function fetchChatForms(cb) {
+    sendMessageToCSharp({
+        action: 'executePost', fullUrl: AI_BASE + '/executequery',
+        body: JSON.stringify({ sql: "SELECT form_key, name, description FROM wms_ai_forms WHERE active = 'Y' ORDER BY name", maxRows: 100, appUser: appUserName() })
+    }, function (err, data) {
+        let d = null;
+        try { d = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
+        if (err || !d || d.success !== true) { cb(String(err || (d && d.error) || 'unknown'), null); return; }
+        const ix = {}; (d.columns || []).forEach((c, i) => ix[String(c).toUpperCase()] = i);
+        cb(null, (d.rows || []).map(r => ({
+            key: String(r[ix.FORM_KEY] || ''), name: String(r[ix.NAME] || ''), desc: String(r[ix.DESCRIPTION] || '')
+        })));
+    });
+}
+function loadChatForms(force) {
+    if (force) window._chatFormsLoaded = false;
+    const box = document.getElementById('chat-form-list');
+    box.innerHTML = '<div style="font-size:11px;color:#94a3b8;">Loading forms…</div>';
+    fetchChatForms(function (err, rows) {
+        if (err) { box.innerHTML = '<div style="font-size:11px;color:#b91c1c;">' + esc(err) + '<br><br>Has apex_sql/49_ai_forms.sql been run?</div>'; return; }
+        window._chatFormsLoaded = true;
+        if (!rows.length) { box.innerHTML = '<div style="font-size:11px;color:#94a3b8;">No forms yet — build one in the Forms Designer module.</div>'; return; }
+        box.innerHTML = rows.map(f => `
+            <div onclick="openFormByKey('${esc(f.key).replace(/'/g, "\\'")}')" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:5px;cursor:pointer;background:white;" onmouseover="this.style.background='#f5f3ff'" onmouseout="this.style.background='white'">
+                <div style="font-size:11.5px;font-weight:700;color:#0f172a;"><i class="fas fa-wpforms" style="color:#0f766e;"></i> ${esc(f.name)}</div>
+                ${f.desc ? '<div style="font-size:9.5px;color:#94a3b8;margin-top:2px;">' + esc(f.desc) + '</div>' : ''}
+            </div>`).join('');
+    });
+}
+function openFormByKey(key) {
+    openStoredFormFromChat({ formKey: key });
+}
+
+// /forms — list saved forms as a clickable chat bubble (no AI round)
+function showFormsChooser() {
+    const box = document.getElementById('messages');
+    const id = 'formlist-' + Date.now();
+    box.insertAdjacentHTML('beforeend',
+        '<div class="msg assistant"><div class="bubble" id="' + id + '"><i class="fas fa-spinner fa-spin"></i> Loading saved forms…</div>' +
+        '<div class="meta">' + timeStr(Date.now()) + '</div></div>');
+    box.scrollTop = box.scrollHeight;
+    fetchChatForms(function (err, rows) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (err) { el.innerHTML = '<span style="color:#b91c1c;">Could not load forms: ' + esc(err) + '</span>'; return; }
+        if (!rows.length) { el.innerHTML = 'No forms saved yet — build one in the <b>Forms Designer</b> module, or just describe one and I will design it.'; return; }
+        el.innerHTML = '<div style="font-weight:700;margin-bottom:6px;"><i class="fas fa-object-group"></i> Saved forms — click one to open it (opens instantly):</div>' +
+            rows.map(f => `
+            <div onclick="openFormByKey('${esc(f.key).replace(/'/g, "\\'")}')" style="border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin:4px 0;cursor:pointer;background:#fbfaff;" onmouseover="this.style.background='#f5f3ff'" onmouseout="this.style.background='#fbfaff'">
+                <div style="font-size:12px;font-weight:700;color:#0f172a;">${esc(f.name)} <span style="font-size:9px;color:#94a3b8;font-weight:400;">${esc(f.key)}</span></div>
+                ${f.desc ? '<div style="font-size:10.5px;color:#64748b;">' + esc(f.desc) + '</div>' : ''}
+            </div>`).join('');
+        box.scrollTop = box.scrollHeight;
+    });
 }
 
 function loadObjects() {
@@ -1356,6 +1420,7 @@ function sendMessage() {
     inp.value = '';
     inp.style.height = 'auto';
     const t = text || 'Please look at the attached file(s).';
+    if (t.trim().toLowerCase() === '/forms') { showFormsChooser(); return; }
     // Instant path: a bare "open the order form" request never needs the
     // model - the dialog self-loads its pickers and trained rules on open
     if (!pendingAttachments.length && isBareOrderFormRequest(t)) {
@@ -3941,6 +4006,7 @@ function rerunPageReport() {
 // Slash command palette  ( /  = all, /f = fusion, /a = apex )
 // ============================================================
 const SLASH_COMMANDS = [
+    { cmd: '/forms', cat: 'local', local: 'forms', desc: 'List saved forms — click one to open it instantly (no AI round)' },
     { cmd: '/fusion-order-status',  cat: 'fusion', desc: 'Shipment line statuses of an order (Fusion GET)',
       template: 'Fusion: get the shipment lines for order ORDER_NUMBER and summarize the line statuses', ph: 'ORDER_NUMBER' },
     { cmd: '/fusion-order-details', cat: 'fusion', desc: 'Sales order header & lines from Order Hub',
@@ -4041,6 +4107,7 @@ function applySlash(i) {
     document.getElementById('slash-menu').style.display = 'none';
     slashMatches = [];
     if (c.local === 'new') { inp.value = ''; newChat(); return; }
+    if (c.local === 'forms') { inp.value = ''; showFormsChooser(); return; }
     if (c.local === 'help') { inp.value = ''; showHelpBubble(); return; }
     if (c.local === 'reports') { inp.value = ''; switchPage('reports'); return; }
     if (c.local === 'jobs') { inp.value = ''; switchPage('jobs'); return; }
