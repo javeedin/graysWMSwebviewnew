@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V41";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V42";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -467,7 +467,11 @@ namespace WMSApp
             sb.AppendLine("      type 'ords' -> method, url, bodyTemplate (strings \"{HEADER}\" \"{TOTALS}\" \"{VALUES}\" \"{<detailKey>}\" become objects/arrays; \"{field}\" substitutes header values),");
             sb.AppendLine("      type 'sql' -> statement ({field} placeholders; single statement via the guarded write endpoint),");
             sb.AppendLine("      type 'local_file' -> folder (under C:\\fusion), fileName ({field}/{TIMESTAMP}/{FORM_KEY} ok),");
-            sb.AppendLine("      type 'chat' -> prompt (form values come back to you as a message), type 'print' (prints the whole form: header + details + reports), type 'close' } ] }");
+            sb.AppendLine("      type 'chat' -> prompt (form values come back to you as a message), type 'print' (prints the whole form: header + details + reports), type 'close' } ],");
+            sb.AppendLine("    wizard (true -> header tab pages become STEPS: progress bar, Back/Next, action buttons only on the last step; details with a tab render on the matching step),");
+            sb.AppendLine("    mobile: { columns, hidden: [fieldKeys], order: [fieldKeys] } - the PHONE layout, applied automatically on narrow screens,");
+            sb.AppendLine("    sidebar: { position: 'right'|'left', items: [ { icon, label, action (an action key) } ] } - a docked icon rail whose buttons fire form actions,");
+            sb.AppendLine("    showWhen on any field / detail / report / action: { field, op, value } or an ARRAY (all must pass) - ops eq, ne, gt, lt, gte, lte, in (csv or array), empty, notEmpty. CONDITIONAL VISIBILITY evaluated live against the header; hidden fields skip validation. Use it whenever the user says 'show X only when Y' }");
             sb.AppendLine("After saving, confirm and offer to open it (api_form with the formKey). Users can also edit forms visually in the Forms Designer module - your JSON and theirs are the same rows.");
             sb.AppendLine();
             sb.AppendLine("BUILD FORM DEFINITION REQUEST (from the Forms Designer): a message starting with this marker asks you to DESIGN a form and hand the JSON back - NOT to save it. If screenshot paths are given, READ each image with your Read tool and reproduce its layout faithfully: sections/tab pages, field labels and their order, grids with their columns, totals, buttons. Verify tables/columns via the schema catalog (a couple of sql rounds are fine). Then reply with action answer whose markdown contains EXACTLY ONE fenced block:");

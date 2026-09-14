@@ -67,7 +67,8 @@
                 <div style="font-size:12px;font-weight:800;color:#334155;"><i class="fas fa-layer-group"></i> Forms</div>
                 <div style="display:flex;gap:5px;">
                     <button class="btn btn-o" onclick="loadForms()" title="Refresh list"><i class="fas fa-rotate"></i></button>
-                    <button class="btn btn-p" onclick="newForm()"><i class="fas fa-plus"></i> New</button>
+                    <button class="btn btn-o" onclick="importForm()" title="Import a form JSON"><i class="fas fa-file-import"></i></button>
+                    <button class="btn btn-p" onclick="openNewFormWizard()"><i class="fas fa-plus"></i> New</button>
                 </div>
             </div>
             <button class="btn" onclick="openBuildAI()" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;margin-bottom:8px;width:100%;"><i class="fas fa-wand-magic-sparkles"></i> Build from AI</button>
@@ -84,6 +85,7 @@
     </div>
 
 <script src="form-engine.js"></script>
+<script src="visual-designer.js"></script>
 <script>
 // ── WebView bridge ──────────────────────────────────────────
 window.pendingRequests = window.pendingRequests || {};
@@ -158,6 +160,7 @@ const EMPTY_DEF = () => ({
     details: [],
     reports: [],
     rules: { submitChecks: [] },
+    mobile: { columns: 1, hidden: [], order: [] },
     actions: [ { key: 'close', label: 'Close', type: 'close', style: 'default' } ]
 });
 let pageTab = 'design';   // 'design' | 'test'
@@ -170,6 +173,7 @@ function normalizeLoadedDef(def) {
     def.rules = def.rules || {};
     def.rules.submitChecks = def.rules.submitChecks || [];
     def.actions = def.actions || [];
+    def.mobile = def.mobile || { columns: 1, hidden: [], order: [] };
     return def;
 }
 
@@ -209,10 +213,152 @@ function openForm(key) {
         renderList(); renderEditor();
     });
 }
-function newForm() {
-    cur = { form_key: '', name: '', description: '', active: 'Y', def: EMPTY_DEF(), isNew: true };
+// ── New Form wizard: pick a type, start from a seeded template ──
+const FORM_TYPES = [
+    { key: 'single', icon: 'file-lines', name: 'Single Form', desc: 'Header-only entry form — settings, requests, notes.' },
+    { key: 'master', icon: 'table-list', name: 'Master–Detail', desc: 'Header plus one or more grids with totals — orders, returns.' },
+    { key: 'interactive', icon: 'magnifying-glass-chart', name: 'Interactive Report', desc: 'Filter fields on top, a live report grid below, print.' },
+    { key: 'wizard', icon: 'stairs', name: 'Wizard', desc: 'Multi-step: tab pages become steps with Back / Next.' },
+    { key: 'report', icon: 'print', name: 'Report Page', desc: 'No entry — parameters and one or more printable reports.' }
+];
+function formTemplate(type) {
+    const base = EMPTY_DEF();
+    if (type === 'single') {
+        base.title = 'New Single Form';
+        base.header.fields = [
+            { key: 'entry_date', label: 'Date', type: 'date', default: '$TODAY', required: true },
+            { key: 'reference', label: 'Reference', type: 'text' },
+            { key: 'notes', label: 'Notes', type: 'textarea', span: 4 }
+        ];
+        base.actions.unshift({ key: 'save_local', label: 'Save Local', icon: 'floppy-disk', style: 'primary', type: 'local_file', validate: true, folder: 'forms' });
+    } else if (type === 'master') {
+        base.title = 'New Master-Detail Form';
+        base.header.fields = [
+            { key: 'doc_date', label: 'Date', type: 'date', default: '$TODAY', required: true },
+            { key: 'reference', label: 'Reference', type: 'text' }
+        ];
+        base.details = [{
+            key: 'lines', title: 'Lines', allowManualRow: true, allowDelete: true, qtyKey: 'qty', required: true,
+            columns: [
+                { key: 'item', label: 'Item', type: 'text', editable: true, width: 140 },
+                { key: 'description', label: 'Description', type: 'text', editable: true, width: 220 },
+                { key: 'qty', label: 'Qty', type: 'number', editable: true, default: 1, width: 70 },
+                { key: 'price', label: 'Price', type: 'number', editable: true, width: 90 },
+                { key: 'amount', label: 'Amount', type: 'computed', formula: 'qty * price' }
+            ],
+            totals: ['qty', 'amount']
+        }];
+        base.actions.unshift({ key: 'save_local', label: 'Save Local', icon: 'floppy-disk', style: 'primary', type: 'local_file', validate: true, folder: 'forms' });
+    } else if (type === 'interactive') {
+        base.title = 'New Interactive Report';
+        base.header.fields = [
+            { key: 'from_date', label: 'From', type: 'date', default: '$TODAY' },
+            { key: 'to_date', label: 'To', type: 'date', default: '$TODAY' },
+            { key: 'search', label: 'Search', type: 'text', span: 2 }
+        ];
+        base.reports = [{ key: 'results', title: 'Results', sql: '', autoRun: false }];
+        base.actions.unshift({ key: 'print', label: 'Print', icon: 'print', style: 'primary', type: 'print' });
+    } else if (type === 'wizard') {
+        base.title = 'New Wizard';
+        base.wizard = true;
+        base.header.fields = [
+            { key: 'w_date', label: 'Date', type: 'date', default: '$TODAY', required: true, tab: 'Step 1 - Basics' },
+            { key: 'w_ref', label: 'Reference', type: 'text', tab: 'Step 1 - Basics' },
+            { key: 'w_detail1', label: 'Detail A', type: 'text', tab: 'Step 2 - Details' },
+            { key: 'w_detail2', label: 'Detail B', type: 'text', tab: 'Step 2 - Details' },
+            { key: 'w_confirm', label: 'Remarks', type: 'textarea', span: 4, tab: 'Step 3 - Confirm' }
+        ];
+        base.actions.unshift({ key: 'save_local', label: 'Finish & Save', icon: 'flag-checkered', style: 'primary', type: 'local_file', validate: true, folder: 'forms' });
+    } else if (type === 'report') {
+        base.title = 'New Report Page';
+        base.header.fields = [
+            { key: 'p_from', label: 'From', type: 'date', default: '$TODAY' },
+            { key: 'p_to', label: 'To', type: 'date', default: '$TODAY' }
+        ];
+        base.reports = [{ key: 'report1', title: 'Report', sql: '', autoRun: false }];
+        base.actions = [
+            { key: 'print', label: 'Print', icon: 'print', style: 'primary', type: 'print' },
+            { key: 'close', label: 'Close', type: 'close', style: 'default' }
+        ];
+    }
+    return base;
+}
+function openNewFormWizard() {
+    const old = document.getElementById('nfw-modal');
+    if (old) old.remove();
+    document.body.insertAdjacentHTML('beforeend',
+    '<div id="nfw-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:30000;display:flex;align-items:center;justify-content:center;">' +
+      '<div style="background:white;width:94%;max-width:640px;border-radius:14px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+        '<div style="padding:0.8rem 1.2rem;background:linear-gradient(135deg,var(--primary),var(--primary-dark));display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-weight:800;font-size:14px;color:white;"><i class="fas fa-plus"></i> Create a Form — pick a type</div>' +
+          '<button onclick="document.getElementById(\'nfw-modal\').remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
+        '</div>' +
+        '<div style="padding:1rem 1.2rem;display:grid;grid-template-columns:1fr 1fr;gap:9px;">' +
+        FORM_TYPES.map(t =>
+            '<div onclick="newFormOfType(\'' + t.key + '\')" style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;cursor:pointer;" onmouseover="this.style.borderColor=\'var(--primary)\';this.style.background=\'#f0fdfa\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.background=\'white\'">' +
+            '<div style="font-size:13px;font-weight:800;color:#0f172a;"><i class="fas fa-' + t.icon + '" style="color:var(--primary);"></i> ' + t.name + '</div>' +
+            '<div style="font-size:10.5px;color:#64748b;margin-top:3px;">' + t.desc + '</div></div>').join('') +
+        '<div style="grid-column:span 2;font-size:10px;color:#94a3b8;">Every type is a starting template — refine it in the Visual and Designer tabs, or describe changes to Build from AI.</div>' +
+        '</div>' +
+      '</div></div>');
+}
+function newFormOfType(type) {
+    const m = document.getElementById('nfw-modal');
+    if (m) m.remove();
+    cur = { form_key: '', name: '', description: '', active: 'Y', def: formTemplate(type), isNew: true };
     curKey = '';
     jsonMode = false;
+    pageTab = 'visual';   // land in the visual designer
+    resetTestPreview();
+    renderList(); renderEditor();
+}
+
+// ── duplicate / export / import ─────────────────────────────
+function duplicateForm() {
+    if (!cur) return;
+    normalizeDef();
+    cur = {
+        form_key: '', name: (cur.name || 'Form') + ' (copy)', description: cur.description,
+        active: 'Y', def: JSON.parse(JSON.stringify(cur.def)), isNew: true
+    };
+    curKey = '';
+    pageTab = 'design';
+    resetTestPreview();
+    renderList(); renderEditor();
+    const ss = document.getElementById('save-status');
+    if (ss) ss.innerHTML = '<span style="color:#0e7490;font-weight:700;">Copy created — set a new form key and Save.</span>';
+}
+function exportForm() {
+    if (!cur) return;
+    normalizeDef();
+    const env = { form_key: cur.form_key, name: cur.name, description: cur.description, definition: cur.def };
+    const json = JSON.stringify(env, null, 2);
+    const fileName = (cur.form_key || 'form') + '.json';
+    try { navigator.clipboard.writeText(json); } catch (e) { }
+    sendMessageToCSharp({
+        action: 'saveLocalFile', folder: 'forms/exports', fileName: fileName,
+        dataBase64: btoa(unescape(encodeURIComponent(json)))
+    }, function (err, d2) {
+        const ok = !err && d2 && d2.success !== false;
+        const ss = document.getElementById('save-status');
+        if (ss) ss.innerHTML = ok
+            ? '<span style="color:#15803d;font-weight:700;"><i class="fas fa-check-circle"></i> Exported to ' + esc((d2 && d2.path) || fileName) + ' (also copied to clipboard).</span>'
+            : '<span style="color:#b45309;font-weight:700;">Copied to clipboard. File save needs the updated app (' + esc(String(err || (d2 && d2.error) || '')) + ').</span>';
+    });
+}
+function importForm() {
+    const json = prompt('Paste the exported form JSON ({form_key, name, description, definition} or a bare definition):');
+    if (!json || !json.trim()) return;
+    let env;
+    try { env = JSON.parse(json); } catch (e) { alert('Invalid JSON: ' + e.message); return; }
+    const def = env.definition || (env.header ? env : null);
+    if (!def) { alert('No definition found in that JSON.'); return; }
+    cur = {
+        form_key: String(env.form_key || ''), name: String(env.name || def.title || 'Imported form'),
+        description: String(env.description || ''), active: 'Y',
+        def: normalizeLoadedDef(def), isNew: true
+    };
+    curKey = '';
     pageTab = 'design';
     resetTestPreview();
     renderList(); renderEditor();
@@ -452,15 +598,26 @@ function renderEditor() {
           '<div style="font-size:14px;font-weight:800;color:#0f172a;">' + (cur.isNew ? 'New Form' : esc(cur.name)) + '</div>' +
           '<div style="display:flex;gap:4px;">' +
             '<div onclick="setPageTab(\'design\')" style="padding:5px 16px;font-size:11.5px;font-weight:800;cursor:pointer;border-radius:8px;' + (pageTab === 'design' ? 'background:var(--primary);color:white;' : 'background:#e2e8f0;color:#475569;') + '"><i class="fas fa-pen-ruler"></i> Designer</div>' +
+            '<div onclick="setPageTab(\'visual\')" style="padding:5px 16px;font-size:11.5px;font-weight:800;cursor:pointer;border-radius:8px;' + (pageTab === 'visual' ? 'background:var(--primary);color:white;' : 'background:#e2e8f0;color:#475569;') + '"><i class="fas fa-object-group"></i> Visual</div>' +
             '<div onclick="setPageTab(\'test\')" style="padding:5px 16px;font-size:11.5px;font-weight:800;cursor:pointer;border-radius:8px;' + (pageTab === 'test' ? 'background:var(--primary);color:white;' : 'background:#e2e8f0;color:#475569;') + '"><i class="fas fa-vial"></i> Preview &amp; Test</div>' +
           '</div>' +
         '</div>' +
         '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
           (pageTab === 'design' ? '<button class="btn btn-o" onclick="toggleJson()"><i class="fas fa-code"></i> ' + (jsonMode ? 'Designer' : 'JSON') + '</button>' : '') +
+          '<button class="btn btn-o" onclick="duplicateForm()" title="Copy this form as a new one"><i class="fas fa-copy"></i></button>' +
+          '<button class="btn btn-o" onclick="exportForm()" title="Export definition JSON"><i class="fas fa-file-export"></i></button>' +
           '<button class="btn btn-g" onclick="saveForm()"><i class="fas fa-floppy-disk"></i> Save</button>' +
         '</div>' +
       '</div>' +
       '<div id="save-status" style="font-size:11px;margin-bottom:8px;"></div>';
+
+    if (pageTab === 'visual') {
+        normalizeDef();
+        html += '<div id="vd-mount"></div></div>';
+        box.innerHTML = html;
+        renderVisualTab();
+        return;
+    }
 
     if (pageTab === 'test') {
         html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">' +
@@ -496,6 +653,8 @@ function renderEditor() {
         fld('Width px', inNum('def.width', d.width)) +
         fld('Height px', inNum('def.height', d.height), 'empty = auto height') +
         fld('Header columns', inNum('def.header.columns', d.header.columns)) +
+        fld('Wizard mode', inChk('def.wizard', d.wizard, 'tab pages become steps (Back / Next)')) +
+        fld('Mobile columns', inNum('def.mobile.columns', (d.mobile || {}).columns), 'phone layout; hide/order fields in the Visual tab\'s Mobile mode') +
       '</div></div>' +
 
       // header fields

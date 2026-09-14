@@ -215,6 +215,40 @@
         return t;
     }
 
+    // ── conditional visibility (showWhen) ───────────────────
+    // showWhen on a field, detail block, report or action:
+    //   { field, op, value }  or an ARRAY of those (all must pass).
+    // Ops: eq, ne, gt, lt, gte, lte, in (value = array or csv),
+    //      empty, notEmpty. Evaluated against the live header values;
+    //      hidden fields are also skipped by validation.
+    function condOk(c) {
+        if (!c) return true;
+        if (Array.isArray(c)) return c.every(condOk);
+        var v = st.values[c.field];
+        var t = c.value;
+        switch (String(c.op || 'eq')) {
+            case 'eq':  return String(v) === String(t);
+            case 'ne':  return String(v) !== String(t);
+            case 'gt':  return num(v) > num(t);
+            case 'lt':  return num(v) < num(t);
+            case 'gte': return num(v) >= num(t);
+            case 'lte': return num(v) <= num(t);
+            case 'in':  return (Array.isArray(t) ? t : String(t || '').split(','))
+                .map(function (x) { return String(x).trim(); }).indexOf(String(v)) >= 0;
+            case 'empty':    return v === '' || v === undefined || v === null;
+            case 'notEmpty': return !(v === '' || v === undefined || v === null);
+            default: return true;
+        }
+    }
+    function visibleNow(item) { return !item.showWhen || condOk(item.showWhen); }
+    function defHasConds() {
+        var d = st.def;
+        return (((d.header && d.header.fields) || []).some(function (f) { return f.showWhen; }))
+            || ((d.details || []).some(function (x) { return x.showWhen; }))
+            || ((d.reports || []).some(function (x) { return x.showWhen; }))
+            || ((d.actions || []).some(function (x) { return x.showWhen; }));
+    }
+
     // ── rendering ───────────────────────────────────────────
     function inputCss() { return 'width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;outline:none;'; }
 
@@ -312,6 +346,7 @@
             default: 'border:1px solid #e2e8f0;background:white;color:#334155;'
         };
         return (st.def.actions || []).map(function (a, i) {
+            if (!visibleNow(a)) return '';
             return '<button id="fe-act-' + i + '" onclick="WMSFormEngine._act(' + i + ')" style="' + (styles[a.style] || styles.default) + 'border-radius:8px;cursor:pointer;padding:7px 16px;font-size:12px;font-weight:800;">' +
                 (a.icon ? '<i class="fas fa-' + esc(a.icon) + '"></i> ' : '') + esc(a.label || a.key) + '</button>';
         }).join('');
@@ -453,16 +488,17 @@
                 return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
             });
         }
-        var hFields = allFields.filter(function (f) { return !hTabs.length || (f.tab || hTabs[0]) === hAct; });
+        var hFields = allFields.filter(function (f) { return (!hTabs.length || (f.tab || hTabs[0]) === hAct) && visibleNow(f); });
         var hCols = mob ? (mob.columns || 1) : ((def.header && def.header.columns) || 4);
 
         var dTabs = detailTabs();
         var dAct = dTabs.length ? (dTabs.indexOf(st.ui.detailTab) >= 0 ? st.ui.detailTab : dTabs[0]) : null;
         var dets = (def.details || []).filter(function (d) {
+            if (!visibleNow(d)) return false;
             if (wiz) return d.tab ? d.tab === hAct : lastStep;
             return !dTabs.length || (d.tab || dTabs[0]) === dAct;
         });
-        var reps = (wiz && !lastStep) ? [] : (def.reports || []);
+        var reps = ((wiz && !lastStep) ? [] : (def.reports || [])).filter(visibleNow);
 
         var wizBar = wiz
             ? '<div style="display:flex;align-items:flex-end;gap:6px;margin-bottom:14px;">' +
@@ -537,6 +573,8 @@
                 refreshLookups(k, 0);
                 headerComputed();
                 syncComputedHeaderCells();
+                // conditional visibility may have flipped - repaint
+                if (defHasConds()) render(true);
             });
         });
         // detail cells
@@ -898,6 +936,7 @@
         captureHeader();
         var errs = [];
         ((st.def.header && st.def.header.fields) || []).forEach(function (f) {
+            if (!visibleNow(f)) return;   // hidden by showWhen = not validated
             var v = st.values[f.key];
             if (f.required && (v === '' || v === undefined || v === null)) errs.push((f.label || f.key) + ' is required.');
             if (f.type === 'number' && v !== '' && v !== undefined) {
