@@ -8,6 +8,7 @@ REM       Home\         (Home dashboard)
 REM       wms\          (web frontend files)
 REM       dist\         (.NET build output + runtime)
 REM       ap\, ar\, ca\, fa\, gl\, om\, pos\, sync\, Inventory\  (modules)
+REM       aianalysis\   (AI Digital Employee module)
 REM       rag\rag_service.exe, rag\index.html  (compiled RAG service)
 REM       app.js, config.js, index.html, styles.css, etc.
 REM ============================================================
@@ -79,7 +80,7 @@ if errorlevel 1 (
 )
 
 REM --- Copy module folders ---
-for %%F in (ap ar ca fa gl om pos sync Inventory) do (
+for %%F in (ap ar ca fa gl om pos sync Inventory aianalysis) do (
     if exist "%SCRIPT_DIR%%%F" (
         echo Copying %%F folder...
         mkdir "%APP_DIR%\%%F"
