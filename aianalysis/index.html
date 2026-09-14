@@ -9,6 +9,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<script src="../formsdesigner/form-engine.js"></script>
 <style>
     :root {
         --primary: #7c3aed;
@@ -1695,6 +1696,10 @@ function handleTurnResponse(chat, err, resp) {
             // Dedicated order entry dialog (header + lines + totals + item search)
             openOrderEntryFromChat(formObj);
         }
+        else if (formObj && formObj.formKey && typeof WMSFormEngine !== 'undefined') {
+            // DB-stored form (WMS_AI_FORMS) rendered by the generic form engine
+            openStoredFormFromChat(formObj);
+        }
         else if (formObj && formObj.apiId) renderApiFormCard(box, formObj.apiId, formObj.values || {}, 'chat', null);
         else appendAssistantBubble('I could not open the API form (missing apiId).', [], ats, true);
         box.scrollTop = box.scrollHeight;
@@ -3261,6 +3266,20 @@ function showApiConfirm(formId, req) {
 // Opens the dedicated order entry dialog from a chat api_form and wires
 // its submit back into the conversation (DB route runs NEWORDER directly;
 // Fusion route hands the composed order to the model for option 2)
+// Opens a DB-stored form (WMS_AI_FORMS) from a chat api_form answer.
+// The engine runs the form's own actions itself; a "chat" button hands
+// the completed values back to the assistant as a new turn.
+function openStoredFormFromChat(formObj) {
+    WMSFormEngine.openByKey(formObj.formKey, {
+        values: formObj.values || {},
+        chatHandoff: function (action, payload) {
+            const p = (action.prompt || 'The user completed the form "' + formObj.formKey + '". Values:');
+            sendTurn(p + '\n' + JSON.stringify(payload),
+                '▶ Form ' + formObj.formKey + ' — sent to the assistant');
+        }
+    });
+}
+
 function openOrderEntryFromChat(formObj, opts) {
     const instant = !!(opts && opts.instant);
     // Local chat note without a model round (used by the instant open path)

@@ -1924,6 +1924,60 @@ navPanel.Controls.Add(wmsDevButton);
                                     }
                                     break;
 
+                                case "saveLocalFile":
+                                    {
+                                        // Save Local action of DB-stored forms (form-engine.js):
+                                        // writes a file under C:\fusion\<folder>\<fileName>.
+                                        // Both parts are sanitized - no traversal outside C:\fusion.
+                                        try
+                                        {
+                                            string slfFolder = "forms";
+                                            string slfName = "form.json";
+                                            string slfB64 = null;
+                                            using (var slfDoc = JsonDocument.Parse(messageJson))
+                                            {
+                                                var slfRoot = slfDoc.RootElement;
+                                                if (slfRoot.TryGetProperty("folder", out var foEl) && foEl.ValueKind == JsonValueKind.String)
+                                                    slfFolder = foEl.GetString() ?? "forms";
+                                                if (slfRoot.TryGetProperty("fileName", out var fnEl2) && fnEl2.ValueKind == JsonValueKind.String)
+                                                    slfName = fnEl2.GetString() ?? "form.json";
+                                                if (slfRoot.TryGetProperty("dataBase64", out var dbEl2) && dbEl2.ValueKind == JsonValueKind.String)
+                                                    slfB64 = dbEl2.GetString();
+                                            }
+                                            if (string.IsNullOrEmpty(slfB64))
+                                                throw new Exception("No file data received");
+
+                                            foreach (char bad in Path.GetInvalidFileNameChars())
+                                                slfName = slfName.Replace(bad, '_');
+                                            // folder: allow simple subfolder segments only
+                                            var segs = slfFolder.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+                                            var cleanSegs = new List<string>();
+                                            foreach (var seg in segs)
+                                            {
+                                                string s = seg;
+                                                foreach (char bad in Path.GetInvalidFileNameChars()) s = s.Replace(bad, '_');
+                                                if (s == "." || s == "..") continue;
+                                                cleanSegs.Add(s);
+                                            }
+                                            string slfDir = @"C:\fusion";
+                                            foreach (var seg in cleanSegs) slfDir = Path.Combine(slfDir, seg);
+                                            Directory.CreateDirectory(slfDir);
+                                            string slfPath = Path.Combine(slfDir, slfName);
+                                            File.WriteAllBytes(slfPath, Convert.FromBase64String(slfB64));
+
+                                            System.Diagnostics.Debug.WriteLine($"[saveLocalFile] Saved {slfPath}");
+                                            wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(
+                                                new { requestId = requestId, success = true, path = slfPath }));
+                                        }
+                                        catch (Exception exSlf)
+                                        {
+                                            System.Diagnostics.Debug.WriteLine("[C# ERROR] saveLocalFile failed: " + exSlf.Message);
+                                            wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(
+                                                new { requestId = requestId, success = false, error = exSlf.Message }));
+                                        }
+                                    }
+                                    break;
+
                                 case "aiPickFolder":
                                     {
                                         string currentFolder = null;

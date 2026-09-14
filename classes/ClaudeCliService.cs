@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V37";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V38";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -439,6 +439,33 @@ namespace WMSApp
             sb.AppendLine("6. VERIFY from the POST response itself: report the returned OrderNumber / HeaderId and any MessageText. Report Fusion errors verbatim; fix only what the error names and re-ask approval - never fire blind retries.");
             sb.AppendLine();
             sb.AppendLine("First runs of this recipe belong on the TEST instance unless the user explicitly says PROD.");
+            sb.AppendLine();
+            sb.AppendLine("### USER-DEFINED FORMS (WMS_AI_FORMS) - DB-stored forms you can open AND build");
+            sb.AppendLine();
+            sb.AppendLine("The table WMS_AI_FORMS stores complete form definitions (form_key, name, description, definition = one JSON document, active). The app renders them with a generic engine - master-detail, SQL lists, dependent lists, search pickers, computed columns, totals, validations and buttons all come from the JSON. No code per form.");
+            sb.AppendLine();
+            sb.AppendLine("OPENING a stored form: when the user asks to open/fill a form that is NOT order.create, spend one sql round on SELECT form_key, name, description FROM wms_ai_forms WHERE active='Y', match by name/description, then answer:");
+            sb.AppendLine("  { \"action\": \"api_form\", \"formKey\": \"<form_key>\", \"note\": \"...\", \"values\": { any header keys to prefill } }");
+            sb.AppendLine("The app loads the definition and renders it - you supply NO _lookups for stored forms. If nothing matches, say which forms exist and offer to build a new one.");
+            sb.AppendLine();
+            sb.AppendLine("BUILDING or CHANGING a form (the user says 'build me a form...', 'add a button to form X', or sends TRAIN FORM REQUEST): compose/patch the definition JSON and save it with INSERT/UPDATE on wms_ai_forms through the database write flow (approval card). Verify every table/column you reference against the schema catalog first. Definition JSON schema:");
+            sb.AppendLine("  { title, icon (font-awesome name), width,");
+            sb.AppendLine("    header: { columns, fields: [ { key, label, type: text|number|date|textarea|checkbox|select|picker|readonly|computed,");
+            sb.AppendLine("      default ('$TODAY'|'$USER'|literal), required, span, min, max, pattern, hint,");
+            sb.AppendLine("      select -> listSql (aliases VALUE,LABEL; reference another header field as :FIELDKEY to make a DEPENDENT list) or options:[...],");
+            sb.AppendLine("      picker -> pickerSql (:SEARCH placeholder), display (column shown), map { headerKey: SQLCOLUMN },");
+            sb.AppendLine("      computed -> formula over header keys, e.g. \"qty_total * 1.15\" } ] },");
+            sb.AppendLine("    details: [ { key, title, required, allowManualRow, allowDelete, qtyKey (default qty),");
+            sb.AppendLine("      pickerSql (:SEARCH + header :FIELDKEY placeholders), pickerMap { columnKey: SQLCOLUMN },");
+            sb.AppendLine("      columns: [ { key, label, type: text|number|computed, editable, formula, width, default } ],");
+            sb.AppendLine("      totals: [columnKeys], lineRulesSql (companion rows: :COLUMNKEY from the parent row; result aliases = column keys; BUY_QTY/GET_QTY drive the companion qty - same idea as BOGO) } ],");
+            sb.AppendLine("    rules: { submitChecks: [ { sql (header :FIELDKEY placeholders), message, mode: FAIL_IF_ROWS|FAIL_IF_NO_ROWS } ] },");
+            sb.AppendLine("    actions: [ { key, label, icon, style: primary|default|danger, validate, confirm,");
+            sb.AppendLine("      type 'ords' -> method, url, bodyTemplate (strings \"{HEADER}\" \"{TOTALS}\" \"{VALUES}\" \"{<detailKey>}\" become objects/arrays; \"{field}\" substitutes header values),");
+            sb.AppendLine("      type 'sql' -> statement ({field} placeholders; single statement via the guarded write endpoint),");
+            sb.AppendLine("      type 'local_file' -> folder (under C:\\fusion), fileName ({field}/{TIMESTAMP}/{FORM_KEY} ok),");
+            sb.AppendLine("      type 'chat' -> prompt (form values come back to you as a message), type 'close' } ] }");
+            sb.AppendLine("After saving, confirm and offer to open it (api_form with the formKey). Users can also edit forms visually in the Forms Designer module - your JSON and theirs are the same rows.");
             sb.AppendLine();
             sb.AppendLine("### Discovering Fusion SCM APIs you don't know (self-describe)");
             sb.AppendLine();
