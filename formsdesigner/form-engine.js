@@ -161,6 +161,10 @@
 
     function captureHeader() {
         (st.def.header.fields || []).forEach(function (f) {
+            // picker/readonly/computed values are set programmatically (a
+            // pick, a lookup, a formula) - never read them back from the
+            // DOM, or a re-render right after the set would wipe them
+            if (f.type === 'picker' || f.type === 'readonly' || f.type === 'computed') return;
             var el = document.getElementById('fe-h-' + f.key);
             if (!el) return;
             if (f.type === 'checkbox') st.values[f.key] = el.checked ? 'Y' : 'N';
@@ -416,8 +420,8 @@
         }, 250);
     }
 
-    function render() {
-        captureHeader();
+    function render(skipCapture) {
+        if (!skipCapture) captureHeader();
         headerComputed();
         var def = st.def;
         var hTabs = headerTabs();
@@ -672,7 +676,7 @@
                         document.getElementById('fe-picker').remove();
                         loadAllLists(function () {
                             if (!st) return;
-                            render();   // dependent lists may use the picked values
+                            render(true);   // just-picked values are newer than the DOM
                             // lookup fields that reference the picked/mapped keys
                             refreshLookups(f.key, 0);
                             Object.keys(map).forEach(function (hk) { refreshLookups(hk, 0); });
