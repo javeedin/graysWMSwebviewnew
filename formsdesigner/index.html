@@ -287,6 +287,7 @@ function headerFieldCard(f, i, len) {
         fld('Min / Max', inNum(p + 'min', f.min) + '<div style="height:4px;"></div>' + inNum(p + 'max', f.max)) +
         '</div>' +
         '<div class="grid2" style="margin-top:7px;">' +
+        fld('Value SQL (auto-populate)', inArea(p + 'valueSql', f.valueSql, '', 2), 'fills THIS field automatically: SQL returns one value (first column or alias VALUE). Use :OTHERFIELD — re-runs whenever that field changes, e.g. SELECT price_list FROM grfu_customer WHERE account_number = :ACCOUNT_NUMBER') +
         fld('List SQL (select)', inArea(p + 'listSql', f.listSql, '', 2), 'aliases VALUE, LABEL. Use :OTHERFIELD to make a DEPENDENT list — it reloads when that field changes') +
         fld('Picker SQL (picker)', inArea(p + 'pickerSql', f.pickerSql, '', 2), ':SEARCH placeholder; user searches and picks a row') +
         fld('Picker map (picker)', inArea(p + 'map', f.map, 'json', 2), 'JSON: { "headerFieldKey": "SQLCOLUMN" } — which columns fill which fields') +

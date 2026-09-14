@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V39";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V40";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -452,6 +452,7 @@ namespace WMSApp
             sb.AppendLine("  { title, icon (font-awesome name), width, height (px, optional),");
             sb.AppendLine("    header: { columns, fields: [ { key, label, type: text|number|date|textarea|checkbox|select|picker|readonly|computed,");
             sb.AppendLine("      default ('$TODAY'|'$USER'|literal), required, span, min, max, pattern, hint, tab (fields sharing a tab name group into header TAB PAGES),");
+            sb.AppendLine("      valueSql (AUTO-POPULATE: SQL returning one value - first column or alias VALUE - that fills this field; :OTHERFIELD placeholders make it re-run whenever that field changes, cascading through chains, e.g. price list looked up from :ACCOUNT_NUMBER after a customer pick),");
             sb.AppendLine("      select -> listSql (aliases VALUE,LABEL; reference another header field as :FIELDKEY to make a DEPENDENT list) or options:[...],");
             sb.AppendLine("      picker -> pickerSql (:SEARCH placeholder), display (column shown), map { headerKey: SQLCOLUMN },");
             sb.AppendLine("      computed -> formula over header keys, e.g. \"qty_total * 1.15\" } ] },");

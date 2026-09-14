@@ -470,6 +470,7 @@
                 var k = el.getAttribute('data-fkey');
                 st.values[k] = el.type === 'checkbox' ? (el.checked ? 'Y' : 'N') : el.value;
                 refreshDependentLists(k);
+                refreshLookups(k, 0);
                 headerComputed();
                 syncComputedHeaderCells();
             });
@@ -566,6 +567,54 @@
         });
     }
 
+    // ── lookup fields (auto-populate from SQL) ──────────────
+    // A field with valueSql fetches its own value: the SQL returns one
+    // row and the field takes the first column (or the VALUE alias).
+    // :OTHERFIELD placeholders make it react - whenever a referenced
+    // field changes (typed, picked or itself looked up), the lookup
+    // re-runs. Cascades are followed up to 4 levels deep.
+    function runLookup(f, depth) {
+        var sql = bindHeaderSql(f.valueSql);
+        console.log('[FormEngine] lookup', f.key, 'SQL:', sql);
+        runSql(sql, function (err, rows) {
+            if (!st) return;
+            if (err) { console.warn('[FormEngine] lookup', f.key, 'failed:', err); return; }
+            var v = '';
+            if (rows.length) {
+                var r0 = rows[0];
+                v = r0.VALUE !== undefined ? r0.VALUE : r0[Object.keys(r0)[0]];
+            }
+            if (v === undefined || v === null) v = '';
+            if (String(st.values[f.key]) === String(v)) return;
+            st.values[f.key] = v;
+            var el = document.getElementById('fe-h-' + f.key);
+            if (el) {
+                if (el.type === 'checkbox') el.checked = (v === 'Y' || v === true);
+                else el.value = v;
+            }
+            headerComputed(); syncComputedHeaderCells();
+            refreshDependentLists(f.key);
+            refreshLookups(f.key, (depth || 0) + 1);
+        });
+    }
+    function refreshLookups(changedKey, depth) {
+        if ((depth || 0) > 4) return;
+        ((st.def.header && st.def.header.fields) || []).forEach(function (f) {
+            if (!f.valueSql || f.key === changedKey) return;
+            if (sqlDeps(f.valueSql).indexOf(changedKey) < 0) return;
+            runLookup(f, depth || 0);
+        });
+    }
+    // on open: run lookups whose referenced fields already carry values
+    function initLookups() {
+        ((st.def.header && st.def.header.fields) || []).forEach(function (f) {
+            if (!f.valueSql) return;
+            var deps = sqlDeps(f.valueSql);
+            var ready = deps.every(function (k) { return st.values[k] !== '' && st.values[k] !== undefined && st.values[k] !== null; });
+            if (ready) runLookup(f, 0);
+        });
+    }
+
     // ── pickers ─────────────────────────────────────────────
     function pickerDialog(title, onSearch, footer) {
         var old = document.getElementById('fe-picker');
@@ -621,7 +670,13 @@
                         Object.keys(map).forEach(function (hk) { st.values[hk] = r[String(map[hk]).toUpperCase()]; });
                         if (f.display) st.values[f.key] = r[String(f.display).toUpperCase()];
                         document.getElementById('fe-picker').remove();
-                        loadAllLists(function () { render(); });   // dependent lists may use the picked values
+                        loadAllLists(function () {
+                            if (!st) return;
+                            render();   // dependent lists may use the picked values
+                            // lookup fields that reference the picked/mapped keys
+                            refreshLookups(f.key, 0);
+                            Object.keys(map).forEach(function (hk) { refreshLookups(hk, 0); });
+                        });
                     });
                 });
             });
@@ -898,6 +953,8 @@
                 });
                 // auto-run reports flagged autoRun
                 (def.reports || []).forEach(function (r) { if (r.autoRun) runReport(r.key); });
+                // lookup fields whose referenced values were prefilled
+                initLookups();
             });
             render();   // immediate paint; lists re-render when loaded
         },
