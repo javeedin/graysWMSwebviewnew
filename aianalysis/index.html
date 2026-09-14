@@ -4169,6 +4169,17 @@ function renderProcessEditor(row) {
     let html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
         '<div style="font-size:13px;font-weight:800;color:#334155;">' + (isNew ? 'New Process' : esc(p.name)) + '</div>' +
         '<label style="font-size:11px;color:#475569;cursor:pointer;"><input type="checkbox" id="proc-f-active" ' + (p.active === 'Y' ? 'checked' : '') + '> Active</label></div>';
+
+    // Teach in plain words - the AI rewrites it, picks the right fields,
+    // and updates the process (behind the normal approval card)
+    if (!isNew) {
+        html += '<div style="border:1.5px solid #c4b5fd;background:#f5f3ff;border-radius:10px;padding:10px 12px;margin-bottom:14px;">' +
+            '<div style="font-size:11px;font-weight:800;color:#6d28d9;margin-bottom:4px;"><i class="fas fa-wand-magic-sparkles"></i> Teach in plain words</div>' +
+            '<div style="font-size:9.5px;color:#7c6f9f;margin-bottom:6px;">Write the rule any way you like — e.g. "when order lines added check the bogo table and if the item is there add the free item too". The AI fixes the wording, decides which field it belongs in, and shows you the update for approval.</div>' +
+            '<textarea id="proc-teach-text" placeholder="Describe the rule or knowledge in your own words…" style="width:100%;box-sizing:border-box;min-height:58px;padding:6px 8px;border:1px solid #ddd6fe;border-radius:6px;font-size:12px;resize:vertical;"></textarea>' +
+            '<div style="margin-top:6px;text-align:right;"><button onclick="teachProcess()" style="border:none;background:#7c3aed;color:white;border-radius:7px;cursor:pointer;padding:6px 16px;font-size:11.5px;font-weight:800;"><i class="fas fa-graduation-cap"></i> Teach the bot</button></div>' +
+        '</div>';
+    }
     PROC_FIELDS.forEach(f => {
         const v = p[f.key] || (f.key === 'process_type' ? 'ACTION' : '');
         const dis = (f.key === 'process_key' && !isNew) ? 'disabled style="background:#f8fafc;"' : '';
@@ -4186,6 +4197,21 @@ function renderProcessEditor(row) {
         '<button onclick="saveProcess(' + isNew + ')" style="border:none;background:#16a34a;color:white;border-radius:8px;cursor:pointer;padding:8px 20px;font-size:12px;font-weight:800;"><i class="fas fa-floppy-disk"></i> Save Process</button>' +
         '<span id="proc-save-status" style="font-size:11px;"></span></div>';
     box.innerHTML = html;
+}
+
+// Sends the rough text to the chatbot: it rewrites it, merges it into
+// the right process fields and applies the UPDATE behind an approval card
+function teachProcess() {
+    const txt = (document.getElementById('proc-teach-text') || {}).value || '';
+    if (!txt.trim()) return;
+    const key = _procKey;
+    if (!key) return;
+    const p = _procRows.find(r => r.process_key === key);
+    switchPage('chatbot');
+    sendTurn(
+        'TRAIN PROCESS REQUEST for process_key=\'' + key + '\'. The user wrote this knowledge informally:\n"""\n' + txt.trim() + '\n"""\n' +
+        'Follow the training procedure: read the current row, rewrite the knowledge clearly, merge it into the correct field(s) without losing existing content, apply ONE UPDATE via the database write flow, then confirm what you placed where.',
+        '🎓 Teach process "' + esc((p && p.name) || key) + '": ' + txt.trim());
 }
 
 function saveProcess(isNew) {

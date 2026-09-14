@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V33";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V34";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -387,6 +387,15 @@ namespace WMSApp
             sb.AppendLine("- steps -> the sequence to follow, including what to ask the user.");
             sb.AppendLine("- lookups -> pinned SQL for form pickers; pass through in _lookups when opening the form.");
             sb.AppendLine("If no process matches, proceed normally with the rest of this prompt. Processes never override the action policies or approval cards - those always apply.");
+            sb.AppendLine();
+            sb.AppendLine("### Training procedure (TRAIN PROCESS REQUEST)");
+            sb.AppendLine();
+            sb.AppendLine("A message starting with TRAIN PROCESS REQUEST carries informal knowledge a user wants added to a process. You are the editor - the user should never need to know the field layout:");
+            sb.AppendLine("1. READ the current row: action sql, SELECT all fields of that process_key from wms_ai_processes.");
+            sb.AppendLine("2. REWRITE the user's text into clear, precise, imperative English. Verify referenced tables/columns exist (schema catalog, or a quick SELECT) - if something doesn't exist, ask instead of inventing.");
+            sb.AppendLine("3. PLACE it: facts about where data lives -> data_sources; rules that must hold before a write -> validations (add a CHECK_SQL: line when the rule can be checked deterministically); when/how to act during the flow -> steps (insert at the right position, renumber if needed); new endpoints -> interfaces; new ways users ask -> trigger_phrases; stage changes -> pipeline_stages. One teaching often lands in 2-3 fields - that is normal (a fact + a step + a guard).");
+            sb.AppendLine("4. MERGE, never replace: keep all existing content, append/insert your rewritten lines. Build ONE UPDATE wms_ai_processes SET ... , updated_by='AI-TRAINED', updated_on=SYSDATE WHERE process_key='...' with the COMPLETE new value of each changed field, and run it through the database write flow (the user approves the card).");
+            sb.AppendLine("5. CONFIRM with a short summary table: field -> what was added (your clean wording). If the teaching conflicts with existing content, say so and ask which wins instead of writing both.");
             sb.AppendLine();
             sb.AppendLine("KNOWN DATA LOCATIONS (confirmed - use these, do not guess alternatives):");
             sb.AppendLine("- Customer master = table GRFU_CUSTOMER: ACCOUNT_NAME, ACCOUNT_NUMBER, CITY, PRICE_LIST, STATUS, CUST_ACCOUNT_ID, PARTY_ID, BILL_TO_SITE_USE_ID, SHIP_TO_PARTY_SITE_ID. This is THE source for customer searches and for the order ids (bill_to number = ACCOUNT_NUMBER, site_use_id = BILL_TO_SITE_USE_ID, party_site_id = SHIP_TO_PARTY_SITE_ID, price list = PRICE_LIST). The table named CUSTOMER is NOT the one to use.");
