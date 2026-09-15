@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V43";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V44";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -472,9 +472,8 @@ namespace WMSApp
             sb.AppendLine("    mobile: { columns, hidden: [fieldKeys], order: [fieldKeys] } - the PHONE layout, applied automatically on narrow screens,");
             sb.AppendLine("    sidebar: { position: 'right'|'left', items: [ { icon, label, action (an action key) } ] } - a docked icon rail whose buttons fire form actions,");
             sb.AppendLine("    showWhen on any field / section / detail / report / action: { field, op, value } or an ARRAY (all must pass) - ops eq, ne, gt, lt, gte, lte, in (csv or array), empty, notEmpty. CONDITIONAL VISIBILITY evaluated live against the header; hidden fields skip validation. Use it whenever the user says 'show X only when Y',");
-            sb.AppendLine("    sections: [ { key, title, tab, columns, display: 'inline' (heading + rule) | 'card' (boxed) | 'plain',");
-            sb.AppendLine("      sourceSql (a record query, header :FIELDKEY placeholders allowed), fetchOnOpen (true -> the first row fills fields whose keys match the column aliases - APEX form-on-table style),");
-            sb.AppendLine("      style: { headingColor, lineColor, background, font, fontSize } } ] - REGIONS that group items inside a tab page. A field or detail joins one via its 'section' property (field.section / detail.section = the section key). Unsectioned items render first in the main grid,");
+            sb.AppendLine("    sections: [ { key, title, tab, columns, display: 'inline' (heading + rule) | 'card' (boxed) | 'plain', style: { headingColor, lineColor, background, font, fontSize } } ] - SECTIONS are the styled groups inside a tab page; items join via field.section / detail.section,");
+            sb.AppendLine("    regions: [ { key, title, section (parent section key; empty = top level), tab (top-level only), display: 'single' | 'multi', columns, sourceSql (header :FIELDKEY placeholders allowed), fetchOnOpen, showWhen } ] - REGIONS are the DATA-BOUND units INSIDE sections. display 'single' = one record: fields join via field.region and their keys match the SQL column aliases (fetchOnOpen fills them from the first row - APEX form-on-table). display 'multi' = an editable grid: a detail joins via detail.region and typically carries the same sourceSql to load its rows. Hierarchy: tab page > section > region > items,");
             sb.AppendLine("    style (form level): { font, background, accent (title bar color) },");
             sb.AppendLine("    details[].sourceSql: rows loaded into the editable grid on open (aliases = column keys; header placeholders allowed)");
             sb.AppendLine("  Use sections whenever a form has natural groups (Customer info / Delivery / Totals) or the user shows a screenshot with grouped boxes - give each group a section with a matching heading.");

@@ -162,6 +162,7 @@ const EMPTY_DEF = () => ({
     rules: { submitChecks: [] },
     mobile: { columns: 1, hidden: [], order: [] },
     sections: [],
+    regions: [],
     style: {},
     actions: [ { key: 'close', label: 'Close', type: 'close', style: 'default' } ]
 });
@@ -178,6 +179,7 @@ function normalizeLoadedDef(def) {
     def.mobile = def.mobile || { columns: 1, hidden: [], order: [] };
     def.sections = def.sections || [];
     def.sections.forEach(s => { s.style = s.style || {}; });
+    def.regions = def.regions || [];
     def.style = def.style || {};
     return def;
 }
@@ -220,6 +222,7 @@ function openForm(key) {
 }
 // ── New Form wizard: pick a type, start from a seeded template ──
 const FORM_TYPES = [
+    { key: 'blank', icon: 'file', name: 'Blank Form', desc: 'Completely empty — design everything yourself in the Visual tab.' },
     { key: 'single', icon: 'file-lines', name: 'Single Form', desc: 'Header-only entry form — settings, requests, notes.' },
     { key: 'master', icon: 'table-list', name: 'Master–Detail', desc: 'Header plus one or more grids with totals — orders, returns.' },
     { key: 'interactive', icon: 'magnifying-glass-chart', name: 'Interactive Report', desc: 'Filter fields on top, a live report grid below, print.' },
@@ -463,7 +466,8 @@ function headerFieldsTable(fields) {
               fld('Picker map (picker)', inArea(p + 'map', f.map, 'json', 2), 'JSON: { "headerFieldKey": "SQLCOLUMN" } — which columns fill which fields') +
               '</div>' +
               '<div class="grid4" style="margin-top:7px;">' +
-              fld('Section', inSel(p + 'section', f.section, [''].concat(((cur.def.sections) || []).map(s => s.key))), 'region this field belongs to') +
+              fld('Region', inSel(p + 'region', f.region, [''].concat(((cur.def.regions) || []).map(r => r.key))), 'data block this field belongs to') +
+              fld('Section', inSel(p + 'section', f.section, [''].concat(((cur.def.sections) || []).map(s => s.key))), 'styled group (when not in a region)') +
               fld('Display column (picker)', inTxt(p + 'display', f.display), 'column shown in the field') +
               fld('Formula (computed)', inTxt(p + 'formula', f.formula), 'over header keys') +
               fld('Min / Max', inNum(p + 'min', f.min) + '<div style="height:4px;"></div>' + inNum(p + 'max', f.max)) +
@@ -524,7 +528,8 @@ function detailCard(d, di, len) {
         fld('Key', inTxt(p + 'key', d.key), 'used in body templates as {' + esc(d.key || 'key') + '}') +
         fld('Title', inTxt(p + 'title', d.title)) +
         fld('Tab page', inTxt(p + 'tab', d.tab), 'detail blocks with the same tab name group into a tab page') +
-        fld('Section', inSel(p + 'section', d.section, [''].concat(((cur.def.sections) || []).map(s => s.key))), 'render inside this region instead') +
+        fld('Region', inSel(p + 'region', d.region, [''].concat(((cur.def.regions) || []).map(r => r.key))), 'multi-row region this grid belongs to') +
+        fld('Section', inSel(p + 'section', d.section, [''].concat(((cur.def.sections) || []).map(s => s.key))), 'styled group (when not in a region)') +
         fld('Qty column key', inTxt(p + 'qtyKey', d.qtyKey), 'for line rules (default qty)') +
         fld('Totals columns', inTxt(p + '_totalsCsv', (d.totals || []).join(','), 'placeholder="qty,net"'), 'comma separated column keys') +
         fld('Manual rows', inChk(p + 'allowManualRow', d.allowManualRow, 'allow empty row add')) +
@@ -609,6 +614,79 @@ function generateSectionFields(i) {
         });
         renderEditor();
         alert(added + ' field(s) generated into section "' + (s.title || s.key) + '". Adjust types/labels as needed.');
+    });
+}
+
+function regionEditorCard(r, i) {
+    const p = 'def.regions.' + i + '.';
+    return '<div class="card"><div class="card-h"><span class="tag" style="background:#dbeafe;color:#1d4ed8;">REGION ' + (i + 1) + ' — ' + esc(r.key || '?') + '</span>' +
+        '<button class="btn btn-d" style="padding:3px 8px;" onclick="delRegion(' + i + ')"><i class="fas fa-trash"></i></button></div>' +
+        '<div class="grid4">' +
+        fld('Key', inTxt(p + 'key', r.key)) +
+        fld('Title', inTxt(p + 'title', r.title)) +
+        fld('Inside section', inSel(p + 'section', r.section, [''].concat(((cur.def.sections) || []).map(s => s.key))), 'empty = top level') +
+        fld('Display', inSel(p + 'display', r.display || 'single', ['single', 'multi']), 'single = one record as fields; multi = editable grid') +
+        fld('Columns (single)', inNum(p + 'columns', r.columns)) +
+        fld('Tab page (top level)', inTxt(p + 'tab', r.tab)) +
+        fld('Fetch on open (single)', inChk(p + 'fetchOnOpen', r.fetchOnOpen, 'first row fills the fields')) +
+        '</div>' +
+        sqlFld('Source SQL', p + 'sourceSql', r.sourceSql, 'header :FIELDKEY placeholders allowed; aliases become field keys / grid columns') +
+        '<div style="text-align:right;"><button class="btn btn-p" style="padding:3px 12px;font-size:10.5px;" onclick="generateRegion(' + i + ')"><i class="fas fa-wand-magic-sparkles"></i> Generate from SQL</button></div>' +
+        '</div>';
+}
+function addRegion() {
+    (cur.def.regions = cur.def.regions || []).push({ key: 'region' + (cur.def.regions.length + 1), title: '', display: 'single' });
+    renderEditor();
+}
+function delRegion(i) {
+    const key = (cur.def.regions[i] || {}).key;
+    cur.def.regions.splice(i, 1);
+    (cur.def.header.fields || []).forEach(f => { if (f.region === key) delete f.region; });
+    (cur.def.details || []).forEach(dd => { if (dd.region === key) delete dd.region; });
+    renderEditor();
+}
+// Generate a region's artifacts from its Source SQL: single-row ->
+// fields joined to the region; multi-row -> a detail grid with columns
+function generateRegion(i) {
+    const r = cur.def.regions[i];
+    if (!r || !r.sourceSql || !r.sourceSql.trim()) { alert('Enter the Source SQL first.'); return; }
+    let sql = String(r.sourceSql).replace(/:[A-Za-z_]\w*/g, "''");
+    sql = 'SELECT * FROM (' + sql.replace(/;\s*$/, '') + ') WHERE ROWNUM <= 1';
+    runQuery(sql, function (err, rows) {
+        if (err) { alert('Could not probe the SQL:\n' + err); return; }
+        const sample = rows[0] || null;
+        const cols = sample ? Object.keys(sample) : [];
+        if (!cols.length) { alert('The query returned no columns to generate from. Check the SQL (or add sample data).'); return; }
+        const label = cn => cn.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, ch => ch.toUpperCase());
+        const guessType = (cn, v) => typeof v === 'number' ? 'number'
+            : (/(^|_)(date|_on)$/i.test(cn) || /^\d{4}-\d{2}-\d{2}/.test(String(v || ''))) ? 'date' : 'text';
+        let added = 0;
+        if (r.display === 'multi') {
+            let det = (cur.def.details || []).find(dd => dd.region === r.key);
+            if (!det) {
+                det = { key: r.key + '_grid', title: r.title || r.key, region: r.key, allowManualRow: true, allowDelete: true, qtyKey: 'qty', columns: [], totals: [] };
+                (cur.def.details = cur.def.details || []).push(det);
+            }
+            det.sourceSql = r.sourceSql;
+            const existing = (det.columns || []).map(c => c.key);
+            cols.forEach(cn => {
+                const key = cn.toLowerCase();
+                if (existing.indexOf(key) >= 0) return;
+                det.columns.push({ key: key, label: label(cn), type: (sample && typeof sample[cn] === 'number') ? 'number' : 'text', editable: true });
+                added++;
+            });
+            alert(added + ' column(s) generated into the "' + (det.title || det.key) + '" grid (rows load from the SQL on open).');
+        } else {
+            const existing = cur.def.header.fields.map(f => f.key);
+            cols.forEach(cn => {
+                const key = cn.toLowerCase();
+                if (existing.indexOf(key) >= 0) return;
+                cur.def.header.fields.push({ key: key, label: label(cn), type: guessType(cn, sample ? sample[cn] : null), region: r.key });
+                added++;
+            });
+            alert(added + ' field(s) generated into region "' + (r.title || r.key) + '". Turn on Fetch on open to load the record.');
+        }
+        renderEditor();
     });
 }
 
@@ -742,7 +820,14 @@ function renderEditor() {
       '<div class="sec"><div class="sec-h"><span><i class="fas fa-layer-group"></i> Sections / Regions — ' + (d.sections || []).length + '</span>' +
         '<button class="btn btn-p" style="padding:4px 10px;" onclick="addSection()"><i class="fas fa-plus"></i> Section</button></div><div class="sec-b">' +
         ((d.sections || []).map((s, i) => sectionCard(s, i)).join('') ||
-         '<div style="font-size:11px;color:#94a3b8;">No sections. A section is a styled region (heading + rule, or a card) that groups fields and grids inside a tab page — assign items to it via their Section property. A section with Source SQL can GENERATE its fields from the query columns and fetch the record on open (APEX form-on-table style).</div>') +
+         '<div style="font-size:11px;color:#94a3b8;">No sections. A SECTION is the styled group (heading + rule, or a card) inside a tab page. Put REGIONS inside sections — a region is the data-bound unit.</div>') +
+      '</div></div>' +
+
+      // regions (data-bound units inside sections)
+      '<div class="sec"><div class="sec-h"><span><i class="fas fa-database"></i> Regions (data blocks) — ' + (d.regions || []).length + '</span>' +
+        '<button class="btn btn-p" style="padding:4px 10px;" onclick="addRegion()"><i class="fas fa-plus"></i> Region</button></div><div class="sec-b">' +
+        ((d.regions || []).map((r, i) => regionEditorCard(r, i)).join('') ||
+         '<div style="font-size:11px;color:#94a3b8;">No regions. A REGION lives inside a section (or on its own) and binds to SQL: display <b>Single row</b> = a record whose columns become fields (fetch on open); display <b>Multi row</b> = an editable grid whose columns come from the query. Use Generate after testing the SQL.</div>') +
       '</div></div>' +
 
       // header fields

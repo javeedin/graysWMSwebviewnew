@@ -292,10 +292,46 @@
         return '<div style="display:grid;grid-template-columns:repeat(' + cols + ',1fr);gap:8px 12px;">' +
             fs.map(fieldHtml).join('') + '</div>';
     }
-    function sectionHtml(s, fs, sdets, defaultCols) {
+
+    // ── regions (data-bound units INSIDE sections) ──────────
+    // def.regions = [ { key, title, section (parent section key; empty =
+    //   top level), tab (for top-level regions), display: 'single'
+    //   (one record - fields join via field.region) | 'multi' (rows -
+    //   a detail grid joins via detail.region), columns, sourceSql,
+    //   fetchOnOpen, showWhen } ]
+    // A SECTION groups and styles; a REGION binds to data.
+    function regionHtml(r, hFields, allDets, defaultCols) {
+        var inner;
+        if (r.display === 'multi') {
+            var det = allDets.find(function (dd) { return dd.region === r.key; });
+            inner = det ? detailHtml(det) : '<div style="font-size:10px;color:#94a3b8;padding:6px 0;">Multi-row region "' + esc(r.key) + '" has no grid yet - use Generate in the designer.</div>';
+        } else {
+            inner = fieldsGrid(hFields.filter(function (f) { return f.region === r.key; }), r.columns || defaultCols);
+        }
+        var head = r.title
+            ? '<div style="font-size:10.5px;font-weight:700;color:#64748b;margin:8px 0 5px;text-transform:uppercase;letter-spacing:.3px;">' + esc(r.title) + '</div>'
+            : '';
+        return '<div style="margin-top:6px;">' + head + inner + '</div>';
+    }
+    function fetchRegion(r) {
+        runSql(bindHeaderSql(r.sourceSql), function (err, rows) {
+            if (!st) return;
+            if (err) { console.warn('[FormEngine] region fetch', r.key, 'failed:', err); return; }
+            if (!rows.length) return;
+            var r0 = rows[0];
+            var touched = false;
+            ((st.def.header && st.def.header.fields) || []).forEach(function (f) {
+                if (f.region !== r.key) return;
+                var v = r0[f.key.toUpperCase()];
+                if (v !== undefined) { st.values[f.key] = v === null ? '' : v; touched = true; }
+            });
+            if (touched) { headerComputed(); render(true); }
+        });
+    }
+    function sectionHtml(s, fs, sdets, defaultCols, extraHtml) {
         var stl = s.style || {};
         var cols = s.columns || defaultCols;
-        var inner = fieldsGrid(fs, cols) + sdets.map(detailHtml).join('');
+        var inner = fieldsGrid(fs, cols) + sdets.map(detailHtml).join('') + (extraHtml || '');
         var headHtml = '';
         if (s.display !== 'plain' && (s.title || s.key)) {
             headHtml = '<div style="display:flex;align-items:center;gap:10px;margin:0 0 9px;">' +
@@ -560,15 +596,27 @@
             if (wiz) return s.tab ? s.tab === hAct : true;
             return !hTabs.length || (s.tab || hTabs[0]) === hAct;
         });
-        var visSecKeys = secs.map(function (s) { return s.key; });
-        // fields not owned by any section render in the main grid
-        var looseFields = hFields.filter(function (f) { return !f.section || secKeys.indexOf(f.section) < 0; });
+        // regions: data-bound units; those with a parent section render
+        // inside it, top-level ones follow their own tab
+        var allRegs = (def.regions || []).filter(visibleNow);
+        var regKeys = allRegs.map(function (r) { return r.key; });
+        var looseRegs = allRegs.filter(function (r) {
+            if (r.section && secKeys.indexOf(r.section) >= 0) return false;
+            if (wiz) return r.tab ? r.tab === hAct : true;
+            return !hTabs.length || (r.tab || hTabs[0]) === hAct;
+        });
+        // fields not owned by a section or region render in the main grid
+        var looseFields = hFields.filter(function (f) {
+            if (f.region && regKeys.indexOf(f.region) >= 0) return false;
+            return !f.section || secKeys.indexOf(f.section) < 0;
+        });
 
         var allDets = (def.details || []).filter(visibleNow);
         var dTabs = detailTabs();
         var dAct = dTabs.length ? (dTabs.indexOf(st.ui.detailTab) >= 0 ? st.ui.detailTab : dTabs[0]) : null;
-        // a detail owned by a section follows the section's placement
+        // a detail owned by a section or a multi-row region follows it
         var dets = allDets.filter(function (d) {
+            if (d.region && regKeys.indexOf(d.region) >= 0) return false;
             if (d.section && secKeys.indexOf(d.section) >= 0) return false;
             if (wiz) return d.tab ? d.tab === hAct : lastStep;
             return !dTabs.length || (d.tab || dTabs[0]) === dAct;
@@ -586,10 +634,13 @@
 
         var fstyle = def.style || {};
         var secsHtml = secs.map(function (s) {
-            var fs = hFields.filter(function (f) { return f.section === s.key; });
-            var sdets = allDets.filter(function (dd) { return dd.section === s.key; });
-            return sectionHtml(s, fs, sdets, hCols);
+            var fs = hFields.filter(function (f) { return f.section === s.key && !(f.region && regKeys.indexOf(f.region) >= 0); });
+            var sdets = allDets.filter(function (dd) { return dd.section === s.key && !(dd.region && regKeys.indexOf(dd.region) >= 0); });
+            var sregs = allRegs.filter(function (r) { return r.section === s.key; });
+            var sregsHtml = sregs.map(function (r) { return regionHtml(r, hFields, allDets, s.columns || hCols); }).join('');
+            return sectionHtml(s, fs, sdets, hCols, sregsHtml);
         }).join('');
+        var looseRegsHtml = looseRegs.map(function (r) { return regionHtml(r, hFields, allDets, hCols); }).join('');
         var bodyHtml =
             '<div style="padding:0.9rem 1.2rem;overflow-y:auto;flex:1;' +
             (fstyle.background ? 'background:' + esc(fstyle.background) + ';' : '') +
@@ -597,6 +648,7 @@
               (wiz ? wizBar : tabBarHtml(hTabs, hAct, '_htab')) +
               fieldsGrid(looseFields, hCols) +
               secsHtml +
+              looseRegsHtml +
               (wiz ? '' : tabBarHtml(dTabs, dAct, '_dtab').replace('margin-bottom:9px', 'margin-top:12px;margin-bottom:2px')) +
               dets.map(detailHtml).join('') +
               reps.map(reportHtml).join('') +
@@ -1186,6 +1238,10 @@
                 initLookups();
                 // SQL-sourced sections fill their fields from the first row
                 (def.sections || []).forEach(function (s) { if (s.sourceSql && s.fetchOnOpen) fetchSection(s); });
+                // single-row regions fetch their record the same way
+                (def.regions || []).forEach(function (r) {
+                    if (r.sourceSql && r.fetchOnOpen && r.display !== 'multi') fetchRegion(r);
+                });
                 // SQL-sourced details load their rows (unless prefilled)
                 (def.details || []).forEach(function (det) {
                     if (det.sourceSql && !(st.details[det.key] || []).length) loadDetailRows(det);
