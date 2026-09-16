@@ -478,10 +478,14 @@
         var c = ctx();
         // build a preview of the statement for the current buffer (first
         // 3 rows so it stays readable) exactly as the push builds it
-        var sample = buf.slice(0, 3);
-        var previewSql = sample.length
-            ? 'INSERT INTO wms_activity_log (' + COLS + ')\n  ' + sample.map(rowSql).join('\n  UNION ALL ') + (buf.length > 3 ? '\n  UNION ALL ... (' + (buf.length - 3) + ' more rows, sent in batches of ' + BATCH_SIZE + ')' : '')
+        // the REAL body of the next batch, so it can be copied and tested
+        // verbatim in Postman (no placeholders)
+        var firstBatch = buf.slice(0, BATCH_SIZE);
+        var realBody = firstBatch.length ? JSON.stringify({ sql: buildSql(firstBatch), appUser: c.user }) : '';
+        var previewSql = firstBatch.length
+            ? buildSql(firstBatch)
             : '(no buffered events right now)';
+        window._wmsCopyBody = realBody;
         var last = window._wmsLastPost;
         var old = document.getElementById('wms-api-modal'); if (old) old.remove();
         document.body.insertAdjacentHTML('beforeend',
@@ -495,8 +499,9 @@
               row2('Method', '<span style="font-weight:800;color:#0f766e;">POST</span>') +
               row2('Endpoint', '<code style="font-size:11px;word-break:break-all;">' + esc2(AI_BASE + '/executewrite') + '</code>') +
               row2('This is the SAME guarded write endpoint the AI bot uses', '<span style="color:#64748b;">single-statement INSERT ALL; verb-whitelisted</span>') +
-              '<div style="font-weight:800;color:#475569;margin:12px 0 4px;">Request body (preview of current buffer)</div>' +
-              '<pre style="background:#0f172a;color:#d1fae5;border-radius:8px;padding:10px;font-size:10.5px;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto;">' + esc2(JSON.stringify({ sql: previewSql, appUser: c.user }, null, 2)) + '</pre>' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0 4px;"><div style="font-weight:800;color:#475569;">Next batch — the REAL statement (' + firstBatch.length + ' of ' + buf.length + ' rows)</div>' +
+              (realBody ? '<button onclick="(function(){try{navigator.clipboard.writeText(window._wmsCopyBody);this.textContent=\'Copied\';}catch(e){}}).call(this)" style="border:1px solid #e2e8f0;background:white;border-radius:6px;padding:3px 10px;font-size:10px;font-weight:700;cursor:pointer;color:#0f766e;"><i class="fas fa-copy"></i> Copy full body</button>' : '') + '</div>' +
+              '<pre style="background:#0f172a;color:#d1fae5;border-radius:8px;padding:10px;font-size:10.5px;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto;">' + esc2(previewSql.slice(0, 4000)) + (previewSql.length > 4000 ? '\n… (use Copy full body for the complete statement)' : '') + '</pre>' +
               '<div style="font-weight:800;color:#475569;margin:12px 0 4px;">Last actual push</div>' +
               (last
                 ? row2('When / rows', esc2(hmNow(last.at)) + ' · ' + last.rows + ' rows') +
