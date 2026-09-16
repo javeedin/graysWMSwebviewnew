@@ -384,7 +384,8 @@
             '</div>' +
             '<div style="padding:0.7rem 1.1rem;border-bottom:1px solid #f1f5f9;display:flex;gap:14px;align-items:center;flex-wrap:wrap;">' +
               '<div style="font-size:12px;color:#334155;"><b id="wms-log-bufn">' + buf.length + '</b> event(s) buffered · <span style="color:#64748b;">pushes to DB every 30 min · ' + lastFlushTxt + '</span></div>' +
-              '<button id="wms-log-flush" style="padding:6px 14px;border:none;border-radius:8px;background:#0f766e;color:white;font-weight:700;font-size:12px;cursor:pointer;"><i class="fas fa-cloud-arrow-up"></i> Push now</button>' +
+              '<button id="wms-log-flush" style="padding:6px 14px;border:none;border-radius:8px;background:#0f766e;color:white;font-weight:700;font-size:12px;cursor:pointer;"><i class="fas fa-cloud-arrow-up"></i> Push to DB &amp; clear</button>' +
+              '<span id="wms-log-msg" style="font-size:11px;font-weight:700;"></span>' +
               '<button onclick="if(window.navigateToPage)navigateToPage(\'daily-history\');document.getElementById(\'wms-log-modal\').remove();" style="padding:6px 14px;border:1px solid #e2e8f0;border-radius:8px;background:white;color:#334155;font-weight:700;font-size:12px;cursor:pointer;"><i class="fas fa-timeline"></i> Daily History</button>' +
             '</div>' +
             '<div style="display:flex;gap:4px;padding:8px 1.1rem 0;">' +
@@ -396,14 +397,34 @@
         '</div>');
         document.getElementById('wms-log-flush').addEventListener('click', function () {
             var el = document.getElementById('wms-log-flush');
-            if (!buf.length) { return; }
+            var msg = document.getElementById('wms-log-msg');
+            if (!buf.length) { if (msg) msg.innerHTML = '<span style="color:#64748b;">Nothing to push — buffer is empty.</span>'; return; }
+            el.disabled = true;
             el.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Pushing…';
-            window._wmsFlushCb = function (ok, n) {
-                el.innerHTML = '<i class="fas fa-cloud-arrow-up"></i> Push now';
-                var bn = document.getElementById('wms-log-bufn'); if (bn) bn.textContent = buf.length;
-                if (WMSActivity._logCur === 'db') WMSActivity._logTab('db'); else WMSActivity._logTab('buf');
+            if (msg) msg.textContent = '';
+            var pushed = 0;
+            // push repeatedly until the whole buffer is sent (flush sends up
+            // to 500 per call), then clear and confirm
+            var step = function () {
+                if (!buf.length) { done(true); return; }
+                window._wmsFlushCb = function (ok, n) {
+                    if (!ok) { done(false); return; }
+                    pushed += n;
+                    var bn = document.getElementById('wms-log-bufn'); if (bn) bn.textContent = buf.length;
+                    if (buf.length) step(); else done(true);
+                };
+                flush();
             };
-            flush();
+            var done = function (ok) {
+                el.disabled = false;
+                el.innerHTML = '<i class="fas fa-cloud-arrow-up"></i> Push to DB & clear';
+                var bn = document.getElementById('wms-log-bufn'); if (bn) bn.textContent = buf.length;
+                if (msg) msg.innerHTML = ok
+                    ? '<span style="color:#15803d;"><i class="fas fa-check-circle"></i> Pushed ' + pushed + ' & buffer cleared.</span>'
+                    : '<span style="color:#b91c1c;">Push failed — events kept for retry. ' + (window._wmsLastFlush && window._wmsLastFlush.err ? esc2(String(window._wmsLastFlush.err)).slice(0, 80) : '') + '</span>';
+                WMSActivity._logTab(WMSActivity._logCur === 'db' ? 'db' : 'buf');
+            };
+            step();
         });
         WMSActivity._logTab('buf');
     }
