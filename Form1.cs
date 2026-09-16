@@ -1638,6 +1638,21 @@ navPanel.Controls.Add(wmsDevButton);
                 wv.CoreWebView2.Settings.AreDevToolsEnabled = true;
                 wv.CoreWebView2.Settings.IsWebMessageEnabled = true;
 
+                // Auto-grant microphone for the voice-feedback widget so the
+                // Web Speech API works without an interruptive prompt.
+                try
+                {
+                    wv.CoreWebView2.PermissionRequested += (s2, permArgs) =>
+                    {
+                        if (permArgs.PermissionKind == CoreWebView2PermissionKind.Microphone)
+                            permArgs.State = CoreWebView2PermissionState.Allow;
+                    };
+                }
+                catch (Exception permEx)
+                {
+                    System.Diagnostics.Debug.WriteLine("[PERM] Could not attach permission handler: " + permEx.Message);
+                }
+
                 wv.CoreWebView2.WebMessageReceived += async (sender, args) =>
                 {
                     try
@@ -1707,6 +1722,10 @@ navPanel.Controls.Add(wmsDevButton);
 
                                 case "claudeApiRequest":
                                     await HandleClaudeApiRequest(wv, messageJson, requestId);
+                                    break;
+
+                                case "translateText":
+                                    await HandleTranslateText(wv, messageJson, requestId);
                                     break;
 
                                 // Print Management Cases
@@ -3078,6 +3097,71 @@ navPanel.Controls.Add(wmsDevButton);
 
                 string errorJson = JsonSerializer.Serialize(errorMessage);
                 wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        /// <summary>
+        /// Translates a short piece of user feedback to English (used by
+        /// the Activity Intelligence voice-feedback widget). Reuses the
+        /// Claude API handler; requires an apiKey in the message. Returns
+        /// { action:"translateResult", success, english } - on any failure
+        /// success=false and the client stores the raw text instead.
+        /// </summary>
+        private async Task HandleTranslateText(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                string text = "", apiKey = "";
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var r = doc.RootElement;
+                    if (r.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String) text = t.GetString() ?? "";
+                    if (r.TryGetProperty("apiKey", out var k) && k.ValueKind == JsonValueKind.String) apiKey = k.GetString() ?? "";
+                }
+                if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(apiKey))
+                    throw new Exception("missing text or apiKey");
+
+                var res = await _claudeApiHandler.QueryClaudeAsync(
+                    apiKey,
+                    "Translate the following user feedback to natural English. Reply with ONLY the translation, no quotes or notes:\n\n" + text,
+                    "You are a precise translator. Output only the English translation.",
+                    null
+                );
+                string english = null;
+                if (res.Success && !string.IsNullOrEmpty(res.ResponseJson))
+                {
+                    // pull the assistant text out of the Anthropic response json
+                    try
+                    {
+                        using (var rd = JsonDocument.Parse(res.ResponseJson))
+                        {
+                            if (rd.RootElement.TryGetProperty("content", out var cont) && cont.ValueKind == JsonValueKind.Array && cont.GetArrayLength() > 0)
+                            {
+                                var first = cont[0];
+                                if (first.TryGetProperty("text", out var txt)) english = txt.GetString();
+                            }
+                        }
+                    }
+                    catch { english = res.ResponseJson; }
+                }
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                {
+                    action = "translateResult",
+                    requestId = requestId,
+                    success = !string.IsNullOrWhiteSpace(english),
+                    english = english
+                }));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] translateText failed: " + ex.Message);
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                {
+                    action = "translateResult",
+                    requestId = requestId,
+                    success = false,
+                    error = ex.Message
+                }));
             }
         }
 

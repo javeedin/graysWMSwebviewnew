@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V44";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V45";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -399,6 +399,10 @@ namespace WMSApp
             sb.AppendLine("3. PLACE it: facts about where data lives -> data_sources; rules that must hold before a write -> validations (add a CHECK_SQL: line when the rule can be checked deterministically); when/how to act during the flow -> steps (insert at the right position, renumber if needed); new endpoints -> interfaces; new ways users ask -> trigger_phrases; stage changes -> pipeline_stages. One teaching often lands in 2-3 fields - that is normal (a fact + a step + a guard).");
             sb.AppendLine("4. MERGE, never replace: keep all existing content, append/insert your rewritten lines. Build ONE UPDATE wms_ai_processes SET ... , updated_by='AI-TRAINED', updated_on=SYSDATE WHERE process_key='...' with the COMPLETE new value of each changed field, and run it through the database write flow (the user approves the card).");
             sb.AppendLine("5. CONFIRM with a short summary table: field -> what was added (your clean wording). If the teaching conflicts with existing content, say so and ask which wins instead of writing both.");
+            sb.AppendLine();
+            sb.AppendLine("ACTIVITY INTELLIGENCE (task mining) - the app logs what users do and their spoken feedback:");
+            sb.AppendLine("- WMS_ACTIVITY_LOG: one row per user event (event_ts, user_name, module, page, event_type nav/click/entity_view/search/dialog/api_call/action/idle/error, target, entity_type TRIP/ORDER/PRINTER, entity_id, dur_ms, meta). Views: WMS_ACTIVITY_DAY_V (time per page per user/day, dwell_minutes), WMS_ACTIVITY_ENTITY_V (which trips/orders each user touches + revisit counts), WMS_ACTIVITY_HOUR_V (events by weekday x hour).");
+            sb.AppendLine("- WMS_USER_FEEDBACK: user pain-point feedback (feedback_ts, user_name, page, entity_type/entity_id context, lang, text_raw in the spoken language, text_en English, trans_status RAW/DONE/SAME, sentiment, theme). Answer 'where do users spend time / what are their pain areas / what is repetitive' from these. When asked to summarise feedback, read text_en (fall back to text_raw); you may translate and theme RAW rows and UPDATE them via the write flow.");
             sb.AppendLine();
             sb.AppendLine("KNOWN DATA LOCATIONS (confirmed - use these, do not guess alternatives):");
             sb.AppendLine("- Customer master = table GRFU_CUSTOMER: ACCOUNT_NAME, ACCOUNT_NUMBER, CITY, PRICE_LIST, STATUS, CUST_ACCOUNT_ID, PARTY_ID, BILL_TO_SITE_USE_ID, SHIP_TO_PARTY_SITE_ID. This is THE source for customer searches and for the order ids (bill_to number = ACCOUNT_NUMBER, site_use_id = BILL_TO_SITE_USE_ID, party_site_id = SHIP_TO_PARTY_SITE_ID, price list = PRICE_LIST). The table named CUSTOMER is NOT the one to use.");
