@@ -88,7 +88,14 @@
     function restore() { try { var s = localStorage.getItem(LS_KEY); if (s) { var a = JSON.parse(s); if (a && a.length) buf = a.concat(buf); } } catch (e) { } }
 
     // ── SQL escaping / batch build ──────────────────────────
-    function q(v) { return v === null || v === undefined || v === '' ? 'NULL' : "'" + String(v).replace(/'/g, "''") + "'"; }
+    // Also neutralise characters that a NON-literal-aware write guard could
+    // mistake for statement separators / comments (; -- /* */). Harmless
+    // for telemetry text and makes the insert robust against any guard.
+    function q(v) {
+        if (v === null || v === undefined || v === '') return 'NULL';
+        var s = String(v).replace(/;/g, ',').replace(/--/g, '-').replace(/\/\*/g, '/').replace(/\*\//g, '/');
+        return "'" + s.replace(/'/g, "''") + "'";
+    }
     function num(v) { return (v === null || v === undefined || v === '') ? 'NULL' : Number(v); }
     var COLS = 'session_id,user_name,app_ver,instance,module,page,event_type,target,entity_type,entity_id,dur_ms,meta,event_ts';
     // one row as a SELECT-of-literals from dual (INSERT ... SELECT ... UNION
@@ -199,7 +206,7 @@
     function start() {
         if (started) return; started = true;
         restore();
-        track('session_start', { meta: { ua: navigator.userAgent.slice(0, 80) } });
+        track('session_start', {});
         currentPage = nowPage();
         pageEnteredAt = Date.now();
         hookNavigation(); hookClicks(); hookIdle();
