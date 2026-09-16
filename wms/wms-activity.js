@@ -194,9 +194,64 @@
                 window._wmsFbEntityType = ent.getAttribute('data-entity-type');
                 window._wmsFbEntityId = ent.getAttribute('data-entity-id');
             }
-            track('click', { target: label, meta: dlg ? { dialog: (dlg.id || 'dialog') } : undefined });
+            // query-trigger buttons (Load / Search / Fetch / Filter / Apply /
+            // Run / Preview / Generate / Refresh / Go / Submit) -> capture the
+            // filter parameters the user set, and log a 'search' event
+            var lc = String(label).toLowerCase();
+            var isQuery = /\b(load|search|fetch|filter|apply|run|preview|generate|refresh|go|submit|query|export|find|update|confirm|process|download|print)\b/.test(lc) ||
+                          /(load|search|fetch|filter|apply|refresh|export|find|download)/.test((el.id || '').toLowerCase());
+            var params = isQuery ? captureParams(el) : null;
+            var meta = {};
+            if (dlg) meta.dialog = dlg.id || 'dialog';
+            if (params && Object.keys(params).length) meta.params = params;
+            track(isQuery && params && Object.keys(params).length ? 'search' : 'click',
+                  { target: label, meta: Object.keys(meta).length ? meta : undefined });
         }, true);
     }
+
+    // Reads the filter/input values in the panel around a clicked button,
+    // so a query is logged WITH its parameters (from date, to date, dropdowns…).
+    // Never captures password fields; caps count and value length.
+    function captureParams(btn) {
+        var scope = btn.closest('[id*="modal"], .modal, form, .parameters-section, .page-content') || document;
+        var out = {};
+        var fields = scope.querySelectorAll('input, select, textarea');
+        var n = 0;
+        Array.prototype.forEach.call(fields, function (f) {
+            if (n >= 20) return;
+            var type = (f.type || '').toLowerCase();
+            if (type === 'password' || type === 'hidden' || type === 'file' || type === 'button' || type === 'submit') return;
+            var name = paramLabel(f);
+            if (!name) return;
+            var val;
+            if (type === 'checkbox' || type === 'radio') { if (!f.checked) return; val = f.value && f.value !== 'on' ? f.value : true; }
+            else { val = f.value; }
+            if (val === '' || val === null || val === undefined) return;
+            out[name] = String(val).slice(0, 100);
+            n++;
+        });
+        return out;
+    }
+    function paramLabel(f) {
+        // <label for=id>, wrapping label, aria-label, placeholder, preceding
+        // label text, name, or id - whichever is available
+        try {
+            if (f.id) {
+                var lb = document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(f.id) : f.id) + '"]');
+                if (lb && lb.textContent.trim()) return clean(lb.textContent);
+            }
+            var wrap = f.closest('label');
+            if (wrap && wrap.textContent.trim()) return clean(wrap.textContent);
+            if (f.getAttribute('aria-label')) return clean(f.getAttribute('aria-label'));
+            if (f.placeholder) return clean(f.placeholder);
+            var prev = f.previousElementSibling;
+            if (prev && /label|span|div/i.test(prev.tagName) && prev.textContent.trim() && prev.textContent.length < 40) return clean(prev.textContent);
+            if (f.name) return clean(f.name);
+            if (f.id) return clean(f.id);
+        } catch (e) { }
+        return null;
+    }
+    function clean(s) { return String(s).replace(/\s+/g, ' ').replace(/[:*]/g, '').trim().slice(0, 40); }
 
     function hookIdle() {
         setInterval(function () {
