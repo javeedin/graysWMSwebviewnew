@@ -249,7 +249,15 @@
             micBtn.disabled = true; micBtn.style.opacity = 0.5;
             statusEl.textContent = 'Voice not available on this machine - please type your feedback.';
         } else {
-            var rec = null, listening = false;
+            var rec = null, listening = false, netRetried = false;
+            var ERRMSG = {
+                'network': 'Voice needs internet access to the speech service, which appears blocked on this network. Please type your feedback below — it works exactly the same.',
+                'not-allowed': 'Microphone is blocked. Allow the mic for this app, or type your feedback below.',
+                'service-not-allowed': 'The speech service is not available on this machine. Please type your feedback below.',
+                'no-speech': 'Did not catch anything — try again, or type it below.',
+                'audio-capture': 'No microphone found. Please type your feedback below.',
+                'aborted': ''
+            };
             var startRec = function () {
                 if (listening) return;
                 rec = new SR();
@@ -262,7 +270,19 @@
                     for (var i = ev.resultIndex; i < ev.results.length; i++) s += ev.results[i][0].transcript;
                     taEl.value = baseText + s;
                 };
-                rec.onerror = function (ev) { statusEl.textContent = 'Mic error: ' + ev.error + ' - you can type instead.'; };
+                rec.onerror = function (ev) {
+                    // Google's speech backend blocked on the network -> one silent retry, then fall back to typing
+                    if (ev.error === 'network' && !netRetried) {
+                        netRetried = true;
+                        statusEl.textContent = 'Reconnecting to the speech service…';
+                        setTimeout(function () { try { rec.start(); listening = true; } catch (e) { } }, 700);
+                        return;
+                    }
+                    var msg = ERRMSG[ev.error];
+                    if (msg === undefined) msg = 'Voice error (' + ev.error + ') — please type your feedback below.';
+                    if (msg) statusEl.innerHTML = '<span style="color:#b45309;">' + msg + '</span>';
+                    try { taEl.focus(); } catch (e) { }
+                };
                 rec.onend = function () { listening = false; micBtn.innerHTML = '<i class="fas fa-microphone"></i> Hold to speak'; micBtn.style.background = '#0f766e'; };
                 try { rec.start(); listening = true; micBtn.innerHTML = '<i class="fas fa-stop"></i> Listening…'; micBtn.style.background = '#dc2626'; statusEl.textContent = 'Listening… release to stop.'; } catch (e) { statusEl.textContent = 'Could not start mic: ' + e.message; }
             };
