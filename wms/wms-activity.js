@@ -105,10 +105,13 @@
         var batch = buf.slice(0, MAX_BUFFER);
         var sql = 'INSERT ALL ' + batch.map(rowSql).join(' ') + ' SELECT * FROM dual';
         var c = ctx();
+        var body = JSON.stringify({ sql: sql, appUser: c.user });
+        window._wmsLastPost = { url: AI_BASE + '/executewrite', method: 'POST', body: body, rows: batch.length, at: new Date(), resp: null };
         sendMessageToCSharp({
             action: 'executePost', fullUrl: AI_BASE + '/executewrite',
-            body: JSON.stringify({ sql: sql, appUser: c.user })
+            body: body
         }, function (err, data) {
+            try { window._wmsLastPost.resp = err ? ('ERROR: ' + String(err)) : (typeof data === 'string' ? data : JSON.stringify(data)); } catch (e) { }
             flushing = false;
             var ok = !err;
             try { var r = typeof data === 'string' ? JSON.parse(data) : data; if (r && r.success === false) ok = false; } catch (e) { }
@@ -380,7 +383,10 @@
           '<div style="background:white;width:94%;max-width:760px;max-height:86vh;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
             '<div style="padding:0.8rem 1.1rem;background:linear-gradient(135deg,#0f766e,#134e4a);color:white;display:flex;justify-content:space-between;align-items:center;">' +
               '<div style="font-weight:800;font-size:13.5px;"><i class="fas fa-wave-square"></i> Activity Log</div>' +
-              '<button onclick="document.getElementById(\'wms-log-modal\').remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
+              '<div style="display:flex;align-items:center;gap:10px;">' +
+                '<button onclick="WMSActivity.showApiInfo()" title="Show the POST this uses" style="background:rgba(255,255,255,0.18);border:none;color:white;border-radius:7px;padding:5px 11px;font-size:11px;font-weight:700;cursor:pointer;"><i class="fas fa-plug"></i> API</button>' +
+                '<button onclick="document.getElementById(\'wms-log-modal\').remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
+              '</div>' +
             '</div>' +
             '<div style="padding:0.7rem 1.1rem;border-bottom:1px solid #f1f5f9;display:flex;gap:14px;align-items:center;flex-wrap:wrap;">' +
               '<div style="font-size:12px;color:#334155;"><b id="wms-log-bufn">' + buf.length + '</b> event(s) buffered · <span style="color:#64748b;">pushes to DB every 30 min · ' + lastFlushTxt + '</span></div>' +
@@ -453,9 +459,48 @@
         });
     };
 
+    // ── API info: show the exact POST used to push the log ──
+    function showApiInfo() {
+        var c = ctx();
+        // build a preview of the statement for the current buffer (first
+        // 3 rows so it stays readable) exactly as the push builds it
+        var sample = buf.slice(0, 3);
+        var previewSql = sample.length
+            ? 'INSERT ALL ' + sample.map(rowSql).join('\n  ') + (buf.length > 3 ? '\n  ... (' + (buf.length - 3) + ' more rows)' : '') + '\nSELECT * FROM dual'
+            : '(no buffered events right now)';
+        var last = window._wmsLastPost;
+        var old = document.getElementById('wms-api-modal'); if (old) old.remove();
+        document.body.insertAdjacentHTML('beforeend',
+        '<div id="wms-api-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:42000;display:flex;align-items:center;justify-content:center;font-family:Segoe UI,system-ui,sans-serif;">' +
+          '<div style="background:white;width:94%;max-width:720px;max-height:88vh;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.4);">' +
+            '<div style="padding:0.8rem 1.1rem;background:#0f766e;color:white;display:flex;justify-content:space-between;align-items:center;">' +
+              '<div style="font-weight:800;font-size:13px;"><i class="fas fa-plug"></i> Activity push — API details</div>' +
+              '<button onclick="document.getElementById(\'wms-api-modal\').remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
+            '</div>' +
+            '<div style="padding:1rem 1.1rem;overflow:auto;font-size:12px;color:#334155;">' +
+              row2('Method', '<span style="font-weight:800;color:#0f766e;">POST</span>') +
+              row2('Endpoint', '<code style="font-size:11px;word-break:break-all;">' + esc2(AI_BASE + '/executewrite') + '</code>') +
+              row2('This is the SAME guarded write endpoint the AI bot uses', '<span style="color:#64748b;">single-statement INSERT ALL; verb-whitelisted</span>') +
+              '<div style="font-weight:800;color:#475569;margin:12px 0 4px;">Request body (preview of current buffer)</div>' +
+              '<pre style="background:#0f172a;color:#d1fae5;border-radius:8px;padding:10px;font-size:10.5px;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow:auto;">' + esc2(JSON.stringify({ sql: previewSql, appUser: c.user }, null, 2)) + '</pre>' +
+              '<div style="font-weight:800;color:#475569;margin:12px 0 4px;">Last actual push</div>' +
+              (last
+                ? row2('When / rows', esc2(hmNow(last.at)) + ' · ' + last.rows + ' rows') +
+                  '<div style="font-size:11px;color:#475569;margin:6px 0 3px;">Response:</div>' +
+                  '<pre style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px;font-size:10.5px;white-space:pre-wrap;word-break:break-all;max-height:180px;overflow:auto;color:' + ((last.resp && /"success"\s*:\s*true/.test(last.resp)) ? '#166534' : '#b91c1c') + ';">' + esc2(last.resp || '(no response captured)') + '</pre>'
+                : '<div style="color:#94a3b8;font-size:11.5px;">No push attempted yet this session — click "Push to DB &amp; clear".</div>') +
+              '<div style="font-size:10.5px;color:#94a3b8;margin-top:10px;">If the response says the table does not exist, run <b>apex_sql/51_activity_log.sql</b> in APEX. Any other Oracle error appears verbatim above.</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>');
+    }
+    function row2(k, v) {
+        return '<div style="display:flex;gap:10px;padding:3px 0;border-bottom:1px solid #f4f7f6;"><div style="min-width:150px;color:#64748b;font-weight:700;">' + k + '</div><div style="flex:1;">' + v + '</div></div>';
+    }
+
     window.WMSActivity = {
         track: track, entity: entity, flush: flush,
-        openVoiceFeedback: openVoiceFeedback, openLogViewer: openLogViewer,
+        openVoiceFeedback: openVoiceFeedback, openLogViewer: openLogViewer, showApiInfo: showApiInfo,
         getBuffer: function () { return buf.slice(); },
         _logCur: 'buf',
         _logTab: function (which) {
