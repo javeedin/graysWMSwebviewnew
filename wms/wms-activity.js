@@ -24,7 +24,8 @@
 
     var AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
     var FLUSH_MS = 30 * 60 * 1000;   // 30 minutes
-    var MAX_BUFFER = 500;            // or this many events
+    var MAX_BUFFER = 500;            // flush trigger (events buffered)
+    var BATCH_SIZE = 120;            // rows per INSERT statement (safe size)
     var LOCAL_FLUSH = 25;            // mirror to localStorage every N events
     var IDLE_MS = 5 * 60 * 1000;     // gap that counts as idle
     var LS_KEY = 'wms_activity_buffer';
@@ -90,42 +91,54 @@
     function q(v) { return v === null || v === undefined || v === '' ? 'NULL' : "'" + String(v).replace(/'/g, "''") + "'"; }
     function num(v) { return (v === null || v === undefined || v === '') ? 'NULL' : Number(v); }
     var COLS = 'session_id,user_name,app_ver,instance,module,page,event_type,target,entity_type,entity_id,dur_ms,meta,event_ts';
+    // one row as a SELECT-of-literals from dual (INSERT ... SELECT ... UNION
+    // ALL is a single statement Oracle parses cleanly - avoids the INSERT
+    // ALL 999-column limit that caused ORA-00928)
     function rowSql(e) {
-        return 'INTO wms_activity_log (' + COLS + ') VALUES (' +
+        return 'SELECT ' +
             [q(e.session), q(e.user), q(e.app_ver), q(e.instance), q(e.module), q(e.page),
              q(e.type), q(e.target), q(e.entity_type), q(e.entity_id), num(e.dur_ms), q(e.meta),
-             "TO_TIMESTAMP_TZ(" + q(e.ts) + ",'YYYY-MM-DD\"T\"HH24:MI:SS.FF3\"Z\"')"].join(',') + ')';
+             "TO_TIMESTAMP_TZ(" + q(e.ts) + ",'YYYY-MM-DD\"T\"HH24:MI:SS.FF3\"Z\"')"].join(',') + ' FROM dual';
+    }
+    function buildSql(batch) {
+        return 'INSERT INTO wms_activity_log (' + COLS + ') ' + batch.map(rowSql).join(' UNION ALL ');
     }
 
     var flushing = false;
+    // Sends the buffer in BATCH_SIZE chunks, looping until empty or a
+    // failure. Calls window._wmsFlushCb(ok, totalPushed) once at the end.
     function flush() {
         if (flushing || !buf.length) return;
         if (!(window.chrome && window.chrome.webview)) return;   // only inside the app
         flushing = true;
-        var batch = buf.slice(0, MAX_BUFFER);
-        var sql = 'INSERT ALL ' + batch.map(rowSql).join(' ') + ' SELECT * FROM dual';
         var c = ctx();
-        var body = JSON.stringify({ sql: sql, appUser: c.user });
-        window._wmsLastPost = { url: AI_BASE + '/executewrite', method: 'POST', body: body, rows: batch.length, at: new Date(), resp: null };
-        sendMessageToCSharp({
-            action: 'executePost', fullUrl: AI_BASE + '/executewrite',
-            body: body
-        }, function (err, data) {
-            try { window._wmsLastPost.resp = err ? ('ERROR: ' + String(err)) : (typeof data === 'string' ? data : JSON.stringify(data)); } catch (e) { }
+        var totalPushed = 0;
+        var sendNext = function () {
+            if (!buf.length) { finish(true); return; }
+            var batch = buf.slice(0, BATCH_SIZE);
+            var body = JSON.stringify({ sql: buildSql(batch), appUser: c.user });
+            window._wmsLastPost = { url: AI_BASE + '/executewrite', method: 'POST', body: body, rows: batch.length, at: new Date(), resp: null };
+            sendMessageToCSharp({ action: 'executePost', fullUrl: AI_BASE + '/executewrite', body: body }, function (err, data) {
+                try { window._wmsLastPost.resp = err ? ('ERROR: ' + String(err)) : (typeof data === 'string' ? data : JSON.stringify(data)); } catch (e) { }
+                var ok = !err;
+                try { var r = typeof data === 'string' ? JSON.parse(data) : data; if (r && r.success === false) ok = false; } catch (e) { }
+                if (ok) {
+                    buf = buf.slice(batch.length);
+                    totalPushed += batch.length;
+                    mirror(); updateBadge();
+                    sendNext();   // continue with the rest
+                } else {
+                    finish(false);
+                }
+            });
+        };
+        var finish = function (ok) {
             flushing = false;
-            var ok = !err;
-            try { var r = typeof data === 'string' ? JSON.parse(data) : data; if (r && r.success === false) ok = false; } catch (e) { }
-            if (ok) {
-                buf = buf.slice(batch.length);
-                mirror();
-                updateBadge();
-                window._wmsLastFlush = { at: new Date(), n: batch.length, ok: true };
-            } else {
-                window._wmsLastFlush = { at: new Date(), n: batch.length, ok: false, err: err };
-            }
-            if (window._wmsFlushCb) { try { window._wmsFlushCb(ok, batch.length); } catch (e) { } window._wmsFlushCb = null; }
-            // on failure the buffer stays; next cycle retries (nothing lost)
-        });
+            window._wmsLastFlush = { at: new Date(), n: totalPushed, ok: ok, err: (window._wmsLastPost && window._wmsLastPost.resp) };
+            if (window._wmsFlushCb) { try { window._wmsFlushCb(ok, totalPushed); } catch (e) { } window._wmsFlushCb = null; }
+            // on failure the remaining buffer stays; next cycle retries
+        };
+        sendNext();
     }
 
     // ── automatic capture (event delegation, no code changes) ─
@@ -408,29 +421,17 @@
             el.disabled = true;
             el.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Pushing…';
             if (msg) msg.textContent = '';
-            var pushed = 0;
-            // push repeatedly until the whole buffer is sent (flush sends up
-            // to 500 per call), then clear and confirm
-            var step = function () {
-                if (!buf.length) { done(true); return; }
-                window._wmsFlushCb = function (ok, n) {
-                    if (!ok) { done(false); return; }
-                    pushed += n;
-                    var bn = document.getElementById('wms-log-bufn'); if (bn) bn.textContent = buf.length;
-                    if (buf.length) step(); else done(true);
-                };
-                flush();
-            };
-            var done = function (ok) {
+            // flush() now sends the whole buffer in chunks and calls back once
+            window._wmsFlushCb = function (ok, pushed) {
                 el.disabled = false;
                 el.innerHTML = '<i class="fas fa-cloud-arrow-up"></i> Push to DB & clear';
                 var bn = document.getElementById('wms-log-bufn'); if (bn) bn.textContent = buf.length;
                 if (msg) msg.innerHTML = ok
                     ? '<span style="color:#15803d;"><i class="fas fa-check-circle"></i> Pushed ' + pushed + ' & buffer cleared.</span>'
-                    : '<span style="color:#b91c1c;">Push failed — events kept for retry. ' + (window._wmsLastFlush && window._wmsLastFlush.err ? esc2(String(window._wmsLastFlush.err)).slice(0, 80) : '') + '</span>';
+                    : '<span style="color:#b91c1c;">Push failed after ' + pushed + ' — rest kept for retry. Click API for the error.</span>';
                 WMSActivity._logTab(WMSActivity._logCur === 'db' ? 'db' : 'buf');
             };
-            step();
+            flush();
         });
         WMSActivity._logTab('buf');
     }
@@ -466,7 +467,7 @@
         // 3 rows so it stays readable) exactly as the push builds it
         var sample = buf.slice(0, 3);
         var previewSql = sample.length
-            ? 'INSERT ALL ' + sample.map(rowSql).join('\n  ') + (buf.length > 3 ? '\n  ... (' + (buf.length - 3) + ' more rows)' : '') + '\nSELECT * FROM dual'
+            ? 'INSERT INTO wms_activity_log (' + COLS + ')\n  ' + sample.map(rowSql).join('\n  UNION ALL ') + (buf.length > 3 ? '\n  UNION ALL ... (' + (buf.length - 3) + ' more rows, sent in batches of ' + BATCH_SIZE + ')' : '')
             : '(no buffered events right now)';
         var last = window._wmsLastPost;
         var old = document.getElementById('wms-api-modal'); if (old) old.remove();
