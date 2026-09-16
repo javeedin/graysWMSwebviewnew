@@ -72,6 +72,7 @@
         },
         refreshLastPush: function () { loadLastPush(); },
         load: function () {
+            stopJourney();
             st.date = document.getElementById('dh-date').value || todayIso();
             st.user = document.getElementById('dh-user').value || '';
             var status = document.getElementById('dh-status');
@@ -127,7 +128,7 @@
         });
     }
 
-    var TABS = [['timeline', 'Timeline', 'chart-gantt'], ['log', 'Detailed Log', 'list'], ['repeat', 'Repetitive Works', 'repeat'], ['friction', 'Friction Detection', 'triangle-exclamation'], ['feedback', 'Feedback', 'comment-dots']];
+    var TABS = [['timeline', 'Timeline', 'chart-gantt'], ['journey', 'Journey Replay', 'play'], ['log', 'Detailed Log', 'list'], ['repeat', 'Repetitive Works', 'repeat'], ['friction', 'Friction Detection', 'triangle-exclamation'], ['feedback', 'Feedback', 'comment-dots']];
     function renderTabs() {
         var el = document.getElementById('dh-tabs');
         if (!el) return;
@@ -137,14 +138,16 @@
                 (on ? 'background:#0f766e;color:white;' : 'background:#f1f5f9;color:#475569;') + '"><i class="fas fa-' + t[2] + '"></i> ' + t[1] + '</div>';
         }).join('');
     }
-    DailyHistory.tab = function (t) { st.tab = t; renderTabs(); renderBody(); };
+    DailyHistory.tab = function (t) { stopJourney(); st.tab = t; renderTabs(); renderBody(); };
 
     function renderBody() {
+        stopJourney();
         var b = document.getElementById('dh-body');
         if (!b) return;
         if (st.tab === 'feedback') { b.innerHTML = viewFeedback(); return; }
         if (!st.events.length) { b.innerHTML = '<div style="color:#94a3b8;font-size:13px;padding:2rem;text-align:center;">No activity for this date/user.</div>'; return; }
         if (st.tab === 'timeline') b.innerHTML = viewTimeline();
+        else if (st.tab === 'journey') { b.innerHTML = viewJourney(); jrInit(); }
         else if (st.tab === 'log') b.innerHTML = viewLog();
         else if (st.tab === 'repeat') b.innerHTML = viewRepeat();
         else if (st.tab === 'friction') b.innerHTML = viewFriction();
@@ -223,6 +226,241 @@
             '<div style="font-size:9.5px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px;">' + label + '</div>' +
             '<div style="font-size:16px;font-weight:800;color:' + color + ';margin-top:2px;">' + val + '</div></div>';
     }
+
+    // ── Journey Replay ──────────────────────────────────────
+    // Animated start-to-end reconstruction: plays through the day's
+    // events in order, showing which screen the user was on, how long
+    // they stayed, and what they did (with the captured query params).
+    var jr = { steps: [], segs: [], idx: 0, playing: false, timer: null, speed: 1, t0: 0, t1: 0 };
+
+    function stopJourney() {
+        if (jr.timer) { clearTimeout(jr.timer); jr.timer = null; }
+        jr.playing = false;
+    }
+
+    function getParams(e) {
+        try { if (e.META) { var m = JSON.parse(e.META); if (m && m.params && typeof m.params === 'object') return m.params; } } catch (x) { }
+        return null;
+    }
+
+    // Which screen visit (segment) contains a given timestamp
+    function segAt(t) {
+        for (var i = 0; i < jr.segs.length; i++) { if (t >= jr.segs[i].start && t <= jr.segs[i].end) return jr.segs[i]; }
+        // fall back to the nearest earlier segment
+        var best = null;
+        for (var j = 0; j < jr.segs.length; j++) { if (jr.segs[j].start <= t) best = jr.segs[j]; }
+        return best;
+    }
+
+    function buildJourney() {
+        jr.segs = segments();
+        var keep = { nav: 1, entity_view: 1, action: 1, click: 1, search: 1, error: 1, idle: 1 };
+        var evs = st.events.filter(function (e) { return keep[e.EVENT_TYPE]; });
+        jr.steps = evs.slice(0, 800).map(function (e) {
+            var t = new Date(e.TS).getTime();
+            return {
+                t: t, type: e.EVENT_TYPE, page: e.PAGE || '', target: e.TARGET || '',
+                entType: e.ENTITY_TYPE || '', entId: e.ENTITY_ID || '',
+                dwellMs: e.EVENT_TYPE === 'nav' || e.EVENT_TYPE === 'idle' ? Number(e.DUR_MS || 0) : 0,
+                params: getParams(e)
+            };
+        });
+        jr.idx = 0;
+        jr.t0 = jr.steps.length ? jr.steps[0].t : 0;
+        jr.t1 = jr.steps.length ? jr.steps[jr.steps.length - 1].t : 0;
+    }
+
+    var STEP_META = {
+        nav:         { icon: 'location-arrow', color: '#2563eb', verb: 'Went to' },
+        entity_view: { icon: 'folder-open',    color: '#7c3aed', verb: 'Opened' },
+        action:      { icon: 'bolt',           color: '#16a34a', verb: 'Did' },
+        click:       { icon: 'hand-pointer',   color: '#0891b2', verb: 'Clicked' },
+        search:      { icon: 'magnifying-glass',color: '#0f766e', verb: 'Searched' },
+        error:       { icon: 'triangle-exclamation', color: '#dc2626', verb: 'Error on' },
+        idle:        { icon: 'mug-hot',        color: '#b45309', verb: 'Idle / away' }
+    };
+    function sm(type) { return STEP_META[type] || { icon: 'circle', color: '#64748b', verb: '' }; }
+
+    function stepTitle(s) {
+        if (s.type === 'nav') return s.page || '(screen)';
+        if (s.type === 'entity_view') return (s.entType ? s.entType + ' ' + s.entId : (s.target || 'record'));
+        if (s.type === 'idle') return 'Stepped away';
+        return s.target || s.type;
+    }
+
+    function jrWait(s) {
+        var base = 850;
+        if (s.dwellMs) base += Math.min(s.dwellMs / 25, 1900);
+        base = Math.max(450, Math.min(base, 2800));
+        return Math.round(base / jr.speed);
+    }
+
+    function viewJourney() {
+        buildJourney();
+        if (!jr.steps.length) return '<div style="color:#94a3b8;padding:1.5rem;">No replayable activity for this date/user.</div>';
+        var speeds = [1, 2, 4, 8].map(function (v) {
+            return '<option value="' + v + '"' + (v === jr.speed ? ' selected' : '') + '>' + v + '×</option>';
+        }).join('');
+        return '' +
+            '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;">' +
+              '<button onclick="DailyHistory.jrRestart()" title="Restart" style="' + jrBtn() + '"><i class="fas fa-backward-step"></i></button>' +
+              '<button onclick="DailyHistory.jrStep(-1)" title="Previous" style="' + jrBtn() + '"><i class="fas fa-caret-left"></i></button>' +
+              '<button id="jr-playbtn" onclick="DailyHistory.jrToggle()" style="' + jrBtn(true) + '"><i class="fas fa-play"></i> Play</button>' +
+              '<button onclick="DailyHistory.jrStep(1)" title="Next" style="' + jrBtn() + '"><i class="fas fa-caret-right"></i></button>' +
+              '<label style="font-size:11px;color:#475569;font-weight:700;margin-left:6px;">Speed ' +
+                '<select onchange="DailyHistory.jrSpeed(this.value)" style="padding:5px 7px;border:1px solid #e2e8f0;border-radius:7px;font-size:12px;margin-left:4px;">' + speeds + '</select></label>' +
+              '<span id="jr-counter" style="font-size:11px;color:#64748b;margin-left:auto;font-weight:700;"></span>' +
+            '</div>' +
+            // progress bar
+            '<div style="position:relative;height:6px;background:#eef2f7;border-radius:4px;margin-bottom:4px;">' +
+              '<div id="jr-progress" style="position:absolute;left:0;top:0;bottom:0;width:0;background:#0f766e;border-radius:4px;transition:width .25s;"></div></div>' +
+            // clickable step rail
+            '<div id="jr-rail" style="display:flex;gap:4px;overflow-x:auto;padding:6px 2px 10px;"></div>' +
+            // the animated stage
+            '<div id="jr-stage" style="min-height:150px;margin:6px 0 14px;"></div>' +
+            // trail of screens visited
+            '<div style="font-size:11px;font-weight:800;color:#334155;margin:4px 0 6px;"><i class="fas fa-route" style="color:#0f766e;"></i> Screens visited (in order)</div>' +
+            '<div id="jr-trail" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;"></div>';
+    }
+    function jrBtn(primary) {
+        return 'padding:7px 12px;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:800;' +
+            (primary ? 'background:#0f766e;color:white;min-width:86px;' : 'background:#f1f5f9;color:#334155;');
+    }
+
+    function jrInit() {
+        jr.idx = 0;
+        jrRenderRail();
+        jrRenderStep();
+        jrRenderTrail();
+    }
+
+    function jrRenderRail() {
+        var el = document.getElementById('jr-rail');
+        if (!el) return;
+        el.innerHTML = jr.steps.map(function (s, i) {
+            var m = sm(s.type);
+            var cur = i === jr.idx;
+            return '<div onclick="DailyHistory.jrJump(' + i + ')" title="' + esc(hhmmss(s.t) + '  ' + m.verb + ' ' + stepTitle(s)) + '" ' +
+                'style="flex:0 0 auto;width:' + (cur ? 26 : 18) + 'px;height:' + (cur ? 26 : 18) + 'px;border-radius:50%;cursor:pointer;' +
+                'display:flex;align-items:center;justify-content:center;color:white;font-size:' + (cur ? 11 : 8) + 'px;' +
+                'background:' + m.color + ';opacity:' + (i <= jr.idx ? 1 : 0.35) + ';' + (cur ? 'box-shadow:0 0 0 3px ' + m.color + '44;' : '') + '">' +
+                '<i class="fas fa-' + m.icon + '"></i></div>';
+        }).join('');
+        // keep current node in view
+        var cur = el.children[jr.idx];
+        if (cur && cur.scrollIntoView) { try { cur.scrollIntoView({ inline: 'center', block: 'nearest' }); } catch (e) { } }
+        var prog = document.getElementById('jr-progress');
+        if (prog) prog.style.width = (jr.steps.length <= 1 ? 100 : (jr.idx / (jr.steps.length - 1)) * 100) + '%';
+        var cnt = document.getElementById('jr-counter');
+        if (cnt) cnt.textContent = 'Step ' + (jr.idx + 1) + ' of ' + jr.steps.length + '  ·  ' + hhmmss(jr.steps[jr.idx].t);
+    }
+
+    function jrRenderStep() {
+        var el = document.getElementById('jr-stage');
+        if (!el) return;
+        var s = jr.steps[jr.idx];
+        var m = sm(s.type);
+        var seg = segAt(s.t);
+        var screen = (s.type === 'nav' ? s.page : (seg ? seg.page : s.page)) || '(screen)';
+        var dwell = s.type === 'nav' && s.dwellMs ? s.dwellMs : (seg ? seg.dur : 0);
+
+        var paramChips = '';
+        if (s.params) {
+            var ks = Object.keys(s.params);
+            if (ks.length) paramChips = '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;">' + ks.slice(0, 20).map(function (k) {
+                return '<span style="font-size:11px;background:#eef6f5;color:#0f766e;border:1px solid #d5e9e6;border-radius:7px;padding:3px 9px;">' +
+                    esc(k) + ' = <b>' + esc(String(s.params[k])) + '</b></span>';
+            }).join('') + '</div>';
+        }
+
+        var detail = '';
+        if (s.type === 'nav') detail = 'Spent <b>' + fmtDur(dwell) + '</b> on this screen';
+        else if (s.type === 'entity_view') detail = 'Viewed <b>' + esc(stepTitle(s)) + '</b>';
+        else if (s.type === 'search') detail = 'Ran a query' + (paramChips ? ' with these filters:' : '');
+        else if (s.type === 'idle') detail = 'Away for <b>' + fmtDur(s.dwellMs) + '</b>';
+        else if (s.type === 'error') detail = 'Hit an error: <b>' + esc(s.target || '') + '</b>';
+        else detail = esc(s.target || '');
+
+        el.innerHTML =
+            '<div key="' + jr.idx + '" style="animation:jrIn .34s ease;border:1px solid #eef2f7;border-left:5px solid ' + m.color + ';border-radius:12px;padding:16px 18px;background:white;box-shadow:0 1px 3px rgba(15,23,42,.05);">' +
+              '<div style="display:flex;align-items:center;gap:10px;">' +
+                '<div style="width:42px;height:42px;border-radius:11px;background:' + m.color + '1a;color:' + m.color + ';display:flex;align-items:center;justify-content:center;font-size:19px;"><i class="fas fa-' + m.icon + '"></i></div>' +
+                '<div>' +
+                  '<div style="font-size:10px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:' + m.color + ';">' + esc(m.verb) + '</div>' +
+                  '<div style="font-size:19px;font-weight:800;color:#0f172a;line-height:1.15;">' + esc(stepTitle(s)) + '</div>' +
+                '</div>' +
+                '<div style="margin-left:auto;text-align:right;">' +
+                  '<div style="font-size:20px;font-weight:800;color:#0f172a;font-variant-numeric:tabular-nums;">' + hhmmss(s.t) + '</div>' +
+                  '<div style="font-size:10px;color:#94a3b8;">on <b>' + esc(screen) + '</b></div>' +
+                '</div>' +
+              '</div>' +
+              '<div style="margin-top:12px;font-size:13px;color:#475569;">' + detail + '</div>' +
+              paramChips +
+              // a bar that fills over the step's dwell, giving the sense of time passing
+              '<div style="margin-top:14px;height:5px;background:#f1f5f9;border-radius:3px;overflow:hidden;">' +
+                '<div id="jr-fill" style="height:100%;width:0;background:' + m.color + ';"></div></div>' +
+            '</div>';
+
+        // animate the fill for the current step's duration
+        var fill = document.getElementById('jr-fill');
+        if (fill) {
+            var dur = jr.playing ? jrWait(s) : 600;
+            fill.style.transition = 'none'; fill.style.width = '0';
+            setTimeout(function () { var f = document.getElementById('jr-fill'); if (f) { f.style.transition = 'width ' + dur + 'ms linear'; f.style.width = '100%'; } }, 20);
+        }
+    }
+
+    function jrRenderTrail() {
+        var el = document.getElementById('jr-trail');
+        if (!el) return;
+        var nowT = jr.steps[jr.idx].t;
+        var visited = jr.segs.filter(function (g) { return g.start <= nowT + 1000; });
+        if (!visited.length) { el.innerHTML = '<span style="font-size:11px;color:#94a3b8;">No screen changes captured.</span>'; return; }
+        el.innerHTML = visited.map(function (g, i) {
+            var active = nowT >= g.start && nowT <= g.end;
+            var chip = '<span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:4px 10px;border-radius:20px;' +
+                'background:' + colorFor(g.page) + (active ? '' : '22') + ';color:' + (active ? 'white' : colorFor(g.page)) + ';border:1px solid ' + colorFor(g.page) + '33;' +
+                (active ? 'font-weight:800;box-shadow:0 0 0 3px ' + colorFor(g.page) + '33;' : '') + '">' +
+                esc(g.page) + ' <b style="opacity:.85;">' + fmtDur(g.dur) + '</b></span>';
+            var arrow = i < visited.length - 1 ? '<i class="fas fa-angle-right" style="color:#cbd5e1;font-size:11px;"></i>' : '';
+            return chip + arrow;
+        }).join('');
+    }
+
+    function jrShow() { jrRenderRail(); jrRenderStep(); jrRenderTrail(); }
+
+    DailyHistory.jrToggle = function () {
+        if (jr.playing) { stopJourney(); jrSetPlayBtn(); return; }
+        if (jr.idx >= jr.steps.length - 1) jr.idx = 0;
+        jr.playing = true; jrSetPlayBtn(); jrTick();
+    };
+    DailyHistory.jrRestart = function () { stopJourney(); jr.idx = 0; jr.playing = true; jrSetPlayBtn(); jrTick(); };
+    DailyHistory.jrStep = function (d) { stopJourney(); jrSetPlayBtn(); jr.idx = Math.max(0, Math.min(jr.steps.length - 1, jr.idx + d)); jrShow(); };
+    DailyHistory.jrJump = function (i) { stopJourney(); jrSetPlayBtn(); jr.idx = Math.max(0, Math.min(jr.steps.length - 1, i)); jrShow(); };
+    DailyHistory.jrSpeed = function (v) { jr.speed = Number(v) || 1; };
+
+    function jrTick() { jrShow(); jr.timer = setTimeout(jrAdvance, jrWait(jr.steps[jr.idx])); }
+    function jrAdvance() {
+        if (!jr.playing) return;
+        if (jr.idx >= jr.steps.length - 1) { stopJourney(); jrSetPlayBtn(); return; }
+        jr.idx++;
+        jrTick();
+    }
+    function jrSetPlayBtn() {
+        var b = document.getElementById('jr-playbtn');
+        if (!b) return;
+        var done = jr.idx >= jr.steps.length - 1 && !jr.playing;
+        b.innerHTML = jr.playing ? '<i class="fas fa-pause"></i> Pause' : (done ? '<i class="fas fa-rotate-right"></i> Replay' : '<i class="fas fa-play"></i> Play');
+    }
+    function hhmmss(t) { var d = new Date(t); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+
+    // inject the entrance keyframe once
+    (function injectJrStyle() {
+        if (document.getElementById('dh-jr-style')) return;
+        var s = document.createElement('style'); s.id = 'dh-jr-style';
+        s.textContent = '@keyframes jrIn{from{opacity:0;transform:translateY(8px) scale(.99);}to{opacity:1;transform:none;}}';
+        (document.head || document.documentElement).appendChild(s);
+    })();
 
     // pull meta.params (captured query filters) out of the meta CLOB and
     // render them as compact "name = value" chips under the target
