@@ -25,7 +25,9 @@
     var AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
     var FLUSH_MS = 30 * 60 * 1000;   // 30 minutes
     var MAX_BUFFER = 500;            // flush trigger (events buffered)
-    var BATCH_SIZE = 120;            // rows per INSERT statement (safe size)
+    var BATCH_SIZE = 40;             // rows per INSERT statement - keeps the
+                                     // request body's sql well under APEX_JSON
+                                     // size limits (~each row is ~300 chars)
     var LOCAL_FLUSH = 25;            // mirror to localStorage every N events
     var IDLE_MS = 5 * 60 * 1000;     // gap that counts as idle
     var LS_KEY = 'wms_activity_buffer';
