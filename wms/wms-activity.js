@@ -101,11 +101,17 @@
     // one row as a SELECT-of-literals from dual (INSERT ... SELECT ... UNION
     // ALL is a single statement Oracle parses cleanly - avoids the INSERT
     // ALL 999-column limit that caused ORA-00928)
+    // plain 'YYYY-MM-DD HH24:MI:SS.FF3' from the ISO string - no embedded
+    // double-quotes in the format model (those broke the parse: ORA-00928)
+    function tsExpr(iso) {
+        var s = String(iso || '').replace('T', ' ').replace('Z', '').slice(0, 23);
+        return "TO_TIMESTAMP(" + q(s) + ",'YYYY-MM-DD HH24:MI:SS.FF3')";
+    }
     function rowSql(e) {
         return 'SELECT ' +
             [q(e.session), q(e.user), q(e.app_ver), q(e.instance), q(e.module), q(e.page),
              q(e.type), q(e.target), q(e.entity_type), q(e.entity_id), num(e.dur_ms), q(e.meta),
-             "TO_TIMESTAMP_TZ(" + q(e.ts) + ",'YYYY-MM-DD\"T\"HH24:MI:SS.FF3\"Z\"')"].join(',') + ' FROM dual';
+             tsExpr(e.ts)].join(',') + ' FROM dual';
     }
     function buildSql(batch) {
         return 'INSERT INTO wms_activity_log (' + COLS + ') ' + batch.map(rowSql).join(' UNION ALL ');
