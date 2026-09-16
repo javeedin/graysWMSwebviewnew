@@ -316,8 +316,11 @@
               '<div id="jr-progress" style="position:absolute;left:0;top:0;bottom:0;width:0;background:#0f766e;border-radius:4px;transition:width .25s;"></div></div>' +
             // clickable step rail
             '<div id="jr-rail" style="display:flex;gap:4px;overflow-x:auto;padding:6px 2px 10px;"></div>' +
+            // facebook-style route map of screens travelled
+            '<div style="font-size:11px;font-weight:800;color:#334155;margin:6px 0 4px;"><i class="fas fa-map-location-dot" style="color:#0f766e;"></i> Route — how the user travelled between screens</div>' +
+            '<div id="jr-map" style="position:relative;width:100%;border:1px solid #eef2f7;border-radius:12px;background:linear-gradient(#fbfcfe,#f6f9fb);overflow:hidden;"></div>' +
             // the animated stage
-            '<div id="jr-stage" style="min-height:150px;margin:6px 0 14px;"></div>' +
+            '<div id="jr-stage" style="min-height:150px;margin:12px 0 14px;"></div>' +
             // trail of screens visited
             '<div style="font-size:11px;font-weight:800;color:#334155;margin:4px 0 6px;"><i class="fas fa-route" style="color:#0f766e;"></i> Screens visited (in order)</div>' +
             '<div id="jr-trail" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;"></div>';
@@ -329,9 +332,126 @@
 
     function jrInit() {
         jr.idx = 0;
+        jrBuildMap();
         jrRenderRail();
         jrRenderStep();
         jrRenderTrail();
+        jrUpdateMap();
+    }
+
+    // ── Route map (Facebook-trip style) ─────────────────────
+    // Merge consecutive visits to the same screen into route stops,
+    // lay them out on a snaking path, and let a marker travel between
+    // them as the replay plays.
+    function buildRoute() {
+        var r = [];
+        jr.segs.forEach(function (s) {
+            var last = r[r.length - 1];
+            if (last && last.page === s.page) { last.end = s.end; last.dur += s.dur; }
+            else r.push({ page: s.page, start: s.start, end: s.end, dur: s.dur });
+        });
+        return r;
+    }
+    function routeIdxAt(t) {
+        var r = jr.route || [];
+        for (var i = 0; i < r.length; i++) { if (t >= r[i].start && t <= r[i].end) return i; }
+        var best = 0;
+        for (var j = 0; j < r.length; j++) { if (r[j].start <= t) best = j; }
+        return best;
+    }
+    DailyHistory.jrJumpScreen = function (i) {
+        var r = jr.route || []; if (!r[i]) return;
+        var start = r[i].start, target = 0;
+        for (var k = 0; k < jr.steps.length; k++) { if (jr.steps[k].t >= start) { target = k; break; } target = k; }
+        DailyHistory.jrJump(target);
+    };
+
+    function jrBuildMap() {
+        var el = document.getElementById('jr-map');
+        if (!el) return;
+        jr.route = buildRoute();
+        var r = jr.route;
+        if (r.length < 2) {
+            el.style.height = 'auto';
+            el.innerHTML = '<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px;">' +
+                (r.length === 1 ? 'Only one screen was used (' + esc(r[0].page) + ' · ' + fmtDur(r[0].dur) + ') — no travel between screens to map.' :
+                    'No screen navigation captured to map.') + '</div>';
+            return;
+        }
+        var W = el.clientWidth || 680;
+        var cols = Math.max(2, Math.min(5, Math.floor(W / 155)));
+        var colW = W / cols, rowH = 118, padTop = 46;
+        var rows = Math.ceil(r.length / cols);
+        var H = rows * rowH + 34;
+        var total = r.reduce(function (s, x) { return s + x.dur; }, 0) || 1;
+
+        r.forEach(function (n, i) {
+            var row = Math.floor(i / cols);
+            var colInRow = i % cols;
+            var col = (row % 2 === 0) ? colInRow : (cols - 1 - colInRow); // serpentine
+            n.x = Math.round(col * colW + colW / 2);
+            n.y = Math.round(row * rowH + padTop);
+            n.r = Math.round(18 + Math.min(14, (n.dur / total) * 46));
+        });
+
+        // connectors (one path per gap) drawn behind the pins
+        var paths = '';
+        for (var i = 0; i < r.length - 1; i++) {
+            var a = r[i], b = r[i + 1];
+            var dy = Math.abs(b.y - a.y) > 4 ? 46 : 34;
+            var d = 'M' + a.x + ' ' + a.y + ' C ' + a.x + ' ' + (a.y + dy) + ' ' + b.x + ' ' + (b.y - dy) + ' ' + b.x + ' ' + b.y;
+            paths += '<path id="jr-conn-' + i + '" d="' + d + '" fill="none" stroke="#cbd5e1" stroke-width="2.5" stroke-linecap="round"></path>';
+        }
+        var svg = '<svg width="' + W + '" height="' + H + '" style="position:absolute;left:0;top:0;pointer-events:none;">' + paths + '</svg>';
+
+        // pins + labels
+        var pins = r.map(function (n, i) {
+            var c = colorFor(n.page);
+            return '<div id="jr-node-' + i + '" onclick="DailyHistory.jrJumpScreen(' + i + ')" ' +
+                'style="position:absolute;left:' + n.x + 'px;top:' + n.y + 'px;transform:translate(-50%,-50%);cursor:pointer;z-index:2;">' +
+                '<div class="jr-pin" style="width:' + (n.r * 2) + 'px;height:' + (n.r * 2) + 'px;border-radius:50%;background:' + c + ';border:3px solid #fff;box-shadow:0 2px 6px rgba(15,23,42,.18);' +
+                'display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:800;transition:transform .25s,box-shadow .25s;">' + (i + 1) + '</div>' +
+                '<div style="position:absolute;left:50%;top:' + (n.r * 2 + 2) + 'px;transform:translateX(-50%);white-space:nowrap;text-align:center;">' +
+                '<div style="font-size:10.5px;font-weight:800;color:#334155;max-width:130px;overflow:hidden;text-overflow:ellipsis;">' + esc(n.page) + '</div>' +
+                '<div style="font-size:9px;color:#94a3b8;">' + hm(new Date(n.start)) + ' · ' + fmtDur(n.dur) + '</div></div></div>';
+        }).join('');
+
+        // the travelling marker
+        var traveler = '<div id="jr-traveler" style="position:absolute;left:' + r[0].x + 'px;top:' + r[0].y + 'px;transform:translate(-50%,-50%);z-index:3;' +
+            'width:26px;height:26px;border-radius:50%;background:#0f172a;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;' +
+            'box-shadow:0 3px 8px rgba(15,23,42,.35);transition:left .55s ease,top .55s ease;"><i class="fas fa-person-walking"></i></div>';
+
+        el.style.height = H + 'px';
+        el.innerHTML = svg + pins + traveler;
+    }
+
+    function jrUpdateMap() {
+        var r = jr.route || [];
+        if (r.length < 2) return;
+        var t = jr.steps[jr.idx].t;
+        var act = routeIdxAt(t);
+        // pins: traveled = full, upcoming = dim, active = enlarged
+        for (var i = 0; i < r.length; i++) {
+            var node = document.getElementById('jr-node-' + i);
+            if (!node) continue;
+            var pin = node.querySelector('.jr-pin');
+            node.style.opacity = i <= act ? '1' : '0.4';
+            if (pin) {
+                if (i === act) { pin.style.transform = 'scale(1.18)'; pin.style.boxShadow = '0 0 0 5px ' + colorFor(r[i].page) + '33, 0 2px 6px rgba(15,23,42,.2)'; }
+                else { pin.style.transform = 'scale(1)'; pin.style.boxShadow = '0 2px 6px rgba(15,23,42,.18)'; }
+            }
+        }
+        // connectors: traveled solid+colored, the one being crossed marches, rest grey
+        for (var j = 0; j < r.length - 1; j++) {
+            var p = document.getElementById('jr-conn-' + j);
+            if (!p) continue;
+            if (j < act) { p.setAttribute('stroke', colorFor(r[j].page)); p.setAttribute('stroke-dasharray', ''); p.classList.remove('jr-move'); p.style.opacity = '0.9'; }
+            else if (j === act) { p.setAttribute('stroke', colorFor(r[j].page)); p.setAttribute('stroke-dasharray', '6 7'); p.classList.add('jr-move'); p.style.opacity = '1'; }
+            else { p.setAttribute('stroke', '#cbd5e1'); p.setAttribute('stroke-dasharray', ''); p.classList.remove('jr-move'); p.style.opacity = '0.6'; }
+        }
+        // move the traveler to the active stop
+        var tv = document.getElementById('jr-traveler');
+        if (tv && r[act]) { tv.style.left = r[act].x + 'px'; tv.style.top = r[act].y + 'px'; }
     }
 
     function jrRenderRail() {
@@ -427,7 +547,7 @@
         }).join('');
     }
 
-    function jrShow() { jrRenderRail(); jrRenderStep(); jrRenderTrail(); }
+    function jrShow() { jrRenderRail(); jrRenderStep(); jrRenderTrail(); jrUpdateMap(); }
 
     DailyHistory.jrToggle = function () {
         if (jr.playing) { stopJourney(); jrSetPlayBtn(); return; }
@@ -454,11 +574,23 @@
     }
     function hhmmss(t) { var d = new Date(t); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
 
+    // relayout the route map when the window is resized (once)
+    (function hookJrResize() {
+        var to;
+        window.addEventListener('resize', function () {
+            if (st.tab !== 'journey' || !jr.steps.length) return;
+            clearTimeout(to);
+            to = setTimeout(function () { if (st.tab === 'journey') { jrBuildMap(); jrUpdateMap(); } }, 200);
+        });
+    })();
+
     // inject the entrance keyframe once
     (function injectJrStyle() {
         if (document.getElementById('dh-jr-style')) return;
         var s = document.createElement('style'); s.id = 'dh-jr-style';
-        s.textContent = '@keyframes jrIn{from{opacity:0;transform:translateY(8px) scale(.99);}to{opacity:1;transform:none;}}';
+        s.textContent = '@keyframes jrIn{from{opacity:0;transform:translateY(8px) scale(.99);}to{opacity:1;transform:none;}}' +
+            '@keyframes jrDash{to{stroke-dashoffset:-26;}}' +
+            '.jr-move{animation:jrDash .6s linear infinite;}';
         (document.head || document.documentElement).appendChild(s);
     })();
 
