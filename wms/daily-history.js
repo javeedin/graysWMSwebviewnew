@@ -224,13 +224,27 @@
             '<div style="font-size:16px;font-weight:800;color:' + color + ';margin-top:2px;">' + val + '</div></div>';
     }
 
+    // pull meta.params (captured query filters) out of the meta CLOB and
+    // render them as compact "name = value" chips under the target
+    function paramsHtml(e) {
+        var p = null;
+        try { if (e.META) { var m = JSON.parse(e.META); p = m && m.params; } } catch (x) { }
+        if (!p || typeof p !== 'object') return '';
+        var keys = Object.keys(p);
+        if (!keys.length) return '';
+        return '<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px;">' + keys.slice(0, 20).map(function (k) {
+            return '<span style="font-size:9.5px;background:#eef6f5;color:#0f766e;border:1px solid #d5e9e6;border-radius:6px;padding:1px 6px;">' +
+                esc(k) + ' = <b>' + esc(String(p[k])) + '</b></span>';
+        }).join('') + '</div>';
+    }
+
     function viewLog() {
         var rows = st.events.map(function (e) {
             return '<tr style="border-bottom:1px solid #f1f5f9;">' +
-                '<td style="padding:5px 8px;white-space:nowrap;color:#64748b;">' + hm(new Date(e.TS)) + ':' + pad(new Date(e.TS).getSeconds()) + '</td>' +
-                '<td style="padding:5px 8px;"><span style="font-size:9px;font-weight:800;padding:1px 7px;border-radius:8px;background:' + colorFor(e.EVENT_TYPE) + '22;color:' + colorFor(e.EVENT_TYPE) + ';">' + esc(e.EVENT_TYPE) + '</span></td>' +
-                '<td style="padding:5px 8px;">' + esc(e.PAGE || '') + '</td>' +
-                '<td style="padding:5px 8px;color:#475569;">' + esc(e.TARGET || '') + '</td>' +
+                '<td style="padding:5px 8px;white-space:nowrap;color:#64748b;vertical-align:top;">' + hm(new Date(e.TS)) + ':' + pad(new Date(e.TS).getSeconds()) + '</td>' +
+                '<td style="padding:5px 8px;vertical-align:top;"><span style="font-size:9px;font-weight:800;padding:1px 7px;border-radius:8px;background:' + colorFor(e.EVENT_TYPE) + '22;color:' + colorFor(e.EVENT_TYPE) + ';">' + esc(e.EVENT_TYPE) + '</span></td>' +
+                '<td style="padding:5px 8px;vertical-align:top;">' + esc(e.PAGE || '') + '</td>' +
+                '<td style="padding:5px 8px;color:#475569;vertical-align:top;">' + esc(e.TARGET || '') + paramsHtml(e) + '</td>' +
                 '<td style="padding:5px 8px;">' + (e.ENTITY_TYPE ? esc(e.ENTITY_TYPE + ' ' + e.ENTITY_ID) : '') + '</td>' +
                 '<td style="padding:5px 8px;text-align:right;color:#0f766e;">' + (e.DUR_MS ? fmtDur(Number(e.DUR_MS)) : '') + '</td></tr>';
         }).join('');
