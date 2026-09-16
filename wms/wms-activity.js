@@ -25,9 +25,7 @@
     var AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
     var FLUSH_MS = 30 * 60 * 1000;   // 30 minutes
     var MAX_BUFFER = 500;            // flush trigger (events buffered)
-    var BATCH_SIZE = 40;             // rows per INSERT statement - keeps the
-                                     // request body's sql well under APEX_JSON
-                                     // size limits (~each row is ~300 chars)
+    var BATCH_SIZE = 100;            // rows per INSERT statement
     var LOCAL_FLUSH = 25;            // mirror to localStorage every N events
     var IDLE_MS = 5 * 60 * 1000;     // gap that counts as idle
     var LS_KEY = 'wms_activity_buffer';
@@ -109,11 +107,14 @@
         var s = String(iso || '').replace('T', ' ').replace('Z', '').slice(0, 23);
         return "TO_TIMESTAMP(" + q(s) + ",'YYYY-MM-DD HH24:MI:SS.FF3')";
     }
+    // Alias every column (c1..c13). Without aliases, the multiple NULL
+    // columns all get the generated name "NULL", and duplicate names in a
+    // UNION ALL raise ORA-00918 (column ambiguously defined).
     function rowSql(e) {
-        return 'SELECT ' +
-            [q(e.session), q(e.user), q(e.app_ver), q(e.instance), q(e.module), q(e.page),
+        var vals = [q(e.session), q(e.user), q(e.app_ver), q(e.instance), q(e.module), q(e.page),
              q(e.type), q(e.target), q(e.entity_type), q(e.entity_id), num(e.dur_ms), q(e.meta),
-             tsExpr(e.ts)].join(',') + ' FROM dual';
+             tsExpr(e.ts)];
+        return 'SELECT ' + vals.map(function (v, i) { return v + ' c' + (i + 1); }).join(',') + ' FROM dual';
     }
     function buildSql(batch) {
         return 'INSERT INTO wms_activity_log (' + COLS + ') ' + batch.map(rowSql).join(' UNION ALL ');
