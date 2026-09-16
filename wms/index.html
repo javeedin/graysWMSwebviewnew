@@ -116,6 +116,16 @@
                 </button>
             </div>
 
+            <!-- Activity Log viewer -->
+            <div style="position:relative;">
+                <button id="wms-actlog-btn" onclick="window.WMSActivity && WMSActivity.openLogViewer()" title="Activity Log — what is being captured"
+                    style="background:none;border:none;cursor:pointer;padding:0.4rem;color:#64748b;font-size:1.25rem;position:relative;transition:color 0.2s;"
+                    onmouseover="this.style.color='#0f766e'" onmouseout="this.style.color='#64748b'">
+                    <i class="fas fa-wave-square"></i>
+                    <span id="wms-actlog-badge" style="display:none;position:absolute;top:-2px;right:-2px;background:#0f766e;color:white;font-size:9px;font-weight:700;border-radius:9px;min-width:16px;height:16px;line-height:16px;text-align:center;padding:0 3px;">0</span>
+                </button>
+            </div>
+
             <!-- Mobile Notification Bell -->
             <div style="position:relative;">
                 <button id="mobile-notif-bell" onclick="toggleMobileNotifPanel()" title="Mobile Notifications"

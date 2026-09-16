@@ -71,8 +71,15 @@
         };
         buf.push(ev);
         lastEventAt = Date.now();
+        updateBadge();
         if (buf.length % LOCAL_FLUSH === 0) mirror();
         if (buf.length >= MAX_BUFFER) flush();
+    }
+    function updateBadge() {
+        var b = document.getElementById('wms-actlog-badge');
+        if (!b) return;
+        if (buf.length) { b.textContent = buf.length; b.style.display = 'block'; }
+        else b.style.display = 'none';
     }
     function entity(kind, id, o) { o = o || {}; o.entity_type = kind; o.entity_id = id; track('entity_view', o); }
 
@@ -108,7 +115,12 @@
             if (ok) {
                 buf = buf.slice(batch.length);
                 mirror();
+                updateBadge();
+                window._wmsLastFlush = { at: new Date(), n: batch.length, ok: true };
+            } else {
+                window._wmsLastFlush = { at: new Date(), n: batch.length, ok: false, err: err };
             }
+            if (window._wmsFlushCb) { try { window._wmsFlushCb(ok, batch.length); } catch (e) { } window._wmsFlushCb = null; }
             // on failure the buffer stays; next cycle retries (nothing lost)
         });
     }
@@ -358,9 +370,91 @@
         };
     }
 
+    // ── live activity log viewer (header icon) ──────────────
+    function openLogViewer() {
+        var old = document.getElementById('wms-log-modal'); if (old) old.remove();
+        var lf = window._wmsLastFlush;
+        var lastFlushTxt = lf ? (lf.ok ? ('last push ' + hmNow(lf.at) + ' (' + lf.n + ' rows)') : ('last push FAILED ' + hmNow(lf.at))) : 'not pushed yet';
+        document.body.insertAdjacentHTML('beforeend',
+        '<div id="wms-log-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.55);z-index:41000;display:flex;align-items:center;justify-content:center;font-family:Segoe UI,system-ui,sans-serif;">' +
+          '<div style="background:white;width:94%;max-width:760px;max-height:86vh;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+            '<div style="padding:0.8rem 1.1rem;background:linear-gradient(135deg,#0f766e,#134e4a);color:white;display:flex;justify-content:space-between;align-items:center;">' +
+              '<div style="font-weight:800;font-size:13.5px;"><i class="fas fa-wave-square"></i> Activity Log</div>' +
+              '<button onclick="document.getElementById(\'wms-log-modal\').remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
+            '</div>' +
+            '<div style="padding:0.7rem 1.1rem;border-bottom:1px solid #f1f5f9;display:flex;gap:14px;align-items:center;flex-wrap:wrap;">' +
+              '<div style="font-size:12px;color:#334155;"><b id="wms-log-bufn">' + buf.length + '</b> event(s) buffered · <span style="color:#64748b;">pushes to DB every 30 min · ' + lastFlushTxt + '</span></div>' +
+              '<button id="wms-log-flush" style="padding:6px 14px;border:none;border-radius:8px;background:#0f766e;color:white;font-weight:700;font-size:12px;cursor:pointer;"><i class="fas fa-cloud-arrow-up"></i> Push now</button>' +
+              '<button onclick="if(window.navigateToPage)navigateToPage(\'daily-history\');document.getElementById(\'wms-log-modal\').remove();" style="padding:6px 14px;border:1px solid #e2e8f0;border-radius:8px;background:white;color:#334155;font-weight:700;font-size:12px;cursor:pointer;"><i class="fas fa-timeline"></i> Daily History</button>' +
+            '</div>' +
+            '<div style="display:flex;gap:4px;padding:8px 1.1rem 0;">' +
+              '<div id="wms-log-tab-buf" onclick="WMSActivity._logTab(\'buf\')" style="padding:5px 13px;font-size:11.5px;font-weight:800;cursor:pointer;border-radius:8px 8px 0 0;background:#0f766e;color:white;">Live buffer (unpushed)</div>' +
+              '<div id="wms-log-tab-db" onclick="WMSActivity._logTab(\'db\')" style="padding:5px 13px;font-size:11.5px;font-weight:800;cursor:pointer;border-radius:8px 8px 0 0;background:#f1f5f9;color:#475569;">In database (recent)</div>' +
+            '</div>' +
+            '<div id="wms-log-body" style="flex:1;overflow:auto;padding:0.6rem 1.1rem 1rem;"></div>' +
+          '</div>' +
+        '</div>');
+        document.getElementById('wms-log-flush').addEventListener('click', function () {
+            var el = document.getElementById('wms-log-flush');
+            if (!buf.length) { return; }
+            el.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Pushing…';
+            window._wmsFlushCb = function (ok, n) {
+                el.innerHTML = '<i class="fas fa-cloud-arrow-up"></i> Push now';
+                var bn = document.getElementById('wms-log-bufn'); if (bn) bn.textContent = buf.length;
+                if (WMSActivity._logCur === 'db') WMSActivity._logTab('db'); else WMSActivity._logTab('buf');
+            };
+            flush();
+        });
+        WMSActivity._logTab('buf');
+    }
+    function hmNow(d) { return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+    function esc2(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+    function logRows(rows, timeField) {
+        if (!rows || !rows.length) return '<div style="padding:1.4rem;text-align:center;color:#94a3b8;font-size:12px;">Nothing here yet.</div>';
+        return '<table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="background:#f8fafc;position:sticky;top:0;">' +
+            ['Time', 'Type', 'Page', 'Target', 'Entity'].map(function (h) { return '<th style="padding:5px 7px;text-align:left;font-size:9.5px;color:#475569;text-transform:uppercase;">' + h + '</th>'; }).join('') +
+            '</tr></thead><tbody>' + rows.map(function (e) {
+                var t = timeField(e);
+                return '<tr style="border-bottom:1px solid #f1f5f9;">' +
+                    '<td style="padding:4px 7px;white-space:nowrap;color:#64748b;">' + esc2(t) + '</td>' +
+                    '<td style="padding:4px 7px;">' + esc2(e.type || e.EVENT_TYPE) + '</td>' +
+                    '<td style="padding:4px 7px;">' + esc2(e.page || e.PAGE || '') + '</td>' +
+                    '<td style="padding:4px 7px;color:#475569;">' + esc2(e.target || e.TARGET || '') + '</td>' +
+                    '<td style="padding:4px 7px;">' + esc2((e.entity_type || e.ENTITY_TYPE) ? ((e.entity_type || e.ENTITY_TYPE) + ' ' + (e.entity_id || e.ENTITY_ID || '')) : '') + '</td></tr>';
+            }).join('') + '</tbody></table>';
+    }
+    var logDbQuery = function (cb) {
+        var c = ctx();
+        var sql = "SELECT TO_CHAR(event_ts,'HH24:MI:SS') AS TS, event_type, page, target, entity_type, entity_id FROM wms_activity_log WHERE user_name = '" + String(c.user).replace(/'/g, "''") + "' ORDER BY event_ts DESC FETCH FIRST 50 ROWS ONLY";
+        sendMessageToCSharp({ action: 'executePost', fullUrl: AI_BASE + '/executequery', body: JSON.stringify({ sql: sql, maxRows: 50, appUser: c.user }) }, function (err, data) {
+            if (err) { cb(err, null); return; }
+            try { var r = typeof data === 'string' ? JSON.parse(data) : data; if (!r.success) { cb(r.error, null); return; } var cols = (r.columns || []).map(function (x) { return String(x).toUpperCase(); }); cb(null, (r.rows || []).map(function (row) { var o = {}; cols.forEach(function (c2, i) { o[c2] = row[i]; }); return o; })); } catch (e) { cb(e.message, null); }
+        });
+    };
+
     window.WMSActivity = {
         track: track, entity: entity, flush: flush,
-        openVoiceFeedback: openVoiceFeedback,
+        openVoiceFeedback: openVoiceFeedback, openLogViewer: openLogViewer,
+        getBuffer: function () { return buf.slice(); },
+        _logCur: 'buf',
+        _logTab: function (which) {
+            WMSActivity._logCur = which;
+            var tb = document.getElementById('wms-log-tab-buf'), td = document.getElementById('wms-log-tab-db'), body = document.getElementById('wms-log-body');
+            if (!body) return;
+            if (tb) { tb.style.background = which === 'buf' ? '#0f766e' : '#f1f5f9'; tb.style.color = which === 'buf' ? 'white' : '#475569'; }
+            if (td) { td.style.background = which === 'db' ? '#0f766e' : '#f1f5f9'; td.style.color = which === 'db' ? 'white' : '#475569'; }
+            if (which === 'buf') {
+                var b = buf.slice().reverse();
+                body.innerHTML = '<div style="font-size:10px;color:#94a3b8;margin:4px 0 8px;">These are captured and waiting to be pushed to the database (' + b.length + ').</div>' +
+                    logRows(b, function (e) { return e.ts ? e.ts.slice(11, 19) : ''; });
+            } else {
+                body.innerHTML = '<div style="padding:1rem;text-align:center;color:#64748b;font-size:12px;"><i class="fas fa-spinner fa-spin"></i> Loading from database…</div>';
+                logDbQuery(function (err, rows) {
+                    if (err) { body.innerHTML = '<div style="padding:1rem;color:#b91c1c;font-size:11.5px;">' + esc2(err) + '<br><br>If this says the table does not exist, run apex_sql/51_activity_log.sql.</div>'; return; }
+                    body.innerHTML = '<div style="font-size:10px;color:#94a3b8;margin:4px 0 8px;">Last 50 rows stored for you.</div>' + logRows(rows, function (e) { return e.TS; });
+                });
+            }
+        },
         setFeedbackEntity: function (kind, id) { window._wmsFbEntityType = kind; window._wmsFbEntityId = id; }
     };
 
