@@ -227,6 +227,11 @@
                 <span>Printer Setups</span>
                 <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('printer-setup-new')" title="Open in new window"></i>
             </div>
+            <div class="menu-item" data-page="daily-history">
+                <i class="fas fa-timeline"></i>
+                <span>Daily History</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('daily-history')" title="Open in new window"></i>
+            </div>
             <div class="menu-item" data-page="settings">
                 <i class="fas fa-cog"></i>
                 <span>Settings & Updates</span>
@@ -250,6 +255,7 @@
         </aside>
         
         <main class="main-content" id="main-content">
+            <div id="daily-history" class="page-content" style="display: none;"></div>
             <div id="trip-management" class="page-content">
                 <div class="parameters-section">
                     <div class="parameters-header" id="parameters-toggle">
@@ -9930,5 +9936,6 @@ document.addEventListener('keydown', function (e) {
 </script>
 
 <script src="wms-activity.js"></script>
+<script src="daily-history.js"></script>
 </body>
 </html>

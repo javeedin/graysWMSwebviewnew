@@ -2168,7 +2168,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // Page-specific initialization
-        if (pageId === 'vehicles' && currentFullData.length > 0) {
+        if (pageId === 'daily-history') {
+            if (window.DailyHistory) DailyHistory.onShow();
+        } else if (pageId === 'vehicles' && currentFullData.length > 0) {
             initVehiclesPage();
         } else if (pageId === 'monitor-printing') {
             if (typeof restoreMonitoringGridIfNeeded === 'function') {
