@@ -58,6 +58,7 @@
                 '<button id="dh-load" style="padding:8px 18px;border:none;border-radius:8px;background:#0f766e;color:white;font-weight:800;font-size:13px;cursor:pointer;"><i class="fas fa-magnifying-glass"></i> Load</button>' +
                 '<span id="dh-status" style="font-size:12px;color:#64748b;"></span>' +
               '</div>' +
+              '<div id="dh-lastpush" style="font-size:11px;color:#64748b;margin-top:8px;"><i class="fas fa-database" style="color:#94a3b8;"></i> checking last stored activity…</div>' +
             '</div>' +
             '<div style="padding:0 20px 24px;">' +
               '<div id="dh-tabs" style="display:flex;gap:4px;border-bottom:2px solid #e2e8f0;margin-bottom:12px;flex-wrap:wrap;"></div>' +
@@ -67,7 +68,9 @@
             document.getElementById('dh-load').addEventListener('click', DailyHistory.load);
             renderTabs();
             loadUsers();
+            loadLastPush();
         },
+        refreshLastPush: function () { loadLastPush(); },
         load: function () {
             st.date = document.getElementById('dh-date').value || todayIso();
             st.user = document.getElementById('dh-user').value || '';
@@ -92,6 +95,24 @@
             });
         }
     };
+
+    function loadLastPush() {
+        var el = document.getElementById('dh-lastpush');
+        if (!el) return;
+        runSql("SELECT TO_CHAR(MAX(created_on),'YYYY-MM-DD HH24:MI:SS') AS LAST_STORED, TO_CHAR(MAX(event_ts),'YYYY-MM-DD HH24:MI:SS') AS LAST_EVENT, COUNT(*) AS TOTAL FROM wms_activity_log",
+            function (err, rows) {
+                if (err) { el.innerHTML = '<span style="color:#b45309;"><i class="fas fa-triangle-exclamation"></i> ' + esc(err) + '</span>'; return; }
+                var r = (rows && rows[0]) || {};
+                if (!r.TOTAL || Number(r.TOTAL) === 0) {
+                    el.innerHTML = '<i class="fas fa-database" style="color:#94a3b8;"></i> No activity stored yet — use the app, then click the Activity Log icon and Push to DB.';
+                    return;
+                }
+                el.innerHTML = '<i class="fas fa-database" style="color:#0f766e;"></i> Last pushed to DB: <b>' + esc(r.LAST_STORED || r.LAST_EVENT || '') + '</b>' +
+                    ' · latest event: <b>' + esc(r.LAST_EVENT || '') + '</b>' +
+                    ' · <b>' + esc(r.TOTAL) + '</b> total rows stored' +
+                    ' <a href="javascript:void(0)" onclick="DailyHistory.refreshLastPush()" style="color:#0f766e;text-decoration:none;font-weight:700;margin-left:6px;"><i class="fas fa-rotate"></i></a>';
+            });
+    }
 
     function loadUsers() {
         runSql("SELECT DISTINCT user_name FROM wms_activity_log ORDER BY user_name", function (err, rows) {
