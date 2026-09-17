@@ -147,6 +147,23 @@ function runWrite(sql, cb) {
     });
 }
 function sqlq(s) { return "'" + String(s === undefined || s === null ? '' : s).replace(/'/g, "''") + "'"; }
+// Oracle SQL string literals are capped at 4000 chars, but a form
+// definition can be much larger. Emit it as TO_CLOB('..')||TO_CLOB('..')
+// with every literal kept under 3800 chars (after quote-escaping) so
+// large definitions save through the write gateway without ORA-01704.
+function clobLiteral(s) {
+    s = String(s === undefined || s === null ? '' : s);
+    const MAX = 3800, parts = [];
+    let cur = '';
+    for (let i = 0; i < s.length; i++) {
+        const piece = s[i] === "'" ? "''" : s[i];
+        if (cur.length + piece.length > MAX) { parts.push(cur); cur = ''; }
+        cur += piece;
+    }
+    if (cur.length) parts.push(cur);
+    if (!parts.length) return "TO_CLOB('')";
+    return parts.map(p => "TO_CLOB('" + p + "')").join(' || ');
+}
 
 // ── state ───────────────────────────────────────────────────
 let formRows = [];        // rows from wms_ai_forms
@@ -212,8 +229,17 @@ function openForm(key) {
     runQuery("SELECT form_key, name, description, active, definition FROM wms_ai_forms WHERE form_key = " + sqlq(key), function (err, rows) {
         if (err || !rows.length) { alert('Could not load form: ' + (err || 'not found')); return; }
         const r = rows[0];
-        let def;
-        try { def = JSON.parse(r.DEFINITION); } catch (e) { def = EMPTY_DEF(); alert('Stored definition is not valid JSON — starting from an empty layout. Fix and save.'); }
+        let def = null, warn = '';
+        const raw = r.DEFINITION;
+        if (raw == null || String(raw).trim() === '' || String(raw).trim() === 'null') {
+            warn = 'This form has no stored definition (it was likely saved before the large-form fix, or the save failed). Starting from an empty layout — rebuild in AI Build or paste the JSON via Import, then Save.';
+        } else {
+            try { def = JSON.parse(raw); } catch (e) { warn = 'Stored definition is not valid JSON (it may have been truncated). Starting empty — re-import the JSON and Save.'; }
+        }
+        // unwrap an envelope { form_key, name, definition:{...} } if one was stored by mistake
+        if (def && !def.header && def.definition && def.definition.header) def = def.definition;
+        if (!def || typeof def !== 'object' || !def.header) { if (!warn) warn = 'Stored definition is unusable — starting from an empty layout.'; def = EMPTY_DEF(); }
+        if (warn) alert(warn);
         normalizeLoadedDef(def);
         cur = { form_key: String(r.FORM_KEY), name: String(r.NAME || ''), description: String(r.DESCRIPTION || ''), active: String(r.ACTIVE || 'Y'), def: def, isNew: false };
         curKey = cur.form_key;
@@ -1001,10 +1027,10 @@ function saveForm() {
     let sql;
     if (cur.isNew) {
         sql = 'INSERT INTO wms_ai_forms (form_key, name, description, definition, active, updated_by, updated_on) VALUES (' +
-            [sqlq(key), sqlq(cur.name), sqlq(cur.description), sqlq(defJson), sqlq(cur.active), sqlq(appUserName()), 'SYSDATE'].join(', ') + ')';
+            [sqlq(key), sqlq(cur.name), sqlq(cur.description), clobLiteral(defJson), sqlq(cur.active), sqlq(appUserName()), 'SYSDATE'].join(', ') + ')';
     } else {
         sql = 'UPDATE wms_ai_forms SET name = ' + sqlq(cur.name) + ', description = ' + sqlq(cur.description) +
-            ', definition = ' + sqlq(defJson) + ', active = ' + sqlq(cur.active) +
+            ', definition = ' + clobLiteral(defJson) + ', active = ' + sqlq(cur.active) +
             ', updated_by = ' + sqlq(appUserName()) + ', updated_on = SYSDATE WHERE form_key = ' + sqlq(key);
     }
     status.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-spinner fa-spin"></i> Saving…</span>';
