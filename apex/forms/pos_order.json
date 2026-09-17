@@ -1,0 +1,171 @@
+{
+  "form_key": "pos.order",
+  "name": "Point of Sale",
+  "description": "Full POS order screen: customer search with price list & balance, item lines with barcode/BOGO, discounts & tax, payments, stock check, customer history, print, email PDF and draft save.",
+  "definition": {
+    "title": "Point of Sale",
+    "icon": "cash-register",
+    "width": 1200,
+    "style": { "accent": "#0f766e" },
+    "header": {
+      "columns": 4,
+      "fields": [
+        { "key": "customer_name", "label": "Customer", "type": "picker", "required": true, "span": 2, "tab": "Sell", "section": "cust",
+          "pickerSql": "SELECT ACCOUNT_NAME, ACCOUNT_NUMBER, CITY, PRICE_LIST, STATUS, HOLD_STATUS, PHONE, EMAIL_ADDRESS, PAYMENT_TERM FROM GRFU_CUSTOMER WHERE UPPER(ACCOUNT_NAME) LIKE :SEARCH OR UPPER(ACCOUNT_NUMBER) LIKE :SEARCH OR UPPER(PHONE) LIKE :SEARCH ORDER BY ACCOUNT_NAME FETCH FIRST 50 ROWS ONLY",
+          "display": "ACCOUNT_NAME",
+          "map": { "customer_name": "ACCOUNT_NAME", "customer_number": "ACCOUNT_NUMBER", "city": "CITY", "price_list": "PRICE_LIST", "customer_status": "STATUS", "hold_status": "HOLD_STATUS", "phone": "PHONE", "email": "EMAIL_ADDRESS", "payment_terms": "PAYMENT_TERM" },
+          "hint": "Search by name, account number or phone" },
+        { "key": "customer_number", "label": "Account #", "type": "readonly", "span": 1, "tab": "Sell", "section": "cust" },
+        { "key": "price_list", "label": "Price List", "type": "readonly", "span": 1, "tab": "Sell", "section": "cust" },
+        { "key": "phone", "label": "Phone", "type": "text", "span": 1, "tab": "Sell", "section": "cust" },
+        { "key": "city", "label": "City", "type": "readonly", "span": 1, "tab": "Sell", "section": "cust" },
+        { "key": "customer_status", "label": "Status", "type": "readonly", "span": 1, "tab": "Sell", "section": "cust" },
+        { "key": "hold_status", "label": "Hold", "type": "readonly", "span": 1, "tab": "Sell", "section": "cust" },
+
+        { "key": "order_date", "label": "Date", "type": "date", "default": "$TODAY", "required": true, "span": 1, "tab": "Sell", "section": "hdr" },
+        { "key": "order_type", "label": "Order Type", "type": "select", "required": true, "span": 1, "tab": "Sell", "section": "hdr",
+          "listSql": "SELECT ORDER_TYPE_CODE AS VALUE, ORDER_TYPE_CODE AS LABEL FROM FUSION_ORDER_TYPES ORDER BY ORDER_TYPE_CODE" },
+        { "key": "location", "label": "Shop / Location", "type": "select", "required": true, "span": 1, "tab": "Sell", "section": "hdr",
+          "listSql": "SELECT SHOP_CODE AS VALUE, SHOP_NAME AS LABEL FROM SHOP_LOCATION_MAPPING ORDER BY SHOP_NAME" },
+        { "key": "currency", "label": "Currency", "type": "select", "required": true, "default": "MUR", "span": 1, "tab": "Sell", "section": "hdr",
+          "listSql": "SELECT DISTINCT CURRENCY_CODE AS VALUE, CURRENCY_CODE AS LABEL FROM FUSION_PRICE_LIST WHERE CURRENCY_CODE IS NOT NULL ORDER BY 1" },
+        { "key": "salesrep", "label": "Salesrep", "type": "select", "required": true, "span": 1, "tab": "Sell", "section": "hdr",
+          "listSql": "SELECT SALESREP_NUMBER AS VALUE, SALESREP_NUMBER || ' - ' || NAME AS LABEL FROM SALESREP_REF ORDER BY NAME" },
+        { "key": "agent_name", "label": "Sales Agent", "type": "select", "span": 1, "tab": "Sell", "section": "hdr",
+          "listSql": "SELECT AGENT_NAME AS VALUE, AGENT_NAME AS LABEL FROM POS_AGENTS WHERE SALESREP_NUMBER = :SALESREP ORDER BY AGENT_NAME" },
+        { "key": "po_number", "label": "Customer PO", "type": "text", "span": 1, "tab": "Sell", "section": "hdr" },
+        { "key": "cashier", "label": "Cashier", "type": "readonly", "default": "$USER", "span": 1, "tab": "Sell", "section": "hdr" },
+        { "key": "comments", "label": "Comments", "type": "textarea", "span": 4, "tab": "Sell", "section": "hdr" },
+
+        { "key": "total_gross", "label": "Gross", "type": "readonly", "default": 0, "span": 1, "tab": "Sell", "section": "totals" },
+        { "key": "total_discount", "label": "Discount", "type": "readonly", "default": 0, "span": 1, "tab": "Sell", "section": "totals" },
+        { "key": "total_tax", "label": "Tax", "type": "readonly", "default": 0, "span": 1, "tab": "Sell", "section": "totals" },
+        { "key": "total_net", "label": "Net Payable", "type": "readonly", "default": 0, "span": 1, "tab": "Sell", "section": "totals" },
+
+        { "key": "pay_reference", "label": "Payment Reference", "type": "text", "span": 2, "tab": "Payment", "section": "paysum", "hint": "Cheque / card / transfer reference" },
+        { "key": "pay_notes", "label": "Payment Notes", "type": "textarea", "span": 2, "tab": "Payment", "section": "paysum" },
+
+        { "key": "email", "label": "Email", "type": "text", "span": 2, "tab": "Customer", "section": "custinfo" },
+        { "key": "payment_terms", "label": "Payment Terms", "type": "readonly", "span": 1, "tab": "Customer", "section": "custinfo" },
+        { "key": "credit_limit", "label": "Credit Limit", "type": "readonly", "span": 1, "tab": "Customer", "section": "custinfo",
+          "valueSql": "SELECT CREDIT_LIMIT AS VALUE FROM FUSION_CUSTOMER_BALANCE WHERE ACCOUNT_NUMBER = :CUSTOMER_NUMBER FETCH FIRST 1 ROWS ONLY" },
+        { "key": "ar_balance", "label": "AR Balance", "type": "readonly", "span": 1, "tab": "Customer", "section": "custinfo",
+          "valueSql": "SELECT AMT_REMAINING AS VALUE FROM FUSION_CUSTOMER_BALANCE WHERE ACCOUNT_NUMBER = :CUSTOMER_NUMBER FETCH FIRST 1 ROWS ONLY" },
+
+        { "key": "stock_item", "label": "Item to check", "type": "picker", "span": 2, "tab": "Stock", "section": "stock",
+          "pickerSql": "SELECT ITEM_NUMBER, DESCRIPTION, BARCODE FROM GRFU_ITEM WHERE UPPER(ITEM_NUMBER) LIKE :SEARCH OR UPPER(DESCRIPTION) LIKE :SEARCH OR BARCODE LIKE :SEARCH FETCH FIRST 50 ROWS ONLY",
+          "display": "ITEM_NUMBER",
+          "map": { "stock_item": "ITEM_NUMBER", "stock_item_desc": "DESCRIPTION" },
+          "hint": "Pick an item, then run the On-hand report below" },
+        { "key": "stock_item_desc", "label": "Description", "type": "readonly", "span": 2, "tab": "Stock", "section": "stock" }
+      ]
+    },
+    "details": [
+      {
+        "key": "lines", "title": "Items", "tab": "Sell", "section": "dtl", "required": true,
+        "allowManualRow": true, "allowDelete": true, "qtyKey": "qty",
+        "pickerSql": "SELECT ITEM_NUMBER AS ITEM_CODE, ITEM_DESC, BASE_PRICE AS LIST_PRICE, TAX_CODE, NVL(TAX_RATE,0) AS TAX_RATE, PRICING_UOM_CODE AS UOM, BARCODE FROM GRFU_PRICELIST_VW WHERE LIST_NAME = :PRICE_LIST AND (UPPER(ITEM_NUMBER) LIKE :SEARCH OR UPPER(ITEM_DESC) LIKE :SEARCH OR BARCODE LIKE :SEARCH) ORDER BY ITEM_DESC FETCH FIRST 50 ROWS ONLY",
+        "pickerMap": { "item_code": "ITEM_CODE", "item_desc": "ITEM_DESC", "list_price": "LIST_PRICE", "tax_code": "TAX_CODE", "tax_rate": "TAX_RATE", "uom": "UOM", "barcode": "BARCODE" },
+        "columns": [
+          { "key": "item_code", "label": "Item / Barcode", "type": "text", "editable": true, "width": 140,
+            "lookupSql": "SELECT ITEM_NUMBER AS ITEM_CODE, ITEM_DESC, BASE_PRICE AS LIST_PRICE, TAX_CODE, NVL(TAX_RATE,0) AS TAX_RATE, PRICING_UOM_CODE AS UOM, BARCODE FROM GRFU_PRICELIST_VW WHERE LIST_NAME = :PRICE_LIST AND (UPPER(ITEM_NUMBER) = UPPER(:ITEM_CODE) OR BARCODE = :ITEM_CODE) FETCH FIRST 1 ROWS ONLY" },
+          { "key": "item_desc", "label": "Description", "type": "text", "editable": false, "width": 240 },
+          { "key": "uom", "label": "UOM", "type": "text", "editable": false, "width": 60 },
+          { "key": "qty", "label": "Qty", "type": "number", "editable": true, "width": 70, "default": 1 },
+          { "key": "list_price", "label": "List", "type": "number", "editable": true, "width": 90 },
+          { "key": "disc_pct", "label": "Disc %", "type": "number", "editable": true, "width": 70, "default": 0 },
+          { "key": "selling_price", "label": "Selling", "type": "computed", "formula": "list_price * (1 - disc_pct / 100)", "width": 90 },
+          { "key": "tax_rate", "label": "Tax %", "type": "number", "editable": false, "width": 60 },
+          { "key": "gross", "label": "Gross", "type": "computed", "formula": "qty * list_price", "width": 90 },
+          { "key": "discount_amt", "label": "Discount", "type": "computed", "formula": "qty * list_price * disc_pct / 100", "width": 90 },
+          { "key": "net", "label": "Net", "type": "computed", "formula": "qty * list_price * (1 - disc_pct / 100)", "width": 90 },
+          { "key": "tax_amt", "label": "Tax", "type": "computed", "formula": "qty * list_price * (1 - disc_pct / 100) * tax_rate / 100", "width": 80 },
+          { "key": "line_total", "label": "Total", "type": "computed", "formula": "qty * list_price * (1 - disc_pct / 100) * (1 + tax_rate / 100)", "width": 100 },
+          { "key": "barcode", "label": "Barcode", "type": "text", "editable": false, "width": 110 }
+        ],
+        "totals": [ "qty", "gross", "discount_amt", "net", "tax_amt", "line_total" ],
+        "lineRulesSql": "SELECT PROMOITEMCODE AS ITEM_CODE, PROMOITEMDESC AS ITEM_DESC, GETQTY AS QTY, NVL(PROMOPRICE,0) AS LIST_PRICE, VATCODE AS TAX_CODE, 0 AS DISC_PCT FROM FUSION_BOGO_ITEMS WHERE UPPER(MAINITEMCODE) = UPPER(:ITEM_CODE) AND TRUNC(SYSDATE) BETWEEN NVL(STARTDATE, TRUNC(SYSDATE)) AND NVL(ENDDATE, TRUNC(SYSDATE))"
+      },
+      {
+        "key": "payments", "title": "Payments", "tab": "Payment", "section": "pay",
+        "allowManualRow": true, "allowDelete": true, "qtyKey": "amount",
+        "pickerSql": "SELECT PAYMENT_MODE, REFERENCE_REQUIRED FROM FUSION_AR_RECEIPT_METHODS WHERE UPPER(PAYMENT_MODE) LIKE :SEARCH ORDER BY PAYMENT_MODE FETCH FIRST 50 ROWS ONLY",
+        "pickerMap": { "payment_mode": "PAYMENT_MODE", "reference_required": "REFERENCE_REQUIRED" },
+        "columns": [
+          { "key": "payment_mode", "label": "Payment Mode", "type": "text", "editable": true, "width": 150,
+            "lookupSql": "SELECT PAYMENT_MODE, REFERENCE_REQUIRED FROM FUSION_AR_RECEIPT_METHODS WHERE UPPER(PAYMENT_MODE) = UPPER(:PAYMENT_MODE) FETCH FIRST 1 ROWS ONLY" },
+          { "key": "amount", "label": "Amount", "type": "number", "editable": true, "width": 120 },
+          { "key": "reference", "label": "Reference", "type": "text", "editable": true, "width": 180 },
+          { "key": "pay_comments", "label": "Comments", "type": "text", "editable": true, "width": 220 }
+        ],
+        "totals": [ "amount" ]
+      }
+    ],
+    "reports": [
+      { "key": "onhand", "title": "On-hand Stock (selected item)", "autoRun": false,
+        "showWhen": { "field": "stock_item", "op": "notEmpty" },
+        "sql": "SELECT ORGANIZATION_CODE, SUBINVENTORY_CODE, ITEM_NUMBER, DESCRIPTION, LOT_NUMBER, TRANSACTION_QUANTITY AS QTY, TRANSACTION_UOM_CODE AS UOM FROM GRFU_ONHAND_VW WHERE UPPER(ITEM_NUMBER) = UPPER(:STOCK_ITEM) ORDER BY ORGANIZATION_CODE, SUBINVENTORY_CODE, LOT_NUMBER FETCH FIRST 200 ROWS ONLY" },
+      { "key": "customer_history", "title": "Customer Order History (last 50)", "autoRun": false,
+        "showWhen": { "field": "customer_number", "op": "notEmpty" },
+        "sql": "SELECT SOURCE_ORDER_NUMBER, ORDER_DATE, ORDER_TYPE, LOCATION, TOTAL_GROSS, TOTAL_DISCOUNT, TOTAL_TAX, TOTAL_NET, ORDER_STATUS FROM ORDER_CART_HEADER WHERE BILL_TO_CUSTOMER_NUMBER = :CUSTOMER_NUMBER ORDER BY ORDER_DATE DESC FETCH FIRST 50 ROWS ONLY" },
+      { "key": "customer_receipts", "title": "Customer Receipts (last 30)", "autoRun": false,
+        "showWhen": { "field": "customer_number", "op": "notEmpty" },
+        "sql": "SELECT RECEIPT_DATE, RECEIPT_NUMBER, RECEIPT_AMOUNT, RECEIPT_CURRENCY, RECEIPT_PAYMENT_MODE, REFERENCE_NUMBER FROM FUSION_AR_RECEIPTS WHERE CUSTOMER_NUMBER = :CUSTOMER_NUMBER ORDER BY RECEIPT_DATE DESC FETCH FIRST 30 ROWS ONLY" }
+    ],
+    "rules": {
+      "submitChecks": [
+        { "mode": "FAIL_IF_NO_ROWS", "message": "Select a valid customer from the customer master.",
+          "sql": "SELECT 1 FROM GRFU_CUSTOMER WHERE ACCOUNT_NUMBER = :CUSTOMER_NUMBER" },
+        { "mode": "FAIL_IF_ROWS", "message": "Customer is inactive or on hold - order cannot be created.",
+          "sql": "SELECT 1 FROM GRFU_CUSTOMER WHERE ACCOUNT_NUMBER = :CUSTOMER_NUMBER AND (UPPER(STATUS) IN ('I','INACTIVE') OR UPPER(HOLD_STATUS) IN ('Y','HOLD','ON HOLD'))" },
+        { "mode": "FAIL_IF_NO_ROWS", "message": "Order type is not a valid Fusion order type.",
+          "sql": "SELECT 1 FROM FUSION_ORDER_TYPES WHERE ORDER_TYPE_CODE = :ORDER_TYPE" },
+        { "mode": "FAIL_IF_NO_ROWS", "message": "The customer's price list has no items - check the price list.",
+          "sql": "SELECT 1 FROM GRFU_PRICELIST_VW WHERE LIST_NAME = :PRICE_LIST FETCH FIRST 1 ROWS ONLY" },
+        { "mode": "FAIL_IF_NO_ROWS", "message": "Select a valid salesrep.",
+          "sql": "SELECT 1 FROM SALESREP_REF WHERE SALESREP_NUMBER = :SALESREP" }
+      ]
+    },
+    "actions": [
+      { "key": "create_order", "label": "Create Order", "icon": "check", "type": "chat", "style": "primary", "validate": true, "confirm": true,
+        "prompt": "Create this POS order in the WMS DB (order.create flow) from the reviewed form values: header, item lines (item, qty, list, disc%, tax) and payments. Customer {customer_number} - {customer_name}, price list {price_list}, order type {order_type}, shop {location}, salesrep {salesrep}, agent {agent_name}, cashier {cashier}. Validate every item against price list {price_list}, show the plan with totals, then create it." },
+      { "key": "email_pdf", "label": "Email PDF", "icon": "envelope", "type": "chat", "style": "default",
+        "prompt": "Produce a clean PDF of this POS order (header, item lines with totals, payments) and email it to {email} for customer {customer_number} - {customer_name}, subject 'Your order confirmation'. Use the Office 365 email settings already configured." },
+      { "key": "print_form", "label": "Print", "icon": "print", "type": "print", "style": "default" },
+      { "key": "save_draft", "label": "Save Draft", "icon": "floppy-disk", "type": "local_file", "style": "default", "folder": "pos_orders", "fileName": "POS_{customer_number}_{TIMESTAMP}.json" },
+      { "key": "stock_check", "label": "Stock Check", "icon": "cubes", "type": "chat", "style": "default",
+        "prompt": "Check on-hand stock (GRFU_ONHAND_VW) for every item on this POS order's lines and flag any line whose quantity exceeds available stock." },
+      { "key": "customer_history", "label": "History", "icon": "clock-rotate-left", "type": "chat", "style": "default",
+        "prompt": "Show the order history of customer {customer_number} - {customer_name}: last 50 orders from ORDER_CART_HEADER with number, date, type, location, net and status, plus the balance from FUSION_CUSTOMER_BALANCE." },
+      { "key": "close", "label": "Close", "type": "close", "style": "default" }
+    ],
+    "sidebar": {
+      "position": "right",
+      "items": [
+        { "icon": "check", "label": "Create", "tooltip": "Create Order - validate and create", "action": "create_order" },
+        { "icon": "envelope", "label": "Email", "tooltip": "Email the order as a PDF", "action": "email_pdf" },
+        { "icon": "print", "label": "Print", "tooltip": "Print the order", "action": "print_form" },
+        { "icon": "floppy-disk", "label": "Draft", "tooltip": "Save as a local draft", "action": "save_draft" },
+        { "icon": "cubes", "label": "Stock", "tooltip": "On-hand for the ordered items", "action": "stock_check" },
+        { "icon": "clock-rotate-left", "label": "History", "tooltip": "Customer past orders & balance", "action": "customer_history" },
+        { "icon": "xmark", "label": "Close", "tooltip": "Close the form", "action": "close" }
+      ]
+    },
+    "sections": [
+      { "key": "cust", "title": "Customer", "tab": "Sell", "columns": 4, "display": "card", "style": { "headingColor": "#0f766e" } },
+      { "key": "hdr", "title": "Order Details", "tab": "Sell", "columns": 4, "display": "card", "style": { "headingColor": "#0f766e" } },
+      { "key": "dtl", "title": "Items", "tab": "Sell", "columns": 1, "display": "card", "style": {} },
+      { "key": "totals", "title": "Order Totals", "tab": "Sell", "columns": 4, "display": "card", "style": { "headingColor": "#0f766e", "background": "#f0fdfa" } },
+      { "key": "pay", "title": "Payments", "tab": "Payment", "columns": 1, "display": "card", "style": {} },
+      { "key": "paysum", "title": "Payment Details", "tab": "Payment", "columns": 4, "display": "card", "style": {} },
+      { "key": "custinfo", "title": "Customer & Balance", "tab": "Customer", "columns": 4, "display": "card", "style": { "headingColor": "#0f766e" } },
+      { "key": "stock", "title": "Stock Check", "tab": "Stock", "columns": 4, "display": "card", "style": {} }
+    ],
+    "regions": [],
+    "mobile": {
+      "columns": 1,
+      "hidden": [ "hold_status", "customer_status", "cashier", "stock_item_desc", "pay_notes" ],
+      "order": [ "customer_name", "customer_number", "price_list", "phone", "order_date", "order_type", "location", "salesrep", "agent_name", "currency", "po_number", "comments", "total_gross", "total_discount", "total_tax", "total_net" ]
+    }
+  }
+}
