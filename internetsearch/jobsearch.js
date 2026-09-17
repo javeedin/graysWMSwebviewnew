@@ -86,27 +86,31 @@
     };
 
     // ── adapters: each -> cb(err, [normalizedJobs], meta) ────
-    // Adzuna: app_id + app_key are QUERY params (no header needed)
+    // Adzuna: app_id + app_key are QUERY params (no header needed).
+    // Fetches several pages (50/page) for real coverage.
     function fetchAdzuna(qy, cb) {
         if (!cfg.keys.adzunaId || !cfg.keys.adzunaKey) { cb('missing Adzuna app_id / app_key'); return; }
-        var base = 'https://api.adzuna.com/v1/api/jobs/' + encodeURIComponent(cfg.country || 'in') + '/search/1';
-        var url = base + '?app_id=' + encodeURIComponent(cfg.keys.adzunaId) +
-            '&app_key=' + encodeURIComponent(cfg.keys.adzunaKey) +
-            '&results_per_page=30&content-type=application/json' +
-            (qy.keyword ? '&what=' + encodeURIComponent(qy.keyword) : '') +
-            (qy.location ? '&where=' + encodeURIComponent(qy.location) : '');
-        httpGet(url, function (err, j) {
-            if (err) { cb(err); return; }
-            var out = (j && j.results || []).map(function (r) {
-                return {
-                    id: 'adzuna:' + r.id, source: 'adzuna', title: r.title, company: r.company && r.company.display_name || '',
-                    location: r.location && r.location.display_name || '', remote: /remote/i.test(r.title + ' ' + (r.description || '')),
-                    url: r.redirect_url, postedAt: r.created || '',
-                    salary: salaryStr(r.salary_min, r.salary_max, 'INR'), tags: [], snippet: trunc(stripHtml(r.description), 240)
-                };
+        var PAGES = 3, all = [], done = 0, firstErr = null;
+        function mapRow(r) {
+            return {
+                id: 'adzuna:' + r.id, source: 'adzuna', title: r.title, company: r.company && r.company.display_name || '',
+                location: r.location && r.location.display_name || '', remote: /remote|work from home|wfh/i.test(r.title + ' ' + (r.description || '')),
+                url: r.redirect_url, postedAt: r.created || '',
+                salary: salaryStr(r.salary_min, r.salary_max, '₹'), tags: (r.category && [r.category.label]) || [], snippet: trunc(stripHtml(r.description), 240)
+            };
+        }
+        for (var p = 1; p <= PAGES; p++) {
+            var url = 'https://api.adzuna.com/v1/api/jobs/' + encodeURIComponent(cfg.country || 'in') + '/search/' + p +
+                '?app_id=' + encodeURIComponent(cfg.keys.adzunaId) + '&app_key=' + encodeURIComponent(cfg.keys.adzunaKey) +
+                '&results_per_page=50&content-type=application/json' +
+                (qy.keyword ? '&what=' + encodeURIComponent(qy.keyword) : '') +
+                (qy.location ? '&where=' + encodeURIComponent(qy.location) : '');
+            httpGet(url, function (err, j) {
+                if (err) firstErr = firstErr || err;
+                else if (j && j.results) all = all.concat(j.results.map(mapRow));
+                if (++done === PAGES) { if (!all.length && firstErr) cb(firstErr); else cb(null, all); }
             });
-            cb(null, out);
-        });
+        }
     }
     // Jooble: key is in the PATH, POST JSON body
     function fetchJooble(qy, cb) {
@@ -127,7 +131,7 @@
     }
     // Greenhouse ATS: one board per company (keyless)
     function fetchGreenhouse(qy, cb) {
-        var cos = (cfg.greenhouseCos || []).slice(0, 25);
+        var cos = (cfg.greenhouseCos || []).slice(0, 40);
         if (!cos.length) { cb(null, []); return; }
         multiCompany(cos, function (co, done) {
             httpGet('https://boards-api.greenhouse.io/v1/boards/' + encodeURIComponent(co) + '/jobs?content=true', function (err, j) {
@@ -147,7 +151,7 @@
     }
     // Lever ATS: one account per company (keyless)
     function fetchLever(qy, cb) {
-        var cos = (cfg.leverCos || []).slice(0, 25);
+        var cos = (cfg.leverCos || []).slice(0, 40);
         if (!cos.length) { cb(null, []); return; }
         multiCompany(cos, function (co, done) {
             httpGet('https://api.lever.co/v0/postings/' + encodeURIComponent(co) + '?mode=json', function (err, arr) {
@@ -168,7 +172,7 @@
     }
     // Remotive: remote jobs (keyless)
     function fetchRemotive(qy, cb) {
-        var url = 'https://remotive.com/api/remote-jobs?limit=50' + (qy.keyword ? '&search=' + encodeURIComponent(qy.keyword) : '');
+        var url = 'https://remotive.com/api/remote-jobs?limit=100' + (qy.keyword ? '&search=' + encodeURIComponent(qy.keyword) : '');
         httpGet(url, function (err, j) {
             if (err) { cb(err); return; }
             var out = (j && j.jobs || []).map(function (r) {
@@ -249,22 +253,49 @@
         });
     }
 
+    // split a query into meaningful tokens (keeps c++, c#, .net etc.)
+    function qTokens(s) {
+        return String(s || '').toLowerCase().split(/[^a-z0-9+#.]+/).filter(function (t) { return t.length > 1; });
+    }
+    // a job is relevant if EVERY query token appears somewhere in it
+    function relevant(j, toks) {
+        if (!toks.length) return true;
+        var hay = (j.title + ' ' + j.company + ' ' + (j.tags || []).join(' ') + ' ' + j.snippet).toLowerCase();
+        return toks.every(function (t) { return hay.indexOf(t) >= 0; });
+    }
+    // higher = more relevant (phrase/token hits in the title weigh most)
+    function relScore(j, kw, toks) {
+        if (!toks.length) return 0;
+        var title = (j.title || '').toLowerCase(), s = 0;
+        toks.forEach(function (t) { if (title.indexOf(t) >= 0) s += 3; });
+        if (kw && title.indexOf(kw) >= 0) s += 6;      // exact phrase in title
+        return s;
+    }
+    var IN_CITIES = /india|bengaluru|bangalore|hyderabad|mumbai|pune|chennai|delhi|gurgaon|gurugram|noida|kolkata|ahmedabad|kochi|jaipur|indore|coimbatore/;
+    var NON_IN = /\b(usa|u\.s|united states|canada|uk|united kingdom|europe|emea|latam|apac|americas?|us[- ]?(only|based|timezone)|est|pst|cet|philippines|nigeria|kenya|brazil|germany|france|spain|portugal|poland|ukraine|argentina|mexico|australia)\b/;
+    // India-eligible: located in India, matches the typed city, or a remote
+    // role that isn't restricted to some other country/region
+    function indiaEligible(j, wantCity) {
+        var loc = (j.location || '').toLowerCase();
+        if (IN_CITIES.test(loc)) return true;
+        if (wantCity && wantCity !== 'india' && loc.indexOf(wantCity) >= 0) return true;
+        if (j.remote) {
+            if (!loc) return true;
+            if (/worldwide|anywhere|global|any location|remote/.test(loc)) return !NON_IN.test(loc);
+            if (NON_IN.test(loc)) return false;   // remote but limited to other regions
+            return true;                          // ambiguous remote -> allow
+        }
+        return false;
+    }
+
     function finish(jobs, qy) {
-        // keyword filter for ATS providers (they return all open roles)
-        var kw = (qy.keyword || '').toLowerCase();
+        var kw = (qy.keyword || '').trim().toLowerCase();
+        var toks = qTokens(kw);
+        var wantCity = (qy.location || '').toLowerCase();
         var filtered = jobs.filter(function (j) {
             if (cfg.remoteOnly && !j.remote) return false;
-            if (kw && (j.source === 'greenhouse' || j.source === 'lever' || j.source === 'arbeitnow')) {
-                var hay = (j.title + ' ' + j.snippet + ' ' + (j.tags || []).join(' ')).toLowerCase();
-                if (hay.indexOf(kw) < 0) return false;
-            }
-            if (cfg.indiaOnly) {
-                var loc = (j.location || '').toLowerCase();
-                var wantCity = (qy.location || '').toLowerCase();
-                var inIndia = /india|bengaluru|bangalore|hyderabad|mumbai|pune|chennai|delhi|gurgaon|gurugram|noida|kolkata|ahmedabad|kochi|jaipur/.test(loc);
-                var cityHit = wantCity && wantCity !== 'india' ? loc.indexOf(wantCity) >= 0 : false;
-                if (!inIndia && !cityHit && !j.remote) return false;
-            }
+            if (!relevant(j, toks)) return false;                 // relevance now enforced on ALL sources
+            if (cfg.indiaOnly && !indiaEligible(j, wantCity)) return false;
             return true;
         });
 
@@ -277,12 +308,17 @@
         });
         var merged = order.map(function (k) { return map[k]; });
 
-        // newest first (jobs with dates), then the rest
-        merged.sort(function (a, b) { return (Date.parse(b.postedAt) || 0) - (Date.parse(a.postedAt) || 0); });
+        // rank by relevance, then recency
+        merged.sort(function (a, b) {
+            var d = relScore(b, kw, toks) - relScore(a, kw, toks);
+            if (d) return d;
+            return (Date.parse(b.postedAt) || 0) - (Date.parse(a.postedAt) || 0);
+        });
 
         lastResults = merged;
-        setStatus('<b>' + merged.length + '</b> unique job(s) after de-duplication' + (jobs.length !== merged.length ? ' (from ' + jobs.length + ' raw)' : '') +
-            ' <a href="javascript:void(0)" onclick="JobSearch.matchResume()" style="margin-left:10px;color:#0f766e;font-weight:800;text-decoration:none;"><i class="fas fa-wand-magic-sparkles"></i> Match my resume</a>');
+        var note = merged.length ? '' : ' — nothing matched; try broader keywords, or enable Adzuna/Jooble in Setup for wider India coverage.';
+        setStatus('<b>' + merged.length + '</b> matching job(s) after de-duplication' + (jobs.length !== merged.length ? ' (from ' + jobs.length + ' fetched)' : '') + note +
+            (merged.length ? ' <a href="javascript:void(0)" onclick="JobSearch.matchResume()" style="margin-left:10px;color:#0f766e;font-weight:800;text-decoration:none;"><i class="fas fa-wand-magic-sparkles"></i> Match my resume</a>' : ''));
         renderResults(merged);
     }
 
@@ -309,7 +345,7 @@
             var links = (j.links || [{ source: j.source, url: j.url }]).filter(function (l) { return l.url; });
             var applyBtns = links.map(function (l) {
                 var lp = PROVIDERS[l.source] || { color: '#0f766e', label: l.source };
-                return '<a href="' + esc(l.url) + '" target="_blank" rel="noopener" style="font-size:11px;font-weight:800;text-decoration:none;padding:5px 12px;border-radius:8px;background:' + lp.color + ';color:#fff;">Apply · ' + esc(lp.label) + '</a>';
+                return '<button onclick="JobSearch.apply(\'' + encodeURIComponent(l.url) + '\')" style="font-size:11px;font-weight:800;border:none;cursor:pointer;padding:6px 13px;border-radius:8px;background:' + lp.color + ';color:#fff;"><i class="fas fa-arrow-up-right-from-square"></i> Apply · ' + esc(lp.label) + '</button>';
             }).join(' ');
             return '<div id="is-job-' + i + '" style="border:1px solid #eef2f7;border-radius:12px;padding:14px 16px;margin-bottom:10px;background:#fff;">' +
                 '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">' +
@@ -514,6 +550,17 @@
             if (kw) kw.addEventListener('keydown', function (e) { if (e.key === 'Enter') runSearch(); });
         },
         search: runSearch,
+        // open a job link in the system browser (keeps this page in place);
+        // falls back to a new tab if the bridge is unavailable
+        apply: function (encUrl) {
+            var url = decodeURIComponent(encUrl || '');
+            if (!url) return;
+            if (typeof sendMessageToCSharp === 'function' && window.chrome && window.chrome.webview) {
+                sendMessageToCSharp({ action: 'openExternalUrl', url: url });
+            } else {
+                window.open(url, '_blank', 'noopener');
+            }
+        },
         toggleIndia: function (v) { cfg.indiaOnly = !!v; saveCfg(); },
         toggleRemote: function (v) { cfg.remoteOnly = !!v; saveCfg(); },
         openProviders: openProviders,

@@ -1692,6 +1692,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleRestApiPostRequest(wv, messageJson, requestId);
                                     break;
 
+                                case "openExternalUrl":
+                                    HandleOpenExternalUrl(root);
+                                    break;
+
                                 case "executeOracleFusionPost":
                                     await HandleOracleFusionPostRequest(wv, messageJson, requestId);
                                     break;
@@ -6254,6 +6258,27 @@ navPanel.Controls.Add(wmsDevButton);
         {
             e.Handled = true;
             AddNewTab(e.Uri);
+        }
+
+        // Opens a URL in the user's default system browser (keeps the WMS
+        // module page in place instead of hijacking the WebView / a new tab).
+        private void HandleOpenExternalUrl(JsonElement root)
+        {
+            try
+            {
+                string url = root.TryGetProperty("url", out var u) ? u.GetString() : null;
+                if (string.IsNullOrWhiteSpace(url)) return;
+                if (!(url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                      || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))) return;
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
+                {
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[openExternalUrl] Failed: {ex.Message}");
+            }
         }
 
         // ========== RELEASE MANAGER HANDLER ==========
