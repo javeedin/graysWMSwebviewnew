@@ -68,6 +68,7 @@
                 <div style="display:flex;gap:5px;">
                     <button class="btn btn-o" onclick="loadForms()" title="Refresh list"><i class="fas fa-rotate"></i></button>
                     <button class="btn btn-o" onclick="importForm()" title="Import a form JSON"><i class="fas fa-file-import"></i></button>
+                    <button class="btn btn-o" onclick="dbCheck()" title="Show what is actually stored in the DB (definition length per form)"><i class="fas fa-database"></i></button>
                     <button class="btn btn-p" onclick="openNewFormWizard()"><i class="fas fa-plus"></i> New</button>
                 </div>
             </div>
@@ -228,6 +229,52 @@ function renderList() {
             <button onclick="event.stopPropagation();deleteForm('${esc(f.form_key)}','${esc((f.name || '').replace(/'/g, ""))}')" title="Delete this form" style="border:none;background:#fef2f2;color:#dc2626;border-radius:7px;width:26px;height:26px;cursor:pointer;flex:0 0 auto;"><i class="fas fa-trash"></i></button>
         </div>`).join('');
 }
+// Show what the DB actually holds: stored definition length per form, and
+// whether the read gateway returns that CLOB in full. Pinpoints write vs read.
+function dbCheck() {
+    const old = document.getElementById('dbc-modal'); if (old) old.remove();
+    document.body.insertAdjacentHTML('beforeend',
+    '<div id="dbc-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:30000;display:flex;align-items:center;justify-content:center;padding:20px;">' +
+      '<div style="background:white;width:96%;max-width:640px;max-height:88vh;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+        '<div style="padding:0.8rem 1.2rem;background:linear-gradient(135deg,var(--primary),var(--primary-dark));display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-weight:800;font-size:14px;color:white;"><i class="fas fa-database"></i> What is stored in the DB</div>' +
+          '<button onclick="document.getElementById(\'dbc-modal\').remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
+        '</div>' +
+        '<div id="dbc-body" style="padding:1rem 1.2rem;overflow:auto;font-size:12px;">Checking…</div>' +
+      '</div></div>');
+    runQuery("SELECT form_key, LENGTH(definition) AS DEFLEN, LENGTH(definition) AS READLEN FROM wms_ai_forms ORDER BY form_key", function (err, rows) {
+        const b = document.getElementById('dbc-body'); if (!b) return;
+        if (err) { b.innerHTML = '<span style="color:#b91c1c;">' + esc(err) + '</span>'; return; }
+        if (!rows.length) { b.innerHTML = 'No forms in wms_ai_forms.'; return; }
+        // DEFLEN is server-side LENGTH; READLEN comes back the same only if the
+        // read gateway returns CLOBs. We also re-read the actual CLOB per row.
+        let done = 0;
+        const info = rows.map(r => ({ key: String(r.FORM_KEY), stored: Number(r.DEFLEN) || 0, got: null }));
+        info.forEach(row => {
+            runQuery("SELECT definition FROM wms_ai_forms WHERE form_key = " + sqlq(row.key), function (e2, rr) {
+                row.got = (!e2 && rr && rr[0] && rr[0].DEFINITION != null) ? String(rr[0].DEFINITION).length : 0;
+                if (++done === info.length) render();
+            });
+        });
+        function render() {
+            b.innerHTML =
+                '<div style="color:#64748b;margin-bottom:8px;">Stored = true size (server LENGTH). Returned = what the read gateway actually sends back. If Stored &gt; 0 but Returned = 0, <b>apex_sql/35d is not active</b>.</div>' +
+                '<table style="width:100%;border-collapse:collapse;">' +
+                '<tr style="background:#f8fafc;"><th style="text-align:left;padding:6px;">Form</th><th style="text-align:right;padding:6px;">Stored</th><th style="text-align:right;padding:6px;">Returned</th><th style="padding:6px;">Status</th></tr>' +
+                info.map(r => {
+                    const ok = r.stored > 0 && r.got >= r.stored * 0.98;
+                    const readBad = r.stored > 0 && r.got < r.stored * 0.98;
+                    const badge = r.stored === 0 ? '<span style="color:#b91c1c;font-weight:700;">empty (write)</span>'
+                        : readBad ? '<span style="color:#b45309;font-weight:700;">read truncated → 35d</span>'
+                        : '<span style="color:#15803d;font-weight:700;">OK</span>';
+                    return '<tr style="border-bottom:1px solid #f1f5f9;"><td style="padding:6px;">' + esc(r.key) + '</td>' +
+                        '<td style="text-align:right;padding:6px;">' + r.stored + '</td>' +
+                        '<td style="text-align:right;padding:6px;">' + r.got + '</td>' +
+                        '<td style="padding:6px;">' + badge + '</td></tr>';
+                }).join('') + '</table>';
+        }
+    });
+}
 function deleteForm(key, name) {
     if (!key) return;
     if (!confirm('Delete the form "' + (name || key) + '" (' + key + ')?\n\nThis permanently removes it from the database and cannot be undone.')) return;
@@ -238,15 +285,23 @@ function deleteForm(key, name) {
     });
 }
 function openForm(key) {
-    runQuery("SELECT form_key, name, description, active, definition FROM wms_ai_forms WHERE form_key = " + sqlq(key), function (err, rows) {
+    runQuery("SELECT form_key, name, description, active, definition, LENGTH(definition) AS DEFLEN FROM wms_ai_forms WHERE form_key = " + sqlq(key), function (err, rows) {
         if (err || !rows.length) { alert('Could not load form: ' + (err || 'not found')); return; }
         const r = rows[0];
         let def = null, warn = '';
         const raw = r.DEFINITION;
+        const deflen = Number(r.DEFLEN) || 0;   // true stored size (server-side, unaffected by CLOB read)
         if (raw == null || String(raw).trim() === '' || String(raw).trim() === 'null') {
-            warn = 'This form has no stored definition (it was likely saved before the large-form fix, or the save failed). Starting from an empty layout — rebuild in AI Build or paste the JSON via Import, then Save.';
+            if (deflen > 0) {
+                // The row HAS a definition of `deflen` chars, but the CLOB came
+                // back empty -> the READ gateway is not returning CLOBs. 35d is
+                // not active on this workspace (or the app hit an older handler).
+                warn = 'READ-GATEWAY ISSUE: the definition IS stored (' + deflen + ' chars) but came back empty, so apex_sql/35d is NOT active on the workspace the app uses. Re-run 35d there (verify STATUS=VALID) and confirm the ai/executequery handler calls wms_ai_execute_query. The form is safe — just not readable yet.';
+            } else {
+                warn = 'WRITE ISSUE: this form has NO stored definition (length 0) — the save did not persist. Delete it, then Import the JSON and Save, and read the green "verified — N chars" line.';
+            }
         } else {
-            try { def = JSON.parse(raw); } catch (e) { warn = 'Stored definition is not valid JSON (it may have been truncated). Starting empty — re-import the JSON and Save.'; }
+            try { def = JSON.parse(raw); } catch (e) { warn = 'Stored definition did not fully parse (got ' + String(raw).length + ' of ' + deflen + ' chars). If those differ, the read is truncating — re-run apex_sql/35d.'; }
         }
         // unwrap an envelope { form_key, name, definition:{...} } if one was stored by mistake
         if (def && !def.header && def.definition && def.definition.header) def = def.definition;
