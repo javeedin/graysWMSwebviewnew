@@ -23,8 +23,8 @@
         location: 'India',                   // free-text location filter
         indiaOnly: true,
         remoteOnly: false,
-        enabled: { greenhouse: true, lever: true, remotive: true, arbeitnow: true, adzuna: false, jooble: false },
-        keys: { adzunaId: '', adzunaKey: '', jooble: '' },
+        enabled: { serpapi: false, adzuna: false, jooble: false, themuse: true, greenhouse: true, lever: true, remotive: true, arbeitnow: true },
+        keys: { adzunaId: '', adzunaKey: '', jooble: '', serpapi: '' },
         // editable ATS company slugs (users curate these)
         greenhouseCos: ['razorpay', 'postman', 'freshworks', 'zomato', 'cred', 'groww', 'meesho', 'phonepe'],
         leverCos: ['swiggy', 'sharechat', 'browserstack', 'netflix']
@@ -77,8 +77,10 @@
 
     // ── provider registry ───────────────────────────────────
     var PROVIDERS = {
-        adzuna:    { label: 'Adzuna',    color: '#6d28d9', key: true,  reg: 'https://developer.adzuna.com/signup', regLabel: 'Get free app_id + app_key' },
-        jooble:    { label: 'Jooble',    color: '#0891b2', key: true,  reg: 'https://jooble.org/api/about', regLabel: 'Request a free API key' },
+        serpapi:   { label: 'Google Jobs (SerpApi)', color: '#2563eb', key: true, general: true, reg: 'https://serpapi.com/users/sign_up', regLabel: 'Free trial key (100 searches) — Google Jobs' },
+        adzuna:    { label: 'Adzuna',    color: '#6d28d9', key: true,  general: true, reg: 'https://developer.adzuna.com/signup', regLabel: 'Get free app_id + app_key' },
+        jooble:    { label: 'Jooble',    color: '#0891b2', key: true,  general: true, reg: 'https://jooble.org/api/about', regLabel: 'Request a free API key' },
+        themuse:   { label: 'The Muse',  color: '#0d9488', key: false, general: true },
         greenhouse:{ label: 'Greenhouse',color: '#16a34a', key: false, ats: true },
         lever:     { label: 'Lever',     color: '#db2777', key: false, ats: true },
         remotive:  { label: 'Remotive',  color: '#2563eb', key: false },
@@ -111,6 +113,42 @@
                 if (++done === PAGES) { if (!all.length && firstErr) cb(firstErr); else cb(null, all); }
             });
         }
+    }
+    // "3 days ago" / "today" -> ISO (Google Jobs uses relative dates)
+    function relToIso(s) {
+        if (!s) return '';
+        s = String(s).toLowerCase();
+        if (/just posted|today|hour/.test(s)) return new Date().toISOString();
+        var m = s.match(/(\d+)\s*(day|week|month)/);
+        if (!m) return '';
+        var mult = { day: 86400000, week: 604800000, month: 2592000000 }[m[2]] || 86400000;
+        return new Date(Date.now() - (+m[1]) * mult).toISOString();
+    }
+    // SerpApi Google Jobs: the same results Google shows (Indeed/LinkedIn/
+    // Naukri/etc. aggregated). Needs an API key; free trial = 100 searches.
+    function fetchSerpApi(qy, cb) {
+        if (!cfg.keys.serpapi) { cb('missing SerpApi key'); return; }
+        var url = 'https://serpapi.com/search.json?engine=google_jobs&hl=en&gl=' + encodeURIComponent(cfg.country || 'in') +
+            '&q=' + encodeURIComponent((qy.keyword || 'IT jobs') + (qy.location ? ' ' + qy.location : '')) +
+            (qy.location ? '&location=' + encodeURIComponent(qy.location) : '') +
+            '&api_key=' + encodeURIComponent(cfg.keys.serpapi);
+        httpGet(url, function (err, j) {
+            if (err) { cb(err); return; }
+            if (j && j.error) { cb(j.error); return; }
+            var out = (j && j.jobs_results || []).map(function (r) {
+                var ext = r.detected_extensions || {};
+                var apply = (r.apply_options && r.apply_options[0] && r.apply_options[0].link) || r.share_link || '';
+                return {
+                    id: 'serp:' + (r.job_id ? String(r.job_id).slice(0, 48) : (r.title + r.company_name)),
+                    source: 'serpapi', title: r.title, company: r.company_name || '',
+                    location: r.location || '', remote: !!ext.work_from_home || /remote|work from home|anywhere/i.test(r.location || ''),
+                    url: apply, postedAt: relToIso(ext.posted_at || ''), salary: ext.salary || '',
+                    tags: (ext.schedule_type ? [ext.schedule_type] : []).concat(r.via ? ['via ' + String(r.via).replace(/^via\s*/i, '')] : []),
+                    snippet: trunc(r.description, 240)
+                };
+            });
+            cb(null, out);
+        });
     }
     // Jooble: key is in the PATH, POST JSON body
     function fetchJooble(qy, cb) {
@@ -186,6 +224,29 @@
             cb(null, out);
         });
     }
+    // The Muse: general aggregator across many companies/industries (keyless).
+    // Fetches several pages; location filter applied client-side.
+    function fetchTheMuse(qy, cb) {
+        var PAGES = 3, all = [], done = 0, firstErr = null;
+        function mapRow(r) {
+            var loc = (r.locations && r.locations.map(function (l) { return l.name; }).join(', ')) || '';
+            return {
+                id: 'muse:' + r.id, source: 'themuse', title: r.name, company: (r.company && r.company.name) || '',
+                location: loc, remote: /remote|flexible/i.test(loc), url: (r.refs && r.refs.landing_page) || '',
+                postedAt: r.publication_date || '', salary: '',
+                tags: (r.categories || []).map(function (c) { return c.name; }).slice(0, 3), snippet: trunc(stripHtml(r.contents), 240)
+            };
+        }
+        for (var p = 0; p < PAGES; p++) {
+            var url = 'https://www.themuse.com/api/public/jobs?page=' + p +
+                (cfg.indiaOnly && (cfg.country === 'in') ? '&location=' + encodeURIComponent('India') : '');
+            httpGet(url, function (err, j) {
+                if (err) firstErr = firstErr || err;
+                else if (j && j.results) all = all.concat(j.results.map(mapRow));
+                if (++done === PAGES) { if (!all.length && firstErr) cb(firstErr); else cb(null, all); }
+            });
+        }
+    }
     // Arbeitnow: global board (keyless)
     function fetchArbeitnow(qy, cb) {
         httpGet('https://www.arbeitnow.com/api/job-board-api', function (err, j) {
@@ -223,7 +284,7 @@
         });
     }
 
-    var ADAPTERS = { adzuna: fetchAdzuna, jooble: fetchJooble, greenhouse: fetchGreenhouse, lever: fetchLever, remotive: fetchRemotive, arbeitnow: fetchArbeitnow };
+    var ADAPTERS = { serpapi: fetchSerpApi, adzuna: fetchAdzuna, jooble: fetchJooble, themuse: fetchTheMuse, greenhouse: fetchGreenhouse, lever: fetchLever, remotive: fetchRemotive, arbeitnow: fetchArbeitnow };
 
     // ── search orchestration ────────────────────────────────
     var lastResults = [];
@@ -406,7 +467,10 @@
                        : '<span style="font-size:9px;font-weight:800;background:#dcfce7;color:#166534;padding:1px 7px;border-radius:8px;">NO KEY NEEDED</span>') +
                 '</label>';
             var body = '';
-            if (p === 'adzuna') {
+            if (p === 'serpapi') {
+                body = keyRow('SerpApi API key', 'is-k-serpapi', cfg.keys.serpapi) +
+                    '<div style="font-size:11px;color:#64748b;margin:-2px 0 4px;">Returns Google Jobs results (Indeed, LinkedIn, Naukri, etc.). Free trial = 100 searches.</div>' + regLink(P);
+            } else if (p === 'adzuna') {
                 body = keyRow('Adzuna app_id', 'is-k-adzunaId', cfg.keys.adzunaId) + keyRow('Adzuna app_key', 'is-k-adzunaKey', cfg.keys.adzunaKey) +
                     countryRow() + regLink(P);
             } else if (p === 'jooble') {
@@ -453,6 +517,7 @@
         if (document.getElementById('is-k-adzunaId')) cfg.keys.adzunaId = g('is-k-adzunaId');
         if (document.getElementById('is-k-adzunaKey')) cfg.keys.adzunaKey = g('is-k-adzunaKey');
         if (document.getElementById('is-k-jooble')) cfg.keys.jooble = g('is-k-jooble');
+        if (document.getElementById('is-k-serpapi')) cfg.keys.serpapi = g('is-k-serpapi');
         if (document.getElementById('is-adzuna-country')) cfg.country = g('is-adzuna-country');
         var parseCos = function (id) { var e = document.getElementById(id); return e ? e.value.split(',').map(function (s) { return s.trim().toLowerCase(); }).filter(Boolean) : null; };
         var gh = parseCos('is-gh'); if (gh) cfg.greenhouseCos = gh;
