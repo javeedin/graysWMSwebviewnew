@@ -367,38 +367,89 @@ function duplicateForm() {
     const ss = document.getElementById('save-status');
     if (ss) ss.innerHTML = '<span style="color:#0e7490;font-weight:700;">Copy created — set a new form key and Save.</span>';
 }
-function exportForm() {
-    if (!cur) return;
+// Export: show the full definition JSON in a copyable modal (and save a file)
+function exportForm() { openExportJson(); }
+function openExportJson() {
+    if (!cur) { alert('Open or build a form first.'); return; }
     normalizeDef();
     const env = { form_key: cur.form_key, name: cur.name, description: cur.description, definition: cur.def };
     const json = JSON.stringify(env, null, 2);
+    const old = document.getElementById('exp-modal'); if (old) old.remove();
+    document.body.insertAdjacentHTML('beforeend',
+    '<div id="exp-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:30000;display:flex;align-items:center;justify-content:center;padding:20px;">' +
+      '<div style="background:white;width:96%;max-width:820px;max-height:90vh;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+        '<div style="padding:0.8rem 1.2rem;background:linear-gradient(135deg,var(--primary),var(--primary-dark));display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-weight:800;font-size:14px;color:white;"><i class="fas fa-file-export"></i> Export form JSON</div>' +
+          '<button onclick="document.getElementById(\'exp-modal\').remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
+        '</div>' +
+        '<div style="padding:1rem 1.2rem;overflow:auto;">' +
+          '<textarea id="exp-json" readonly style="width:100%;min-height:360px;font-family:Consolas,monospace;font-size:11px;border:1px solid var(--border);border-radius:8px;padding:10px;">' + esc(json) + '</textarea>' +
+          '<div id="exp-status" style="font-size:11px;margin-top:6px;color:#64748b;"></div>' +
+        '</div>' +
+        '<div style="padding:0.7rem 1.2rem;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:8px;">' +
+          '<button class="btn btn-o" onclick="document.getElementById(\'exp-modal\').remove()">Close</button>' +
+          '<button class="btn btn-o" onclick="expCopy()"><i class="fas fa-copy"></i> Copy</button>' +
+          '<button class="btn btn-g" onclick="expSave()"><i class="fas fa-floppy-disk"></i> Save .json file</button>' +
+        '</div>' +
+      '</div></div>');
+}
+function expCopy() {
+    const ta = document.getElementById('exp-json'); if (!ta) return;
+    ta.select();
+    try { navigator.clipboard.writeText(ta.value); } catch (e) { try { document.execCommand('copy'); } catch (e2) { } }
+    const s = document.getElementById('exp-status'); if (s) s.innerHTML = '<span style="color:#15803d;font-weight:700;">Copied to clipboard.</span>';
+}
+function expSave() {
+    const ta = document.getElementById('exp-json'); if (!ta) return;
     const fileName = (cur.form_key || 'form') + '.json';
-    try { navigator.clipboard.writeText(json); } catch (e) { }
-    sendMessageToCSharp({
-        action: 'saveLocalFile', folder: 'forms/exports', fileName: fileName,
-        dataBase64: btoa(unescape(encodeURIComponent(json)))
-    }, function (err, d2) {
+    sendMessageToCSharp({ action: 'saveLocalFile', folder: 'forms/exports', fileName: fileName, dataBase64: btoa(unescape(encodeURIComponent(ta.value))) }, function (err, d2) {
         const ok = !err && d2 && d2.success !== false;
-        const ss = document.getElementById('save-status');
-        if (ss) ss.innerHTML = ok
-            ? '<span style="color:#15803d;font-weight:700;"><i class="fas fa-check-circle"></i> Exported to ' + esc((d2 && d2.path) || fileName) + ' (also copied to clipboard).</span>'
-            : '<span style="color:#b45309;font-weight:700;">Copied to clipboard. File save needs the updated app (' + esc(String(err || (d2 && d2.error) || '')) + ').</span>';
+        const s = document.getElementById('exp-status');
+        if (s) s.innerHTML = ok
+            ? '<span style="color:#15803d;font-weight:700;"><i class="fas fa-check-circle"></i> Saved to ' + esc((d2 && d2.path) || fileName) + '</span>'
+            : '<span style="color:#b45309;font-weight:700;">Could not save file (' + esc(String(err || (d2 && d2.error) || '')) + ') — use Copy instead.</span>';
     });
 }
-function importForm() {
-    const json = prompt('Paste the exported form JSON ({form_key, name, description, definition} or a bare definition):');
-    if (!json || !json.trim()) return;
+// Import: paste a full form JSON in a proper modal (handles large forms)
+function importForm() { openImportJson(); }
+function openImportJson() {
+    const old = document.getElementById('imp-modal'); if (old) old.remove();
+    document.body.insertAdjacentHTML('beforeend',
+    '<div id="imp-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:30000;display:flex;align-items:center;justify-content:center;padding:20px;">' +
+      '<div style="background:white;width:96%;max-width:820px;max-height:90vh;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+        '<div style="padding:0.8rem 1.2rem;background:linear-gradient(135deg,var(--primary),var(--primary-dark));display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-weight:800;font-size:14px;color:white;"><i class="fas fa-file-import"></i> Import form from JSON</div>' +
+          '<button onclick="document.getElementById(\'imp-modal\').remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
+        '</div>' +
+        '<div style="padding:1rem 1.2rem;overflow:auto;">' +
+          '<div style="font-size:11px;color:#64748b;margin-bottom:6px;">Paste a full form JSON — either an envelope <code>{form_key, name, description, definition}</code> or a bare <code>definition</code>.</div>' +
+          '<textarea id="imp-json" placeholder="Paste the form JSON here…" style="width:100%;min-height:360px;font-family:Consolas,monospace;font-size:11px;border:1px solid var(--border);border-radius:8px;padding:10px;"></textarea>' +
+          '<div id="imp-status" style="font-size:11px;margin-top:6px;min-height:16px;"></div>' +
+        '</div>' +
+        '<div style="padding:0.7rem 1.2rem;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:8px;">' +
+          '<button class="btn btn-o" onclick="document.getElementById(\'imp-modal\').remove()">Cancel</button>' +
+          '<button class="btn btn-g" onclick="doImportJson()"><i class="fas fa-download"></i> Load into designer</button>' +
+        '</div>' +
+      '</div></div>');
+    setTimeout(function () { const t = document.getElementById('imp-json'); if (t) t.focus(); }, 60);
+}
+function doImportJson() {
+    const raw = (document.getElementById('imp-json') || {}).value || '';
+    const status = document.getElementById('imp-status');
+    if (!raw.trim()) { if (status) status.innerHTML = '<span style="color:#b91c1c;">Paste the JSON first.</span>'; return; }
     let env;
-    try { env = JSON.parse(json); } catch (e) { alert('Invalid JSON: ' + e.message); return; }
+    try { env = JSON.parse(raw); } catch (e) { if (status) status.innerHTML = '<span style="color:#b91c1c;">Invalid JSON: ' + esc(e.message) + '</span>'; return; }
     const def = env.definition || (env.header ? env : null);
-    if (!def) { alert('No definition found in that JSON.'); return; }
+    if (!def || !def.header) { if (status) status.innerHTML = '<span style="color:#b91c1c;">No usable definition found (it needs a "header").</span>'; return; }
     cur = {
         form_key: String(env.form_key || ''), name: String(env.name || def.title || 'Imported form'),
         description: String(env.description || ''), active: 'Y',
         def: normalizeLoadedDef(def), isNew: true
     };
-    curKey = '';
-    pageTab = 'design';
+    curKey = ''; jsonMode = false;
+    chatMsgs = [{ role: 'ai', summary: 'Imported from JSON — the preview is live. Refine by chatting, tweak in Designer/Visual, then set a form key and Save.' }];
+    const m = document.getElementById('imp-modal'); if (m) m.remove();
+    pageTab = 'chat';
     resetTestPreview();
     renderList(); renderEditor();
 }
