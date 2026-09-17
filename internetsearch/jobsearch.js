@@ -356,6 +356,10 @@
     }
     function renderProvBody() {
         var b = document.getElementById('is-prov-body'); if (!b) return;
+        b.innerHTML = provRowsHtml();
+    }
+    // builds the intro + one card per provider (shared by modal & full page)
+    function provRowsHtml() {
         var rows = Object.keys(PROVIDERS).map(function (p) {
             var P = PROVIDERS[p];
             var on = !!cfg.enabled[p];
@@ -385,8 +389,7 @@
             return '<div style="border:1px solid #eef2f7;border-radius:10px;padding:12px 14px;margin-bottom:10px;">' + head +
                 '<div style="margin-top:8px;">' + body + test + '</div></div>';
         }).join('');
-        b.innerHTML =
-            '<div style="font-size:12px;color:#64748b;margin-bottom:12px;">Turn sources on/off and paste free API keys (stored only on this PC). ' +
+        return '<div style="font-size:12px;color:#64748b;margin-bottom:12px;">Turn sources on/off and paste free API keys (stored only on this PC). ' +
             'Keyless sources work immediately.</div>' + rows;
     }
     function keyRow(label, id, val) {
@@ -516,6 +519,16 @@
         openProviders: openProviders,
         closeProviders: function () { var m = document.getElementById('is-prov-modal'); if (m) m.remove(); },
         saveProviders: function () { readProvForm(); saveCfg(); this.closeProviders(); },
+        // full-page setup: render the provider/keys form into a container
+        mountSettings: function (elId) {
+            var el = document.getElementById(elId); if (!el) return;
+            el.innerHTML = '<div id="is-prov-body">' + provRowsHtml() + '</div>';
+        },
+        saveSettings: function () {
+            readProvForm(); saveCfg();
+            var el = document.getElementById('is-save-note');
+            if (el) { el.innerHTML = '<i class="fas fa-check"></i> Saved on this PC'; setTimeout(function () { if (el) el.innerHTML = ''; }, 2500); }
+        },
         testProvider: testProvider,
         summarize: summarize,
         matchResume: matchResume,

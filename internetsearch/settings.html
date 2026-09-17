@@ -3,67 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Internet Search — IT Jobs</title>
+    <title>Internet Search — Setup</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * { box-sizing: border-box; }
         body { margin: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #f4f6fb; color: #0f172a; }
         .topbar { background: #fff; border-bottom: 1px solid #e6eaf2; padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; top: 0; z-index: 50; }
-        .brand { font-size: 18px; font-weight: 800; color: #0f172a; display: flex; align-items: center; gap: 9px; }
+        .brand { font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 9px; }
         .brand i { color: #0f766e; }
         .brand small { font-size: 10px; font-weight: 800; color: #92400e; background: #fef3c7; padding: 2px 8px; border-radius: 10px; }
-        .topbar .spacer { flex: 1; }
+        .spacer { flex: 1; }
         .btn { border: 1px solid #e2e8f0; background: #f8fafc; color: #334155; border-radius: 9px; padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 7px; }
         .btn:hover { background: #eef2f7; }
         .btn-primary { background: #0f766e; color: #fff; border-color: #0f766e; }
         .btn-primary:hover { background: #0b5c55; }
-        .wrap { max-width: 900px; margin: 0 auto; padding: 18px 20px 40px; }
-        .searchcard { background: #fff; border: 1px solid #e6eaf2; border-radius: 14px; padding: 16px; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
-        .searchrow { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
-        .fld { flex: 1; min-width: 180px; }
-        .fld label { display: block; font-size: 11px; font-weight: 800; color: #475569; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .3px; }
-        .fld input[type=text] { width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 9px; font-size: 14px; }
-        .checks { display: flex; gap: 16px; margin-top: 12px; flex-wrap: wrap; font-size: 12.5px; color: #334155; }
-        .checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-        #is-sources { margin: 14px 0 6px; display: flex; gap: 6px; flex-wrap: wrap; }
-        #is-status { font-size: 12.5px; color: #64748b; margin: 6px 0 14px; }
-        .hint { font-size: 11px; color: #94a3b8; margin-top: 10px; }
+        .wrap { max-width: 760px; margin: 0 auto; padding: 20px; }
+        .h1 { font-size: 20px; font-weight: 800; margin: 0 0 4px; }
+        .sub { font-size: 12.5px; color: #64748b; margin-bottom: 16px; }
+        .note { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; border-radius: 10px; padding: 11px 14px; font-size: 12.5px; margin-bottom: 16px; }
+        .note b { color: #1e3a8a; }
+        .savebar { position: sticky; bottom: 0; background: #f4f6fb; padding: 14px 0; display: flex; align-items: center; gap: 12px; }
+        #is-save-note { font-size: 12.5px; color: #16a34a; font-weight: 700; }
     </style>
 </head>
 <body>
     <div class="topbar">
-        <div class="brand"><i class="fas fa-globe"></i> Internet Search <small>PRIVATE</small></div>
+        <div class="brand"><i class="fas fa-gear"></i> Internet Search — Setup <small>PRIVATE</small></div>
         <div class="spacer"></div>
-        <a class="btn" href="settings.html"><i class="fas fa-gear"></i> Setup &amp; Keys</a>
+        <a class="btn" href="index.html"><i class="fas fa-magnifying-glass"></i> Back to Search</a>
         <a class="btn" href="../Home/index.html"><i class="fas fa-house"></i> Home</a>
     </div>
 
     <div class="wrap">
-        <div class="searchcard">
-            <div class="searchrow">
-                <div class="fld" style="flex:2;">
-                    <label>What (role / skill)</label>
-                    <input type="text" id="is-kw" placeholder="e.g. backend developer, react, devops, data engineer">
-                </div>
-                <div class="fld">
-                    <label>Where</label>
-                    <input type="text" id="is-loc" placeholder="India / Bengaluru / Hyderabad">
-                </div>
-                <button class="btn btn-primary" style="height:42px;" onclick="JobSearch.search()"><i class="fas fa-magnifying-glass"></i> Search</button>
-            </div>
-            <div class="checks">
-                <label><input type="checkbox" id="is-india" onchange="JobSearch.toggleIndia(this.checked)"> India only</label>
-                <label><input type="checkbox" id="is-remote" onchange="JobSearch.toggleRemote(this.checked)"> Remote only</label>
-                <span style="color:#94a3b8;">Tip: enable Adzuna &amp; Jooble under <b>Providers &amp; Keys</b> for the widest India coverage.</span>
-            </div>
+        <div class="h1">Job sources &amp; API keys</div>
+        <div class="sub">Enable the sources you want and paste any free API keys. Everything here is stored only on this PC (browser localStorage) — nothing is sent anywhere except the job sites themselves when you search.</div>
+
+        <div class="note">
+            <b>Adzuna needs two values:</b> an <b>app_id</b> (short, ~8 chars) <i>and</i> an <b>app_key</b> (long, 32 chars).
+            Get both from your <a href="https://developer.adzuna.com/admin/access_details" target="_blank" rel="noopener">Adzuna dashboard</a>
+            (free — <a href="https://developer.adzuna.com/signup" target="_blank" rel="noopener">sign up here</a> if you haven't).
         </div>
 
-        <div id="is-sources"></div>
-        <div id="is-status">Enter a role and click Search. Keyless sources (Greenhouse, Lever, Remotive, Arbeitnow) work with no setup.</div>
-        <div id="is-results"></div>
+        <div id="is-setup"></div>
 
-        <div class="hint">
-            AI-enabled job aggregator · sources are queried live through the WMS app · API keys are stored only on this PC.
+        <div class="savebar">
+            <button class="btn btn-primary" onclick="JobSearch.saveSettings()"><i class="fas fa-floppy-disk"></i> Save settings</button>
+            <span id="is-save-note"></span>
         </div>
     </div>
 
@@ -98,6 +83,6 @@
         }
     </script>
     <script src="jobsearch.js"></script>
-    <script>JobSearch.init();</script>
+    <script>JobSearch.mountSettings('is-setup');</script>
 </body>
 </html>
