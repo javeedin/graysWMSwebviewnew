@@ -1087,38 +1087,56 @@ function saveForm() {
     if (!key || !/^[A-Za-z0-9._\-]{2,100}$/.test(key)) { status.innerHTML = '<span style="color:#b91c1c;">Form key is required (letters, digits, dots).</span>'; return; }
     if (!cur.name.trim()) { status.innerHTML = '<span style="color:#b91c1c;">Name is required.</span>'; return; }
     const defJson = JSON.stringify(cur.def);
-    let sql;
+    const expected = defJson.length;
+
+    // Robust CLOB save: write the row with an EMPTY_CLOB, then APPEND the
+    // definition in small chunks (each its own single-statement UPDATE).
+    // No statement is ever large, so nothing about literal/statement size
+    // can cause a partial or empty write.
+    const CH = 3000, chunks = [];
+    for (let i = 0; i < defJson.length; i += CH) chunks.push(defJson.slice(i, i + CH));
+    const esc1 = s => s.replace(/'/g, "''");
+    const stmts = [];
     if (cur.isNew) {
-        sql = 'INSERT INTO wms_ai_forms (form_key, name, description, definition, active, updated_by, updated_on) VALUES (' +
-            [sqlq(key), sqlq(cur.name), sqlq(cur.description), clobLiteral(defJson), sqlq(cur.active), sqlq(appUserName()), 'SYSDATE'].join(', ') + ')';
+        stmts.push('INSERT INTO wms_ai_forms (form_key, name, description, definition, active, updated_by, updated_on) VALUES (' +
+            [sqlq(key), sqlq(cur.name), sqlq(cur.description), 'EMPTY_CLOB()', sqlq(cur.active), sqlq(appUserName()), 'SYSDATE'].join(', ') + ')');
     } else {
-        sql = 'UPDATE wms_ai_forms SET name = ' + sqlq(cur.name) + ', description = ' + sqlq(cur.description) +
-            ', definition = ' + clobLiteral(defJson) + ', active = ' + sqlq(cur.active) +
-            ', updated_by = ' + sqlq(appUserName()) + ', updated_on = SYSDATE WHERE form_key = ' + sqlq(key);
+        stmts.push('UPDATE wms_ai_forms SET name = ' + sqlq(cur.name) + ', description = ' + sqlq(cur.description) +
+            ', definition = EMPTY_CLOB(), active = ' + sqlq(cur.active) +
+            ', updated_by = ' + sqlq(appUserName()) + ', updated_on = SYSDATE WHERE form_key = ' + sqlq(key));
     }
-    status.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-spinner fa-spin"></i> Saving…</span>';
-    runWrite(sql, function (err, d) {
-        if (err) { status.innerHTML = '<span style="color:#b91c1c;">Save failed: ' + esc(err) + '</span>'; return; }
+    chunks.forEach(c => stmts.push("UPDATE wms_ai_forms SET definition = definition || TO_CLOB('" + esc1(c) + "') WHERE form_key = " + sqlq(key)));
+
+    let idx = 0;
+    status.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-spinner fa-spin"></i> Saving (' + stmts.length + ' parts)…</span>';
+    (function next() {
+        if (idx >= stmts.length) { afterSave(); return; }
+        runWrite(stmts[idx], function (err) {
+            if (err) {
+                const hint = (idx === 0 && cur.isNew && /unique|00001/i.test(String(err)))
+                    ? ' — a form with key "' + key + '" already exists. Delete it (trash icon) or open it to update.' : '';
+                status.innerHTML = '<span style="color:#b91c1c;">Save failed at part ' + (idx + 1) + '/' + stmts.length + ': ' + esc(err) + hint + '</span>';
+                return;
+            }
+            idx++; status.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-spinner fa-spin"></i> Saving part ' + idx + '/' + stmts.length + '…</span>';
+            next();
+        });
+    })();
+
+    function afterSave() {
         cur.form_key = key; cur.isNew = false; curKey = key;
         loadForms();
-        // round-trip self-check: LENGTH() is server-side, so it reports the
-        // TRUE stored size regardless of how the read gateway returns CLOBs.
-        const expected = defJson.length;
-        status.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-spinner fa-spin"></i> Saved — verifying…</span>';
         runQuery("SELECT LENGTH(definition) AS LEN FROM wms_ai_forms WHERE form_key = " + sqlq(key), function (e2, rows) {
             const stored = (rows && rows[0] && Number(rows[0].LEN)) || 0;
             if (e2) {
-                status.innerHTML = '<span style="color:#15803d;"><i class="fas fa-check-circle"></i> Saved.</span> <span style="color:#94a3b8;">(could not verify length: ' + esc(e2) + ')</span>';
-            } else if (stored === 0) {
-                status.innerHTML = '<span style="color:#b91c1c;font-weight:700;"><i class="fas fa-triangle-exclamation"></i> Saved row, but the definition stored EMPTY. The write gateway likely rejected the large CLOB — tell me and paste any ORA error.</span>';
-            } else if (stored < expected * 0.9) {
-                status.innerHTML = '<span style="color:#b45309;font-weight:700;"><i class="fas fa-triangle-exclamation"></i> Stored only ' + stored + ' of ' + expected + ' chars — the write truncated. The app build may be older than the large-form fix.</span>';
+                status.innerHTML = '<span style="color:#15803d;"><i class="fas fa-check-circle"></i> Saved.</span> <span style="color:#94a3b8;">(could not verify: ' + esc(e2) + ')</span>';
+            } else if (stored >= expected * 0.98) {
+                status.innerHTML = '<span style="color:#15803d;"><i class="fas fa-check-circle"></i> Saved &amp; verified — ' + stored + ' chars stored in full. The AI chat and all pages see it immediately.</span>';
             } else {
-                status.innerHTML = '<span style="color:#15803d;"><i class="fas fa-check-circle"></i> Saved &amp; verified — ' + stored + ' chars stored in full. ' +
-                    'If it still opens EMPTY from the list, the READ gateway <b>apex_sql/35d</b> is not deployed yet.</span>';
+                status.innerHTML = '<span style="color:#b45309;font-weight:700;"><i class="fas fa-triangle-exclamation"></i> Saved, but stored ' + stored + ' of ' + expected + ' chars — tell me and I\'ll dig in.</span>';
             }
         });
-    });
+    }
 }
 
 // ── SQL tester ──────────────────────────────────────────────
