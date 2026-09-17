@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Flow — Visual AI Orchestration</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #f4f6fb; color: #0f172a; }
+        .topbar { background: #fff; border-bottom: 1px solid #e6eaf2; padding: 11px 20px; display: flex; align-items: center; gap: 12px; position: sticky; top: 0; z-index: 50; }
+        .brand { font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 9px; }
+        .brand i { color: #7c3aed; }
+        .brand small { font-size: 10px; font-weight: 800; color: #6d28d9; background: #ede9fe; padding: 2px 8px; border-radius: 10px; }
+        .spacer { flex: 1; }
+        .btn { border: 1px solid #e2e8f0; background: #f8fafc; color: #334155; border-radius: 9px; padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 7px; }
+        .btn:hover { background: #eef2f7; }
+        #agentflow { background: #fff; margin: 14px; border: 1px solid #e6eaf2; border-radius: 14px; min-height: 680px; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div class="brand"><i class="fas fa-diagram-project"></i> Agent Flow <small>AGENTIC</small></div>
+        <div class="spacer"></div>
+        <a class="btn" href="../Home/index.html"><i class="fas fa-house"></i> Home</a>
+    </div>
+
+    <div id="agentflow"></div>
+
+    <!-- ── WebView bridge (JS ↔ C#) ── -->
+    <script>
+        window.pendingRequests = window.pendingRequests || {};
+        function generateRequestId() { return 'req_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8); }
+        function sendMessageToCSharp(message, callback) {
+            if (!(window.chrome && window.chrome.webview)) { if (callback) callback('WebView2 bridge not available (open inside the WMS app)', null); return; }
+            var requestId = generateRequestId();
+            message.requestId = requestId;
+            if (callback) window.pendingRequests[requestId] = callback;
+            window.chrome.webview.postMessage(message);
+        }
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.addEventListener('message', function (event) {
+                var r = event.data;
+                if (!r || !r.requestId) return;
+                var cb = window.pendingRequests[r.requestId];
+                if (!cb) return;
+                delete window.pendingRequests[r.requestId];
+                if (r.action === 'error') { cb(r.message || (r.data && r.data.message) || 'Unknown error', null); }
+                else if (r.action === 'restResponse') { if (r.success === false) cb('HTTP ' + r.statusCode, null); else cb(null, r.data); }
+                else cb(null, r);
+            });
+        }
+    </script>
+    <script src="flow.js"></script>
+    <script>AgentFlow.onShow();</script>
+</body>
+</html>

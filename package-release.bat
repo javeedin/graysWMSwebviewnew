@@ -80,7 +80,7 @@ if errorlevel 1 (
 )
 
 REM --- Copy module folders ---
-for %%F in (ap ar ca fa gl om pos sync Inventory aianalysis formsdesigner internetsearch) do (
+for %%F in (ap ar ca fa gl om pos sync Inventory aianalysis formsdesigner internetsearch agentflow) do (
     if exist "%SCRIPT_DIR%%%F" (
         echo Copying %%F folder...
         mkdir "%APP_DIR%\%%F"
