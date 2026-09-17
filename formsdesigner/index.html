@@ -1087,9 +1087,25 @@ function saveForm() {
     status.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-spinner fa-spin"></i> Saving…</span>';
     runWrite(sql, function (err, d) {
         if (err) { status.innerHTML = '<span style="color:#b91c1c;">Save failed: ' + esc(err) + '</span>'; return; }
-        status.innerHTML = '<span style="color:#15803d;"><i class="fas fa-check-circle"></i> Saved. The AI chat and all app pages see this version immediately.</span>';
         cur.form_key = key; cur.isNew = false; curKey = key;
         loadForms();
+        // round-trip self-check: LENGTH() is server-side, so it reports the
+        // TRUE stored size regardless of how the read gateway returns CLOBs.
+        const expected = defJson.length;
+        status.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-spinner fa-spin"></i> Saved — verifying…</span>';
+        runQuery("SELECT LENGTH(definition) AS LEN FROM wms_ai_forms WHERE form_key = " + sqlq(key), function (e2, rows) {
+            const stored = (rows && rows[0] && Number(rows[0].LEN)) || 0;
+            if (e2) {
+                status.innerHTML = '<span style="color:#15803d;"><i class="fas fa-check-circle"></i> Saved.</span> <span style="color:#94a3b8;">(could not verify length: ' + esc(e2) + ')</span>';
+            } else if (stored === 0) {
+                status.innerHTML = '<span style="color:#b91c1c;font-weight:700;"><i class="fas fa-triangle-exclamation"></i> Saved row, but the definition stored EMPTY. The write gateway likely rejected the large CLOB — tell me and paste any ORA error.</span>';
+            } else if (stored < expected * 0.9) {
+                status.innerHTML = '<span style="color:#b45309;font-weight:700;"><i class="fas fa-triangle-exclamation"></i> Stored only ' + stored + ' of ' + expected + ' chars — the write truncated. The app build may be older than the large-form fix.</span>';
+            } else {
+                status.innerHTML = '<span style="color:#15803d;"><i class="fas fa-check-circle"></i> Saved &amp; verified — ' + stored + ' chars stored in full. ' +
+                    'If it still opens EMPTY from the list, the READ gateway <b>apex_sql/35d</b> is not deployed yet.</span>';
+            }
+        });
     });
 }
 
