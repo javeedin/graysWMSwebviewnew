@@ -73,29 +73,19 @@
             <div class="hint">AI-enabled job aggregator · sources are queried live through the WMS app · API keys are stored only on this PC.</div>
         </div>
 
-        <!-- ── TAB: Oracle Customers ── -->
+        <!-- ── TAB: Oracle Customers (Ask AI) ── -->
         <div id="tab-oracle" hidden>
             <div class="searchcard">
-                <div class="searchrow">
-                    <div class="fld">
-                        <label>Country</label>
-                        <select id="oc-country" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:9px;font-size:14px;"></select>
-                    </div>
-                    <div class="fld" style="flex:2;">
-                        <label>Industry / filter (optional)</label>
-                        <input type="text" id="oc-industry" placeholder="e.g. banking, retail, manufacturing — leave blank for all">
-                    </div>
-                    <button class="btn btn-primary" style="height:42px;" onclick="OracleCustomers.find()"><i class="fas fa-magnifying-glass"></i> Find</button>
+                <label style="display:block;font-size:11px;font-weight:800;color:#475569;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px;">Ask anything</label>
+                <textarea id="oc-q" placeholder="e.g. List Oracle Fusion customers in the UAE with their industry and which modules they use — as a table" style="width:100%;min-height:96px;padding:11px 13px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical;"></textarea>
+                <div style="display:flex;gap:10px;align-items:center;margin-top:9px;flex-wrap:wrap;">
+                    <button class="btn btn-primary" onclick="OracleCustomers.ask()"><i class="fas fa-paper-plane"></i> Ask</button>
+                    <button class="btn" onclick="OracleCustomers.clear()">Clear</button>
+                    <span style="font-size:11px;color:#94a3b8;">Powered by the AI Digital Employee · Ctrl+Enter to send · answers may be incomplete — verify before relying.</span>
                 </div>
-                <div class="checks">
-                    <label><input type="checkbox" id="oc-ai" checked> AI-compiled list (known Oracle Fusion customers)</label>
-                    <label><input type="checkbox" id="oc-jobs"> Verify with live job postings (currently hiring for Oracle Fusion)</label>
-                    <span style="color:#94a3b8;">Companies running Oracle Fusion Cloud (ERP / HCM / SCM), grouped by country.</span>
-                </div>
+                <div id="oc-chips" style="margin-top:11px;display:flex;gap:6px;flex-wrap:wrap;"></div>
             </div>
-            <div id="oc-status" style="font-size:12.5px;color:#64748b;margin:6px 0 12px;">Pick a country and click Find.</div>
-            <div id="oc-results"></div>
-            <div class="hint">AI-compiled from public information (not exhaustive or authoritative); the live-job option adds companies currently hiring for Oracle Fusion in that country.</div>
+            <div id="oc-answer" style="margin-top:14px;"></div>
         </div>
     </div>
 
