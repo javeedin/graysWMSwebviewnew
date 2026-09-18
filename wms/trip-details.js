@@ -1197,10 +1197,10 @@ function removeOrderFromTrip(order) {
     }
 
     if (window.chrome && window.chrome.webview) {
-        sendMessageToCSharp({ action: 'executeGet', fullUrl: apiUrl }, function(error, data) {
+        sendMessageToCSharp({ action: 'executeDelete', fullUrl: apiUrl }, function(error, data) {
             if (error) {
                 console.error('[Trip Details] Error removing order:', error);
-                alert('Failed to remove order: ' + error);
+                alert('Failed to remove order: ' + (typeof error === 'string' ? error : JSON.stringify(error)));
                 return;
             }
             try {
