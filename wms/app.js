@@ -5669,45 +5669,76 @@ document.addEventListener('DOMContentLoaded', function() {
                                 alert('Order number not found for this row.');
                                 return;
                             }
-                            if (!confirm(`Remove order ${orderNumber} from this trip?\n\nThis action cannot be undone.`)) {
-                                return;
-                            }
                             const url = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/deletetripline?P_ORDER_NUMBER=${encodeURIComponent(orderNumber)}&P_INSTANCE_NAME=${encodeURIComponent(instanceName)}`;
-                            sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function(error, data) {
-                                if (error) {
-                                    alert('Failed to remove order: ' + error);
-                                    return;
-                                }
-                                try {
-                                    const result = typeof data === 'string' ? JSON.parse(data) : data;
-                                    if (result && result.status === 'error') {
-                                        alert('Error: ' + (result.message || 'Unknown error'));
+                            const escHtml = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            const stringifyErr = e => { try { return typeof e === 'string' ? e : (e && e.message ? e.message : JSON.stringify(e)); } catch (_) { return String(e); } };
+
+                            // Confirmation popup with an API icon (full URL + method + body)
+                            const ov = document.createElement('div');
+                            ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px;';
+                            ov.innerHTML =
+                                '<div style="background:#fff;width:100%;max-width:580px;border-radius:14px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.35);">' +
+                                  '<div style="padding:.8rem 1.1rem;background:linear-gradient(135deg,#ef4444,#b91c1c);color:#fff;display:flex;align-items:center;gap:10px;font-weight:700;font-size:.95rem;">' +
+                                    '<i class="fas fa-trash-alt"></i><span style="flex:1;">Remove order from trip</span>' +
+                                    '<i class="fas fa-code" id="ro-api-toggle" title="Show API request" style="cursor:pointer;opacity:.9;"></i>' +
+                                    '<i class="fas fa-times" id="ro-x" style="cursor:pointer;"></i>' +
+                                  '</div>' +
+                                  '<div style="padding:1rem 1.1rem;">' +
+                                    '<div style="font-size:.85rem;color:#334155;">Remove order <b>' + escHtml(orderNumber) + '</b> from this trip? This cannot be undone.</div>' +
+                                    '<div id="ro-api" style="display:none;margin-top:10px;border:1px solid #1e293b;border-radius:8px;background:#0b1020;color:#a6e3a1;font-family:Consolas,monospace;font-size:11px;padding:10px;white-space:pre-wrap;word-break:break-all;">' +
+                                      'GET ' + escHtml(url) + '\n\nBody: (none — GET request)</div>' +
+                                    '<div id="ro-result" style="margin-top:10px;font-size:12px;min-height:16px;"></div>' +
+                                  '</div>' +
+                                  '<div style="padding:.7rem 1.1rem;border-top:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+                                    '<button id="ro-copy" style="padding:6px 12px;border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;color:#475569;"><i class="fas fa-copy"></i> Copy URL</button>' +
+                                    '<div style="display:flex;gap:8px;">' +
+                                      '<button id="ro-cancel" style="padding:7px 14px;border:1px solid #e2e8f0;background:#fff;border-radius:8px;font-weight:700;cursor:pointer;">Cancel</button>' +
+                                      '<button id="ro-go" style="padding:7px 16px;border:none;background:#ef4444;color:#fff;border-radius:8px;font-weight:800;cursor:pointer;">Remove</button>' +
+                                    '</div>' +
+                                  '</div>' +
+                                '</div>';
+                            document.body.appendChild(ov);
+                            const close = () => ov.remove();
+                            const apiBox = ov.querySelector('#ro-api');
+                            ov.addEventListener('click', e => { if (e.target === ov) close(); });
+                            ov.querySelector('#ro-x').onclick = close;
+                            ov.querySelector('#ro-cancel').onclick = close;
+                            ov.querySelector('#ro-api-toggle').onclick = () => { apiBox.style.display = apiBox.style.display === 'none' ? 'block' : 'none'; };
+                            ov.querySelector('#ro-copy').onclick = () => { try { navigator.clipboard.writeText(url); } catch (e) { } };
+                            ov.querySelector('#ro-go').onclick = function() {
+                                const res = ov.querySelector('#ro-result');
+                                const go = ov.querySelector('#ro-go');
+                                go.disabled = true; go.textContent = 'Removing…';
+                                res.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-spinner fa-spin"></i> Calling API…</span>';
+                                sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function(error, data) {
+                                    go.disabled = false; go.textContent = 'Remove';
+                                    if (error) {
+                                        apiBox.style.display = 'block';
+                                        res.innerHTML = '<div style="color:#b91c1c;font-weight:700;">Failed: ' + escHtml(stringifyErr(error)) + '</div>';
                                         return;
                                     }
-                                } catch (e) { /* non-JSON treated as success */ }
-
-                                // Remove the row from the grid's LIVE dataSource (robust to
-                                // prior Refresh / Edit Trip, where the captured tripData array
-                                // is no longer the array the grid is showing).
-                                try {
-                                    const inst = gridContainer.dxDataGrid('instance');
-                                    const live = (inst && inst.option('dataSource')) || tripData || [];
-                                    const filtered = (Array.isArray(live) ? live : []).filter(r => (r.ORDER_NUMBER || r.order_number || '') !== orderNumber);
-                                    tripData = filtered;
-                                    if (inst) { inst.option('dataSource', filtered); inst.refresh(); }
-                                    else if (typeof refreshTripDetails === 'function') { refreshTripDetails(tripIdFromRow); }
-                                } catch (gridErr) {
-                                    console.error('[Remove from Trip] grid update failed, reloading from server:', gridErr);
-                                    if (typeof refreshTripDetails === 'function') refreshTripDetails(tripIdFromRow);
-                                }
-
-                                // Show success toast
-                                const toast = document.createElement('div');
-                                toast.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#10b981;color:white;padding:10px 18px;border-radius:8px;font-size:0.8rem;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
-                                toast.textContent = `Order ${orderNumber} removed from trip successfully`;
-                                document.body.appendChild(toast);
-                                setTimeout(() => toast.remove(), 3500);
-                            });
+                                    let result = null;
+                                    try { result = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
+                                    if (result && (result.status === 'error' || result.success === false)) {
+                                        apiBox.style.display = 'block';
+                                        res.innerHTML = '<div style="color:#b91c1c;font-weight:700;">Error: ' + escHtml(result.message || JSON.stringify(result)) + '</div>';
+                                        return;
+                                    }
+                                    // success -> remove from the grid's LIVE dataSource (robust to Refresh/Edit)
+                                    try {
+                                        const inst = gridContainer.dxDataGrid('instance');
+                                        const live = (inst && inst.option('dataSource')) || tripData || [];
+                                        const filtered = (Array.isArray(live) ? live : []).filter(r => (r.ORDER_NUMBER || r.order_number || '') !== orderNumber);
+                                        tripData = filtered;
+                                        if (inst) { inst.option('dataSource', filtered); inst.refresh(); }
+                                        else if (typeof refreshTripDetails === 'function') { refreshTripDetails(tripIdFromRow); }
+                                    } catch (gridErr) {
+                                        if (typeof refreshTripDetails === 'function') refreshTripDetails(tripIdFromRow);
+                                    }
+                                    res.innerHTML = '<div style="color:#15803d;font-weight:700;"><i class="fas fa-check-circle"></i> Order ' + escHtml(orderNumber) + ' removed.</div>';
+                                    setTimeout(close, 1100);
+                                });
+                            };
                         })
                         .appendTo($div);
 
