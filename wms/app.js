@@ -5686,9 +5686,20 @@ document.addEventListener('DOMContentLoaded', function() {
                                     }
                                 } catch (e) { /* non-JSON treated as success */ }
 
-                                // Remove row from grid data and refresh
-                                tripData = tripData.filter(r => (r.ORDER_NUMBER || r.order_number || '') !== orderNumber);
-                                gridContainer.dxDataGrid('instance').option('dataSource', tripData);
+                                // Remove the row from the grid's LIVE dataSource (robust to
+                                // prior Refresh / Edit Trip, where the captured tripData array
+                                // is no longer the array the grid is showing).
+                                try {
+                                    const inst = gridContainer.dxDataGrid('instance');
+                                    const live = (inst && inst.option('dataSource')) || tripData || [];
+                                    const filtered = (Array.isArray(live) ? live : []).filter(r => (r.ORDER_NUMBER || r.order_number || '') !== orderNumber);
+                                    tripData = filtered;
+                                    if (inst) { inst.option('dataSource', filtered); inst.refresh(); }
+                                    else if (typeof refreshTripDetails === 'function') { refreshTripDetails(tripIdFromRow); }
+                                } catch (gridErr) {
+                                    console.error('[Remove from Trip] grid update failed, reloading from server:', gridErr);
+                                    if (typeof refreshTripDetails === 'function') refreshTripDetails(tripIdFromRow);
+                                }
 
                                 // Show success toast
                                 const toast = document.createElement('div');
