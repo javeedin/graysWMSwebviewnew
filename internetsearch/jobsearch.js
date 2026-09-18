@@ -298,30 +298,61 @@
         });
     }
 
-    // ── search orchestration ────────────────────────────────
-    var lastResults = [];
+    // ── search orchestration (each search opens its own result tab) ──
+    var RT = {};           // tabId -> { id, results, qy, providers, sources }
+    var lastResults = [];  // kept for the settings/test panel compatibility
+
+    function stamp() { var d = new Date(); function z(n) { return (n < 10 ? '0' : '') + n; } return d.getFullYear() + z(d.getMonth() + 1) + z(d.getDate()) + '_' + z(d.getHours()) + z(d.getMinutes()); }
+
+    // the header (title + Export to Excel) and containers for one result tab
+    function resultShell(tid, title) {
+        return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">' +
+            '<div style="font-size:15px;font-weight:800;color:#0f172a;min-width:0;"><i class="fas fa-briefcase" style="color:#0f766e;"></i> ' + esc(title) + '</div>' +
+            '<button class="btn btn-excel" onclick="JobSearch.exportTab(\'' + tid + '\')"><i class="fas fa-file-excel"></i> Export to Excel</button>' +
+            '</div>' +
+            '<div id="src-' + tid + '" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;"></div>' +
+            '<div id="status-' + tid + '" style="font-size:12.5px;color:#64748b;margin:4px 0 12px;"></div>' +
+            '<div id="results-' + tid + '"></div>';
+    }
+    function setStatusT(tid, html) { var el = document.getElementById('status-' + tid); if (el) el.innerHTML = html; }
+    function renderSourcesT(tid) {
+        var ctx = RT[tid]; if (!ctx) return;
+        var el = document.getElementById('src-' + tid); if (!el) return;
+        el.innerHTML = ctx.providers.map(function (p) {
+            var s = ctx.sources[p], P = PROVIDERS[p];
+            var state = !s ? '<i class="fas fa-spinner fa-spin"></i>' : (s.error ? '<i class="fas fa-triangle-exclamation" style="color:#dc2626;"></i>' : '<i class="fas fa-check" style="color:#16a34a;"></i>');
+            var cnt = s && !s.error ? ' ' + s.count : '';
+            var title = s && s.error ? esc(s.error) : (s ? s.ms + 'ms' : 'querying');
+            return '<span title="' + esc(title) + '" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 9px;border-radius:14px;border:1px solid ' + P.color + '33;background:' + P.color + '11;color:' + P.color + ';">' +
+                state + ' ' + esc(P.label) + cnt + '</span>';
+        }).join(' ');
+    }
+
     function runSearch() {
         var kw = (document.getElementById('is-kw') || {}).value || '';
         var loc = (document.getElementById('is-loc') || {}).value || '';
         cfg.location = loc; saveCfg();
         var qy = { keyword: kw.trim(), location: loc.trim(), country: cfg.country };
-
         var providers = Object.keys(ADAPTERS).filter(function (p) { return cfg.enabled[p]; });
-        if (!providers.length) { setStatus('<span style="color:#b45309;">No providers enabled — open Providers and turn some on.</span>'); return; }
 
-        var results = document.getElementById('is-results'); if (results) results.innerHTML = '';
-        var sources = {};
+        var title = (qy.keyword || 'IT jobs') + (qy.location ? ' · ' + qy.location : '');
+        var tab = IS.newResultTab(title.length > 30 ? title.slice(0, 28) + '…' : title, 'fa-briefcase');
+        var tid = tab.id;
+        tab.panel.innerHTML = resultShell(tid, title);
+        var ctx = RT[tid] = { id: tid, results: [], qy: qy, providers: providers, sources: {} };
+
+        if (!providers.length) { setStatusT(tid, '<span style="color:#b45309;">No providers enabled — open <b>Setup &amp; Keys</b> and turn some on.</span>'); return; }
+        setStatusT(tid, '<i class="fas fa-spinner fa-spin"></i> Searching ' + providers.length + ' source(s)…');
+        renderSourcesT(tid);
+
         var collected = [], pending = providers.length;
-        setStatus('<i class="fas fa-spinner fa-spin"></i> Searching ' + providers.length + ' source(s)…');
-        renderSources(providers, sources);
-
         providers.forEach(function (p) {
             var t0 = Date.now();
             ADAPTERS[p](qy, function (err, jobs, meta) {
-                sources[p] = { done: true, ms: Date.now() - t0, count: jobs ? jobs.length : 0, error: err ? String(err) : '', meta: meta };
+                ctx.sources[p] = { done: true, ms: Date.now() - t0, count: jobs ? jobs.length : 0, error: err ? String(err) : '', meta: meta };
                 if (jobs && jobs.length) collected = collected.concat(jobs);
-                renderSources(providers, sources);
-                if (--pending === 0) finish(collected, qy);
+                renderSourcesT(tid);
+                if (--pending === 0) finish(tid, collected, qy);
             });
         });
     }
@@ -361,7 +392,8 @@
         return false;
     }
 
-    function finish(jobs, qy) {
+    function finish(tid, jobs, qy) {
+        var ctx = RT[tid]; if (!ctx) return;
         var kw = (qy.keyword || '').trim().toLowerCase();
         var toks = qTokens(kw);
         var wantCity = (qy.location || '').toLowerCase();
@@ -388,30 +420,18 @@
             return (Date.parse(b.postedAt) || 0) - (Date.parse(a.postedAt) || 0);
         });
 
-        lastResults = merged;
+        ctx.results = merged; lastResults = merged;
         var note = merged.length ? '' : ' — nothing matched; try broader keywords, or enable Adzuna/Jooble in Setup for wider India coverage.';
-        setStatus('<b>' + merged.length + '</b> matching job(s) after de-duplication' + (jobs.length !== merged.length ? ' (from ' + jobs.length + ' fetched)' : '') + note +
-            (merged.length ? ' <a href="javascript:void(0)" onclick="JobSearch.matchResume()" style="margin-left:10px;color:#0f766e;font-weight:800;text-decoration:none;"><i class="fas fa-wand-magic-sparkles"></i> Match my resume</a>' : ''));
-        renderResults(merged);
+        setStatusT(tid, '<b>' + merged.length + '</b> matching job(s) after de-duplication' + (jobs.length !== merged.length ? ' (from ' + jobs.length + ' fetched)' : '') + note +
+            (merged.length ? ' <a href="javascript:void(0)" onclick="JobSearch.matchResume(\'' + tid + '\')" style="margin-left:10px;color:#0f766e;font-weight:800;text-decoration:none;"><i class="fas fa-wand-magic-sparkles"></i> Match my resume</a>' : ''));
+        renderResultsT(tid);
     }
 
-    // ── rendering ───────────────────────────────────────────
-    function setStatus(html) { var el = document.getElementById('is-status'); if (el) el.innerHTML = html; }
-
-    function renderSources(providers, sources) {
-        var el = document.getElementById('is-sources'); if (!el) return;
-        el.innerHTML = providers.map(function (p) {
-            var s = sources[p], P = PROVIDERS[p];
-            var state = !s ? '<i class="fas fa-spinner fa-spin"></i>' : (s.error ? '<i class="fas fa-triangle-exclamation" style="color:#dc2626;"></i>' : '<i class="fas fa-check" style="color:#16a34a;"></i>');
-            var cnt = s && !s.error ? ' ' + s.count : '';
-            var title = s && s.error ? esc(s.error) : (s ? s.ms + 'ms' : 'querying');
-            return '<span title="' + esc(title) + '" style="display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 9px;border-radius:14px;border:1px solid ' + P.color + '33;background:' + P.color + '11;color:' + P.color + ';">' +
-                state + ' ' + esc(P.label) + cnt + '</span>';
-        }).join(' ');
-    }
-
-    function renderResults(jobs) {
-        var el = document.getElementById('is-results'); if (!el) return;
+    // ── rendering (scoped to a result tab) ──────────────────
+    function renderResultsT(tid) {
+        var ctx = RT[tid]; if (!ctx) return;
+        var el = document.getElementById('results-' + tid); if (!el) return;
+        var jobs = ctx.results;
         if (!jobs.length) { el.innerHTML = '<div style="padding:2rem;text-align:center;color:#94a3b8;font-size:13px;">No matching jobs. Try broader keywords, turn off "India only", or enable more providers.</div>'; return; }
         el.innerHTML = jobs.map(function (j, i) {
             var P = PROVIDERS[j.source] || { color: '#64748b', label: j.source };
@@ -420,7 +440,7 @@
                 var lp = PROVIDERS[l.source] || { color: '#0f766e', label: l.source };
                 return '<button onclick="JobSearch.apply(\'' + encodeURIComponent(l.url) + '\')" style="font-size:11px;font-weight:800;border:none;cursor:pointer;padding:6px 13px;border-radius:8px;background:' + lp.color + ';color:#fff;"><i class="fas fa-arrow-up-right-from-square"></i> Apply · ' + esc(lp.label) + '</button>';
             }).join(' ');
-            return '<div id="is-job-' + i + '" style="border:1px solid #eef2f7;border-radius:12px;padding:14px 16px;margin-bottom:10px;background:#fff;">' +
+            return '<div style="border:1px solid #eef2f7;border-radius:12px;padding:14px 16px;margin-bottom:10px;background:#fff;">' +
                 '<div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;">' +
                   '<div style="min-width:0;">' +
                     '<div style="font-size:15px;font-weight:800;color:#0f172a;">' + esc(j.title) + '</div>' +
@@ -436,12 +456,27 @@
                 '</div>' +
                 (j.tags && j.tags.length ? '<div style="margin-top:7px;display:flex;flex-wrap:wrap;gap:5px;">' + j.tags.map(function (t) { return '<span style="font-size:10px;background:#f1f5f9;color:#475569;border-radius:6px;padding:1px 8px;">' + esc(t) + '</span>'; }).join('') + '</div>' : '') +
                 (j.snippet ? '<div style="font-size:12px;color:#64748b;margin-top:8px;line-height:1.5;">' + esc(j.snippet) + '</div>' : '') +
-                '<div id="is-ai-' + i + '"></div>' +
+                '<div id="is-ai-' + tid + '-' + i + '"></div>' +
                 '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' + applyBtns +
-                  '<button onclick="JobSearch.summarize(' + i + ')" style="font-size:11px;font-weight:700;padding:5px 12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;color:#334155;cursor:pointer;"><i class="fas fa-wand-magic-sparkles"></i> Summarize</button>' +
+                  '<button onclick="JobSearch.summarize(\'' + tid + '\',' + i + ')" style="font-size:11px;font-weight:700;padding:5px 12px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc;color:#334155;cursor:pointer;"><i class="fas fa-wand-magic-sparkles"></i> Summarize</button>' +
                 '</div>' +
             '</div>';
         }).join('');
+    }
+
+    // ── Export to Excel (this tab's results) ────────────────
+    function exportTab(tid) {
+        var ctx = RT[tid]; if (!ctx || !ctx.results.length) { alert('Nothing to export yet — run the search first.'); return; }
+        var cols = ['Title', 'Company', 'Location', 'Remote', 'Posted', 'Salary', 'Source', 'Tags', 'Apply URL', 'Description'];
+        var rows = ctx.results.map(function (j) {
+            var url = (j.links && j.links[0] && j.links[0].url) || j.url || '';
+            var posted = '';
+            if (j.postedAt) { var t = Date.parse(j.postedAt); if (!isNaN(t)) posted = new Date(t).toISOString().slice(0, 10); }
+            return [j.title || '', j.company || '', j.location || '', j.remote ? 'Yes' : 'No', posted, j.salary || '',
+                    (PROVIDERS[j.source] && PROVIDERS[j.source].label) || j.source || '', (j.tags || []).join(', '), url, j.snippet || ''];
+        });
+        var fn = 'jobs_' + (ctx.qy.keyword || 'it').replace(/[^a-z0-9]+/gi, '_').slice(0, 30) + '_' + stamp() + '.xls';
+        IS.exportExcel(fn, cols, rows);
     }
 
     // ── Providers / keys panel ──────────────────────────────
@@ -544,9 +579,10 @@
             cb(null, (resp && (resp.markdown || resp.answer)) || '');
         });
     }
-    function summarize(i) {
-        var j = lastResults[i]; if (!j) return;
-        var box = document.getElementById('is-ai-' + i); if (!box) return;
+    function summarize(tid, i) {
+        var ctx = RT[tid]; if (!ctx) return;
+        var j = ctx.results[i]; if (!j) return;
+        var box = document.getElementById('is-ai-' + tid + '-' + i); if (!box) return;
         box.innerHTML = '<div style="margin-top:8px;font-size:12px;color:#0f766e;"><i class="fas fa-spinner fa-spin"></i> Summarizing…</div>';
         aiSend('Summarize this IT job posting for a candidate in 4 short bullet points: role focus, must-have skills, nice-to-haves, and any red flags. Be concise.\n\nTitle: ' + j.title + '\nCompany: ' + j.company + '\nLocation: ' + j.location + '\n\n' + j.snippet,
             function (err, md) {
@@ -554,15 +590,17 @@
                 box.innerHTML = '<div style="margin-top:8px;padding:10px 12px;background:#f6fbfa;border:1px solid #d5e9e6;border-radius:8px;font-size:12px;color:#334155;white-space:pre-wrap;">' + esc(md) + '</div>';
             });
     }
-    function matchResume() {
-        if (!lastResults.length) { alert('Run a search first.'); return; }
+    var CV_TID = null;
+    function matchResume(tid) {
+        var ctx = RT[tid]; if (!ctx || !ctx.results.length) { alert('Run a search first.'); return; }
+        CV_TID = tid;
         var m = document.createElement('div');
         m.id = 'is-cv-modal';
         m.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
         m.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:600px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);">' +
             '<div style="padding:16px 20px;border-bottom:1px solid #eef2f7;font-size:16px;font-weight:800;color:#0f172a;"><i class="fas fa-wand-magic-sparkles" style="color:#0f766e;"></i> Match my resume</div>' +
             '<div style="padding:18px 20px;">' +
-              '<div style="font-size:12px;color:#64748b;margin-bottom:8px;">Paste your resume (or a summary of skills & experience). Claude will score the top ' + Math.min(lastResults.length, 8) + ' results and explain the fit.</div>' +
+              '<div style="font-size:12px;color:#64748b;margin-bottom:8px;">Paste your resume (or a summary of skills & experience). Claude will score the top ' + Math.min(ctx.results.length, 8) + ' results and explain the fit.</div>' +
               '<textarea id="is-cv" rows="9" placeholder="e.g. 8 years backend: Java, Spring Boot, AWS, Kafka, microservices; led a team of 5…" style="width:100%;padding:10px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;"></textarea>' +
             '</div>' +
             '<div style="padding:14px 20px;border-top:1px solid #eef2f7;text-align:right;">' +
@@ -572,32 +610,34 @@
         document.body.appendChild(m);
     }
     function runMatch() {
+        var tid = CV_TID; var ctx = RT[tid]; if (!ctx) { closeCv(); return; }
         var cv = (document.getElementById('is-cv') || {}).value || '';
         if (!cv.trim()) { alert('Paste your resume first.'); return; }
         closeCv();
-        var top = lastResults.slice(0, 8);
+        var top = ctx.results.slice(0, 8);
         var list = top.map(function (j, i) { return (i + 1) + '. ' + j.title + ' @ ' + j.company + ' (' + j.location + ') — ' + trunc(j.snippet, 160); }).join('\n');
-        setStatus('<i class="fas fa-spinner fa-spin"></i> Claude is matching your resume to ' + top.length + ' jobs…');
+        setStatusT(tid, '<i class="fas fa-spinner fa-spin"></i> Claude is matching your resume to ' + top.length + ' jobs…');
         aiSend('You are a career matcher. Given the RESUME and the JOB LIST, return a match score 0-100 for each job and one line on why it fits or what is missing. ' +
             'Reply as strict JSON: {"matches":[{"n":1,"score":85,"why":"..."}]} with an entry for every job number.\n\nRESUME:\n' + cv + '\n\nJOB LIST:\n' + list,
             function (err, md) {
-                if (err) { setStatus('<span style="color:#b91c1c;">AI error: ' + esc(err) + '</span>'); return; }
+                if (err) { setStatusT(tid, '<span style="color:#b91c1c;">AI error: ' + esc(err) + '</span>'); return; }
                 var mm = md.match(/```json\s*([\s\S]*?)```/i) || md.match(/(\{[\s\S]*\})/);
                 var data = null; try { data = JSON.parse(mm ? mm[1] : md); } catch (e) { }
-                if (!data || !data.matches) { setStatus('<span style="color:#b45309;">Could not parse AI match. Try again.</span>'); return; }
+                if (!data || !data.matches) { setStatusT(tid, '<span style="color:#b45309;">Could not parse AI match. Try again.</span>'); return; }
                 var byN = {}; data.matches.forEach(function (x) { byN[x.n] = x; });
                 top.forEach(function (j, i) {
                     var x = byN[i + 1]; if (!x) return;
-                    var box = document.getElementById('is-ai-' + i); if (!box) return;
+                    var box = document.getElementById('is-ai-' + tid + '-' + i); if (!box) return;
                     var col = x.score >= 75 ? '#16a34a' : x.score >= 50 ? '#b45309' : '#dc2626';
                     box.innerHTML = '<div style="margin-top:8px;display:flex;align-items:center;gap:10px;padding:8px 12px;background:#f6fbfa;border:1px solid #d5e9e6;border-radius:8px;">' +
                         '<span style="font-size:15px;font-weight:800;color:' + col + ';white-space:nowrap;">' + x.score + '%</span>' +
                         '<span style="font-size:12px;color:#334155;">' + esc(x.why || '') + '</span></div>';
                 });
-                lastResults = top.map(function (j, i) { j._score = (byN[i + 1] || {}).score || 0; return j; }).concat(lastResults.slice(8));
-                lastResults.sort(function (a, b) { return (b._score || 0) - (a._score || 0); });
-                renderResults(lastResults);
-                setStatus('<b>Matched</b> — results re-ranked by fit. <a href="javascript:void(0)" onclick="JobSearch.matchResume()" style="color:#0f766e;font-weight:800;text-decoration:none;">Re-match</a>');
+                ctx.results = top.map(function (j, i) { j._score = (byN[i + 1] || {}).score || 0; return j; }).concat(ctx.results.slice(8));
+                ctx.results.sort(function (a, b) { return (b._score || 0) - (a._score || 0); });
+                lastResults = ctx.results;
+                renderResultsT(tid);
+                setStatusT(tid, '<b>Matched</b> — results re-ranked by fit. <a href="javascript:void(0)" onclick="JobSearch.matchResume(\'' + tid + '\')" style="color:#0f766e;font-weight:800;text-decoration:none;">Re-match</a>');
             });
     }
 
@@ -657,6 +697,7 @@
             if (el) { el.innerHTML = '<i class="fas fa-check"></i> Saved on this PC'; setTimeout(function () { if (el) el.innerHTML = ''; }, 2500); }
         },
         testProvider: testProvider,
+        exportTab: exportTab,
         summarize: summarize,
         matchResume: matchResume,
         runMatch: runMatch,

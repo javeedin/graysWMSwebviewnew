@@ -17,6 +17,8 @@
         .btn:hover { background: #eef2f7; }
         .btn-primary { background: #0f766e; color: #fff; border-color: #0f766e; }
         .btn-primary:hover { background: #0b5c55; }
+        .btn-excel { background: #107c41; color: #fff; border-color: #107c41; }
+        .btn-excel:hover { background: #0c6234; }
         .wrap { max-width: none; width: 100%; margin: 0; padding: 16px 24px 40px; }
         .searchcard { background: #fff; border: 1px solid #e6eaf2; border-radius: 14px; padding: 16px; box-shadow: 0 1px 3px rgba(15,23,42,.05); }
         .searchrow { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
@@ -25,11 +27,15 @@
         .fld input[type=text] { width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 9px; font-size: 14px; }
         .checks { display: flex; gap: 16px; margin-top: 12px; flex-wrap: wrap; font-size: 12.5px; color: #334155; }
         .checks label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-        #is-sources { margin: 14px 0 6px; display: flex; gap: 6px; flex-wrap: wrap; }
-        #is-status { font-size: 12.5px; color: #64748b; margin: 6px 0 14px; }
         .hint { font-size: 11px; color: #94a3b8; margin-top: 10px; }
-        .is-tab { padding: 8px 16px; font-size: 13px; font-weight: 800; border-radius: 10px 10px 0 0; cursor: pointer; background: #eef2f7; color: #475569; border: 1px solid #e6eaf2; border-bottom: none; }
+        /* tab bar */
+        #is-tabbar { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+        .is-tab { display: inline-flex; align-items: center; gap: 7px; padding: 8px 15px; font-size: 13px; font-weight: 800; border-radius: 10px 10px 0 0; cursor: pointer; background: #eef2f7; color: #475569; border: 1px solid #e6eaf2; border-bottom: none; max-width: 280px; }
+        .is-tab:hover { background: #e6ecf5; }
         .is-tab.active { background: #0284c7; color: #fff; border-color: #0284c7; }
+        .is-tab .is-x { margin-left: 4px; opacity: .75; font-weight: 800; }
+        .is-tab .is-x:hover { opacity: 1; }
+        .is-tab .is-lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     </style>
 </head>
 <body>
@@ -41,51 +47,51 @@
     </div>
 
     <div class="wrap">
-        <!-- ── tab bar ── -->
-        <div id="is-tabs" style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">
-            <div class="is-tab" data-tab="jobs" onclick="switchTab('jobs')"><i class="fas fa-briefcase"></i> IT Jobs</div>
-            <div class="is-tab" data-tab="oracle" onclick="switchTab('oracle')"><i class="fas fa-database"></i> Oracle Customers</div>
-        </div>
+        <!-- ── dynamic tab bar (launchers + one tab per search) ── -->
+        <div id="is-tabbar"></div>
 
-        <!-- ── TAB: IT Jobs ── -->
-        <div id="tab-jobs">
-            <div class="searchcard">
-                <div class="searchrow">
-                    <div class="fld" style="flex:2;">
-                        <label>What (role / skill)</label>
-                        <input type="text" id="is-kw" placeholder="e.g. backend developer, react, devops, data engineer">
-                    </div>
-                    <div class="fld">
-                        <label>Where</label>
-                        <input type="text" id="is-loc" placeholder="India / Bengaluru / Hyderabad">
-                    </div>
-                    <button class="btn btn-primary" style="height:42px;" onclick="JobSearch.search()"><i class="fas fa-magnifying-glass"></i> Search</button>
-                </div>
-                <div class="checks">
-                    <label><input type="checkbox" id="is-india" onchange="JobSearch.toggleIndia(this.checked)"> India only</label>
-                    <label><input type="checkbox" id="is-remote" onchange="JobSearch.toggleRemote(this.checked)"> Remote only</label>
-                    <span style="color:#94a3b8;">For Google-style coverage (Indeed, LinkedIn, Naukri…) enable <b>Google Jobs (SerpApi)</b> or <b>Adzuna</b> in <b>Setup &amp; Keys</b>.</span>
-                </div>
-            </div>
-            <div id="is-sources"></div>
-            <div id="is-status">Enter a role and click Search. Keyless sources (Greenhouse, Lever, Remotive, Arbeitnow) work with no setup.</div>
-            <div id="is-results"></div>
-            <div class="hint">AI-enabled job aggregator · sources are queried live through the WMS app · API keys are stored only on this PC.</div>
-        </div>
+        <!-- ── panels (launchers are fixed; result panels are added at runtime) ── -->
+        <div id="is-panels">
 
-        <!-- ── TAB: Oracle Customers (Ask AI) ── -->
-        <div id="tab-oracle" hidden>
-            <div class="searchcard">
-                <label style="display:block;font-size:11px;font-weight:800;color:#475569;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px;">Ask anything</label>
-                <textarea id="oc-q" placeholder="e.g. List Oracle Fusion customers in the UAE with their industry and which modules they use — as a table" style="width:100%;min-height:96px;padding:11px 13px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical;"></textarea>
-                <div style="display:flex;gap:10px;align-items:center;margin-top:9px;flex-wrap:wrap;">
-                    <button class="btn btn-primary" onclick="OracleCustomers.ask()"><i class="fas fa-paper-plane"></i> Ask</button>
-                    <button class="btn" onclick="OracleCustomers.clear()">Clear</button>
-                    <span style="font-size:11px;color:#94a3b8;">Live internet search (add a SerpApi key in Setup &amp; Keys) · Ctrl+Enter to send · verify before relying.</span>
+            <!-- ── LAUNCHER: IT Jobs ── -->
+            <div id="tab-jobs">
+                <div class="searchcard">
+                    <div class="searchrow">
+                        <div class="fld" style="flex:2;">
+                            <label>What (role / skill)</label>
+                            <input type="text" id="is-kw" placeholder="e.g. backend developer, react, devops, data engineer">
+                        </div>
+                        <div class="fld">
+                            <label>Where</label>
+                            <input type="text" id="is-loc" placeholder="India / Bengaluru / Hyderabad">
+                        </div>
+                        <button class="btn btn-primary" style="height:42px;" onclick="JobSearch.search()"><i class="fas fa-magnifying-glass"></i> Search</button>
+                    </div>
+                    <div class="checks">
+                        <label><input type="checkbox" id="is-india" onchange="JobSearch.toggleIndia(this.checked)"> India only</label>
+                        <label><input type="checkbox" id="is-remote" onchange="JobSearch.toggleRemote(this.checked)"> Remote only</label>
+                        <span style="color:#94a3b8;">For Google-style coverage (Indeed, LinkedIn, Naukri…) enable <b>Google Jobs (SerpApi)</b> or <b>Adzuna</b> in <b>Setup &amp; Keys</b>.</span>
+                    </div>
                 </div>
-                <div id="oc-chips" style="margin-top:11px;display:flex;gap:6px;flex-wrap:wrap;"></div>
+                <div class="hint"><i class="fas fa-circle-info"></i> Each search opens its own results tab (so you can compare searches). Every tab has an <b>Export to Excel</b> button. Keyless sources (Greenhouse, Lever, Remotive, Arbeitnow) work with no setup.</div>
             </div>
-            <div id="oc-answer" style="margin-top:14px;"></div>
+
+            <!-- ── LAUNCHER: Oracle Customers (Ask the internet) ── -->
+            <div id="tab-oracle">
+                <div class="searchcard">
+                    <label style="display:block;font-size:11px;font-weight:800;color:#475569;margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px;">Ask the internet</label>
+                    <textarea id="oc-q" placeholder="e.g. List Oracle Fusion customers in the UAE with their industry and which modules they use — as a table" style="width:100%;min-height:96px;padding:11px 13px;border:1px solid #e2e8f0;border-radius:10px;font-size:14px;font-family:inherit;resize:vertical;"></textarea>
+                    <div style="display:flex;gap:10px;align-items:center;margin-top:9px;flex-wrap:wrap;">
+                        <button class="btn btn-primary" onclick="OracleCustomers.ask()"><i class="fas fa-paper-plane"></i> Ask</button>
+                        <button class="btn" onclick="OracleCustomers.clear()">Clear</button>
+                        <span style="font-size:11px;color:#94a3b8;">Live internet search (add a SerpApi key in Setup &amp; Keys) · Ctrl+Enter to send · opens in a new tab · verify before relying.</span>
+                    </div>
+                    <div id="oc-warn" style="margin-top:6px;"></div>
+                    <div id="oc-chips" style="margin-top:11px;display:flex;gap:6px;flex-wrap:wrap;"></div>
+                </div>
+                <div class="hint"><i class="fas fa-circle-info"></i> Each question opens its own tab with an <b>Export to Excel</b> button. This tab searches the public internet — it does <b>not</b> query the local WMS database.</div>
+            </div>
+
         </div>
     </div>
 
@@ -119,17 +125,83 @@
             });
         }
     </script>
+
+    <!-- ── tab shell + Excel export (shared by all searches) ── -->
+    <script>
+        var IS = (function () {
+            function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+            var seq = 0, tabs = [], active = null;
+            function bar() { return document.getElementById('is-tabbar'); }
+            function panels() { return document.getElementById('is-panels'); }
+            function find(id) { for (var i = 0; i < tabs.length; i++) if (tabs[i].id === id) return tabs[i]; return null; }
+            function render() {
+                bar().innerHTML = tabs.map(function (t) {
+                    var cls = 'is-tab' + (t.id === active ? ' active' : '');
+                    var x = t.closable ? '<span class="is-x" onclick="event.stopPropagation();IS.close(\'' + t.id + '\')">✕</span>' : '';
+                    return '<div class="' + cls + '" onclick="IS.activate(\'' + t.id + '\')"><i class="fas ' + t.icon + '"></i> <span class="is-lbl">' + esc(t.title) + '</span>' + x + '</div>';
+                }).join('');
+            }
+            function activate(id) {
+                active = id;
+                tabs.forEach(function (t) { t.panel.hidden = (t.id !== id); });
+                render();
+                var t = find(id); if (t && t.onActivate) { try { t.onActivate(); } catch (e) { } }
+            }
+            function addLauncher(id, title, icon, panelEl, onActivate) {
+                tabs.push({ id: id, title: title, icon: icon, panel: panelEl, closable: false, onActivate: onActivate });
+                panelEl.hidden = true; render();
+            }
+            function newResultTab(title, icon) {
+                var id = 'rt' + (++seq);
+                var panel = document.createElement('div'); panel.hidden = true; panels().appendChild(panel);
+                tabs.push({ id: id, title: title || 'Results', icon: icon || 'fa-magnifying-glass', panel: panel, closable: true });
+                render(); activate(id);
+                return { id: id, panel: panel };
+            }
+            function close(id) {
+                var idx = -1; for (var i = 0; i < tabs.length; i++) if (tabs[i].id === id) idx = i;
+                if (idx < 0) return;
+                var t = tabs[idx]; if (t.panel && t.panel.parentNode) t.panel.parentNode.removeChild(t.panel);
+                tabs.splice(idx, 1);
+                if (active === id) { var nxt = tabs[idx - 1] || tabs[idx] || tabs[0]; if (nxt) activate(nxt.id); }
+                else render();
+            }
+            function triggerDownload(blob, filename) {
+                try {
+                    var url = URL.createObjectURL(blob);
+                    var a = document.createElement('a'); a.href = url; a.download = filename;
+                    document.body.appendChild(a); a.click();
+                    setTimeout(function () { try { document.body.removeChild(a); URL.revokeObjectURL(url); } catch (e) { } }, 1500);
+                } catch (e) { alert('Export failed: ' + e); }
+            }
+            // Dependency-free "Export to Excel": an HTML table saved as .xls,
+            // which Excel opens natively (no CDN library needed).
+            function exportExcel(filename, columns, rows) {
+                var thead = '<tr>' + columns.map(function (c) { return '<th style="background:#0f766e;color:#fff;border:1px solid #999;padding:4px 8px;text-align:left;">' + esc(c) + '</th>'; }).join('') + '</tr>';
+                var tbody = rows.map(function (r) {
+                    return '<tr>' + r.map(function (c) { return '<td style="border:1px solid #ccc;padding:3px 8px;mso-number-format:\'\\@\';">' + esc(c == null ? '' : String(c)) + '</td>'; }).join('') + '</tr>';
+                }).join('');
+                var table = '<table border="1" style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;font-size:11pt;">' +
+                    '<thead>' + thead + '</thead><tbody>' + tbody + '</tbody></table>';
+                var wb = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">' +
+                    '<head><meta charset="utf-8">' +
+                    '<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>' +
+                    '<x:Name>Results</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>' +
+                    '</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->' +
+                    '</head><body>' + table + '</body></html>';
+                triggerDownload(new Blob(['\ufeff' + wb], { type: 'application/vnd.ms-excel' }), filename);
+            }
+            return { esc: esc, addLauncher: addLauncher, newResultTab: newResultTab, activate: activate, close: close, exportExcel: exportExcel };
+        })();
+    </script>
+
     <script src="jobsearch.js"></script>
     <script src="oracle-customers.js"></script>
     <script>
-        function switchTab(name) {
-            document.querySelectorAll('.is-tab').forEach(function (t) { t.classList.toggle('active', t.getAttribute('data-tab') === name); });
-            document.getElementById('tab-jobs').hidden = name !== 'jobs';
-            document.getElementById('tab-oracle').hidden = name !== 'oracle';
-            if (name === 'oracle' && window.OracleCustomers) OracleCustomers.init();
-        }
+        IS.addLauncher('launch-jobs', 'IT Jobs', 'fa-briefcase', document.getElementById('tab-jobs'), function () { JobSearch.init(); });
+        IS.addLauncher('launch-oracle', 'Oracle Customers', 'fa-database', document.getElementById('tab-oracle'), function () { OracleCustomers.init(); });
+        IS.activate('launch-jobs');
         JobSearch.init();
-        switchTab('jobs');
     </script>
 </body>
 </html>

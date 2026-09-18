@@ -2,11 +2,14 @@
 // ORACLE CUSTOMERS - free-form "Ask the internet" panel
 // ============================================================
 // Type any question (e.g. "list Oracle Fusion customers in UAE with
-// industry and modules"). This tab does a REAL internet search (SerpApi /
-// Google) and then asks the AI to synthesise the web results. It NEVER
-// queries the local WMS database (GRFU_CUSTOMER) - it is an internet
-// assistant. The reply (markdown) is rendered to HTML - headings, tables,
-// lists, links, code - and the web sources are listed below the answer.
+// industry and modules"). Each question opens its OWN result tab that:
+//   1) does a REAL internet search (SerpApi / Google) via the executeGet
+//      bridge,
+//   2) asks the AI to synthesise those web results - with a prompt that
+//      HARD-FORBIDS the local WMS database (GRFU_CUSTOMER),
+//   3) renders the markdown answer + a clickable "Web sources" list, and
+//   4) offers Export to Excel (the answer's table, else the web sources).
+// This tab is an INTERNET assistant - it never queries the local DB.
 // ============================================================
 
 (function () {
@@ -116,6 +119,34 @@
         return out.join('');
     }
 
+    // ── markdown-table extractor (for Export to Excel) ──────────
+    function splitRow(l) { return l.split('|').map(function (c) { return c.trim(); }).filter(function (c, idx, arr) { return !(c === '' && (idx === 0 || idx === arr.length - 1)); }); }
+    function firstMdTable(md) {
+        var lines = String(md || '').replace(/\r/g, '').split('\n');
+        for (var i = 0; i < lines.length - 1; i++) {
+            if (/\|/.test(lines[i]) && /\|/.test(lines[i + 1]) && /-/.test(lines[i + 1]) && /^[\s|:\-]+$/.test(lines[i + 1])) {
+                var head = splitRow(lines[i]);
+                if (!head.length) continue;
+                var rows = [], j = i + 2;
+                while (j < lines.length && /\|/.test(lines[j]) && lines[j].trim() !== '') { rows.push(splitRow(lines[j])); j++; }
+                rows = rows.map(function (r) { while (r.length < head.length) r.push(''); return r.slice(0, head.length); });
+                return { columns: head, rows: rows };
+            }
+        }
+        return null;
+    }
+    function stampOC() { var d = new Date(); function z(n) { return (n < 10 ? '0' : '') + n; } return d.getFullYear() + z(d.getMonth() + 1) + z(d.getDate()) + '_' + z(d.getHours()) + z(d.getMinutes()); }
+
+    // per-tab store so Export to Excel can find the answer/sources later
+    var ANS = {};   // tabId -> { md, results }
+
+    function ocShell(tid, q) {
+        return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">' +
+            '<div style="font-size:15px;font-weight:800;color:#0f172a;min-width:0;"><i class="fas fa-globe" style="color:#0f766e;"></i> ' + esc(q) + '</div>' +
+            '<button class="btn btn-excel" onclick="OracleCustomers.exportTab(\'' + tid + '\')"><i class="fas fa-file-excel"></i> Export to Excel</button>' +
+            '</div><div id="oc-ans-' + tid + '"></div>';
+    }
+
     window.OracleCustomers = {
         init: function () {
             var chips = document.getElementById('oc-chips');
@@ -132,26 +163,32 @@
             }
         },
         fill: function (el) { var ta = document.getElementById('oc-q'); if (ta) { ta.value = el.getAttribute('data-q'); ta.focus(); } },
-        clear: function () { var ta = document.getElementById('oc-q'); if (ta) ta.value = ''; var a = document.getElementById('oc-answer'); if (a) a.innerHTML = ''; },
+        clear: function () { var ta = document.getElementById('oc-q'); if (ta) ta.value = ''; var w = document.getElementById('oc-warn'); if (w) w.innerHTML = ''; },
+
         ask: function () {
             var ta = document.getElementById('oc-q');
-            var ans = document.getElementById('oc-answer');
             var q = (ta ? ta.value : '').trim();
-            if (!q) { if (ans) ans.innerHTML = '<div style="color:#b45309;font-size:12px;">Type a question first.</div>'; return; }
+            var warn = document.getElementById('oc-warn');
+            if (!q) { if (warn) warn.innerHTML = '<span style="color:#b45309;font-size:12px;">Type a question first.</span>'; return; }
+            if (warn) warn.innerHTML = '';
+
+            // open a fresh result tab for this question
+            var tab = IS.newResultTab(q.length > 30 ? q.slice(0, 28) + '…' : q, 'fa-globe');
+            var tid = tab.id;
+            tab.panel.innerHTML = ocShell(tid, q);
+            var ans = document.getElementById('oc-ans-' + tid);
+            ANS[tid] = { md: '', results: [] };
             ans.innerHTML = '<div style="border:1px solid #eef2f7;border-radius:12px;padding:14px 16px;background:#fff;color:#0284c7;font-size:13px;"><i class="fas fa-spinner fa-spin"></i> Searching the web…</div>';
 
-            // Step 1: real internet search (SerpApi / Google). Then feed the web
-            // results to the AI to synthesise. This tab NEVER touches the WMS DB.
+            // Step 1: real internet search. Then feed the web results to the AI.
             webSearch(q, function (werr, web) {
                 var results = (web && web.organic) || [];
                 var answerBox = (web && web.answer) || '';
                 var noKey = werr === 'no-key';
+                ANS[tid].results = results;
 
-                if (!noKey) {
-                    ans.innerHTML = '<div style="border:1px solid #eef2f7;border-radius:12px;padding:14px 16px;background:#fff;color:#0284c7;font-size:13px;"><i class="fas fa-spinner fa-spin"></i> Reading ' + results.length + ' web result' + (results.length === 1 ? '' : 's') + '…</div>';
-                }
+                if (!noKey) ans.innerHTML = '<div style="border:1px solid #eef2f7;border-radius:12px;padding:14px 16px;background:#fff;color:#0284c7;font-size:13px;"><i class="fas fa-spinner fa-spin"></i> Reading ' + results.length + ' web result' + (results.length === 1 ? '' : 's') + '…</div>';
 
-                // Build a web-context block for the AI
                 var ctx = '';
                 if (answerBox) ctx += 'ANSWER BOX: ' + answerBox + '\n\n';
                 if (results.length) {
@@ -160,7 +197,6 @@
                     }).join('\n\n');
                 }
 
-                // Hard-forbid the local database. This tab is an INTERNET assistant.
                 var prompt =
                     'You are an INTERNET research assistant. Answer the question below using ONLY public, real-world knowledge and the web search results provided.\n' +
                     'STRICT RULES:\n' +
@@ -174,6 +210,7 @@
                         (noKey ? '(No web search key configured — answer from public knowledge only. Tip: add a SerpApi key in Setup & Keys for live results.)' : '(No web results found — answer from public knowledge only.)'));
 
                 aiSend(prompt, function (err, md) {
+                    ANS[tid].md = md || '';
                     var sourcesHtml = results.length ? (
                         '<div style="margin-top:14px;border-top:1px solid #f1f5f9;padding-top:10px;">' +
                         '<div style="font-size:10.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.3px;margin-bottom:7px;"><i class="fas fa-link"></i> Web sources</div>' +
@@ -187,10 +224,9 @@
                     ) : '';
 
                     if (err) {
-                        // AI failed — still show the raw web results so the tab is useful
                         ans.innerHTML = '<div style="border:1px solid #eef2f7;border-radius:12px;padding:16px 18px;background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.05);">' +
                             '<div style="color:#b91c1c;font-size:12.5px;margin-bottom:6px;"><i class="fas fa-triangle-exclamation"></i> AI synthesis failed (' + esc(err) + ')' + (results.length ? ' — showing raw web results.' : '.') + '</div>' +
-                            (results.length ? sourcesHtml : '') +
+                            sourcesHtml +
                             (noKey ? '<div style="font-size:12px;color:#64748b;">No SerpApi key configured. Add one in <b>Setup &amp; Keys</b> to enable live internet search.</div>' : '') +
                             '</div>';
                         return;
@@ -200,6 +236,17 @@
                         '<div style="font-size:10.5px;color:#94a3b8;margin-top:10px;border-top:1px solid #f1f5f9;padding-top:8px;"><i class="fas fa-globe"></i> Answered from the public internet' + (results.length ? ' (' + results.length + ' web sources)' : '') + ' — not the WMS database. Verify before relying on it.</div></div>';
                 });
             });
+        },
+
+        exportTab: function (tid) {
+            var d = ANS[tid];
+            if (!d) { alert('Nothing to export yet.'); return; }
+            var cols, rows;
+            var t = firstMdTable(d.md);
+            if (t && t.rows.length) { cols = t.columns; rows = t.rows; }
+            else if (d.results && d.results.length) { cols = ['Title', 'URL', 'Snippet']; rows = d.results.map(function (r) { return [r.title || '', r.link || '', r.snippet || '']; }); }
+            else { alert('No tabular data to export yet. Wait for the answer, or ask for a list/table.'); return; }
+            IS.exportExcel('oracle_customers_' + stampOC() + '.xls', cols, rows);
         }
     };
 })();
