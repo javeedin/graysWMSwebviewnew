@@ -1,9 +1,12 @@
 // ============================================================
-// ORACLE CUSTOMERS - free-form "Ask anything" panel
+// ORACLE CUSTOMERS - free-form "Ask the internet" panel
 // ============================================================
 // Type any question (e.g. "list Oracle Fusion customers in UAE with
-// industry and modules") and the AI Digital Employee answers. The reply
-// (markdown) is rendered to HTML - headings, tables, lists, links, code.
+// industry and modules"). This tab does a REAL internet search (SerpApi /
+// Google) and then asks the AI to synthesise the web results. It NEVER
+// queries the local WMS database (GRFU_CUSTOMER) - it is an internet
+// assistant. The reply (markdown) is rendered to HTML - headings, tables,
+// lists, links, code - and the web sources are listed below the answer.
 // ============================================================
 
 (function () {
@@ -29,6 +32,30 @@
             cb(null, (resp && (resp.markdown || resp.answer)) || '');
         });
     }
+    // SerpApi key is shared with the IT Jobs settings (localStorage is_settings_v1)
+    function serpKey() { try { var s = JSON.parse(localStorage.getItem('is_settings_v1') || 'null'); return (s && s.keys && s.keys.serpapi) || ''; } catch (e) { return ''; } }
+    // Real internet search via SerpApi (Google). Returns organic results + answer box.
+    function webSearch(query, cb) {
+        var key = serpKey();
+        if (!key) { cb('no-key'); return; }
+        var url = 'https://serpapi.com/search.json?engine=google&hl=en&num=10&q=' + encodeURIComponent(query) + '&api_key=' + encodeURIComponent(key);
+        bridge({ action: 'executeGet', fullUrl: url }, function (err, data) {
+            if (err) return cb(String(err));
+            try {
+                var j = typeof data === 'string' ? JSON.parse(data) : data;
+                if (j && j.error) return cb(j.error);
+                var organic = (j.organic_results || []).slice(0, 10).map(function (r) { return { title: r.title || '', link: r.link || '', snippet: r.snippet || '' }; });
+                var answer = (j.answer_box && (j.answer_box.answer || j.answer_box.snippet)) || '';
+                cb(null, { organic: organic, answer: answer });
+            } catch (e) { cb('bad web response'); }
+        });
+    }
+    function openUrl(u) {
+        if (!u) return;
+        if (typeof sendMessageToCSharp === 'function' && window.chrome && window.chrome.webview) sendMessageToCSharp({ action: 'openExternalUrl', url: u });
+        else window.open(u, '_blank', 'noopener');
+    }
+    window.__ocOpen = openUrl;
 
     // ── tiny markdown -> HTML (headings, tables, lists, bold/italic/code, links) ──
     function inline(s) {
@@ -111,14 +138,67 @@
             var ans = document.getElementById('oc-answer');
             var q = (ta ? ta.value : '').trim();
             if (!q) { if (ans) ans.innerHTML = '<div style="color:#b45309;font-size:12px;">Type a question first.</div>'; return; }
-            ans.innerHTML = '<div style="border:1px solid #eef2f7;border-radius:12px;padding:14px 16px;background:#fff;color:#0284c7;font-size:13px;"><i class="fas fa-spinner fa-spin"></i> Thinking…</div>';
-            // light nudge so lists come back as clean tables, but keep it free-form
-            var prompt = q + '\n\n(Answer in clear markdown. When listing companies or items, use a markdown table with sensible columns.)';
-            aiSend(prompt, function (err, md) {
-                if (err) { ans.innerHTML = '<div style="border:1px solid #fecaca;background:#fff1f2;border-radius:12px;padding:14px 16px;color:#b91c1c;font-size:13px;">AI error: ' + esc(err) + '</div>'; return; }
-                if (!md) { ans.innerHTML = '<div style="border:1px solid #eef2f7;border-radius:12px;padding:14px 16px;color:#64748b;font-size:13px;">No answer returned. Try rephrasing.</div>'; return; }
-                ans.innerHTML = '<div style="border:1px solid #eef2f7;border-radius:12px;padding:16px 18px;background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.05);">' + mdToHtml(md) +
-                    '<div style="font-size:10.5px;color:#94a3b8;margin-top:10px;border-top:1px solid #f1f5f9;padding-top:8px;"><i class="fas fa-circle-info"></i> AI-generated from public information — verify before relying on it.</div></div>';
+            ans.innerHTML = '<div style="border:1px solid #eef2f7;border-radius:12px;padding:14px 16px;background:#fff;color:#0284c7;font-size:13px;"><i class="fas fa-spinner fa-spin"></i> Searching the web…</div>';
+
+            // Step 1: real internet search (SerpApi / Google). Then feed the web
+            // results to the AI to synthesise. This tab NEVER touches the WMS DB.
+            webSearch(q, function (werr, web) {
+                var results = (web && web.organic) || [];
+                var answerBox = (web && web.answer) || '';
+                var noKey = werr === 'no-key';
+
+                if (!noKey) {
+                    ans.innerHTML = '<div style="border:1px solid #eef2f7;border-radius:12px;padding:14px 16px;background:#fff;color:#0284c7;font-size:13px;"><i class="fas fa-spinner fa-spin"></i> Reading ' + results.length + ' web result' + (results.length === 1 ? '' : 's') + '…</div>';
+                }
+
+                // Build a web-context block for the AI
+                var ctx = '';
+                if (answerBox) ctx += 'ANSWER BOX: ' + answerBox + '\n\n';
+                if (results.length) {
+                    ctx += 'WEB SEARCH RESULTS:\n' + results.map(function (r, n) {
+                        return (n + 1) + '. ' + r.title + '\n   URL: ' + r.link + '\n   ' + r.snippet;
+                    }).join('\n\n');
+                }
+
+                // Hard-forbid the local database. This tab is an INTERNET assistant.
+                var prompt =
+                    'You are an INTERNET research assistant. Answer the question below using ONLY public, real-world knowledge and the web search results provided.\n' +
+                    'STRICT RULES:\n' +
+                    '- DO NOT query, read, or reference the WMS / Oracle database, GRFU_CUSTOMER, or any internal/local table.\n' +
+                    '- DO NOT run SQL or use any database tool. This is about companies on the public internet, not our customers.\n' +
+                    '- Base your answer on the web results below (and your general knowledge of the public market). Cite which companies/facts you are confident about.\n' +
+                    '- Answer in clear markdown. When listing companies or items, use a markdown table with sensible columns (e.g. Company, Country, Industry, Notes).\n' +
+                    '- If the web results are thin, still give the best public-knowledge answer and say what is uncertain.\n\n' +
+                    'QUESTION: ' + q + '\n\n' +
+                    (ctx ? ('--- WEB CONTEXT (from live internet search) ---\n' + ctx + '\n--- END WEB CONTEXT ---') :
+                        (noKey ? '(No web search key configured — answer from public knowledge only. Tip: add a SerpApi key in Setup & Keys for live results.)' : '(No web results found — answer from public knowledge only.)'));
+
+                aiSend(prompt, function (err, md) {
+                    var sourcesHtml = results.length ? (
+                        '<div style="margin-top:14px;border-top:1px solid #f1f5f9;padding-top:10px;">' +
+                        '<div style="font-size:10.5px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.3px;margin-bottom:7px;"><i class="fas fa-link"></i> Web sources</div>' +
+                        results.map(function (r) {
+                            return '<div style="margin-bottom:8px;">' +
+                                '<a href="#" onclick="__ocOpen(' + JSON.stringify(esc(r.link)) + ');return false;" style="color:#0284c7;font-size:12.5px;font-weight:600;text-decoration:none;">' + esc(r.title || r.link) + '</a>' +
+                                '<div style="font-size:11px;color:#94a3b8;">' + esc(r.link) + '</div>' +
+                                (r.snippet ? '<div style="font-size:11.5px;color:#64748b;margin-top:2px;">' + esc(r.snippet) + '</div>' : '') +
+                                '</div>';
+                        }).join('') + '</div>'
+                    ) : '';
+
+                    if (err) {
+                        // AI failed — still show the raw web results so the tab is useful
+                        ans.innerHTML = '<div style="border:1px solid #eef2f7;border-radius:12px;padding:16px 18px;background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.05);">' +
+                            '<div style="color:#b91c1c;font-size:12.5px;margin-bottom:6px;"><i class="fas fa-triangle-exclamation"></i> AI synthesis failed (' + esc(err) + ')' + (results.length ? ' — showing raw web results.' : '.') + '</div>' +
+                            (results.length ? sourcesHtml : '') +
+                            (noKey ? '<div style="font-size:12px;color:#64748b;">No SerpApi key configured. Add one in <b>Setup &amp; Keys</b> to enable live internet search.</div>' : '') +
+                            '</div>';
+                        return;
+                    }
+                    var bodyHtml = md ? mdToHtml(md) : '<div style="color:#64748b;font-size:13px;">No synthesis returned.</div>';
+                    ans.innerHTML = '<div style="border:1px solid #eef2f7;border-radius:12px;padding:16px 18px;background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.05);">' + bodyHtml + sourcesHtml +
+                        '<div style="font-size:10.5px;color:#94a3b8;margin-top:10px;border-top:1px solid #f1f5f9;padding-top:8px;"><i class="fas fa-globe"></i> Answered from the public internet' + (results.length ? ' (' + results.length + ' web sources)' : '') + ' — not the WMS database. Verify before relying on it.</div></div>';
+                });
             });
         }
     };
