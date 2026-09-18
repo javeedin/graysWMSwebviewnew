@@ -1194,7 +1194,9 @@
     window.WMSFormEngine = {
         open: function (def, opts) {
             opts = opts || {};
-            if (!def || !def.header) { alert('Invalid form definition (no header section).'); return; }
+            if (typeof def === 'string') { try { def = JSON.parse(def); } catch (e) { } }       // double-encoded
+            if (def && !def.header && def.definition && def.definition.header) def = def.definition;   // envelope
+            if (!def || !def.header) { alert('Invalid form definition (no header section).' + (def ? ' Keys: ' + Object.keys(def).join(', ') : '')); return; }
             var container = opts.container;
             if (typeof container === 'string') container = document.getElementById(container);
             // mobile layout: forced via opts.layout, else by viewport width
@@ -1253,9 +1255,14 @@
             runSql("SELECT definition FROM wms_ai_forms WHERE form_key = " + sqlLit(formKey) + " AND active = 'Y'", function (err, rows) {
                 if (err) { alert('Could not load form "' + formKey + '": ' + err); return; }
                 if (!rows.length) { alert('Form "' + formKey + '" not found or inactive.'); return; }
-                var def;
-                try { def = JSON.parse(rows[0].DEFINITION); }
-                catch (e) { alert('Form "' + formKey + '" has an invalid definition (not valid JSON).'); return; }
+                var raw = rows[0].DEFINITION, def;
+                if (raw == null || String(raw).trim() === '' || String(raw).trim() === 'null') {
+                    alert('Form "' + formKey + '" has no stored definition. If it is a large form, deploy apex_sql/35d (the CLOB read fix), then re-save it.'); return;
+                }
+                try { def = JSON.parse(raw); }
+                catch (e) { alert('Form "' + formKey + '" has an invalid definition (not valid JSON — it may have been truncated; deploy apex_sql/35d).'); return; }
+                if (typeof def === 'string') { try { def = JSON.parse(def); } catch (e) { } }   // double-encoded
+                if (def && !def.header && def.definition && def.definition.header) def = def.definition;   // stored as an envelope
                 WMSFormEngine.open(def, Object.assign({}, opts, { formKey: formKey }));
             });
         },
