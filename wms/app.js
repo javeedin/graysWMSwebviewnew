@@ -5686,7 +5686,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                   '<div style="padding:1rem 1.1rem;">' +
                                     '<div style="font-size:.85rem;color:#334155;">Remove order <b>' + escHtml(orderNumber) + '</b> from this trip? This cannot be undone.</div>' +
                                     '<div id="ro-api" style="display:none;margin-top:10px;border:1px solid #1e293b;border-radius:8px;background:#0b1020;color:#a6e3a1;font-family:Consolas,monospace;font-size:11px;padding:10px;white-space:pre-wrap;word-break:break-all;">' +
-                                      'GET ' + escHtml(url) + '\n\nBody: (none — GET request)</div>' +
+                                      'DELETE ' + escHtml(url) + '\n\nBody: (none — DELETE request)</div>' +
                                     '<div id="ro-result" style="margin-top:10px;font-size:12px;min-height:16px;"></div>' +
                                   '</div>' +
                                   '<div style="padding:.7rem 1.1rem;border-top:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
@@ -5710,7 +5710,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 const go = ov.querySelector('#ro-go');
                                 go.disabled = true; go.textContent = 'Removing…';
                                 res.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-spinner fa-spin"></i> Calling API…</span>';
-                                sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function(error, data) {
+                                sendMessageToCSharp({ action: 'executeDelete', fullUrl: url }, function(error, data) {
                                     go.disabled = false; go.textContent = 'Remove';
                                     if (error) {
                                         apiBox.style.display = 'block';
