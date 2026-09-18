@@ -286,6 +286,18 @@
 
     var ADAPTERS = { serpapi: fetchSerpApi, adzuna: fetchAdzuna, jooble: fetchJooble, themuse: fetchTheMuse, greenhouse: fetchGreenhouse, lever: fetchLever, remotive: fetchRemotive, arbeitnow: fetchArbeitnow };
 
+    // Run all enabled providers for a query and return the merged normalized
+    // jobs (no rendering) — used by the Oracle Customers tab for job-signal.
+    function collect(qy, done) {
+        var providers = Object.keys(ADAPTERS).filter(function (p) { return cfg.enabled[p]; });
+        if (!providers.length) { done([]); return; }
+        var out = [], pending = providers.length;
+        providers.forEach(function (p) {
+            try { ADAPTERS[p](qy, function (err, jobs) { if (jobs && jobs.length) out = out.concat(jobs); if (--pending === 0) done(out); }); }
+            catch (e) { if (--pending === 0) done(out); }
+        });
+    }
+
     // ── search orchestration ────────────────────────────────
     var lastResults = [];
     function runSearch() {
@@ -615,6 +627,9 @@
             if (kw) kw.addEventListener('keydown', function (e) { if (e.key === 'Enter') runSearch(); });
         },
         search: runSearch,
+        // run enabled providers for a query, return merged jobs (no UI)
+        rawSearch: function (qy, cb) { collect(qy || {}, function (jobs) { cb(jobs); }); },
+        country: function () { return cfg.country; },
         // open a job link in the system browser (keeps this page in place);
         // falls back to a new tab if the bridge is unavailable
         apply: function (encUrl) {

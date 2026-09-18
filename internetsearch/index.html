@@ -28,6 +28,8 @@
         #is-sources { margin: 14px 0 6px; display: flex; gap: 6px; flex-wrap: wrap; }
         #is-status { font-size: 12.5px; color: #64748b; margin: 6px 0 14px; }
         .hint { font-size: 11px; color: #94a3b8; margin-top: 10px; }
+        .is-tab { padding: 8px 16px; font-size: 13px; font-weight: 800; border-radius: 10px 10px 0 0; cursor: pointer; background: #eef2f7; color: #475569; border: 1px solid #e6eaf2; border-bottom: none; }
+        .is-tab.active { background: #0284c7; color: #fff; border-color: #0284c7; }
     </style>
 </head>
 <body>
@@ -39,31 +41,61 @@
     </div>
 
     <div class="wrap">
-        <div class="searchcard">
-            <div class="searchrow">
-                <div class="fld" style="flex:2;">
-                    <label>What (role / skill)</label>
-                    <input type="text" id="is-kw" placeholder="e.g. backend developer, react, devops, data engineer">
-                </div>
-                <div class="fld">
-                    <label>Where</label>
-                    <input type="text" id="is-loc" placeholder="India / Bengaluru / Hyderabad">
-                </div>
-                <button class="btn btn-primary" style="height:42px;" onclick="JobSearch.search()"><i class="fas fa-magnifying-glass"></i> Search</button>
-            </div>
-            <div class="checks">
-                <label><input type="checkbox" id="is-india" onchange="JobSearch.toggleIndia(this.checked)"> India only</label>
-                <label><input type="checkbox" id="is-remote" onchange="JobSearch.toggleRemote(this.checked)"> Remote only</label>
-                <span style="color:#94a3b8;">For Google-style coverage (Indeed, LinkedIn, Naukri…) enable <b>Google Jobs (SerpApi)</b> or <b>Adzuna</b> in <b>Setup &amp; Keys</b>.</span>
-            </div>
+        <!-- ── tab bar ── -->
+        <div id="is-tabs" style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">
+            <div class="is-tab" data-tab="jobs" onclick="switchTab('jobs')"><i class="fas fa-briefcase"></i> IT Jobs</div>
+            <div class="is-tab" data-tab="oracle" onclick="switchTab('oracle')"><i class="fas fa-database"></i> Oracle Customers</div>
         </div>
 
-        <div id="is-sources"></div>
-        <div id="is-status">Enter a role and click Search. Keyless sources (Greenhouse, Lever, Remotive, Arbeitnow) work with no setup.</div>
-        <div id="is-results"></div>
+        <!-- ── TAB: IT Jobs ── -->
+        <div id="tab-jobs">
+            <div class="searchcard">
+                <div class="searchrow">
+                    <div class="fld" style="flex:2;">
+                        <label>What (role / skill)</label>
+                        <input type="text" id="is-kw" placeholder="e.g. backend developer, react, devops, data engineer">
+                    </div>
+                    <div class="fld">
+                        <label>Where</label>
+                        <input type="text" id="is-loc" placeholder="India / Bengaluru / Hyderabad">
+                    </div>
+                    <button class="btn btn-primary" style="height:42px;" onclick="JobSearch.search()"><i class="fas fa-magnifying-glass"></i> Search</button>
+                </div>
+                <div class="checks">
+                    <label><input type="checkbox" id="is-india" onchange="JobSearch.toggleIndia(this.checked)"> India only</label>
+                    <label><input type="checkbox" id="is-remote" onchange="JobSearch.toggleRemote(this.checked)"> Remote only</label>
+                    <span style="color:#94a3b8;">For Google-style coverage (Indeed, LinkedIn, Naukri…) enable <b>Google Jobs (SerpApi)</b> or <b>Adzuna</b> in <b>Setup &amp; Keys</b>.</span>
+                </div>
+            </div>
+            <div id="is-sources"></div>
+            <div id="is-status">Enter a role and click Search. Keyless sources (Greenhouse, Lever, Remotive, Arbeitnow) work with no setup.</div>
+            <div id="is-results"></div>
+            <div class="hint">AI-enabled job aggregator · sources are queried live through the WMS app · API keys are stored only on this PC.</div>
+        </div>
 
-        <div class="hint">
-            AI-enabled job aggregator · sources are queried live through the WMS app · API keys are stored only on this PC.
+        <!-- ── TAB: Oracle Customers ── -->
+        <div id="tab-oracle" hidden>
+            <div class="searchcard">
+                <div class="searchrow">
+                    <div class="fld">
+                        <label>Country</label>
+                        <select id="oc-country" style="width:100%;padding:10px 12px;border:1px solid #e2e8f0;border-radius:9px;font-size:14px;"></select>
+                    </div>
+                    <div class="fld" style="flex:2;">
+                        <label>Industry / filter (optional)</label>
+                        <input type="text" id="oc-industry" placeholder="e.g. banking, retail, manufacturing — leave blank for all">
+                    </div>
+                    <button class="btn btn-primary" style="height:42px;" onclick="OracleCustomers.find()"><i class="fas fa-magnifying-glass"></i> Find</button>
+                </div>
+                <div class="checks">
+                    <label><input type="checkbox" id="oc-ai" checked> AI-compiled list (known Oracle Fusion customers)</label>
+                    <label><input type="checkbox" id="oc-jobs"> Verify with live job postings (currently hiring for Oracle Fusion)</label>
+                    <span style="color:#94a3b8;">Companies running Oracle Fusion Cloud (ERP / HCM / SCM), grouped by country.</span>
+                </div>
+            </div>
+            <div id="oc-status" style="font-size:12.5px;color:#64748b;margin:6px 0 12px;">Pick a country and click Find.</div>
+            <div id="oc-results"></div>
+            <div class="hint">AI-compiled from public information (not exhaustive or authoritative); the live-job option adds companies currently hiring for Oracle Fusion in that country.</div>
         </div>
     </div>
 
@@ -98,6 +130,16 @@
         }
     </script>
     <script src="jobsearch.js"></script>
-    <script>JobSearch.init();</script>
+    <script src="oracle-customers.js"></script>
+    <script>
+        function switchTab(name) {
+            document.querySelectorAll('.is-tab').forEach(function (t) { t.classList.toggle('active', t.getAttribute('data-tab') === name); });
+            document.getElementById('tab-jobs').hidden = name !== 'jobs';
+            document.getElementById('tab-oracle').hidden = name !== 'oracle';
+            if (name === 'oracle' && window.OracleCustomers) OracleCustomers.init();
+        }
+        JobSearch.init();
+        switchTab('jobs');
+    </script>
 </body>
 </html>
