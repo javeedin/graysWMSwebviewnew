@@ -203,7 +203,19 @@
     function saLineNum(l)    { return (l.LINE_NUMBER || l.line_number || '').toString().trim(); }
     function saLineItem(l)   { return (l.PRODUCT_NUMBER || l.product_number || l.ITEM_NUMBER || l.item_number || l.ITEM || l.item || '').toString().trim(); }
     function saLineStatus(l) { return (l.LINE_STATUS || l.line_status || l.STATUS || l.status || '').toString().trim(); }
-    function saLineFulfillId(l) { return l.FULFILL_LINE_ID || l.fulfill_line_id || null; }
+    // The fulfillment line id is what Fusion needs to cancel a line. Different
+    // ORDS endpoints name it differently: getsalesorderlinesbytrip returns
+    // FULFILL_LINE_ID, but the per-order getsalesorderlines (used by the
+    // scheduled agent's Task 2) returns SOURCE_FULFILLMENT_LINE_ID /
+    // FULFILLMENT_LINE_ID. Resolve ALL variants or the auto-cancel silently
+    // sends null ids and Fusion cancels nothing.
+    function saLineFulfillId(l) {
+        return l.FULFILL_LINE_ID || l.fulfill_line_id
+            || l.SOURCE_FULFILLMENT_LINE_ID || l.source_fulfillment_line_id
+            || l.FULFILLMENT_LINE_ID || l.fulfillment_line_id
+            || l.SOURCE_ORDER_FULFILLMENT_LINE_ID || l.source_order_fulfillment_line_id
+            || null;
+    }
     function saLineKey(l)    { return String(saLineFulfillId(l) || `LN:${saLineNum(l)}:${saLineItem(l)}`); }
 
     // Child lines already past the point of no return are skipped (with a warning)
@@ -2111,7 +2123,7 @@
 
         const buildCancelBody = (orderLines) => ({
             lines: orderLines.map(l => ({
-                FulfillLineId   : l.FULFILL_LINE_ID || l.fulfill_line_id || null,
+                FulfillLineId   : saLineFulfillId(l),
                 OrderedQuantity : 0,
                 CancelReason    : 'OUT OF STOCK'
             }))
@@ -3324,6 +3336,22 @@
                         <div style="font-size:10px;font-weight:800;color:#7c3aed;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">
                             <i class="fas fa-truck"></i> &nbsp;2 — Trips &amp; Tasks
                         </div>
+                        <!-- Quick mode presets: apply the same task selection to every trip -->
+                        <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.6rem;">
+                            <span style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;align-self:center;">Quick mode:</span>
+                            <button type="button" onclick="saStartDlgSetMode('cancel')" title="Only cancel Scheduled / Manual Reservation lines — no status check, no printing"
+                                style="padding:0.3rem 0.7rem;border:1px solid #fecaca;border-radius:20px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:10px;font-weight:800;">
+                                <i class="fas fa-ban"></i> Cancel lines only
+                            </button>
+                            <button type="button" onclick="saStartDlgSetMode('print')" title="Only auto-print interfaced orders"
+                                style="padding:0.3rem 0.7rem;border:1px solid #bbf7d0;border-radius:20px;background:#f0fdf4;color:#16a34a;cursor:pointer;font-size:10px;font-weight:800;">
+                                <i class="fas fa-print"></i> Print only
+                            </button>
+                            <button type="button" onclick="saStartDlgSetMode('all')" title="Run all tasks: check lines, cancel, and print"
+                                style="padding:0.3rem 0.7rem;border:1px solid #ddd6fe;border-radius:20px;background:#f5f3ff;color:#7c3aed;cursor:pointer;font-size:10px;font-weight:800;">
+                                <i class="fas fa-list-check"></i> All tasks
+                            </button>
+                        </div>
                         ${tripRows}
                     </div>
 
@@ -3375,6 +3403,27 @@
             }
         });
         document.getElementById('sa-dlg-int-warn').style.display = 'none';
+    };
+
+    // Quick-mode preset: set the task checkboxes for EVERY trip in the dialog.
+    //   cancel → Task 2 only (cancel Scheduled/Manual Reservation lines)
+    //   print  → Task 3 only (auto-print interfaced orders)
+    //   all    → all three tasks
+    window.saStartDlgSetMode = function(mode) {
+        const agent = window._saCurrentAgent;
+        const trips = (agent && window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        const want = mode === 'cancel' ? { t1:false, t2:true,  t3:false }
+                   : mode === 'print'  ? { t1:false, t2:false, t3:true  }
+                   : /* all */           { t1:true,  t2:true,  t3:true  };
+        trips.forEach(t => {
+            const tid = t.TRIP_ID;
+            const c1 = document.getElementById(`sa-dlg-task1-${tid}`);
+            const c2 = document.getElementById(`sa-dlg-task2-${tid}`);
+            const c3 = document.getElementById(`sa-dlg-task3-${tid}`);
+            if (c1) c1.checked = want.t1;
+            if (c2) c2.checked = want.t2;
+            if (c3) c3.checked = want.t3;
+        });
     };
 
     window.saStartDlgToggleTrip = function(tripId) {
@@ -4335,7 +4384,7 @@
             const cancelUrl  = (orderNum) => `${fusionBase}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${encodeURIComponent(orderNum)}`;
             const cancelBody = (lines) => ({
                 lines: lines.map(l => ({
-                    FulfillLineId   : l.FULFILL_LINE_ID || l.fulfill_line_id || null,
+                    FulfillLineId   : saLineFulfillId(l),
                     OrderedQuantity : 0,
                     CancelReason    : 'OUT OF STOCK'
                 }))
@@ -4343,7 +4392,21 @@
 
             let autoCancelled = 0;
             for (const orderNum of Object.keys(cancelGroups)) {
-                const lines = cancelGroups[orderNum];
+                let lines = cancelGroups[orderNum];
+                // Guard: never PATCH lines with no resolvable FulfillLineId — Fusion
+                // would silently cancel nothing. Drop & log them so the failure is visible.
+                const missing = lines.filter(l => !saLineFulfillId(l));
+                if (missing.length) {
+                    lines = lines.filter(l => saLineFulfillId(l));
+                    saConsoleLog(`Task 2 ⚠ Order ${orderNum}: ${missing.length} line(s) have no FulfillLineId — skipped (check getsalesorderlines column names)`, 'warn');
+                    await saAppendCancelLog(tripId, `WARN order ${orderNum}: ${missing.length} line(s) skipped — no FulfillLineId resolved`);
+                }
+                if (lines.length === 0) {
+                    saConsoleLog(`Task 2 ✗ Order ${orderNum}: no cancellable line had a FulfillLineId — nothing sent to Fusion`, 'error');
+                    await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'FAILED', missing.length,
+                        `No FulfillLineId resolved for any flagged line of ${orderNum}`, null, null);
+                    continue;
+                }
                 saCpSetTask(`Task 2: Cancelling ${lines.length} line(s) for ${orderNum}`);
                 saConsoleLog(`Task 2   Cancelling ${lines.length} line(s) for order ${orderNum} …`, 'info');
                 try {
