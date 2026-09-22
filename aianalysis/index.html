@@ -1070,7 +1070,7 @@ function greetTasksStatus() {
              </div>`;
     }
     if (typeof sendMessageToCSharp !== 'function') { paint('Tell me what to do — <b>check the list of tasks and assign them to me</b>.', false); return; }
-    var sql = "SELECT COUNT(*) AS c, SUM(CASE WHEN status IN ('OPEN','IN_PROGRESS','BLOCKED') THEN 1 ELSE 0 END) AS openc FROM wms_ai_tasks WHERE task_date = TRUNC(SYSDATE)";
+    var sql = "SELECT COUNT(*) AS c, SUM(CASE WHEN status IN ('OPEN','IN_PROGRESS','BLOCKED') THEN 1 ELSE 0 END) AS openc FROM wms_ai_tasks WHERE (recurrence = 'DAILY' OR task_date = TRUNC(SYSDATE)) AND status <> 'CANCELLED'";
     sendMessageToCSharp({ action: 'executePost', fullUrl: AI_BASE + '/executequery', body: JSON.stringify({ sql: sql, maxRows: 1, appUser: appUserName() }) }, function (err, data) {
         var d = null; try { d = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
         if (err || !d || d.success !== true || !d.rows || !d.rows.length) {

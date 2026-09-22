@@ -149,9 +149,9 @@
 
     function load() {
         buildShell();
-        // NOTE: tasks are NOT auto-created. The board shows only what has been
-        // explicitly assigned for the selected date (rollDaily kept but unused).
-        var where = "task_date = TO_DATE(" + q(state.date) + ",'YYYY-MM-DD')";
+        // Tasks are NOT auto-created. DAILY tasks show every day (single row, no
+        // cloning); ONE-OFF tasks show only on their own date.
+        var where = "(recurrence = 'DAILY' OR task_date = TO_DATE(" + q(state.date) + ",'YYYY-MM-DD'))";
         if (state.assignee) where += " AND assignee = " + q(state.assignee);
         var sql = "SELECT task_id, title, SUBSTR(description,1,240) AS desc_short, assignee, category, priority, " +
             "recurrence, status, TO_CHAR(due_at,'HH24:MI') AS due_t, created_by, TO_CHAR(trip_date,'YYYY-MM-DD') AS trip_date_s, NVL(run_count,0) AS run_count, " +
