@@ -117,10 +117,40 @@
         }).join('');
     }
 
+    function userName() {
+        try {
+            var n = (typeof appUserName === 'function' ? appUserName() : '') || localStorage.getItem('loggedInUser') || '';
+            n = String(n || '').split('@')[0].replace(/[._]+/g, ' ').trim();
+            if (!n || n.toUpperCase() === 'UNKNOWN') return '';
+            return n.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+        } catch (e) { return ''; }
+    }
+    function heroHtml() {
+        var name = userName();
+        var hi = 'Hi' + (name ? ', ' + esc2(name) : '') + ' 👋';
+        return '<div style="grid-column:1/-1;">' +
+            '<div style="background:linear-gradient(135deg,#7c3aed 0%,#0891b2 100%);border-radius:16px;padding:26px 26px 22px;color:#fff;box-shadow:0 10px 30px rgba(124,58,237,.25);">' +
+              '<div style="display:flex;align-items:center;gap:14px;">' +
+                '<div style="width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0;"><i class="fas fa-robot"></i></div>' +
+                '<div><div style="font-size:19px;font-weight:800;">' + hi + '</div>' +
+                  '<div style="font-size:13px;opacity:.92;margin-top:2px;">I\'m your <b>AI Digital Assistant</b>. What can I do for you today?</div></div>' +
+              '</div>' +
+              '<div style="font-size:12.5px;opacity:.9;margin-top:16px;line-height:1.6;">You have no tasks for <b>' + esc2(state.date) + '</b>. I can check the warehouse right now and suggest a list of tasks for you to assign to me — trips needing attention, stuck lines, orders to print, and more.</div>' +
+              '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;">' +
+                '<button onclick="Tasks.assignWizard()" style="border:none;background:#fff;color:#6d28d9;border-radius:10px;padding:11px 20px;font-size:13.5px;font-weight:800;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.15);"><i class="fas fa-wand-magic-sparkles"></i> Assign Tasks</button>' +
+                '<button onclick="Tasks.openCreate()" style="border:1px solid rgba(255,255,255,.6);background:transparent;color:#fff;border-radius:10px;padding:11px 18px;font-size:13.5px;font-weight:700;cursor:pointer;"><i class="fas fa-plus"></i> New Task manually</button>' +
+              '</div>' +
+            '</div>' +
+            '<div style="text-align:center;font-size:11px;color:#94a3b8;margin-top:14px;"><i class="fas fa-lightbulb" style="color:#f59e0b;"></i> Tip: tasks you assign are tracked here with a full activity timeline, and the AI records everything it does.</div>' +
+        '</div>';
+    }
+
     function renderBoard(err) {
-        renderDash();
         var el = document.getElementById('tsk-board'); if (!el) return;
-        if (err) { el.innerHTML = '<div style="grid-column:1/-1;color:#b91c1c;font-size:12px;">Could not load tasks: ' + esc2(err) + '<br><span style="color:#94a3b8;">Has apex_sql/57_ai_tasks.sql been run?</span></div>'; return; }
+        if (err) { renderDash(); el.innerHTML = '<div style="grid-column:1/-1;color:#b91c1c;font-size:12px;">Could not load tasks: ' + esc2(err) + '<br><span style="color:#94a3b8;">Has apex_sql/57_ai_tasks.sql been run?</span></div>'; return; }
+        // friendly assistant welcome when there is nothing assigned for the day
+        if (!state.tasks.length) { var dash = document.getElementById('tsk-dash'); if (dash) dash.innerHTML = ''; el.innerHTML = heroHtml(); return; }
+        renderDash();
         var qs = state.search.toLowerCase();
         var byStatus = { OPEN: [], IN_PROGRESS: [], BLOCKED: [], DONE: [] };
         state.tasks.forEach(function (t) {
@@ -442,9 +472,127 @@
         });
     }
 
+    // ── shared insert (used by manual create + the Assign wizard) ──
+    function insertTaskDef(def, cb) {
+        var title = String(def.title || '').slice(0, 300);
+        if (!title) { cb && cb('missing title'); return; }
+        var desc = def.description || '', assignee = String(def.assignee || 'AI Digital Employee').slice(0, 120);
+        var cat = String(def.category || '').slice(0, 60), prio = parseInt(def.priority || 2, 10) || 2;
+        var date = def.task_date || state.date, recur = (String(def.recurrence || 'ONCE').toUpperCase() === 'DAILY') ? 'DAILY' : 'ONCE';
+        var steps = def.steps || (def.action && def.action.steps);
+        var actionJson = (steps && steps.length) ? JSON.stringify({ steps: steps }) : '';
+        var completion = def.completionSql || def.completion_sql || '';
+        var r = ref();
+        var sql = "INSERT INTO wms_ai_tasks (client_ref, title, description, assignee, category, priority, task_date, recurrence, status, instance, created_by, created_date, action_json, completion_sql) VALUES (" +
+            q(r) + ", " + q(title) + ", " + clob(desc) + ", " + q(assignee) + ", " + q(cat) + ", " + prio + ", TO_DATE(" + q(date) + ",'YYYY-MM-DD'), " + q(recur) + ", 'OPEN', " + q(inst()) + ", " + q(user()) + ", SYSDATE, " +
+            (actionJson ? clob(actionJson) : 'NULL') + ", " + (completion ? clob(completion) : 'NULL') + ")";
+        writeSql(sql, function (err) {
+            if (err) { cb && cb(err); return; }
+            readSql("SELECT task_id FROM wms_ai_tasks WHERE client_ref = " + q(r), function (e2, rows) {
+                var id = rows && rows[0] && rows[0].TASK_ID;
+                if (id) logEvent(id, 'USER', 'CREATE', 'Assigned to ' + assignee + (recur === 'DAILY' ? ' (repeats daily)' : ''), function () { cb && cb(null, id); });
+                else cb && cb(null, null);
+            });
+        });
+    }
+
+    // ── Assign Tasks wizard (AI checks the warehouse & proposes tasks) ──
+    var _suggest = [];
+    function assignWizard() {
+        document.getElementById('tsk-wiz')?.remove();
+        var name = userName();
+        document.body.insertAdjacentHTML('beforeend',
+        '<div id="tsk-wiz" style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1002;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">' +
+          '<div style="background:#fff;border-radius:16px;width:640px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 70px rgba(0,0,0,.35);overflow:hidden;">' +
+            '<div style="padding:16px 20px;background:linear-gradient(135deg,#7c3aed,#0891b2);color:#fff;">' +
+              '<div style="font-size:15px;font-weight:800;"><i class="fas fa-wand-magic-sparkles"></i> Assign Tasks' + (name ? ' for ' + esc2(name) : '') + '</div>' +
+              '<div style="font-size:11.5px;opacity:.9;margin-top:2px;">I\'ll look at what needs doing and suggest tasks. Pick the ones to assign to me.</div>' +
+            '</div>' +
+            '<div id="tsk-wiz-body" style="flex:1;overflow-y:auto;padding:16px 20px;min-height:160px;"></div>' +
+            '<div id="tsk-wiz-foot" style="padding:12px 20px;border-top:1px solid #eef2f7;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+              '<button onclick="Tasks.assignWizard()" style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:7px 13px;font-size:12px;font-weight:700;cursor:pointer;color:#0e7490;"><i class="fas fa-rotate"></i> Re-analyze</button>' +
+              '<div style="display:flex;gap:8px;">' +
+                '<button onclick="document.getElementById(\'tsk-wiz\').remove()" style="border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;color:#64748b;">Close</button>' +
+                '<button id="tsk-wiz-assign" onclick="Tasks.wizAssign()" disabled style="border:none;background:#cbd5e1;color:#fff;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:800;cursor:not-allowed;"><i class="fas fa-check"></i> Assign selected</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>');
+        wizAnalyze();
+    }
+    function wizAnalyze() {
+        var body = document.getElementById('tsk-wiz-body'); if (!body) return;
+        body.innerHTML = '<div style="text-align:center;color:#0e7490;font-size:13px;padding:26px 0;"><i class="fas fa-circle-notch fa-spin" style="font-size:20px;"></i><div style="margin-top:10px;">Checking the warehouse and preparing suggestions…</div></div>';
+        var prompt =
+            'You are the WMS AI Digital Assistant. Suggest a concise list of USEFUL tasks the user could assign to you today, based on the real warehouse state for instance ' + inst() + '. ' +
+            'First look at what needs attention (query open trips, orders with Scheduled/Manual Reservation lines, orders ready to print/interface, anything overdue). ' +
+            'Reply with ONLY a single ```json array (3 to 6 items), no prose: ' +
+            '[{"title":"","description":"","category":"","priority":2,"recurrence":"ONCE","steps":[]}]. ' +
+            'Keep titles short and action-oriented; include an executable steps array (query/rest/print/download_pdf/forEach/ipc, {VAR} placeholders, REAL ORDS URLs/columns) when you can, else leave steps empty.';
+        if (typeof sendMessageToCSharp !== 'function') { body.innerHTML = '<div style="color:#b91c1c;font-size:12px;">AI bridge unavailable (open inside the WMS app).</div>'; return; }
+        sendMessageToCSharp({ action: 'aiChatSend', text: '[CURRENT_INSTANCE: ' + inst() + ']\n' + prompt, sessionId: null, instance: inst() }, function (err, resp) {
+            if (err) { body.innerHTML = '<div style="color:#b91c1c;font-size:12px;">AI error: ' + esc2(String(err)) + '</div>'; return; }
+            var md = (resp && (resp.markdown || resp.answer)) || '';
+            var arr = extractArray(md);
+            if (!arr || !arr.length) { body.innerHTML = '<div style="color:#b45309;font-size:12.5px;">I couldn\'t prepare suggestions right now. You can <b>Re-analyze</b>, or add a task manually.</div>'; return; }
+            _suggest = arr;
+            wizRender();
+        });
+    }
+    function extractArray(md) {
+        if (!md) return null;
+        var m = md.match(/```json\s*([\s\S]*?)```/i) || md.match(/(\[[\s\S]*\])/);
+        if (!m) return null;
+        try { var a = JSON.parse(m[1]); return Array.isArray(a) ? a : (a.tasks || a.suggestions || null); } catch (e) { return null; }
+    }
+    function wizRender() {
+        var body = document.getElementById('tsk-wiz-body'); if (!body) return;
+        body.innerHTML = '<div style="font-size:11px;color:#64748b;margin-bottom:10px;">' + _suggest.length + ' suggested task(s) — tick the ones to assign, then <b>Assign selected</b>:</div>' +
+            _suggest.map(function (d, i) {
+                var p = PRIO[parseInt(d.priority || 2, 10)] || PRIO[2];
+                var nSteps = (d.steps && d.steps.length) || 0;
+                return '<label style="display:flex;gap:10px;align-items:flex-start;border:1px solid #e6eaf2;border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer;">' +
+                    '<input type="checkbox" class="tsk-wiz-cb" data-i="' + i + '" checked onchange="Tasks._wizToggle()" style="margin-top:3px;width:15px;height:15px;accent-color:#7c3aed;">' +
+                    '<div style="flex:1;min-width:0;">' +
+                      '<div style="display:flex;align-items:center;gap:7px;"><span style="width:8px;height:8px;border-radius:50%;background:' + p[1] + ';"></span>' +
+                        '<span style="font-size:13px;font-weight:700;color:#0f172a;">' + esc2(d.title || 'Untitled') + '</span></div>' +
+                      (d.description ? '<div style="font-size:11.5px;color:#64748b;margin-top:3px;line-height:1.45;">' + esc2(String(d.description).slice(0, 200)) + '</div>' : '') +
+                      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:5px;font-size:9.5px;color:#64748b;">' +
+                        (d.category ? '<span style="background:#eef2ff;color:#4338ca;border-radius:6px;padding:1px 6px;">' + esc2(d.category) + '</span>' : '') +
+                        '<span>' + p[0] + ' priority</span>' +
+                        (String(d.recurrence || '').toUpperCase() === 'DAILY' ? '<span style="color:#7c3aed;"><i class="fas fa-repeat"></i> daily</span>' : '') +
+                        (nSteps ? '<span style="color:#0e7490;"><i class="fas fa-bolt"></i> ' + nSteps + ' step(s) — runnable</span>' : '<span style="color:#94a3b8;">no steps (you can run with AI)</span>') +
+                      '</div>' +
+                    '</div></label>';
+            }).join('');
+        _wizToggle();
+    }
+    function _wizToggle() {
+        var any = document.querySelectorAll('.tsk-wiz-cb:checked').length;
+        var btn = document.getElementById('tsk-wiz-assign'); if (!btn) return;
+        btn.disabled = !any;
+        btn.style.background = any ? '#7c3aed' : '#cbd5e1';
+        btn.style.cursor = any ? 'pointer' : 'not-allowed';
+        btn.innerHTML = '<i class="fas fa-check"></i> Assign selected' + (any ? ' (' + any + ')' : '');
+    }
+    function wizAssign() {
+        var boxes = Array.prototype.slice.call(document.querySelectorAll('.tsk-wiz-cb:checked'));
+        var defs = boxes.map(function (b) { return _suggest[parseInt(b.getAttribute('data-i'), 10)]; }).filter(Boolean);
+        if (!defs.length) return;
+        var btn = document.getElementById('tsk-wiz-assign'); if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Assigning…'; }
+        var i = 0;
+        (function next() {
+            if (i >= defs.length) { document.getElementById('tsk-wiz')?.remove(); load(); return; }
+            insertTaskDef(defs[i], function () { i++; next(); });
+        })();
+    }
+
     window.Tasks = {
         load: load,
         refresh: load,
+        assignWizard: assignWizard,
+        wizAssign: wizAssign,
+        _wizToggle: _wizToggle,
         setDate: function (d) { state.date = d || todayStr(); var el = document.getElementById('tsk-date'); if (el) el.value = state.date; load(); },
         search: function (v) { state.search = v || ''; renderBoard(null); },
         open: open,
