@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V48";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V49";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string LOCAL_JOBS_CREATE_URL =
@@ -584,6 +584,7 @@ namespace WMSApp
             sb.AppendLine();
             sb.AppendLine("Users assign day-to-day tasks to you on the Daily Tasks board. Tasks live in wms_ai_tasks (task_id, title, description, assignee, category, priority, task_date, recurrence ONCE/DAILY, status OPEN/IN_PROGRESS/DONE/BLOCKED, result, issue) and every action is recorded in wms_ai_task_events (task_id, actor, kind CREATE/NOTE/PROGRESS/ISSUE/RESULT/STATUS, message).");
             sb.AppendLine("When you are given a task to work (the message names a TASK and a task_id), record your work for traceability using your normal write path (action sql / executewrite): INSERT a wms_ai_task_events row (actor 'AI') for each meaningful PROGRESS step, an ISSUE row if you are blocked, and a RESULT row when finished; and UPDATE wms_ai_tasks SET status='DONE' (with result=...) on success, or status='BLOCKED' (with issue=...) if you cannot finish. Keep messages short and factual. Never mark a task DONE unless it truly is.");
+            sb.AppendLine("A task can also carry an EXECUTABLE definition (wms_ai_tasks.action_json = {\"steps\":[...]} plus optional completion_sql) that the app runs on demand. The step types are the SAME as a LOCAL scheduled job: query, rest, print, download_pdf, forEach, ipc, with {VAR} placeholders. When the user asks you to BUILD/CREATE a task (\"create a task that ...\"), first fetch whatever you need (query the DB / ai/apicatalog for the right tables, columns and ORDS URLs), then reply with ONLY a single ```json code block: {\"title\":\"\",\"description\":\"\",\"category\":\"\",\"priority\":2,\"recurrence\":\"ONCE|DAILY\",\"completionSql\":\"\",\"steps\":[...]} using REAL URLs and column names - the app saves it as a runnable task for the user to review and execute.");
             sb.AppendLine();
             sb.AppendLine("## Action policies (authority limits)");
             sb.AppendLine();

@@ -188,6 +188,27 @@
         }).catch(function () { /* endpoint not deployed yet — stay quiet */ });
     }
 
+    // ── shared step runner (reused by the Daily Tasks "Execute" button) ──
+    window.LocalJobRunner = {
+        // steps: array or {steps:[...]}; opts.instance ignored (uses current); onLog(line)
+        runSteps: function (steps, opts, onLog) {
+            var vars = {}, log = [];
+            var arr = Array.isArray(steps) ? steps : ((steps && steps.steps) || []);
+            return arr.reduce(function (p, s) {
+                return p.then(function () {
+                    var before = log.length;
+                    return runStep(s, vars, log).then(function () { if (onLog) for (var i = before; i < log.length; i++) onLog(log[i]); });
+                });
+            }, Promise.resolve())
+                .then(function () { return { ok: true, log: log, vars: vars }; })
+                .catch(function (e) { log.push('FAILED: ' + e); return { ok: false, log: log, vars: vars, error: String(e) }; });
+        },
+        // returns the number of rows a completion SELECT returns (0 = done); -1 on error
+        completionCount: function (sql) {
+            return query(sql).then(function (r) { return ((r && r.rows) || []).length; }).catch(function () { return -1; });
+        }
+    };
+
     window.LocalJobs = {
         init: function () {
             if (timer) return;

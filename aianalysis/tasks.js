@@ -159,6 +159,7 @@
             "TO_CHAR(task_date,'YYYY-MM-DD') AS task_date, TO_CHAR(due_at,'YYYY-MM-DD HH24:MI') AS due_at, " +
             "TO_CHAR(created_date,'YYYY-MM-DD HH24:MI') AS created, created_by, " +
             "TO_CHAR(started_at,'YYYY-MM-DD HH24:MI') AS started, TO_CHAR(completed_at,'YYYY-MM-DD HH24:MI') AS completed, " +
+            "action_json, completion_sql, last_run_status, TO_CHAR(last_run_at,'YYYY-MM-DD HH24:MI') AS last_run, " +
             "issue, result FROM wms_ai_tasks WHERE task_id = " + parseInt(id, 10);
         readSql(sql, function (err, rows) {
             if (err || !rows.length) { alert('Could not load task: ' + (err || 'not found')); return; }
@@ -176,6 +177,21 @@
         if (t.STATUS !== 'DONE') actions += drawerBtn('Done', 'DONE', '#15803d');
         if (t.STATUS !== 'BLOCKED' && t.STATUS !== 'DONE') actions += drawerBtn('Block', 'BLOCKED', '#b91c1c');
         if (t.STATUS === 'DONE' || t.STATUS === 'BLOCKED') actions += drawerBtn('Reopen', 'OPEN', '#1d4ed8');
+
+        var steps = parseSteps(t.ACTION_JSON);
+        var execHtml = '';
+        if (steps && steps.length) {
+            execHtml =
+                '<div style="border:1px solid #cffafe;background:#f0fdff;border-radius:8px;padding:8px 10px;margin-bottom:12px;">' +
+                  '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+                    '<span style="font-size:11px;font-weight:800;color:#0e7490;"><i class="fas fa-bolt"></i> Executable · ' + steps.length + ' step(s)</span>' +
+                    (t.LAST_RUN ? '<span style="font-size:10px;color:#64748b;">last run ' + esc2(t.LAST_RUN) + ' · ' + esc2(t.LAST_RUN_STATUS || '') + '</span>' : '') +
+                    '<button onclick="Tasks.execute(' + t.TASK_ID + ')" style="margin-left:auto;border:none;background:#0891b2;color:#fff;border-radius:8px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-play"></i> Execute now</button>' +
+                  '</div>' +
+                  '<details style="margin-top:6px;"><summary style="font-size:10px;color:#0e7490;cursor:pointer;">view steps</summary>' +
+                    '<pre style="background:#0f172a;color:#d1e7ff;border-radius:6px;padding:8px;font-size:10px;max-height:180px;overflow:auto;margin:6px 0 0;">' + esc2(JSON.stringify(steps, null, 2)) + '</pre></details>' +
+                '</div>';
+        }
 
         var timeline = events.length ? events.map(eventRow).join('') :
             '<div style="font-size:11px;color:#94a3b8;padding:6px;">No activity recorded yet.</div>';
@@ -195,6 +211,7 @@
               '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">' + actions +
                 '<button onclick="Tasks.runAI(' + t.TASK_ID + ')" style="border:none;background:#0891b2;color:#fff;border-radius:8px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-robot"></i> Run with AI</button>' +
               '</div>' +
+              execHtml +
               (t.STATUS === 'BLOCKED' && t.ISSUE ? '<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;font-size:11.5px;color:#b91c1c;margin-bottom:12px;"><b>Issue:</b> ' + esc2(t.ISSUE) + '</div>' : '') +
               (t.RESULT ? '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 10px;font-size:11.5px;color:#166534;margin-bottom:12px;"><b>Result:</b> ' + esc2(t.RESULT) + '</div>' : '') +
               '<div style="display:flex;gap:6px;margin-bottom:12px;">' +
@@ -272,6 +289,86 @@
         writeSql('UPDATE wms_ai_tasks SET ' + sets.join(', ') + ' WHERE task_id = ' + parseInt(id, 10) + " AND status = 'OPEN'", function () { });
     }
 
+    function parseSteps(aj) {
+        if (!aj) return [];
+        try { var o = typeof aj === 'string' ? JSON.parse(aj) : aj; var s = Array.isArray(o) ? o : (o.steps || []); return Array.isArray(s) ? s : []; } catch (e) { return []; }
+    }
+
+    // ── execute a task's steps (via the shared LOCAL job runner) ───
+    function execute(id) {
+        if (!window.LocalJobRunner) { alert('The step runner is not available.'); return; }
+        readSql("SELECT action_json, completion_sql FROM wms_ai_tasks WHERE task_id = " + parseInt(id, 10), function (err, rows) {
+            if (err || !rows.length) { alert('Task not found'); return; }
+            var steps = parseSteps(rows[0].ACTION_JSON);
+            if (!steps.length) { alert('This task has no executable steps.'); return; }
+            var completion = rows[0].COMPLETION_SQL || '';
+            logEvent(id, 'SYSTEM', 'PROGRESS', 'Executing ' + steps.length + ' step(s)…', function () {
+                setStatus_silentTo(id, 'IN_PROGRESS');
+                LocalJobRunner.runSteps(steps, {}, null).then(function (res) {
+                    var finish = function (done) {
+                        var logText = (res.log || []).join('\n');
+                        var newStatus = res.ok ? (done === false ? 'IN_PROGRESS' : 'DONE') : 'BLOCKED';
+                        var sets = ['last_run_status = ' + q(res.ok ? 'SUCCESS' : 'FAILED'), 'last_run_at = SYSDATE',
+                            'status = ' + q(newStatus), 'updated_by = ' + q('AI'), 'updated_date = SYSDATE',
+                            'result = ' + clob(logText.slice(0, 8000))];
+                        if (newStatus === 'DONE') sets.push('completed_at = SYSDATE');
+                        if (!res.ok) sets.push('issue = ' + clob(res.error || 'execution failed'));
+                        writeSql('UPDATE wms_ai_tasks SET ' + sets.join(', ') + ' WHERE task_id = ' + parseInt(id, 10), function () {
+                            logEvent(id, 'AI', res.ok ? 'RESULT' : 'ISSUE', logText || (res.error || ''), function () { if (state.openId === id) open(id); load(); });
+                        });
+                    };
+                    if (res.ok && completion) LocalJobRunner.completionCount(completion).then(function (n) { finish(n === 0); });
+                    else finish(true);
+                });
+            });
+        });
+    }
+    function setStatus_silentTo(id, s) {
+        writeSql('UPDATE wms_ai_tasks SET status = ' + q(s) + ', started_at = NVL(started_at, SYSDATE), updated_by = ' + q('AI') + ', updated_date = SYSDATE WHERE task_id = ' + parseInt(id, 10), function () { });
+    }
+
+    // ── AI builds the task definition (fetches what it needs) ──────
+    function buildWithAI() {
+        var goalEl = document.getElementById('tc-goal');
+        var goal = (goalEl ? goalEl.value : '').trim();
+        var note = document.getElementById('tc-ai-note');
+        if (!goal) { if (goalEl) goalEl.focus(); return; }
+        if (note) note.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-circle-notch fa-spin"></i> AI is building the task…</span>';
+        var prompt =
+            'Build an EXECUTABLE WMS task definition for the goal below. First fetch anything you need (query the DB / API catalog for the right tables, columns, ORDS URLs). ' +
+            'Reply with ONLY a single ```json code block, no prose, of the form:\n' +
+            '{"title":"","description":"","category":"","priority":2,"recurrence":"ONCE","completionSql":"","steps":[ ... ]}\n' +
+            'Steps use these types (same as a LOCAL scheduled job): ' +
+            'query{sql,extract{VAR:"COLUMN"}}, rest{method,url,body,extract{VAR:"items[1].X"}}, print{orderNumber,tripId}, download_pdf{orderNumber,tripId}, forEach{query:{sql},do:[...]}, ipc{action,params}. ' +
+            'Use {VAR} placeholders, REAL ORDS URLs from the catalog and REAL table/column names. completionSql is optional (a plain SELECT; 0 rows = done). recurrence is ONCE or DAILY.\n\nGOAL: ' + goal;
+        if (typeof sendMessageToCSharp !== 'function') { if (note) note.innerHTML = '<span style="color:#b91c1c;">AI bridge unavailable.</span>'; return; }
+        sendMessageToCSharp({ action: 'aiChatSend', text: '[CURRENT_INSTANCE: ' + inst() + ']\n' + prompt, sessionId: null, instance: inst() }, function (err, resp) {
+            if (err) { if (note) note.innerHTML = '<span style="color:#b91c1c;">AI error: ' + esc2(String(err)) + '</span>'; return; }
+            var md = (resp && (resp.markdown || resp.answer)) || '';
+            var def = extractTaskDef(md);
+            if (!def) { if (note) note.innerHTML = '<span style="color:#b45309;">Could not parse a task from the AI. Try rephrasing the goal.</span>'; return; }
+            fillCreateForm(def);
+            if (note) note.innerHTML = '<span style="color:#166534;"><i class="fas fa-check"></i> Task drafted — review below and Create.</span>';
+        });
+    }
+    function extractTaskDef(md) {
+        if (!md) return null;
+        var m = md.match(/```json\s*([\s\S]*?)```/i) || md.match(/(\{[\s\S]*\})/);
+        if (!m) return null;
+        try { return JSON.parse(m[1]); } catch (e) { return null; }
+    }
+    function fillCreateForm(def) {
+        var set = function (id, v) { var e = document.getElementById(id); if (e && v != null) e.value = v; };
+        set('tc-title', def.title || '');
+        set('tc-desc', def.description || '');
+        set('tc-category', def.category || '');
+        if (def.priority) set('tc-prio', String(def.priority));
+        if (def.recurrence) set('tc-recur', String(def.recurrence).toUpperCase() === 'DAILY' ? 'DAILY' : 'ONCE');
+        set('tc-completion', def.completionSql || def.completion_sql || '');
+        var steps = def.steps || (def.action && def.action.steps);
+        if (steps) set('tc-steps', JSON.stringify({ steps: steps }, null, 2));
+    }
+
     // ── create ──────────────────────────────────────────────
     function openCreate() {
         document.getElementById('tsk-create')?.remove();
@@ -280,6 +377,14 @@
           '<div style="background:#fff;border-radius:14px;width:520px;max-width:96vw;max-height:90vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);">' +
             '<div style="padding:14px 18px;border-bottom:1px solid #eef2f7;font-size:15px;font-weight:800;color:#0f172a;"><i class="fas fa-plus" style="color:#7c3aed;"></i> New Task</div>' +
             '<div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;">' +
+              '<div style="background:#f0fdff;border:1px solid #cffafe;border-radius:10px;padding:10px 12px;">' +
+                '<div style="font-size:11px;font-weight:800;color:#0e7490;margin-bottom:5px;"><i class="fas fa-robot"></i> Let AI build it</div>' +
+                '<div style="display:flex;gap:6px;">' +
+                  '<input id="tc-goal" placeholder="Describe the goal, e.g. cancel Scheduled lines on all open trips" style="' + inCss() + '">' +
+                  '<button onclick="Tasks.buildWithAI()" style="border:none;background:#0891b2;color:#fff;border-radius:8px;padding:0 14px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;">Build</button>' +
+                '</div>' +
+                '<div id="tc-ai-note" style="font-size:10.5px;margin-top:5px;min-height:14px;"></div>' +
+              '</div>' +
               fld('Title', '<input id="tc-title" style="' + inCss() + '" placeholder="e.g. Cancel stuck lines on today\'s trips">') +
               fld('Details / instructions', '<textarea id="tc-desc" style="' + inCss() + 'min-height:80px;resize:vertical;" placeholder="What exactly should be done, and how to know it is complete."></textarea>') +
               '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
@@ -291,6 +396,12 @@
                 fld('For date', '<input id="tc-date" type="date" value="' + state.date + '" style="' + inCss() + '">', 1) +
                 fld('Repeat', '<select id="tc-recur" style="' + inCss() + '"><option value="ONCE" selected>Once</option><option value="DAILY">Daily</option></select>', 1) +
               '</div>' +
+              '<details><summary style="font-size:11px;font-weight:700;color:#0e7490;cursor:pointer;"><i class="fas fa-bolt"></i> Executable steps (optional — makes the task runnable)</summary>' +
+                '<div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;">' +
+                  fld('Steps (JSON: {"steps":[…]})', '<textarea id="tc-steps" style="' + inCss() + 'min-height:90px;font-family:Consolas,monospace;font-size:11px;resize:vertical;" placeholder=\'{"steps":[{"type":"query","sql":"SELECT ..."}]}\'></textarea>') +
+                  fld('Completion SQL (optional — 0 rows = done)', '<input id="tc-completion" style="' + inCss() + '" placeholder="SELECT 1 FROM ... WHERE still_pending">') +
+                '</div>' +
+              '</details>' +
             '</div>' +
             '<div style="padding:12px 18px;border-top:1px solid #eef2f7;display:flex;justify-content:flex-end;gap:8px;">' +
               '<button onclick="document.getElementById(\'tsk-create\').remove()" style="border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;color:#64748b;">Cancel</button>' +
@@ -309,10 +420,17 @@
         var title = g('tc-title'); if (!title) { alert('Enter a title'); return; }
         var desc = g('tc-desc'), assignee = g('tc-assignee') || 'AI Digital Employee', cat = g('tc-category');
         var prio = parseInt(g('tc-prio') || '2', 10), date = g('tc-date') || state.date, recur = g('tc-recur') || 'ONCE';
+        // optional executable definition
+        var stepsRaw = g('tc-steps'), completion = g('tc-completion'), actionJson = '';
+        if (stepsRaw) {
+            try { var o = JSON.parse(stepsRaw); if (!o.steps && Array.isArray(o)) o = { steps: o }; if (!Array.isArray(o.steps)) throw new Error('need a steps array'); actionJson = JSON.stringify({ steps: o.steps }); }
+            catch (e) { alert('Executable steps are not valid JSON: ' + e.message); return; }
+        }
         var r = ref();
-        var sql = "INSERT INTO wms_ai_tasks (client_ref, title, description, assignee, category, priority, task_date, recurrence, status, instance, created_by, created_date) VALUES (" +
+        var sql = "INSERT INTO wms_ai_tasks (client_ref, title, description, assignee, category, priority, task_date, recurrence, status, instance, created_by, created_date, action_json, completion_sql) VALUES (" +
             q(r) + ", " + q(title.slice(0, 300)) + ", " + clob(desc) + ", " + q(assignee.slice(0, 120)) + ", " + q(cat.slice(0, 60)) + ", " + prio + ", " +
-            "TO_DATE(" + q(date) + ",'YYYY-MM-DD'), " + q(recur) + ", 'OPEN', " + q(inst()) + ", " + q(user()) + ", SYSDATE)";
+            "TO_DATE(" + q(date) + ",'YYYY-MM-DD'), " + q(recur) + ", 'OPEN', " + q(inst()) + ", " + q(user()) + ", SYSDATE, " +
+            (actionJson ? clob(actionJson) : 'NULL') + ", " + (completion ? clob(completion) : 'NULL') + ")";
         writeSql(sql, function (err) {
             if (err) { alert('Create failed: ' + err); return; }
             document.getElementById('tsk-create')?.remove();
@@ -334,6 +452,8 @@
         create: create,
         setStatus: setStatus,
         addEvent: addEvent,
-        runAI: runAI
+        runAI: runAI,
+        execute: execute,
+        buildWithAI: buildWithAI
     };
 })();
