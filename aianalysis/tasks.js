@@ -443,6 +443,15 @@
         while (log.childNodes.length > 80) log.removeChild(log.firstChild);
     }
     function aiProgressStop() { var p = document.getElementById('tsk-progress'); if (p) p.remove(); window._taskAiProgress = null; }
+    // toast should show short STATUS only — never the raw data rows/tables
+    function progressStatus(line) {
+        if (line == null) return;
+        var s = String(line);
+        if (!s.trim()) return;                 // blanks
+        if (s.charAt(0) === '|') return;       // table rows
+        if (/^\s*…\s*\+/.test(s)) return;      // "… +N more rows"
+        aiProgressLine(s.replace(/\*\*/g, '').replace(/`/g, ''));  // strip md
+    }
 
     // ONE entry point: if the task has direct SQL steps, run them fast;
     // otherwise run it through the AI agent (like the chatbot). Same button.
@@ -469,8 +478,8 @@
             var completion = String(rows[0].COMPLETION_SQL || '').replace(/[{#]TRIP_DATE[}#]/g, tripDate);
             logEvent(id, 'SYSTEM', 'PROGRESS', 'Executing ' + steps.length + ' step(s) for trip date ' + tripDate + '…', function () {
                 setStatus_silentTo(id, 'IN_PROGRESS');
-                aiProgressStart('Executing ' + steps.length + ' step(s) · trip ' + tripDate);
-                LocalJobRunner.runSteps(steps, { vars: { TRIP_DATE: tripDate } }, aiProgressLine).then(function (res) {
+                aiProgressStart('Running ' + steps.length + ' step(s) · trip ' + tripDate);
+                LocalJobRunner.runSteps(steps, { vars: { TRIP_DATE: tripDate } }, progressStatus).then(function (res) {
                     aiProgressStop();
                     var finish = function (done) {
                         var logText = (res.log || []).join('\n');
