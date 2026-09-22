@@ -74,6 +74,18 @@
         return cur;
     }
 
+    // compact text table for a query result (so Execute shows the data)
+    function previewTable(cols, rows, limit) {
+        cols = cols || []; rows = rows || [];
+        if (!cols.length && !rows.length) return '';
+        var n = Math.min(rows.length, limit || 12);
+        function cell(c) { var s = String(c == null ? '' : c); return s.length > 30 ? s.slice(0, 29) + '…' : s; }
+        var head = cols.join(' | ');
+        var body = rows.slice(0, n).map(function (r) { return (r || []).map(cell).join(' | '); }).join('\n');
+        var more = rows.length > n ? '\n… +' + (rows.length - n) + ' more row(s)' : '';
+        return head + '\n' + body + more;
+    }
+
     // ── one step ────────────────────────────────────────────
     // returns { log: [..], rows?: [...] }  (throws on hard failure)
     function runStep(step, vars, log) {
@@ -92,16 +104,19 @@
                 return {};
             });
         }
-        if (type === 'query') {
+        if (type === 'query' || type === 'report') {
             return query(subst(step.sql, vars)).then(function (r) {
-                var rows = (r && r.rows) || [];
-                if (step.extract && r && r.columns) {
-                    var ix = {}; r.columns.forEach(function (c, i) { ix[String(c).toUpperCase()] = i; });
+                var rows = (r && r.rows) || [], cols = (r && r.columns) || [];
+                if (step.extract && cols.length) {
+                    var ix = {}; cols.forEach(function (c, i) { ix[String(c).toUpperCase()] = i; });
                     var first = rows[0] || [];
                     Object.keys(step.extract).forEach(function (k) { var col = String(step.extract[k]).toUpperCase(); vars[k] = first[ix[col]]; });
                 }
-                log.push('query -> ' + rows.length + ' row(s)');
-                return { rows: rows, columns: (r && r.columns) || [] };
+                // include a compact data preview so the run RESULT shows the actual
+                // data (report-style tasks), not just a row count.
+                var prev = previewTable(cols, rows, type === 'report' ? 25 : 12);
+                log.push('query -> ' + rows.length + ' row(s)' + (prev ? '\n' + prev : ''));
+                return { rows: rows, columns: cols };
             });
         }
         if (type === 'print') {

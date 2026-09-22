@@ -244,12 +244,19 @@
             execHtml =
                 '<div style="border:1px solid #cffafe;background:#f0fdff;border-radius:8px;padding:8px 10px;margin-bottom:12px;">' +
                   '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
-                    '<span style="font-size:11px;font-weight:800;color:#0e7490;"><i class="fas fa-bolt"></i> Executable · ' + steps.length + ' step(s)</span>' +
+                    '<span style="font-size:11px;font-weight:800;color:#0e7490;"><i class="fas fa-bolt"></i> Runs SQL directly · ' + steps.length + ' step(s) — no AI wait</span>' +
                     (t.LAST_RUN ? '<span style="font-size:10px;color:#64748b;">last run ' + esc2(t.LAST_RUN) + ' · ' + esc2(t.LAST_RUN_STATUS || '') + '</span>' : '') +
                     '<button onclick="Tasks.execute(' + t.TASK_ID + ')" style="margin-left:auto;border:none;background:#0891b2;color:#fff;border-radius:8px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-play"></i> Execute now</button>' +
                   '</div>' +
                   '<details style="margin-top:6px;"><summary style="font-size:10px;color:#0e7490;cursor:pointer;">view steps</summary>' +
                     '<pre style="background:#0f172a;color:#d1e7ff;border-radius:6px;padding:8px;font-size:10px;max-height:180px;overflow:auto;margin:6px 0 0;">' + esc2(JSON.stringify(steps, null, 2)) + '</pre></details>' +
+                '</div>';
+        } else {
+            // no steps yet — Run with AI is the slow agent path; offer to build fast SQL once
+            execHtml =
+                '<div style="border:1px solid #fde68a;background:#fffbeb;border-radius:8px;padding:9px 11px;margin-bottom:12px;">' +
+                  '<div style="font-size:11px;color:#92400e;line-height:1.5;"><i class="fas fa-gauge-high"></i> <b>Run with AI</b> uses the agent (it thinks between each SQL — slower). Build direct SQL steps <b>once</b> and then <b>Execute</b> runs instantly, every time.</div>' +
+                  '<button onclick="Tasks.makeFast(' + t.TASK_ID + ')" style="margin-top:8px;border:none;background:#0891b2;color:#fff;border-radius:8px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-bolt"></i> Make it run fast (build SQL steps)</button>' +
                 '</div>';
         }
 
@@ -417,6 +424,44 @@
     }
     function setStatus_silentTo(id, s) {
         writeSql('UPDATE wms_ai_tasks SET status = ' + q(s) + ', started_at = NVL(started_at, SYSDATE), updated_by = ' + q('AI') + ', updated_date = SYSDATE WHERE task_id = ' + parseInt(id, 10), function () { });
+    }
+
+    // Ask the AI ONCE to author direct SQL steps for this task, save them, so
+    // Execute then runs the SQL directly (no per-step AI thinking) every time.
+    function makeFast(id) {
+        readSql("SELECT title, description, TO_CHAR(NVL(trip_date, task_date),'YYYY-MM-DD') AS trip_date FROM wms_ai_tasks WHERE task_id = " + parseInt(id, 10), function (err, rows) {
+            if (err || !rows.length) { alert('Task not found'); return; }
+            var t = rows[0];
+            if (typeof window.aiAsk !== 'function') { alert('AI helper unavailable'); return; }
+            aiProgressStart('Building fast SQL steps for: ' + (t.TITLE || 'task'));
+            window._taskAiProgress = function (evt) {
+                if (evt.eventType === 'status') aiProgressLine(evt.text || '');
+                else if (evt.eventType === 'sqlRound') aiProgressLine('SQL round ' + (evt.round || '') + ': ' + (evt.success ? (evt.rowCount + ' rows') : 'retry'));
+            };
+            var prompt =
+                'Build a FAST, DIRECT executable definition for the task below — steps the app runs itself against the DB (NO agent reasoning at run time). ' +
+                'First inspect the schema (query the DB / ai/apicatalog) for the REAL tables, columns and ORDS URLs. ' +
+                'Reply with ONLY a single ```json code block: {"steps":[...],"completionSql":""}. ' +
+                'Prefer "report" steps for read/summary tasks: {"type":"report","sql":"SELECT ... FROM ... WHERE trip_date = TO_DATE(\'{TRIP_DATE}\',\'YYYY-MM-DD\')"}. ' +
+                'For actions use rest/print/download_pdf/forEach/ipc. Use {VAR} placeholders and SCOPE everything to {TRIP_DATE} (the app fills it in). ' +
+                'Use REAL table/column names — do not invent. If you are unsure of a column, pick the closest real one from the schema you queried.\n\n' +
+                'TASK: ' + (t.TITLE || '') + '\nDETAILS: ' + (t.DESCRIPTION || '');
+            window.aiAsk(prompt, function (e2, md) {
+                aiProgressStop();
+                if (e2) { alert('AI: ' + e2); return; }
+                var def = extractTaskDef(md);
+                var steps = def && (def.steps || (def.action && def.action.steps));
+                if (!steps || !steps.length) { alert('The AI did not return runnable steps. Try again, or add steps via Edit.'); return; }
+                var completion = (def.completionSql || def.completion_sql || '');
+                var sql = 'UPDATE wms_ai_tasks SET action_json = ' + clob(JSON.stringify({ steps: steps })) +
+                    ', completion_sql = ' + (completion ? clob(completion) : 'NULL') +
+                    ', updated_by = ' + q('AI') + ', updated_date = SYSDATE WHERE task_id = ' + parseInt(id, 10);
+                writeSql(sql, function (werr) {
+                    if (werr) { alert('Save failed: ' + werr); return; }
+                    logEvent(id, 'AI', 'NOTE', 'Direct SQL steps built (' + steps.length + ') — this task now runs fast via Execute.', function () { open(id); load(); });
+                });
+            });
+        });
     }
 
     // ── AI builds the task definition (fetches what it needs) ──────
@@ -787,6 +832,7 @@
         addEvent: addEvent,
         runAI: runAI,
         execute: execute,
+        makeFast: makeFast,
         buildWithAI: buildWithAI,
         openEdit: openEdit,
         saveEdit: saveEdit
