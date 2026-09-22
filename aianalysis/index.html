@@ -1028,12 +1028,26 @@ function insertObj(name) {
 // ============================================================
 // Chat rendering
 // ============================================================
+function aiGreetName() {
+    try {
+        var n = (typeof appUserName === 'function' ? appUserName() : '') || localStorage.getItem('loggedInUser') || '';
+        n = String(n || '').split('@')[0].replace(/[._]+/g, ' ').trim();
+        if (!n || n.toUpperCase() === 'UNKNOWN') return '';
+        return n.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+    } catch (e) { return ''; }
+}
 function renderEmptyState() {
+    var name = aiGreetName();
+    var hi = 'Hi' + (name ? ', ' + esc(name) : '') + ' 👋';
     document.getElementById('messages').innerHTML = `
         <div class="empty">
             <div class="big">🤖</div>
-            <div style="font-weight:800;font-size:16px;color:var(--text);">WMS AI Digital Employee</div>
-            <div style="font-size:12px;margin-top:4px;">Ask in plain English — Claude writes and runs the SQL for you.</div>
+            <div style="font-weight:800;font-size:17px;color:var(--text);">${hi}</div>
+            <div style="font-size:13px;margin-top:3px;color:var(--text);">I'm your <b>AI Digital Assistant</b> — what can I do for you today?</div>
+            <div id="ai-greet-tasks" style="margin:16px auto 2px;max-width:560px;">
+                <div style="font-size:12px;color:#94a3b8;"><i class="fas fa-circle-notch fa-spin"></i> Checking your tasks…</div>
+            </div>
+            <div style="font-size:11.5px;margin-top:16px;color:#94a3b8;">…or just ask me in plain English — I'll write and run the SQL for you:</div>
             <div class="examples">
                 <div class="example" onclick="useExample(this)">Give me the list of trips for today</div>
                 <div class="example" onclick="useExample(this)">How many print jobs failed this week?</div>
@@ -1041,6 +1055,33 @@ function renderEmptyState() {
                 <div class="example" onclick="useExample(this)">Show shipping agent activity for the last 24 hours</div>
             </div>
         </div>`;
+    greetTasksStatus();
+}
+// Show a friendly "you have no tasks / N tasks today" prompt with an Assign Tasks button
+function greetTasksStatus() {
+    var box = document.getElementById('ai-greet-tasks'); if (!box) return;
+    var assignBtn = `<button onclick="Tasks && Tasks.assignWizard()" style="border:none;background:linear-gradient(135deg,#7c3aed,#0891b2);color:#fff;border-radius:10px;padding:10px 18px;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 4px 14px rgba(124,58,237,.25);"><i class="fas fa-wand-magic-sparkles"></i> Assign Tasks</button>`;
+    var viewBtn = `<button onclick="switchPage('tasks')" style="border:1px solid var(--border);background:#fff;color:#475569;border-radius:10px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;"><i class="fas fa-list-check"></i> Open Daily Tasks</button>`;
+    function paint(msg, showView) {
+        box.innerHTML =
+            `<div style="border:1px solid var(--border);border-radius:14px;padding:16px 18px;background:#faf9ff;">
+                <div style="font-size:13px;color:#334155;margin-bottom:12px;">${msg}</div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">${assignBtn}${showView ? viewBtn : ''}</div>
+             </div>`;
+    }
+    if (typeof sendMessageToCSharp !== 'function') { paint('Tell me what to do — <b>check the list of tasks and assign them to me</b>.', false); return; }
+    var sql = "SELECT COUNT(*) AS c, SUM(CASE WHEN status IN ('OPEN','IN_PROGRESS','BLOCKED') THEN 1 ELSE 0 END) AS openc FROM wms_ai_tasks WHERE task_date = TRUNC(SYSDATE)";
+    sendMessageToCSharp({ action: 'executePost', fullUrl: AI_BASE + '/executequery', body: JSON.stringify({ sql: sql, maxRows: 1, appUser: appUserName() }) }, function (err, data) {
+        var d = null; try { d = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
+        if (err || !d || d.success !== true || !d.rows || !d.rows.length) {
+            // tables may not be deployed yet — still offer the assistant CTA
+            paint('<b>Check the list of tasks and assign them to me.</b> I can look at the warehouse and suggest what needs doing today.', false);
+            return;
+        }
+        var open = parseInt(d.rows[0][1] || 0, 10);
+        if (open > 0) paint('You have <b>' + open + '</b> task(s) for today. Want me to get to work — or assign more?', true);
+        else paint('You have <b>no tasks</b> assigned for today. Shall I check the warehouse and suggest a list to assign to me?', true);
+    });
 }
 function useExample(el) {
     document.getElementById('prompt-input').value = el.textContent.trim();
