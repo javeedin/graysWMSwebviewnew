@@ -132,7 +132,7 @@
         var where = "task_date = TO_DATE(" + q(state.date) + ",'YYYY-MM-DD')";
         if (state.assignee) where += " AND assignee = " + q(state.assignee);
         var sql = "SELECT task_id, title, SUBSTR(description,1,240) AS desc_short, assignee, category, priority, " +
-            "recurrence, status, TO_CHAR(due_at,'HH24:MI') AS due_t, created_by, TO_CHAR(trip_date,'YYYY-MM-DD') AS trip_date_s, " +
+            "recurrence, status, TO_CHAR(due_at,'HH24:MI') AS due_t, created_by, TO_CHAR(trip_date,'YYYY-MM-DD') AS trip_date_s, NVL(run_count,0) AS run_count, " +
             "TO_CHAR(created_date,'YYYY-MM-DD HH24:MI') AS created, SUBSTR(issue,1,200) AS issue_short " +
             "FROM wms_ai_tasks WHERE " + where + " AND status <> 'CANCELLED' ORDER BY priority, task_id";
         readSql(sql, function (err, rows) {
@@ -234,6 +234,7 @@
                 (t.CATEGORY ? '<span style="background:#eef2ff;color:#4338ca;border-radius:6px;padding:1px 6px;">' + esc2(t.CATEGORY) + '</span>' : '') +
                 '<span><i class="fas fa-user-astronaut" style="font-size:8px;"></i> ' + esc2(t.ASSIGNEE || '') + '</span>' +
                 (t.TRIP_DATE_S ? '<span style="background:#ecfeff;color:#0e7490;border-radius:6px;padding:1px 6px;font-weight:700;"><i class="fas fa-truck" style="font-size:8px;"></i> ' + esc2(t.TRIP_DATE_S) + '</span>' : '') +
+                (parseInt(t.RUN_COUNT || 0, 10) > 0 ? '<span style="background:#dcfce7;color:#166534;border-radius:6px;padding:1px 6px;font-weight:700;" title="Times executed"><i class="fas fa-play" style="font-size:8px;"></i> ' + t.RUN_COUNT + 'x</span>' : '') +
                 (t.RECURRENCE === 'DAILY' ? '<span style="color:#7c3aed;"><i class="fas fa-repeat" style="font-size:8px;"></i> daily</span>' : '') +
                 (t.DUE_T ? '<span><i class="fas fa-clock" style="font-size:8px;"></i> ' + esc2(t.DUE_T) + '</span>' : '') +
             '</div></div>';
@@ -246,11 +247,11 @@
             "TO_CHAR(task_date,'YYYY-MM-DD') AS task_date, TO_CHAR(trip_date,'YYYY-MM-DD') AS trip_date, TO_CHAR(due_at,'YYYY-MM-DD HH24:MI') AS due_at, " +
             "TO_CHAR(created_date,'YYYY-MM-DD HH24:MI') AS created, created_by, " +
             "TO_CHAR(started_at,'YYYY-MM-DD HH24:MI') AS started, TO_CHAR(completed_at,'YYYY-MM-DD HH24:MI') AS completed, " +
-            "action_json, completion_sql, last_run_status, TO_CHAR(last_run_at,'YYYY-MM-DD HH24:MI') AS last_run, " +
+            "action_json, completion_sql, last_run_status, TO_CHAR(last_run_at,'YYYY-MM-DD HH24:MI') AS last_run, NVL(run_count,0) AS run_count, " +
             "issue, result FROM wms_ai_tasks WHERE task_id = " + parseInt(id, 10);
         readSql(sql, function (err, rows) {
             if (err || !rows.length) { alert('Could not load task: ' + (err || 'not found')); return; }
-            readSql("SELECT event_id, TO_CHAR(event_time,'YYYY-MM-DD HH24:MI:SS') AS t, actor, kind, SUBSTR(message,1,4000) AS message FROM wms_ai_task_events WHERE task_id = " + parseInt(id, 10) + " ORDER BY event_id DESC",
+            readSql("SELECT event_id, TO_CHAR(event_time,'YYYY-MM-DD HH24:MI:SS') AS t, actor, kind, message FROM wms_ai_task_events WHERE task_id = " + parseInt(id, 10) + " ORDER BY event_id DESC",
                 function (e2, evs) { renderDrawer(rows[0], evs || []); });
         });
     }
@@ -299,7 +300,11 @@
               '<span style="width:10px;height:10px;border-radius:50%;background:' + p[1] + ';margin-top:5px;flex-shrink:0;"></span>' +
               '<div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:800;color:#0f172a;">' + esc2(t.TITLE) + '</div>' +
                 '<div style="font-size:11px;color:#64748b;margin-top:2px;">#' + t.TASK_ID + ' · ' + esc2(t.CATEGORY || 'General') + ' · ' + esc2(t.ASSIGNEE || '') + (t.RECURRENCE === 'DAILY' ? ' · daily' : '') + '</div>' +
-                  '<div style="font-size:10.5px;color:#0e7490;margin-top:3px;font-weight:700;"><i class="fas fa-truck"></i> Works on trip date: ' + esc2(t.TRIP_DATE || t.TASK_DATE || '—') + '</div></div>' +
+                  '<div style="font-size:10.5px;color:#0e7490;margin-top:3px;font-weight:700;"><i class="fas fa-truck"></i> Works on trip date: ' + esc2(t.TRIP_DATE || t.TASK_DATE || '—') + '</div>' +
+                  '<div style="font-size:10.5px;margin-top:3px;color:' + (parseInt(t.RUN_COUNT || 0, 10) > 0 ? '#166534' : '#94a3b8') + ';font-weight:700;">' +
+                    '<i class="fas fa-' + (parseInt(t.RUN_COUNT || 0, 10) > 0 ? 'circle-check' : 'circle-dashed') + '"></i> ' +
+                    (parseInt(t.RUN_COUNT || 0, 10) > 0 ? ('Executed ' + t.RUN_COUNT + ' time' + (t.RUN_COUNT == 1 ? '' : 's') + (t.LAST_RUN ? ' · last ' + esc2(t.LAST_RUN) + (t.LAST_RUN_STATUS ? ' (' + esc2(t.LAST_RUN_STATUS) + ')' : '') : '')) : 'Not executed yet') +
+                  '</div></div>' +
               '<span style="font-size:10px;font-weight:800;color:' + m.color + ';background:' + m.bg + ';border-radius:8px;padding:3px 9px;"><i class="fas ' + m.icon + '"></i> ' + m.label + '</span>' +
               '<button onclick="Tasks.del(' + t.TASK_ID + ')" title="Delete this task" style="background:none;border:none;font-size:14px;color:#dc2626;cursor:pointer;"><i class="fas fa-trash"></i></button>' +
               '<button onclick="document.getElementById(\'tsk-drawer\').remove()" style="background:none;border:none;font-size:18px;color:#94a3b8;cursor:pointer;">×</button>' +
@@ -383,10 +388,13 @@
                 if (typeof window.aiAsk !== 'function') { aiProgressStop(); alert('AI helper unavailable'); return; }
                 window.aiAsk(prompt, function (e2, md) {
                     aiProgressStop();
+                    var ok = !e2;
                     md = md || (e2 ? ('AI error: ' + e2) : 'No response');
                     logEvent(id, 'AI', 'RESULT', md, function () {
-                        // store the AI summary as the task result
-                        writeSql('UPDATE wms_ai_tasks SET result = ' + clob(md.slice(0, 8000)) + ', updated_by = ' + q('AI') + ', updated_date = SYSDATE WHERE task_id = ' + parseInt(id, 10), function () {
+                        // store the AI summary as the task result + count the run
+                        writeSql('UPDATE wms_ai_tasks SET result = ' + clob(md.slice(0, 32000)) +
+                            ', run_count = NVL(run_count,0)+1, last_run_at = SYSDATE, last_run_status = ' + q(ok ? 'SUCCESS' : 'FAILED') +
+                            ', updated_by = ' + q('AI') + ', updated_date = SYSDATE WHERE task_id = ' + parseInt(id, 10), function () {
                             if (state.openId === id) open(id); load();
                         });
                     });
@@ -444,8 +452,9 @@
                         var logText = (res.log || []).join('\n');
                         var newStatus = res.ok ? (done === false ? 'IN_PROGRESS' : 'DONE') : 'BLOCKED';
                         var sets = ['last_run_status = ' + q(res.ok ? 'SUCCESS' : 'FAILED'), 'last_run_at = SYSDATE',
+                            'run_count = NVL(run_count,0)+1',
                             'status = ' + q(newStatus), 'updated_by = ' + q('AI'), 'updated_date = SYSDATE',
-                            'result = ' + clob(logText.slice(0, 8000))];
+                            'result = ' + clob(logText.slice(0, 32000))];
                         if (newStatus === 'DONE') sets.push('completed_at = SYSDATE');
                         if (!res.ok) sets.push('issue = ' + clob(res.error || 'execution failed'));
                         writeSql('UPDATE wms_ai_tasks SET ' + sets.join(', ') + ' WHERE task_id = ' + parseInt(id, 10), function () {
