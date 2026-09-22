@@ -127,17 +127,17 @@
 
     function load() {
         buildShell();
-        rollDaily(function () {
-            var where = "task_date = TO_DATE(" + q(state.date) + ",'YYYY-MM-DD')";
-            if (state.assignee) where += " AND assignee = " + q(state.assignee);
-            var sql = "SELECT task_id, title, SUBSTR(description,1,240) AS desc_short, assignee, category, priority, " +
-                "recurrence, status, TO_CHAR(due_at,'HH24:MI') AS due_t, created_by, TO_CHAR(trip_date,'YYYY-MM-DD') AS trip_date_s, " +
-                "TO_CHAR(created_date,'YYYY-MM-DD HH24:MI') AS created, SUBSTR(issue,1,200) AS issue_short " +
-                "FROM wms_ai_tasks WHERE " + where + " AND status <> 'CANCELLED' ORDER BY priority, task_id";
-            readSql(sql, function (err, rows) {
-                state.tasks = err ? [] : rows;
-                renderBoard(err);
-            });
+        // NOTE: tasks are NOT auto-created. The board shows only what has been
+        // explicitly assigned for the selected date (rollDaily kept but unused).
+        var where = "task_date = TO_DATE(" + q(state.date) + ",'YYYY-MM-DD')";
+        if (state.assignee) where += " AND assignee = " + q(state.assignee);
+        var sql = "SELECT task_id, title, SUBSTR(description,1,240) AS desc_short, assignee, category, priority, " +
+            "recurrence, status, TO_CHAR(due_at,'HH24:MI') AS due_t, created_by, TO_CHAR(trip_date,'YYYY-MM-DD') AS trip_date_s, " +
+            "TO_CHAR(created_date,'YYYY-MM-DD HH24:MI') AS created, SUBSTR(issue,1,200) AS issue_short " +
+            "FROM wms_ai_tasks WHERE " + where + " AND status <> 'CANCELLED' ORDER BY priority, task_id";
+        readSql(sql, function (err, rows) {
+            state.tasks = err ? [] : rows;
+            renderBoard(err);
         });
     }
 
@@ -153,6 +153,7 @@
                 '<button onclick="Tasks.setDate(\'' + todayStr() + '\')" style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;color:#475569;">Today</button>' +
                 '<input id="tsk-search" placeholder="Search…" oninput="Tasks.search(this.value)" style="padding:5px 9px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;flex:1;min-width:120px;">' +
                 '<button onclick="Tasks.refresh()" title="Refresh" style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:5px 10px;font-size:11px;cursor:pointer;color:#0e7490;"><i class="fas fa-sync-alt"></i></button>' +
+                '<button onclick="Tasks.openSummary()" style="border:1px solid #e2e8f0;background:#f8fafc;color:#475569;border-radius:8px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-chart-simple"></i> Summary</button>' +
                 '<button onclick="Tasks.openLibrary()" style="border:1px solid #7c3aed;background:#f5f3ff;color:#6d28d9;border-radius:8px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-book-open"></i> Task Library</button>' +
                 '<button onclick="Tasks.openCreate()" style="border:none;background:#7c3aed;color:#fff;border-radius:8px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-plus"></i> New Task</button>' +
               '</div>' +
@@ -300,6 +301,7 @@
                 '<div style="font-size:11px;color:#64748b;margin-top:2px;">#' + t.TASK_ID + ' · ' + esc2(t.CATEGORY || 'General') + ' · ' + esc2(t.ASSIGNEE || '') + (t.RECURRENCE === 'DAILY' ? ' · daily' : '') + '</div>' +
                   '<div style="font-size:10.5px;color:#0e7490;margin-top:3px;font-weight:700;"><i class="fas fa-truck"></i> Works on trip date: ' + esc2(t.TRIP_DATE || t.TASK_DATE || '—') + '</div></div>' +
               '<span style="font-size:10px;font-weight:800;color:' + m.color + ';background:' + m.bg + ';border-radius:8px;padding:3px 9px;"><i class="fas ' + m.icon + '"></i> ' + m.label + '</span>' +
+              '<button onclick="Tasks.del(' + t.TASK_ID + ')" title="Delete this task" style="background:none;border:none;font-size:14px;color:#dc2626;cursor:pointer;"><i class="fas fa-trash"></i></button>' +
               '<button onclick="document.getElementById(\'tsk-drawer\').remove()" style="background:none;border:none;font-size:18px;color:#94a3b8;cursor:pointer;">×</button>' +
             '</div>' +
             '<div style="flex:1;overflow-y:auto;padding:14px 18px;">' +
@@ -804,48 +806,191 @@
         });
     }
 
-    // ── Task Library (pick common WMS tasks to assign) ──────
+    // ── delete a task ───────────────────────────────────────
+    function del(id) {
+        if (!confirm('Delete this task and its activity history? This cannot be undone.')) return;
+        writeSql('DELETE FROM wms_ai_tasks WHERE task_id = ' + parseInt(id, 10), function (err) {
+            if (err) { alert('Delete failed: ' + err); return; }
+            document.getElementById('tsk-drawer')?.remove();
+            load();
+        });
+    }
+
+    // ── Summary view (per-date rollup) ──────────────────────
+    function openSummary() {
+        document.getElementById('tsk-sum')?.remove();
+        document.body.insertAdjacentHTML('beforeend',
+        '<div id="tsk-sum" style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1002;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">' +
+          '<div style="background:#fff;border-radius:16px;width:720px;max-width:96vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 70px rgba(0,0,0,.35);overflow:hidden;">' +
+            '<div style="padding:16px 20px;background:linear-gradient(135deg,#0f172a,#0e7490);color:#fff;display:flex;justify-content:space-between;align-items:center;">' +
+              '<div><div style="font-size:15px;font-weight:800;"><i class="fas fa-chart-simple"></i> Daily Tasks — Summary</div>' +
+                '<div style="font-size:11.5px;opacity:.9;margin-top:2px;">Per-day totals, execution and issues. Click a date to open that day.</div></div>' +
+              '<button onclick="document.getElementById(\'tsk-sum\').remove()" style="background:none;border:none;color:#cbd5e1;font-size:18px;cursor:pointer;">×</button>' +
+            '</div>' +
+            '<div id="tsk-sum-body" style="flex:1;overflow-y:auto;padding:14px 20px;"><div style="color:#0e7490;font-size:12px;"><i class="fas fa-circle-notch fa-spin"></i> Loading…</div></div>' +
+          '</div>' +
+        '</div>');
+        var sql =
+            "SELECT TO_CHAR(t.task_date,'YYYY-MM-DD') AS d, COUNT(*) AS total, " +
+            "SUM(CASE WHEN t.status='DONE' THEN 1 ELSE 0 END) AS done, " +
+            "SUM(CASE WHEN t.last_run_at IS NOT NULL THEN 1 ELSE 0 END) AS executed, " +
+            "SUM(CASE WHEN t.last_run_status='FAILED' OR t.status='BLOCKED' THEN 1 ELSE 0 END) AS failed, " +
+            "(SELECT COUNT(*) FROM wms_ai_task_events e JOIN wms_ai_tasks x ON x.task_id=e.task_id WHERE x.task_date=t.task_date AND e.kind IN ('NOTE','ISSUE')) AS comments " +
+            "FROM wms_ai_tasks t WHERE t.status <> 'CANCELLED' GROUP BY t.task_date ORDER BY t.task_date DESC";
+        readSql(sql, function (err, rows) {
+            var body = document.getElementById('tsk-sum-body'); if (!body) return;
+            if (err) { body.innerHTML = '<div style="color:#b91c1c;font-size:12px;">Could not load summary: ' + esc2(err) + '</div>'; return; }
+            if (!rows.length) { body.innerHTML = '<div style="color:#94a3b8;font-size:12.5px;">No tasks recorded yet.</div>'; return; }
+            body.innerHTML =
+                '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">' +
+                '<thead><tr style="background:#f8fafc;">' +
+                  ['Date', 'Tasks', 'Done', 'Executed', 'Failed', 'Comments'].map(function (h, i) { return '<th style="padding:8px 10px;text-align:' + (i === 0 ? 'left' : 'center') + ';font-size:10px;color:#475569;text-transform:uppercase;border-bottom:1px solid #e6eaf2;">' + h + '</th>'; }).join('') +
+                '</tr></thead><tbody>' +
+                rows.map(function (r) {
+                    var failed = parseInt(r.FAILED || 0, 10);
+                    return '<tr style="border-bottom:1px solid #f1f5f9;cursor:pointer;" onclick="Tasks.setDate(\'' + esc2(r.D) + '\');document.getElementById(\'tsk-sum\').remove();">' +
+                        '<td style="padding:7px 10px;font-weight:700;color:#0f172a;"><i class="fas fa-calendar-day" style="color:#7c3aed;font-size:10px;"></i> ' + esc2(r.D) + '</td>' +
+                        '<td style="padding:7px 10px;text-align:center;">' + esc2(r.TOTAL) + '</td>' +
+                        '<td style="padding:7px 10px;text-align:center;color:#166534;font-weight:700;">' + esc2(r.DONE) + '</td>' +
+                        '<td style="padding:7px 10px;text-align:center;color:#0e7490;font-weight:700;">' + esc2(r.EXECUTED) + '</td>' +
+                        '<td style="padding:7px 10px;text-align:center;font-weight:700;color:' + (failed > 0 ? '#b91c1c' : '#94a3b8') + ';">' + failed + '</td>' +
+                        '<td style="padding:7px 10px;text-align:center;color:#64748b;">' + esc2(r.COMMENTS) + '</td>' +
+                    '</tr>';
+                }).join('') +
+                '</tbody></table></div>';
+        });
+    }
+
+    // ── Task Library (DB-backed: add / edit / delete / assign) ──────
+    var _lib = [];
     function openLibrary() {
         document.getElementById('tsk-lib')?.remove();
-        var cats = {};
-        TASK_LIBRARY.forEach(function (t, i) { (cats[t.category] = cats[t.category] || []).push(i); });
-        var bodyHtml = Object.keys(cats).map(function (c) {
-            return '<div style="font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin:12px 2px 6px;">' + esc2(c) + '</div>' +
-                cats[c].map(function (i) {
-                    var t = TASK_LIBRARY[i], p = PRIO[t.priority] || PRIO[2];
-                    return '<div id="lib-row-' + i + '" style="display:flex;gap:10px;align-items:flex-start;border:1px solid #e6eaf2;border-radius:10px;padding:9px 11px;margin-bottom:7px;">' +
-                        '<span style="width:8px;height:8px;border-radius:50%;background:' + p[1] + ';margin-top:4px;flex-shrink:0;"></span>' +
-                        '<div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:700;color:#0f172a;">' + esc2(t.title) + '</div>' +
-                          '<div style="font-size:11px;color:#64748b;margin-top:2px;line-height:1.45;">' + esc2(t.description) + '</div>' +
-                          '<div style="font-size:9.5px;color:#94a3b8;margin-top:3px;">' + p[0] + ' priority' + (t.recurrence === 'DAILY' ? ' · daily' : '') + '</div></div>' +
-                        '<button id="lib-btn-' + i + '" onclick="Tasks.assignFromLib(' + i + ')" style="border:none;background:#7c3aed;color:#fff;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;align-self:center;"><i class="fas fa-plus"></i> Assign</button>' +
-                    '</div>';
-                }).join('');
-        }).join('');
         document.body.insertAdjacentHTML('beforeend',
         '<div id="tsk-lib" style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1002;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">' +
-          '<div style="background:#fff;border-radius:16px;width:660px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 70px rgba(0,0,0,.35);overflow:hidden;">' +
-            '<div style="padding:16px 20px;background:linear-gradient(135deg,#7c3aed,#0891b2);color:#fff;">' +
-              '<div style="font-size:15px;font-weight:800;"><i class="fas fa-book-open"></i> Task Library</div>' +
-              '<div style="font-size:11.5px;opacity:.9;margin-top:2px;">Common tasks the WMS does — pick any to assign to your AI Digital Employee.</div>' +
+          '<div style="background:#fff;border-radius:16px;width:720px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 70px rgba(0,0,0,.35);overflow:hidden;">' +
+            '<div style="padding:16px 20px;background:linear-gradient(135deg,#7c3aed,#0891b2);color:#fff;display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
+              '<div><div style="font-size:15px;font-weight:800;"><i class="fas fa-book-open"></i> Task Library</div>' +
+                '<div style="font-size:11.5px;opacity:.9;margin-top:2px;">Reusable templates — add, edit, delete, or assign to your AI Digital Employee.</div></div>' +
+              '<button onclick="Tasks.libEdit(0)" style="border:none;background:#fff;color:#6d28d9;border-radius:8px;padding:7px 13px;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap;"><i class="fas fa-plus"></i> Add template</button>' +
             '</div>' +
-            '<div style="flex:1;overflow-y:auto;padding:8px 20px 16px;">' + bodyHtml + '</div>' +
+            '<div id="tsk-lib-body" style="flex:1;overflow-y:auto;padding:10px 20px 16px;"><div style="color:#0e7490;font-size:12px;"><i class="fas fa-circle-notch fa-spin"></i> Loading…</div></div>' +
             '<div style="padding:12px 20px;border-top:1px solid #eef2f7;text-align:right;">' +
               '<button onclick="document.getElementById(\'tsk-lib\').remove()" style="border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;color:#64748b;">Done</button>' +
             '</div>' +
           '</div>' +
         '</div>');
+        libLoad();
     }
-    function assignFromLib(i) {
-        var t = TASK_LIBRARY[i]; if (!t) return;
-        var btn = document.getElementById('lib-btn-' + i);
-        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>'; }
-        insertTaskDef({ title: t.title, description: t.description, category: t.category, priority: t.priority, recurrence: t.recurrence, steps: t.steps || [] }, function (err) {
-            if (btn) {
-                if (err) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-plus"></i> Assign'; alert('Assign failed: ' + err); return; }
-                btn.style.background = '#16a34a'; btn.innerHTML = '<i class="fas fa-check"></i> Assigned';
-            }
-            load();
+    function libLoad() {
+        readSql("SELECT lib_id, title, SUBSTR(description,1,300) AS description, category, priority, recurrence FROM wms_ai_task_library WHERE active='Y' ORDER BY category, priority, title", function (err, rows) {
+            var body = document.getElementById('tsk-lib-body'); if (!body) return;
+            if (err) { body.innerHTML = '<div style="color:#b91c1c;font-size:12px;">Could not load library: ' + esc2(err) + '<br><span style="color:#94a3b8;">Has apex_sql/61_ai_task_library.sql been run?</span></div>'; return; }
+            _lib = rows || [];
+            if (!_lib.length) { body.innerHTML = '<div style="color:#94a3b8;font-size:12.5px;">No templates yet — click <b>Add template</b>.</div>'; return; }
+            var cats = {}; _lib.forEach(function (t) { (cats[t.CATEGORY || 'General'] = cats[t.CATEGORY || 'General'] || []).push(t); });
+            body.innerHTML = Object.keys(cats).map(function (c) {
+                return '<div style="font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin:12px 2px 6px;">' + esc2(c) + '</div>' +
+                    cats[c].map(function (t) {
+                        var p = PRIO[t.PRIORITY] || PRIO[2];
+                        return '<div style="display:flex;gap:10px;align-items:flex-start;border:1px solid #e6eaf2;border-radius:10px;padding:9px 11px;margin-bottom:7px;">' +
+                            '<span style="width:8px;height:8px;border-radius:50%;background:' + p[1] + ';margin-top:4px;flex-shrink:0;"></span>' +
+                            '<div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:700;color:#0f172a;">' + esc2(t.TITLE) + '</div>' +
+                              (t.DESCRIPTION ? '<div style="font-size:11px;color:#64748b;margin-top:2px;line-height:1.45;">' + esc2(t.DESCRIPTION) + '</div>' : '') +
+                              '<div style="font-size:9.5px;color:#94a3b8;margin-top:3px;">' + p[0] + ' priority' + (t.RECURRENCE === 'DAILY' ? ' · daily' : '') + '</div></div>' +
+                            '<div style="display:flex;gap:6px;align-self:center;flex-shrink:0;">' +
+                              '<button onclick="Tasks.assignFromLib(' + t.LIB_ID + ')" title="Assign to board" style="border:none;background:#7c3aed;color:#fff;border-radius:8px;padding:6px 11px;font-size:11px;font-weight:800;cursor:pointer;"><i class="fas fa-plus"></i></button>' +
+                              '<button onclick="Tasks.libEdit(' + t.LIB_ID + ')" title="Edit" style="border:1px solid #e2e8f0;background:#fff;color:#475569;border-radius:8px;padding:6px 10px;font-size:11px;cursor:pointer;"><i class="fas fa-pen"></i></button>' +
+                              '<button onclick="Tasks.libDelete(' + t.LIB_ID + ')" title="Delete" style="border:1px solid #fecaca;background:#fff1f2;color:#b91c1c;border-radius:8px;padding:6px 10px;font-size:11px;cursor:pointer;"><i class="fas fa-trash"></i></button>' +
+                            '</div>' +
+                        '</div>';
+                    }).join('');
+            }).join('');
+        });
+    }
+    function assignFromLib(libId) {
+        readSql("SELECT title, description, category, priority, recurrence, action_json, completion_sql FROM wms_ai_task_library WHERE lib_id = " + parseInt(libId, 10), function (err, rows) {
+            if (err || !rows.length) { alert('Template not found'); return; }
+            var t = rows[0];
+            insertTaskDef({
+                title: t.TITLE, description: t.DESCRIPTION, category: t.CATEGORY, priority: t.PRIORITY, recurrence: t.RECURRENCE,
+                steps: parseSteps(t.ACTION_JSON), completionSql: t.COMPLETION_SQL
+            }, function (e2) {
+                if (e2) { alert('Assign failed: ' + e2); return; }
+                document.getElementById('tsk-lib')?.remove();
+                load();
+            });
+        });
+    }
+    // libId 0 = add new
+    function libEdit(libId) {
+        var open = function (t) {
+            document.getElementById('tsk-libedit')?.remove();
+            var isNew = !libId;
+            var prio = String((t && t.PRIORITY) || 2), recur = (t && String(t.RECURRENCE).toUpperCase() === 'DAILY') ? 'DAILY' : 'ONCE';
+            var stepsVal = ''; if (t) { var st = parseSteps(t.ACTION_JSON); if (st && st.length) stepsVal = JSON.stringify({ steps: st }, null, 2); }
+            document.body.insertAdjacentHTML('beforeend',
+            '<div id="tsk-libedit" style="position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:1004;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">' +
+              '<div style="background:#fff;border-radius:14px;width:520px;max-width:96vw;max-height:90vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);">' +
+                '<div style="padding:14px 18px;border-bottom:1px solid #eef2f7;font-size:15px;font-weight:800;color:#0f172a;">' + (isNew ? '<i class="fas fa-plus" style="color:#7c3aed;"></i> Add template' : '<i class="fas fa-pen" style="color:#7c3aed;"></i> Edit template') + '</div>' +
+                '<div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;">' +
+                  fld('Title', '<input id="lb-title" style="' + inCss() + '" value="' + esc2((t && t.TITLE) || '') + '">') +
+                  fld('Description', '<textarea id="lb-desc" style="' + inCss() + 'min-height:70px;resize:vertical;">' + esc2((t && t.DESCRIPTION) || '') + '</textarea>') +
+                  '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
+                    fld('Category', '<input id="lb-cat" style="' + inCss() + '" value="' + esc2((t && t.CATEGORY) || '') + '">', 1) +
+                    fld('Priority', '<select id="lb-prio" style="' + inCss() + '"><option value="1"' + (prio === '1' ? ' selected' : '') + '>High</option><option value="2"' + (prio === '2' ? ' selected' : '') + '>Medium</option><option value="3"' + (prio === '3' ? ' selected' : '') + '>Low</option></select>', 1) +
+                    fld('Repeat', '<select id="lb-recur" style="' + inCss() + '"><option value="ONCE"' + (recur === 'ONCE' ? ' selected' : '') + '>Once</option><option value="DAILY"' + (recur === 'DAILY' ? ' selected' : '') + '>Daily</option></select>', 1) +
+                  '</div>' +
+                  '<details' + (stepsVal ? ' open' : '') + '><summary style="font-size:11px;font-weight:700;color:#0e7490;cursor:pointer;"><i class="fas fa-bolt"></i> Executable steps (JSON) &amp; completion</summary>' +
+                    '<div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;">' +
+                      fld('Steps (JSON)', '<textarea id="lb-steps" style="' + inCss() + 'min-height:80px;font-family:Consolas,monospace;font-size:11px;resize:vertical;">' + esc2(stepsVal) + '</textarea>') +
+                      fld('Completion SQL (optional)', '<input id="lb-completion" style="' + inCss() + '" value="' + esc2((t && t.COMPLETION_SQL) || '') + '">') +
+                    '</div>' +
+                  '</details>' +
+                '</div>' +
+                '<div style="padding:12px 18px;border-top:1px solid #eef2f7;display:flex;justify-content:flex-end;gap:8px;">' +
+                  '<button onclick="document.getElementById(\'tsk-libedit\').remove()" style="border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;color:#64748b;">Cancel</button>' +
+                  '<button onclick="Tasks.libSave(' + (libId || 0) + ')" style="border:none;background:#7c3aed;color:#fff;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:800;cursor:pointer;">Save</button>' +
+                '</div>' +
+              '</div>' +
+            '</div>');
+        };
+        if (!libId) { open(null); return; }
+        readSql("SELECT lib_id, title, description, category, priority, recurrence, action_json, completion_sql FROM wms_ai_task_library WHERE lib_id = " + parseInt(libId, 10), function (err, rows) {
+            if (err || !rows.length) { alert('Template not found'); return; }
+            open(rows[0]);
+        });
+    }
+    function libSave(libId) {
+        var g = function (x) { var e = document.getElementById(x); return e ? e.value.trim() : ''; };
+        var title = g('lb-title'); if (!title) { alert('Title is required'); return; }
+        var stepsRaw = g('lb-steps'), actionJson = null;
+        if (stepsRaw) {
+            try { var o = JSON.parse(stepsRaw); if (!o.steps && Array.isArray(o)) o = { steps: o }; if (!Array.isArray(o.steps)) throw new Error('need a steps array'); actionJson = JSON.stringify({ steps: o.steps }); }
+            catch (e) { alert('Steps are not valid JSON: ' + e.message); return; }
+        }
+        var completion = g('lb-completion'), prio = parseInt(g('lb-prio') || '2', 10) || 2, recur = g('lb-recur') || 'ONCE';
+        var sql;
+        if (libId) {
+            sql = 'UPDATE wms_ai_task_library SET title=' + q(title.slice(0, 300)) + ', description=' + clob(g('lb-desc')) +
+                ', category=' + q(g('lb-cat').slice(0, 60)) + ', priority=' + prio + ', recurrence=' + q(recur) +
+                ', action_json=' + (actionJson ? clob(actionJson) : 'NULL') + ', completion_sql=' + (completion ? clob(completion) : 'NULL') +
+                ' WHERE lib_id=' + parseInt(libId, 10);
+        } else {
+            sql = 'INSERT INTO wms_ai_task_library (title, description, category, priority, recurrence, action_json, completion_sql, created_by) VALUES (' +
+                q(title.slice(0, 300)) + ', ' + clob(g('lb-desc')) + ', ' + q(g('lb-cat').slice(0, 60)) + ', ' + prio + ', ' + q(recur) + ', ' +
+                (actionJson ? clob(actionJson) : 'NULL') + ', ' + (completion ? clob(completion) : 'NULL') + ', ' + q(user()) + ')';
+        }
+        writeSql(sql, function (err) {
+            if (err) { alert('Save failed: ' + err); return; }
+            document.getElementById('tsk-libedit')?.remove();
+            libLoad();
+        });
+    }
+    function libDelete(libId) {
+        if (!confirm('Delete this library template? (Tasks already assigned from it are not affected.)')) return;
+        writeSql('DELETE FROM wms_ai_task_library WHERE lib_id = ' + parseInt(libId, 10), function (err) {
+            if (err) { alert('Delete failed: ' + err); return; }
+            libLoad();
         });
     }
 
@@ -854,6 +999,11 @@
         refresh: load,
         openLibrary: openLibrary,
         assignFromLib: assignFromLib,
+        libEdit: libEdit,
+        libSave: libSave,
+        libDelete: libDelete,
+        del: del,
+        openSummary: openSummary,
         assignWizard: assignWizard,
         wizAssign: wizAssign,
         _wizToggle: _wizToggle,
