@@ -1756,7 +1756,9 @@ window.aiAsk = function (promptText, cb) {
     var dp = (typeof getDefaultPrinter === 'function') ? getDefaultPrinter() : '';
     var ctxLine = '[CURRENT_INSTANCE: ' + currentInstance() + ']' + (dp ? ' [DEFAULT_PRINTER: ' + dp + ']' : '');
     var msg = {
-        action: 'aiChatSend', text: ctxLine + '\n' + promptText, sessionId: null,
+        // reuse a persistent WARM session (same as the chatbot) so runs are fast,
+        // not cold-started each time
+        action: 'aiChatSend', text: ctxLine + '\n' + promptText, sessionId: (window._aiAskSession || null),
         downloadFolder: (typeof getDownloadFolder === 'function') ? getDownloadFolder() : '',
         instance: currentInstance()
     };
@@ -1781,6 +1783,7 @@ window.aiAsk = function (promptText, cb) {
     }, 15000);
     sendMessageToCSharp(msg, function (err, resp) {
         if (done) return; done = true; clearInterval(watch);
+        if (resp && resp.sessionId) window._aiAskSession = resp.sessionId;   // keep the session warm for next time
         if (err) { cb(String(err)); return; }
         cb(null, (resp && (resp.markdown || resp.answer)) || '', resp);   // 3rd arg = full response (grid, etc.)
     });
