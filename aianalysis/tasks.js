@@ -384,6 +384,22 @@
         var t = null; readSql("SELECT title, description, TO_CHAR(NVL(trip_date, task_date),'YYYY-MM-DD') AS trip_date FROM wms_ai_tasks WHERE task_id = " + parseInt(id, 10), function (err, rows) {
             if (err || !rows.length) { alert('Task not found'); return; }
             t = rows[0];
+
+            // Preferred: run the task INSIDE the real chatbot — full interactivity
+            // (trip pickers, print buttons, approvals), exactly like typing it there.
+            if (typeof window.runTaskInChatbot === 'function') {
+                var instr = (t.DESCRIPTION && t.DESCRIPTION.trim()) ? t.DESCRIPTION.trim() : (t.TITLE || '');
+                var cprompt = instr + '\n\n(Assigned task "' + (t.TITLE || '') + '". Work ONLY on trip date ' + (t.TRIP_DATE || '') + '.)';
+                logEvent(id, 'SYSTEM', 'PROGRESS', 'Opened in the Chatbot for an interactive run (trip ' + (t.TRIP_DATE || '') + ').', function () {
+                    setStatus_silent(id, 'IN_PROGRESS');
+                    writeSql('UPDATE wms_ai_tasks SET run_count = NVL(run_count,0)+1, last_run_at = SYSDATE, last_run_status = ' + q('OPENED') + ', updated_by = ' + q('AI') + ', updated_date = SYSDATE WHERE task_id = ' + parseInt(id, 10), function () { load(); });
+                    document.getElementById('tsk-drawer')?.remove();
+                    window.runTaskInChatbot((t.TITLE || instr).slice(0, 60), cprompt);
+                });
+                return;
+            }
+
+            // Fallback (chatbot helper unavailable): headless run inside the drawer
             logEvent(id, 'SYSTEM', 'PROGRESS', 'Handed to AI Digital Employee to work on (trip date ' + (t.TRIP_DATE || '') + ').', function () {
                 setStatus_silent(id, 'IN_PROGRESS');
                 aiProgressStart('AI working: ' + (t.TITLE || 'task') + ' · trip ' + (t.TRIP_DATE || ''));

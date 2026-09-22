@@ -1789,6 +1789,19 @@ window.aiAsk = function (promptText, cb) {
     });
 };
 
+// Run a task's prompt in the REAL chatbot (full interactivity: trip pickers,
+// print buttons, approvals — everything the chatbot can do). Opens the Chatbot
+// tab, starts a fresh chat titled from the task, and sends the turn.
+window.runTaskInChatbot = function (displayText, promptText) {
+    if (busy) { alert('The assistant is busy — wait for the current run to finish, then try again.'); return false; }
+    try {
+        switchPage('chatbot');
+        newChat();
+        sendTurn(promptText, displayText);
+        return true;
+    } catch (e) { console.warn('[runTaskInChatbot]', e); return false; }
+};
+
 function normRound(r) {
     return {
         kind: r.kind || 'sql', sql: r.sql, method: r.method, path: r.path, reason: r.reason,
