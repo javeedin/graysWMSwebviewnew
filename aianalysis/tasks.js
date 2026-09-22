@@ -47,6 +47,7 @@
     ];
 
     var state = { date: todayStr(), assignee: '', search: '', tasks: [], openId: null };
+    var _openTask = null;   // the task currently shown in the drawer (for Edit)
 
     function todayStr() { var d = new Date(); function z(n) { return (n < 10 ? '0' : '') + n; } return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()); }
     function esc2(s) { return (typeof esc === 'function') ? esc(s) : String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -226,6 +227,7 @@
     }
 
     function renderDrawer(t, events) {
+        _openTask = t;
         document.getElementById('tsk-drawer')?.remove();
         var m = STATUS_META[t.STATUS] || STATUS_META.OPEN;
         var p = PRIO[t.PRIORITY] || PRIO[2];
@@ -267,6 +269,7 @@
               (t.DESCRIPTION ? '<div style="font-size:12.5px;color:#334155;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;">' + esc2(t.DESCRIPTION) + '</div>' : '') +
               '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">' + actions +
                 '<button onclick="Tasks.runAI(' + t.TASK_ID + ')" style="border:none;background:#0891b2;color:#fff;border-radius:8px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-robot"></i> Run with AI</button>' +
+                '<button onclick="Tasks.openEdit(' + t.TASK_ID + ')" style="border:1px solid #e2e8f0;background:#fff;color:#475569;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-pen"></i> Edit</button>' +
               '</div>' +
               execHtml +
               (t.STATUS === 'BLOCKED' && t.ISSUE ? '<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;font-size:11.5px;color:#b91c1c;margin-bottom:12px;"><b>Issue:</b> ' + esc2(t.ISSUE) + '</div>' : '') +
@@ -612,6 +615,72 @@
         })();
     }
 
+    // ── edit / modify a task ────────────────────────────────
+    function openEdit(id) {
+        var t = _openTask; if (!t || t.TASK_ID != id) { open(id); setTimeout(function () { openEdit(id); }, 250); return; }
+        document.getElementById('tsk-edit')?.remove();
+        var stepsVal = '';
+        var st = parseSteps(t.ACTION_JSON); if (st && st.length) stepsVal = JSON.stringify({ steps: st }, null, 2);
+        var recur = (String(t.RECURRENCE || 'ONCE').toUpperCase() === 'DAILY') ? 'DAILY' : 'ONCE';
+        var prio = String(t.PRIORITY || 2);
+        document.body.insertAdjacentHTML('beforeend',
+        '<div id="tsk-edit" style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1003;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">' +
+          '<div style="background:#fff;border-radius:14px;width:520px;max-width:96vw;max-height:90vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);">' +
+            '<div style="padding:14px 18px;border-bottom:1px solid #eef2f7;font-size:15px;font-weight:800;color:#0f172a;"><i class="fas fa-pen" style="color:#7c3aed;"></i> Edit Task #' + t.TASK_ID + '</div>' +
+            '<div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px;">' +
+              fld('Title', '<input id="te-title" style="' + inCss() + '" value="' + esc2(t.TITLE || '') + '">') +
+              fld('Details / instructions', '<textarea id="te-desc" style="' + inCss() + 'min-height:80px;resize:vertical;">' + esc2(t.DESCRIPTION || '') + '</textarea>') +
+              '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
+                fld('Assignee', '<input id="te-assignee" value="' + esc2(t.ASSIGNEE || 'AI Digital Employee') + '" style="' + inCss() + '">', 1) +
+                fld('Category', '<input id="te-category" value="' + esc2(t.CATEGORY || '') + '" style="' + inCss() + '">', 1) +
+              '</div>' +
+              '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
+                fld('Priority', '<select id="te-prio" style="' + inCss() + '"><option value="1"' + (prio === '1' ? ' selected' : '') + '>High</option><option value="2"' + (prio === '2' ? ' selected' : '') + '>Medium</option><option value="3"' + (prio === '3' ? ' selected' : '') + '>Low</option></select>', 1) +
+                fld('For date', '<input id="te-date" type="date" value="' + esc2(t.TASK_DATE || state.date) + '" style="' + inCss() + '">', 1) +
+                fld('Repeat', '<select id="te-recur" style="' + inCss() + '"><option value="ONCE"' + (recur === 'ONCE' ? ' selected' : '') + '>Once</option><option value="DAILY"' + (recur === 'DAILY' ? ' selected' : '') + '>Daily</option></select>', 1) +
+              '</div>' +
+              '<details' + (stepsVal ? ' open' : '') + '><summary style="font-size:11px;font-weight:700;color:#0e7490;cursor:pointer;"><i class="fas fa-bolt"></i> Executable steps (JSON) &amp; completion</summary>' +
+                '<div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;">' +
+                  fld('Steps (JSON)', '<textarea id="te-steps" style="' + inCss() + 'min-height:90px;font-family:Consolas,monospace;font-size:11px;resize:vertical;">' + esc2(stepsVal) + '</textarea>') +
+                  fld('Completion SQL (optional)', '<input id="te-completion" value="' + esc2(t.COMPLETION_SQL || '') + '" style="' + inCss() + '">') +
+                '</div>' +
+              '</details>' +
+            '</div>' +
+            '<div style="padding:12px 18px;border-top:1px solid #eef2f7;display:flex;justify-content:flex-end;gap:8px;">' +
+              '<button onclick="document.getElementById(\'tsk-edit\').remove()" style="border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;color:#64748b;">Cancel</button>' +
+              '<button onclick="Tasks.saveEdit(' + t.TASK_ID + ')" style="border:none;background:#7c3aed;color:#fff;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:800;cursor:pointer;">Save changes</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>');
+    }
+    function saveEdit(id) {
+        var g = function (x) { var e = document.getElementById(x); return e ? e.value.trim() : ''; };
+        var title = g('te-title'); if (!title) { alert('Title cannot be empty'); return; }
+        var stepsRaw = g('te-steps'), actionJson = null;
+        if (stepsRaw) {
+            try { var o = JSON.parse(stepsRaw); if (!o.steps && Array.isArray(o)) o = { steps: o }; if (!Array.isArray(o.steps)) throw new Error('need a steps array'); actionJson = JSON.stringify({ steps: o.steps }); }
+            catch (e) { alert('Executable steps are not valid JSON: ' + e.message); return; }
+        }
+        var completion = g('te-completion');
+        var sets = [
+            'title = ' + q(title.slice(0, 300)),
+            'description = ' + clob(g('te-desc')),
+            'assignee = ' + q((g('te-assignee') || 'AI Digital Employee').slice(0, 120)),
+            'category = ' + q(g('te-category').slice(0, 60)),
+            'priority = ' + (parseInt(g('te-prio') || '2', 10) || 2),
+            "task_date = TO_DATE(" + q(g('te-date') || state.date) + ",'YYYY-MM-DD')",
+            'recurrence = ' + q(g('te-recur') || 'ONCE'),
+            'action_json = ' + (actionJson ? clob(actionJson) : 'NULL'),
+            'completion_sql = ' + (completion ? clob(completion) : 'NULL'),
+            'updated_by = ' + q(user()), 'updated_date = SYSDATE'
+        ];
+        writeSql('UPDATE wms_ai_tasks SET ' + sets.join(', ') + ' WHERE task_id = ' + parseInt(id, 10), function (err) {
+            if (err) { alert('Save failed: ' + err); return; }
+            document.getElementById('tsk-edit')?.remove();
+            logEvent(id, 'USER', 'NOTE', 'Task edited', function () { open(id); load(); });
+        });
+    }
+
     // ── Task Library (pick common WMS tasks to assign) ──────
     function openLibrary() {
         document.getElementById('tsk-lib')?.remove();
@@ -674,6 +743,8 @@
         addEvent: addEvent,
         runAI: runAI,
         execute: execute,
-        buildWithAI: buildWithAI
+        buildWithAI: buildWithAI,
+        openEdit: openEdit,
+        saveEdit: saveEdit
     };
 })();
