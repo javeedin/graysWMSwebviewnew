@@ -1766,7 +1766,23 @@ function handleTurnResponse(chat, err, resp) {
             // DB-stored form (WMS_AI_FORMS) rendered by the generic form engine
             openStoredFormFromChat(formObj);
         }
-        else if (formObj && formObj.apiId) renderApiFormCard(box, formObj.apiId, formObj.values || {}, 'chat', null);
+        else if (formObj && formObj.request && (formObj.request.url || formObj.request.fullUrl)) {
+            // raw, fully-formed call the model built from the ai/apicatalog entry
+            renderRawApiCall(box, formObj);
+        }
+        else if (formObj && formObj.apiId) {
+            // resolve against curated + discovered catalog; lazy-load discovery once if needed
+            if (!apiCatalogById(formObj.apiId) && typeof loadDiscoveredApiCatalog === 'function' &&
+                (!window.WMS_API_CATALOG_DISCOVERED || !window.WMS_API_CATALOG_DISCOVERED.length)) {
+                appendAssistantBubble('_Loading the live API catalog…_', [], ats, false);
+                loadDiscoveredApiCatalog(function () {
+                    renderApiFormCard(box, formObj.apiId, formObj.values || {}, 'chat', null);
+                    box.scrollTop = box.scrollHeight;
+                });
+            } else {
+                renderApiFormCard(box, formObj.apiId, formObj.values || {}, 'chat', null);
+            }
+        }
         else appendAssistantBubble('I could not open the API form (missing apiId).', [], ats, true);
         box.scrollTop = box.scrollHeight;
         setStatus('Fill the form and click Run — nothing executes without your confirmation.');
@@ -3151,6 +3167,52 @@ function openApi(id) {
 
 // Renders an editable form for a catalog API.
 // container: element; prefill: {key:value}; source: 'chat' | 'page'
+// Raw, ready-to-run call the model composed itself (any WMS endpoint):
+// { apiId?, name?, note?, request: { method, url|fullUrl, body } }
+function renderRawApiCall(container, formObj) {
+    const r = formObj.request || {};
+    let url = r.url || r.fullUrl || '';
+    let method = (r.method || 'POST').toUpperCase();
+    let body = r.body;
+    if (body != null && typeof body !== 'string') { try { body = JSON.stringify(body); } catch (e) { body = String(body); } }
+    if (body == null || body === '') body = '{}';
+    const api = { id: formObj.apiId || 'adhoc.call', name: formObj.name || (method + ' ' + url.replace(/^https?:\/\/[^/]+/i, '')), method: method, discovered: true };
+    const formId = 'apiform-' + (++_apiFormSeq) + '-' + Date.now();
+    window._apiForms[formId] = { api: api, source: 'chat', prefill: {}, rawReq: { method: method, url: url, body: body } };
+    const note = formObj.note || '';
+    let pretty = body; try { pretty = JSON.stringify(JSON.parse(body), null, 2); } catch (e) { }
+    container.insertAdjacentHTML('beforeend', `
+        <div class="approval-card" id="${formId}" style="border-color:#67e8f9;background:#ecfeff;max-width:560px;">
+            <div class="ah" style="background:#cffafe;color:#155e75;">
+                ${methodBadge(api.method)} <span style="margin-left:4px;">${esc(api.name)}</span>
+                <span style="margin-left:auto;font-size:9px;color:#0e7490;">${esc(currentInstance())}</span>
+            </div>
+            <div class="ab" style="color:#164e63;">
+                ${note ? `<div style="font-size:11px;margin-bottom:7px;">${esc(note)}</div>` : ''}
+                <div style="background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:6px 9px;word-break:break-all;font-size:10px;margin-bottom:8px;">${esc(url)}</div>
+                ${pretty && pretty !== '{}' ? `<pre style="background:#0f172a;color:#e2e8f0;border-radius:6px;padding:9px;font-size:10px;max-height:200px;overflow:auto;margin:0 0 8px;">${esc(pretty)}</pre>` : ''}
+                <div id="${formId}-result"></div>
+            </div>
+            <div class="af" style="background:#ecfeff;">
+                <button class="btn-reject" onclick="cancelApiForm('${formId}')"><i class="fas fa-times"></i> Cancel</button>
+                <button class="btn-approve" style="background:#0891b2;" id="${formId}-run" onclick="runRawApiCall('${formId}')"><i class="fas fa-play"></i> Review &amp; Run…</button>
+            </div>
+            <div class="adecision"></div>
+        </div>`);
+}
+function runRawApiCall(formId) {
+    const ctx = window._apiForms[formId];
+    if (!ctx || !ctx.rawReq) return;
+    const pol = clientPolicy('wms_api');
+    const resBox = document.getElementById(formId + '-result');
+    if (pol.mode === 'DENY') {
+        if (resBox) resBox.innerHTML = '<div style="font-size:10.5px;color:#b91c1c;margin-top:4px;"><i class="fas fa-ban"></i> Blocked by policy — you are not allowed to run write APIs.</div>';
+        return;
+    }
+    if (pol.mode === 'AUTO') { window._apiConfirm = { formId: formId, req: ctx.rawReq }; confirmApiRun(); return; }
+    showApiConfirm(formId, ctx.rawReq);
+}
+
 function renderApiFormCard(container, apiId, prefill, source, note) {
     const api = apiCatalogById(apiId);
     if (!api) {

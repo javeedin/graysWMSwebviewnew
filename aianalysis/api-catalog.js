@@ -339,10 +339,89 @@
         }
     ];
 
+    // "p_order_number" -> "Order number"
+    function prettyLabel(k) {
+        return String(k || '').replace(/^p_/i, '').replace(/_/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }).trim() || String(k || '');
+    }
+    function isInstanceBind(n) { return /^p?_?instance(_name)?$/i.test(String(n || '')) || /instance_name/i.test(String(n || '')); }
+    // normalize a URI template/URL for tolerant matching: strip host/ords prefix,
+    // leading slash, and reduce :bind / {bind} path params to '*'
+    function normTpl(s) {
+        return String(s || '')
+            .replace(/^https?:\/\/[^/]+\/ords\/[^/]+\//i, '')
+            .toLowerCase()
+            .replace(/^\/+/, '')
+            .replace(/\{[a-z0-9_]+\}/gi, '*')
+            .replace(/:[a-z0-9_]+/gi, '*');
+    }
+
+    // Convert one discovered ORDS metadata item (from ai/apicatalog) into the
+    // same catalog-entry shape the form/confirm/execute pipeline uses, so ANY
+    // WMS endpoint becomes callable by the Digital Employee, not just curated ones.
+    window.buildApiEntryFromDiscovered = function (d) {
+        var method = (d.method || 'GET').toUpperCase();
+        var url = (d.fullUrl || '').replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, '{$1}'); // :bind -> {bind}
+        var fields = [], seen = {}, instanceIn = null;
+        // path params (always required)
+        (d.uriParameters || []).forEach(function (p) {
+            var lk = String(p || '').toLowerCase(); if (!p || seen[lk]) return; seen[lk] = 1;
+            if (isInstanceBind(p)) { instanceIn = { in: 'path', key: p }; return; }
+            fields.push({ key: p, label: prettyLabel(p), type: 'text', in: 'path', required: true });
+        });
+        if (method === 'GET') {
+            (d.sourceBinds || []).concat((d.declaredParameters || []).map(function (x) { return x && x.bindVariable; }))
+                .forEach(function (b) {
+                    var lk = String(b || '').toLowerCase(); if (!b || seen[lk]) return; seen[lk] = 1;
+                    if (isInstanceBind(b)) { if (!instanceIn) instanceIn = { in: 'query', key: b }; return; }
+                    fields.push({ key: b, label: prettyLabel(b), type: 'text', in: 'query', required: false });
+                });
+        } else {
+            var readsBody = (d.readsBody === 'Y');
+            (d.jsonBodyFields || []).forEach(function (f) {
+                var lk = String(f || '').toLowerCase(); if (!f || seen[lk]) return; seen[lk] = 1;
+                if (isInstanceBind(f)) { if (!instanceIn) instanceIn = { in: 'body', key: f }; return; }
+                fields.push({ key: f, label: prettyLabel(f), type: 'text', in: 'body', required: false });
+            });
+            (d.sourceBinds || []).forEach(function (b) {
+                var lk = String(b || '').toLowerCase(); if (!b || seen[lk]) return; seen[lk] = 1;
+                if (isInstanceBind(b)) { if (!instanceIn) instanceIn = { in: readsBody ? 'body' : 'query', key: b }; return; }
+                fields.push({ key: b, label: prettyLabel(b), type: 'text', in: readsBody ? 'body' : 'query', required: false });
+            });
+            // handler reads a raw body but we found no explicit fields → offer a JSON box
+            if (readsBody && !fields.some(function (f) { return f.in === 'body'; }))
+                fields.push({ key: '_body', label: 'Request body (JSON)', type: 'json', in: 'body', required: false });
+        }
+        return {
+            id: (d.module || '') + ':' + method + ':' + (d.uriTemplate || ''),
+            name: method + ' ' + (d.uriTemplate || ''),
+            module: d.module || 'WMS', method: method, url: url,
+            desc: 'Discovered ORDS endpoint (' + (d.module || '') + ').',
+            instanceIn: instanceIn, discovered: true, fields: fields
+        };
+    };
+
     window.apiCatalogById = function (id) {
+        if (id == null) return null;
+        // 1) curated exact match wins (hand-tuned bodies/instance handling)
         for (var i = 0; i < window.WMS_API_CATALOG.length; i++)
             if (window.WMS_API_CATALOG[i].id === id) return window.WMS_API_CATALOG[i];
-        return null;
+        // 2) fall back to the live discovered catalog — lets the AI call ANY WMS API
+        var list = window.WMS_API_CATALOG_DISCOVERED || [];
+        if (!list.length) return null;
+        var raw = String(id).trim(), wantMethod = '', tpl = raw;
+        // accept "MODULE:METHOD:template", "METHOD template", or a bare template/fullUrl
+        var seg = raw.split(':');
+        if (seg.length >= 3 && /^(GET|POST|PUT|DELETE|PATCH)$/i.test(seg[1])) { wantMethod = seg[1].toUpperCase(); tpl = seg.slice(2).join(':'); }
+        else { var mm = raw.match(/^([A-Za-z]+)[\s]+(.+)$/); if (mm && /^(GET|POST|PUT|DELETE|PATCH)$/i.test(mm[1])) { wantMethod = mm[1].toUpperCase(); tpl = mm[2]; } }
+        var want = normTpl(tpl), found = null;
+        for (var j = 0; j < list.length; j++) {
+            var d = list[j];
+            if (normTpl(d.uriTemplate) === want || normTpl(d.fullUrl) === want) {
+                if (wantMethod) { if ((d.method || '').toUpperCase() === wantMethod) { found = d; break; } }
+                else { found = found || d; if ((d.method || '').toUpperCase() !== 'GET') { found = d; break; } } // prefer writes
+            }
+        }
+        return found ? window.buildApiEntryFromDiscovered(found) : null;
     };
 
     // Builds {method, url, body} from an api entry + collected values.

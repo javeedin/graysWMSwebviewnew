@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V45";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V46";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -573,7 +573,7 @@ namespace WMSApp
             sb.AppendLine("- /ARMODULE/BOGO = the BOGO promotion mapping - items[] rows with mainitemcode (parent item) and promoitemcode (free/child item).");
             sb.AppendLine("- /WAREHOUSEMANAGEMENT/ai/apicatalog = the FULL live registry of every APEX REST API in this workspace: items[] with module, method, uriTemplate, fullUrl, uriParameters, declaredParameters, sourceBinds (query/body binds) and jsonBodyFields. Optional params: p_module (filter one module), p_source=Y (include handler source).");
             sb.AppendLine();
-            sb.AppendLine("When the user asks what APIs exist, or asks about an endpoint you don't already know from this prompt, fetch the catalog (optionally filtered with p_module) instead of guessing. Use it to explain endpoints, their parameters and JSON bodies, and to plan work - but calling an endpoint still goes through the normal channels only (action sql for reads, the curated api_form / fusion actions for writes). Never invent an endpoint that is not in this prompt or the catalog.");
+            sb.AppendLine("When the user asks what APIs exist, or asks about an endpoint you don't already know from this prompt, fetch the catalog (optionally filtered with p_module) instead of guessing. IMPORTANT: always pass p_module for a specific module (e.g. p_module=WAREHOUSEMANAGEMENT or p_module=TRIPMANAGEMENT) - the full unfiltered catalog is large and may be truncated. The catalog does NOT support q= or fields= filters (only p_module and p_source). Reads still go through action sql. For WRITES you are NOT limited to the curated list below: you may call ANY endpoint in the catalog via action api_form (see the next section). Never invent an endpoint that is not in this prompt or the catalog.");
             sb.AppendLine();
             sb.AppendLine("## Cancelling order lines WITH CHILD LINES (shipping-agent rule)");
             sb.AppendLine();
@@ -608,6 +608,11 @@ namespace WMSApp
             sb.AppendLine("- trip.cancelscheduledlines - cancel scheduled lines of an order - order_number");
             sb.AppendLine("- trip.updatepickconfirmstatus / trip.sets2vdata / trip.processs2v / storetrans.process / materialtrx.allocatelots - advanced, raw JSON body");
             sb.AppendLine("- trip.cancels2vline - cancel staged S2V line - transaction_id;  trip.cancels2vlot - cancel S2V lot - lot_line_id");
+            sb.AppendLine();
+            sb.AppendLine("ANY WMS ENDPOINT (not just the list above): you can invoke ANY endpoint returned by /WAREHOUSEMANAGEMENT/ai/apicatalog through action api_form. Two ways:");
+            sb.AppendLine("  (a) By catalog id - set apiId to the endpoint's uriTemplate EXACTLY as the catalog returned it (e.g. apiId: \"trip/releasepick\"), and put the values under the names from its uriParameters (path), jsonBodyFields (POST/PUT body) and query binds. To disambiguate two methods on the same template, use apiId \"METHOD uriTemplate\" (e.g. \"POST trip/releasepick\") or \"MODULE:METHOD:uriTemplate\". The app builds the editable form from the catalog metadata; the user confirms and runs it.");
+            sb.AppendLine("  (b) By raw request - when you already know the exact call, reply { \"action\": \"api_form\", \"name\": \"short label\", \"note\": \"...\", \"request\": { \"method\": \"POST\", \"url\": \"<fullUrl from the catalog with path values substituted>\", \"body\": { ...jsonBodyFields... } } }. The app shows the exact URL+body for confirmation, runs it, logs it, and returns API_RESULT. Use the catalog's fullUrl host only (the workspace ORDS host); never a made-up host.");
+            sb.AppendLine("So: to do something not in the curated list, first fetch ai/apicatalog?p_module=<MODULE> (action ords), find the handler (its method, uriTemplate, fullUrl, uriParameters, jsonBodyFields), then call it with api_form. This applies to picking, pick release, waves, S2V, materials, inventory - every write handler in the workspace. Reads are always action sql.");
             sb.AppendLine();
             sb.AppendLine("Rules: instance fields are filled by the app from the current instance - never include them in values. Prefill everything you can from the conversation (the trip you just created, the orders just discussed). ADD-ORDERS FLOW: when the user pastes order numbers to add to a trip, FIRST run action sql to validate them against the pending shipment lines for the current instance (which exist and are not already on a trip), THEN return api_form for trips.addorders with the valid orders in values.orders (the app shows them as tick rows) and list the invalid ones with reasons in note. If the user did not say which trip, default trip_id to the trip created/discussed in this conversation, else omit it and the form lets them pick. If API_RESULT says USER_CANCELLED, continue without it and tell the user.");
             sb.AppendLine();
