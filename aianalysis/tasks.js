@@ -389,12 +389,14 @@
             // (trip pickers, print buttons, approvals), exactly like typing it there.
             if (typeof window.runTaskInChatbot === 'function') {
                 var instr = (t.DESCRIPTION && t.DESCRIPTION.trim()) ? t.DESCRIPTION.trim() : (t.TITLE || '');
-                var cprompt = instr + '\n\n(Assigned task "' + (t.TITLE || '') + '". Work ONLY on trip date ' + (t.TRIP_DATE || '') + '.)';
+                // full task shown in the chat as: "Task #101 · 22-09-2026: <title> — <details>"
+                var header = 'Task #' + id + ' · ' + (t.TRIP_DATE || '') + ': ' + (t.TITLE ? (t.TITLE + ' — ') : '') + instr;
+                var cprompt = header + '\n\nRun this NOW and complete it using your tools. Do NOT create a scheduled job and do NOT defer it — the user wants it done immediately. Work ONLY on trip date ' + (t.TRIP_DATE || '') + '. When finished, give a concise result of what you did.';
                 logEvent(id, 'SYSTEM', 'PROGRESS', 'Opened in the Chatbot for an interactive run (trip ' + (t.TRIP_DATE || '') + ').', function () {
                     setStatus_silent(id, 'IN_PROGRESS');
-                    writeSql('UPDATE wms_ai_tasks SET run_count = NVL(run_count,0)+1, last_run_at = SYSDATE, last_run_status = ' + q('OPENED') + ', updated_by = ' + q('AI') + ', updated_date = SYSDATE WHERE task_id = ' + parseInt(id, 10), function () { load(); });
+                    writeSql('UPDATE wms_ai_tasks SET run_count = NVL(run_count,0)+1, last_run_at = SYSDATE, last_run_status = ' + q('RUNNING') + ', updated_by = ' + q('AI') + ', updated_date = SYSDATE WHERE task_id = ' + parseInt(id, 10), function () { load(); });
                     document.getElementById('tsk-drawer')?.remove();
-                    window.runTaskInChatbot((t.TITLE || instr).slice(0, 60), cprompt);
+                    window.runTaskInChatbot(parseInt(id, 10), header, cprompt);
                 });
                 return;
             }
@@ -433,6 +435,16 @@
         var sets = ['status = ' + q(s), 'started_at = NVL(started_at, SYSDATE)', 'updated_by = ' + q('AI'), 'updated_date = SYSDATE'];
         writeSql('UPDATE wms_ai_tasks SET ' + sets.join(', ') + ' WHERE task_id = ' + parseInt(id, 10) + " AND status = 'OPEN'", function () { });
     }
+
+    // Called by the chatbot (index.html) when a task-launched chat produces a
+    // result — writes it back to the task timeline + result field.
+    window.saveTaskResult = function (taskId, md, ok) {
+        try {
+            var m = String(md == null ? '' : md).slice(0, 32000);
+            writeSql('UPDATE wms_ai_tasks SET result = ' + clob(m) + ', last_run_at = SYSDATE, last_run_status = ' + q(ok ? 'SUCCESS' : 'FAILED') + ', updated_by = ' + q('AI') + ', updated_date = SYSDATE WHERE task_id = ' + parseInt(taskId, 10), function () { });
+            logEvent(taskId, 'AI', 'RESULT', m, function () { if (state.openId == taskId) open(taskId); load(); });
+        } catch (e) { }
+    };
 
     function parseSteps(aj) {
         if (!aj) return [];

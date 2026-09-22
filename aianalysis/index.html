@@ -1792,15 +1792,27 @@ window.aiAsk = function (promptText, cb) {
 // Run a task's prompt in the REAL chatbot (full interactivity: trip pickers,
 // print buttons, approvals — everything the chatbot can do). Opens the Chatbot
 // tab, starts a fresh chat titled from the task, and sends the turn.
-window.runTaskInChatbot = function (displayText, promptText) {
+window.runTaskInChatbot = function (taskId, displayText, promptText) {
     if (busy) { alert('The assistant is busy — wait for the current run to finish, then try again.'); return false; }
     try {
         switchPage('chatbot');
         newChat();
         sendTurn(promptText, displayText);
+        var c = (typeof activeChat === 'function') ? activeChat() : null;
+        if (c && taskId) { c._taskId = taskId; saveChats(); }   // so the result writes back to the task
         return true;
     } catch (e) { console.warn('[runTaskInChatbot]', e); return false; }
 };
+// small grid -> markdown for writing a task result back
+function taskGridToMd(cols, rows) {
+    cols = cols || []; rows = rows || []; if (!cols.length) return '';
+    var n = Math.min(rows.length, 60);
+    function c(x) { var s = String(x == null ? '' : x).replace(/\|/g, '\\|').replace(/\n/g, ' '); return s.length > 60 ? s.slice(0, 59) + '…' : s; }
+    var head = '| ' + cols.map(c).join(' | ') + ' |';
+    var sep = '| ' + cols.map(function () { return '---'; }).join(' | ') + ' |';
+    var body = rows.slice(0, n).map(function (r) { return '| ' + (r || []).map(c).join(' | ') + ' |'; }).join('\n');
+    return head + '\n' + sep + '\n' + body + (rows.length > n ? '\n\n… +' + (rows.length - n) + ' more row(s)' : '');
+}
 
 function normRound(r) {
     return {
@@ -1915,6 +1927,14 @@ function handleTurnResponse(chat, err, resp) {
     }
     saveChats(); renderChatList();
     setPreview(rounds);
+
+    // If this chat was launched from a Daily Task, write the result BACK to the task.
+    if (chat._taskId && typeof window.saveTaskResult === 'function') {
+        var tmd = resp.markdown || '';
+        var tg = resp.grid; if (typeof tg === 'string') { try { tg = JSON.parse(tg); } catch (e) { tg = null; } }
+        if ((!tmd || !tmd.trim()) && tg && tg.columns && tg.rows) tmd = taskGridToMd(tg.columns, tg.rows);
+        try { window.saveTaskResult(chat._taskId, tmd || '(completed — no text output)', resp.success !== false); } catch (e) { }
+    }
 }
 
 // ── Interactive grid answers ───────────────────────────────
