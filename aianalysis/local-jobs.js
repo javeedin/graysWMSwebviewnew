@@ -74,16 +74,18 @@
         return cur;
     }
 
-    // compact text table for a query result (so Execute shows the data)
+    // a proper MARKDOWN table for a query result, so it renders as a table
+    // (not raw pipes) in the task Result via marked.
     function previewTable(cols, rows, limit) {
         cols = cols || []; rows = rows || [];
         if (!cols.length && !rows.length) return '';
         var n = Math.min(rows.length, limit || 12);
-        function cell(c) { var s = String(c == null ? '' : c); return s.length > 30 ? s.slice(0, 29) + '…' : s; }
-        var head = cols.join(' | ');
-        var body = rows.slice(0, n).map(function (r) { return (r || []).map(cell).join(' | '); }).join('\n');
-        var more = rows.length > n ? '\n… +' + (rows.length - n) + ' more row(s)' : '';
-        return head + '\n' + body + more;
+        function cell(c) { var s = String(c == null ? '' : c).replace(/\|/g, '\\|').replace(/\n/g, ' '); return s.length > 40 ? s.slice(0, 39) + '…' : s; }
+        var head = '| ' + cols.map(cell).join(' | ') + ' |';
+        var sep = '| ' + cols.map(function () { return '---'; }).join(' | ') + ' |';
+        var body = rows.slice(0, n).map(function (r) { return '| ' + (r || []).map(cell).join(' | ') + ' |'; }).join('\n');
+        var more = rows.length > n ? '\n\n… +' + (rows.length - n) + ' more row(s)' : '';
+        return head + '\n' + sep + '\n' + body + more;
     }
 
     // ── one step ────────────────────────────────────────────
@@ -114,8 +116,9 @@
                 }
                 // include a compact data preview so the run RESULT shows the actual
                 // data (report-style tasks), not just a row count.
-                var prev = previewTable(cols, rows, type === 'report' ? 25 : 12);
-                log.push('query -> ' + rows.length + ' row(s)' + (prev ? '\n' + prev : ''));
+                var prev = previewTable(cols, rows, type === 'report' ? 50 : 20);
+                log.push('**' + rows.length + ' row(s)**');
+                if (prev) { log.push(''); log.push(prev); log.push(''); }
                 return { rows: rows, columns: cols };
             });
         }

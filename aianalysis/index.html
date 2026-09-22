@@ -1782,7 +1782,7 @@ window.aiAsk = function (promptText, cb) {
     sendMessageToCSharp(msg, function (err, resp) {
         if (done) return; done = true; clearInterval(watch);
         if (err) { cb(String(err)); return; }
-        cb(null, (resp && (resp.markdown || resp.answer)) || '');
+        cb(null, (resp && (resp.markdown || resp.answer)) || '', resp);   // 3rd arg = full response (grid, etc.)
     });
 };
 

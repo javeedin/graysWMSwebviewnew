@@ -75,6 +75,28 @@
         } catch (e) { }
         return '<div style="white-space:pre-wrap;">' + esc2(md) + '</div>';
     }
+    // grid {columns, rows} -> markdown table (so AI results with a data grid
+    // render like the chatbot)
+    function gridToMd(cols, rows, limit) {
+        cols = cols || []; rows = rows || [];
+        if (!cols.length) return '';
+        var n = Math.min(rows.length, limit || 60);
+        function cell(c) { var s = String(c == null ? '' : c).replace(/\|/g, '\\|').replace(/\n/g, ' '); return s.length > 60 ? s.slice(0, 59) + '…' : s; }
+        var head = '| ' + cols.map(cell).join(' | ') + ' |';
+        var sep = '| ' + cols.map(function () { return '---'; }).join(' | ') + ' |';
+        var body = rows.slice(0, n).map(function (r) { return '| ' + (r || []).map(cell).join(' | ') + ' |'; }).join('\n');
+        return head + '\n' + sep + '\n' + body + (rows.length > n ? '\n\n… +' + (rows.length - n) + ' more row(s)' : '');
+    }
+    // turn a full AI response into markdown (its answer + any data grid)
+    function respToMarkdown(resp) {
+        if (!resp) return '';
+        var parts = [];
+        var md = resp.markdown || resp.answer || '';
+        if (md) parts.push(md);
+        var grid = resp.grid; if (typeof grid === 'string') { try { grid = JSON.parse(grid); } catch (e) { grid = null; } }
+        if (grid && grid.columns && grid.rows && grid.rows.length) parts.push(gridToMd(grid.columns, grid.rows));
+        return parts.join('\n\n');
+    }
     function ensureMdCss() {
         if (document.getElementById('tsk-md-css')) return;
         var s = document.createElement('style'); s.id = 'tsk-md-css';
@@ -269,26 +291,12 @@
         if (t.STATUS === 'DONE' || t.STATUS === 'BLOCKED') actions += drawerBtn('Reopen', 'OPEN', '#1d4ed8');
 
         var steps = parseSteps(t.ACTION_JSON);
-        var execHtml = '';
-        if (steps && steps.length) {
-            execHtml =
-                '<div style="border:1px solid #cffafe;background:#f0fdff;border-radius:8px;padding:8px 10px;margin-bottom:12px;">' +
-                  '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
-                    '<span style="font-size:11px;font-weight:800;color:#0e7490;"><i class="fas fa-bolt"></i> Runs SQL directly · ' + steps.length + ' step(s) — no AI wait</span>' +
-                    (t.LAST_RUN ? '<span style="font-size:10px;color:#64748b;">last run ' + esc2(t.LAST_RUN) + ' · ' + esc2(t.LAST_RUN_STATUS || '') + '</span>' : '') +
-                    '<button onclick="Tasks.execute(' + t.TASK_ID + ')" style="margin-left:auto;border:none;background:#0891b2;color:#fff;border-radius:8px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-play"></i> Execute now</button>' +
-                  '</div>' +
-                  '<details style="margin-top:6px;"><summary style="font-size:10px;color:#0e7490;cursor:pointer;">view steps</summary>' +
-                    '<pre style="background:#0f172a;color:#d1e7ff;border-radius:6px;padding:8px;font-size:10px;max-height:180px;overflow:auto;margin:6px 0 0;">' + esc2(JSON.stringify(steps, null, 2)) + '</pre></details>' +
-                '</div>';
-        } else {
-            // no steps yet — Run with AI is the slow agent path; offer to build fast SQL once
-            execHtml =
-                '<div style="border:1px solid #fde68a;background:#fffbeb;border-radius:8px;padding:9px 11px;margin-bottom:12px;">' +
-                  '<div style="font-size:11px;color:#92400e;line-height:1.5;"><i class="fas fa-gauge-high"></i> <b>Run with AI</b> uses the agent (it thinks between each SQL — slower). Build direct SQL steps <b>once</b> and then <b>Execute</b> runs instantly, every time.</div>' +
-                  '<button onclick="Tasks.makeFast(' + t.TASK_ID + ')" style="margin-top:8px;border:none;background:#0891b2;color:#fff;border-radius:8px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-bolt"></i> Make it run fast (build SQL steps)</button>' +
-                '</div>';
-        }
+        var hasSteps = steps && steps.length;
+        var modeHtml = hasSteps
+            ? '<div style="font-size:10.5px;color:#0e7490;margin-bottom:12px;"><i class="fas fa-bolt"></i> Runs SQL directly (' + steps.length + ' step(s)) — fast. ' +
+                '<a href="javascript:void(0)" onclick="var p=this.parentNode.querySelector(\'pre\');p.style.display=p.style.display===\'none\'?\'block\':\'none\';" style="color:#0e7490;">view steps</a>' +
+                '<pre style="display:none;background:#0f172a;color:#d1e7ff;border-radius:6px;padding:8px;font-size:10px;max-height:180px;overflow:auto;margin:6px 0 0;">' + esc2(JSON.stringify(steps, null, 2)) + '</pre></div>'
+            : '<div style="font-size:10.5px;color:#7c3aed;margin-bottom:12px;"><i class="fas fa-robot"></i> Runs via the AI agent — same as typing it in the Chatbot.</div>';
 
         var timeline = events.length ? events.map(eventRow).join('') :
             '<div style="font-size:11px;color:#94a3b8;padding:6px;">No activity recorded yet.</div>';
@@ -311,11 +319,12 @@
             '</div>' +
             '<div style="flex:1;overflow-y:auto;padding:14px 18px;">' +
               (t.DESCRIPTION ? '<div style="font-size:12.5px;color:#334155;line-height:1.6;white-space:pre-wrap;margin-bottom:12px;">' + esc2(t.DESCRIPTION) + '</div>' : '') +
-              '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;">' + actions +
-                '<button onclick="Tasks.runAI(' + t.TASK_ID + ')" style="border:none;background:#0891b2;color:#fff;border-radius:8px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-robot"></i> Run with AI</button>' +
+              '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">' +
+                '<button onclick="Tasks.runTask(' + t.TASK_ID + ')" style="border:none;background:#0891b2;color:#fff;border-radius:8px;padding:8px 18px;font-size:13px;font-weight:800;cursor:pointer;"><i class="fas fa-play"></i> Run Task</button>' +
+                actions +
                 '<button onclick="Tasks.openEdit(' + t.TASK_ID + ')" style="border:1px solid #e2e8f0;background:#fff;color:#475569;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-pen"></i> Edit</button>' +
               '</div>' +
-              execHtml +
+              modeHtml +
               (t.STATUS === 'BLOCKED' && t.ISSUE ? '<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;margin-bottom:12px;"><div style="font-size:10px;font-weight:800;color:#b91c1c;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">Issue</div><div class="tsk-md">' + mdHtml(t.ISSUE) + '</div></div>' : '') +
               (t.RESULT ? '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;margin-bottom:12px;"><div style="font-size:10px;font-weight:800;color:#166534;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">Result</div><div class="tsk-md">' + mdHtml(t.RESULT) + '</div></div>' : '') +
               '<div style="display:flex;gap:6px;margin-bottom:12px;">' +
@@ -386,10 +395,11 @@
                     'IMPORTANT: work ONLY on the TRIP DATE ' + (t.TRIP_DATE || '') + ' — restrict every query/action to trips/orders whose trip date is ' + (t.TRIP_DATE || '') + '. Do not touch other dates.\n\n' +
                     'TASK: ' + (t.TITLE || '') + '\nTRIP DATE: ' + (t.TRIP_DATE || '') + '\nDETAILS: ' + (t.DESCRIPTION || '');
                 if (typeof window.aiAsk !== 'function') { aiProgressStop(); alert('AI helper unavailable'); return; }
-                window.aiAsk(prompt, function (e2, md) {
+                window.aiAsk(prompt, function (e2, md, resp) {
                     aiProgressStop();
                     var ok = !e2;
-                    md = md || (e2 ? ('AI error: ' + e2) : 'No response');
+                    if ((!md || !md.trim()) && resp) md = respToMarkdown(resp);   // include the data grid
+                    md = md || (e2 ? ('AI error: ' + e2) : 'The task ran but returned no text output.');
                     logEvent(id, 'AI', 'RESULT', md, function () {
                         // store the AI summary as the task result + count the run
                         writeSql('UPDATE wms_ai_tasks SET result = ' + clob(md.slice(0, 32000)) +
@@ -433,6 +443,20 @@
         while (log.childNodes.length > 80) log.removeChild(log.firstChild);
     }
     function aiProgressStop() { var p = document.getElementById('tsk-progress'); if (p) p.remove(); window._taskAiProgress = null; }
+
+    // ONE entry point: if the task has direct SQL steps, run them fast;
+    // otherwise run it through the AI agent (like the chatbot). Same button.
+    function runTask(id) {
+        var t = _openTask;
+        var steps = t && (t.TASK_ID == id) ? parseSteps(t.ACTION_JSON) : null;
+        if (steps && steps.length) { execute(id); return; }
+        // fall back to a fresh read in case the drawer task isn't loaded
+        if (steps) { runAI(id); return; }
+        readSql("SELECT action_json FROM wms_ai_tasks WHERE task_id = " + parseInt(id, 10), function (err, rows) {
+            var s = (rows && rows[0]) ? parseSteps(rows[0].ACTION_JSON) : [];
+            if (s && s.length) execute(id); else runAI(id);
+        });
+    }
 
     // ── execute a task's steps (via the shared LOCAL job runner) ───
     function execute(id) {
@@ -1041,6 +1065,7 @@
         create: create,
         setStatus: setStatus,
         addEvent: addEvent,
+        runTask: runTask,
         runAI: runAI,
         execute: execute,
         makeFast: makeFast,
