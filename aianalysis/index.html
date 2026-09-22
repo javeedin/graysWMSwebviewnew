@@ -1745,6 +1745,29 @@ async function sendTurn(promptText, displayText) {
     sendMessageToCSharp(msg, function (err, resp) { handleTurnResponse(chat, err, resp); });
 }
 
+// Headless one-shot AI call (no chat UI) for helpers like the Tasks wizard.
+// Uses the SAME message shape as a real turn, plus a hard timeout so callers
+// never hang on a spinner. cb(err, markdownString).
+window.aiAsk = function (promptText, cb) {
+    if (!(window.chrome && window.chrome.webview)) { cb('AI bridge not available (open inside the WMS app)'); return; }
+    var dp = (typeof getDefaultPrinter === 'function') ? getDefaultPrinter() : '';
+    var ctxLine = '[CURRENT_INSTANCE: ' + currentInstance() + ']' + (dp ? ' [DEFAULT_PRINTER: ' + dp + ']' : '');
+    var msg = {
+        action: 'aiChatSend', text: ctxLine + '\n' + promptText, sessionId: null,
+        downloadFolder: (typeof getDownloadFolder === 'function') ? getDownloadFolder() : '',
+        instance: currentInstance()
+    };
+    var eng = (typeof currentEngine === 'function') ? currentEngine() : null;
+    if (eng) { msg.engine = eng; msg.history = []; }
+    var done = false;
+    var to = setTimeout(function () { if (done) return; done = true; cb('The assistant did not respond in time. Try again, or use the built-in suggestions.'); }, 120000);
+    sendMessageToCSharp(msg, function (err, resp) {
+        if (done) return; done = true; clearTimeout(to);
+        if (err) { cb(String(err)); return; }
+        cb(null, (resp && (resp.markdown || resp.answer)) || '');
+    });
+};
+
 function normRound(r) {
     return {
         kind: r.kind || 'sql', sql: r.sql, method: r.method, path: r.path, reason: r.reason,

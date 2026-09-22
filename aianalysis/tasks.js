@@ -20,6 +20,32 @@
     };
     var PRIO = { 1: ['High', '#dc2626'], 2: ['Medium', '#d97706'], 3: ['Low', '#64748b'] };
 
+    // built-in suggestions shown when the AI is slow / unavailable, so
+    // "Assign Tasks" always gives the user something to assign.
+    var DEFAULT_SUGGESTIONS = [
+        { title: 'Cancel stuck Scheduled / Manual Reservation lines', description: 'Find open trips with order lines in Scheduled or Manual Reservation Required status and cancel them (with their child lines), then report how many.', category: 'Trips', priority: 1, recurrence: 'DAILY', steps: [] },
+        { title: 'Auto-print interfaced orders', description: "Print all newly Interfaced orders for today's trips that haven't been printed yet.", category: 'Printing', priority: 2, recurrence: 'DAILY', steps: [] },
+        { title: 'Morning trip status sweep', description: 'Review every open trip and summarise status, pending picks and any anomalies.', category: 'Trips', priority: 2, recurrence: 'DAILY', steps: [] },
+        { title: 'Failed print jobs review', description: 'List print jobs that failed in the last 24 hours and retry or report them.', category: 'Printing', priority: 2, recurrence: 'DAILY', steps: [] }
+    ];
+
+    // Curated catalog of tasks the WMS module commonly does — pick to assign.
+    var TASK_LIBRARY = [
+        { category: 'Trips', title: 'Cancel stuck Scheduled / Manual Reservation lines', description: 'Find open trips whose order lines are Scheduled or Manual Reservation Required and cancel them (with child lines), then report how many.', priority: 1, recurrence: 'DAILY' },
+        { category: 'Trips', title: 'Morning trip status sweep', description: 'Review every open trip and summarise status, pending picks, and any anomalies.', priority: 2, recurrence: 'DAILY' },
+        { category: 'Trips', title: 'Close completed trips', description: 'Find trips whose orders are all Interfaced/Shipped and mark/close them.', priority: 3, recurrence: 'DAILY' },
+        { category: 'Picking', title: 'Release picks for ready orders', description: 'Release picks for orders that are ready to pick on active trips.', priority: 2, recurrence: 'ONCE' },
+        { category: 'Picking', title: 'Picker workload summary', description: 'Show each picker’s assigned vs completed orders for today.', priority: 3, recurrence: 'DAILY' },
+        { category: 'Printing', title: 'Auto-print interfaced orders', description: "Print all newly Interfaced orders for today's trips that haven't been printed yet.", priority: 2, recurrence: 'DAILY' },
+        { category: 'Printing', title: 'Retry failed print jobs', description: 'List print jobs that failed in the last 24 hours and retry them, then report.', priority: 2, recurrence: 'DAILY' },
+        { category: 'Orders', title: 'Orders with cancelled shipment lines', description: 'List today’s orders that have cancelled shipment lines and the reasons.', priority: 3, recurrence: 'DAILY' },
+        { category: 'Orders', title: 'Backordered / short-picked report', description: 'Report orders that are backordered or short-picked and need attention.', priority: 2, recurrence: 'DAILY' },
+        { category: 'Store / S2V', title: 'Process pending store-to-van transfers', description: 'Find pending S2V transactions for today and process/report them.', priority: 2, recurrence: 'DAILY' },
+        { category: 'Inventory', title: 'Low / negative on-hand check', description: 'Report items with low or negative on-hand that could block fulfilment.', priority: 2, recurrence: 'DAILY' },
+        { category: 'Monitoring', title: 'Shipping agent activity (24h)', description: 'Summarise what the shipping agent did in the last 24 hours (cancels, prints, errors).', priority: 3, recurrence: 'DAILY' },
+        { category: 'Monitoring', title: 'Failed API calls review', description: 'Review WMS_AI_API_LOG for failed calls in the last 24 hours and report patterns.', priority: 3, recurrence: 'DAILY' }
+    ];
+
     var state = { date: todayStr(), assignee: '', search: '', tasks: [], openId: null };
 
     function todayStr() { var d = new Date(); function z(n) { return (n < 10 ? '0' : '') + n; } return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()); }
@@ -99,6 +125,7 @@
                 '<button onclick="Tasks.setDate(\'' + todayStr() + '\')" style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;color:#475569;">Today</button>' +
                 '<input id="tsk-search" placeholder="Search…" oninput="Tasks.search(this.value)" style="padding:5px 9px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;flex:1;min-width:120px;">' +
                 '<button onclick="Tasks.refresh()" title="Refresh" style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:5px 10px;font-size:11px;cursor:pointer;color:#0e7490;"><i class="fas fa-sync-alt"></i></button>' +
+                '<button onclick="Tasks.openLibrary()" style="border:1px solid #7c3aed;background:#f5f3ff;color:#6d28d9;border-radius:8px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-book-open"></i> Task Library</button>' +
                 '<button onclick="Tasks.openCreate()" style="border:none;background:#7c3aed;color:#fff;border-radius:8px;padding:6px 13px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-plus"></i> New Task</button>' +
               '</div>' +
               '<div id="tsk-dash" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;"></div>' +
@@ -299,11 +326,9 @@
                 var prompt = 'You are working an assigned WORK TASK. Do it using your tools, then give a concise result. ' +
                     'If you cannot complete it, clearly state the ISSUE and what is blocking.\n\n' +
                     'TASK: ' + (t.TITLE || '') + '\nDETAILS: ' + (t.DESCRIPTION || '');
-                if (typeof sendMessageToCSharp !== 'function') { alert('AI bridge unavailable'); return; }
-                var d = document.getElementById('tsk-drawer'); // keep drawer; show spinner in timeline
-                sendMessageToCSharp({ action: 'aiChatSend', text: '[CURRENT_INSTANCE: ' + inst() + ']\n' + prompt, sessionId: null, instance: inst() }, function (e2, resp) {
-                    var md = (resp && (resp.markdown || resp.answer)) || (e2 ? ('AI error: ' + e2) : 'No response');
-                    var kind = /issue|cannot|blocked|error|fail/i.test(md) && e2 ? 'ISSUE' : 'RESULT';
+                if (typeof window.aiAsk !== 'function') { alert('AI helper unavailable'); return; }
+                window.aiAsk(prompt, function (e2, md) {
+                    md = md || (e2 ? ('AI error: ' + e2) : 'No response');
                     logEvent(id, 'AI', 'RESULT', md, function () {
                         // store the AI summary as the task result
                         writeSql('UPDATE wms_ai_tasks SET result = ' + clob(md.slice(0, 8000)) + ', updated_by = ' + q('AI') + ', updated_date = SYSDATE WHERE task_id = ' + parseInt(id, 10), function () {
@@ -371,10 +396,9 @@
             'Steps use these types (same as a LOCAL scheduled job): ' +
             'query{sql,extract{VAR:"COLUMN"}}, rest{method,url,body,extract{VAR:"items[1].X"}}, print{orderNumber,tripId}, download_pdf{orderNumber,tripId}, forEach{query:{sql},do:[...]}, ipc{action,params}. ' +
             'Use {VAR} placeholders, REAL ORDS URLs from the catalog and REAL table/column names. completionSql is optional (a plain SELECT; 0 rows = done). recurrence is ONCE or DAILY.\n\nGOAL: ' + goal;
-        if (typeof sendMessageToCSharp !== 'function') { if (note) note.innerHTML = '<span style="color:#b91c1c;">AI bridge unavailable.</span>'; return; }
-        sendMessageToCSharp({ action: 'aiChatSend', text: '[CURRENT_INSTANCE: ' + inst() + ']\n' + prompt, sessionId: null, instance: inst() }, function (err, resp) {
-            if (err) { if (note) note.innerHTML = '<span style="color:#b91c1c;">AI error: ' + esc2(String(err)) + '</span>'; return; }
-            var md = (resp && (resp.markdown || resp.answer)) || '';
+        if (typeof window.aiAsk !== 'function') { if (note) note.innerHTML = '<span style="color:#b91c1c;">AI helper unavailable.</span>'; return; }
+        window.aiAsk(prompt, function (err, md) {
+            if (err) { if (note) note.innerHTML = '<span style="color:#b91c1c;">AI: ' + esc2(String(err)) + '</span>'; return; }
             var def = extractTaskDef(md);
             if (!def) { if (note) note.innerHTML = '<span style="color:#b45309;">Could not parse a task from the AI. Try rephrasing the goal.</span>'; return; }
             fillCreateForm(def);
@@ -522,19 +546,19 @@
     }
     function wizAnalyze() {
         var body = document.getElementById('tsk-wiz-body'); if (!body) return;
-        body.innerHTML = '<div style="text-align:center;color:#0e7490;font-size:13px;padding:26px 0;"><i class="fas fa-circle-notch fa-spin" style="font-size:20px;"></i><div style="margin-top:10px;">Checking the warehouse and preparing suggestions…</div></div>';
+        body.innerHTML = '<div style="text-align:center;color:#0e7490;font-size:13px;padding:26px 0;"><i class="fas fa-circle-notch fa-spin" style="font-size:20px;"></i><div style="margin-top:10px;">Checking the warehouse and preparing suggestions…</div><div style="font-size:10.5px;color:#94a3b8;margin-top:6px;">This can take a few seconds while I look at your data.</div></div>';
         var prompt =
             'You are the WMS AI Digital Assistant. Suggest a concise list of USEFUL tasks the user could assign to you today, based on the real warehouse state for instance ' + inst() + '. ' +
             'First look at what needs attention (query open trips, orders with Scheduled/Manual Reservation lines, orders ready to print/interface, anything overdue). ' +
             'Reply with ONLY a single ```json array (3 to 6 items), no prose: ' +
             '[{"title":"","description":"","category":"","priority":2,"recurrence":"ONCE","steps":[]}]. ' +
             'Keep titles short and action-oriented; include an executable steps array (query/rest/print/download_pdf/forEach/ipc, {VAR} placeholders, REAL ORDS URLs/columns) when you can, else leave steps empty.';
-        if (typeof sendMessageToCSharp !== 'function') { body.innerHTML = '<div style="color:#b91c1c;font-size:12px;">AI bridge unavailable (open inside the WMS app).</div>'; return; }
-        sendMessageToCSharp({ action: 'aiChatSend', text: '[CURRENT_INSTANCE: ' + inst() + ']\n' + prompt, sessionId: null, instance: inst() }, function (err, resp) {
-            if (err) { body.innerHTML = '<div style="color:#b91c1c;font-size:12px;">AI error: ' + esc2(String(err)) + '</div>'; return; }
-            var md = (resp && (resp.markdown || resp.answer)) || '';
+        var fallback = function (why) { _suggest = DEFAULT_SUGGESTIONS.slice(); wizRender(why + ' Here are common tasks you can assign:'); };
+        if (typeof window.aiAsk !== 'function') { fallback('The assistant helper isn\'t available.'); return; }
+        window.aiAsk(prompt, function (err, md) {
+            if (err) { fallback('The assistant is busy or slow (' + esc2(String(err)) + ').'); return; }
             var arr = extractArray(md);
-            if (!arr || !arr.length) { body.innerHTML = '<div style="color:#b45309;font-size:12.5px;">I couldn\'t prepare suggestions right now. You can <b>Re-analyze</b>, or add a task manually.</div>'; return; }
+            if (!arr || !arr.length) { fallback('I couldn\'t build custom suggestions this time.'); return; }
             _suggest = arr;
             wizRender();
         });
@@ -545,9 +569,10 @@
         if (!m) return null;
         try { var a = JSON.parse(m[1]); return Array.isArray(a) ? a : (a.tasks || a.suggestions || null); } catch (e) { return null; }
     }
-    function wizRender() {
+    function wizRender(note) {
         var body = document.getElementById('tsk-wiz-body'); if (!body) return;
-        body.innerHTML = '<div style="font-size:11px;color:#64748b;margin-bottom:10px;">' + _suggest.length + ' suggested task(s) — tick the ones to assign, then <b>Assign selected</b>:</div>' +
+        body.innerHTML = (note ? '<div style="font-size:11.5px;color:#b45309;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:7px 10px;margin-bottom:10px;">' + esc2(note) + '</div>' : '') +
+            '<div style="font-size:11px;color:#64748b;margin-bottom:10px;">' + _suggest.length + ' suggested task(s) — tick the ones to assign, then <b>Assign selected</b>:</div>' +
             _suggest.map(function (d, i) {
                 var p = PRIO[parseInt(d.priority || 2, 10)] || PRIO[2];
                 var nSteps = (d.steps && d.steps.length) || 0;
@@ -587,9 +612,56 @@
         })();
     }
 
+    // ── Task Library (pick common WMS tasks to assign) ──────
+    function openLibrary() {
+        document.getElementById('tsk-lib')?.remove();
+        var cats = {};
+        TASK_LIBRARY.forEach(function (t, i) { (cats[t.category] = cats[t.category] || []).push(i); });
+        var bodyHtml = Object.keys(cats).map(function (c) {
+            return '<div style="font-size:10px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin:12px 2px 6px;">' + esc2(c) + '</div>' +
+                cats[c].map(function (i) {
+                    var t = TASK_LIBRARY[i], p = PRIO[t.priority] || PRIO[2];
+                    return '<div id="lib-row-' + i + '" style="display:flex;gap:10px;align-items:flex-start;border:1px solid #e6eaf2;border-radius:10px;padding:9px 11px;margin-bottom:7px;">' +
+                        '<span style="width:8px;height:8px;border-radius:50%;background:' + p[1] + ';margin-top:4px;flex-shrink:0;"></span>' +
+                        '<div style="flex:1;min-width:0;"><div style="font-size:12.5px;font-weight:700;color:#0f172a;">' + esc2(t.title) + '</div>' +
+                          '<div style="font-size:11px;color:#64748b;margin-top:2px;line-height:1.45;">' + esc2(t.description) + '</div>' +
+                          '<div style="font-size:9.5px;color:#94a3b8;margin-top:3px;">' + p[0] + ' priority' + (t.recurrence === 'DAILY' ? ' · daily' : '') + '</div></div>' +
+                        '<button id="lib-btn-' + i + '" onclick="Tasks.assignFromLib(' + i + ')" style="border:none;background:#7c3aed;color:#fff;border-radius:8px;padding:6px 12px;font-size:11px;font-weight:800;cursor:pointer;white-space:nowrap;align-self:center;"><i class="fas fa-plus"></i> Assign</button>' +
+                    '</div>';
+                }).join('');
+        }).join('');
+        document.body.insertAdjacentHTML('beforeend',
+        '<div id="tsk-lib" style="position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:1002;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">' +
+          '<div style="background:#fff;border-radius:16px;width:660px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 70px rgba(0,0,0,.35);overflow:hidden;">' +
+            '<div style="padding:16px 20px;background:linear-gradient(135deg,#7c3aed,#0891b2);color:#fff;">' +
+              '<div style="font-size:15px;font-weight:800;"><i class="fas fa-book-open"></i> Task Library</div>' +
+              '<div style="font-size:11.5px;opacity:.9;margin-top:2px;">Common tasks the WMS does — pick any to assign to your AI Digital Employee.</div>' +
+            '</div>' +
+            '<div style="flex:1;overflow-y:auto;padding:8px 20px 16px;">' + bodyHtml + '</div>' +
+            '<div style="padding:12px 20px;border-top:1px solid #eef2f7;text-align:right;">' +
+              '<button onclick="document.getElementById(\'tsk-lib\').remove()" style="border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer;color:#64748b;">Done</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>');
+    }
+    function assignFromLib(i) {
+        var t = TASK_LIBRARY[i]; if (!t) return;
+        var btn = document.getElementById('lib-btn-' + i);
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i>'; }
+        insertTaskDef({ title: t.title, description: t.description, category: t.category, priority: t.priority, recurrence: t.recurrence, steps: t.steps || [] }, function (err) {
+            if (btn) {
+                if (err) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-plus"></i> Assign'; alert('Assign failed: ' + err); return; }
+                btn.style.background = '#16a34a'; btn.innerHTML = '<i class="fas fa-check"></i> Assigned';
+            }
+            load();
+        });
+    }
+
     window.Tasks = {
         load: load,
         refresh: load,
+        openLibrary: openLibrary,
+        assignFromLib: assignFromLib,
         assignWizard: assignWizard,
         wizAssign: wizAssign,
         _wizToggle: _wizToggle,
