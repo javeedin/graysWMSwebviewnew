@@ -325,6 +325,7 @@
                 '<button onclick="Tasks.openEdit(' + t.TASK_ID + ')" style="border:1px solid #e2e8f0;background:#fff;color:#475569;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-pen"></i> Edit</button>' +
               '</div>' +
               modeHtml +
+              '<div id="tsk-run-live"></div>' +
               (t.STATUS === 'BLOCKED' && t.ISSUE ? '<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;margin-bottom:12px;"><div style="font-size:10px;font-weight:800;color:#b91c1c;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">Issue</div><div class="tsk-md">' + mdHtml(t.ISSUE) + '</div></div>' : '') +
               (t.RESULT ? '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;margin-bottom:12px;"><div style="font-size:10px;font-weight:800;color:#166534;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">Result</div><div class="tsk-md">' + mdHtml(t.RESULT) + '</div></div>' : '') +
               '<div style="display:flex;gap:6px;margin-bottom:12px;">' +
@@ -422,27 +423,27 @@
         try { var o = typeof aj === 'string' ? JSON.parse(aj) : aj; var s = Array.isArray(o) ? o : (o.steps || []); return Array.isArray(s) ? s : []; } catch (e) { return []; }
     }
 
-    // ── live progress toast (so you can SEE the AI working) ────────
+    // ── live progress INSIDE the task drawer (a mini chatbot for the task) ──
     function aiProgressStart(title) {
-        document.getElementById('tsk-progress')?.remove();
-        document.body.insertAdjacentHTML('beforeend',
-            '<div id="tsk-progress" style="position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:1100;background:#0f172a;color:#e2e8f0;border-radius:12px;box-shadow:0 14px 44px rgba(0,0,0,.45);width:460px;max-width:94vw;overflow:hidden;">' +
-              '<div style="padding:11px 14px;display:flex;align-items:center;gap:9px;border-bottom:1px solid #1e293b;">' +
-                '<i class="fas fa-robot" style="color:#22d3ee;"></i>' +
-                '<span style="font-size:12.5px;font-weight:800;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc2(title) + '</span>' +
+        var host = document.getElementById('tsk-run-live');
+        if (!host) return;   // drawer not open
+        host.innerHTML =
+            '<div style="border:1px solid #1e293b;background:#0f172a;color:#e2e8f0;border-radius:10px;padding:10px 12px;margin-bottom:12px;">' +
+              '<div style="display:flex;align-items:center;gap:8px;font-size:12px;font-weight:800;">' +
+                '<i class="fas fa-robot" style="color:#22d3ee;"></i> <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc2(title) + '</span>' +
                 '<i class="fas fa-circle-notch fa-spin" style="color:#22d3ee;"></i>' +
               '</div>' +
-              '<div id="tsk-progress-log" style="max-height:180px;overflow:auto;padding:8px 14px;font-size:11px;line-height:1.65;font-family:Consolas,monospace;color:#94e2d5;"></div>' +
-            '</div>');
+              '<div id="tsk-run-live-log" style="max-height:170px;overflow:auto;margin-top:8px;font-size:11px;line-height:1.6;font-family:Consolas,monospace;color:#94e2d5;"></div>' +
+            '</div>';
         aiProgressLine('starting…');
     }
     function aiProgressLine(text) {
-        var log = document.getElementById('tsk-progress-log'); if (!log || !text) return;
+        var log = document.getElementById('tsk-run-live-log'); if (!log || !text) return;
         var d = document.createElement('div'); d.textContent = '• ' + text;
         log.appendChild(d); log.scrollTop = log.scrollHeight;
         while (log.childNodes.length > 80) log.removeChild(log.firstChild);
     }
-    function aiProgressStop() { var p = document.getElementById('tsk-progress'); if (p) p.remove(); window._taskAiProgress = null; }
+    function aiProgressStop() { var h = document.getElementById('tsk-run-live'); if (h) h.innerHTML = ''; window._taskAiProgress = null; }
     // toast should show short STATUS only — never the raw data rows/tables
     function progressStatus(line) {
         if (line == null) return;
