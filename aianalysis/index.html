@@ -346,6 +346,7 @@
         <div class="main-tab active" id="ptab-chatbot" onclick="switchPage('chatbot')"><i class="fas fa-robot"></i> Chatbot</div>
         <div class="main-tab" id="ptab-reports" onclick="switchPage('reports')"><i class="fas fa-chart-line"></i> Saved Reports</div>
         <div class="main-tab" id="ptab-jobs" onclick="switchPage('jobs')"><i class="fas fa-clock"></i> Scheduled Jobs</div>
+        <div class="main-tab" id="ptab-tasks" onclick="switchPage('tasks')"><i class="fas fa-list-check"></i> Daily Tasks</div>
         <div class="main-tab" id="ptab-apis" onclick="switchPage('apis')"><i class="fas fa-plug"></i> APIs</div>
         <div class="main-tab" id="ptab-policies" onclick="switchPage('policies')"><i class="fas fa-user-shield"></i> Policies</div>
         <div class="main-tab" id="ptab-processes" onclick="switchPage('processes')"><i class="fas fa-diagram-project"></i> Processes</div>
@@ -517,6 +518,8 @@
     </div><!-- /page-jobs -->
 
     <!-- ══════════ PAGE 4: APIs (write webservices) ══════════ -->
+    <div class="page" id="page-tasks" style="display:none;"></div>
+
     <div class="page" id="page-apis" style="display:none;">
         <!-- Left: API list -->
         <div class="rp-left" style="width:340px;min-width:340px;">
@@ -730,6 +733,7 @@
 <script src="api-catalog.js"></script>
 <script src="order-entry.js"></script>
 <script src="local-jobs.js"></script>
+<script src="tasks.js"></script>
 <script>
 // ============================================================
 // TRIAL PERIOD GATE - reads WMS_AI_TRIAL from the APEX DB.
@@ -2503,13 +2507,14 @@ function copySqlData(d) {
 const AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
 
 function switchPage(which) {
-    ['chatbot', 'reports', 'jobs', 'apis', 'policies', 'processes', 'learn', 'cando'].forEach(p => {
+    ['chatbot', 'reports', 'jobs', 'tasks', 'apis', 'policies', 'processes', 'learn', 'cando'].forEach(p => {
         document.getElementById('ptab-' + p).classList.toggle('active', which === p);
         document.getElementById('page-' + p).style.display = which === p ? '' : 'none';
     });
     if (which === 'processes') loadProcessesPage();
     if (which === 'reports' && !window._reportsLoaded) loadReports();
     if (which === 'jobs') loadJobs();
+    if (which === 'tasks' && window.Tasks) Tasks.load();
     if (which === 'apis') renderApiList();
     if (which === 'policies') { if (!_polUser) _polUser = '*'; loadPoliciesPage(); }
     if (which === 'learn') { renderLearnTopics(); if (!_learnTopic) openLearnTopic(LEARN_TOPICS[0].id); }

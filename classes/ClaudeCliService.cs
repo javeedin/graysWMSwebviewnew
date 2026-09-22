@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V47";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V48";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string LOCAL_JOBS_CREATE_URL =
@@ -579,6 +579,11 @@ namespace WMSApp
             sb.AppendLine("LOCAL {VAR} substitution uses {NAME} (or #NAME#). completionSql for a LOCAL REPEAT_UNTIL_DONE is still a plain SELECT (done when 0 rows). Prefer forEach for 'do X for every order that ...'.");
             sb.AppendLine();
             sb.AppendLine("Both lanes: the app shows the user an approval card with the full plan - nothing is scheduled until approved. You then receive JOB_RESULT: {success, jobId, firstRun} or USER_REJECTED - confirm with action answer and tell the user to watch it in the Scheduled Jobs tab (LOCAL jobs show a LOCAL badge and run while the app is open).");
+            sb.AppendLine();
+            sb.AppendLine("## Daily Tasks (assigned work with traceability)");
+            sb.AppendLine();
+            sb.AppendLine("Users assign day-to-day tasks to you on the Daily Tasks board. Tasks live in wms_ai_tasks (task_id, title, description, assignee, category, priority, task_date, recurrence ONCE/DAILY, status OPEN/IN_PROGRESS/DONE/BLOCKED, result, issue) and every action is recorded in wms_ai_task_events (task_id, actor, kind CREATE/NOTE/PROGRESS/ISSUE/RESULT/STATUS, message).");
+            sb.AppendLine("When you are given a task to work (the message names a TASK and a task_id), record your work for traceability using your normal write path (action sql / executewrite): INSERT a wms_ai_task_events row (actor 'AI') for each meaningful PROGRESS step, an ISSUE row if you are blocked, and a RESULT row when finished; and UPDATE wms_ai_tasks SET status='DONE' (with result=...) on success, or status='BLOCKED' (with issue=...) if you cannot finish. Keep messages short and factual. Never mark a task DONE unless it truly is.");
             sb.AppendLine();
             sb.AppendLine("## Action policies (authority limits)");
             sb.AppendLine();
