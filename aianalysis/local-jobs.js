@@ -192,7 +192,7 @@
     window.LocalJobRunner = {
         // steps: array or {steps:[...]}; opts.instance ignored (uses current); onLog(line)
         runSteps: function (steps, opts, onLog) {
-            var vars = {}, log = [];
+            var vars = (opts && opts.vars) ? Object.assign({}, opts.vars) : {}, log = [];
             var arr = Array.isArray(steps) ? steps : ((steps && steps.steps) || []);
             return arr.reduce(function (p, s) {
                 return p.then(function () {

@@ -104,7 +104,7 @@
             var where = "task_date = TO_DATE(" + q(state.date) + ",'YYYY-MM-DD')";
             if (state.assignee) where += " AND assignee = " + q(state.assignee);
             var sql = "SELECT task_id, title, SUBSTR(description,1,240) AS desc_short, assignee, category, priority, " +
-                "recurrence, status, TO_CHAR(due_at,'HH24:MI') AS due_t, created_by, " +
+                "recurrence, status, TO_CHAR(due_at,'HH24:MI') AS due_t, created_by, TO_CHAR(trip_date,'YYYY-MM-DD') AS trip_date_s, " +
                 "TO_CHAR(created_date,'YYYY-MM-DD HH24:MI') AS created, SUBSTR(issue,1,200) AS issue_short " +
                 "FROM wms_ai_tasks WHERE " + where + " AND status <> 'CANCELLED' ORDER BY priority, task_id";
             readSql(sql, function (err, rows) {
@@ -205,6 +205,7 @@
             '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;font-size:9.5px;color:#64748b;">' +
                 (t.CATEGORY ? '<span style="background:#eef2ff;color:#4338ca;border-radius:6px;padding:1px 6px;">' + esc2(t.CATEGORY) + '</span>' : '') +
                 '<span><i class="fas fa-user-astronaut" style="font-size:8px;"></i> ' + esc2(t.ASSIGNEE || '') + '</span>' +
+                (t.TRIP_DATE_S ? '<span style="background:#ecfeff;color:#0e7490;border-radius:6px;padding:1px 6px;font-weight:700;"><i class="fas fa-truck" style="font-size:8px;"></i> ' + esc2(t.TRIP_DATE_S) + '</span>' : '') +
                 (t.RECURRENCE === 'DAILY' ? '<span style="color:#7c3aed;"><i class="fas fa-repeat" style="font-size:8px;"></i> daily</span>' : '') +
                 (t.DUE_T ? '<span><i class="fas fa-clock" style="font-size:8px;"></i> ' + esc2(t.DUE_T) + '</span>' : '') +
             '</div></div>';
@@ -214,7 +215,7 @@
     function open(id) {
         state.openId = id;
         var sql = "SELECT task_id, title, description, assignee, category, priority, recurrence, status, " +
-            "TO_CHAR(task_date,'YYYY-MM-DD') AS task_date, TO_CHAR(due_at,'YYYY-MM-DD HH24:MI') AS due_at, " +
+            "TO_CHAR(task_date,'YYYY-MM-DD') AS task_date, TO_CHAR(trip_date,'YYYY-MM-DD') AS trip_date, TO_CHAR(due_at,'YYYY-MM-DD HH24:MI') AS due_at, " +
             "TO_CHAR(created_date,'YYYY-MM-DD HH24:MI') AS created, created_by, " +
             "TO_CHAR(started_at,'YYYY-MM-DD HH24:MI') AS started, TO_CHAR(completed_at,'YYYY-MM-DD HH24:MI') AS completed, " +
             "action_json, completion_sql, last_run_status, TO_CHAR(last_run_at,'YYYY-MM-DD HH24:MI') AS last_run, " +
@@ -261,7 +262,8 @@
             '<div style="padding:14px 18px;border-bottom:1px solid #eef2f7;display:flex;align-items:flex-start;gap:10px;">' +
               '<span style="width:10px;height:10px;border-radius:50%;background:' + p[1] + ';margin-top:5px;flex-shrink:0;"></span>' +
               '<div style="flex:1;min-width:0;"><div style="font-size:15px;font-weight:800;color:#0f172a;">' + esc2(t.TITLE) + '</div>' +
-                '<div style="font-size:11px;color:#64748b;margin-top:2px;">#' + t.TASK_ID + ' · ' + esc2(t.CATEGORY || 'General') + ' · ' + esc2(t.ASSIGNEE || '') + (t.RECURRENCE === 'DAILY' ? ' · daily' : '') + ' · ' + esc2(t.TASK_DATE || '') + '</div></div>' +
+                '<div style="font-size:11px;color:#64748b;margin-top:2px;">#' + t.TASK_ID + ' · ' + esc2(t.CATEGORY || 'General') + ' · ' + esc2(t.ASSIGNEE || '') + (t.RECURRENCE === 'DAILY' ? ' · daily' : '') + '</div>' +
+                  '<div style="font-size:10.5px;color:#0e7490;margin-top:3px;font-weight:700;"><i class="fas fa-truck"></i> Works on trip date: ' + esc2(t.TRIP_DATE || t.TASK_DATE || '—') + '</div></div>' +
               '<span style="font-size:10px;font-weight:800;color:' + m.color + ';background:' + m.bg + ';border-radius:8px;padding:3px 9px;"><i class="fas ' + m.icon + '"></i> ' + m.label + '</span>' +
               '<button onclick="document.getElementById(\'tsk-drawer\').remove()" style="background:none;border:none;font-size:18px;color:#94a3b8;cursor:pointer;">×</button>' +
             '</div>' +
@@ -321,14 +323,15 @@
 
     // ── run with AI (records what the AI did on the task) ───
     function runAI(id) {
-        var t = null; readSql("SELECT title, description FROM wms_ai_tasks WHERE task_id = " + parseInt(id, 10), function (err, rows) {
+        var t = null; readSql("SELECT title, description, TO_CHAR(NVL(trip_date, task_date),'YYYY-MM-DD') AS trip_date FROM wms_ai_tasks WHERE task_id = " + parseInt(id, 10), function (err, rows) {
             if (err || !rows.length) { alert('Task not found'); return; }
             t = rows[0];
-            logEvent(id, 'SYSTEM', 'PROGRESS', 'Handed to AI Digital Employee to work on.', function () {
+            logEvent(id, 'SYSTEM', 'PROGRESS', 'Handed to AI Digital Employee to work on (trip date ' + (t.TRIP_DATE || '') + ').', function () {
                 setStatus_silent(id, 'IN_PROGRESS');
                 var prompt = 'You are working an assigned WORK TASK. Do it using your tools, then give a concise result. ' +
-                    'If you cannot complete it, clearly state the ISSUE and what is blocking.\n\n' +
-                    'TASK: ' + (t.TITLE || '') + '\nDETAILS: ' + (t.DESCRIPTION || '');
+                    'If you cannot complete it, clearly state the ISSUE and what is blocking.\n' +
+                    'IMPORTANT: work ONLY on the TRIP DATE ' + (t.TRIP_DATE || '') + ' — restrict every query/action to trips/orders whose trip date is ' + (t.TRIP_DATE || '') + '. Do not touch other dates.\n\n' +
+                    'TASK: ' + (t.TITLE || '') + '\nTRIP DATE: ' + (t.TRIP_DATE || '') + '\nDETAILS: ' + (t.DESCRIPTION || '');
                 if (typeof window.aiAsk !== 'function') { alert('AI helper unavailable'); return; }
                 window.aiAsk(prompt, function (e2, md) {
                     md = md || (e2 ? ('AI error: ' + e2) : 'No response');
@@ -355,14 +358,15 @@
     // ── execute a task's steps (via the shared LOCAL job runner) ───
     function execute(id) {
         if (!window.LocalJobRunner) { alert('The step runner is not available.'); return; }
-        readSql("SELECT action_json, completion_sql FROM wms_ai_tasks WHERE task_id = " + parseInt(id, 10), function (err, rows) {
+        readSql("SELECT action_json, completion_sql, TO_CHAR(NVL(trip_date, task_date),'YYYY-MM-DD') AS trip_date FROM wms_ai_tasks WHERE task_id = " + parseInt(id, 10), function (err, rows) {
             if (err || !rows.length) { alert('Task not found'); return; }
             var steps = parseSteps(rows[0].ACTION_JSON);
             if (!steps.length) { alert('This task has no executable steps.'); return; }
-            var completion = rows[0].COMPLETION_SQL || '';
-            logEvent(id, 'SYSTEM', 'PROGRESS', 'Executing ' + steps.length + ' step(s)…', function () {
+            var tripDate = rows[0].TRIP_DATE || state.date;
+            var completion = String(rows[0].COMPLETION_SQL || '').replace(/[{#]TRIP_DATE[}#]/g, tripDate);
+            logEvent(id, 'SYSTEM', 'PROGRESS', 'Executing ' + steps.length + ' step(s) for trip date ' + tripDate + '…', function () {
                 setStatus_silentTo(id, 'IN_PROGRESS');
-                LocalJobRunner.runSteps(steps, {}, null).then(function (res) {
+                LocalJobRunner.runSteps(steps, { vars: { TRIP_DATE: tripDate } }, null).then(function (res) {
                     var finish = function (done) {
                         var logText = (res.log || []).join('\n');
                         var newStatus = res.ok ? (done === false ? 'IN_PROGRESS' : 'DONE') : 'BLOCKED';
@@ -398,7 +402,8 @@
             '{"title":"","description":"","category":"","priority":2,"recurrence":"ONCE","completionSql":"","steps":[ ... ]}\n' +
             'Steps use these types (same as a LOCAL scheduled job): ' +
             'query{sql,extract{VAR:"COLUMN"}}, rest{method,url,body,extract{VAR:"items[1].X"}}, print{orderNumber,tripId}, download_pdf{orderNumber,tripId}, forEach{query:{sql},do:[...]}, ipc{action,params}. ' +
-            'Use {VAR} placeholders, REAL ORDS URLs from the catalog and REAL table/column names. completionSql is optional (a plain SELECT; 0 rows = done). recurrence is ONCE or DAILY.\n\nGOAL: ' + goal;
+            'Use {VAR} placeholders, REAL ORDS URLs from the catalog and REAL table/column names. completionSql is optional (a plain SELECT; 0 rows = done). recurrence is ONCE or DAILY. ' +
+            'IMPORTANT: scope every query/action to the task\'s TRIP DATE using the {TRIP_DATE} placeholder (YYYY-MM-DD), e.g. WHERE trip_date = TO_DATE(\'{TRIP_DATE}\',\'YYYY-MM-DD\') — the app fills it at run time.\n\nGOAL: ' + goal;
         if (typeof window.aiAsk !== 'function') { if (note) note.innerHTML = '<span style="color:#b91c1c;">AI helper unavailable.</span>'; return; }
         window.aiAsk(prompt, function (err, md) {
             if (err) { if (note) note.innerHTML = '<span style="color:#b91c1c;">AI: ' + esc2(String(err)) + '</span>'; return; }
@@ -450,8 +455,11 @@
               '</div>' +
               '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
                 fld('Priority', '<select id="tc-prio" style="' + inCss() + '"><option value="1">High</option><option value="2" selected>Medium</option><option value="3">Low</option></select>', 1) +
-                fld('For date', '<input id="tc-date" type="date" value="' + state.date + '" style="' + inCss() + '">', 1) +
+                fld('List date', '<input id="tc-date" type="date" value="' + state.date + '" style="' + inCss() + '">', 1) +
                 fld('Repeat', '<select id="tc-recur" style="' + inCss() + '"><option value="ONCE" selected>Once</option><option value="DAILY">Daily</option></select>', 1) +
+              '</div>' +
+              '<div style="background:#ecfeff;border:1px solid #cffafe;border-radius:10px;padding:9px 11px;">' +
+                fld('<i class="fas fa-truck" style="color:#0e7490;"></i> Trip date — the AI works ONLY on this trip date', '<input id="tc-trip" type="date" value="' + state.date + '" style="' + inCss() + '">') +
               '</div>' +
               '<details><summary style="font-size:11px;font-weight:700;color:#0e7490;cursor:pointer;"><i class="fas fa-bolt"></i> Executable steps (optional — makes the task runnable)</summary>' +
                 '<div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;">' +
@@ -477,6 +485,7 @@
         var title = g('tc-title'); if (!title) { alert('Enter a title'); return; }
         var desc = g('tc-desc'), assignee = g('tc-assignee') || 'AI Digital Employee', cat = g('tc-category');
         var prio = parseInt(g('tc-prio') || '2', 10), date = g('tc-date') || state.date, recur = g('tc-recur') || 'ONCE';
+        var trip = g('tc-trip') || date;
         // optional executable definition
         var stepsRaw = g('tc-steps'), completion = g('tc-completion'), actionJson = '';
         if (stepsRaw) {
@@ -484,9 +493,9 @@
             catch (e) { alert('Executable steps are not valid JSON: ' + e.message); return; }
         }
         var r = ref();
-        var sql = "INSERT INTO wms_ai_tasks (client_ref, title, description, assignee, category, priority, task_date, recurrence, status, instance, created_by, created_date, action_json, completion_sql) VALUES (" +
+        var sql = "INSERT INTO wms_ai_tasks (client_ref, title, description, assignee, category, priority, task_date, trip_date, recurrence, status, instance, created_by, created_date, action_json, completion_sql) VALUES (" +
             q(r) + ", " + q(title.slice(0, 300)) + ", " + clob(desc) + ", " + q(assignee.slice(0, 120)) + ", " + q(cat.slice(0, 60)) + ", " + prio + ", " +
-            "TO_DATE(" + q(date) + ",'YYYY-MM-DD'), " + q(recur) + ", 'OPEN', " + q(inst()) + ", " + q(user()) + ", SYSDATE, " +
+            "TO_DATE(" + q(date) + ",'YYYY-MM-DD'), TO_DATE(" + q(trip) + ",'YYYY-MM-DD'), " + q(recur) + ", 'OPEN', " + q(inst()) + ", " + q(user()) + ", SYSDATE, " +
             (actionJson ? clob(actionJson) : 'NULL') + ", " + (completion ? clob(completion) : 'NULL') + ")";
         writeSql(sql, function (err) {
             if (err) { alert('Create failed: ' + err); return; }
@@ -506,12 +515,13 @@
         var desc = def.description || '', assignee = String(def.assignee || 'AI Digital Employee').slice(0, 120);
         var cat = String(def.category || '').slice(0, 60), prio = parseInt(def.priority || 2, 10) || 2;
         var date = def.task_date || state.date, recur = (String(def.recurrence || 'ONCE').toUpperCase() === 'DAILY') ? 'DAILY' : 'ONCE';
+        var trip = def.trip_date || def.tripDate || date;
         var steps = def.steps || (def.action && def.action.steps);
         var actionJson = (steps && steps.length) ? JSON.stringify({ steps: steps }) : '';
         var completion = def.completionSql || def.completion_sql || '';
         var r = ref();
-        var sql = "INSERT INTO wms_ai_tasks (client_ref, title, description, assignee, category, priority, task_date, recurrence, status, instance, created_by, created_date, action_json, completion_sql) VALUES (" +
-            q(r) + ", " + q(title) + ", " + clob(desc) + ", " + q(assignee) + ", " + q(cat) + ", " + prio + ", TO_DATE(" + q(date) + ",'YYYY-MM-DD'), " + q(recur) + ", 'OPEN', " + q(inst()) + ", " + q(user()) + ", SYSDATE, " +
+        var sql = "INSERT INTO wms_ai_tasks (client_ref, title, description, assignee, category, priority, task_date, trip_date, recurrence, status, instance, created_by, created_date, action_json, completion_sql) VALUES (" +
+            q(r) + ", " + q(title) + ", " + clob(desc) + ", " + q(assignee) + ", " + q(cat) + ", " + prio + ", TO_DATE(" + q(date) + ",'YYYY-MM-DD'), TO_DATE(" + q(trip) + ",'YYYY-MM-DD'), " + q(recur) + ", 'OPEN', " + q(inst()) + ", " + q(user()) + ", SYSDATE, " +
             (actionJson ? clob(actionJson) : 'NULL') + ", " + (completion ? clob(completion) : 'NULL') + ")";
         writeSql(sql, function (err) {
             if (err) { cb && cb(err); return; }
@@ -636,8 +646,11 @@
               '</div>' +
               '<div style="display:flex;gap:10px;flex-wrap:wrap;">' +
                 fld('Priority', '<select id="te-prio" style="' + inCss() + '"><option value="1"' + (prio === '1' ? ' selected' : '') + '>High</option><option value="2"' + (prio === '2' ? ' selected' : '') + '>Medium</option><option value="3"' + (prio === '3' ? ' selected' : '') + '>Low</option></select>', 1) +
-                fld('For date', '<input id="te-date" type="date" value="' + esc2(t.TASK_DATE || state.date) + '" style="' + inCss() + '">', 1) +
+                fld('List date', '<input id="te-date" type="date" value="' + esc2(t.TASK_DATE || state.date) + '" style="' + inCss() + '">', 1) +
                 fld('Repeat', '<select id="te-recur" style="' + inCss() + '"><option value="ONCE"' + (recur === 'ONCE' ? ' selected' : '') + '>Once</option><option value="DAILY"' + (recur === 'DAILY' ? ' selected' : '') + '>Daily</option></select>', 1) +
+              '</div>' +
+              '<div style="background:#ecfeff;border:1px solid #cffafe;border-radius:10px;padding:9px 11px;">' +
+                fld('<i class="fas fa-truck" style="color:#0e7490;"></i> Trip date — the AI works ONLY on this trip date', '<input id="te-trip" type="date" value="' + esc2(t.TRIP_DATE || t.TASK_DATE || state.date) + '" style="' + inCss() + '">') +
               '</div>' +
               '<details' + (stepsVal ? ' open' : '') + '><summary style="font-size:11px;font-weight:700;color:#0e7490;cursor:pointer;"><i class="fas fa-bolt"></i> Executable steps (JSON) &amp; completion</summary>' +
                 '<div style="margin-top:8px;display:flex;flex-direction:column;gap:8px;">' +
@@ -669,6 +682,7 @@
             'category = ' + q(g('te-category').slice(0, 60)),
             'priority = ' + (parseInt(g('te-prio') || '2', 10) || 2),
             "task_date = TO_DATE(" + q(g('te-date') || state.date) + ",'YYYY-MM-DD')",
+            "trip_date = TO_DATE(" + q(g('te-trip') || g('te-date') || state.date) + ",'YYYY-MM-DD')",
             'recurrence = ' + q(g('te-recur') || 'ONCE'),
             'action_json = ' + (actionJson ? clob(actionJson) : 'NULL'),
             'completion_sql = ' + (completion ? clob(completion) : 'NULL'),
