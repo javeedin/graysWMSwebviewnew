@@ -64,6 +64,33 @@
     }
     function ref() { return 'T' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
+    // Render markdown (tables/headings/bold) like the chatbot does.
+    function mdHtml(md) {
+        md = String(md == null ? '' : md);
+        try {
+            if (window.marked && window.DOMPurify) {
+                var html = (typeof marked.parse === 'function') ? marked.parse(md) : marked(md);
+                return DOMPurify.sanitize(html);
+            }
+        } catch (e) { }
+        return '<div style="white-space:pre-wrap;">' + esc2(md) + '</div>';
+    }
+    function ensureMdCss() {
+        if (document.getElementById('tsk-md-css')) return;
+        var s = document.createElement('style'); s.id = 'tsk-md-css';
+        s.textContent =
+            '.tsk-md{font-size:12.5px;color:#334155;line-height:1.55;word-break:break-word;}' +
+            '.tsk-md table{border-collapse:collapse;width:100%;margin:6px 0;font-size:11px;display:block;overflow-x:auto;}' +
+            '.tsk-md th,.tsk-md td{border:1px solid #e6eaf2;padding:4px 8px;text-align:left;white-space:nowrap;}' +
+            '.tsk-md th{background:#f1f5f9;font-weight:700;color:#475569;}' +
+            '.tsk-md tr:nth-child(even) td{background:#fafbfd;}' +
+            '.tsk-md h1,.tsk-md h2,.tsk-md h3,.tsk-md h4{font-size:13.5px;margin:10px 0 4px;font-weight:800;color:#0f172a;}' +
+            '.tsk-md code{background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:11px;}' +
+            '.tsk-md pre{background:#0f172a;color:#d1e7ff;padding:8px;border-radius:6px;overflow:auto;font-size:11px;}' +
+            '.tsk-md ul,.tsk-md ol{margin:4px 0 4px 18px;}.tsk-md p{margin:5px 0;}.tsk-md a{color:#0284c7;}';
+        document.head.appendChild(s);
+    }
+
     // ── gateways ────────────────────────────────────────────
     function readSql(sql, cb) {
         sendMessageToCSharp({ action: 'executePost', fullUrl: AI_BASE + '/executequery', body: JSON.stringify({ sql: sql, maxRows: 500, appUser: user() }) }, function (err, data) {
@@ -229,6 +256,7 @@
 
     function renderDrawer(t, events) {
         _openTask = t;
+        ensureMdCss();
         document.getElementById('tsk-drawer')?.remove();
         var m = STATUS_META[t.STATUS] || STATUS_META.OPEN;
         var p = PRIO[t.PRIORITY] || PRIO[2];
@@ -281,8 +309,8 @@
                 '<button onclick="Tasks.openEdit(' + t.TASK_ID + ')" style="border:1px solid #e2e8f0;background:#fff;color:#475569;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800;cursor:pointer;"><i class="fas fa-pen"></i> Edit</button>' +
               '</div>' +
               execHtml +
-              (t.STATUS === 'BLOCKED' && t.ISSUE ? '<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;font-size:11.5px;color:#b91c1c;margin-bottom:12px;"><b>Issue:</b> ' + esc2(t.ISSUE) + '</div>' : '') +
-              (t.RESULT ? '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 10px;font-size:11.5px;color:#166534;margin-bottom:12px;"><b>Result:</b> ' + esc2(t.RESULT) + '</div>' : '') +
+              (t.STATUS === 'BLOCKED' && t.ISSUE ? '<div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;margin-bottom:12px;"><div style="font-size:10px;font-weight:800;color:#b91c1c;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">Issue</div><div class="tsk-md">' + mdHtml(t.ISSUE) + '</div></div>' : '') +
+              (t.RESULT ? '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;margin-bottom:12px;"><div style="font-size:10px;font-weight:800;color:#166534;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;">Result</div><div class="tsk-md">' + mdHtml(t.RESULT) + '</div></div>' : '') +
               '<div style="display:flex;gap:6px;margin-bottom:12px;">' +
                 '<input id="tsk-note-in" placeholder="Add a note / progress / issue…" style="flex:1;padding:7px 10px;border:1px solid #e2e8f0;border-radius:8px;font-size:12px;">' +
                 '<button onclick="Tasks.addEvent(' + t.TASK_ID + ',\'NOTE\')" style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:0 12px;font-size:11px;font-weight:700;cursor:pointer;color:#334155;">Note</button>' +
@@ -301,9 +329,15 @@
     function eventRow(e) {
         var kindColor = { ISSUE: '#b91c1c', RESULT: '#15803d', STATUS: '#7c3aed', PROGRESS: '#b45309', CREATE: '#1d4ed8', NOTE: '#475569', ASSIGN: '#0e7490' }[e.KIND] || '#475569';
         var actorIcon = e.ACTOR === 'AI' ? 'fa-robot' : (e.ACTOR === 'SYSTEM' ? 'fa-gear' : 'fa-user');
+        var msg = String(e.MESSAGE || '');
+        // render RESULT/ISSUE (which carry markdown tables) as markdown; keep
+        // short status/notes as plain text
+        var isRich = (e.KIND === 'RESULT' || e.KIND === 'ISSUE' || /\||^#|\n/.test(msg));
+        var msgHtml = isRich ? '<div class="tsk-md" style="margin-top:3px;">' + mdHtml(msg) + '</div>'
+                             : '<div style="font-size:12px;color:#334155;line-height:1.5;white-space:pre-wrap;margin-top:2px;">' + esc2(msg) + '</div>';
         return '<div style="border-left:2px solid ' + kindColor + ';padding:4px 0 8px 10px;margin-left:4px;">' +
             '<div style="font-size:9.5px;color:#94a3b8;"><i class="fas ' + actorIcon + '"></i> ' + esc2(e.ACTOR || '') + ' · <span style="font-weight:800;color:' + kindColor + ';">' + esc2(e.KIND || '') + '</span> · ' + esc2(e.T || '') + '</div>' +
-            '<div style="font-size:12px;color:#334155;line-height:1.5;white-space:pre-wrap;margin-top:2px;">' + esc2(e.MESSAGE || '') + '</div></div>';
+            msgHtml + '</div>';
     }
 
     // ── mutations ───────────────────────────────────────────
