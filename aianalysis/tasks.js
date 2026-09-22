@@ -666,8 +666,11 @@
               '<div style="font-size:11.5px;opacity:.9;margin-top:2px;">I\'ll look at what needs doing and suggest tasks. Pick the ones to assign to me.</div>' +
             '</div>' +
             '<div id="tsk-wiz-body" style="flex:1;overflow-y:auto;padding:16px 20px;min-height:160px;"></div>' +
-            '<div id="tsk-wiz-foot" style="padding:12px 20px;border-top:1px solid #eef2f7;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
-              '<button onclick="Tasks.assignWizard()" style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:7px 13px;font-size:12px;font-weight:700;cursor:pointer;color:#0e7490;"><i class="fas fa-rotate"></i> Re-analyze</button>' +
+            '<div id="tsk-wiz-foot" style="padding:12px 20px;border-top:1px solid #eef2f7;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
+              '<div style="display:flex;gap:8px;">' +
+                '<button onclick="Tasks.wizLibrary()" style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:7px 13px;font-size:12px;font-weight:700;cursor:pointer;color:#6d28d9;"><i class="fas fa-book-open"></i> My Library</button>' +
+                '<button onclick="Tasks.wizAnalyze()" style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:7px 13px;font-size:12px;font-weight:700;cursor:pointer;color:#0e7490;"><i class="fas fa-wand-magic-sparkles"></i> Suggest with AI</button>' +
+              '</div>' +
               '<div style="display:flex;gap:8px;">' +
                 '<button onclick="document.getElementById(\'tsk-wiz\').remove()" style="border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:7px 14px;font-size:12px;font-weight:700;cursor:pointer;color:#64748b;">Close</button>' +
                 '<button id="tsk-wiz-assign" onclick="Tasks.wizAssign()" disabled style="border:none;background:#cbd5e1;color:#fff;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:800;cursor:not-allowed;"><i class="fas fa-check"></i> Assign selected</button>' +
@@ -675,7 +678,20 @@
             '</div>' +
           '</div>' +
         '</div>');
-        wizAnalyze();
+        wizLibrary();   // show existing Task Library templates first (fast); AI is optional
+    }
+    // show the user's saved Task Library templates to pick from (no AI)
+    function wizLibrary() {
+        var body = document.getElementById('tsk-wiz-body'); if (!body) return;
+        body.innerHTML = '<div style="text-align:center;color:#0e7490;font-size:12px;padding:16px 0;"><i class="fas fa-circle-notch fa-spin"></i> Loading your task library…</div>';
+        readSql("SELECT title, description, category, priority, recurrence, action_json, completion_sql FROM wms_ai_task_library WHERE active='Y' ORDER BY category, priority, title", function (err, rows) {
+            if (err) { _suggest = DEFAULT_SUGGESTIONS.slice(); wizRender('Could not load the Task Library (' + esc2(err) + '). Common tasks you can assign:'); return; }
+            if (!rows || !rows.length) { _suggest = DEFAULT_SUGGESTIONS.slice(); wizRender('Your Task Library is empty — here are common tasks (or click “Suggest with AI”):'); return; }
+            _suggest = rows.map(function (r) {
+                return { title: r.TITLE, description: r.DESCRIPTION, category: r.CATEGORY, priority: r.PRIORITY, recurrence: r.RECURRENCE, steps: parseSteps(r.ACTION_JSON), completionSql: r.COMPLETION_SQL };
+            });
+            wizRender('Pick from your Task Library to assign — or click “Suggest with AI” for warehouse-specific ideas:');
+        });
     }
     function wizAnalyze() {
         var body = document.getElementById('tsk-wiz-body'); if (!body) return;
@@ -1014,6 +1030,8 @@
         del: del,
         openSummary: openSummary,
         assignWizard: assignWizard,
+        wizLibrary: wizLibrary,
+        wizAnalyze: wizAnalyze,
         wizAssign: wizAssign,
         _wizToggle: _wizToggle,
         setDate: function (d) { state.date = d || todayStr(); var el = document.getElementById('tsk-date'); if (el) el.value = state.date; load(); },
