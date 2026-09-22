@@ -531,6 +531,7 @@
                     POST / PUT / DELETE operations only — all reads run as SQL in the Chatbot.
                     Every run needs confirmation and is logged to <code>WMS_AI_API_LOG</code>.
                 </div>
+                <div id="api-cache-status" style="margin-top:7px;"></div>
             </div>
             <div class="rp-list" id="api-list"></div>
         </div>
@@ -3054,7 +3055,39 @@ function appUserName() {
     } catch (e) { return 'UNKNOWN'; }
 }
 
+// Cache-status chip in the APIs tab header: green when the live API catalog
+// is cached, otherwise a button to fetch it.
+function updateApiCacheStatus() {
+    const el = document.getElementById('api-cache-status');
+    if (!el) return;
+    const c = window.API_CACHE || { state: 'idle', count: 0 };
+    const btn = `<button onclick="loadDiscoveredApiCatalog()" style="border:none;border-radius:6px;padding:3px 10px;font-size:10px;font-weight:800;cursor:pointer;background:#0891b2;color:#fff;"><i class="fas fa-cloud-arrow-down"></i> Get API list</button>`;
+    let html = '';
+    if (c.state === 'cached') {
+        const t = c.at ? new Date(c.at) : null;
+        const when = t ? t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+        html = `<span style="display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;color:#166534;background:#dcfce7;border:1px solid #86efac;border-radius:20px;padding:3px 10px;">
+                    <i class="fas fa-circle-check"></i> API catalog cached — ${c.count} endpoint${c.count === 1 ? '' : 's'}${when ? ' · ' + when : ''}
+                </span>
+                <button onclick="loadDiscoveredApiCatalog()" title="Refresh from APEX" style="margin-left:6px;background:none;border:1px solid var(--border);border-radius:6px;padding:2px 7px;font-size:9px;cursor:pointer;color:#0e7490;"><i class="fas fa-sync-alt"></i> Refresh</button>`;
+    } else if (c.state === 'loading') {
+        html = `<span style="display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;color:#0e7490;background:#ecfeff;border:1px solid #67e8f9;border-radius:20px;padding:3px 10px;">
+                    <i class="fas fa-circle-notch fa-spin"></i> Loading API catalog…
+                </span>`;
+    } else if (c.state === 'error') {
+        html = `<span style="display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:20px;padding:3px 10px;" title="${esc(c.error || '')}">
+                    <i class="fas fa-triangle-exclamation"></i> Catalog not cached
+                </span> ${btn}`;
+    } else { // idle / empty
+        html = `<span style="display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:800;color:#92400e;background:#fffbeb;border:1px solid #fcd34d;border-radius:20px;padding:3px 10px;">
+                    <i class="fas fa-circle-xmark"></i> API catalog not cached
+                </span> ${btn}`;
+    }
+    el.innerHTML = html;
+}
+
 function renderApiList() {
+    updateApiCacheStatus();
     const box = document.getElementById('api-list');
     const q = (document.getElementById('api-search').value || '').toLowerCase();
     const cat = window.WMS_API_CATALOG || [];

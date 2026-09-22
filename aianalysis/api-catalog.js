@@ -498,11 +498,21 @@
 
     window.WMS_API_CATALOG_DISCOVERED = [];
 
+    // cache state for the UI status chip: 'idle' | 'loading' | 'cached' | 'empty' | 'error'
+    window.API_CACHE = window.API_CACHE || { state: 'idle', count: 0, at: null, error: '' };
+    function setCacheState(state, extra) {
+        window.API_CACHE = Object.assign({ state: state, count: 0, at: null, error: '' }, window.API_CACHE, { state: state }, extra || {});
+        if (typeof window.updateApiCacheStatus === 'function') { try { window.updateApiCacheStatus(); } catch (e) { } }
+    }
+    window.setApiCacheState = setCacheState;
+
     window.loadDiscoveredApiCatalog = function (cb) {
         if (typeof sendMessageToCSharp !== 'function') return;
+        setCacheState('loading');
         sendMessageToCSharp({ action: 'executeGet', fullUrl: CATALOG_URL }, function (err, data) {
             if (err) {
                 console.warn('[ApiCatalog] discovery failed (is ai/apicatalog created in APEX?):', err);
+                setCacheState('error', { error: String(err) });
                 if (cb) cb(err, null);
                 return;
             }
@@ -511,16 +521,19 @@
                 if (resp && resp.items && resp.items.length) {
                     window.WMS_API_CATALOG_DISCOVERED = resp.items;
                     console.log('[ApiCatalog] discovered ' + resp.items.length + ' ORDS handlers from APEX');
+                    setCacheState('cached', { count: resp.items.length, at: new Date(), error: '' });
                     if (typeof renderApiList === 'function' && document.getElementById('api-list')) {
                         renderApiList();
                     }
                     if (cb) cb(null, resp.items);
                 } else {
                     console.warn('[ApiCatalog] discovery returned no items');
+                    setCacheState('empty');
                     if (cb) cb(null, []);
                 }
             } catch (e) {
                 console.warn('[ApiCatalog] discovery parse failed:', e);
+                setCacheState('error', { error: String(e) });
                 if (cb) cb(e, null);
             }
         });
