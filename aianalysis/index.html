@@ -729,6 +729,7 @@
 
 <script src="api-catalog.js"></script>
 <script src="order-entry.js"></script>
+<script src="local-jobs.js"></script>
 <script>
 // ============================================================
 // TRIAL PERIOD GATE - reads WMS_AI_TRIAL from the APEX DB.
@@ -1320,6 +1321,10 @@ function renderAttachChips() {
 }
 
 // Paste an image (screenshot etc.) straight into the prompt box
+// Start the frontend (LOCAL lane) job runner once the page is ready
+document.addEventListener('DOMContentLoaded', function () {
+    try { if (window.LocalJobs) LocalJobs.init(); } catch (e) { }
+});
 document.addEventListener('DOMContentLoaded', function () {
     const inp = document.getElementById('prompt-input');
     if (!inp) return;
@@ -3566,6 +3571,12 @@ function jobBadge(st) {
     const c = JOB_STATUS_COLORS[st] || ['#f1f5f9', '#475569'];
     return `<span style="background:${c[0]};color:${c[1]};padding:1px 8px;border-radius:8px;font-size:9px;font-weight:800;">${esc(st)}</span>`;
 }
+// DB lane runs in Oracle; LOCAL lane runs in this app (printing etc.)
+function laneBadge(lane) {
+    if (lane === 'LOCAL')
+        return `<span title="Runs in the desktop app (printing / PDF / email / local files)" style="background:#fef3c7;color:#92400e;padding:1px 7px;border-radius:8px;font-size:8.5px;font-weight:800;"><i class="fas fa-desktop"></i> LOCAL</span>`;
+    return `<span title="Runs in the Oracle database (DBMS_SCHEDULER) — app can be closed" style="background:#e0f2fe;color:#0369a1;padding:1px 7px;border-radius:8px;font-size:8.5px;font-weight:800;"><i class="fas fa-database"></i> DB</span>`;
+}
 
 function loadJobs() {
     const from = document.getElementById('jb-from').value;
@@ -3603,7 +3614,7 @@ function renderJobs() {
             <div class="rname">
                 <i class="fas fa-clock" style="color:#7c3aed;font-size:11px;"></i>
                 <span>${esc(j.name)}</span>
-                <span style="margin-left:auto;">${jobBadge(j.status)}</span>
+                <span style="margin-left:auto;display:inline-flex;gap:4px;align-items:center;">${laneBadge(j.lane)}${jobBadge(j.status)}</span>
             </div>
             ${j.description ? `<div class="rdesc">${esc(j.description)}</div>` : ''}
             <div class="rmeta2">

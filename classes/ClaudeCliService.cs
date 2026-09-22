@@ -213,9 +213,11 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V46";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V47";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
+        private const string LOCAL_JOBS_CREATE_URL =
+            "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/localcreate";
         private const string DB_WRITE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/executewrite";
         private const string REPORT_SAVE_URL =
@@ -539,11 +541,17 @@ namespace WMSApp
             sb.AppendLine();
             sb.AppendLine("NEVER OBFUSCATE SQL to get past the write guard - no splitting keywords with concatenation ('SEL'||'ECT'), no CHR() encodings of ; or keywords, no other tricks. Write the statement plainly. The guard ignores content inside string literals, so text values may freely contain SQL words, semicolons and comment markers. If a plainly-written statement is still rejected, DO NOT retry with workarounds: report the rejection to the user verbatim and say the guard may need updating. One rejection = stop and report.");
             sb.AppendLine();
-            sb.AppendLine("## Scheduling background jobs (DBMS_SCHEDULER)");
+            sb.AppendLine("## Scheduling background jobs (two lanes: DB and LOCAL)");
             sb.AppendLine();
-            sb.AppendLine("When the user asks to SCHEDULE recurring or delayed work (\"every 10 minutes...\", \"tonight at 8pm...\", \"keep checking until...\"), reply with:");
+            sb.AppendLine("There are TWO scheduling lanes and YOU choose which by setting the \"lane\" field. Pick smartly by what the steps need:");
+            sb.AppendLine("- lane \"DB\" (DEFAULT): runs INSIDE Oracle via DBMS_SCHEDULER, so it keeps running even when the app is CLOSED. Allowed step work: SQL SELECTs, ORDS REST, and Fusion REST. Use this whenever every step is a SQL read/write, an ORDS call, or a Fusion call.");
+            sb.AppendLine("- lane \"LOCAL\": runs INSIDE the desktop app on a timer (so the app must be OPEN; if it was closed, an overdue run fires at next launch). Use this when ANY step needs the PC: printing, downloading a PDF locally, saving a local file, or sending email through the app. The app records every run to the same Scheduled Jobs table so it is monitored just like a DB job.");
+            sb.AppendLine("- If a task needs BOTH (e.g. flag rows in the DB AND print them), create TWO jobs: a DB job for the DB part and a LOCAL job for the PC part, and say so.");
+            sb.AppendLine();
+            sb.AppendLine("When the user asks to SCHEDULE recurring or delayed work (\"every 10 minutes...\", \"tonight at 8pm...\", \"keep checking until...\", \"auto-print ... every 30 min\"), reply with:");
             sb.AppendLine();
             sb.AppendLine("{ \"action\": \"schedule_job\", \"name\": \"Cancel manual lines trip 6720\", \"description\": \"one line\",");
+            sb.AppendLine("  \"lane\": \"DB\",                            // \"DB\" (default) or \"LOCAL\" - see the two lanes above");
             sb.AppendLine("  \"scheduleType\": \"REPEAT_UNTIL_DONE\",   // or ONCE or RECURRING");
             sb.AppendLine("  \"startAt\": \"2026-09-12 18:00\",          // optional, YYYY-MM-DD HH24:MI, default now");
             sb.AppendLine("  \"intervalMinutes\": 10,                    // for RECURRING / REPEAT_UNTIL_DONE, min 2");
@@ -559,7 +567,18 @@ namespace WMSApp
             sb.AppendLine("      \"body\": { \"lines\": [ { \"FulfillLineId\": \"#FLID#\", \"OrderedQuantity\": 0, \"CancelReason\": \"OUT OF STOCK\" } ] } },");
             sb.AppendLine("    { \"type\": \"sql\", \"sql\": \"SELECT ...\" } ] }");
             sb.AppendLine();
-            sb.AppendLine("Rules: steps run in order inside the DATABASE (the app can be closed); rest URLs only on the ORDS host or the two Fusion hosts (efmh / efmh-test); always write Fusion step URLs with #FUSION_BASE# instead of a hardcoded host so the job follows its instance; auth fusion uses stored credentials; #VAR# substitutes values captured by an earlier step's extract; sql steps and completionSql must be plain SELECTs (the runner evaluates SELECT COUNT(*) of them). The app shows the user an approval card with the full plan - nothing is scheduled until approved. You then receive JOB_RESULT: {success, jobId, firstRun} or USER_REJECTED - confirm with action answer and tell the user to watch it in the Scheduled Jobs tab.");
+            sb.AppendLine("DB-lane rules: steps run in order inside the DATABASE (the app can be closed); rest URLs only on the ORDS host or the two Fusion hosts (efmh / efmh-test); always write Fusion step URLs with #FUSION_BASE# instead of a hardcoded host so the job follows its instance; auth fusion uses stored credentials; #VAR# substitutes values captured by an earlier step's extract; sql steps and completionSql must be plain SELECTs (the runner evaluates SELECT COUNT(*) of them).");
+            sb.AppendLine();
+            sb.AppendLine("LOCAL-lane steps (lane \"LOCAL\") run in the app and can do what the DB cannot. Same envelope (name, scheduleType, intervalMinutes min 1, completionSql, etc.) but step types are:");
+            sb.AppendLine("- { \"type\": \"query\", \"sql\": \"SELECT ...\", \"extract\": { \"VAR\": \"COLUMN_NAME\" } }  // read rows; extract pulls the first row's named column into {VAR}");
+            sb.AppendLine("- { \"type\": \"rest\", \"method\": \"GET|POST\", \"url\": \"...ORDS...\", \"body\": {...}, \"extract\": { \"VAR\": \"items[1].X\" } }  // runs from the PC");
+            sb.AppendLine("- { \"type\": \"print\", \"orderNumber\": \"{ORD}\", \"tripId\": \"6720\", \"printer\": \"optional\" }        // print an order");
+            sb.AppendLine("- { \"type\": \"download_pdf\", \"orderNumber\": \"{ORD}\", \"tripId\": \"6720\" }                        // download its PDF to C:\\fusion");
+            sb.AppendLine("- { \"type\": \"ipc\", \"action\": \"<localAction>\", \"params\": { ... } }  // escape hatch for any other local action (email, saveLocalFile, device ops) using that action's EXACT param names");
+            sb.AppendLine("- { \"type\": \"forEach\", \"query\": { \"sql\": \"SELECT order_number ...\" }, \"do\": [ { \"type\": \"download_pdf\", \"orderNumber\": \"{ORDER_NUMBER}\" }, { \"type\": \"print\", \"orderNumber\": \"{ORDER_NUMBER}\" } ] }  // iterate rows; each row's columns are available as {COLUMN_NAME}");
+            sb.AppendLine("LOCAL {VAR} substitution uses {NAME} (or #NAME#). completionSql for a LOCAL REPEAT_UNTIL_DONE is still a plain SELECT (done when 0 rows). Prefer forEach for 'do X for every order that ...'.");
+            sb.AppendLine();
+            sb.AppendLine("Both lanes: the app shows the user an approval card with the full plan - nothing is scheduled until approved. You then receive JOB_RESULT: {success, jobId, firstRun} or USER_REJECTED - confirm with action answer and tell the user to watch it in the Scheduled Jobs tab (LOCAL jobs show a LOCAL badge and run while the app is open).");
             sb.AppendLine();
             sb.AppendLine("## Action policies (authority limits)");
             sb.AppendLine();
@@ -2035,6 +2054,11 @@ namespace WMSApp
             try
             {
                 using var doc = JsonDocument.Parse(jobJson);
+                // LOCAL-lane jobs are NOT created in DBMS_SCHEDULER; they go to a
+                // separate endpoint and are run by the desktop app itself.
+                string lane = "DB";
+                if (doc.RootElement.TryGetProperty("lane", out var laneEl) && laneEl.ValueKind == JsonValueKind.String)
+                    lane = (laneEl.GetString() ?? "DB").Trim().ToUpperInvariant();
                 using var ms = new MemoryStream();
                 using (var w = new Utf8JsonWriter(ms))
                 {
@@ -2048,7 +2072,8 @@ namespace WMSApp
                     w.WriteString("createdMachine", Environment.MachineName);
                     w.WriteEndObject();
                 }
-                var resp = await _http.PostAsync(JOBS_CREATE_URL,
+                string createUrl = lane == "LOCAL" ? LOCAL_JOBS_CREATE_URL : JOBS_CREATE_URL;
+                var resp = await _http.PostAsync(createUrl,
                     new StringContent(Encoding.UTF8.GetString(ms.ToArray()), Encoding.UTF8, "application/json"));
                 return await resp.Content.ReadAsStringAsync();
             }
