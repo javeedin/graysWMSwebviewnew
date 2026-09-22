@@ -1297,6 +1297,7 @@ function setStatus(text) {
 }
 
 function handleChatEvent(evt) {
+    window._aiLastEventTs = Date.now();   // activity heartbeat for aiAsk's idle watchdog
     // let a headless caller (e.g. the Daily Tasks "Run with AI") watch live progress
     if (window._taskAiProgress) { try { window._taskAiProgress(evt); } catch (e) { } }
     if (evt.eventType === 'reportSaved') { window._reportsLoaded = false; loadReports(); return; }
@@ -1762,9 +1763,24 @@ window.aiAsk = function (promptText, cb) {
     var eng = (typeof currentEngine === 'function') ? currentEngine() : null;
     if (eng) { msg.engine = eng; msg.history = []; }
     var done = false;
-    var to = setTimeout(function () { if (done) return; done = true; cb('The assistant did not respond in time. Try again, or use the built-in suggestions.'); }, 120000);
+    // Idle watchdog: only give up if the assistant goes SILENT for a while.
+    // Any progress event (SQL round / status) resets the clock, so long but
+    // active runs (many SQL rounds) never time out. Plus a generous hard cap.
+    var IDLE_MS = 180000;      // 3 min with no activity
+    var HARD_MS = 1200000;     // 20 min absolute
+    var start = Date.now();
+    window._aiLastEventTs = start;
+    var watch = setInterval(function () {
+        if (done) { clearInterval(watch); return; }
+        var idle = Date.now() - (window._aiLastEventTs || start);
+        var total = Date.now() - start;
+        if (idle > IDLE_MS || total > HARD_MS) {
+            done = true; clearInterval(watch);
+            cb('The assistant went quiet for a while (no activity). It may still be working — try again, check the Chatbot tab, or use the built-in suggestions.');
+        }
+    }, 15000);
     sendMessageToCSharp(msg, function (err, resp) {
-        if (done) return; done = true; clearTimeout(to);
+        if (done) return; done = true; clearInterval(watch);
         if (err) { cb(String(err)); return; }
         cb(null, (resp && (resp.markdown || resp.answer)) || '');
     });
