@@ -328,12 +328,18 @@
             t = rows[0];
             logEvent(id, 'SYSTEM', 'PROGRESS', 'Handed to AI Digital Employee to work on (trip date ' + (t.TRIP_DATE || '') + ').', function () {
                 setStatus_silent(id, 'IN_PROGRESS');
+                aiProgressStart('AI working: ' + (t.TITLE || 'task') + ' · trip ' + (t.TRIP_DATE || ''));
+                window._taskAiProgress = function (evt) {
+                    if (evt.eventType === 'status') aiProgressLine(evt.text || '');
+                    else if (evt.eventType === 'sqlRound') aiProgressLine((evt.kind === 'fusion' ? 'Fusion ' + (evt.method || '') : 'SQL round ' + (evt.round || '')) + ': ' + (evt.success ? ((evt.rowCount != null ? evt.rowCount + ' rows' : 'ok') + ' in ' + (evt.elapsedMs || 0) + 'ms') : 'error — retrying'));
+                };
                 var prompt = 'You are working an assigned WORK TASK. Do it using your tools, then give a concise result. ' +
                     'If you cannot complete it, clearly state the ISSUE and what is blocking.\n' +
                     'IMPORTANT: work ONLY on the TRIP DATE ' + (t.TRIP_DATE || '') + ' — restrict every query/action to trips/orders whose trip date is ' + (t.TRIP_DATE || '') + '. Do not touch other dates.\n\n' +
                     'TASK: ' + (t.TITLE || '') + '\nTRIP DATE: ' + (t.TRIP_DATE || '') + '\nDETAILS: ' + (t.DESCRIPTION || '');
-                if (typeof window.aiAsk !== 'function') { alert('AI helper unavailable'); return; }
+                if (typeof window.aiAsk !== 'function') { aiProgressStop(); alert('AI helper unavailable'); return; }
                 window.aiAsk(prompt, function (e2, md) {
+                    aiProgressStop();
                     md = md || (e2 ? ('AI error: ' + e2) : 'No response');
                     logEvent(id, 'AI', 'RESULT', md, function () {
                         // store the AI summary as the task result
@@ -355,6 +361,28 @@
         try { var o = typeof aj === 'string' ? JSON.parse(aj) : aj; var s = Array.isArray(o) ? o : (o.steps || []); return Array.isArray(s) ? s : []; } catch (e) { return []; }
     }
 
+    // ── live progress toast (so you can SEE the AI working) ────────
+    function aiProgressStart(title) {
+        document.getElementById('tsk-progress')?.remove();
+        document.body.insertAdjacentHTML('beforeend',
+            '<div id="tsk-progress" style="position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:1100;background:#0f172a;color:#e2e8f0;border-radius:12px;box-shadow:0 14px 44px rgba(0,0,0,.45);width:460px;max-width:94vw;overflow:hidden;">' +
+              '<div style="padding:11px 14px;display:flex;align-items:center;gap:9px;border-bottom:1px solid #1e293b;">' +
+                '<i class="fas fa-robot" style="color:#22d3ee;"></i>' +
+                '<span style="font-size:12.5px;font-weight:800;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc2(title) + '</span>' +
+                '<i class="fas fa-circle-notch fa-spin" style="color:#22d3ee;"></i>' +
+              '</div>' +
+              '<div id="tsk-progress-log" style="max-height:180px;overflow:auto;padding:8px 14px;font-size:11px;line-height:1.65;font-family:Consolas,monospace;color:#94e2d5;"></div>' +
+            '</div>');
+        aiProgressLine('starting…');
+    }
+    function aiProgressLine(text) {
+        var log = document.getElementById('tsk-progress-log'); if (!log || !text) return;
+        var d = document.createElement('div'); d.textContent = '• ' + text;
+        log.appendChild(d); log.scrollTop = log.scrollHeight;
+        while (log.childNodes.length > 80) log.removeChild(log.firstChild);
+    }
+    function aiProgressStop() { var p = document.getElementById('tsk-progress'); if (p) p.remove(); window._taskAiProgress = null; }
+
     // ── execute a task's steps (via the shared LOCAL job runner) ───
     function execute(id) {
         if (!window.LocalJobRunner) { alert('The step runner is not available.'); return; }
@@ -366,7 +394,9 @@
             var completion = String(rows[0].COMPLETION_SQL || '').replace(/[{#]TRIP_DATE[}#]/g, tripDate);
             logEvent(id, 'SYSTEM', 'PROGRESS', 'Executing ' + steps.length + ' step(s) for trip date ' + tripDate + '…', function () {
                 setStatus_silentTo(id, 'IN_PROGRESS');
-                LocalJobRunner.runSteps(steps, { vars: { TRIP_DATE: tripDate } }, null).then(function (res) {
+                aiProgressStart('Executing ' + steps.length + ' step(s) · trip ' + tripDate);
+                LocalJobRunner.runSteps(steps, { vars: { TRIP_DATE: tripDate } }, aiProgressLine).then(function (res) {
+                    aiProgressStop();
                     var finish = function (done) {
                         var logText = (res.log || []).join('\n');
                         var newStatus = res.ok ? (done === false ? 'IN_PROGRESS' : 'DONE') : 'BLOCKED';

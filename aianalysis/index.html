@@ -1297,6 +1297,8 @@ function setStatus(text) {
 }
 
 function handleChatEvent(evt) {
+    // let a headless caller (e.g. the Daily Tasks "Run with AI") watch live progress
+    if (window._taskAiProgress) { try { window._taskAiProgress(evt); } catch (e) { } }
     if (evt.eventType === 'reportSaved') { window._reportsLoaded = false; loadReports(); return; }
     if (evt.eventType === 'status') setStatus(evt.text);
     else if (evt.eventType === 'sqlRound') {
