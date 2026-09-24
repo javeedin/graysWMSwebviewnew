@@ -107,6 +107,7 @@ if (window.chrome && window.chrome.webview) {
     window.chrome.webview.addEventListener('message', function (ev) {
         var resp = ev.data;
         if (typeof resp === 'string') { try { resp = JSON.parse(resp); } catch (e) { return; } }
+        if (resp && resp.action === 'fusionSqlAiProgress') { if (typeof onAiProgress === 'function') onAiProgress(resp.message); return; }
         if (!resp || !resp.requestId || !_fsPending[resp.requestId]) return;
         var p = _fsPending[resp.requestId];
         delete _fsPending[resp.requestId];
@@ -1811,17 +1812,18 @@ function sendAi() {
     $('fs-ai-q').value = '';
     $('fs-ai-body').querySelector('.fs-ai-welcome').style.display = 'none';
     appendMsg('user', esc(q));
-    var typing = appendMsg('bot', '<div class="fs-typing"><span></span><span></span><span></span><em class="fs-ai-timer">Finding tables…</em></div>');
-    var t0 = Date.now(), phase = 'Finding tables…';
-    var timer = setInterval(function () { var el = typing.querySelector('.fs-ai-timer'); if (el) el.textContent = phase + ' ' + Math.round((Date.now() - t0) / 1000) + ' s'; }, 500);
+    var typing = appendMsg('bot', '<div class="fs-typing"><span></span><span></span><span></span><em class="fs-ai-timer">Finding tables…</em></div><ol class="fs-ai-steps"></ol>');
+    var t0 = Date.now();
+    FS.ai.phase = 'Finding tables…'; FS.ai.typing = typing;
+    var timer = setInterval(function () { var el = typing.querySelector('.fs-ai-timer'); if (el) el.textContent = FS.ai.phase + ' ' + Math.round((Date.now() - t0) / 1000) + ' s'; }, 500);
     $('fs-ai-context').innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Finding relevant tables…';
     var editorSql = getSql().trim();
     buildAiSchema(q, editorSql).then(function (ctx) {
         var pins = ctx.pinned.length ? ' · <b>📌 ' + esc(ctx.pinned.slice(0, 4).join(', ')) + (ctx.pinned.length > 4 ? '…' : '') + '</b>' : '';
         $('fs-ai-context').innerHTML = ctx.count
-            ? '<i class="fa-solid fa-diagram-project"></i> Context' + (ctx.live ? ' (live lookup in Fusion)' : '') + ': ' + ctx.count + ' tables' + pins + ' — ' + esc(ctx.names.filter(function (n) { return ctx.pinned.indexOf(n) < 0; }).slice(0, 5).join(', ')) + (ctx.count > 6 ? '…' : '')
-            : '<i class="fa-solid fa-triangle-exclamation"></i> No matching tables found in Fusion — name the business object (e.g. sales order, supplier invoice, onhand).';
-        phase = 'Claude is writing the SQL…';
+            ? '<i class="fa-solid fa-diagram-project"></i> Full schema access · starting hints' + (ctx.live ? ' (live lookup)' : '') + ': ' + ctx.count + ' tables' + pins + ' — ' + esc(ctx.names.filter(function (n) { return ctx.pinned.indexOf(n) < 0; }).slice(0, 5).join(', ')) + (ctx.count > 6 ? '…' : '')
+            : '<i class="fa-solid fa-diagram-project"></i> Full schema access — Claude will search the Fusion dictionary itself.';
+        FS.ai.phase = 'Claude is working…';
         // The editor's SQL goes along so "add X to this" / "fix this" work on the real query
         var question = q;
         if (editorSql && editorSql.length <= 6000)
@@ -1839,11 +1841,24 @@ function sendAi() {
             return;
         }
         FS.ai.history.push({ role: 'user', content: q }, { role: 'assistant', content: r.response });
-        appendMsg('bot', renderAiAnswer(r.response));
+        var steps = r.steps || [];
+        appendMsg('bot', renderAiAnswer(r.response) + (steps.length
+            ? '<details class="fs-ai-research"><summary><i class="fa-solid fa-flask"></i> Research: ' + steps.length + ' step' + (steps.length === 1 ? '' : 's') + ' in the Fusion dictionary</summary><ol>' +
+              steps.map(function (st) { return '<li>' + esc(st) + '</li>'; }).join('') + '</ol></details>' : ''));
         aiNotifyDone(Date.now() - t0, /```/.test(r.response));
     }).catch(function (e) { clearInterval(timer); typing.remove(); appendMsg('bot err', esc(e)); })
         .then(function () { FS.ai.busy = false; $('fs-ai-send').disabled = false; $('fs-ai-q').focus(); });
 }
+/** Research steps streamed by the host while Claude uses its schema tools. */
+function onAiProgress(msg) {
+    if (!msg || !FS.ai.typing) return;
+    FS.ai.phase = /^[🔎📋📜🔗▶⚙]/u.test(msg) ? 'Researching…' : msg;
+    if (/^[🔎📋📜🔗▶⚙]/u.test(msg)) {
+        var ol = FS.ai.typing.querySelector('.fs-ai-steps');
+        if (ol) { var li = document.createElement('li'); li.textContent = msg; ol.appendChild(li); $('fs-ai-body').scrollTop = 1e9; }
+    }
+}
+
 /** Flash notification when Claude finishes: toast with Insert, pulse on the Ask AI button when the
  *  drawer is closed, and a blinking window title when the app is not in front. */
 function aiNotifyDone(ms, hasSql) {

@@ -166,9 +166,15 @@ namespace WMSApp
                     case "fusionSqlAiSql":
                         {
                             var cfg = FusionSqlStore.LoadConfig();
+                            // Research steps (tool calls) stream to the page as they happen
+                            Action<string> progress = msg =>
+                            {
+                                try { PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "fusionSqlAiProgress", requestId, message = msg }, FusionSqlJson)); }
+                                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[FusionSql AI] progress post failed: " + ex.Message); }
+                            };
                             var r = await FusionSqlAi.AskAsync(FsStr(root, "question"), FsStr(root, "schema"),
-                                root.TryGetProperty("history", out var h) ? h : default, cfg.AiModel);
-                            data = new { success = r.Success, response = r.Response, error = r.Error };
+                                root.TryGetProperty("history", out var h) ? h : default, cfg.AiModel, svc, progress);
+                            data = new { success = r.Success, response = r.Response, error = r.Error, steps = r.Steps };
                             break;
                         }
 

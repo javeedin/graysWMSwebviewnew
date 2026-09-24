@@ -2,13 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Text.Json;
-using System.Threading;
-using System.Threading.Tasks;
-using Anthropic;
-using Anthropic.Models.Beta;
-using Anthropic.Models.Beta.Messages;
 using Microsoft.Data.Sqlite;
 
 namespace WMSApp.FusionSql
@@ -185,91 +179,6 @@ namespace WMSApp.FusionSql
                 SqliteConnection.ClearAllPools();
                 Directory.CreateDirectory(FusionSqlStore.Root);
                 File.Copy(src, FusionSqlStore.SchemaDbFile, true);
-            }
-        }
-    }
-
-    // ---------------------------------------------------------------------
-    //  "Ask AI" — Claude writes the SQL from the cached schema (§7.4)
-    //  The API key lives on the host (DPAPI) and never reaches the page.
-    // ---------------------------------------------------------------------
-    public static class FusionSqlAi
-    {
-        private const string SYSTEM_PROMPT =
-@"You are an Oracle Fusion Cloud (SaaS) SQL expert embedded in a read-only SQL workbench.
-The query runs through a BI Publisher data model with DBMS_XMLGEN, as a BI user, on Oracle Database 19c.
-
-Rules for every answer:
-- Return exactly ONE read-only statement that starts with SELECT or WITH, inside a single ```sql code block.
-- Use ONLY tables and columns that appear in the SCHEMA section. If the schema lacks something you need, say which table/column is missing instead of inventing it.
-- Owner-qualify every table that is not owned by FUSION (for example FUSION_RO.X is fine unqualified only if the schema lists it under FUSION).
-- Use {{PARAM_NAME}} tokens instead of hard-coded filter values the user did not give (the workbench prompts for them; blank means NULL, so NVL({{P}}, col) = col means 'all').
-- Alias computed columns; format dates with TO_CHAR(col,'YYYY-MM-DD') when they are shown.
-- No trailing semicolon, no DML/DDL, no PL/SQL, no WITH FUNCTION.
-- Keep the statement compact: the runner limits it to about 2,900 characters.
-After the code block, add at most three short bullet points explaining joins or assumptions.";
-
-        public static async Task<(bool Success, string Response, string Error)> AskAsync(
-            string question, string schema, JsonElement history, string model, CancellationToken ct = default)
-        {
-            string key = FusionSqlStore.LoadAiKey();
-            if (string.IsNullOrEmpty(key))
-                return (false, null, "No Claude API key saved. Click the ⚙ gear in Ask AI (or Connection → AI assistant) to add one.");
-
-            var messages = new List<BetaMessageParam>();
-            if (history.ValueKind == JsonValueKind.Array)
-            {
-                // Last 8 turns; must alternate and start with the user
-                foreach (var h in history.EnumerateArray().TakeLast(8))
-                {
-                    string role = h.TryGetProperty("role", out var r) ? r.GetString() : null;
-                    string content = h.TryGetProperty("content", out var c) ? c.GetString() : null;
-                    if (string.IsNullOrWhiteSpace(content) || (role != "user" && role != "assistant")) continue;
-                    var want = role == "user" ? Role.User : Role.Assistant;
-                    if (messages.Count == 0 && want != Role.User) continue;
-                    if (messages.Count > 0 && messages[messages.Count - 1].Role == want) continue;
-                    messages.Add(new BetaMessageParam { Role = want, Content = content });
-                }
-                if (messages.Count > 0 && messages[messages.Count - 1].Role == Role.User) messages.RemoveAt(messages.Count - 1);
-            }
-            messages.Add(new BetaMessageParam
-            {
-                Role = Role.User,
-                Content = "SCHEMA (OWNER.TABLE: columns)\n" + (string.IsNullOrWhiteSpace(schema) ? "(no cached schema matched — ask the user to load the schema browser first)" : schema) +
-                          "\n\nQUESTION\n" + question
-            });
-
-            try
-            {
-                var client = new AnthropicClient { ApiKey = key };
-                var resp = await client.Beta.Messages.Create(new MessageCreateParams
-                {
-                    Model = string.IsNullOrWhiteSpace(model) ? "claude-opus-5" : model,
-                    MaxTokens = 16000,
-                    System = SYSTEM_PROMPT,
-                    Thinking = new BetaThinkingConfigAdaptive(),
-                    OutputConfig = new BetaOutputConfig { Effort = Effort.High },
-                    // Server-side refusal fallback: a declined request is re-served by Opus 4.8 in the same call
-                    Betas = [AnthropicBeta.ServerSideFallback2026_06_01],
-                    Fallbacks = new List<BetaFallbackParam> { new(Anthropic.Models.Messages.Model.ClaudeOpus4_8) },
-                    Messages = messages,
-                }, ct).ConfigureAwait(false);
-
-                var sb = new StringBuilder();
-                foreach (var block in resp.Content)
-                    if (block.TryPickText(out var t)) sb.Append(t.Text);
-
-                string stop = resp.StopReason?.ToString() ?? "";
-                if (stop.IndexOf("refusal", StringComparison.OrdinalIgnoreCase) >= 0 && sb.Length == 0)
-                    return (false, null, "Claude declined this request. Rephrase the question.");
-                if (sb.Length == 0)
-                    return (false, null, "Claude returned no text (stop reason: " + stop + ").");
-                return (true, sb.ToString(), null);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine("[FusionSql AI] " + ex);
-                return (false, null, "Claude API error: " + ex.Message);
             }
         }
     }

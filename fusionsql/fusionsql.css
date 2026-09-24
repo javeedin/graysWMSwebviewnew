@@ -527,3 +527,12 @@ li.CodeMirror-hint-active { background: var(--fs-red); }
 @keyframes fs-ready { 0%, 100% { box-shadow: 0 0 0 0 rgba(168,85,247,.6); } 50% { box-shadow: 0 0 0 8px rgba(168,85,247,0); } }
 .fs-btn.ai.fs-ai-ready { animation: fs-ready 1.2s ease-in-out infinite; position: relative; }
 .fs-btn.ai.fs-ai-ready::after { content: ''; position: absolute; top: -3px; right: -3px; width: 10px; height: 10px; border-radius: 50%; background: #22c55e; border: 2px solid #fff; }
+
+/* ── Ask AI: research steps ── */
+.fs-ai-steps { margin: 2px 14px 10px 30px; padding: 0; font-size: .74rem; color: #5b21b6; }
+.fs-ai-steps:empty { display: none; }
+.fs-ai-steps li { margin: 2px 0; animation: fs-pop .2s ease-out; word-break: break-word; }
+.fs-ai-research { margin-top: 8px; font-size: .76rem; color: var(--fs-muted); }
+.fs-ai-research summary { cursor: pointer; color: #7c3aed; font-weight: 600; }
+.fs-ai-research ol { margin: 6px 0 0 18px; }
+.fs-ai-research li { margin: 2px 0; word-break: break-word; }

@@ -436,13 +436,15 @@ ORDER BY table_name, index_name</textarea>
     <div class="fs-ai-body" id="fs-ai-body">
         <div class="fs-ai-welcome">
             <div class="fs-ai-orb"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
-            <h3>What do you want to find?</h3>
-            <p>Claude sees only the cached tables that match your question, so load the schema list first for best results.</p>
+            <h3>Ask about anything in the Fusion schema</h3>
+            <p>Claude has full, read-only access to the data dictionary: it searches tables, columns, views, packages, procedures and functions, reads PL/SQL source and checks sample data before answering.</p>
             <div class="fs-ai-suggest">
                 <button onclick="aiSuggest(this)">Unpaid supplier invoices older than 60 days</button>
                 <button onclick="aiSuggest(this)">Onhand quantity by item and subinventory for an organization</button>
                 <button onclick="aiSuggest(this)">Customers with open receivables above a given amount</button>
                 <button onclick="aiSuggest(this)">Journal lines posted last month for an account</button>
+                <button onclick="aiSuggest(this)">Explain the package AR_RECEIPT_API_PUB and how to call CREATE_CASH</button>
+                <button onclick="aiSuggest(this)">Which tables have a CUSTOMER_TRX_ID column?</button>
             </div>
         </div>
     </div>
