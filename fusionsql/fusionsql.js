@@ -352,7 +352,9 @@ function executeSql(sql, original) {
                 if (FS.currentQuery) bumpRuns(FS.currentQuery.name);
             } else {
                 var err = (r && r.error) || 'Unknown error';
-                setConn(/HTTP|Network|Timed out|credentials/i.test(err) ? 'err' : 'ok', /HTTP|Network|Timed out|credentials/i.test(err) ? 'Connection problem' : 'Connected');
+                // An ORA- error means the pod answered: the connection is fine, the SQL is not
+                var connBad = !/ORA-\d{5}/.test(err) && /\bHTTP \d{3}\b|Network error|Timed out|credentials/i.test(err);
+                setConn(connBad ? 'err' : 'ok', connBad ? 'Connection problem' : 'Connected');
                 addLog(false, 'ERROR: ' + err.split('\n')[0], sql);
                 showError(err, r && (r.decoded ? 'Decoded report output:\n' + r.decoded : r.raw));
             }

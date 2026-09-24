@@ -142,7 +142,7 @@ namespace WMSApp.FusionSql
                 using (var c = Open(readOnly: true))
                 using (var cmd = c.CreateCommand())
                 {
-                    cmd.CommandText = "SELECT * FROM (" + stmt + ") LIMIT " + Math.Clamp(rowLimit, 1, 100000);
+                    cmd.CommandText = "SELECT * FROM (\n" + stmt + "\n) LIMIT " + Math.Clamp(rowLimit, 1, 100000);
                     using (var rd = cmd.ExecuteReader())
                     {
                         var cols = Enumerable.Range(0, rd.FieldCount).Select(rd.GetName).ToList();

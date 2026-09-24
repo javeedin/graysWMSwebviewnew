@@ -332,7 +332,7 @@ namespace WMSApp.FusionSql
                     : "Oracle Fusion credentials are not available. Check the network / credentials service.");
 
             int cap = Math.Clamp(rowLimit ?? cfg.RowLimit, 1, 100000);
-            string capped = "SELECT * FROM (" + stmt + ") WHERE ROWNUM <= " + cap;
+            string capped = BuildCappedSql(stmt, cap);
             string b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(capped));
 
             // XML first; CSV only if XML returned neither data nor a fault (§4.3)
@@ -382,6 +382,11 @@ namespace WMSApp.FusionSql
                 result.Warning = "Statement is long (" + b64.Length + " base64 bytes). Pods without MAX_STRING_SIZE=EXTENDED limit it to 4000.";
             return Timed(result, sw);
         }
+
+        /// <summary>Wraps the statement in the row cap (§4.1). The line breaks matter: a statement whose
+        /// last line ends in a -- comment would otherwise swallow the closing parenthesis (ORA-00907).</summary>
+        public static string BuildCappedSql(string stmt, int cap) =>
+            "SELECT * FROM (\n" + stmt + "\n) WHERE ROWNUM <= " + cap;
 
         private static FusionQueryResult Timed(FusionQueryResult r, System.Diagnostics.Stopwatch sw)
         {
