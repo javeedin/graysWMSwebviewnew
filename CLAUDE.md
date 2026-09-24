@@ -4,7 +4,7 @@
 
 Gray's WMS (Warehouse Management System) is a **hybrid desktop-web application** built with C#/.NET 8.0 Windows Forms hosting a WebView2 (Chromium) browser control. The web frontend uses vanilla JavaScript with jQuery and DevExtreme components, backed by Oracle APEX REST APIs and Oracle Database.
 
-**Key modules:** Trip Management, Printer Management, Print Job Queue, Monitor Printing, Inventory Management, Receiving, and Claude AI Integration.
+**Key modules:** Trip Management, Printer Management, Print Job Queue, Monitor Printing, Inventory Management, Receiving, Fusion SQL, and Claude AI Integration.
 
 ---
 
@@ -237,4 +237,6 @@ No CI/CD pipeline is configured. No GitHub Actions, Jenkins, or Azure Pipelines.
 
 9. **Oracle PL/SQL conventions** — REST endpoints use `HTP.p()` for manual JSON construction. New endpoints should follow the numbered script pattern in `apex_sql/`.
 
-10. **No linting or formatting tools** — There are no `.eslintrc`, `.prettierrc`, or `editorconfig` files. Follow existing code style when making changes.
+10. **Fusion SQL module** — `fusionsql/` (page) + `classes/FusionSqlService.cs`, `classes/FusionSqlExtras.cs` (SQLite schema store, Ask AI) and `classes/Form1_FusionSqlHandlers.cs` (`fusionSql*` / `fusionDb*` IPC actions). Runs read-only SQL through one BI Publisher DBMS_XMLGEN runner report. Design: `docs/Fusion_SQL_Technical_RD.md`. Local data lives in `%APPDATA%\GraysWMS\FusionSql\`; the Fusion password and Claude key are DPAPI-encrypted and never sent to the page.
+
+11. **No linting or formatting tools** — There are no `.eslintrc`, `.prettierrc`, or `editorconfig` files. Follow existing code style when making changes.

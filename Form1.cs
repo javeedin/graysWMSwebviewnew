@@ -275,7 +275,7 @@ try
                 }
 
                 // Folders to copy
-                string[] folders = { "wms", "Home", "ap", "ar", "ca", "fa", "gl", "om", "pos", "sync" };
+                string[] folders = { "wms", "Home", "ap", "ar", "ca", "fa", "gl", "om", "pos", "sync", "fusionsql" };
 
                 foreach (string folder in folders)
                 {
@@ -2145,6 +2145,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     // Acknowledge so the JS side knows this exe supports the
                                     // feature; older exes stay silent and JS falls back to a tab
                                     await SendScriptAsync(wv, requestId, true, "New instance launched");
+                                    break;
+
+                                // Fusion SQL module (fusionsql/index.html)
+                                case var fsqlAction when IsFusionSqlAction(fsqlAction):
+                                    await HandleFusionSqlAction(wv, action, root, requestId);
                                     break;
 
                                 default:

@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fusion SQL — Fusion Client</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.css">
+    <link rel="stylesheet" href="fusionsql.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sql/sql.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/sql-hint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ═══════════════ Header ═══════════════ -->
+<header class="fs-header">
+    <div class="fs-header-left">
+        <a href="../Home/index.html" class="fs-back" title="Back to Home"><i class="fa-solid fa-arrow-left"></i></a>
+        <div class="fs-brand">
+            <div class="fs-logo"><i class="fa-solid fa-database"></i></div>
+            <div>
+                <div class="fs-title">Fusion SQL</div>
+                <div class="fs-subtitle">Read-only SQL workbench for Oracle Fusion Cloud · via BI Publisher</div>
+            </div>
+        </div>
+    </div>
+    <div class="fs-header-right">
+        <div class="fs-conn" id="fs-conn" title="Connection status">
+            <span class="fs-dot" id="fs-conn-dot"></span>
+            <span id="fs-conn-text">Not tested</span>
+        </div>
+        <span class="fs-instance" id="fs-instance">PROD</span>
+        <div class="fs-user"><i class="fa-solid fa-user-shield"></i> <span id="fs-user">—</span></div>
+    </div>
+</header>
+
+<!-- ═══════════════ Tabs ═══════════════ -->
+<nav class="fs-tabs" id="fs-tabs">
+    <button class="fs-tab active" data-tab="builder"><i class="fa-solid fa-code"></i> SQL Builder</button>
+    <button class="fs-tab" data-tab="queries"><i class="fa-solid fa-bookmark"></i> Saved Queries <span class="fs-badge muted" id="fs-queries-count">0</span></button>
+    <button class="fs-tab" data-tab="tables"><i class="fa-solid fa-sitemap"></i> Tables List</button>
+    <button class="fs-tab" data-tab="connection"><i class="fa-solid fa-plug"></i> Connection</button>
+    <button class="fs-tab" data-tab="inspector"><i class="fa-solid fa-satellite-dish"></i> API Inspector <span class="fs-badge muted" id="fs-calls-count">0</span></button>
+    <div class="fs-tabs-spacer"></div>
+    <div class="fs-kbd-hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> run · <kbd>Ctrl</kbd>+<kbd>Space</kbd> complete · <kbd>Ctrl</kbd>+<kbd>S</kbd> save</div>
+</nav>
+
+<main class="fs-main">
+
+<!-- ═══════════════ TAB 1: SQL Builder ═══════════════ -->
+<section class="fs-page active" id="page-builder">
+    <div class="fs-builder" id="fs-builder">
+
+        <!-- Schema browser -->
+        <aside class="fs-schema" id="fs-schema">
+            <div class="fs-schema-head">
+                <span><i class="fa-solid fa-diagram-project"></i> Schema</span>
+                <div>
+                    <button class="fs-icon-btn" title="Reload from Fusion (ignore cache)" onclick="schemaRefresh()"><i class="fa-solid fa-rotate"></i></button>
+                    <button class="fs-icon-btn" title="Hide schema" onclick="toggleSchema()"><i class="fa-solid fa-angles-left"></i></button>
+                </div>
+            </div>
+            <div class="fs-schema-controls">
+                <select id="fs-owner" onchange="schemaLoadObjects()" title="Owner"><option>FUSION</option></select>
+                <select id="fs-kind" onchange="schemaLoadObjects()" title="Object type">
+                    <option>TABLE</option><option>VIEW</option><option>MATERIALIZED VIEW</option><option>SYNONYM</option>
+                    <option>PROCEDURE</option><option>FUNCTION</option><option>PACKAGE</option><option>TRIGGER</option>
+                    <option>SEQUENCE</option><option>TYPE</option>
+                </select>
+                <div class="fs-search">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input id="fs-schema-filter" placeholder="Filter objects…" oninput="schemaFilter()">
+                </div>
+            </div>
+            <div class="fs-schema-meta" id="fs-schema-meta">Pick an owner to load objects.</div>
+            <div class="fs-schema-list" id="fs-schema-list"></div>
+        </aside>
+
+        <!-- Editor + results -->
+        <div class="fs-work">
+            <div class="fs-toolbar">
+                <button class="fs-btn primary" id="fs-run-btn" onclick="runEditor()" title="Execute (Ctrl+Enter). Runs the selection if any.">
+                    <i class="fa-solid fa-play"></i> Execute
+                </button>
+                <button class="fs-btn danger" id="fs-cancel-btn" onclick="cancelRun()" style="display:none;"><i class="fa-solid fa-stop"></i> Cancel</button>
+                <button class="fs-btn ai" onclick="openAi()"><i class="fa-solid fa-wand-magic-sparkles"></i> Ask AI</button>
+                <span class="fs-sep"></span>
+                <button class="fs-btn ghost" onclick="formatEditor()" title="Tidy SQL layout"><i class="fa-solid fa-align-left"></i> Format</button>
+                <div class="fs-dropdown">
+                    <button class="fs-btn ghost" onclick="toggleHistory(event)"><i class="fa-solid fa-clock-rotate-left"></i> History</button>
+                    <div class="fs-menu" id="fs-history-menu"></div>
+                </div>
+                <button class="fs-btn ghost" onclick="openSaveDialog()" title="Save query (Ctrl+S)"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+                <button class="fs-btn ghost" onclick="newQuery()" title="New query"><i class="fa-solid fa-file-circle-plus"></i> New</button>
+                <div class="fs-toolbar-spacer"></div>
+                <span class="fs-current-query" id="fs-current-query"></span>
+                <label class="fs-rowlimit" title="Row cap (1–100,000). Every statement is wrapped in ROWNUM ≤ limit.">
+                    <i class="fa-solid fa-filter"></i> Rows
+                    <input type="number" id="fs-rowlimit" min="1" max="100000" value="100">
+                </label>
+            </div>
+
+            <div class="fs-editor-wrap" id="fs-editor-wrap">
+                <textarea id="fs-editor" spellcheck="false">SELECT 1 AS n FROM dual</textarea>
+                <div class="fs-editor-status">
+                    <span id="fs-param-chip" class="fs-chip" style="display:none;"></span>
+                    <span id="fs-len-chip" class="fs-chip muted"></span>
+                </div>
+            </div>
+            <div class="fs-resizer" id="fs-resizer" title="Drag to resize"></div>
+
+            <div class="fs-results">
+                <div class="fs-subtabs">
+                    <button class="fs-subtab active" data-sub="grid" onclick="showSub('grid')"><i class="fa-solid fa-table"></i> Results <span class="fs-badge" id="fs-result-count">0</span></button>
+                    <button class="fs-subtab" data-sub="chart" onclick="showSub('chart')"><i class="fa-solid fa-chart-column"></i> Chart</button>
+                    <button class="fs-subtab" data-sub="logs" onclick="showSub('logs')"><i class="fa-solid fa-list"></i> Logs <span class="fs-badge muted" id="fs-log-count">0</span></button>
+                    <div class="fs-subtabs-spacer"></div>
+                    <div class="fs-result-meta" id="fs-result-meta"></div>
+                </div>
+
+                <div class="fs-sub active" id="sub-grid">
+                    <div class="fs-grid-bar">
+                        <div class="fs-search">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input id="fs-grid-search" placeholder="Search all cells…" oninput="gridSearch(this.value)">
+                        </div>
+                        <div class="fs-grid-actions">
+                            <button class="fs-btn sm" onclick="exportExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
+                            <button class="fs-btn sm" onclick="exportPdf()"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+                            <button class="fs-btn sm" onclick="copyGrid()"><i class="fa-solid fa-copy"></i> Copy</button>
+                        </div>
+                    </div>
+                    <div class="fs-grid" id="fs-grid">
+                        <div class="fs-empty">
+                            <i class="fa-solid fa-database"></i>
+                            <h3>Run a query to see results</h3>
+                            <p>Pick a table on the left, type SQL, or ask AI to write it for you.</p>
+                        </div>
+                    </div>
+                    <div class="fs-pager" id="fs-pager"></div>
+                </div>
+
+                <div class="fs-sub" id="sub-chart">
+                    <div class="fs-chart-bar">
+                        <label>Label <select id="fs-chart-x" onchange="drawChart()"></select></label>
+                        <label>Value <select id="fs-chart-y" onchange="drawChart()"></select></label>
+                        <label>Type
+                            <select id="fs-chart-type" onchange="drawChart()">
+                                <option value="bar">Bar</option><option value="line">Line</option><option value="doughnut">Doughnut</option>
+                            </select>
+                        </label>
+                        <span class="fs-muted" id="fs-chart-note"></span>
+                    </div>
+                    <div class="fs-chart-wrap"><canvas id="fs-chart"></canvas></div>
+                </div>
+
+                <div class="fs-sub" id="sub-logs">
+                    <div class="fs-logs" id="fs-logs"><div class="fs-muted">No runs yet.</div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <button class="fs-schema-reopen" id="fs-schema-reopen" onclick="toggleSchema()" title="Show schema"><i class="fa-solid fa-angles-right"></i></button>
+</section>
+
+<!-- ═══════════════ TAB 2: Saved Queries ═══════════════ -->
+<section class="fs-page" id="page-queries">
+    <div class="fs-page-head">
+        <div>
+            <h2><i class="fa-solid fa-bookmark"></i> Saved Queries</h2>
+            <p>Your query library. Saving with an existing name updates it.</p>
+        </div>
+        <div class="fs-page-actions">
+            <div class="fs-search wide">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input id="fs-q-search" placeholder="Search name, tag or SQL…" oninput="renderQueries()">
+            </div>
+            <button class="fs-btn" onclick="exportQueries()"><i class="fa-solid fa-file-export"></i> Export</button>
+            <label class="fs-btn"><i class="fa-solid fa-file-import"></i> Import<input type="file" accept=".json" hidden onchange="importQueries(this)"></label>
+        </div>
+    </div>
+    <div class="fs-query-grid" id="fs-query-grid"></div>
+</section>
+
+<!-- ═══════════════ TAB 3: Tables List ═══════════════ -->
+<section class="fs-page" id="page-tables">
+    <div class="fs-page-head">
+        <div>
+            <h2><i class="fa-solid fa-sitemap"></i> Tables List</h2>
+            <p>Pull an owner's tables, indexes and foreign keys into a local SQLite file you can share with other laptops.</p>
+        </div>
+        <div class="fs-page-actions">
+            <button class="fs-btn" onclick="dbExport()"><i class="fa-solid fa-download"></i> Export .db</button>
+            <button class="fs-btn" onclick="dbImport()"><i class="fa-solid fa-upload"></i> Import .db</button>
+        </div>
+    </div>
+
+    <div class="fs-cards">
+        <div class="fs-card">
+            <h3><i class="fa-solid fa-cloud-arrow-down"></i> Pull schema</h3>
+            <div class="fs-form-row">
+                <label>Owner</label>
+                <input id="fs-pull-owner" list="fs-owner-list" value="FUSION">
+                <datalist id="fs-owner-list"></datalist>
+                <button class="fs-btn primary" id="fs-pull-btn" onclick="pullSchema()"><i class="fa-solid fa-play"></i> Pull</button>
+            </div>
+            <div class="fs-progress" id="fs-pull-progress"><div class="fs-progress-bar" id="fs-pull-bar"></div></div>
+            <div class="fs-steplog" id="fs-pull-log"><div class="fs-muted">Pages 5,000 objects at a time, one after another, so production isn't flooded.</div></div>
+        </div>
+
+        <div class="fs-card">
+            <h3><i class="fa-solid fa-hard-drive"></i> Local database</h3>
+            <div id="fs-db-info" class="fs-db-info"><div class="fs-muted">Loading…</div></div>
+        </div>
+    </div>
+
+    <div class="fs-card">
+        <h3><i class="fa-solid fa-magnifying-glass"></i> Explore the local schema</h3>
+        <div class="fs-form-row">
+            <div class="fs-search wide"><i class="fa-solid fa-magnifying-glass"></i>
+                <input id="fs-db-find" placeholder="Find a table, e.g. AP_INVOICES" onkeydown="if(event.key==='Enter')dbFind()">
+            </div>
+            <button class="fs-btn" onclick="dbFind()"><i class="fa-solid fa-search"></i> Find</button>
+            <span class="fs-muted">or run SQLite SQL:</span>
+        </div>
+        <textarea id="fs-db-sql" class="fs-db-sql" spellcheck="false">SELECT owner, table_name, index_name, uniqueness, columns
+FROM fusion_indexes
+WHERE table_name LIKE 'AP_INVOICES%'
+ORDER BY table_name, index_name</textarea>
+        <div class="fs-form-row"><button class="fs-btn primary sm" onclick="dbQuery()"><i class="fa-solid fa-play"></i> Run on local DB</button><span class="fs-muted" id="fs-db-meta"></span></div>
+        <div class="fs-grid small" id="fs-db-grid"></div>
+    </div>
+</section>
+
+<!-- ═══════════════ TAB 4: Connection ═══════════════ -->
+<section class="fs-page" id="page-connection">
+    <div class="fs-page-head">
+        <div>
+            <h2><i class="fa-solid fa-plug"></i> Connection</h2>
+            <p>Pod, BI Publisher runner, credentials and the AI assistant.</p>
+        </div>
+        <div class="fs-page-actions">
+            <button class="fs-btn primary" onclick="testConnection()"><i class="fa-solid fa-bolt"></i> Test connection</button>
+        </div>
+    </div>
+
+    <div class="fs-status-strip" id="fs-status-strip"></div>
+
+    <div class="fs-cards">
+        <div class="fs-card">
+            <h3><i class="fa-solid fa-server"></i> Pod &amp; runner</h3>
+            <div class="fs-form">
+                <label>Pod URL <small>blank = follow the logged-in instance</small></label>
+                <input id="cfg-baseUrl" placeholder="https://xxxx.fa.em3.oraclecloud.com">
+                <label>Catalog folder</label>
+                <input id="cfg-folderPath">
+                <label>Data model path</label>
+                <input id="cfg-dataModelPath">
+                <label>Report path <small>called by runReport</small></label>
+                <input id="cfg-reportPath">
+                <label>Data source <small>BIP → Administration → JDBC</small></label>
+                <input id="cfg-dataSource">
+                <div class="fs-form-2">
+                    <div><label>Default row limit</label><input id="cfg-rowLimit" type="number" min="1" max="100000"></div>
+                    <div><label>Timeout (seconds)</label><input id="cfg-timeoutSec" type="number" min="5" max="600"></div>
+                </div>
+            </div>
+            <div class="fs-form-row"><button class="fs-btn primary" onclick="saveConfig()"><i class="fa-solid fa-floppy-disk"></i> Save settings</button></div>
+        </div>
+
+        <div class="fs-card">
+            <h3><i class="fa-solid fa-key"></i> Fusion credentials</h3>
+            <label class="fs-radio"><input type="radio" name="cred-src" value="application" onchange="credSourceChanged()">
+                <span><b>Application account</b> <small id="fs-app-user">—</small><br><small>The same Fusion account the rest of the app uses.</small></span></label>
+            <label class="fs-radio"><input type="radio" name="cred-src" value="custom" onchange="credSourceChanged()">
+                <span><b>Dedicated BI account</b> <small>(recommended in production)</small><br><small>Least-privilege user with BI Consumer + data roles. Every statement is audited as this user.</small></span></label>
+            <div class="fs-form" id="fs-custom-cred">
+                <label>Username</label><input id="cred-user" autocomplete="off">
+                <label>Password <small id="cred-pass-hint"></small></label><input id="cred-pass" type="password" autocomplete="new-password" placeholder="Leave blank to keep the saved password">
+            </div>
+            <div class="fs-form-row"><button class="fs-btn primary" onclick="saveCredentials()"><i class="fa-solid fa-lock"></i> Save credentials</button>
+                <span class="fs-muted"><i class="fa-solid fa-shield-halved"></i> Encrypted with Windows DPAPI; never sent to this page.</span></div>
+        </div>
+
+        <div class="fs-card">
+            <h3><i class="fa-solid fa-rocket"></i> Deploy the query runner</h3>
+            <p class="fs-muted">Creates the folder, the DBMS_XMLGEN data model and the report through CatalogService, then runs <code>SELECT 1 FROM dual</code>. Needs BI Author once.</p>
+            <div class="fs-form-row"><button class="fs-btn primary" id="fs-deploy-btn" onclick="deployRunner()"><i class="fa-solid fa-rocket"></i> Deploy runner report</button></div>
+            <div class="fs-steplog" id="fs-deploy-log"></div>
+            <details class="fs-details">
+                <summary><i class="fa-solid fa-hand"></i> Manual setup (if auto-deploy is not allowed)</summary>
+                <ol class="fs-steps">
+                    <li>BI Publisher → <b>New → Data Model</b>. Data source <code id="fs-man-ds">ApplicationDB_FSCM</code>.</li>
+                    <li>Properties: <i>Include Parameter Tags</i> ✓, <i>Include Empty Tags for Null</i> ✗, <i>Include Group List Tag</i> ✗, <i>XML Tag Display</i> = Upper case.</li>
+                    <li>New data set <b>Q1</b> → SQL Query → <i>Standard SQL</i>, paste the SQL below. Accept the bind <code>P_QRY_STMT</code> (String).</li>
+                    <li>Save as <code id="fs-man-dm"></code>.</li>
+                    <li>Create Report → use the data model → no layout (data only, XML + CSV allowed). Save as <code id="fs-man-rep"></code>.</li>
+                </ol>
+                <div class="fs-code-box"><button class="fs-icon-btn" onclick="copyText(document.getElementById('fs-runner-sql').textContent)" title="Copy"><i class="fa-solid fa-copy"></i></button><pre id="fs-runner-sql"></pre></div>
+            </details>
+        </div>
+
+        <div class="fs-card">
+            <h3><i class="fa-solid fa-wand-magic-sparkles"></i> AI assistant (Claude)</h3>
+            <p class="fs-muted">Ask AI writes SQL using only tables and columns from your cached schema. The key stays on this PC (DPAPI).</p>
+            <div class="fs-form">
+                <label>Claude API key <small id="ai-key-hint"></small></label>
+                <input id="ai-key" type="password" autocomplete="new-password" placeholder="sk-ant-…  (blank = keep)">
+                <label>Model</label>
+                <select id="cfg-aiModel">
+                    <option value="claude-opus-5">Claude Opus 5 (best SQL)</option>
+                    <option value="claude-sonnet-5">Claude Sonnet 5 (faster)</option>
+                    <option value="claude-haiku-4-5">Claude Haiku 4.5 (cheapest)</option>
+                </select>
+            </div>
+            <div class="fs-form-row">
+                <button class="fs-btn primary" onclick="saveAi()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+                <button class="fs-btn ghost" onclick="removeAiKey()"><i class="fa-solid fa-trash"></i> Remove key</button>
+            </div>
+        </div>
+
+        <div class="fs-card">
+            <h3><i class="fa-solid fa-box-archive"></i> Schema cache</h3>
+            <p class="fs-muted">Owners, object lists and columns are cached per pod and only re-queried when you press refresh.</p>
+            <div class="fs-kv" id="fs-cache-info"></div>
+            <div class="fs-form-row">
+                <button class="fs-btn" onclick="exportCache()"><i class="fa-solid fa-download"></i> Export cache</button>
+                <button class="fs-btn ghost" onclick="clearCache()"><i class="fa-solid fa-broom"></i> Clear cache</button>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══════════════ TAB 5: API Inspector ═══════════════ -->
+<section class="fs-page" id="page-inspector">
+    <div class="fs-page-head">
+        <div>
+            <h2><i class="fa-solid fa-satellite-dish"></i> API Inspector</h2>
+            <p>The last 30 SOAP calls to the pod. Passwords are redacted to <code>***</code>.</p>
+        </div>
+        <div class="fs-page-actions">
+            <button class="fs-btn" onclick="loadCalls()"><i class="fa-solid fa-rotate"></i> Refresh</button>
+            <button class="fs-btn ghost" onclick="loadCalls(true)"><i class="fa-solid fa-trash"></i> Clear</button>
+        </div>
+    </div>
+    <div class="fs-inspector">
+        <div class="fs-call-list" id="fs-call-list"><div class="fs-muted">No calls yet.</div></div>
+        <div class="fs-call-detail" id="fs-call-detail"><div class="fs-empty"><i class="fa-solid fa-arrow-left"></i><p>Select a call</p></div></div>
+    </div>
+</section>
+
+</main>
+
+<!-- ═══════════════ AI drawer ═══════════════ -->
+<div class="fs-drawer-backdrop" id="fs-ai-backdrop" onclick="closeAi()"></div>
+<aside class="fs-drawer" id="fs-ai">
+    <div class="fs-drawer-head">
+        <div><i class="fa-solid fa-wand-magic-sparkles"></i> Ask AI <small>Claude writes SQL from your schema</small></div>
+        <div>
+            <button class="fs-icon-btn light" onclick="clearAi()" title="New conversation"><i class="fa-solid fa-broom"></i></button>
+            <button class="fs-icon-btn light" onclick="closeAi()" title="Close"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+    </div>
+    <div class="fs-ai-body" id="fs-ai-body">
+        <div class="fs-ai-welcome">
+            <div class="fs-ai-orb"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+            <h3>What do you want to find?</h3>
+            <p>Claude sees only the cached tables that match your question, so load the schema list first for best results.</p>
+            <div class="fs-ai-suggest">
+                <button onclick="aiSuggest(this)">Unpaid supplier invoices older than 60 days</button>
+                <button onclick="aiSuggest(this)">Onhand quantity by item and subinventory for an organization</button>
+                <button onclick="aiSuggest(this)">Customers with open receivables above a given amount</button>
+                <button onclick="aiSuggest(this)">Journal lines posted last month for an account</button>
+            </div>
+        </div>
+    </div>
+    <div class="fs-ai-context" id="fs-ai-context"></div>
+    <div class="fs-ai-input">
+        <textarea id="fs-ai-q" rows="2" placeholder="Describe the data you need…  (Enter to send, Shift+Enter for new line)"></textarea>
+        <button class="fs-btn ai" id="fs-ai-send" onclick="sendAi()"><i class="fa-solid fa-paper-plane"></i></button>
+    </div>
+</aside>
+
+<!-- ═══════════════ Modals ═══════════════ -->
+<div class="fs-modal" id="fs-modal">
+    <div class="fs-modal-box">
+        <div class="fs-modal-head"><span id="fs-modal-title">Title</span><button class="fs-icon-btn" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div>
+        <div class="fs-modal-body" id="fs-modal-body"></div>
+        <div class="fs-modal-foot" id="fs-modal-foot"></div>
+    </div>
+</div>
+
+<div class="fs-toast-wrap" id="fs-toasts"></div>
+
+<script src="fusionsql.js"></script>
+</body>
+</html>
