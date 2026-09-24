@@ -51,6 +51,7 @@
     <button class="fs-tab active" data-tab="builder"><i class="fa-solid fa-code"></i> SQL Builder</button>
     <button class="fs-tab" data-tab="queries"><i class="fa-solid fa-bookmark"></i> Saved Queries <span class="fs-badge muted" id="fs-queries-count">0</span></button>
     <button class="fs-tab" data-tab="tables"><i class="fa-solid fa-sitemap"></i> Tables List</button>
+    <button class="fs-tab" data-tab="datasets"><i class="fa-solid fa-database"></i> APEX Data <span class="fs-badge muted" id="fs-ds-count">0</span></button>
     <button class="fs-tab" data-tab="connection"><i class="fa-solid fa-plug"></i> Connection</button>
     <button class="fs-tab" data-tab="inspector"><i class="fa-solid fa-satellite-dish"></i> API Inspector <span class="fs-badge muted" id="fs-calls-count">0</span></button>
     <div class="fs-tabs-spacer"></div>
@@ -137,6 +138,7 @@
                             <input id="fs-grid-search" placeholder="Search all cells…" oninput="gridSearch(this.value)">
                         </div>
                         <div class="fs-grid-actions">
+                            <button class="fs-btn sm ds-save-btn" onclick="openSaveToApex()" title="Save this result as a table in the APEX database (refreshable)"><i class="fa-solid fa-cloud-arrow-up"></i> Save to APEX</button>
                             <button class="fs-btn sm" onclick="exportExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
                             <button class="fs-btn sm" onclick="exportPdf()"><i class="fa-solid fa-file-pdf"></i> PDF</button>
                             <button class="fs-btn sm" onclick="copyGrid()"><i class="fa-solid fa-copy"></i> Copy</button>
@@ -246,6 +248,39 @@ WHERE table_name LIKE 'AP_INVOICES%'
 ORDER BY table_name, index_name</textarea>
         <div class="fs-form-row"><button class="fs-btn primary sm" onclick="dbQuery()"><i class="fa-solid fa-play"></i> Run on local DB</button><span class="fs-muted" id="fs-db-meta"></span></div>
         <div class="fs-grid small" id="fs-db-grid"></div>
+    </div>
+</section>
+
+<!-- ═══════════════ APEX Data (saved result tables) ═══════════════ -->
+<section class="fs-page" id="page-datasets">
+    <div class="fs-page-head">
+        <div>
+            <h2><i class="fa-solid fa-database"></i> APEX Data</h2>
+            <p>Fusion query results saved as tables in the APEX database. <b>Refresh</b> re-runs the saved source SQL on Fusion and reloads the table.</p>
+        </div>
+        <div class="fs-page-actions">
+            <div class="fs-search wide">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input id="fs-ds-search" placeholder="Search dataset, table or SQL…" oninput="dsRenderList()">
+            </div>
+            <button class="fs-btn" onclick="dsLoadList()" title="Reload"><i class="fa-solid fa-rotate"></i></button>
+        </div>
+    </div>
+    <div class="fs-q-status" id="fs-ds-status"></div>
+    <div class="fs-query-grid" id="fs-ds-list"></div>
+
+    <div class="fs-card" style="margin-top:16px;">
+        <h3><i class="fa-solid fa-magnifying-glass-chart"></i> Query APEX data</h3>
+        <p class="fs-muted" style="margin-bottom:8px;">Read-only <code>SELECT</code> against the APEX database — join or filter your saved tables (e.g. <code>FSQ_…</code>).</p>
+        <textarea id="fs-ds-sql" class="fs-db-sql" spellcheck="false" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();dsRunQuery();}">SELECT table_name, row_count, refreshed_date FROM wms_fusion_sql_datasets</textarea>
+        <div class="fs-form-row">
+            <button class="fs-btn primary sm" onclick="dsRunQuery()"><i class="fa-solid fa-play"></i> Run on APEX</button>
+            <label class="fs-rowlimit">Max rows <input type="number" id="fs-ds-max" min="1" max="50000" value="1000"></label>
+            <button class="fs-btn sm" onclick="dsExport('xlsx')"><i class="fa-solid fa-file-excel"></i> Excel</button>
+            <button class="fs-btn sm" onclick="dsExport('csv')"><i class="fa-solid fa-file-csv"></i> CSV</button>
+            <span class="fs-muted" id="fs-ds-meta"></span>
+        </div>
+        <div class="fs-grid small" id="fs-ds-grid"></div>
     </div>
 </section>
 
@@ -430,5 +465,6 @@ ORDER BY table_name, index_name</textarea>
 <div class="fs-toast-wrap" id="fs-toasts"></div>
 
 <script src="fusionsql.js"></script>
+<script src="datasets.js"></script>
 </body>
 </html>

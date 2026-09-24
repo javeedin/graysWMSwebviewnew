@@ -136,6 +136,7 @@ function showTab(name) {
     if (name === 'inspector') loadCalls();
     if (name === 'connection') renderConnection();
     if (name === 'queries') renderQueries();
+    if (name === 'datasets' && typeof dsLoadList === 'function') dsLoadList();
 }
 function showSub(name) {
     document.querySelectorAll('.fs-subtab').forEach(function (b) { b.classList.toggle('active', b.dataset.sub === name); });
@@ -391,8 +392,9 @@ function runEditor() {
     var sql = getRunSql();
     if (!sql.trim()) { toast('Nothing to run', 'warn'); return; }
     var params = detectParams(sql);
-    var go = function (finalSql) { executeSql(finalSql, sql); };
-    if (params.length) askParams(params, sql).then(function (vals) { if (vals) go(substituteParams(sql, vals)); });
+    // Remember the source SQL + parameter values: "Save to APEX" stores them so the table can be refreshed
+    var go = function (finalSql, vals) { FS.runSource = { sql: sql, params: vals || {} }; executeSql(finalSql, sql); };
+    if (params.length) askParams(params, sql).then(function (vals) { if (vals) go(substituteParams(sql, vals), vals); });
     else go(sql);
 }
 
@@ -467,7 +469,7 @@ function showResult(r, limit) {
         }
         isNum[c] = any && all;
     });
-    FS.result = { columns: cols, rows: r.rows, isNum: isNum, isId: isId, filtered: r.rows, page: 0, sortCol: null, sortDir: 1, search: '', capped: r.capped, elapsed: r.elapsedMs, decoded: r.decoded, limit: limit, sql: getRunSql() };
+    FS.result = { columns: cols, rows: r.rows, isNum: isNum, isId: isId, filtered: r.rows, page: 0, sortCol: null, sortDir: 1, search: '', capped: r.capped, elapsed: r.elapsedMs, decoded: r.decoded, limit: limit, sql: getRunSql(), source: FS.runSource };
     $('fs-grid-search').value = '';
     $('fs-result-count').textContent = r.rowCount.toLocaleString();
     $('fs-result-meta').innerHTML =
@@ -1835,6 +1837,7 @@ document.addEventListener('keydown', function (e) {
     loadStatus().then(function (s) {
         if (!s) return;
         loadQueries();
+        if (typeof dsLoadList === 'function') dsLoadList();
         schemaInit();
         var tab = lsGet('fusionSql.tab', 'builder');
         if (tab !== 'builder') showTab(tab);

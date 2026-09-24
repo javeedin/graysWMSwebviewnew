@@ -487,3 +487,31 @@ li.CodeMirror-hint-active { background: var(--fs-red); }
     .fs-builder.schema-hidden .fs-schema { margin-left: -240px; }
     .fs-inspector { grid-template-columns: 1fr; }
 }
+
+/* ── APEX Data (saved result tables) ── */
+.ds-save-btn { color: var(--fs-red); border-color: #f3c9c2; }
+.ds-card .ds-table { padding: 0 14px 8px; font-size: .8rem; color: var(--fs-slate); }
+.ds-card .ds-table i { color: var(--fs-red); margin-right: 2px; }
+.ds-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; padding: 0 14px 8px; }
+.ds-stats div { background: #faf8f7; border: 1px solid var(--fs-line-2); border-radius: 8px; padding: 6px 8px; display: flex; flex-direction: column; }
+.ds-stats b { font-size: .92rem; color: var(--fs-slate); }
+.ds-stats span { font-size: .66rem; text-transform: uppercase; letter-spacing: .5px; color: var(--fs-muted); }
+.ds-st { font-size: .66rem; font-weight: 800; padding: 2px 8px; border-radius: 10px; white-space: nowrap; height: fit-content; }
+.ds-st-ok { background: #dcfce7; color: var(--fs-green); }
+.ds-st-error { background: #fee2e2; color: #b91c1c; }
+.ds-st-running { background: #fef3c7; color: #92400e; }
+.ds-err { margin: 6px 14px 0; padding: 8px 10px; border-radius: 8px; background: #fff5f4; border: 1px solid #fecaca; color: #7f1d1d; font-family: var(--fs-mono); font-size: .72rem; white-space: pre-wrap; max-height: 110px; overflow: auto; }
+.ds-card pre { margin-top: 8px; }
+.ds-progress { padding: 6px 14px 0; font-size: .75rem; color: #92400e; min-height: 0; }
+.ds-progress:empty { display: none; }
+.ds-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ds-modes .fs-radio { margin-bottom: 0; }
+.ds-summary { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: #faf8f7; border: 1px solid var(--fs-line); font-size: .84rem; }
+.ds-summary > i { color: var(--fs-red); }
+.ds-warn { margin-top: 6px; color: #92400e; }
+.ds-params { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ds-cols { width: 100%; border-collapse: collapse; font-size: .76rem; margin-top: 8px; }
+.ds-cols th, .ds-cols td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--fs-line-2); }
+.ds-cols th { color: var(--fs-muted); font-weight: 700; }
+.fs-modal-body .fs-form input[type="radio"], .fs-modal-body .fs-form input[type="checkbox"] { width: auto; }
+.ds-modes .fs-radio { text-align: left; align-items: flex-start; }
