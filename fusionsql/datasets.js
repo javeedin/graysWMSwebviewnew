@@ -148,6 +148,12 @@ function dsLoadList() {
         DS.state = /ORA-00942|table or view does not exist/i.test(DS.error) ? 'missing' : 'offline';
         DS.list = [];
     }).then(function () {
+        if (DS.state === 'offline') { DS.orphans = []; return; }
+        return dbRead("SELECT table_name FROM user_tables WHERE table_name LIKE 'FSQ\\_%' ESCAPE '\\' ORDER BY table_name", 500).then(function (rows) {
+            var reg = {}; DS.list.forEach(function (d) { reg[String(d.table).toUpperCase()] = 1; });
+            DS.orphans = rows.map(function (r) { return String(r.TABLE_NAME); }).filter(function (t) { return !reg[t.toUpperCase()]; });
+        }).catch(function () { DS.orphans = []; });
+    }).then(function () {
         var b = $('fs-ds-count');
         if (b) { b.textContent = DS.list.length; b.classList.toggle('muted', !DS.list.length); }
         dsRenderStatus(); dsRenderList();
@@ -251,7 +257,7 @@ function dsRefresh(ds, params, rebuild) {
 
 /** First save: registry row + table + load 1, from the rows already in the grid. */
 function dsCreate(meta, R) {
-    var t0 = Date.now(), map = dsMapColumns(R.columns, R.rows, null), ds;
+    var t0 = Date.now(), map = dsMapColumns(R.columns, R.rows, null), ds, created = false;
     dsProgress('new', 'Checking names…');
     return dsEnsureRegistry()
         .then(function () {
@@ -262,7 +268,7 @@ function dsCreate(meta, R) {
             if (+r[0].N_NAME > 0) throw 'A dataset named "' + meta.name + '" already exists — refresh it from the APEX Data tab or choose another name.';
             if (+r[0].N_TAB > 0) throw 'Table ' + meta.table + ' already exists in APEX — choose another table name.';
             dsProgress('new', 'Creating table ' + meta.table + '…');
-            return dbWrite(dsCreateTableSql(meta.table, map));
+            return dbWrite(dsCreateTableSql(meta.table, map)).then(function () { created = true; });
         })
         .then(function () {
             return dbWrite('INSERT INTO ' + DS.REG + ' (dataset_name, table_name, description, source_sql, param_json, row_limit, refresh_mode, current_load_id, column_count, instance, created_by, created_date, last_status) VALUES (' +
@@ -276,7 +282,12 @@ function dsCreate(meta, R) {
             return dsFill('new', meta.table, map, R.rows, 1);
         })
         .then(function () { dsProgress('new', 'Finishing…'); return dsFinish(ds, 1, t0); })
-        .catch(function (e) { if (ds) return dsFail(ds, e, t0); throw e; })
+        .catch(function (e) {
+            if (ds) return dsFail(ds, e, t0);
+            // Failed before the registry row existed: don't leave an orphan table behind
+            if (created) return dbWrite('DROP TABLE ' + dsQ(meta.table) + ' PURGE').catch(function () { }).then(function () { throw e; });
+            throw e;
+        })
         .then(function () { dsProgress('new', null); }, function (e) { dsProgress('new', null); throw e; });
 }
 
@@ -345,7 +356,8 @@ function dsRenderStatus() {
     var el = $('fs-ds-status'); if (!el) return;
     var st = DS.state, html;
     if (st === 'loading') html = '<span class="fs-spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:middle;"></span> Loading datasets…';
-    else if (st === 'ready') html = '<i class="fa-solid fa-database" style="color:var(--fs-green)"></i> ' + DS.list.length + ' dataset' + (DS.list.length === 1 ? '' : 's') + ' in the APEX database · registry <code>WMS_FUSION_SQL_DATASETS</code>';
+    else if (st === 'ready') html = '<i class="fa-solid fa-database" style="color:var(--fs-green)"></i> ' + DS.list.length + ' dataset' + (DS.list.length === 1 ? '' : 's') + ' in the APEX database · registry <code>WMS_FUSION_SQL_DATASETS</code>' +
+        ((DS.orphans || []).length ? ' · <span style="color:#92400e"><i class="fa-solid fa-triangle-exclamation"></i> ' + DS.orphans.length + ' unregistered FSQ_ table' + (DS.orphans.length === 1 ? '' : 's') + '</span>' : '');
     else if (st === 'missing') html = '<i class="fa-solid fa-circle-info" style="color:var(--fs-amber)"></i> No datasets yet. Run a query in the SQL Builder and click <b>Save to APEX</b> on the results — the tables are created automatically.';
     else html = '<i class="fa-solid fa-plug-circle-xmark" style="color:#b91c1c"></i> APEX database not reachable. <span class="fs-muted">' + esc((DS.error || '').slice(0, 160)) + '</span> <button class="fs-btn sm" onclick="dsLoadList()"><i class="fa-solid fa-rotate"></i> Retry</button>';
     el.innerHTML = '<div>' + html + '</div>';
@@ -354,8 +366,28 @@ function dsRenderList() {
     var el = $('fs-ds-list'); if (!el) return;
     var term = (($('fs-ds-search') || {}).value || '').toLowerCase();
     var list = DS.list.filter(function (d) { return !term || (d.name + ' ' + d.table + ' ' + d.description + ' ' + d.sql).toLowerCase().indexOf(term) >= 0; });
-    if (!DS.list.length) { el.innerHTML = ''; return; }
-    el.innerHTML = list.map(function (d) {
+    var orphans = (DS.orphans || []).map(function (t) {
+        return '<div class="fs-q ds-card ds-orphan"><div class="fs-q-head"><div class="fs-q-name"><i class="fa-solid fa-triangle-exclamation" style="color:var(--fs-amber)"></i> ' + esc(t) + '</div>' +
+            '<span class="ds-st ds-st-running">Not registered</span></div>' +
+            '<div class="fs-q-desc">This APEX table has no dataset entry — usually a <b>Save to APEX</b> that did not finish. Its source SQL is unknown, so it cannot be refreshed.</div>' +
+            '<div class="fs-q-foot"><button class="fs-btn sm" onclick="dsViewTable(\'' + esc(t) + '\')"><i class="fa-solid fa-eye"></i> View data</button>' +
+            '<button class="fs-btn sm" onclick="dsRegisterOrphan(\'' + esc(t) + '\')" title="Attach the query currently in the SQL Builder as its source SQL"><i class="fa-solid fa-link"></i> Register with current SQL</button>' +
+            '<span style="flex:1"></span><button class="fs-icon-btn" title="Drop this table" onclick="dsDropOrphan(\'' + esc(t) + '\')"><i class="fa-regular fa-trash-can"></i></button></div></div>';
+    }).join('');
+    if (!DS.list.length) {
+        var R = FS.result, hasResult = R && R.columns && R.columns.length && R.source;
+        el.innerHTML = (DS.state === 'offline' ? '' :
+            '<div class="ds-empty"><div class="ds-empty-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>' +
+            '<h3>No datasets saved yet</h3>' +
+            '<ol><li>Run a query in the <b>SQL Builder</b>.</li>' +
+            '<li>Click <b><i class="fa-solid fa-cloud-arrow-up"></i> Save to APEX</b> above the results grid.</li>' +
+            '<li>Pick a name — the rows are stored in an <code>FSQ_…</code> table and the source SQL is kept, so you can <b>Refresh</b> it here any time.</li></ol>' +
+            '<div class="ds-empty-actions">' +
+            (hasResult ? '<button class="fs-btn primary" onclick="showTab(\'builder\');openSaveToApex()"><i class="fa-solid fa-cloud-arrow-up"></i> Save the current result (' + R.rows.length.toLocaleString() + ' rows)</button>' : '') +
+            '<button class="fs-btn" onclick="showTab(\'builder\')"><i class="fa-solid fa-code"></i> Go to SQL Builder</button></div></div>') + orphans;
+        return;
+    }
+    el.innerHTML = orphans + list.map(function (d) {
         var st = DS.busy[d.id] ? 'RUNNING' : (d.status || 'OK');
         var pn = detectParams(d.sql);
         return '<div class="fs-q ds-card">' +
@@ -432,6 +464,36 @@ function dsView(id) {
     $('fs-ds-sql').value = 'SELECT *\nFROM ' + d.table + '\nORDER BY FSQ_LOAD_ID DESC';
     dsRunQuery();
     $('fs-ds-sql').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function dsViewTable(t) {
+    $('fs-ds-sql').value = 'SELECT *\nFROM ' + t;
+    dsRunQuery();
+    $('fs-ds-sql').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function dsDropOrphan(t) {
+    confirmModal('Drop ' + t + '?', 'The table is not registered as a dataset. Dropping it deletes its rows permanently.', function () {
+        dbWrite('DROP TABLE ' + dsQ(t) + ' PURGE').then(function () { toast('Dropped ' + t); return dsLoadList(); })
+            .catch(function (e) { toast('Drop failed: ' + e, 'err'); });
+    });
+}
+/** Registers an orphan table with the SQL currently in the editor (and its last parameter values). */
+function dsRegisterOrphan(t) {
+    var sql = getSql().trim();
+    if (!sql) { toast('Put the query that produced this table in the SQL Builder first', 'warn'); showTab('builder'); return; }
+    var saved = lsGet('fusionSql.params', {}), params = {};
+    detectParams(sql).forEach(function (n) { params[n] = saved[n.toUpperCase()] != null ? saved[n.toUpperCase()] : ''; });
+    var name = t.replace(/^FSQ_/, '').replace(/_/g, ' ').toLowerCase().replace(/(^|\s)\S/g, function (c) { return c.toUpperCase(); });
+    confirmModal('Register ' + t + '?', 'Creates the dataset "' + name + '" with the SQL now in the editor as its source (' + sql.length + ' chars). Refresh will re-run that SQL and reload the table.', function () {
+        dsEnsureRegistry().then(function () {
+            return dbRead('SELECT COUNT(*) AS n FROM ' + dsQ(t), 1);
+        }).then(function (r) {
+            return dbWrite('INSERT INTO ' + DS.REG + ' (dataset_name, table_name, source_sql, param_json, row_limit, refresh_mode, current_load_id, row_count, instance, created_by, created_date, last_status) VALUES (' +
+                vlit(name, 200) + ', ' + lit(t) + ', ' + clobLit(sql) + ', ' + vlit(JSON.stringify(params), 4000) + ', 1000, \'REPLACE\', ' +
+                '(SELECT NVL(MAX(' + dsQ('FSQ_LOAD_ID') + '), 0) FROM ' + dsQ(t) + '), ' + (+r[0].N || 0) + ', ' + vlit(currentInstance(), 10) + ', ' + vlit(appUserName(), 120) + ", SYSDATE, 'OK')");
+        }).then(function () { toast(t + ' registered as "' + name + '"'); return dsLoadList(); })
+          .catch(function (e) { toast('Register failed: ' + e, 'err'); });
+    });
 }
 
 // ── Query the saved tables back (ai/executequery) ──────────────

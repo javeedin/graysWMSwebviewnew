@@ -536,3 +536,11 @@ li.CodeMirror-hint-active { background: var(--fs-red); }
 .fs-ai-research summary { cursor: pointer; color: #7c3aed; font-weight: 600; }
 .fs-ai-research ol { margin: 6px 0 0 18px; }
 .fs-ai-research li { margin: 2px 0; word-break: break-word; }
+
+/* ── APEX Data: empty state + unregistered tables ── */
+.ds-empty { grid-column: 1 / -1; background: var(--fs-panel); border: 1px dashed #e3c9c3; border-radius: var(--fs-radius); padding: 22px 26px; }
+.ds-empty-icon { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; font-size: 1.2rem; color: #fff; background: linear-gradient(135deg, #e0634f, var(--fs-red)); margin-bottom: 10px; }
+.ds-empty h3 { color: var(--fs-slate); margin-bottom: 8px; }
+.ds-empty ol { margin: 0 0 14px 20px; font-size: .86rem; line-height: 1.8; color: #57504b; }
+.ds-empty-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ds-orphan { border-color: #fcd34d; }
