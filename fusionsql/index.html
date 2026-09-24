@@ -298,8 +298,12 @@ ORDER BY table_name, index_name</textarea>
 
     <div class="fs-card" style="margin-top:16px;">
         <h3><i class="fa-solid fa-magnifying-glass-chart"></i> Query APEX data</h3>
-        <p class="fs-muted" style="margin-bottom:8px;">Read-only <code>SELECT</code> against the APEX database — join or filter your saved tables (e.g. <code>FSQ_…</code>).</p>
-        <textarea id="fs-ds-sql" class="fs-db-sql" spellcheck="false" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();dsRunQuery();}">SELECT table_name, row_count, refreshed_date FROM wms_fusion_sql_datasets</textarea>
+        <p class="fs-muted" style="margin-bottom:8px;">Read-only <code>SELECT</code> against the APEX database — join or filter your saved tables (e.g. <code>FSQ_…</code>). Click a table to query it.</p>
+        <div class="fs-ds-chips" id="fs-ds-tables"></div>
+        <textarea id="fs-ds-sql" class="fs-db-sql" spellcheck="false" onkeydown="if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){event.preventDefault();dsRunQuery();}">SELECT table_name, num_rows, last_analyzed
+FROM user_tables
+WHERE table_name LIKE 'FSQ%' OR table_name LIKE 'WMS_FUSION%'
+ORDER BY table_name</textarea>
         <div class="fs-form-row">
             <button class="fs-btn primary sm" onclick="dsRunQuery()"><i class="fa-solid fa-play"></i> Run on APEX</button>
             <label class="fs-rowlimit">Max rows <input type="number" id="fs-ds-max" min="1" max="50000" value="1000"></label>

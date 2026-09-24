@@ -587,3 +587,16 @@ li.CodeMirror-hint-active { background: var(--fs-red); }
 .su-drill-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 @media (max-width: 1000px) { .su-layout { grid-template-columns: 1fr; } .su-modules { position: static; } .su-task { grid-template-columns: 28px 1fr; } .su-count, .su-actions { grid-column: 2; text-align: left; } }
 @media (max-width: 1560px) { .fs-kbd-hint { display: none; } }
+
+/* APEX Data — table explorer chips + empty result */
+.fs-ds-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+.fs-ds-chip { border: 1px solid var(--fs-line); background: #fff; border-radius: 14px; padding: 3px 10px; font-size: .72rem; font-family: var(--fs-mono); cursor: pointer; color: inherit; }
+.fs-ds-chip:hover { border-color: var(--fs-red); color: var(--fs-red); }
+.fs-ds-chip.fsq { background: var(--fs-red-soft); }
+.fs-ds-chip span { font-family: inherit; font-weight: 700; margin-left: 4px; opacity: .75; }
+.fs-ds-chip i { margin-right: 3px; opacity: .7; }
+.fs-ds-empty { display: flex; gap: 12px; padding: 14px 16px; font-size: .8rem; }
+.fs-ds-empty > i { color: #16a34a; font-size: 1.2rem; margin-top: 2px; }
+.fs-ds-empty p { margin: 4px 0; }
+.fs-ds-empty details { margin-top: 8px; }
+.fs-ds-empty pre { max-height: 180px; overflow: auto; background: var(--fs-line-2); padding: 8px; border-radius: 6px; font-size: .7rem; }

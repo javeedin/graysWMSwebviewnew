@@ -154,6 +154,8 @@ function dsLoadList() {
             DS.orphans = rows.map(function (r) { return String(r.TABLE_NAME); }).filter(function (t) { return !reg[t.toUpperCase()]; });
         }).catch(function () { DS.orphans = []; });
     }).then(function () {
+        if (DS.state !== 'offline') return dsLoadTables();
+    }).then(function () {
         var b = $('fs-ds-count');
         if (b) { b.textContent = DS.list.length; b.classList.toggle('muted', !DS.list.length); }
         dsRenderStatus(); dsRenderList();
@@ -497,25 +499,67 @@ function dsRegisterOrphan(t) {
 }
 
 // ── Query the saved tables back (ai/executequery) ──────────────
+/** Normalises any executequery reply shape into { cols, rows } (rows keyed by the column names). */
+function dsShape(d) {
+    var raw = d.rows || d.items || d.data || d.result || [];
+    if (!Array.isArray(raw)) raw = [];
+    var cols = (d.columns || d.cols || []).map(function (c) { return String(c && typeof c === 'object' ? (c.name || c.NAME || c.column_name || '') : c); });
+    if (!cols.length && raw.length && !Array.isArray(raw[0])) cols = Object.keys(raw[0]);
+    var rows = raw.map(function (r) {
+        var o = {};
+        if (Array.isArray(r)) { cols.forEach(function (c, i) { o[c] = r[i]; }); return o; }
+        // object rows: match keys case-insensitively so "table_name" and "TABLE_NAME" both land
+        var byUp = {}; Object.keys(r || {}).forEach(function (k) { byUp[k.toUpperCase()] = r[k]; });
+        cols.forEach(function (c) { o[c] = c in r ? r[c] : byUp[c.toUpperCase()]; });
+        return o;
+    });
+    return { cols: cols, rows: rows };
+}
 function dsRunQuery() {
     var sql = $('fs-ds-sql').value.trim().replace(/;\s*$/, '');
     if (!sql) return;
     $('fs-ds-meta').textContent = 'Running on APEX…';
     var t0 = Date.now();
     apexPost('/executequery', { sql: sql, maxRows: Math.max(1, Math.min(50000, parseInt($('fs-ds-max').value, 10) || 1000)) }).then(function (d) {
-        var cols = (d.columns || []).map(function (c) { return String(c.name || c); });
-        var rows = (d.rows || []).map(function (r) {
-            if (!Array.isArray(r)) return r;
-            var o = {}; cols.forEach(function (c, i) { o[c] = r[i]; }); return o;
-        });
-        DS.query = { columns: cols, rows: rows, sql: sql };
+        var x = dsShape(d), cols = x.cols, rows = x.rows;
+        DS.query = { columns: cols, rows: rows, sql: sql, raw: d };
         $('fs-ds-meta').textContent = rows.length.toLocaleString() + ' rows · ' + fmtMs(Date.now() - t0);
-        renderSimpleGrid($('fs-ds-grid'), cols, rows);
+        if (rows.length) { renderSimpleGrid($('fs-ds-grid'), cols, rows); return; }
+        dsRenderEmpty(sql, cols, d);
     }).catch(function (e) {
         DS.query = null;
         $('fs-ds-meta').textContent = '';
         $('fs-ds-grid').innerHTML = '<div class="fs-error-box" style="margin:10px;">' + esc(e) + '</div>';
     });
+}
+/** 0 rows: say that the query worked, why it may be empty, and offer tables that do hold data. */
+function dsRenderEmpty(sql, cols, d) {
+    var isReg = new RegExp('\\b' + DS.REG + '\\b', 'i').test(sql);
+    var why = isReg
+        ? 'The registry <code>' + DS.REG + '</code> is empty — no Fusion result has been saved yet. Run a query in the <b>SQL Builder</b> and click <b>Save to APEX</b>; it will then appear here.'
+        : 'The query ran successfully on APEX but matched no rows' + (cols.length ? ' (columns: ' + cols.map(esc).join(', ') + ')' : '') + '.';
+    var raw = JSON.stringify(d, null, 1); if (raw.length > 1500) raw = raw.slice(0, 1500) + '…';
+    $('fs-ds-grid').innerHTML = '<div class="fs-ds-empty"><i class="fa-solid fa-circle-check"></i><div><b>Query OK — 0 rows.</b><p>' + why + '</p>' +
+        (DS.tables.length ? '<p>Tables with data you can query:</p><div class="fs-ds-chips">' + DS.tables.map(dsTableChip).join('') + '</div>' : '') +
+        '<details><summary>API response</summary><pre>' + esc(raw) + '</pre></details></div></div>';
+}
+
+// ── Table explorer: every Fusion SQL table in the APEX schema, one click to query ──
+DS.tables = [];
+function dsTableChip(t) {
+    return '<button class="fs-ds-chip' + (/^FSQ_/.test(t.name) ? ' fsq' : '') + '" onclick="dsViewTable(\'' + esc(t.name) + '\')" title="SELECT * FROM ' + esc(t.name) + '">' +
+        '<i class="fa-solid ' + (/^FSQ_/.test(t.name) ? 'fa-table' : 'fa-gear') + '"></i> ' + esc(t.name) +
+        (t.rows != null ? ' <span>' + Number(t.rows).toLocaleString() + '</span>' : '') + '</button>';
+}
+function dsLoadTables() {
+    // num_rows comes from optimizer stats (may be stale or NULL); an exact count happens when the table is opened
+    return dbRead("SELECT table_name, num_rows FROM user_tables WHERE table_name LIKE 'FSQ\\_%' ESCAPE '\\' OR table_name LIKE 'WMS\\_FUSION\\_%' ESCAPE '\\' ORDER BY table_name", 500)
+        .then(function (rows) { DS.tables = rows.map(function (r) { return { name: String(r.TABLE_NAME), rows: r.NUM_ROWS }; }); })
+        .catch(function () { DS.tables = []; })
+        .then(function () {
+            var el = $('fs-ds-tables'); if (!el) return;
+            el.innerHTML = DS.tables.length ? DS.tables.map(dsTableChip).join('') : '<span class="fs-muted">No Fusion SQL tables in the APEX schema yet.</span>';
+        });
 }
 function dsExport(kind) {
     var Q = DS.query;
