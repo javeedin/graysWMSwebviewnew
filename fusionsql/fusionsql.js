@@ -277,29 +277,78 @@ function detectParams(sql) {
     });
     return list;
 }
-function paramLiteral(v) {
+var MONTHS = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6, JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12 };
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+/** Recognises a typed date (any common format) → { iso: 'YYYY-MM-DD', time: 'HH24:MI:SS' | null } or null.
+ *  Day-first for d/m/y. Digits-only YYYYMMDD counts only for parameters whose name contains DATE. */
+function parseDateValue(v, name) {
+    v = String(v || '').trim().toUpperCase();
+    var m, y, mo, d, time = null;
+    var tm = v.match(/^(.*?)[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (tm) { v = tm[1].trim(); time = pad2(+tm[2]) + ':' + tm[3] + ':' + (tm[4] || '00'); }
+    if ((m = v.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+    else if ((m = v.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})$/))) { d = +m[1]; mo = +m[2]; y = +m[3]; }
+    else if ((m = v.match(/^(\d{1,2})[-\/. ]?([A-Z]{3})[A-Z]*[-\/. ]?(\d{2}|\d{4})$/)) && MONTHS[m[2]]) { d = +m[1]; mo = MONTHS[m[2]]; y = +m[3]; if (y < 100) y += 2000; }
+    else if (/DATE/i.test(name || '') && (m = v.match(/^(\d{4})(\d{2})(\d{2})$/))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+    else return null;
+    var dt = new Date(y, mo - 1, d);
+    if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+    if (time && !/^([01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(time)) return null;
+    return { iso: y + '-' + pad2(mo) + '-' + pad2(d), time: time };
+}
+
+/** Literal for one parameter value. Dates become real DATEs (NLS-independent) unless the SQL
+ *  already wraps the parameter in TO_DATE/TO_TIMESTAMP, where the typed text is kept as-is. */
+function paramLiteral(v, name, inToDate) {
     v = v == null ? '' : String(v);
-    if (v.trim() === '') return 'NULL';
-    if (/^-?\d+(\.\d+)?$/.test(v.trim())) return v.trim();
+    var t = v.trim();
+    if (t === '') return 'NULL';
+    if (inToDate) return lit(t);
+    var dv = parseDateValue(t, name);
+    if (dv) return dv.time ? "TO_DATE('" + dv.iso + ' ' + dv.time + "','YYYY-MM-DD HH24:MI:SS')" : "DATE '" + dv.iso + "'";
+    if (/^-?\d+(\.\d+)?$/.test(t)) return t;
     return lit(v);
 }
+function inToDateAt(text, offset) { return /TO_(DATE|TIMESTAMP)\s*\(\s*$/i.test(text.slice(0, offset)); }
 function substituteParams(sql, values) {
     var byUpper = {};
     Object.keys(values).forEach(function (k) { byUpper[k.toUpperCase()] = values[k]; });
     return splitSql(sql).map(function (seg) {
         if (!seg.code) return seg.text;
-        return seg.text
-            .replace(RE_BRACE, function (_, name) { return paramLiteral(byUpper[name.toUpperCase()]); })
-            .replace(RE_BIND, function (_, pre, name) { return pre + paramLiteral(byUpper[name.toUpperCase()]); });
+        var text = seg.text.replace(RE_BRACE, function (_, name, off, str) {
+            return paramLiteral(byUpper[name.toUpperCase()], name, inToDateAt(str, off));
+        });
+        return text.replace(RE_BIND, function (_, pre, name, off, str) {
+            return pre + paramLiteral(byUpper[name.toUpperCase()], name, inToDateAt(str, off + pre.length));
+        });
     }).join('');
 }
+/** True when every use of the parameter sits inside TO_DATE(…) / TO_TIMESTAMP(…). */
+function paramInToDate(sql, name) {
+    var hits = 0, wrapped = 0, up = name.toUpperCase();
+    splitSql(sql).forEach(function (seg) {
+        if (!seg.code) return;
+        var m;
+        RE_BRACE.lastIndex = 0;
+        while ((m = RE_BRACE.exec(seg.text))) if (m[1].toUpperCase() === up) { hits++; if (inToDateAt(seg.text, m.index)) wrapped++; }
+        RE_BIND.lastIndex = 0;
+        while ((m = RE_BIND.exec(seg.text))) if (m[2].toUpperCase() === up) { hits++; if (inToDateAt(seg.text, m.index + m[1].length)) wrapped++; }
+    });
+    return hits > 0 && hits === wrapped;
+}
 
-function askParams(names) {
+function askParams(names, sql) {
     return new Promise(function (resolve) {
         var saved = lsGet('fusionSql.params', {});
-        var body = '<p class="fs-muted" style="margin-bottom:12px;">Blank = <code>NULL</code> (so <code>NVL(:P, col)</code> means "all"). Numbers are used as-is, anything else is quoted.</p>' +
+        var body = '<p class="fs-muted" style="margin-bottom:12px;">Blank = <code>NULL</code> (so <code>NVL(:P, col)</code> means "all"). ' +
+            'Dates in any format (<code>2026-09-24</code>, <code>24/09/2026</code>, <code>24-SEP-2026</code>) become real Oracle <code>DATE</code>s. Numbers are used as-is, anything else is quoted.</p>' +
             names.map(function (n, i) {
-                return '<div class="fs-param-row"><code>' + esc(n) + '</code><input data-p="' + esc(n) + '" value="' + esc(saved[n.toUpperCase()] || '') + '"' + (i === 0 ? ' autofocus' : '') + '></div>';
+                var isDate = /DATE|_DT$|^DT_/i.test(n);
+                return '<div class="fs-param-row"><code>' + esc(n) + '</code><div class="fs-param-input">' +
+                    '<input data-p="' + esc(n) + '" value="' + esc(saved[n.toUpperCase()] || '') + '"' + (isDate ? ' placeholder="e.g. 2026-09-24 or 24/09/2026"' : '') + (i === 0 ? ' autofocus' : '') + '>' +
+                    (isDate ? '<button type="button" class="fs-icon-btn" title="Pick a date" onclick="pickParamDate(this)"><i class="fa-regular fa-calendar"></i></button><input type="date" class="fs-date-hidden" tabindex="-1">' : '') +
+                    '</div><small class="fs-param-preview" data-pv="' + esc(n) + '"></small></div>';
             }).join('');
         openModal('Query parameters', body, [
             { label: 'Cancel', cls: 'ghost', onClick: function () { closeModal(); resolve(null); } },
@@ -314,9 +363,27 @@ function askParams(names) {
                 }
             }
         ]);
-        var first = document.querySelector('#fs-modal-body input'); if (first) first.focus();
-        $('fs-modal-body').onkeydown = function (e) { if (e.key === 'Enter') document.querySelector('#fs-modal-foot .primary').click(); };
+        var preview = function (inp) {
+            var n = inp.dataset.p, wrapped = paramInToDate(sql || '', n);
+            var litv = paramLiteral(inp.value, n, wrapped);
+            var el = document.querySelector('#fs-modal-body [data-pv="' + n + '"]');
+            var looksDate = /DATE/i.test(n) && inp.value.trim() && !wrapped && !parseDateValue(inp.value, n);
+            el.innerHTML = '→ <code>' + esc(litv) + '</code>' + (looksDate ? ' <span style="color:#b45309;">— not recognised as a date</span>' : '');
+        };
+        document.querySelectorAll('#fs-modal-body input[data-p]').forEach(function (inp) {
+            inp.addEventListener('input', function () { preview(inp); });
+            preview(inp);
+        });
+        var first = document.querySelector('#fs-modal-body input[data-p]'); if (first) first.focus();
+        $('fs-modal-body').onkeydown = function (e) { if (e.key === 'Enter' && e.target.type !== 'date') document.querySelector('#fs-modal-foot .primary').click(); };
     });
+}
+function pickParamDate(btn) {
+    var box = btn.parentNode, text = box.querySelector('input[data-p]'), picker = box.querySelector('.fs-date-hidden');
+    var dv = parseDateValue(text.value, text.dataset.p);
+    if (dv) picker.value = dv.iso;
+    picker.onchange = function () { if (picker.value) { text.value = picker.value; text.dispatchEvent(new Event('input')); } };
+    try { picker.showPicker(); } catch (e) { picker.focus(); picker.click(); }
 }
 
 // ── Execute ────────────────────────────────────────────────────
@@ -325,7 +392,7 @@ function runEditor() {
     if (!sql.trim()) { toast('Nothing to run', 'warn'); return; }
     var params = detectParams(sql);
     var go = function (finalSql) { executeSql(finalSql, sql); };
-    if (params.length) askParams(params).then(function (vals) { if (vals) go(substituteParams(sql, vals)); });
+    if (params.length) askParams(params, sql).then(function (vals) { if (vals) go(substituteParams(sql, vals)); });
     else go(sql);
 }
 
