@@ -51,6 +51,7 @@
     <button class="fs-tab active" data-tab="builder"><i class="fa-solid fa-code"></i> SQL Builder</button>
     <button class="fs-tab" data-tab="queries"><i class="fa-solid fa-bookmark"></i> Saved Queries <span class="fs-badge muted" id="fs-queries-count">0</span></button>
     <button class="fs-tab" data-tab="tables"><i class="fa-solid fa-sitemap"></i> Tables List</button>
+    <button class="fs-tab" data-tab="setups"><i class="fa-solid fa-list-check"></i> Fusion Setups</button>
     <button class="fs-tab" data-tab="datasets"><i class="fa-solid fa-database"></i> APEX Data <span class="fs-badge muted" id="fs-ds-count">0</span></button>
     <button class="fs-tab" data-tab="connection"><i class="fa-solid fa-plug"></i> Connection</button>
     <button class="fs-tab" data-tab="inspector"><i class="fa-solid fa-satellite-dish"></i> API Inspector <span class="fs-badge muted" id="fs-calls-count">0</span></button>
@@ -249,6 +250,32 @@ ORDER BY table_name, index_name</textarea>
         <div class="fs-form-row"><button class="fs-btn primary sm" onclick="dbQuery()"><i class="fa-solid fa-play"></i> Run on local DB</button><span class="fs-muted" id="fs-db-meta"></span></div>
         <div class="fs-grid small" id="fs-db-grid"></div>
     </div>
+</section>
+
+<!-- ═══════════════ Fusion Setups (module-wise checklist) ═══════════════ -->
+<section class="fs-page" id="page-setups">
+    <div class="fs-page-head">
+        <div>
+            <h2><i class="fa-solid fa-list-check"></i> Fusion Setups</h2>
+            <p>Module-wise setup checklist. Each task's check SQL runs on the pod like the SQL Builder — <b>Done</b> when it returns the configured records; click <b>Data</b> to drill into them.</p>
+        </div>
+        <div class="fs-page-actions">
+            <div class="fs-search wide">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input id="su-search" placeholder="Search all tasks…" oninput="suRenderTasks()">
+            </div>
+            <select id="su-filter" class="fs-q-owner" onchange="suRenderTasks()" title="Show">
+                <option value="all">All tasks</option><option value="missing">Not done</option><option value="error">Errors</option>
+                <option value="unchecked">Not checked</option><option value="done">Done</option>
+            </select>
+            <button class="fs-btn primary" onclick="suCheckAll()"><i class="fa-solid fa-play"></i> Run all checks</button>
+            <button class="fs-btn" onclick="suEdit()"><i class="fa-solid fa-plus"></i> Add task</button>
+            <button class="fs-btn" onclick="suExportReport()" title="Checklist status report"><i class="fa-solid fa-file-excel"></i> Report</button>
+            <button class="fs-btn" onclick="suLoad()" title="Reload"><i class="fa-solid fa-rotate"></i></button>
+        </div>
+    </div>
+    <div class="fs-q-status" id="su-status"></div>
+    <div id="su-body"></div>
 </section>
 
 <!-- ═══════════════ APEX Data (saved result tables) ═══════════════ -->
@@ -468,5 +495,7 @@ ORDER BY table_name, index_name</textarea>
 
 <script src="fusionsql.js"></script>
 <script src="datasets.js"></script>
+<script src="setups-seed.js"></script>
+<script src="setups.js"></script>
 </body>
 </html>

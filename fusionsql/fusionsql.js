@@ -138,6 +138,7 @@ function showTab(name) {
     if (name === 'connection') renderConnection();
     if (name === 'queries') renderQueries();
     if (name === 'datasets' && typeof dsLoadList === 'function') dsLoadList();
+    if (name === 'setups' && typeof suLoad === 'function') suLoad();
 }
 function showSub(name) {
     document.querySelectorAll('.fs-subtab').forEach(function (b) { b.classList.toggle('active', b.dataset.sub === name); });

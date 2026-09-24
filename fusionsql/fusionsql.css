@@ -544,3 +544,46 @@ li.CodeMirror-hint-active { background: var(--fs-red); }
 .ds-empty ol { margin: 0 0 14px 20px; font-size: .86rem; line-height: 1.8; color: #57504b; }
 .ds-empty-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .ds-orphan { border-color: #fcd34d; }
+
+/* ── Fusion Setups checklist ── */
+.su-spin { display: inline-block; width: 12px; height: 12px; border-width: 2px; vertical-align: middle; }
+.su-bar { display: flex; height: 8px; border-radius: 4px; background: var(--fs-line-2); overflow: hidden; margin-top: 8px; }
+.su-bar span { height: 100%; transition: width .4s; }
+.su-bar-done { background: #22c55e; } .su-bar-miss { background: #ef4444; } .su-bar-err { background: #f59e0b; }
+.su-batch { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: .8rem; }
+.su-batch-bar { flex: 1; max-width: 360px; height: 6px; border-radius: 3px; background: var(--fs-line-2); overflow: hidden; }
+.su-batch-bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--fs-red), #f97316); transition: width .3s; }
+.su-layout { display: grid; grid-template-columns: 270px 1fr; gap: 16px; align-items: start; }
+.su-modules { background: var(--fs-panel); border: 1px solid var(--fs-line); border-radius: var(--fs-radius); padding: 6px; position: sticky; top: 0; }
+.su-mod { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.su-mod:hover { background: #faf6f4; }
+.su-mod.on { background: #fdf1ee; box-shadow: inset 3px 0 0 var(--fs-red); }
+.su-ring { --p: 0; width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
+    background: conic-gradient(#22c55e calc(var(--p) * 1%), #f1edea 0); }
+.su-ring span { width: 30px; height: 30px; border-radius: 50%; background: #fff; display: grid; place-items: center; font-size: .62rem; font-weight: 800; color: var(--fs-slate); }
+.su-mod-txt { display: flex; flex-direction: column; min-width: 0; }
+.su-mod-txt b { font-size: .84rem; color: var(--fs-slate); }
+.su-mod-txt small { font-size: .7rem; color: var(--fs-muted); }
+.su-main { background: var(--fs-panel); border: 1px solid var(--fs-line); border-radius: var(--fs-radius); box-shadow: var(--fs-shadow); overflow: hidden; }
+.su-main-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--fs-line); background: #fcfbfa; }
+.su-main-head h3 { font-size: 1rem; color: var(--fs-slate); }
+.su-main-head small { color: var(--fs-muted); font-size: .76rem; }
+.su-task { display: grid; grid-template-columns: 28px 1fr 90px auto; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--fs-line-2); }
+.su-task:last-child { border-bottom: none; }
+.su-task:hover { background: #fdfbfa; }
+.su-icon { font-size: 1.2rem; text-align: center; }
+.su-done .su-icon { color: #16a34a; } .su-missing .su-icon { color: #dc2626; } .su-error .su-icon { color: #d97706; }
+.su-unchecked .su-icon { color: #d6ccc6; } .su-running .su-icon { color: #7c3aed; } .su-inactive { opacity: .55; }
+.su-task-name { font-weight: 600; font-size: .88rem; color: var(--fs-slate); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.su-tag { font-size: .6rem; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; padding: 1px 6px; border-radius: 8px; background: var(--fs-red-soft); color: var(--fs-red); }
+.su-tag.opt { background: var(--fs-line-2); color: var(--fs-muted); }
+.su-task-desc { font-size: .78rem; color: #6b635e; margin-top: 2px; }
+.su-fsm { color: var(--fs-muted); font-size: .72rem; margin-left: 4px; white-space: nowrap; }
+.su-task-meta { font-size: .7rem; color: var(--fs-muted); margin-top: 3px; }
+.su-count { text-align: right; display: flex; flex-direction: column; }
+.su-count b { font-size: 1rem; color: var(--fs-slate); } .su-count small { font-size: .68rem; color: var(--fs-muted); }
+.su-missing .su-count b { color: #dc2626; }
+.su-actions { display: flex; gap: 4px; align-items: center; }
+.su-drill-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+@media (max-width: 1000px) { .su-layout { grid-template-columns: 1fr; } .su-modules { position: static; } .su-task { grid-template-columns: 28px 1fr; } .su-count, .su-actions { grid-column: 2; text-align: left; } }
+@media (max-width: 1560px) { .fs-kbd-hint { display: none; } }
