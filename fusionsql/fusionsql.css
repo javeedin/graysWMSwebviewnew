@@ -662,3 +662,4 @@ li.CodeMirror-hint-active { background: var(--fs-red); }
     .ds-side { position: static; max-height: 300px; }
     .ds-detail .ds-stats { grid-template-columns: repeat(3, 1fr); }
 }
+.fs-ver { font-size: .6rem; font-weight: 700; background: #4CAF50; color: #fff; padding: 2px 6px; border-radius: 4px; margin-left: 6px; vertical-align: middle; letter-spacing: 0; }

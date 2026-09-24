@@ -13,7 +13,7 @@
 ; ============================================================
 
 #define AppName "Gray's WMS"
-#define AppVersion "1.2.0"
+#define AppVersion "11.0.0"
 #define AppPublisher "Gray's Inc"
 #define AppExeName "GraysWMS.exe"
 #define InstallBase "C:\fusion\fusionclientweb\graysWMSwebviewnew"

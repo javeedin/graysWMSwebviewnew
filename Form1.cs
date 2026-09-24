@@ -208,7 +208,8 @@ try
             }
 
             // Default fallback if version.txt doesn't exist or can't be read
-            return "Development Mode";
+            var ver = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            return ver != null ? $"v{ver.Major}.{ver.Minor}.{ver.Build} | Development Mode" : "Development Mode";
         }
 
         // Fixed installation path for web files

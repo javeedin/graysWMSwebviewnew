@@ -41,7 +41,7 @@
     function ctx() {
         return {
             user: (function () { try { return localStorage.getItem('wms_user') || (typeof appUserName === 'function' ? appUserName() : 'UNKNOWN'); } catch (e) { return 'UNKNOWN'; } })(),
-            app_ver: (function () { try { return (window.APP_VERSION || document.querySelector('[data-app-version]') && document.querySelector('[data-app-version]').getAttribute('data-app-version')) || '9.0.1'; } catch (e) { return '9.0.1'; } })(),
+            app_ver: (function () { try { return (window.APP_VERSION || document.querySelector('[data-app-version]') && document.querySelector('[data-app-version]').getAttribute('data-app-version')) || '11.0.0'; } catch (e) { return '11.0.0'; } })(),
             instance: (function () { try { return (typeof currentInstance === 'function' ? currentInstance() : (localStorage.getItem('wms_instance') || 'PROD')); } catch (e) { return 'PROD'; } })(),
             module: (function () { var p = location.pathname.toLowerCase(); if (p.indexOf('aianalysis') >= 0) return 'aianalysis'; if (p.indexOf('inventory') >= 0) return 'inventory'; if (p.indexOf('formsdesigner') >= 0) return 'formsdesigner'; return 'wms'; })()
         };
