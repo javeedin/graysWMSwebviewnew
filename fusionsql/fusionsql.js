@@ -927,9 +927,23 @@ function fetchObjectNames(owner, kind, onProgress) {
 function schemaRefresh() { schemaLoadObjects(true); }
 function toggleSchema() { $('fs-builder').classList.toggle('schema-hidden'); setTimeout(function () { if (FS.editor) FS.editor.refresh(); }, 220); }
 
+/** Filter words: "doo head" or "doo%head" → every word must appear in the name (any case). */
+function filterTokens(term) { return term.toUpperCase().split(/[\s%*]+/).filter(Boolean); }
 function schemaFilter() {
     var term = ($('fs-schema-filter').value || '').trim().toUpperCase();
-    FS.schema.filtered = !term ? FS.schema.names : FS.schema.names.filter(function (n) { return n.toUpperCase().indexOf(term) >= 0; });
+    var tokens = filterTokens(term);
+    if (!tokens.length) FS.schema.filtered = FS.schema.names;
+    else {
+        var hits = [];
+        FS.schema.names.forEach(function (n) {
+            var u = n.toUpperCase();
+            for (var i = 0; i < tokens.length; i++) if (u.indexOf(tokens[i]) < 0) return;
+            // Rank: starts with the first word, then shorter (core tables like DOO_HEADERS_ALL first)
+            hits.push({ n: n, r: (u.indexOf(tokens[0]) === 0 ? 0 : 1000) + u.length });
+        });
+        hits.sort(function (a, b) { return a.r - b.r || (a.n.toUpperCase() < b.n.toUpperCase() ? -1 : 1); });
+        FS.schema.filtered = hits.map(function (h) { return h.n; });
+    }
     FS.schema.shown = LIST_CHUNK;
     var meta = FS.schema.filtered.length.toLocaleString() + ' of ' + FS.schema.names.length.toLocaleString() + ' ' + FS.schema.kind.toLowerCase() + 's' +
         (FS.schema.capped ? ' (capped)' : '') + (FS.schema.at ? ' · cached ' + new Date(FS.schema.at).toLocaleDateString() : '');
@@ -943,7 +957,7 @@ function renderSchemaList() {
     var icon = KIND_ICONS[kind] || 'fa-cube', expandable = DETAIL_KINDS[kind] || ARG_KINDS[kind];
     var h = list.map(function (n) {
         return '<div class="fs-obj" data-name="' + esc(n) + '"><div class="fs-obj-row" onclick="' + (expandable ? 'toggleObj(this.parentNode)' : 'insertName(this.parentNode.dataset.name)') + '" ondblclick="insertName(this.parentNode.dataset.name)" title="Double-click to insert">' +
-            '<i class="fa-solid fa-chevron-right caret"' + (expandable ? '' : ' style="visibility:hidden"') + '></i><i class="fa-solid ' + icon + ' ico"></i><span class="name">' + esc(n) + '</span>' +
+            '<i class="fa-solid fa-chevron-right caret"' + (expandable ? '' : ' style="visibility:hidden"') + '></i><i class="fa-solid ' + icon + ' ico"></i><span class="name" title="' + esc(n) + '">' + esc(n) + '</span>' +
             (DETAIL_KINDS[kind] ? '<span class="act" title="SELECT * FROM …" onclick="event.stopPropagation();selectStar(this.closest(\'.fs-obj\').dataset.name)">SELECT</span>' : '') +
             '</div><div class="fs-obj-detail"></div></div>';
     });
@@ -958,7 +972,7 @@ function schemaServerSearch() {
     if (!term) return;
     $('fs-schema-meta').innerHTML = '<span class="fs-spinner" style="width:12px;height:12px;border-width:2px;"></span> Searching server…';
     var sql = 'SELECT object_name FROM all_objects WHERE owner = ' + lit(FS.schema.owner) + ' AND object_type = ' + lit(FS.schema.kind) +
-        " AND UPPER(object_name) LIKE " + lit('%' + term.replace(/[%_\\]/g, '\\$&') + '%') + " ESCAPE '\\' ORDER BY object_name";
+        " AND UPPER(object_name) LIKE " + lit('%' + filterTokens(term).map(function (t) { return t.replace(/[%_\\]/g, '\\$&'); }).join('%') + '%') + " ESCAPE '\\' ORDER BY object_name";
     fsql(sql, 2000).then(function (r) {
         var found = r.rows.map(function (x) { return String(x.OBJECT_NAME); });
         var set = {}; FS.schema.names.forEach(function (n) { set[n] = 1; });
