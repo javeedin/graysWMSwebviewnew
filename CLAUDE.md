@@ -237,6 +237,6 @@ No CI/CD pipeline is configured. No GitHub Actions, Jenkins, or Azure Pipelines.
 
 9. **Oracle PL/SQL conventions** — REST endpoints use `HTP.p()` for manual JSON construction. New endpoints should follow the numbered script pattern in `apex_sql/`.
 
-10. **Fusion SQL module** — `fusionsql/` (page) + `classes/FusionSqlService.cs`, `classes/FusionSqlExtras.cs` (SQLite schema store, Ask AI) and `classes/Form1_FusionSqlHandlers.cs` (`fusionSql*` / `fusionDb*` IPC actions). Runs read-only SQL through one BI Publisher DBMS_XMLGEN runner report. Design: `docs/Fusion_SQL_Technical_RD.md`. Local data lives in `%APPDATA%\GraysWMS\FusionSql\`; the Fusion password and Claude key are DPAPI-encrypted and never sent to the page.
+10. **Fusion SQL module** — `fusionsql/` (page) + `classes/FusionSqlService.cs`, `classes/FusionSqlExtras.cs` (SQLite schema store, Ask AI) and `classes/Form1_FusionSqlHandlers.cs` (`fusionSql*` / `fusionDb*` IPC actions). Runs read-only SQL through one BI Publisher DBMS_XMLGEN runner report. Design: `docs/Fusion_SQL_Technical_RD.md`. Saved queries live in the APEX table `WMS_FUSION_SQL_QUERIES` (`apex_sql/63_fusion_sql_queries.sql`, auto-created by the page via `ai/executewrite`). Other local data lives in `%APPDATA%\GraysWMS\FusionSql\`; the Fusion password and Claude key are DPAPI-encrypted and never sent to the page.
 
 11. **No linting or formatting tools** — There are no `.eslintrc`, `.prettierrc`, or `editorconfig` files. Follow existing code style when making changes.

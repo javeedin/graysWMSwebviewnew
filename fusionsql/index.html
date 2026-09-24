@@ -180,17 +180,22 @@
     <div class="fs-page-head">
         <div>
             <h2><i class="fa-solid fa-bookmark"></i> Saved Queries</h2>
-            <p>Your query library. Saving with an existing name updates it.</p>
+            <p>The team's shared query library. Saving with an existing name updates it.</p>
         </div>
         <div class="fs-page-actions">
             <div class="fs-search wide">
                 <i class="fa-solid fa-magnifying-glass"></i>
                 <input id="fs-q-search" placeholder="Search name, tag or SQL…" oninput="renderQueries()">
             </div>
+            <select id="fs-q-owner" class="fs-q-owner" onchange="renderQueries()" title="Whose queries">
+                <option value="all">Everyone</option><option value="mine">Mine</option>
+            </select>
+            <button class="fs-btn" onclick="loadQueries()" title="Reload from the database"><i class="fa-solid fa-rotate"></i></button>
             <button class="fs-btn" onclick="exportQueries()"><i class="fa-solid fa-file-export"></i> Export</button>
             <label class="fs-btn"><i class="fa-solid fa-file-import"></i> Import<input type="file" accept=".json" hidden onchange="importQueries(this)"></label>
         </div>
     </div>
+    <div class="fs-q-status" id="fs-q-status"></div>
     <div class="fs-query-grid" id="fs-query-grid"></div>
 </section>
 

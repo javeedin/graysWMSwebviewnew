@@ -416,7 +416,7 @@ function executeSql(sql, original) {
                 addLog(true, r.rowCount + ' row' + (r.rowCount === 1 ? '' : 's') + ' in ' + fmtMs(r.elapsedMs), sql);
                 showResult(r, limit);
                 if (r.warning) toast(r.warning, 'warn');
-                if (FS.currentQuery) bumpRuns(FS.currentQuery.name);
+                if (FS.currentQuery) bumpRuns(FS.currentQuery, r.rowCount);
             } else {
                 var err = (r && r.error) || 'Unknown error';
                 // An ORA- error means the pod answered: the connection is fine, the SQL is not
@@ -740,111 +740,293 @@ function formatSql(sql) {
 function formatEditor() { setSql(formatSql(getSql())); toast('Formatted'); }
 
 // ── Saved queries ──────────────────────────────────────────────
+// Stored in the APEX database table WMS_FUSION_SQL_QUERIES (apex_sql/63) through the
+// existing guarded gateways ai/executequery + ai/executewrite, so the whole team shares
+// one library. The page creates the table on first use. A copy is kept in the local
+// cache so the library can still be browsed when the database is unreachable.
+var APEX_AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
+var QTABLE = 'wms_fusion_sql_queries';
+// 1,300 chars ≤ 4,000 bytes even for 3-byte UTF-8 characters (literal and VARCHAR2 limits)
+var SQL_PIECE = 1300, SQL_PIECES = 12;            // query text read back in pieces (15,600 chars max)
+FS.qdb = { state: 'loading', error: null, legacy: [] };   // state: loading | ready | missing | offline
+
+function appUserName() {
+    try {
+        return sessionStorage.getItem('loggedInUser') || localStorage.getItem('loggedInUser') ||
+            localStorage.getItem('userName') || localStorage.getItem('username') || 'UNKNOWN';
+    } catch (e) { return 'UNKNOWN'; }
+}
+function apexPost(path, payload) {
+    return fsCall('executePost', { fullUrl: APEX_AI_BASE + path, body: JSON.stringify(Object.assign({ appUser: appUserName() }, payload)) })
+        .then(function (data) {
+            var d = data;
+            if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { throw 'Unexpected response from the database API: ' + String(data).slice(0, 200); } }
+            if (!d || d.success === false || d.ReturnStatus === 'Error') throw (d && (d.error || d.ErrorExplanation)) || 'Database API error';
+            return d;
+        });
+}
+/** executequery → array of objects keyed by UPPER-case column name. */
+function dbRead(sql, maxRows) {
+    return apexPost('/executequery', { sql: sql, maxRows: maxRows || 500 }).then(function (d) {
+        var cols = (d.columns || []).map(function (c) { return String(c.name || c).toUpperCase(); });
+        return (d.rows || []).map(function (r) {
+            if (!Array.isArray(r)) return r;
+            var o = {}; cols.forEach(function (c, i) { o[c] = r[i]; }); return o;
+        });
+    });
+}
+function dbWrite(sql) { return apexPost('/executewrite', { sql: sql }); }
+/** CLOB-safe literal: TO_CLOB('…') || TO_CLOB('…') so long text never hits ORA-01704. */
+function clobLit(s) {
+    s = String(s == null ? '' : s);
+    if (!s) return "TO_CLOB(' ')";
+    var parts = [];
+    for (var i = 0; i < s.length; i += SQL_PIECE) parts.push('TO_CLOB(' + lit(s.slice(i, i + SQL_PIECE)) + ')');
+    return parts.join(' || ');
+}
+function vlit(s, max) { s = String(s == null ? '' : s).slice(0, max || 4000); return s ? lit(s) : 'NULL'; }
+
+var QTABLE_DDL = 'CREATE TABLE ' + QTABLE + ' (' +
+    'query_id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, query_name VARCHAR2(200) NOT NULL, tag VARCHAR2(60), ' +
+    'description VARCHAR2(1000), sql_text CLOB NOT NULL, sql_length NUMBER, instance VARCHAR2(10) DEFAULT \'PROD\', ' +
+    'run_count NUMBER DEFAULT 0, last_run_date DATE, last_row_count NUMBER, created_by VARCHAR2(120), ' +
+    'created_date DATE DEFAULT SYSDATE, updated_by VARCHAR2(120), updated_date DATE)';
+var QTABLE_INDEX = 'CREATE UNIQUE INDEX ' + QTABLE + '_name_ux ON ' + QTABLE + ' (UPPER(query_name))';
+
+function ensureQueryTable() {
+    if (FS.qdb.state === 'ready') return Promise.resolve();
+    return dbRead("SELECT COUNT(*) AS n FROM user_tables WHERE table_name = 'WMS_FUSION_SQL_QUERIES'", 1).then(function (r) {
+        if (r.length && +r[0].N > 0) return;
+        toast('Creating table WMS_FUSION_SQL_QUERIES…', 'warn');
+        return dbWrite(QTABLE_DDL).then(function () { return dbWrite(QTABLE_INDEX); })
+            .then(function () { toast('Saved-query table created'); });
+    }).then(function () { FS.qdb.state = 'ready'; });
+}
+
 function loadQueries() {
-    return cacheGet('list', '__queries').then(function (list) {
-        FS.queries = Array.isArray(list) ? list : [];
-        updateQueryBadge();
+    FS.qdb.state = FS.qdb.state === 'ready' ? 'ready' : 'loading';
+    renderQueryStatus();
+    var pieces = [];
+    for (var i = 0; i < SQL_PIECES; i++) pieces.push('TO_CHAR(SUBSTR(sql_text, ' + (i * SQL_PIECE + 1) + ', ' + SQL_PIECE + ')) AS p' + i);
+    var sql = 'SELECT query_id, query_name, tag, description, sql_length, instance, run_count, last_row_count, ' +
+        "TO_CHAR(last_run_date, 'YYYY-MM-DD HH24:MI') AS last_run, created_by, TO_CHAR(created_date, 'YYYY-MM-DD HH24:MI') AS created, " +
+        "updated_by, TO_CHAR(updated_date, 'YYYY-MM-DD HH24:MI') AS updated, " + pieces.join(', ') +
+        ' FROM ' + QTABLE + ' ORDER BY NVL(updated_date, created_date) DESC';
+    return dbRead(sql, 2000).then(function (rows) {
+        FS.qdb.state = 'ready'; FS.qdb.error = null;
+        FS.queries = rows.map(function (r) {
+            var text = '';
+            for (var i = 0; i < SQL_PIECES; i++) text += r['P' + i] || '';
+            return {
+                id: r.QUERY_ID, name: r.QUERY_NAME, tag: r.TAG || '', description: r.DESCRIPTION || '', sql: text,
+                length: r.SQL_LENGTH, instance: r.INSTANCE, runs: r.RUN_COUNT || 0, lastRows: r.LAST_ROW_COUNT, lastRun: r.LAST_RUN,
+                createdBy: r.CREATED_BY, created: r.CREATED, updatedBy: r.UPDATED_BY, updated: r.UPDATED
+            };
+        });
+        cacheSet('dbcache', FS.queries, '__queries');
+        return checkLegacyQueries();
+    }).catch(function (e) {
+        FS.qdb.error = String(e);
+        if (/ORA-00942|table or view does not exist/i.test(FS.qdb.error)) { FS.qdb.state = 'missing'; FS.queries = []; return checkLegacyQueries(); }
+        FS.qdb.state = 'offline';
+        return cacheGet('dbcache', '__queries').then(function (list) { FS.queries = Array.isArray(list) ? list : []; });
+    }).then(function () {
+        updateQueryBadge(); renderQueryStatus();
+        if ($('page-queries').classList.contains('active')) renderQueries();
         return FS.queries;
-    }).catch(function () { FS.queries = []; });
+    });
+}
+/** Queries saved by the earlier version (on this PC only) that are not in the database yet. */
+function checkLegacyQueries() {
+    return cacheGet('list', '__queries').then(function (list) {
+        var have = {};
+        FS.queries.forEach(function (q) { have[q.name.toUpperCase()] = 1; });
+        FS.qdb.legacy = (Array.isArray(list) ? list : []).filter(function (q) { return q && q.name && q.sql && !have[q.name.toUpperCase()]; });
+    }).catch(function () { FS.qdb.legacy = []; });
 }
 function updateQueryBadge() {
     var b = $('fs-queries-count');
     b.textContent = FS.queries.length;
     b.classList.toggle('muted', !FS.queries.length);
 }
-function persistQueries() {
-    updateQueryBadge();
-    return cacheSet('list', FS.queries, '__queries');
+function renderQueryStatus() {
+    var el = $('fs-q-status'); if (!el) return;
+    var st = FS.qdb.state, html;
+    if (st === 'loading') html = '<span class="fs-spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:middle;"></span> Loading the shared library…';
+    else if (st === 'ready') html = '<i class="fa-solid fa-database" style="color:var(--fs-green)"></i> Shared library in the APEX database · table <code>WMS_FUSION_SQL_QUERIES</code> · ' + FS.queries.length + ' quer' + (FS.queries.length === 1 ? 'y' : 'ies');
+    else if (st === 'missing') html = '<i class="fa-solid fa-circle-info" style="color:var(--fs-amber)"></i> The table <code>WMS_FUSION_SQL_QUERIES</code> does not exist yet. <button class="fs-btn sm primary" onclick="createQueryTable()"><i class="fa-solid fa-table"></i> Create table</button> <span class="fs-muted">(or just save a query — it is created automatically)</span>';
+    else html = '<i class="fa-solid fa-plug-circle-xmark" style="color:#b91c1c"></i> Database not reachable — showing the last copy (read-only). <span class="fs-muted">' + esc((FS.qdb.error || '').slice(0, 160)) + '</span> <button class="fs-btn sm" onclick="loadQueries()"><i class="fa-solid fa-rotate"></i> Retry</button>';
+    html = '<div>' + html + '</div>';
+    if ((st === 'ready' || st === 'missing') && FS.qdb.legacy.length)
+        html += '<div class="fs-q-legacy"><i class="fa-solid fa-laptop"></i> ' + FS.qdb.legacy.length + ' quer' + (FS.qdb.legacy.length === 1 ? 'y is' : 'ies are') +
+            ' saved on this PC only. <button class="fs-btn sm primary" onclick="uploadLegacyQueries()"><i class="fa-solid fa-cloud-arrow-up"></i> Upload to database</button></div>';
+    el.innerHTML = html;
 }
+function createQueryTable() {
+    ensureQueryTable().then(loadQueries).catch(function (e) { toast('Could not create the table: ' + e, 'err'); });
+}
+
+/** Insert-or-update by name (case-insensitive). The ON column cannot be updated, so the name keeps its first spelling. */
+function mergeQuery(q) {
+    var text = String(q.sql || '');
+    if (text.length > SQL_PIECE * SQL_PIECES) return Promise.reject('Query text is ' + text.length.toLocaleString() + ' characters; the library keeps up to ' + (SQL_PIECE * SQL_PIECES).toLocaleString() + '.');
+    var user = vlit(appUserName(), 120);
+    var sql = 'MERGE INTO ' + QTABLE + ' t USING (SELECT ' + vlit(q.name, 200) + ' AS query_name FROM dual) s ' +
+        'ON (UPPER(t.query_name) = UPPER(s.query_name)) ' +
+        'WHEN MATCHED THEN UPDATE SET t.tag = ' + vlit(q.tag, 60) + ', t.description = ' + vlit(q.description, 1000) +
+        ', t.sql_text = ' + clobLit(text) + ', t.sql_length = ' + text.length + ', t.instance = ' + vlit(currentInstance(), 10) +
+        ', t.updated_by = ' + user + ', t.updated_date = SYSDATE ' +
+        'WHEN NOT MATCHED THEN INSERT (query_name, tag, description, sql_text, sql_length, instance, created_by, created_date) VALUES (' +
+        's.query_name, ' + vlit(q.tag, 60) + ', ' + vlit(q.description, 1000) + ', ' + clobLit(text) + ', ' + text.length + ', ' +
+        vlit(currentInstance(), 10) + ', ' + user + ', SYSDATE)';
+    return ensureQueryTable().then(function () { return dbWrite(sql); });
+}
+function findQuery(name) {
+    var u = String(name || '').toUpperCase();
+    return FS.queries.filter(function (x) { return x.name.toUpperCase() === u; })[0];
+}
+
 function openSaveDialog() {
+    if (FS.qdb.state === 'offline') { toast('The database is not reachable — cannot save right now', 'err'); return; }
     var q = FS.currentQuery || {};
     openModal('Save query',
         '<div class="fs-form">' +
-        '<label>Name <small>saving with an existing name updates it</small></label><input id="sq-name" value="' + esc(q.name || '') + '" placeholder="e.g. Open AP invoices by supplier">' +
-        '<label>Tag</label><input id="sq-tag" value="' + esc(q.tag || '') + '" placeholder="AP, INV, GL…">' +
-        '<label>Description</label><input id="sq-desc" value="' + esc(q.description || '') + '">' +
-        '</div>',
+        '<label>Name <small>saving with an existing name updates it · change the name to save a copy</small></label><input id="sq-name" maxlength="200" value="' + esc(q.name || '') + '" placeholder="e.g. Open AP invoices by supplier">' +
+        '<label>Tag</label><input id="sq-tag" maxlength="60" value="' + esc(q.tag || '') + '" placeholder="AP, INV, OM…">' +
+        '<label>Description</label><input id="sq-desc" maxlength="1000" value="' + esc(q.description || '') + '">' +
+        '</div><p class="fs-muted" style="margin-top:10px;"><i class="fa-solid fa-database"></i> Saved to <code>WMS_FUSION_SQL_QUERIES</code> in the APEX database — visible to everyone using Fusion SQL.</p>',
         [{ label: 'Cancel', cls: 'ghost', onClick: closeModal },
-        {
-            label: '<i class="fa-solid fa-floppy-disk"></i> Save', cls: 'primary', onClick: function () {
-                var name = $('sq-name').value.trim();
-                if (!name) { toast('Give the query a name', 'warn'); return; }
-                var existing = FS.queries.filter(function (x) { return x.name.toLowerCase() === name.toLowerCase(); })[0];
-                var rec = existing || { name: name, created: new Date().toISOString(), runs: 0 };
-                rec.name = name; rec.sql = getSql(); rec.tag = $('sq-tag').value.trim(); rec.description = $('sq-desc').value.trim(); rec.updated = new Date().toISOString();
-                if (!existing) FS.queries.unshift(rec);
-                persistQueries().then(function () { toast(existing ? 'Query updated' : 'Query saved'); });
-                setCurrentQuery(rec);
-                closeModal();
-            }
-        }]);
+        { label: '<i class="fa-solid fa-floppy-disk"></i> Save', cls: 'primary', onClick: function () { saveQueryFromDialog(this); } }]);
     setTimeout(function () { $('sq-name').focus(); }, 30);
+    $('fs-modal-body').onkeydown = function (e) { if (e.key === 'Enter') document.querySelector('#fs-modal-foot .primary').click(); };
+}
+function saveQueryFromDialog(btn) {
+    var rec = { name: $('sq-name').value.trim(), tag: $('sq-tag').value.trim(), description: $('sq-desc').value.trim(), sql: getSql() };
+    if (!rec.name) { toast('Give the query a name', 'warn'); return; }
+    if (!rec.sql.trim()) { toast('The editor is empty', 'warn'); return; }
+    var existing = findQuery(rec.name);
+    var go = function () {
+        btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
+        mergeQuery(rec).then(function () {
+            closeModal();
+            toast(existing ? 'Query updated in the database' : 'Query saved to the database');
+            return loadQueries().then(function () { setCurrentQuery(findQuery(rec.name)); });
+        }).catch(function (e) {
+            btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save';
+            toast('Save failed: ' + e, 'err');
+        });
+    };
+    // Overwriting someone else's query (or a different query with that name) needs a confirmation
+    if (existing && (!FS.currentQuery || FS.currentQuery.id !== existing.id)) {
+        var by = existing.updatedBy || existing.createdBy;
+        closeModal();
+        confirmModal('Replace "' + existing.name + '"?', 'A query with this name already exists' + (by ? ' (last saved by ' + by + ')' : '') + '. Saving replaces its SQL for everyone.', function () {
+            openSaveDialog(); $('sq-name').value = rec.name; $('sq-tag').value = rec.tag; $('sq-desc').value = rec.description;
+            FS.currentQuery = existing; saveQueryFromDialog(document.querySelector('#fs-modal-foot .primary'));
+        });
+        return;
+    }
+    go();
 }
 function setCurrentQuery(q) {
-    FS.currentQuery = q;
+    FS.currentQuery = q || null;
     $('fs-current-query').innerHTML = q ? '<i class="fa-solid fa-bookmark" style="color:var(--fs-red)"></i> <b>' + esc(q.name) + '</b>' : '';
 }
 function newQuery() { setCurrentQuery(null); setSql(''); }
-function bumpRuns(name) {
-    var q = FS.queries.filter(function (x) { return x.name === name; })[0];
-    if (q) { q.runs = (q.runs || 0) + 1; q.lastRun = new Date().toISOString(); persistQueries(); }
+function bumpRuns(q, rows) {
+    if (!q || !q.id || FS.qdb.state !== 'ready') return;
+    q.runs = (q.runs || 0) + 1; q.lastRows = rows;
+    dbWrite('UPDATE ' + QTABLE + ' SET run_count = NVL(run_count, 0) + 1, last_run_date = SYSDATE, last_row_count = ' + (parseInt(rows, 10) || 0) +
+        ' WHERE query_id = ' + parseInt(q.id, 10)).catch(function () { });
 }
 function renderQueries() {
+    renderQueryStatus();
     var term = ($('fs-q-search').value || '').toLowerCase();
-    var list = FS.queries.filter(function (q) { return !term || (q.name + ' ' + (q.tag || '') + ' ' + (q.description || '') + ' ' + q.sql).toLowerCase().indexOf(term) >= 0; });
+    var mine = $('fs-q-owner') && $('fs-q-owner').value === 'mine', me = appUserName().toUpperCase();
+    var list = FS.queries.filter(function (q) {
+        if (mine && String(q.createdBy || '').toUpperCase() !== me && String(q.updatedBy || '').toUpperCase() !== me) return false;
+        return !term || (q.name + ' ' + (q.tag || '') + ' ' + (q.description || '') + ' ' + (q.createdBy || '') + ' ' + q.sql).toLowerCase().indexOf(term) >= 0;
+    });
     var grid = $('fs-query-grid');
     if (!FS.queries.length) {
-        grid.innerHTML = '<div class="fs-empty" style="grid-column:1/-1;"><i class="fa-regular fa-bookmark"></i><h3>No saved queries yet</h3><p>Write a query in the SQL Builder and press <kbd>Ctrl</kbd>+<kbd>S</kbd>.</p></div>';
+        grid.innerHTML = FS.qdb.state === 'loading' ? '' : '<div class="fs-empty" style="grid-column:1/-1;"><i class="fa-regular fa-bookmark"></i><h3>No saved queries yet</h3><p>Write a query in the SQL Builder and press <kbd>Ctrl</kbd>+<kbd>S</kbd>.</p></div>';
         return;
     }
+    var ro = FS.qdb.state !== 'ready';
     grid.innerHTML = list.map(function (q) {
         var i = FS.queries.indexOf(q);
-        return '<div class="fs-q"><div class="fs-q-head"><div class="fs-q-name">' + esc(q.name) + '</div>' + (q.tag ? '<span class="fs-q-tag">' + esc(q.tag) + '</span>' : '') + '</div>' +
+        var who = q.updatedBy && q.updated ? 'Updated by ' + q.updatedBy + ' · ' + q.updated : 'By ' + (q.createdBy || '?') + ' · ' + (q.created || '');
+        return '<div class="fs-q"><div class="fs-q-head"><div class="fs-q-name">' + esc(q.name) + '</div><div style="display:flex;gap:4px;">' +
+            (q.instance ? '<span class="fs-q-tag" style="background:#f1edea;color:#57504b;">' + esc(q.instance) + '</span>' : '') +
+            (q.tag ? '<span class="fs-q-tag">' + esc(q.tag) + '</span>' : '') + '</div></div>' +
             (q.description ? '<div class="fs-q-desc">' + esc(q.description) + '</div>' : '') +
             '<pre>' + esc(q.sql) + '</pre>' +
-            '<div class="fs-q-foot"><span class="fs-muted">' + (q.runs || 0) + ' runs · ' + new Date(q.updated || q.created).toLocaleDateString() + '</span>' +
+            '<div class="fs-q-who"><i class="fa-regular fa-user"></i> ' + esc(who) + '</div>' +
+            '<div class="fs-q-foot"><span class="fs-muted">' + (q.runs || 0) + ' runs' + (q.lastRun ? ' · last ' + esc(q.lastRun) + (q.lastRows != null ? ' (' + q.lastRows + ' rows)' : '') : '') + '</span>' +
             '<button class="fs-btn sm primary" onclick="queryRun(' + i + ')"><i class="fa-solid fa-play"></i> Run</button>' +
             '<button class="fs-btn sm" onclick="queryEdit(' + i + ')"><i class="fa-solid fa-pen"></i> Edit</button>' +
-            '<button class="fs-icon-btn" title="Duplicate" onclick="queryDup(' + i + ')"><i class="fa-regular fa-clone"></i></button>' +
-            '<button class="fs-icon-btn" title="Delete" onclick="queryDelete(' + i + ')"><i class="fa-regular fa-trash-can"></i></button></div></div>';
+            (ro ? '' : '<button class="fs-icon-btn" title="Duplicate" onclick="queryDup(' + i + ')"><i class="fa-regular fa-clone"></i></button>' +
+                '<button class="fs-icon-btn" title="Delete" onclick="queryDelete(' + i + ')"><i class="fa-regular fa-trash-can"></i></button>') +
+            '</div></div>';
     }).join('') || '<div class="fs-muted">No queries match.</div>';
 }
 function queryEdit(i) { setCurrentQuery(FS.queries[i]); setSql(FS.queries[i].sql); showTab('builder'); }
 function queryRun(i) { queryEdit(i); setTimeout(runEditor, 50); }
 function queryDup(i) {
-    var q = JSON.parse(JSON.stringify(FS.queries[i]));
+    var q = FS.queries[i];
     var base = q.name + ' (copy)', name = base, n = 2;
-    while (FS.queries.some(function (x) { return x.name === name; })) name = base + ' ' + n++;
-    q.name = name; q.runs = 0; q.created = q.updated = new Date().toISOString();
-    FS.queries.splice(i + 1, 0, q); persistQueries(); renderQueries();
+    while (findQuery(name)) name = base + ' ' + n++;
+    mergeQuery({ name: name, tag: q.tag, description: q.description, sql: q.sql })
+        .then(loadQueries).then(function () { toast('Duplicated as "' + name + '"'); })
+        .catch(function (e) { toast('Duplicate failed: ' + e, 'err'); });
 }
 function queryDelete(i) {
     var q = FS.queries[i];
-    confirmModal('Delete "' + q.name + '"?', 'This removes the saved query from this PC.', function () {
-        FS.queries.splice(i, 1);
-        if (FS.currentQuery === q) setCurrentQuery(null);
-        persistQueries(); renderQueries(); toast('Deleted');
+    confirmModal('Delete "' + q.name + '"?', 'This removes the query from the shared database library for everyone.', function () {
+        dbWrite('DELETE FROM ' + QTABLE + ' WHERE query_id = ' + parseInt(q.id, 10)).then(function () {
+            if (FS.currentQuery && FS.currentQuery.id === q.id) setCurrentQuery(null);
+            toast('Deleted'); return loadQueries();
+        }).catch(function (e) { toast('Delete failed: ' + e, 'err'); });
+    });
+}
+/** Saves a list of {name, sql, tag, description} one after another (the gateway runs one statement per call). */
+function mergeMany(list, label) {
+    var done = 0, failed = [];
+    var next = function (k) {
+        if (k >= list.length) return Promise.resolve();
+        toast(label + ' ' + (k + 1) + ' of ' + list.length + '…', 'warn');
+        return mergeQuery(list[k]).then(function () { done++; }, function (e) { failed.push(list[k].name + ': ' + e); }).then(function () { return next(k + 1); });
+    };
+    return next(0).then(function () { return { done: done, failed: failed }; });
+}
+function uploadLegacyQueries() {
+    var list = FS.qdb.legacy.slice();
+    mergeMany(list, 'Uploading').then(function (r) {
+        if (!r.failed.length) cacheSet('list', [], '__queries');     // everything is in the database now
+        toast(r.done + ' uploaded' + (r.failed.length ? ', ' + r.failed.length + ' failed' : ''), r.failed.length ? 'err' : 'ok');
+        if (r.failed.length) console.warn('[FusionSQL] upload failures', r.failed);
+        return loadQueries();
     });
 }
 function exportQueries() {
-    downloadBlob(new Blob([JSON.stringify(FS.queries, null, 2)], { type: 'application/json' }), 'fusion-sql-queries_' + nowStamp() + '.json');
+    var out = FS.queries.map(function (q) { return { name: q.name, tag: q.tag, description: q.description, sql: q.sql, createdBy: q.createdBy, created: q.created }; });
+    downloadBlob(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }), 'fusion-sql-queries_' + nowStamp() + '.json');
 }
 function importQueries(input) {
     var f = input.files[0]; if (!f) return;
     var rd = new FileReader();
     rd.onload = function () {
-        try {
-            var list = JSON.parse(rd.result);
-            if (!Array.isArray(list)) throw 'not a list';
-            var added = 0, updated = 0;
-            list.forEach(function (q) {
-                if (!q || !q.name || !q.sql) return;
-                var ex = FS.queries.filter(function (x) { return x.name.toLowerCase() === String(q.name).toLowerCase(); })[0];
-                if (ex) { Object.assign(ex, q); updated++; } else { FS.queries.push(q); added++; }
-            });
-            persistQueries(); renderQueries(); toast(added + ' added, ' + updated + ' updated');
-        } catch (e) { toast('Not a Fusion SQL query export', 'err'); }
         input.value = '';
+        var list;
+        try { list = JSON.parse(rd.result); if (!Array.isArray(list)) throw 'x'; } catch (e) { toast('Not a Fusion SQL query export', 'err'); return; }
+        list = list.filter(function (q) { return q && q.name && q.sql; });
+        if (!list.length) { toast('No queries in that file', 'warn'); return; }
+        confirmModal('Import ' + list.length + ' queries?', 'They are saved to the shared database library. Queries with the same name are updated.', function () {
+            mergeMany(list, 'Importing').then(function (r) {
+                toast(r.done + ' imported' + (r.failed.length ? ', ' + r.failed.length + ' failed' : ''), r.failed.length ? 'err' : 'ok');
+                return loadQueries();
+            });
+        });
     };
     rd.readAsText(f);
 }

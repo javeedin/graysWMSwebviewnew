@@ -383,6 +383,12 @@ li.CodeMirror-hint-active { background: var(--fs-red); }
 .fs-q-tag { font-size: .66rem; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: var(--fs-red-soft); color: var(--fs-red); height: fit-content; white-space: nowrap; }
 .fs-q-desc { padding: 0 14px 8px; font-size: .78rem; color: var(--fs-muted); }
 .fs-q pre { margin: 0 14px; padding: 10px 12px; background: #faf8f7; border: 1px solid var(--fs-line-2); border-radius: 8px; font-family: var(--fs-mono); font-size: .72rem; max-height: 120px; overflow: hidden; white-space: pre-wrap; color: #57504b; }
+.fs-q-status { background: var(--fs-panel); border: 1px solid var(--fs-line); border-radius: var(--fs-radius); padding: 10px 14px; margin-bottom: 14px; font-size: .82rem; display: flex; flex-direction: column; gap: 8px; }
+.fs-q-status:empty { display: none; }
+.fs-q-status .fs-btn { vertical-align: middle; margin-left: 6px; }
+.fs-q-legacy { padding-top: 8px; border-top: 1px dashed var(--fs-line); }
+.fs-q-owner { border: 1px solid var(--fs-line); border-radius: 7px; padding: 7px 10px; background: #fff; }
+.fs-q-who { padding: 8px 14px 0; font-size: .72rem; color: var(--fs-muted); }
 .fs-q-foot { display: flex; align-items: center; gap: 4px; padding: 10px 10px 10px 14px; margin-top: auto; }
 .fs-q-foot .fs-muted { flex: 1; font-size: .72rem; }
 
