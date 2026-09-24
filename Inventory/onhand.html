@@ -9,6 +9,7 @@
     <meta http-equiv="Expires" content="0">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -1227,6 +1228,10 @@
                             <button class="btn-search" onclick="openGlobalOnhand()" title="Global onhand across all subinventories for selected items"
                                 style="padding:6px 12px;font-size:.82rem;background:linear-gradient(135deg,#7c3aed,#4f46e5);border-color:#4f46e5;">
                                 <i class="fa-solid fa-globe"></i> Global Onhand
+                            </button>
+                            <button class="btn-search" id="onhand-export-btn" onclick="exportOnhandToExcel()" title="Export results to Excel (checked rows if any are selected, otherwise all visible rows)"
+                                style="padding:6px 12px;font-size:.82rem;background:#16a34a;border-color:#15803d;">
+                                <i class="fa-solid fa-file-excel"></i> Export to Excel
                             </button>
                             <span class="record-count" id="onhand-count">0 records</span>
                         </div>
@@ -2762,6 +2767,128 @@
             var items = [];
             checked.forEach(function (c) { items.push(_onhandAllItems[parseInt(c.dataset.idx)]); });
             drillItemLots(items);
+        }
+
+        // ── Export Onhand Results to Excel ──────────────────
+        // Exports checked rows if any are selected, otherwise every row
+        // currently visible (respects the "Filter results..." box).
+        function exportOnhandToExcel() {
+            if (!_onhandAllItems.length) {
+                alert('No onhand results to export. Run a search first.');
+                return;
+            }
+
+            var rows = [];
+            var checked = document.querySelectorAll('.onhand-row-check:checked');
+            if (checked.length) {
+                checked.forEach(function (c) { rows.push(_onhandAllItems[parseInt(c.dataset.idx)]); });
+            } else {
+                document.querySelectorAll('.onhand-row-check').forEach(function (c) {
+                    var tr = c.closest('tr');
+                    if (!tr || tr.style.display !== 'none') rows.push(_onhandAllItems[parseInt(c.dataset.idx)]);
+                });
+            }
+            if (!rows.length) {
+                alert('No rows match the current filter.');
+                return;
+            }
+
+            var orgSel  = document.getElementById('onhand-org');
+            var orgCode = orgSel.value ? (orgSel.options[orgSel.selectedIndex].dataset.code || '') : '';
+            var subinv  = document.getElementById('onhand-subinv').value || '';
+            var now     = new Date();
+            var pad     = function (n) { return (n < 10 ? '0' : '') + n; };
+            var stamp   = now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) + '_' + pad(now.getHours()) + pad(now.getMinutes());
+            var fileName = 'Onhand_' + (orgCode || 'ALL') + (subinv ? '_' + subinv : '') + '_' + stamp;
+
+            var headers = ['Item Number', 'Description', 'Org', 'Subinventory', 'UOM', 'Onhand Qty'];
+            var toRow = function (r) {
+                return [r.ItemNumber || '', r.ItemDescription || '', r.OrganizationCode || '',
+                        r.SubinventoryCode || '', r.PrimaryUOMCode || '', parseFloat(r.PrimaryQuantity || 0)];
+            };
+
+            // Fallback to CSV if ExcelJS failed to load (e.g. offline CDN)
+            if (typeof ExcelJS === 'undefined') {
+                var esc = function (v) { v = String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+                var csv = [headers].concat(rows.map(toRow)).map(function (r) { return r.map(esc).join(','); }).join('\r\n');
+                _onhandDownloadBlob(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }), fileName + '.csv');
+                return;
+            }
+
+            var btn = document.getElementById('onhand-export-btn');
+            var btnHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Exporting…';
+
+            var wb = new ExcelJS.Workbook();
+            wb.creator = 'Gray\'s WMS';
+            wb.created = now;
+            var ws = wb.addWorksheet('Onhand', { views: [{ state: 'frozen', ySplit: 4 }] });
+
+            // Title + context lines
+            ws.mergeCells('A1:F1');
+            ws.getCell('A1').value = 'Onhand Results';
+            ws.getCell('A1').font = { bold: true, size: 14, color: { argb: 'FF4F46E5' } };
+            ws.mergeCells('A2:F2');
+            ws.getCell('A2').value = 'Org: ' + (orgCode || '—') + '   |   Subinventory: ' + (subinv || '—') +
+                '   |   Rows: ' + rows.length + '   |   Exported: ' + now.toLocaleString();
+            ws.getCell('A2').font = { italic: true, size: 9, color: { argb: 'FF718096' } };
+
+            // Header row (row 4)
+            var hdr = ws.getRow(4);
+            hdr.values = headers;
+            hdr.eachCell(function (cell) {
+                cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
+                cell.alignment = { vertical: 'middle' };
+                cell.border = { bottom: { style: 'thin', color: { argb: 'FF3730A3' } } };
+            });
+            hdr.height = 20;
+
+            rows.forEach(function (r, i) {
+                var row = ws.addRow(toRow(r));
+                row.getCell(6).numFmt = '#,##0.####';
+                if (i % 2 === 1) {
+                    row.eachCell(function (cell) {
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F7FB' } };
+                    });
+                }
+            });
+
+            // Totals row with a live SUBTOTAL formula (updates when the user filters in Excel)
+            var firstData = 5, lastData = 4 + rows.length;
+            var total = rows.reduce(function (s, r) { return s + parseFloat(r.PrimaryQuantity || 0); }, 0);
+            var totRow = ws.addRow(['Total', '', '', '', '', { formula: 'SUBTOTAL(9,F' + firstData + ':F' + lastData + ')', result: total }]);
+            totRow.font = { bold: true };
+            totRow.getCell(6).numFmt = '#,##0.####';
+            totRow.eachCell(function (cell) { cell.border = { top: { style: 'thin' } }; });
+
+            ws.autoFilter = { from: 'A4', to: 'F' + lastData };
+            ws.columns.forEach(function (col, i) {
+                var max = headers[i].length;
+                rows.forEach(function (r) { var v = String(toRow(r)[i]); if (v.length > max) max = v.length; });
+                col.width = Math.min(Math.max(max + 2, 10), 60);
+            });
+
+            wb.xlsx.writeBuffer().then(function (buffer) {
+                _onhandDownloadBlob(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName + '.xlsx');
+            }).catch(function (e) {
+                console.error('[Onhand] Excel export failed:', e);
+                alert('Excel export failed: ' + (e && e.message ? e.message : e));
+            }).then(function () {
+                btn.disabled = false;
+                btn.innerHTML = btnHtml;
+            });
+        }
+
+        function _onhandDownloadBlob(blob, fileName) {
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function () { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
         }
 
         // ── Auto-load dropdowns when navigating to Query Onhand ─
