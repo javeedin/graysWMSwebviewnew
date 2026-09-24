@@ -1296,11 +1296,12 @@ var AI_SYNONYMS = {
     TAX: ['ZX_'], BANK: ['CE_', 'IBY_'], ASSET: ['FA_'], ASSETS: ['FA_'],
     ITEM: ['EGP_SYSTEM_ITEMS', 'ITEM'], ITEMS: ['EGP_SYSTEM_ITEMS', 'ITEM'], ONHAND: ['INV_ONHAND', 'ONHAND'], INVENTORY: ['INV_'],
     SUBINVENTORY: ['INV_SECONDARY_INVENTORIES', 'SUBINV'], ORGANIZATION: ['INV_ORG_PARAMETERS', 'HR_ORGANIZATION'], LOT: ['INV_LOT'], LOTS: ['INV_LOT'],
-    ORDER: ['DOO_', 'PO_HEADERS'], ORDERS: ['DOO_', 'PO_HEADERS'], PURCHASE: ['PO_'], REQUISITION: ['POR_'], RECEIPT: ['RCV_'], RECEIPTS: ['RCV_'],
+    ORDER: ['DOO_HEADERS', 'DOO_LINES', 'DOO_'], ORDERS: ['DOO_HEADERS', 'DOO_LINES', 'DOO_'],
+    SALE: ['DOO_HEADERS', 'DOO_LINES', 'DOO_FULFILL_LINES'], SALES: ['DOO_HEADERS', 'DOO_LINES', 'DOO_FULFILL_LINES'], PO: ['PO_HEADERS', 'PO_LINES'], PURCHASE: ['PO_'], REQUISITION: ['POR_'], RECEIPT: ['RCV_'], RECEIPTS: ['RCV_'],
     SHIPMENT: ['WSH_', 'DOO_FULFILL'], SHIPMENTS: ['WSH_', 'DOO_FULFILL'], TRANSACTION: ['INV_MATERIAL_TXNS', 'TRX'], TRANSACTIONS: ['INV_MATERIAL_TXNS', 'TRX'],
     EMPLOYEE: ['PER_', 'PER_ALL_PEOPLE'], EMPLOYEES: ['PER_', 'PER_ALL_PEOPLE'], PERSON: ['PER_'], PROJECT: ['PJF_', 'PJC_'], PROJECTS: ['PJF_', 'PJC_']
 };
-var AI_STOP = { THE: 1, AND: 1, FOR: 1, WITH: 1, FROM: 1, THAT: 1, SHOW: 1, LIST: 1, GIVE: 1, ALL: 1, ARE: 1, WHICH: 1, WHAT: 1, WHERE: 1, HAVE: 1, THAN: 1, OLDER: 1, LAST: 1, MONTH: 1, DAYS: 1, GIVEN: 1, ABOVE: 1, BELOW: 1, EACH: 1, PER: 1, INTO: 1, THEIR: 1, BY: 1, OPEN: 1, TOTAL: 1, COUNT: 1, NUMBER: 1 };
+var AI_STOP = { THE: 1, AND: 1, FOR: 1, WITH: 1, FROM: 1, THAT: 1, SHOW: 1, LIST: 1, GIVE: 1, ALL: 1, ARE: 1, WHICH: 1, WHAT: 1, WHERE: 1, HAVE: 1, THAN: 1, OLDER: 1, LAST: 1, MONTH: 1, DAYS: 1, GIVEN: 1, ABOVE: 1, BELOW: 1, EACH: 1, PER: 1, INTO: 1, THEIR: 1, BY: 1, OPEN: 1, TOTAL: 1, TOTALS: 1, COUNT: 1, NUMBER: 1, NEED: 1, WANT: 1, QUERY: 1, GET: 1, FIND: 1, BETWEEN: 1, DATE: 1, DATES: 1, TRY: 1, AGAIN: 1, PLEASE: 1, SQL: 1, DATA: 1, REPORT: 1, FETCH: 1, WRITE: 1, TODAY: 1, YEAR: 1, WEEK: 1 };
 
 function openAi() {
     $('fs-ai').classList.add('open'); $('fs-ai-backdrop').classList.add('open');
@@ -1357,32 +1358,74 @@ function closeAi() { $('fs-ai').classList.remove('open'); $('fs-ai-backdrop').cl
 function clearAi() { FS.ai.history = []; $('fs-ai-body').querySelectorAll('.fs-msg').forEach(function (m) { m.remove(); }); $('fs-ai-body').querySelector('.fs-ai-welcome').style.display = ''; }
 function aiSuggest(btn) { $('fs-ai-q').value = btn.textContent; sendAi(); }
 
+/** Weighted search terms: question words (weight 1) + Fusion table-prefix synonyms (weight 3). */
 function aiKeywords(q) {
     var words = (q.toUpperCase().match(/[A-Z][A-Z0-9_]{2,}/g) || []).filter(function (w) { return !AI_STOP[w]; });
-    var terms = [];
+    var terms = [], seen = {};
+    function add(t, w) { if (!seen[t] || seen[t].w < w) { if (!seen[t]) terms.push(seen[t] = { t: t, w: w }); else seen[t].w = w; } }
     words.forEach(function (w) {
-        terms.push(w.replace(/S$/, '').length >= 3 ? w.replace(/S$/, '') : w);
-        (AI_SYNONYMS[w] || []).forEach(function (s) { terms.push(s); });
+        var stem = w.replace(/S$/, '');
+        add(stem.length >= 3 ? stem : w, 1);
+        (AI_SYNONYMS[w] || AI_SYNONYMS[stem] || []).forEach(function (syn) { add(syn, 3); });
     });
-    return terms.filter(function (t, i) { return terms.indexOf(t) === i; });
+    return terms;
+}
+
+function scoreName(n, terms) {
+    var s = 0;
+    terms.forEach(function (t) { var i = n.indexOf(t.t); if (i === 0) s += 3 * t.w; else if (i > 0) s += t.w; });
+    if (!s) return 0;
+    return s - n.length / 100 - (/(_TL|_GT|_TMP|_INT|_BK|_BAK|_V\d*)$|^XX|_ARCH|_HIST|_STG|_INTERFACE/.test(n) ? 2 : 0);
+}
+
+/** Dictionary search in Fusion itself — used when the cached lists have (almost) no match. */
+function liveCandidates(terms, owners) {
+    var likes = terms.slice(0, 12).map(function (t) {
+        var e = t.t.replace(/[\\%_]/g, '\\$&');
+        return 'object_name LIKE ' + lit(/_$/.test(t.t) ? e + '%' : '%' + e + '%') + " ESCAPE '\\'";
+    });
+    if (!likes.length) return Promise.resolve([]);
+    var sql = 'SELECT owner, object_name, object_type FROM all_objects WHERE owner IN (' + owners.map(lit).join(',') + ")" +
+        " AND object_type IN ('TABLE','VIEW') AND (" + likes.join(' OR ') + ') ORDER BY LENGTH(object_name), object_name';
+    return fsql(sql, 400).then(function (r) {
+        return r.rows.map(function (x) { return { owner: String(x.OWNER), kind: String(x.OBJECT_TYPE), name: String(x.OBJECT_NAME) }; });
+    }).catch(function () { return []; });
 }
 
 /** Builds "OWNER.TABLE: col, col…" lines for the tables that match the question (RD §7.4). */
 function buildAiSchema(question) {
     var terms = aiKeywords(question);
+    // A short follow-up ("try again", "add customer name") keeps the previous question's subject
+    var prevUser = FS.ai.history.filter(function (h) { return h.role === 'user'; }).map(function (h) { return h.content; });
+    if (prevUser.length) aiKeywords(prevUser[prevUser.length - 1]).forEach(function (t) {
+        if (!terms.some(function (x) { return x.t === t.t; })) terms.push({ t: t.t, w: terms.length ? t.w * 0.5 : t.w });
+    });
     var owners = [FS.schema.owner]; if (owners.indexOf('FUSION') < 0) owners.push('FUSION');
     var lists = [];
     owners.forEach(function (o) { ['TABLE', 'VIEW'].forEach(function (k) { lists.push({ owner: o, kind: k }); }); });
+    var live = false;
     return Promise.all(lists.map(function (l) { return cacheGet('schema.' + l.owner + '.' + l.kind).then(function (v) { l.names = (v && v.names) || []; return l; }); }))
         .then(function (ls) {
-            var scored = [];
+            var scored = [], have = {};
             ls.forEach(function (l) {
                 l.names.forEach(function (n) {
-                    var s = 0;
-                    terms.forEach(function (t) { if (n.indexOf(t) === 0) s += 3; else if (n.indexOf(t) > 0) s += 1; });
-                    if (s) scored.push({ owner: l.owner, kind: l.kind, name: n, score: s - n.length / 100 - (/(_TL|_GT|_TMP|_INT|_B)$/.test(n) ? 1 : 0) });
+                    var sc = scoreName(n, terms);
+                    if (sc > 0) { scored.push({ owner: l.owner, kind: l.kind, name: n, score: sc }); have[l.owner + '.' + n] = 1; }
                 });
             });
+            if (scored.length >= 8 || !terms.length) return scored;
+            // Cache is empty or too thin: ask the data dictionary directly
+            live = true;
+            return liveCandidates(terms, owners).then(function (found) {
+                found.forEach(function (f) {
+                    if (have[f.owner + '.' + f.name]) return;
+                    var sc = scoreName(f.name, terms);
+                    if (sc > 0) scored.push({ owner: f.owner, kind: f.kind, name: f.name, score: sc });
+                });
+                return scored;
+            });
+        })
+        .then(function (scored) {
             scored.sort(function (a, b) { return b.score - a.score; });
             var top = scored.slice(0, 40);
             return Promise.all(top.map(function (t) {
@@ -1410,6 +1453,7 @@ function buildAiSchema(question) {
         .then(function (top) {
             var withCols = top.filter(function (t) { return t.cols && t.cols.length; });
             return {
+                live: live,
                 count: withCols.length,
                 names: withCols.map(function (t) { return t.name; }),
                 text: withCols.map(function (t) {
@@ -1431,8 +1475,8 @@ function sendAi() {
     $('fs-ai-context').innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Finding relevant tables…';
     buildAiSchema(q).then(function (ctx) {
         $('fs-ai-context').innerHTML = ctx.count
-            ? '<i class="fa-solid fa-diagram-project"></i> Context: ' + ctx.count + ' tables — ' + esc(ctx.names.slice(0, 6).join(', ')) + (ctx.count > 6 ? '…' : '')
-            : '<i class="fa-solid fa-triangle-exclamation"></i> No cached tables matched — load TABLE/VIEW lists in the schema browser for better answers.';
+            ? '<i class="fa-solid fa-diagram-project"></i> Context' + (ctx.live ? ' (live lookup in Fusion)' : '') + ': ' + ctx.count + ' tables — ' + esc(ctx.names.slice(0, 6).join(', ')) + (ctx.count > 6 ? '…' : '')
+            : '<i class="fa-solid fa-triangle-exclamation"></i> No matching tables found in Fusion — name the business object (e.g. sales order, supplier invoice, onhand).';
         return fsCall('fusionSqlAiSql', { question: q, schema: ctx.text, history: FS.ai.history.slice(-8) });
     }).then(function (r) {
         typing.remove();
