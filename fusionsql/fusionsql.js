@@ -894,7 +894,7 @@ function schemaLoadObjects(force) {
         });
     }).then(function (val) {
         if (owner !== FS.schema.owner || kind !== FS.schema.kind) return;   // user switched meanwhile
-        FS.schema.names = val.names; FS.schema.capped = val.capped; FS.schema.at = val.names.length ? val.at : null;
+        FS.schema.names = val.names.slice().sort(function (a, b) { var x = a.toUpperCase(), y = b.toUpperCase(); return x < y ? -1 : x > y ? 1 : 0; }); FS.schema.capped = val.capped; FS.schema.at = val.names.length ? val.at : null;
         registerHintNames(owner, kind, val.names);
         schemaFilter();
     }).catch(function (e) {
@@ -929,7 +929,7 @@ function toggleSchema() { $('fs-builder').classList.toggle('schema-hidden'); set
 
 function schemaFilter() {
     var term = ($('fs-schema-filter').value || '').trim().toUpperCase();
-    FS.schema.filtered = !term ? FS.schema.names : FS.schema.names.filter(function (n) { return n.indexOf(term) >= 0; });
+    FS.schema.filtered = !term ? FS.schema.names : FS.schema.names.filter(function (n) { return n.toUpperCase().indexOf(term) >= 0; });
     FS.schema.shown = LIST_CHUNK;
     var meta = FS.schema.filtered.length.toLocaleString() + ' of ' + FS.schema.names.length.toLocaleString() + ' ' + FS.schema.kind.toLowerCase() + 's' +
         (FS.schema.capped ? ' (capped)' : '') + (FS.schema.at ? ' · cached ' + new Date(FS.schema.at).toLocaleDateString() : '');
@@ -1440,16 +1440,17 @@ function aiKeywords(q) {
 
 function scoreName(n, terms) {
     var s = 0;
-    terms.forEach(function (t) { var i = n.indexOf(t.t); if (i === 0) s += 3 * t.w; else if (i > 0) s += t.w; });
+    var u = n.toUpperCase();
+    terms.forEach(function (t) { var i = u.indexOf(t.t); if (i === 0) s += 3 * t.w; else if (i > 0) s += t.w; });
     if (!s) return 0;
-    return s - n.length / 100 - (/(_TL|_GT|_TMP|_INT|_BK|_BAK|_V\d*)$|^XX|_ARCH|_HIST|_STG|_INTERFACE/.test(n) ? 2 : 0);
+    return s - n.length / 100 - (/(_TL|_GT|_TMP|_INT|_BK|_BAK|_V\d*)$|^XX|_ARCH|_HIST|_STG|_INTERFACE/.test(u) ? 2 : 0);
 }
 
 /** Dictionary search in Fusion itself — used when the cached lists have (almost) no match. */
 function liveCandidates(terms, owners) {
     var likes = terms.slice(0, 12).map(function (t) {
         var e = t.t.replace(/[\\%_]/g, '\\$&');
-        return 'object_name LIKE ' + lit(/_$/.test(t.t) ? e + '%' : '%' + e + '%') + " ESCAPE '\\'";
+        return 'UPPER(object_name) LIKE ' + lit(/_$/.test(t.t) ? e + '%' : '%' + e + '%') + " ESCAPE '\\'";
     });
     if (!likes.length) return Promise.resolve([]);
     var sql = 'SELECT owner, object_name, object_type FROM all_objects WHERE owner IN (' + owners.map(lit).join(',') + ")" +
