@@ -369,8 +369,28 @@ ORDER BY table_name, index_name</textarea>
     <div class="fs-drawer-head">
         <div><i class="fa-solid fa-wand-magic-sparkles"></i> Ask AI <small>Claude writes SQL from your schema</small></div>
         <div>
+            <button class="fs-icon-btn light" id="fs-ai-gear" onclick="toggleAiSettings()" title="Claude API key &amp; model"><i class="fa-solid fa-gear"></i></button>
             <button class="fs-icon-btn light" onclick="clearAi()" title="New conversation"><i class="fa-solid fa-broom"></i></button>
             <button class="fs-icon-btn light" onclick="closeAi()" title="Close"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+    </div>
+    <div class="fs-ai-settings" id="fs-ai-settings">
+        <div class="fs-ai-settings-title"><i class="fa-solid fa-key"></i> Claude API key <span id="fs-ai-key-state" class="fs-chip muted"></span></div>
+        <div class="fs-ai-key-row">
+            <input id="fs-ai-key" type="password" autocomplete="new-password" placeholder="sk-ant-…" onkeydown="if(event.key==='Enter')saveAiSettings()">
+            <button class="fs-icon-btn" onclick="var k=$('fs-ai-key');k.type=k.type==='password'?'text':'password'" title="Show / hide"><i class="fa-regular fa-eye"></i></button>
+        </div>
+        <button class="fs-btn sm" id="fs-ai-import" style="display:none;" onclick="importAppAiKey()"><i class="fa-solid fa-file-import"></i> Use the key from AI Digital Employee settings</button>
+        <label class="fs-ai-settings-title" style="margin-top:4px;">Model</label>
+        <select id="fs-ai-model">
+            <option value="claude-opus-5">Claude Opus 5 (best SQL)</option>
+            <option value="claude-sonnet-5">Claude Sonnet 5 (faster)</option>
+            <option value="claude-haiku-4-5">Claude Haiku 4.5 (cheapest)</option>
+        </select>
+        <div class="fs-ai-settings-foot">
+            <span class="fs-muted"><i class="fa-solid fa-shield-halved"></i> Encrypted on this PC; never sent back to the page.</span>
+            <button class="fs-btn sm ghost" onclick="toggleAiSettings(false)">Cancel</button>
+            <button class="fs-btn sm ai" onclick="saveAiSettings()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
         </div>
     </div>
     <div class="fs-ai-body" id="fs-ai-body">

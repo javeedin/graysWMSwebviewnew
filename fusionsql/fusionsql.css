@@ -414,6 +414,15 @@ li.CodeMirror-hint-active { background: var(--fs-red); }
 .fs-drawer-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; color: #fff; background: linear-gradient(135deg, #4c1d95, #7c3aed 60%, #c026d3); font-weight: 700; }
 .fs-drawer-head small { display: block; font-weight: 400; opacity: .8; font-size: .72rem; }
 .fs-drawer-head > div:first-child { display: flex; gap: 10px; align-items: center; }
+.fs-ai-settings { display: none; flex-direction: column; gap: 8px; padding: 14px 16px; background: #fff; border-bottom: 1px solid var(--fs-line); box-shadow: 0 6px 16px rgba(76,29,149,.08); animation: fs-pop .15s ease-out; }
+.fs-ai-settings.open { display: flex; }
+.fs-ai-settings-title { font-size: .76rem; font-weight: 700; color: var(--fs-slate); display: flex; align-items: center; gap: 8px; }
+.fs-ai-settings-title i { color: #7c3aed; }
+.fs-ai-key-row { display: flex; gap: 4px; align-items: center; }
+.fs-ai-key-row input, .fs-ai-settings select { flex: 1; width: 100%; border: 1px solid var(--fs-line); border-radius: 7px; padding: 7px 10px; background: #fff; }
+.fs-ai-settings-foot { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
+.fs-ai-settings-foot .fs-muted { flex: 1; font-size: .72rem; }
+.fs-icon-btn.light.on { background: rgba(255,255,255,.22); color: #fff; }
 .fs-ai-body { flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 .fs-ai-welcome { text-align: center; padding: 20px 8px; color: var(--fs-muted); font-size: .84rem; }
 .fs-ai-welcome h3 { color: var(--fs-slate); margin: 12px 0 6px; }

@@ -1304,9 +1304,54 @@ var AI_STOP = { THE: 1, AND: 1, FOR: 1, WITH: 1, FROM: 1, THAT: 1, SHOW: 1, LIST
 
 function openAi() {
     $('fs-ai').classList.add('open'); $('fs-ai-backdrop').classList.add('open');
-    setTimeout(function () { $('fs-ai-q').focus(); }, 200);
-    if (FS.status && !FS.status.ai.hasKey)
-        $('fs-ai-context').innerHTML = '<i class="fa-solid fa-key"></i> No Claude API key yet — add it in <a href="#" onclick="closeAi();showTab(\'connection\');return false;">Connection</a>.';
+    if (FS.status && !FS.status.ai.hasKey) toggleAiSettings(true);
+    else setTimeout(function () { $('fs-ai-q').focus(); }, 200);
+}
+
+// ── Ask AI settings (gear) ──
+/** Key saved by the AI Digital Employee module (localStorage aiEngineSettings, base64). */
+function appAiKey() {
+    try {
+        var s = JSON.parse(localStorage.getItem('aiEngineSettings') || 'null');
+        return s && s.k ? atob(s.k) : null;
+    } catch (e) { return null; }
+}
+function toggleAiSettings(show) {
+    var panel = $('fs-ai-settings');
+    show = show === undefined ? !panel.classList.contains('open') : show;
+    panel.classList.toggle('open', show);
+    $('fs-ai-gear').classList.toggle('on', show);
+    if (!show) { $('fs-ai-key').value = ''; $('fs-ai-q').focus(); return; }
+    var has = FS.status && FS.status.ai.hasKey;
+    $('fs-ai-key-state').textContent = has ? '✓ key saved' : 'not set';
+    $('fs-ai-key-state').className = 'fs-chip ' + (has ? '' : 'warn');
+    $('fs-ai-key').placeholder = has ? 'Leave blank to keep the saved key' : 'sk-ant-…';
+    $('fs-ai-model').value = (FS.status && FS.status.config.aiModel) || 'claude-opus-5';
+    $('fs-ai-import').style.display = appAiKey() ? '' : 'none';
+    setTimeout(function () { $('fs-ai-key').focus(); }, 50);
+}
+function importAppAiKey() {
+    var k = appAiKey();
+    if (!k) { toast('No key found in the AI Digital Employee settings', 'warn'); return; }
+    $('fs-ai-key').value = k;
+    saveAiSettings();
+}
+function saveAiSettings() {
+    var key = $('fs-ai-key').value.trim();
+    if (key && !/^sk-ant-/.test(key)) { toast('That does not look like a Claude API key (sk-ant-…)', 'warn'); return; }
+    if (!key && !(FS.status && FS.status.ai.hasKey)) { toast('Paste your Claude API key first', 'warn'); $('fs-ai-key').focus(); return; }
+    (key ? fsCall('fusionSqlSaveAiKey', { apiKey: key }) : Promise.resolve())
+        .then(function () { return fsCall('fusionSqlConfig', { patch: { aiModel: $('fs-ai-model').value } }); })
+        .then(function (s) {
+            FS.status = s; renderHeader();
+            toggleAiSettings(false);
+            $('fs-ai-context').innerHTML = '<i class="fa-solid fa-circle-check" style="color:#15803d"></i> Claude is ready · ' + esc(s.config.aiModel);
+            toast('Claude settings saved');
+            // Retry the question that failed for lack of a key
+            var last = FS.ai.pendingQuestion;
+            if (last) { FS.ai.pendingQuestion = null; $('fs-ai-q').value = last; sendAi(); }
+        })
+        .catch(function (e) { toast(String(e), 'err'); });
 }
 function closeAi() { $('fs-ai').classList.remove('open'); $('fs-ai-backdrop').classList.remove('open'); }
 function clearAi() { FS.ai.history = []; $('fs-ai-body').querySelectorAll('.fs-msg').forEach(function (m) { m.remove(); }); $('fs-ai-body').querySelector('.fs-ai-welcome').style.display = ''; }
@@ -1391,7 +1436,14 @@ function sendAi() {
         return fsCall('fusionSqlAiSql', { question: q, schema: ctx.text, history: FS.ai.history.slice(-8) });
     }).then(function (r) {
         typing.remove();
-        if (!r.success) { appendMsg('bot err', esc(r.error)); return; }
+        if (!r.success) {
+            if (/API key/i.test(r.error || '')) {
+                FS.ai.pendingQuestion = q;
+                appendMsg('bot err', esc(r.error) + '<div style="margin-top:8px;"><button class="fs-btn sm ai" onclick="toggleAiSettings(true)"><i class="fa-solid fa-gear"></i> Add Claude API key</button></div>');
+                toggleAiSettings(true);
+            } else appendMsg('bot err', esc(r.error));
+            return;
+        }
         FS.ai.history.push({ role: 'user', content: q }, { role: 'assistant', content: r.response });
         appendMsg('bot', renderAiAnswer(r.response));
     }).catch(function (e) { typing.remove(); appendMsg('bot err', esc(e)); })

@@ -214,7 +214,7 @@ After the code block, add at most three short bullet points explaining joins or 
         {
             string key = FusionSqlStore.LoadAiKey();
             if (string.IsNullOrEmpty(key))
-                return (false, null, "No Claude API key saved. Add one in Connection settings → AI assistant.");
+                return (false, null, "No Claude API key saved. Click the ⚙ gear in Ask AI (or Connection → AI assistant) to add one.");
 
             var messages = new List<BetaMessageParam>();
             if (history.ValueKind == JsonValueKind.Array)
