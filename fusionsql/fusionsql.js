@@ -1570,6 +1570,7 @@ var AI_STOP = { THE: 1, AND: 1, FOR: 1, WITH: 1, FROM: 1, THAT: 1, SHOW: 1, LIST
 
 function openAi() {
     $('fs-ai').classList.add('open'); $('fs-ai-backdrop').classList.add('open');
+    var b = document.querySelector('.fs-toolbar .fs-btn.ai'); if (b) b.classList.remove('fs-ai-ready');
     if (FS.status && !FS.status.ai.hasKey) toggleAiSettings(true);
     else setTimeout(function () { $('fs-ai-q').focus(); }, 200);
 }
@@ -1658,8 +1659,48 @@ function liveCandidates(terms, owners) {
     }).catch(function () { return []; });
 }
 
-/** Builds "OWNER.TABLE: col, col…" lines for the tables that match the question (RD §7.4). */
-function buildAiSchema(question) {
+/** CTE names defined in a WITH clause (not real tables). */
+function sqlCteNames(sql) {
+    var out = {}, m, re = /(?:\bWITH|,)\s*([A-Za-z_][\w$#]*)\s+AS\s*\(/gi;
+    splitSql(sql || '').forEach(function (seg) { if (seg.code) { re.lastIndex = 0; while ((m = re.exec(seg.text))) out[m[1].toUpperCase()] = 1; } });
+    return out;
+}
+/** Tables after FROM / JOIN in a SQL text → [{ owner|null, name }] (upper-case). */
+function sqlTableRefs(sql) {
+    var ctes = sqlCteNames(sql), out = [], seen = {}, m;
+    var re = /\b(?:FROM|JOIN)\s+(?:"?([A-Za-z_][\w$#]*)"?\.)?"?([A-Za-z_][\w$#]*)"?/gi;
+    splitSql(sql || '').forEach(function (seg) {
+        if (!seg.code) return;
+        re.lastIndex = 0;
+        while ((m = re.exec(seg.text))) {
+            var name = m[2].toUpperCase(), owner = m[1] ? m[1].toUpperCase() : null;
+            if (ctes[name] || name === 'DUAL' || /^(SELECT|LATERAL|TABLE)$/.test(name) || seen[(owner || '') + '.' + name]) continue;
+            seen[(owner || '') + '.' + name] = 1;
+            out.push({ owner: owner, name: name });
+        }
+    });
+    return out;
+}
+/** Table-like words the user typed (contain an underscore), e.g. AR_PAYMENT_SCHEDULES_ALL or fusion.hz_parties. */
+function questionTableRefs(q) {
+    var out = [], m, re = /\b(?:([A-Za-z][\w$#]*)\.)?([A-Za-z][A-Za-z0-9$#]*_[A-Za-z0-9_$#]+)\b/g;
+    while ((m = re.exec(q || ''))) if (m[2].length >= 6) out.push({ owner: m[1] ? m[1].toUpperCase() : null, name: m[2].toUpperCase() });
+    return out;
+}
+function lastAiSql() {
+    for (var i = FS.ai.history.length - 1; i >= 0; i--) {
+        var h = FS.ai.history[i];
+        if (h.role !== 'assistant') continue;
+        var m = /```(?:sql)?\s*\n?([\s\S]*?)```/i.exec(h.content || '');
+        if (m) return m[1];
+    }
+    return '';
+}
+
+/** Builds "OWNER.TABLE: col, col…" lines for the tables that match the question (RD §7.4).
+ *  Tables the user names, the editor SQL uses, or Claude's last SQL used are pinned first,
+ *  so keyword matches (e.g. 40 HZ_ tables for "customer") can never crowd them out. */
+function buildAiSchema(question, editorSql) {
     var terms = aiKeywords(question);
     // A short follow-up ("try again", "add customer name") keeps the previous question's subject
     var prevUser = FS.ai.history.filter(function (h) { return h.role === 'user'; }).map(function (h) { return h.content; });
@@ -1669,17 +1710,48 @@ function buildAiSchema(question) {
     var owners = [FS.schema.owner]; if (owners.indexOf('FUSION') < 0) owners.push('FUSION');
     var lists = [];
     owners.forEach(function (o) { ['TABLE', 'VIEW'].forEach(function (k) { lists.push({ owner: o, kind: k }); }); });
-    var live = false;
+    var live = false, pinned = [], pinKeys = {};
+    var refs = questionTableRefs(question).map(function (r) { r.src = 'question'; return r; })
+        .concat(sqlTableRefs(editorSql).map(function (r) { r.src = 'editor'; return r; }))
+        .concat(sqlTableRefs(lastAiSql()).map(function (r) { r.src = 'previous answer'; return r; }));
     return Promise.all(lists.map(function (l) { return cacheGet('schema.' + l.owner + '.' + l.kind).then(function (v) { l.names = (v && v.names) || []; return l; }); }))
         .then(function (ls) {
+            // Resolve pinned names against the cached lists (case-insensitive)
+            var index = {};
+            ls.forEach(function (l) { l.names.forEach(function (n) { var k = n.toUpperCase(); if (!index[k] || l.owner === FS.schema.owner) index[k] = { owner: l.owner, kind: l.kind, name: n }; }); });
+            var unknown = [];
+            refs.forEach(function (r) {
+                var hit = index[r.name];
+                if (hit && r.owner && r.owner !== hit.owner) hit = { owner: r.owner, kind: 'TABLE', name: hit.name };
+                var key = (hit ? hit.owner : (r.owner || 'FUSION')) + '.' + r.name;
+                if (pinKeys[key]) return;
+                pinKeys[key] = 1;
+                if (hit) pinned.push({ owner: hit.owner, kind: hit.kind, name: hit.name, pinned: r.src });
+                else unknown.push(r);
+            });
+            if (!unknown.length) return ls;
+            // Not in the cached lists: look the names up in Fusion (one query)
+            var sql = "SELECT owner, object_name, object_type FROM all_objects WHERE object_type IN ('TABLE','VIEW','SYNONYM') AND UPPER(object_name) IN (" +
+                unknown.slice(0, 30).map(function (r) { return lit(r.name); }).join(',') + ')';
+            return fsql(sql, 200).then(function (r) {
+                unknown.forEach(function (u) {
+                    var hits = r.rows.filter(function (x) { return String(x.OBJECT_NAME).toUpperCase() === u.name; });
+                    var h = hits.filter(function (x) { return x.OWNER === (u.owner || FS.schema.owner); })[0] || hits.filter(function (x) { return x.OWNER === 'FUSION'; })[0] || hits[0];
+                    if (h) pinned.push({ owner: String(h.OWNER), kind: h.OBJECT_TYPE === 'VIEW' ? 'VIEW' : 'TABLE', name: String(h.OBJECT_NAME), pinned: u.src });
+                });
+                return ls;
+            }).catch(function () { return ls; });
+        })
+        .then(function (ls) {
             var scored = [], have = {};
+            pinned.forEach(function (p) { have[p.owner + '.' + p.name] = 1; });
             ls.forEach(function (l) {
                 l.names.forEach(function (n) {
                     var sc = scoreName(n, terms);
-                    if (sc > 0) { scored.push({ owner: l.owner, kind: l.kind, name: n, score: sc }); have[l.owner + '.' + n] = 1; }
+                    if (sc > 0 && !have[l.owner + '.' + n]) { scored.push({ owner: l.owner, kind: l.kind, name: n, score: sc }); have[l.owner + '.' + n] = 1; }
                 });
             });
-            if (scored.length >= 8 || !terms.length) return scored;
+            if (scored.length >= 8 || !terms.length || pinned.length >= 3) return scored;
             // Cache is empty or too thin: ask the data dictionary directly
             live = true;
             return liveCandidates(terms, owners).then(function (found) {
@@ -1693,24 +1765,25 @@ function buildAiSchema(question) {
         })
         .then(function (scored) {
             scored.sort(function (a, b) { return b.score - a.score; });
-            var top = scored.slice(0, 40);
+            var top = pinned.slice(0, 25).concat(scored.slice(0, Math.max(10, 40 - pinned.length)));
             return Promise.all(top.map(function (t) {
                 return cacheGet('detail.' + t.owner + '.' + t.kind + '.' + t.name).then(function (v) { t.cols = Array.isArray(v) ? v : null; return t; });
             }));
         })
         .then(function (top) {
             // Fetch columns for up to 15 uncached candidates in ONE dictionary query
-            var missing = top.filter(function (t) { return !t.cols; }).slice(0, 15);
+            var missing = top.filter(function (t) { return !t.cols && t.pinned; })
+                .concat(top.filter(function (t) { return !t.cols && !t.pinned; }).slice(0, 15));
             if (!missing.length) return top;
             var byOwner = {};
-            missing.forEach(function (t) { (byOwner[t.owner] = byOwner[t.owner] || []).push(t.name); });
-            var where = Object.keys(byOwner).map(function (o) { return '(owner = ' + lit(o) + ' AND table_name IN (' + byOwner[o].map(lit).join(',') + '))'; }).join(' OR ');
-            return fsql('SELECT owner, table_name, column_name, data_type, data_length, nullable FROM all_tab_columns WHERE ' + where + ' ORDER BY owner, table_name, column_id', 5000)
+            missing.forEach(function (t) { (byOwner[t.owner] = byOwner[t.owner] || []).push(t.name.toUpperCase()); });
+            var where = Object.keys(byOwner).map(function (o) { return '(owner = ' + lit(o) + ' AND UPPER(table_name) IN (' + byOwner[o].map(lit).join(',') + '))'; }).join(' OR ');
+            return fsql('SELECT owner, table_name, column_name, data_type, data_length, nullable FROM all_tab_columns WHERE ' + where + ' ORDER BY owner, table_name, column_id', 8000)
                 .then(function (r) {
                     var grouped = {};
-                    r.rows.forEach(function (c) { var k = c.OWNER + '.' + c.TABLE_NAME; (grouped[k] = grouped[k] || []).push({ COLUMN_NAME: c.COLUMN_NAME, DATA_TYPE: c.DATA_TYPE, DATA_LENGTH: c.DATA_LENGTH, NULLABLE: c.NULLABLE }); });
+                    r.rows.forEach(function (c) { var k = c.OWNER + '.' + String(c.TABLE_NAME).toUpperCase(); (grouped[k] = grouped[k] || []).push({ COLUMN_NAME: c.COLUMN_NAME, DATA_TYPE: c.DATA_TYPE, DATA_LENGTH: c.DATA_LENGTH, NULLABLE: c.NULLABLE }); });
                     missing.forEach(function (t) {
-                        t.cols = grouped[t.owner + '.' + t.name] || [];
+                        t.cols = grouped[t.owner + '.' + t.name.toUpperCase()] || [];
                         if (t.cols.length) { cacheSet('detail.' + t.owner + '.' + t.kind + '.' + t.name, t.cols); registerHintColumns(t.owner, t.name, t.cols); }
                     });
                     return top;
@@ -1720,6 +1793,7 @@ function buildAiSchema(question) {
             var withCols = top.filter(function (t) { return t.cols && t.cols.length; });
             return {
                 live: live,
+                pinned: withCols.filter(function (t) { return t.pinned; }).map(function (t) { return t.name; }),
                 count: withCols.length,
                 names: withCols.map(function (t) { return t.name; }),
                 text: withCols.map(function (t) {
@@ -1737,14 +1811,24 @@ function sendAi() {
     $('fs-ai-q').value = '';
     $('fs-ai-body').querySelector('.fs-ai-welcome').style.display = 'none';
     appendMsg('user', esc(q));
-    var typing = appendMsg('bot', '<div class="fs-typing"><span></span><span></span><span></span></div>');
+    var typing = appendMsg('bot', '<div class="fs-typing"><span></span><span></span><span></span><em class="fs-ai-timer">Finding tables…</em></div>');
+    var t0 = Date.now(), phase = 'Finding tables…';
+    var timer = setInterval(function () { var el = typing.querySelector('.fs-ai-timer'); if (el) el.textContent = phase + ' ' + Math.round((Date.now() - t0) / 1000) + ' s'; }, 500);
     $('fs-ai-context').innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Finding relevant tables…';
-    buildAiSchema(q).then(function (ctx) {
+    var editorSql = getSql().trim();
+    buildAiSchema(q, editorSql).then(function (ctx) {
+        var pins = ctx.pinned.length ? ' · <b>📌 ' + esc(ctx.pinned.slice(0, 4).join(', ')) + (ctx.pinned.length > 4 ? '…' : '') + '</b>' : '';
         $('fs-ai-context').innerHTML = ctx.count
-            ? '<i class="fa-solid fa-diagram-project"></i> Context' + (ctx.live ? ' (live lookup in Fusion)' : '') + ': ' + ctx.count + ' tables — ' + esc(ctx.names.slice(0, 6).join(', ')) + (ctx.count > 6 ? '…' : '')
+            ? '<i class="fa-solid fa-diagram-project"></i> Context' + (ctx.live ? ' (live lookup in Fusion)' : '') + ': ' + ctx.count + ' tables' + pins + ' — ' + esc(ctx.names.filter(function (n) { return ctx.pinned.indexOf(n) < 0; }).slice(0, 5).join(', ')) + (ctx.count > 6 ? '…' : '')
             : '<i class="fa-solid fa-triangle-exclamation"></i> No matching tables found in Fusion — name the business object (e.g. sales order, supplier invoice, onhand).';
-        return fsCall('fusionSqlAiSql', { question: q, schema: ctx.text, history: FS.ai.history.slice(-8) });
+        phase = 'Claude is writing the SQL…';
+        // The editor's SQL goes along so "add X to this" / "fix this" work on the real query
+        var question = q;
+        if (editorSql && editorSql.length <= 6000)
+            question += '\n\nCURRENT EDITOR SQL (for reference — modify or extend it only if the question refers to it):\n```sql\n' + editorSql + '\n```';
+        return fsCall('fusionSqlAiSql', { question: question, schema: ctx.text, history: FS.ai.history.slice(-8) });
     }).then(function (r) {
+        clearInterval(timer);
         typing.remove();
         if (!r.success) {
             if (/API key/i.test(r.error || '')) {
@@ -1756,9 +1840,47 @@ function sendAi() {
         }
         FS.ai.history.push({ role: 'user', content: q }, { role: 'assistant', content: r.response });
         appendMsg('bot', renderAiAnswer(r.response));
-    }).catch(function (e) { typing.remove(); appendMsg('bot err', esc(e)); })
+        aiNotifyDone(Date.now() - t0, /```/.test(r.response));
+    }).catch(function (e) { clearInterval(timer); typing.remove(); appendMsg('bot err', esc(e)); })
         .then(function () { FS.ai.busy = false; $('fs-ai-send').disabled = false; $('fs-ai-q').focus(); });
 }
+/** Flash notification when Claude finishes: toast with Insert, pulse on the Ask AI button when the
+ *  drawer is closed, and a blinking window title when the app is not in front. */
+function aiNotifyDone(ms, hasSql) {
+    var secs = (ms / 1000).toFixed(1);
+    var idx = _aiBlocks.length - 1;
+    var t = document.createElement('div');
+    t.className = 'fs-toast ok fs-toast-ai';
+    t.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i><span>' + (hasSql ? 'SQL ready' : 'Claude answered') + ' in ' + secs + ' s</span>' +
+        (hasSql && idx >= 0 ? '<button class="fs-btn sm ai">Insert</button><button class="fs-btn sm primary">Insert &amp; run</button>' : '');
+    var btns = t.querySelectorAll('button');
+    if (btns[0]) btns[0].onclick = function () { aiUse(idx); t.remove(); };
+    if (btns[1]) btns[1].onclick = function () { aiUse(idx, true); t.remove(); };
+    $('fs-toasts').appendChild(t);
+    setTimeout(function () { t.style.opacity = '0'; t.style.transition = 'opacity .4s'; }, 7000);
+    setTimeout(function () { t.remove(); }, 7500);
+    var head = document.querySelector('.fs-drawer-head');
+    if (head) { head.classList.remove('fs-done-flash'); void head.offsetWidth; head.classList.add('fs-done-flash'); }
+    if (!$('fs-ai').classList.contains('open')) {
+        var b = document.querySelector('.fs-toolbar .fs-btn.ai');
+        if (b) b.classList.add('fs-ai-ready');
+    }
+    if (document.hidden || !document.hasFocus()) flashTitle((hasSql ? '✓ SQL ready' : '✓ Claude answered') + ' — Fusion SQL');
+}
+var _titleFlash = null, _titleOrig = document.title;
+function flashTitle(msg) {
+    if (_titleFlash) clearInterval(_titleFlash);
+    var on = false;
+    _titleFlash = setInterval(function () { on = !on; document.title = on ? msg : _titleOrig; }, 900);
+    var stop = function () {
+        if (!_titleFlash) return;
+        clearInterval(_titleFlash); _titleFlash = null; document.title = _titleOrig;
+        window.removeEventListener('focus', stop); document.removeEventListener('visibilitychange', vis);
+    };
+    var vis = function () { if (!document.hidden) stop(); };
+    window.addEventListener('focus', stop); document.addEventListener('visibilitychange', vis);
+}
+
 function appendMsg(cls, html) {
     var d = document.createElement('div');
     d.className = 'fs-msg ' + cls; d.innerHTML = html;
