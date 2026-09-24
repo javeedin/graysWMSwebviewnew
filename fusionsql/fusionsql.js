@@ -354,7 +354,7 @@ function executeSql(sql, original) {
                 var err = (r && r.error) || 'Unknown error';
                 setConn(/HTTP|Network|Timed out|credentials/i.test(err) ? 'err' : 'ok', /HTTP|Network|Timed out|credentials/i.test(err) ? 'Connection problem' : 'Connected');
                 addLog(false, 'ERROR: ' + err.split('\n')[0], sql);
-                showError(err, r && r.raw);
+                showError(err, r && (r.decoded ? 'Decoded report output:\n' + r.decoded : r.raw));
             }
         })
         .catch(function (e) { setConn('err', 'Error'); addLog(false, 'ERROR: ' + e, sql); showError(String(e)); })
@@ -398,7 +398,7 @@ function showResult(r, limit) {
         }
         isNum[c] = any && all;
     });
-    FS.result = { columns: cols, rows: r.rows, isNum: isNum, isId: isId, filtered: r.rows, page: 0, sortCol: null, sortDir: 1, search: '', capped: r.capped, elapsed: r.elapsedMs, limit: limit, sql: getRunSql() };
+    FS.result = { columns: cols, rows: r.rows, isNum: isNum, isId: isId, filtered: r.rows, page: 0, sortCol: null, sortDir: 1, search: '', capped: r.capped, elapsed: r.elapsedMs, decoded: r.decoded, limit: limit, sql: getRunSql() };
     $('fs-grid-search').value = '';
     $('fs-result-count').textContent = r.rowCount.toLocaleString();
     $('fs-result-meta').innerHTML =
@@ -457,7 +457,8 @@ function renderGrid() {
     var R = FS.result, grid = $('fs-grid');
     if (!R) return;
     if (!R.columns.length || !R.rows.length) {
-        grid.innerHTML = '<div class="fs-empty"><i class="fa-regular fa-folder-open"></i><h3>No rows</h3><p>The query ran successfully and returned nothing.</p></div>';
+        grid.innerHTML = '<div class="fs-empty"><i class="fa-regular fa-folder-open"></i><h3>No rows</h3><p>The query ran successfully and returned nothing.</p>' +
+            (R.decoded ? '<details style="max-width:820px;width:100%;text-align:left;"><summary class="fs-muted" style="cursor:pointer;">Runner output (check this if you expected rows)</summary><div class="fs-error-box" style="color:#57504b;background:#faf8f7;border-color:#e7e2de;">' + esc(R.decoded) + '</div></details>' : '') + '</div>';
         $('fs-pager').innerHTML = '';
         return;
     }
@@ -782,10 +783,11 @@ function importQueries(input) {
 // ── Schema browser ─────────────────────────────────────────────
 function schemaInit() {
     cacheGet('owners').then(function (owners) {
-        if (Array.isArray(owners) && owners.length) return owners;
+        if (Array.isArray(owners) && owners.length > 1) return owners;
         $('fs-schema-meta').innerHTML = '<span class="fs-spinner" style="width:12px;height:12px;border-width:2px;"></span> Loading owners…';
         return fsql('SELECT username FROM all_users ORDER BY username', 5000).then(function (r) {
             var list = r.rows.map(function (x) { return x.USERNAME; }).filter(Boolean);
+            if (!list.length) throw runnerProblem('all_users returned no owners', r);
             if (list.indexOf('PUBLIC') < 0) list.push('PUBLIC');
             list.sort();
             cacheSet('owners', list);
@@ -813,22 +815,26 @@ function schemaLoadObjects(force) {
     var key = schemaKey(), owner = FS.schema.owner, kind = FS.schema.kind;
     $('fs-schema-list').innerHTML = '';
     (force ? Promise.resolve(null) : cacheGet(key)).then(function (cached) {
-        if (cached && cached.names) return cached;
+        if (cached && cached.names && cached.names.length) return cached;
         return fetchObjectNames(owner, kind, function (n) {
             $('fs-schema-meta').innerHTML = '<span class="fs-spinner" style="width:12px;height:12px;border-width:2px;"></span> Loading ' + esc(kind.toLowerCase()) + 's… ' + n.toLocaleString();
         }).then(function (res) {
             var val = { at: new Date().toISOString(), names: res.names, capped: res.capped };
-            cacheSet(key, val);
+            if (res.names.length) cacheSet(key, val);   // an empty list is re-queried next time
             return val;
         });
     }).then(function (val) {
         if (owner !== FS.schema.owner || kind !== FS.schema.kind) return;   // user switched meanwhile
-        FS.schema.names = val.names; FS.schema.capped = val.capped; FS.schema.at = val.at;
+        FS.schema.names = val.names; FS.schema.capped = val.capped; FS.schema.at = val.names.length ? val.at : null;
         registerHintNames(owner, kind, val.names);
         schemaFilter();
     }).catch(function (e) {
         $('fs-schema-meta').innerHTML = '<span style="color:#b91c1c;"><i class="fa-solid fa-triangle-exclamation"></i> ' + esc(String(e).split('\n')[0]) + '</span>';
     });
+}
+
+function runnerProblem(what, r) {
+    return 'Runner output not understood (' + what + '). Redeploy the runner in Connection. ' + (r && r.decoded ? 'Output: ' + r.decoded.slice(0, 300) : '');
 }
 
 /** Pages through ALL_OBJECTS 5,000 names at a time (one after another) up to the safety ceiling. */
@@ -838,6 +844,7 @@ function fetchObjectNames(owner, kind, onProgress) {
         var sql = 'SELECT object_name FROM (SELECT object_name, ROW_NUMBER() OVER (ORDER BY object_name) rn FROM all_objects WHERE owner = ' + lit(owner) +
             ' AND object_type = ' + lit(kind) + ') WHERE rn BETWEEN ' + from + ' AND ' + (from + SCHEMA_PAGE - 1);
         return fsql(sql, SCHEMA_PAGE).then(function (r) {
+            if (r.rows.length && r.rows[0].OBJECT_NAME === undefined) throw runnerProblem('object list came back without OBJECT_NAME', r);
             r.rows.forEach(function (x) { if (x.OBJECT_NAME !== undefined) names.push(String(x.OBJECT_NAME)); });
             if (onProgress) onProgress(names.length);
             if (r.rows.length < SCHEMA_PAGE) return { names: names, capped: false };
@@ -1217,6 +1224,7 @@ function testConnection() {
     setConn('busy', 'Testing…');
     var t0 = Date.now();
     fsql('SELECT 1 AS n FROM dual', 1).then(function (r) {
+        if (!(r.rowCount === 1 && String(r.rows[0].N) === '1')) throw runnerProblem('SELECT 1 FROM dual did not return N = 1', r);
         setConn('ok', 'Connected · ' + fmtMs(r.elapsedMs));
         toast('Connected to ' + FS.status.pod + ' in ' + fmtMs(Date.now() - t0));
         renderConnection();
@@ -1271,7 +1279,8 @@ function showCall(i) {
     $('fs-call-detail').innerHTML =
         '<div class="fs-kv"><span class="k">Operation</span><span class="v">' + esc(c.kind) + '</span><span class="k">URL</span><span class="v">' + esc(c.url) + '</span>' +
         '<span class="k">Status</span><span class="v">' + (c.status || 'no response') + ' · ' + fmtMs(c.durationMs) + '</span><span class="k">Protocol</span><span class="v">' + esc(c.protocol) + '</span></div>' +
-        block('Headers', c.headers, 'headers') + block('Request', c.request, 'request') + block('Response', c.response, 'response');
+        block('Headers', c.headers, 'headers') + block('Request', c.request, 'request') + block('Response', c.response, 'response') +
+        (c.decoded ? block('Decoded report output (reportBytes)', c.decoded, 'decoded') : '');
 }
 
 // ── Ask AI ─────────────────────────────────────────────────────

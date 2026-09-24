@@ -53,6 +53,8 @@ namespace WMSApp.FusionSql
         public string Error { get; set; }
         public string Raw { get; set; }
         public string Warning { get; set; }
+        /// <summary>First part of the decoded report output — set when nothing was read, to diagnose the runner.</summary>
+        public string Decoded { get; set; }
 
         public static FusionQueryResult Fail(string error, string raw = null) =>
             new FusionQueryResult { Success = false, Error = error, Raw = raw };
@@ -69,6 +71,7 @@ namespace WMSApp.FusionSql
         public string Request { get; set; }
         public string Response { get; set; }
         public long DurationMs { get; set; }
+        public string Decoded { get; set; }
     }
 
     internal sealed class SoapResult
@@ -335,16 +338,36 @@ namespace WMSApp.FusionSql
             // XML first; CSV only if XML returned neither data nor a fault (§4.3)
             var xml = await RunReportAsync(cfg, cred.Username, cred.Password, b64, "xml", ct).ConfigureAwait(false);
             List<Dictionary<string, object>> rows = null;
-            if (xml.Bytes != null) rows = RowsetParser.ParseDecoded(DecodeBase64(xml.Bytes));
+            string decoded = null;
+            if (xml.Bytes != null)
+            {
+                decoded = DecodeBase64(xml.Bytes);
+                AnnotateLastCall(decoded);
+                rows = RowsetParser.Parse(decoded);
+            }
 
-            if (rows == null && xml.Bytes == null && xml.Fault == null)
+            // CSV when XML gave no data and no fault — or gave output we could not read (§4.3)
+            if (rows == null && xml.Fault == null)
             {
                 var csv = await RunReportAsync(cfg, cred.Username, cred.Password, b64, "csv", ct).ConfigureAwait(false);
-                if (csv.Bytes != null) rows = RowsetParser.ParseXmlGenOrCsv(DecodeBase64(csv.Bytes));
-                else return Timed(FusionQueryResult.Fail(csv.Fault ?? "HTTP " + csv.Status, csv.Raw), sw);
+                if (csv.Bytes != null)
+                {
+                    string csvDecoded = DecodeBase64(csv.Bytes);
+                    AnnotateLastCall(csvDecoded);
+                    rows = RowsetParser.Parse(csvDecoded);
+                    decoded = decoded ?? csvDecoded;
+                }
+                else if (xml.Bytes == null)
+                    return Timed(FusionQueryResult.Fail(csv.Fault ?? "HTTP " + csv.Status, csv.Raw), sw);
             }
             if (rows == null)
-                return Timed(FusionQueryResult.Fail(Hint(xml.Fault ?? (xml.Bytes != null ? "Could not parse the report output." : "HTTP " + xml.Status), b64), xml.Raw), sw);
+            {
+                var fail = FusionQueryResult.Fail(Hint(xml.Fault ?? (decoded != null
+                    ? "The runner report answered, but its output has no DBMS_XMLGEN ROWSET. The report layout is probably transforming the data — redeploy the runner (Connection → Deploy runner report) so it is a data-only report."
+                    : "HTTP " + xml.Status), b64), xml.Raw);
+                fail.Decoded = Truncate(decoded, 3000);
+                return Timed(fail, sw);
+            }
 
             var result = new FusionQueryResult
             {
@@ -352,7 +375,8 @@ namespace WMSApp.FusionSql
                 Rows = rows,
                 Columns = RowsetParser.Columns(rows),
                 RowCount = rows.Count,
-                Capped = rows.Count >= cap
+                Capped = rows.Count >= cap,
+                Decoded = rows.Count == 0 ? Truncate(decoded, 3000) : null
             };
             if (b64.Length > 4000)
                 result.Warning = "Statement is long (" + b64.Length + " base64 bytes). Pods without MAX_STRING_SIZE=EXTENDED limit it to 4000.";
@@ -508,7 +532,16 @@ $@"<?xml version=""1.0"" encoding=""utf-8""?>
             }
         }
 
-        public List<FusionCallLogEntry> GetCalls(bool clear)
+        /// <summary>Adds the decoded reportBytes to the newest inspector entry.</summary>
+        private void AnnotateLastCall(string decoded)
+        {
+            lock (_callsLock)
+            {
+                if (_calls.First != null) _calls.First.Value.Decoded = Truncate(PasswordElement.Replace(decoded ?? "", "$1***$2"), MAX_LOGGED_CHARS);
+            }
+        }
+
+                public List<FusionCallLogEntry> GetCalls(bool clear)
         {
             lock (_callsLock)
             {
@@ -568,11 +601,17 @@ $@"<?xml version=""1.0"" encoding=""utf-8""?>
             // 4. Smoke test
             var test = await ExecuteAsync("SELECT 1 AS n FROM dual", 1, ct).ConfigureAwait(false);
             if (!test.Success) return (false, Add(steps, "✗ Test query SELECT 1 FROM dual"), test.Error, test.Raw);
+            if (!IsSelectOne(test))
+                return (false, Add(steps, "✗ Test query ran but did not return N = 1"),
+                    "The report output was not the DBMS_XMLGEN ROWSET. Decoded output:\n" + (test.Decoded ?? "(empty)"), test.Raw);
             steps.Add("✓ Test query returned " + test.RowCount + " row in " + test.ElapsedMs + " ms");
             return (true, steps, null, null);
         }
 
         private static List<string> Add(List<string> l, string s) { l.Add(s); return l; }
+
+        public static bool IsSelectOne(FusionQueryResult r) =>
+            r.Success && r.RowCount == 1 && r.Rows[0].TryGetValue("N", out var n) && Convert.ToString(n, CultureInfo.InvariantCulture) == "1";
 
         private async Task<(string Fault, string Raw)> CatalogCallAsync(string url, string basic, FusionSqlConfig cfg, string op, string inner,
             (string Username, string Password, string Source) cred, CancellationToken ct)
@@ -693,9 +732,6 @@ $@"<?xml version = '1.0' encoding = 'utf-8'?>
          <input label=""P_QRY_STMT""/>
       </parameter>
    </parameters>
-   <templates default=""Data"">
-      <template label=""Data"" url="""" type=""xsl"" outputFormat=""csv,xml"" defaultFormat=""csv"" locale=""en_US"" disableMasterTemplate=""true"" active=""true"" viewOnline=""true""/>
-   </templates>
 </report>";
 
         private static string Esc(string s) => System.Security.SecurityElement.Escape(s ?? "") ?? "";
@@ -712,57 +748,85 @@ $@"<?xml version = '1.0' encoding = 'utf-8'?>
         private static readonly Regex NumberLike = new Regex(@"^-?\d{1,15}(\.\d+)?$");
 
         /// <summary>Parses the decoded reportBytes of the XML attempt. Returns null when the output isn't understood.</summary>
-        public static List<Dictionary<string, object>> ParseDecoded(string decoded)
-        {
-            if (string.IsNullOrWhiteSpace(decoded)) return null;
-            XDocument doc;
-            try { doc = XDocument.Parse(decoded); }
-            catch { return ParseXmlGenOrCsv(decoded); }
-
-            var root = doc.Root;
-            if (root == null) return null;
-            if (root.Name.LocalName == "ROWSET") return ReadRowset(root);
-
-            var results = root.Descendants().Where(e => e.Name.LocalName == "RESULT").ToList();
-            if (results.Count > 0 || root.Name.LocalName == "DATA_DS")
-            {
-                // DATA_DS with no RESULT = DBMS_XMLGEN returned NULL = zero rows (§4.5.4)
-                var rows = new List<Dictionary<string, object>>();
-                foreach (var r in results)
-                {
-                    var nested = r.Elements().FirstOrDefault(e => e.Name.LocalName == "ROWSET");
-                    if (nested != null) { rows.AddRange(ReadRowset(nested)); continue; }
-                    string inner = r.Value.Trim();           // already unescaped once by the XML parser
-                    if (inner.Length == 0) continue;
-                    var parsed = ParseRowsetText(inner);
-                    if (parsed == null) return null;
-                    rows.AddRange(parsed);
-                }
-                return rows;
-            }
-            return ParseGenericXml(root);
-        }
+        public static List<Dictionary<string, object>> ParseDecoded(string decoded) => Parse(decoded);
 
         /// <summary>CSV attempt: the ROWSET usually arrives with real tags inside a CSV field.</summary>
-        public static List<Dictionary<string, object>> ParseXmlGenOrCsv(string text)
+        public static List<Dictionary<string, object>> ParseXmlGenOrCsv(string text) => Parse(text);
+
+        /// <summary>
+        /// Finds the DBMS_XMLGEN ROWSET wherever the report put it (§4.5):
+        /// XML output escapes it once inside RESULT, CSV output carries real tags in a (quoted) field.
+        /// Returns null when the output is not understood — never the runner's own RESULT wrapper as data.
+        /// </summary>
+        public static List<Dictionary<string, object>> Parse(string decoded)
         {
-            if (string.IsNullOrEmpty(text)) return null;
-            int start = text.IndexOf("<ROWSET", StringComparison.Ordinal);
-            if (start < 0 && text.Contains("&lt;ROWSET"))
+            if (string.IsNullOrWhiteSpace(decoded)) return null;
+            string t = decoded.TrimStart('\uFEFF');
+
+            // 1. The ROWSET, unescaping the whole text at most twice
+            for (int round = 0; round < 3; round++)
             {
-                text = System.Net.WebUtility.HtmlDecode(text);
-                start = text.IndexOf("<ROWSET", StringComparison.Ordinal);
+                var rows = ExtractRowset(t);
+                if (rows != null) return rows;
+                if (t.IndexOf("lt;ROWSET", StringComparison.Ordinal) < 0) break;   // &lt; or &amp;lt;
+                t = XmlUnescapeOnce(t);
             }
-            if (start >= 0)
+
+            // 2. No ROWSET: DBMS_XMLGEN returns NULL for zero rows, so an empty envelope = 0 rows
+            if (IsEmptyEnvelope(t)) return new List<Dictionary<string, object>>();
+
+            // 3. Generic BIP XML / CSV — but a lone RESULT column is the runner envelope, not data
+            List<Dictionary<string, object>> generic = null;
+            try { var d = XDocument.Parse(t); if (d.Root != null) generic = ParseGenericXml(d.Root); }
+            catch { generic = ParseCsv(t); }
+            if (generic == null || generic.Count == 0) return generic;
+            var cols = Columns(generic);
+            if (cols.Count == 0 || (cols.Count == 1 && cols[0] == "RESULT")) return null;
+            return generic;
+        }
+
+        private static List<Dictionary<string, object>> ExtractRowset(string t)
+        {
+            int start = t.IndexOf("<ROWSET", StringComparison.Ordinal);
+            if (start < 0) return null;
+            int close = t.IndexOf('>', start);
+            if (close > start && t[close - 1] == '/') return new List<Dictionary<string, object>>();   // <ROWSET/>
+            int end = t.IndexOf("</ROWSET>", start, StringComparison.Ordinal);
+            if (end < 0) return null;
+            string frag = t.Substring(start, end - start + "</ROWSET>".Length);
+            // Inside a quoted CSV field every " is doubled — undo that first
+            int before = start - 1;
+            while (before >= 0 && char.IsWhiteSpace(t[before])) before--;
+            if (before >= 0 && t[before] == '"') frag = frag.Replace("\"\"", "\"");
+            return ParseRowsetText(frag);
+        }
+
+        /// <summary>XML-unescape once: &amp;lt; &amp;gt; &amp;quot; &amp;apos; &amp;#n; first, &amp;amp; last (§4.5.2).</summary>
+        public static string XmlUnescapeOnce(string s)
+        {
+            s = s.Replace("&lt;", "<").Replace("&gt;", ">").Replace("&quot;", "\"").Replace("&apos;", "'");
+            s = Regex.Replace(s, @"&#(x?)([0-9A-Fa-f]+);", m =>
             {
-                int end = text.LastIndexOf("</ROWSET>", StringComparison.Ordinal);
-                string frag = end > start ? text.Substring(start, end - start + 9) : "<ROWSET/>";
-                if (text.TrimStart('﻿').StartsWith("\"") || text.Contains("\"\"")) frag = frag.Replace("\"\"", "\"");  // CSV quoting
-                return ParseRowsetText(frag);
+                try { return char.ConvertFromUtf32(Convert.ToInt32(m.Groups[2].Value, m.Groups[1].Value.Length > 0 ? 16 : 10)); }
+                catch { return m.Value; }
+            });
+            return s.Replace("&amp;", "&");
+        }
+
+        /// <summary>DATA_DS whose RESULT is missing/blank, or a CSV that is just the RESULT header.</summary>
+        private static bool IsEmptyEnvelope(string t)
+        {
+            try
+            {
+                var d = XDocument.Parse(t);
+                if (d.Root == null || d.Root.Name.LocalName != "DATA_DS") return false;
+                return d.Root.Descendants().Where(e => e.Name.LocalName == "RESULT").All(e => string.IsNullOrWhiteSpace(e.Value));
             }
-            var csv = ParseCsv(text);
-            if (csv != null && csv.Count > 0 && csv[0].Count == 1 && csv[0].ContainsKey("RESULT")) return new List<Dictionary<string, object>>();
-            return csv;
+            catch
+            {
+                var lines = t.Split('\n').Select(l => l.Trim().Trim('"').Trim()).Where(l => l.Length > 0).ToList();
+                return lines.Count >= 1 && lines[0] == "RESULT" && lines.Count == 1;
+            }
         }
 
         private static List<Dictionary<string, object>> ParseRowsetText(string xml)
