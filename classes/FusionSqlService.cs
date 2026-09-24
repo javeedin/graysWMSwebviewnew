@@ -785,9 +785,10 @@ $@"<?xml version = '1.0' encoding = 'utf-8'?>
             try { var d = XDocument.Parse(t); if (d.Root != null) generic = ParseGenericXml(d.Root); }
             catch { generic = ParseCsv(t); }
             if (generic == null || generic.Count == 0) return generic;
-            var cols = Columns(generic);
-            if (cols.Count == 0 || (cols.Count == 1 && cols[0] == "RESULT")) return null;
-            return generic;
+            foreach (var row in generic)
+                foreach (var k in row.Keys.Where(k => EnvelopeKeys.Contains(k)).ToList()) row.Remove(k);
+            generic.RemoveAll(r => r.Count == 0);
+            return generic.Count == 0 ? null : generic;
         }
 
         private static List<Dictionary<string, object>> ExtractRowset(string t)
@@ -803,7 +804,7 @@ $@"<?xml version = '1.0' encoding = 'utf-8'?>
             int before = start - 1;
             while (before >= 0 && char.IsWhiteSpace(t[before])) before--;
             if (before >= 0 && t[before] == '"') frag = frag.Replace("\"\"", "\"");
-            return ParseRowsetText(frag);
+            return ParseRowsetText(frag) ?? ParseRowsetLoose(frag);
         }
 
         /// <summary>XML-unescape once: &amp;lt; &amp;gt; &amp;quot; &amp;apos; &amp;#n; first, &amp;amp; last (§4.5.2).</summary>
@@ -834,6 +835,34 @@ $@"<?xml version = '1.0' encoding = 'utf-8'?>
             }
         }
 
+        private static readonly Regex LooseRow = new Regex(@"<ROW>(.*?)</ROW>", RegexOptions.Singleline);
+        private static readonly Regex LooseCol = new Regex(@"<([^\s<>/]+)>(.*?)</\1>|<([^\s<>/]+)\s*/>", RegexOptions.Singleline);
+        private static readonly Regex XmlNameEscape = new Regex(@"_x([0-9A-Fa-f]{4})_");
+
+        /// <summary>DBMS_XMLGEN uses the column alias as the tag, so COUNT(*) or "My Col" give tags that are
+        /// not valid XML. Read ROW/column pairs textually instead of failing.</summary>
+        private static List<Dictionary<string, object>> ParseRowsetLoose(string frag)
+        {
+            var rows = new List<Dictionary<string, object>>();
+            foreach (Match r in LooseRow.Matches(frag))
+            {
+                var d = new Dictionary<string, object>();
+                foreach (Match c in LooseCol.Matches(r.Groups[1].Value))
+                {
+                    if (c.Groups[3].Success) continue;                       // <COL/> = NULL, omitted like DBMS_XMLGEN
+                    d[DecodeName(c.Groups[1].Value)] = Coerce(XmlUnescapeOnce(c.Groups[2].Value).Trim());
+                }
+                rows.Add(d);
+            }
+            return rows.Count > 0 || frag.Contains("<ROWSET") ? rows : null;
+        }
+
+        /// <summary>COUNT_x0028__x002A__x0029_ → COUNT(*)</summary>
+        public static string DecodeName(string tag) =>
+            XmlNameEscape.Replace(tag, m => ((char)Convert.ToInt32(m.Groups[1].Value, 16)).ToString());
+
+        private static readonly HashSet<string> EnvelopeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "RESULT", "P_QRY_STMT" };
+
         private static List<Dictionary<string, object>> ParseRowsetText(string xml)
         {
             try
@@ -852,7 +881,7 @@ $@"<?xml version = '1.0' encoding = 'utf-8'?>
             {
                 var d = new Dictionary<string, object>();
                 foreach (var c in row.Elements())
-                    if (!c.HasElements) d[c.Name.LocalName] = Coerce(c.Value.Trim());
+                    if (!c.HasElements) d[DecodeName(c.Name.LocalName)] = Coerce(c.Value.Trim());
                 rows.Add(d);
             }
             return rows;
