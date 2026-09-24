@@ -162,7 +162,7 @@ function dsLoadList() {
         return DS.list;
     });
 }
-function dsFind(id) { return DS.list.filter(function (d) { return d.id === id; })[0]; }
+function dsFind(id) { return DS.list.filter(function (d) { return String(d.id) === String(id); })[0]; }
 function dsRegUpdate(id, sets) { return dbWrite('UPDATE ' + DS.REG + ' SET ' + sets + ' WHERE dataset_id = ' + parseInt(id, 10)); }
 function dsTableColumns(table) {
     return dbRead('SELECT column_name, data_type FROM user_tab_columns WHERE table_name = ' + lit(table) + ' ORDER BY column_id', 2000).then(function (r) {
@@ -364,59 +364,175 @@ function dsRenderStatus() {
     else html = '<i class="fa-solid fa-plug-circle-xmark" style="color:#b91c1c"></i> APEX database not reachable. <span class="fs-muted">' + esc((DS.error || '').slice(0, 160)) + '</span> <button class="fs-btn sm" onclick="dsLoadList()"><i class="fa-solid fa-rotate"></i> Retry</button>';
     el.innerHTML = '<div>' + html + '</div>';
 }
+// ── Two-pane explorer: list on the left, selected item in the centre ──
+DS.sel = null;              // { kind: 'ds'|'orphan'|'table', key: dataset_id | table name }
+function dsAgo(s) {
+    if (!s) return '';
+    var t = new Date(String(s).replace(' ', 'T')).getTime(), m = Math.round((Date.now() - t) / 60000);
+    if (!isFinite(m) || m < 0) return s;
+    if (m < 1) return 'just now';
+    if (m < 60) return m + ' min ago';
+    if (m < 1440) return Math.round(m / 60) + ' h ago';
+    if (m < 43200) return Math.round(m / 1440) + ' d ago';
+    return s.slice(0, 10);
+}
+function dsStatusOf(d) { return DS.busy[d.id] ? 'RUNNING' : (d.status || 'OK'); }
+function dsBadge(st) {
+    return '<span class="ds-st ds-st-' + st.toLowerCase() + '">' + (st === 'OK' ? '<i class="fa-solid fa-check"></i> OK' : st === 'ERROR' ? '<i class="fa-solid fa-xmark"></i> Error' : '<i class="fa-solid fa-spinner fa-spin"></i> Running') + '</span>';
+}
+/** Items shown in the left panel, in display order (also drives ↑/↓ navigation). */
+function dsItems() {
+    var term = (($('fs-ds-search') || {}).value || '').toLowerCase().trim();
+    var hit = function (txt) { return !term || txt.toLowerCase().indexOf(term) >= 0; };
+    var reg = {}; DS.list.forEach(function (d) { reg[String(d.table).toUpperCase()] = 1; });
+    var orphan = {}; (DS.orphans || []).forEach(function (t) { orphan[t.toUpperCase()] = 1; });
+    return {
+        ds: DS.list.filter(function (d) { return hit(d.name + ' ' + d.table + ' ' + d.description + ' ' + d.sql); }),
+        orphans: (DS.orphans || []).filter(hit),
+        tables: (DS.tables || []).filter(function (t) { var u = t.name.toUpperCase(); return !reg[u] && !orphan[u] && hit(t.name); })
+    };
+}
+function dsFlat() {
+    var it = dsItems();
+    return it.ds.map(function (d) { return { kind: 'ds', key: d.id }; })
+        .concat(it.orphans.map(function (t) { return { kind: 'orphan', key: t }; }))
+        .concat(it.tables.map(function (t) { return { kind: 'table', key: t.name }; }));
+}
+function dsIsSel(kind, key) { return DS.sel && DS.sel.kind === kind && String(DS.sel.key) === String(key); }
+
 function dsRenderList() {
     var el = $('fs-ds-list'); if (!el) return;
-    var term = (($('fs-ds-search') || {}).value || '').toLowerCase();
-    var list = DS.list.filter(function (d) { return !term || (d.name + ' ' + d.table + ' ' + d.description + ' ' + d.sql).toLowerCase().indexOf(term) >= 0; });
-    var orphans = (DS.orphans || []).map(function (t) {
-        return '<div class="fs-q ds-card ds-orphan"><div class="fs-q-head"><div class="fs-q-name"><i class="fa-solid fa-triangle-exclamation" style="color:var(--fs-amber)"></i> ' + esc(t) + '</div>' +
-            '<span class="ds-st ds-st-running">Not registered</span></div>' +
-            '<div class="fs-q-desc">This APEX table has no dataset entry — usually a <b>Save to APEX</b> that did not finish. Its source SQL is unknown, so it cannot be refreshed.</div>' +
-            '<div class="fs-q-foot"><button class="fs-btn sm" onclick="dsViewTable(\'' + esc(t) + '\')"><i class="fa-solid fa-eye"></i> View data</button>' +
-            '<button class="fs-btn sm" onclick="dsRegisterOrphan(\'' + esc(t) + '\')" title="Attach the query currently in the SQL Builder as its source SQL"><i class="fa-solid fa-link"></i> Register with current SQL</button>' +
-            '<span style="flex:1"></span><button class="fs-icon-btn" title="Drop this table" onclick="dsDropOrphan(\'' + esc(t) + '\')"><i class="fa-regular fa-trash-can"></i></button></div></div>';
-    }).join('');
-    if (!DS.list.length) {
+    // keep the selection valid; default to the first dataset
+    var flat = dsFlat();
+    if (DS.sel && !flat.some(function (x) { return dsIsSel(x.kind, x.key); }) && !(($('fs-ds-search') || {}).value)) {
+        DS.sel = null; DS.query = null;
+        if ($('fs-ds-grid')) { $('fs-ds-grid').innerHTML = ''; $('fs-ds-meta').textContent = ''; $('fs-ds-qtitle').textContent = 'Query APEX data'; }
+    }
+    if (!DS.sel && DS.list.length) { DS.sel = { kind: 'ds', key: DS.list[0].id }; dsLoadSelected(); }
+
+    var it = dsItems(), h = [];
+    var sec = function (title, n, icon) { return '<div class="ds-sec"><i class="fa-solid ' + icon + '"></i> ' + title + ' <span>' + n + '</span></div>'; };
+    h.push(sec('Datasets', it.ds.length, 'fa-layer-group'));
+    if (!it.ds.length) h.push('<div class="ds-none">' + (DS.list.length ? 'No datasets match.' : DS.state === 'loading' ? 'Loading…' : 'No datasets yet — save a result from the SQL Builder.') + '</div>');
+    it.ds.forEach(function (d) {
+        var st = dsStatusOf(d);
+        h.push('<div class="ds-item' + (dsIsSel('ds', d.id) ? ' sel' : '') + '" data-kind="ds" data-key="' + esc(d.id) + '" onclick="dsSelect(\'ds\',' + JSON.stringify(d.id).replace(/"/g, '&quot;') + ')">' +
+            '<span class="ds-dot ' + st.toLowerCase() + '" title="' + st + '"></span>' +
+            '<div class="ds-item-body"><div class="ds-item-name">' + esc(d.name) + '</div>' +
+            '<div class="ds-item-sub"><code>' + esc(d.table) + '</code></div>' +
+            '<div class="ds-item-meta"><span><i class="fa-solid fa-table-list"></i> ' + (d.rows != null ? (+d.rows).toLocaleString() : '—') + '</span>' +
+            '<span><i class="fa-regular fa-clock"></i> ' + esc(dsAgo(d.refreshed || d.created)) + '</span>' +
+            '<span class="ds-mode">' + esc(d.mode) + '</span></div></div></div>');
+    });
+    if (it.orphans.length) {
+        h.push(sec('Unregistered', it.orphans.length, 'fa-triangle-exclamation'));
+        it.orphans.forEach(function (t) {
+            h.push('<div class="ds-item orphan' + (dsIsSel('orphan', t) ? ' sel' : '') + '" data-kind="orphan" data-key="' + esc(t) + '" onclick="dsSelect(\'orphan\',\'' + esc(t) + '\')">' +
+                '<span class="ds-dot running"></span><div class="ds-item-body"><div class="ds-item-name"><code>' + esc(t) + '</code></div>' +
+                '<div class="ds-item-meta"><span>no source SQL</span></div></div></div>');
+        });
+    }
+    if (it.tables.length) {
+        h.push(sec('Module tables', it.tables.length, 'fa-gear'));
+        it.tables.forEach(function (t) {
+            h.push('<div class="ds-item plain' + (dsIsSel('table', t.name) ? ' sel' : '') + '" data-kind="table" data-key="' + esc(t.name) + '" onclick="dsSelect(\'table\',\'' + esc(t.name) + '\')">' +
+                '<i class="fa-solid fa-table ds-ticon"></i><div class="ds-item-body"><div class="ds-item-name"><code>' + esc(t.name) + '</code></div>' +
+                (t.rows != null ? '<div class="ds-item-meta"><span>~' + Number(t.rows).toLocaleString() + ' rows</span></div>' : '') + '</div></div>');
+        });
+    }
+    el.innerHTML = h.join('');
+    dsRenderDetail();
+}
+
+function dsSelect(kind, key) {
+    DS.sel = { kind: kind, key: key };
+    dsRenderList();
+    dsLoadSelected();
+    var s = document.querySelector('.ds-item.sel'); if (s) s.scrollIntoView({ block: 'nearest' });
+}
+/** Puts the selected table's SELECT into the query box and runs it. */
+function dsLoadSelected() {
+    var S = DS.sel; if (!S || !$('fs-ds-sql')) return;
+    var d = S.kind === 'ds' ? dsFind(S.key) : null, t = d ? d.table : S.key;
+    $('fs-ds-sql').value = 'SELECT *\nFROM ' + t + (d || S.kind === 'orphan' ? '\nORDER BY FSQ_LOAD_ID DESC' : '');
+    $('fs-ds-qtitle').textContent = 'Data · ' + t;
+    dsRunQuery();
+}
+function dsListKey(e) {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter') return;
+    var flat = dsFlat(); if (!flat.length) return;
+    e.preventDefault();
+    var i = -1; flat.forEach(function (x, j) { if (dsIsSel(x.kind, x.key)) i = j; });
+    if (e.key === 'Enter') { if (DS.sel && DS.sel.kind === 'ds') dsDoRefresh(DS.sel.key); return; }
+    i = e.key === 'ArrowDown' ? Math.min(flat.length - 1, i + 1) : Math.max(0, i - 1);
+    dsSelect(flat[i].kind, flat[i].key);
+}
+
+function dsRenderDetail() {
+    var el = $('fs-ds-detail'); if (!el) return;
+    var S = DS.sel;
+    if (!S) {
+        if (DS.list.length || DS.state === 'offline' || DS.state === 'loading') { el.innerHTML = ''; return; }
         var R = FS.result, hasResult = R && R.columns && R.columns.length && R.source;
-        el.innerHTML = (DS.state === 'offline' ? '' :
-            '<div class="ds-empty"><div class="ds-empty-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>' +
+        el.innerHTML = '<div class="ds-empty"><div class="ds-empty-icon"><i class="fa-solid fa-cloud-arrow-up"></i></div>' +
             '<h3>No datasets saved yet</h3>' +
             '<ol><li>Run a query in the <b>SQL Builder</b>.</li>' +
             '<li>Click <b><i class="fa-solid fa-cloud-arrow-up"></i> Save to APEX</b> above the results grid.</li>' +
             '<li>Pick a name — the rows are stored in an <code>FSQ_…</code> table and the source SQL is kept, so you can <b>Refresh</b> it here any time.</li></ol>' +
             '<div class="ds-empty-actions">' +
             (hasResult ? '<button class="fs-btn primary" onclick="showTab(\'builder\');openSaveToApex()"><i class="fa-solid fa-cloud-arrow-up"></i> Save the current result (' + R.rows.length.toLocaleString() + ' rows)</button>' : '') +
-            '<button class="fs-btn" onclick="showTab(\'builder\')"><i class="fa-solid fa-code"></i> Go to SQL Builder</button></div></div>') + orphans;
+            '<button class="fs-btn" onclick="showTab(\'builder\')"><i class="fa-solid fa-code"></i> Go to SQL Builder</button></div></div>';
         return;
     }
-    el.innerHTML = orphans + list.map(function (d) {
-        var st = DS.busy[d.id] ? 'RUNNING' : (d.status || 'OK');
-        var pn = detectParams(d.sql);
-        return '<div class="fs-q ds-card">' +
-            '<div class="fs-q-head"><div class="fs-q-name">' + esc(d.name) + '</div><div style="display:flex;gap:4px;">' +
-            '<span class="fs-q-tag" style="background:#f1edea;color:#57504b;">' + esc(d.mode) + '</span>' +
-            '<span class="ds-st ds-st-' + st.toLowerCase() + '">' + (st === 'OK' ? '<i class="fa-solid fa-check"></i> OK' : st === 'ERROR' ? '<i class="fa-solid fa-xmark"></i> Error' : '<i class="fa-solid fa-spinner fa-spin"></i> Running') + '</span></div></div>' +
-            '<div class="ds-table"><i class="fa-solid fa-table"></i> <code>' + esc(d.table) + '</code>' + (d.description ? ' <span class="fs-muted">· ' + esc(d.description) + '</span>' : '') + '</div>' +
-            '<div class="ds-stats">' +
-            '<div><b>' + (d.rows != null ? (+d.rows).toLocaleString() : '—') + '</b><span>rows</span></div>' +
-            '<div><b>' + (d.cols || '—') + '</b><span>columns</span></div>' +
-            '<div><b>#' + (d.loadId || 0) + '</b><span>load</span></div>' +
-            '<div><b>' + (d.ms != null ? fmtMs(+d.ms) : '—') + '</b><span>last refresh</span></div></div>' +
-            '<div class="fs-q-who"><i class="fa-regular fa-clock"></i> ' + (d.refreshed ? 'Refreshed ' + esc(d.refreshed) + ' by ' + esc(d.refreshedBy || '?') : 'Created ' + esc(d.created || '') + ' by ' + esc(d.createdBy || '?')) +
-            (d.instance ? ' · from ' + esc(d.instance) : '') + (pn.length ? ' · params: ' + pn.map(function (p) { return esc(p) + '=' + esc(d.params[p] == null || d.params[p] === '' ? 'NULL' : d.params[p]); }).join(', ') : '') + '</div>' +
-            (st === 'ERROR' && d.error ? '<div class="ds-err">' + esc(d.error) + '</div>' : '') +
-            '<pre>' + esc(d.sql) + '</pre>' +
-            '<div class="ds-progress" data-ds-progress="' + d.id + '">' + (DS.busy[d.id] ? esc(DS.busy[d.id]) : '') + '</div>' +
-            '<div class="fs-q-foot">' +
-            '<button class="fs-btn sm primary" onclick="dsDoRefresh(' + d.id + ')" ' + (DS.busy[d.id] ? 'disabled' : '') + '><i class="fa-solid fa-rotate"></i> Refresh</button>' +
-            (pn.length ? '<button class="fs-btn sm" onclick="dsDoRefresh(' + d.id + ', true)" title="Refresh with different parameter values"><i class="fa-solid fa-sliders"></i></button>' : '') +
-            '<button class="fs-btn sm" onclick="dsView(' + d.id + ')"><i class="fa-solid fa-eye"></i> View data</button>' +
-            '<button class="fs-btn sm" onclick="dsOpenSql(' + d.id + ')" title="Open the source SQL in the SQL Builder"><i class="fa-solid fa-code"></i> SQL</button>' +
-            '<span style="flex:1"></span>' +
-            '<button class="fs-icon-btn" title="Rebuild: drop and recreate the table from a fresh run (use when column types changed)" onclick="dsDoRebuild(' + d.id + ')"><i class="fa-solid fa-hammer"></i></button>' +
-            '<button class="fs-icon-btn" title="Delete dataset and drop its table" onclick="dsDelete(' + d.id + ')"><i class="fa-regular fa-trash-can"></i></button>' +
-            '</div></div>';
-    }).join('') || '<div class="fs-muted">No datasets match.</div>';
+    if (S.kind === 'orphan') {
+        var t = S.key;
+        el.innerHTML = '<div class="fs-card ds-detail ds-orphan">' +
+            '<div class="ds-detail-head"><div><div class="ds-detail-name"><i class="fa-solid fa-triangle-exclamation" style="color:var(--fs-amber)"></i> ' + esc(t) + '</div>' +
+            '<div class="fs-muted">Unregistered APEX table</div></div><span class="ds-st ds-st-running">Not registered</span></div>' +
+            '<p class="ds-detail-desc">This table has no dataset entry — usually a <b>Save to APEX</b> that did not finish. Its source SQL is unknown, so it cannot be refreshed until you register it.</p>' +
+            '<div class="ds-toolbar"><button class="fs-btn sm primary" onclick="dsRegisterOrphan(\'' + esc(t) + '\')" title="Attach the query currently in the SQL Builder as its source SQL"><i class="fa-solid fa-link"></i> Register with current SQL</button>' +
+            '<span style="flex:1"></span><button class="fs-btn sm danger-ghost" onclick="dsDropOrphan(\'' + esc(t) + '\')"><i class="fa-regular fa-trash-can"></i> Drop table</button></div></div>';
+        return;
+    }
+    if (S.kind === 'table') {
+        var tb = (DS.tables || []).filter(function (x) { return x.name === S.key; })[0] || { name: S.key };
+        el.innerHTML = '<div class="fs-card ds-detail"><div class="ds-detail-head"><div><div class="ds-detail-name"><i class="fa-solid fa-table" style="color:var(--fs-muted)"></i> ' + esc(tb.name) + '</div>' +
+            '<div class="fs-muted">Fusion SQL module table' + (tb.rows != null ? ' · ~' + Number(tb.rows).toLocaleString() + ' rows (stats)' : '') + '</div></div></div></div>';
+        return;
+    }
+    var d = dsFind(S.key); if (!d) { el.innerHTML = ''; return; }
+    var st = dsStatusOf(d), pn = detectParams(d.sql);
+    el.innerHTML = '<div class="fs-card ds-detail">' +
+        '<div class="ds-detail-head"><div style="min-width:0;">' +
+        '<div class="ds-detail-name">' + esc(d.name) + '</div>' +
+        '<div class="ds-table"><i class="fa-solid fa-table"></i> <code>' + esc(d.table) + '</code>' + (d.description ? ' <span class="fs-muted">· ' + esc(d.description) + '</span>' : '') + '</div></div>' +
+        '<div class="ds-detail-badges"><span class="fs-q-tag" style="background:#f1edea;color:#57504b;">' + esc(d.mode) + '</span>' + dsBadge(st) + '</div></div>' +
+        '<div class="ds-stats">' +
+        '<div><b>' + (d.rows != null ? (+d.rows).toLocaleString() : '—') + '</b><span>rows</span></div>' +
+        '<div><b>' + (d.cols || '—') + '</b><span>columns</span></div>' +
+        '<div><b>#' + (d.loadId || 0) + '</b><span>load</span></div>' +
+        '<div><b>' + (d.ms != null ? fmtMs(+d.ms) : '—') + '</b><span>last refresh</span></div>' +
+        '<div><b>' + esc(dsAgo(d.refreshed || d.created) || '—') + '</b><span>' + (d.refreshed ? 'refreshed' : 'created') + '</span></div></div>' +
+        '<div class="fs-q-who"><i class="fa-regular fa-clock"></i> ' + (d.refreshed ? 'Refreshed ' + esc(d.refreshed) + ' by ' + esc(d.refreshedBy || '?') : 'Created ' + esc(d.created || '') + ' by ' + esc(d.createdBy || '?')) +
+        (d.instance ? ' · from <b>' + esc(d.instance) + '</b>' : '') + '</div>' +
+        (pn.length ? '<div class="ds-params">' + pn.map(function (p) { return '<span class="ds-param"><b>' + esc(p) + '</b> ' + esc(d.params[p] == null || d.params[p] === '' ? 'NULL' : d.params[p]) + '</span>'; }).join('') + '</div>' : '') +
+        (st === 'ERROR' && d.error ? '<div class="ds-err">' + esc(d.error) + '</div>' : '') +
+        '<div class="ds-progress" data-ds-progress="' + d.id + '">' + (DS.busy[d.id] ? esc(DS.busy[d.id]) : '') + '</div>' +
+        '<div class="ds-toolbar">' +
+        '<button class="fs-btn sm primary" onclick="dsDoRefresh(' + d.id + ')" ' + (DS.busy[d.id] ? 'disabled' : '') + '><i class="fa-solid fa-rotate"></i> Refresh</button>' +
+        (pn.length ? '<button class="fs-btn sm" onclick="dsDoRefresh(' + d.id + ', true)" title="Refresh with different parameter values"><i class="fa-solid fa-sliders"></i> Refresh with…</button>' : '') +
+        '<button class="fs-btn sm" onclick="dsOpenSql(' + d.id + ')" title="Open the source SQL in the SQL Builder"><i class="fa-solid fa-code"></i> Open in SQL Builder</button>' +
+        '<span style="flex:1"></span>' +
+        '<button class="fs-icon-btn" title="Rebuild: drop and recreate the table from a fresh run (use when column types changed)" onclick="dsDoRebuild(' + d.id + ')"><i class="fa-solid fa-hammer"></i></button>' +
+        '<button class="fs-icon-btn" title="Delete dataset and drop its table" onclick="dsDelete(' + d.id + ')"><i class="fa-regular fa-trash-can"></i></button></div>' +
+        '<details class="ds-src"' + (lsGet('fusionSql.dsSrcOpen', true) ? ' open' : '') + ' ontoggle="lsSet(\'fusionSql.dsSrcOpen\', this.open)">' +
+        '<summary><i class="fa-solid fa-code"></i> Source SQL <span class="fs-muted">· ' + d.sql.length.toLocaleString() + ' chars · runs on Fusion at refresh</span>' +
+        '<button class="fs-icon-btn" title="Copy SQL" onclick="event.preventDefault();dsCopySql(' + d.id + ')"><i class="fa-regular fa-copy"></i></button></summary>' +
+        '<pre>' + esc(d.sql) + '</pre></details></div>';
+}
+function dsCopySql(id) {
+    var d = dsFind(id); if (!d) return;
+    (navigator.clipboard ? navigator.clipboard.writeText(d.sql) : Promise.reject()).then(function () { toast('Source SQL copied'); }, function () { toast('Copy failed', 'warn'); });
 }
 
 function dsDoRefresh(id, ask) {
@@ -425,7 +541,7 @@ function dsDoRefresh(id, ask) {
         dsRenderList();
         dsRefresh(d, params).then(function (res) {
             toast(d.name + ': ' + res.rows.toLocaleString() + ' rows loaded into ' + d.table + (res.capped ? ' (capped at the row limit)' : ''), res.capped ? 'warn' : 'ok');
-            return dsLoadList();
+            return dsLoadList().then(function () { if (dsIsSel('ds', d.id)) dsLoadSelected(); });
         }).catch(function (e) { toast(d.name + ': refresh failed — ' + String(e).split('\n')[0], 'err'); dsLoadList(); });
     };
     if (ask) {
@@ -440,7 +556,7 @@ function dsDoRebuild(id) {
     var d = dsFind(id); if (!d) return;
     confirmModal('Rebuild ' + d.table + '?', 'The table is dropped and recreated from a fresh run of the source SQL (column types are re-detected). Previous loads are lost.', function () {
         dsRenderList();
-        dsRefresh(d, null, true).then(function (res) { toast(d.table + ' rebuilt with ' + res.rows.toLocaleString() + ' rows'); return dsLoadList(); })
+        dsRefresh(d, null, true).then(function (res) { toast(d.table + ' rebuilt with ' + res.rows.toLocaleString() + ' rows'); return dsLoadList().then(function () { if (dsIsSel('ds', d.id)) dsLoadSelected(); }); })
             .catch(function (e) { toast('Rebuild failed — ' + String(e).split('\n')[0], 'err'); dsLoadList(); });
     });
 }
@@ -461,17 +577,11 @@ function dsOpenSql(id) {
     setCurrentQuery(null); setSql(d.sql); showTab('builder');
     toast('Source SQL of "' + d.name + '" loaded — its parameter values are pre-filled');
 }
-function dsView(id) {
-    var d = dsFind(id); if (!d) return;
-    $('fs-ds-sql').value = 'SELECT *\nFROM ' + d.table + '\nORDER BY FSQ_LOAD_ID DESC';
-    dsRunQuery();
-    $('fs-ds-sql').scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
+function dsView(id) { dsSelect('ds', id); }
 function dsViewTable(t) {
-    $('fs-ds-sql').value = 'SELECT *\nFROM ' + t;
-    dsRunQuery();
-    $('fs-ds-sql').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    var u = String(t).toUpperCase();
+    if (DS.list.some(function (d) { return String(d.table).toUpperCase() === u; })) { dsSelect('ds', DS.list.filter(function (d) { return String(d.table).toUpperCase() === u; })[0].id); return; }
+    dsSelect((DS.orphans || []).indexOf(t) >= 0 ? 'orphan' : 'table', t);
 }
 function dsDropOrphan(t) {
     confirmModal('Drop ' + t + '?', 'The table is not registered as a dataset. Dropping it deletes its rows permanently.', function () {
