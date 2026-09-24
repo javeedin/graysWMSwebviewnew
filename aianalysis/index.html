@@ -734,71 +734,8 @@
 <script src="order-entry.js"></script>
 <script src="local-jobs.js"></script>
 <script src="tasks.js"></script>
-<script>
-// ============================================================
-// TRIAL PERIOD GATE - reads WMS_AI_TRIAL from the APEX DB.
-// Active trial: shows a "Trial - N days left" badge. Expired:
-// locks the whole module with a full-screen notice. active='N'
-// disables the gate. Fails open on query errors so a DB hiccup
-// never locks pilot users out (the row is the source of truth).
-// ============================================================
-(function () {
-    var TRIAL_QUERY_URL = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/executequery';
-
-    function showTrialLock(message, endedOn) {
-        document.body.insertAdjacentHTML('beforeend',
-            '<div id="trial-lock" style="position:fixed;inset:0;background:rgba(15,23,42,0.92);z-index:100000;display:flex;align-items:center;justify-content:center;">' +
-              '<div style="background:white;border-radius:16px;max-width:440px;width:90%;padding:2.2rem 2rem;text-align:center;box-shadow:0 30px 90px rgba(0,0,0,0.5);">' +
-                '<div style="font-size:3rem;">⏳</div>' +
-                '<h2 style="margin:0.8rem 0 0.4rem;color:#1e293b;font-size:1.25rem;">Trial period ended</h2>' +
-                (endedOn ? '<div style="font-size:11px;color:#94a3b8;margin-bottom:0.6rem;">Trial ended on ' + endedOn + '</div>' : '') +
-                '<p style="margin:0;color:#64748b;font-size:0.9rem;line-height:1.5;">' +
-                (message || 'The AI Digital Employee trial has ended. Please contact the administrator to continue using it.') +
-                '</p>' +
-                '<button onclick="window.location.href=\'../Home/index.html\'" style="margin-top:1.4rem;background:#7c3aed;color:white;border:none;padding:0.6rem 1.6rem;border-radius:9px;font-weight:700;font-size:0.85rem;cursor:pointer;"><i class="fas fa-home"></i> Back to Home</button>' +
-              '</div>' +
-            '</div>');
-    }
-
-    function showTrialBadge(daysLeft) {
-        var b = document.getElementById('trial-badge');
-        if (!b) return;
-        b.style.display = 'inline-block';
-        b.textContent = 'TRIAL · ' + daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' left';
-        if (daysLeft <= 3) { b.style.background = '#fee2e2'; b.style.color = '#991b1b'; }
-    }
-
-    function checkTrial() {
-        if (typeof sendMessageToCSharp !== 'function') return;
-        sendMessageToCSharp({
-            action: 'executePost', fullUrl: TRIAL_QUERY_URL,
-            body: JSON.stringify({
-                sql: "SELECT TO_CHAR(trial_end,'YYYY-MM-DD') AS TRIAL_END, active AS ACTIVE, message AS MESSAGE, GREATEST(TRUNC(trial_end) - TRUNC(SYSDATE), 0) AS DAYS_LEFT, CASE WHEN SYSDATE > trial_end THEN 'Y' ELSE 'N' END AS EXPIRED FROM wms_ai_trial WHERE ROWNUM = 1",
-                maxRows: 1, appUser: 'TRIAL_CHECK'
-            })
-        }, function (err, data) {
-            if (err) { console.warn('[Trial] check failed (fail-open):', err); return; }
-            try {
-                var r = typeof data === 'string' ? JSON.parse(data) : data;
-                if (!r.success || !r.rows || !r.rows.length) { console.warn('[Trial] no trial row (fail-open)'); return; }
-                var cols = r.columns.map(function (c) { return String(c).toUpperCase(); });
-                var row = {};
-                r.rows[0].forEach(function (v, i) { row[cols[i]] = v; });
-                if (String(row.ACTIVE).toUpperCase() !== 'Y') return;   // gate disabled
-                if (String(row.EXPIRED).toUpperCase() === 'Y') {
-                    showTrialLock(row.MESSAGE, row.TRIAL_END);
-                } else {
-                    showTrialBadge(Number(row.DAYS_LEFT) || 0);
-                }
-            } catch (e) { console.warn('[Trial] parse failed (fail-open):', e); }
-        });
-    }
-
-    document.addEventListener('DOMContentLoaded', function () {
-        setTimeout(checkTrial, 800);   // after the bridge listener is registered
-    });
-})();
-</script>
+<!-- Trial period gate: shared with Fusion SQL (same WMS_AI_TRIAL row) -->
+<script src="../Home/trial-gate.js" data-module="AI Digital Employee" data-badge="trial-badge" data-accent="#7c3aed"></script>
 <script>
 // ============================================================
 // IPC bootstrap (WebView2 <-> C#)

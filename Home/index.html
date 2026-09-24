@@ -339,7 +339,7 @@
             </a>
 
             <!-- Fusion SQL (read-only SQL workbench over BI Publisher) -->
-            <a href="../fusionsql/index.html" class="module-card"
+            <a href="../fusionsql/index.html" class="module-card" data-trial="1"
                style="--card-color:#c74634; --card-bg:rgba(199,70,52,0.1); --card-text:#c74634;">
                 <div class="card-icon">🗄️</div>
                 <div class="card-title">Fusion SQL</div>
@@ -357,7 +357,7 @@
             </a>
 
             <!-- AI Digital Employee (agentic assistant) -->
-            <a href="../aianalysis/index.html" class="module-card"
+            <a href="../aianalysis/index.html" class="module-card" data-trial="1"
                style="--card-color:#a855f7; --card-bg:rgba(168,85,247,0.1); --card-text:#a855f7;">
                 <div class="card-icon">🤖</div>
                 <div class="card-title">AI Digital Employee</div>
@@ -467,5 +467,22 @@
         }
     </script>
 
+    <!-- Release module list: written by package-release.bat. Missing in dev = show every module. -->
+    <script src="modules.js"></script>
+    <script>
+        // Hide tiles for modules that are not part of this release package.
+        (function () {
+            var list = window.RELEASE_MODULES;
+            if (!Array.isArray(list) || !list.length) return;
+            var keep = {};
+            list.forEach(function (m) { keep[String(m).toLowerCase()] = 1; });
+            document.querySelectorAll('.modules-grid .module-card').forEach(function (card) {
+                var m = /\.\.\/([^\/]+)\//.exec(card.getAttribute('href') || '');
+                if (m && !keep[m[1].toLowerCase()]) card.remove();
+            });
+        })();
+    </script>
+    <!-- Trial countdown on AI Digital Employee + Fusion SQL tiles (shared WMS_AI_TRIAL row) -->
+    <script src="trial-gate.js" data-home="1"></script>
 </body>
 </html>

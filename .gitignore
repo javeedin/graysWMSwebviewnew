@@ -370,3 +370,4 @@ dist/*.WebView2/
 # Compiled binaries in dist (built by CI/publish, not source)
 dist/*.dll
 dist/*.exe
+Home/modules.js

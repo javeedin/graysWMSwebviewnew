@@ -31,7 +31,7 @@
         <div class="fs-brand">
             <div class="fs-logo"><i class="fa-solid fa-database"></i></div>
             <div>
-                <div class="fs-title">Fusion SQL <span class="fs-ver">v11.0.0</span></div>
+                <div class="fs-title">Fusion SQL <span class="fs-ver">v11.0.0</span><span id="trial-badge" class="fs-trial" style="display:none;"></span></div>
                 <div class="fs-subtitle">Read-only SQL workbench for Oracle Fusion Cloud · via BI Publisher</div>
             </div>
         </div>
@@ -515,5 +515,7 @@ ORDER BY table_name</textarea>
 <script src="datasets.js"></script>
 <script src="setups-seed.js"></script>
 <script src="setups.js"></script>
+<!-- Trial period gate: shared with AI Digital Employee (same WMS_AI_TRIAL row) -->
+<script src="../Home/trial-gate.js" data-module="Fusion SQL" data-badge="trial-badge" data-accent="#c74634"></script>
 </body>
 </html>
