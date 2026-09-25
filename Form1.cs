@@ -2173,7 +2173,8 @@ navPanel.Controls.Add(wmsDevButton);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error initializing browser: {ex.Message}", "Error",
+                System.Diagnostics.Debug.WriteLine($"[BROWSER INIT] {ex}");
+                MessageBox.Show($"Error initializing browser: {Program.DescribeException(ex)}", "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }

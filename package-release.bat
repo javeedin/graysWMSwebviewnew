@@ -81,6 +81,27 @@ if not exist "%SCRIPT_DIR%dist" (
     echo ERROR: dist folder not found. Run create-distribution-folder.bat first.
     goto :error
 )
+set "VERIFY_DIR=%SCRIPT_DIR%dist"
+REM --- Verify dist\ matches this build (a stale System.Text.Json.dll or deps.json
+REM     makes the app fail with "The type initializer for 'WMSApp.Form1' threw an exception") ---
+set "VERIFY_FAILED="
+for %%F in (GraysWMS.exe GraysWMS.dll GraysWMS.deps.json Anthropic.dll System.Text.Json.dll System.IO.Pipelines.dll System.Text.Encodings.Web.dll Microsoft.Data.Sqlite.dll e_sqlite3.dll System.Security.Cryptography.ProtectedData.dll) do (
+    if not exist "%VERIFY_DIR%\%%F" (
+        echo ERROR: %%F is missing from %VERIFY_DIR%
+        set "VERIFY_FAILED=1"
+    )
+)
+findstr /c:"Anthropic" "%VERIFY_DIR%\GraysWMS.deps.json" >nul 2>&1 || (
+    echo ERROR: %VERIFY_DIR%\GraysWMS.deps.json is from an old build
+    set "VERIFY_FAILED=1"
+)
+if exist "%VERIFY_DIR%\System.Text.Json.dll" (
+    powershell -NoProfile -Command "$v=(Get-Item '%VERIFY_DIR%\System.Text.Json.dll').VersionInfo; if ($v.FileMajorPart -lt 10) { Write-Host ('ERROR: System.Text.Json.dll is ' + $v.FileVersion + ' - GraysWMS needs 10.x'); exit 1 }" || set "VERIFY_FAILED=1"
+)
+if defined VERIFY_FAILED (
+    echo ERROR: dist\ is stale or incomplete. Run create-distribution-folder.bat first.
+    goto :error
+)
 mkdir "%APP_DIR%\dist"
 xcopy "%SCRIPT_DIR%dist\*" "%APP_DIR%\dist\" /s /e /y /q
 if errorlevel 1 (

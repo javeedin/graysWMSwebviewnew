@@ -45,6 +45,9 @@ echo Running: dotnet publish -c %CONFIGURATION% -r %RUNTIME% --self-contained tr
 echo This will bundle .NET 8 runtime - no installation required!
 echo.
 
+REM Clear the previous publish output so no old DLL can survive into dist\
+if exist "%PUBLISH_PATH%" rmdir /s /q "%PUBLISH_PATH%"
+
 dotnet publish -c %CONFIGURATION% -r %RUNTIME% --self-contained true /p:PublishSingleFile=false /p:IncludeNativeLibrariesForSelfExtract=true
 if errorlevel 1 (
     echo.
@@ -68,6 +71,31 @@ REM Step 4: Copy publish output
 echo.
 echo Copying application files...
 xcopy /s /y /q "%PUBLISH_PATH%\*" "%OUTPUT_FOLDER%\"
+
+set "VERIFY_DIR=%OUTPUT_FOLDER%"
+REM --- Verify dist\ matches this build (a stale System.Text.Json.dll or deps.json
+REM     makes the app fail with "The type initializer for 'WMSApp.Form1' threw an exception") ---
+set "VERIFY_FAILED="
+for %%F in (GraysWMS.exe GraysWMS.dll GraysWMS.deps.json Anthropic.dll System.Text.Json.dll System.IO.Pipelines.dll System.Text.Encodings.Web.dll Microsoft.Data.Sqlite.dll e_sqlite3.dll System.Security.Cryptography.ProtectedData.dll) do (
+    if not exist "%VERIFY_DIR%\%%F" (
+        echo ERROR: %%F is missing from %VERIFY_DIR%
+        set "VERIFY_FAILED=1"
+    )
+)
+findstr /c:"Anthropic" "%VERIFY_DIR%\GraysWMS.deps.json" >nul 2>&1 || (
+    echo ERROR: %VERIFY_DIR%\GraysWMS.deps.json is from an old build
+    set "VERIFY_FAILED=1"
+)
+if exist "%VERIFY_DIR%\System.Text.Json.dll" (
+    powershell -NoProfile -Command "$v=(Get-Item '%VERIFY_DIR%\System.Text.Json.dll').VersionInfo; if ($v.FileMajorPart -lt 10) { Write-Host ('ERROR: System.Text.Json.dll is ' + $v.FileVersion + ' - GraysWMS needs 10.x'); exit 1 }" || set "VERIFY_FAILED=1"
+)
+if defined VERIFY_FAILED (
+    echo.
+    echo dist\ does not match this build. Close any running GraysWMS.exe and run this script again.
+    pause
+    exit /b 1
+)
+echo   Verified: GraysWMS + Anthropic + System.Text.Json 10 + SQLite are in dist\
 
 REM Step 5: Copy additional files
 echo Copying additional files...
