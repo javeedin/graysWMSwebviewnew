@@ -113,6 +113,18 @@ namespace WMSApp
             foreach (var c in candidates) if (IsReleaseRepo(c)) return c;
             for (var d = Path.GetDirectoryName(Application.ExecutablePath); !string.IsNullOrEmpty(d); d = Path.GetDirectoryName(d))
                 if (IsReleaseRepo(d)) return d;
+            // Visual Studio / git clones: <profile>\source\repos\**\graysWMSwebviewnew* (two levels deep)
+            try
+            {
+                string repos = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "source", "repos");
+                if (Directory.Exists(repos))
+                    foreach (var d1 in Directory.EnumerateDirectories(repos))
+                    {
+                        if (IsReleaseRepo(d1)) return d1;
+                        foreach (var d2 in Directory.EnumerateDirectories(d1)) if (IsReleaseRepo(d2)) return d2;
+                    }
+            }
+            catch (Exception ex) { Debug.WriteLine("[Admin] repo scan: " + ex.Message); }
             return null;
         }
 

@@ -1224,7 +1224,19 @@ navPanel.Controls.Add(wmsDevButton);
             string homeFolder;
             string wmsSource;
 
-            if (Directory.Exists(devHomeFolder) && File.Exists(Path.Combine(devHomeFolder, "index.html")))
+            // Running a build from the source repo (bin\<cfg>\net8.0-windows\...): use that repo's pages,
+            // not the copy the updater installed under C:\fusion — otherwise new pages never show up
+            string sourceRepo = Path.GetFullPath(Path.Combine(Application.StartupPath, "..", "..", ".."));
+            string sourceRepoRid = Path.GetFullPath(Path.Combine(Application.StartupPath, "..", "..", "..", ".."));
+            string sourceHome = File.Exists(Path.Combine(sourceRepo, "WMSApp.csproj")) ? Path.Combine(sourceRepo, "Home")
+                              : File.Exists(Path.Combine(sourceRepoRid, "WMSApp.csproj")) ? Path.Combine(sourceRepoRid, "Home") : null;
+
+            if (sourceHome != null && File.Exists(Path.Combine(sourceHome, "index.html")))
+            {
+                homeFolder = sourceHome;
+                wmsSource = "SOURCE (" + Path.GetDirectoryName(sourceHome) + ")";
+            }
+            else if (Directory.Exists(devHomeFolder) && File.Exists(Path.Combine(devHomeFolder, "index.html")))
             {
                 homeFolder = devHomeFolder;
                 wmsSource = "DEV (home repo)";

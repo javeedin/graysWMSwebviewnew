@@ -394,7 +394,7 @@
 
             <!-- Admin (dev PC only - not in the client package, so Home hides it there) -->
             <a href="../admin/index.html" class="module-card" id="admin-card"
-               style="--card-color:#0f766e; --card-bg:rgba(15,118,110,0.1); --card-text:#0f766e;">
+               style="display:none; --card-color:#0f766e; --card-bg:rgba(15,118,110,0.1); --card-text:#0f766e;">
                 <div class="card-icon">🛠️</div>
                 <div class="card-title">Admin</div>
                 <div class="card-desc">Build tools — Create ZIP file builds the app and packages the release in one click, with live status.</div>
@@ -478,13 +478,9 @@
 
     <!-- Release module list: written by package-release.bat. Missing in dev = show every module. -->
     <script src="modules.js"></script>
-    <!-- Admin tile follows the admin folder, not the module list (a client zip unpacked over the repo brings modules.js) -->
-    <script src="../admin/present.js"></script>
     <script>
         // Hide tiles for modules that are not part of this release package.
         (function () {
-            var admin = document.getElementById('admin-card');
-            if (admin && !window.ADMIN_PRESENT) admin.remove();
             var list = window.RELEASE_MODULES;
             if (!Array.isArray(list) || !list.length) return;
             var keep = {};
@@ -493,6 +489,19 @@
                 var m = /\.\.\/([^\/]+)\//.exec(card.getAttribute('href') || '');
                 if (m && !keep[m[1].toLowerCase()] && card.id !== 'admin-card') card.remove();
             });
+        })();
+    </script>
+    <script>
+        // Admin tile: only on a PC where the app finds the source repo (release.bat) — the build PC.
+        (function () {
+            var card = document.getElementById('admin-card');
+            if (!card || !(window.chrome && window.chrome.webview)) return;
+            var id = 'home_admin_' + Date.now();
+            window.chrome.webview.addEventListener('message', function (ev) {
+                var r = ev.data; if (typeof r === 'string') { try { r = JSON.parse(r); } catch (e) { return; } }
+                if (r && r.requestId === id && r.data && r.data.repoRoot) card.style.display = '';
+            });
+            setTimeout(function () { window.chrome.webview.postMessage({ action: 'adminReleaseInfo', requestId: id }); }, 400);
         })();
     </script>
     <!-- Trial countdown on AI Digital Employee + Fusion SQL tiles (shared WMS_AI_TRIAL row) -->

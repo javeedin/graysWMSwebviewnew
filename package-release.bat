@@ -135,6 +135,13 @@ if not exist "%APP_DIR%\formsdesigner\form-engine.js" (
     echo   - formsdesigner\form-engine.js
 )
 
+REM --- Admin page (Home shows its tile only on a PC where the source repo / release.bat is found) ---
+if exist "%SCRIPT_DIR%admin" (
+    mkdir "%APP_DIR%\admin" 2>nul
+    xcopy "%SCRIPT_DIR%admin\*" "%APP_DIR%\admin\" /s /e /y /q >nul
+    echo   - admin\
+)
+
 REM --- Copy RAG service (compiled exe only, not Python source) ---
 if /i not "%INCLUDE_RAG%"=="Y" (
     echo [SKIP] RAG service excluded from this release.
