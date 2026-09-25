@@ -839,3 +839,28 @@ li.CodeMirror-hint-active { background: var(--fs-red); }
 .fl-tl.empty em, .fl-tl.blocked em { color: #b45309; }
 .fl-tl.error em { color: #b91c1c; }
 @media (max-width: 1000px) { .fl-form-row { flex-direction: column; } }
+/* Flow library */
+.fl-lib-shell { max-width: 1400px; margin: 0 auto; }
+.fl-lib-sub { display: block; font-size: .72rem; font-weight: 400; color: #d2ccc7; }
+.fl-lib-controls { gap: 12px; }
+.fl-lib-areas { display: flex; flex-wrap: wrap; gap: 6px; }
+.fl-chip { border: 1px solid var(--fs-line); background: #fff; border-radius: 16px; padding: 4px 11px; font-size: .74rem; font-weight: 600; color: var(--fs-slate); cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.fl-chip i { color: var(--area, var(--fs-muted)); }
+.fl-chip span { font-size: .66rem; background: var(--fs-line-2); border-radius: 8px; padding: 0 6px; color: var(--fs-muted); }
+.fl-chip.on { background: var(--area, var(--fs-slate)); border-color: var(--area, var(--fs-slate)); color: #fff; }
+.fl-chip.on i, .fl-chip.on span { color: #fff; background: rgba(255,255,255,.2); }
+.fl-lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+.fl-lib-card { background: #fff; border: 1px solid var(--fs-line); border-top: 4px solid var(--area); border-radius: 12px; padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 8px; box-shadow: var(--fs-shadow); }
+.fl-lib-head { display: flex; justify-content: space-between; align-items: center; }
+.fl-lib-area { font-size: .66rem; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--area); }
+.fl-lib-card h4 { font-size: 1rem; color: var(--fs-slate); margin: 0; }
+.fl-lib-card p { font-size: .78rem; color: #57504b; margin: 0; line-height: 1.45; }
+.fl-lib-stages { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: .7rem; }
+.fl-lib-stages span { background: #faf8f7; border: 1px solid var(--fs-line-2); border-radius: 6px; padding: 2px 7px; color: var(--fs-slate); }
+.fl-lib-stages i { font-size: .55rem; color: #c8c0ba; }
+.fl-lib-param { font-size: .74rem; color: var(--fs-muted); }
+.fl-lib-param b { color: var(--fs-slate); }
+.fl-lib-tables { font-size: .72rem; }
+.fl-lib-tables summary { cursor: pointer; color: var(--fs-muted); font-weight: 600; }
+.fl-lib-tables div { font-family: var(--fs-mono); font-size: .66rem; color: #57504b; margin-top: 4px; line-height: 1.5; }
+.fl-lib-foot { display: flex; gap: 6px; justify-content: flex-end; margin-top: auto; padding-top: 6px; border-top: 1px solid var(--fs-line-2); }

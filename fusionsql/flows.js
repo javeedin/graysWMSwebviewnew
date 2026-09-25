@@ -261,7 +261,8 @@ function flRenderMain() {
             '<ol><li>A <b>flow</b> is a chain of small SQL steps — e.g. Order → Shipment → Inventory → Costing → AR invoice → Accounting → Receipt.</li>' +
             '<li>Run it for one order number: every step lights up with its rows, and the first empty step shows <b>where the order stopped</b> and what to run.</li>' +
             '<li>The <b>Flow report</b> puts all stages together with revenue, COGS and margin.</li></ol>' +
-            '<div class="ds-empty-actions"><button class="fs-btn primary" onclick="flLoadStarter()"><i class="fa-solid fa-seedling"></i> Load starter flows (OTC, P2P)</button>' +
+            '<div class="ds-empty-actions"><button class="fs-btn primary" onclick="flOpenLibrary()"><i class="fa-solid fa-book-open"></i> Browse the Fusion flow library</button>' +
+            '<button class="fs-btn" onclick="flLoadStarter()"><i class="fa-solid fa-seedling"></i> Load starter flows (OTC, P2P)</button>' +
             '<button class="fs-btn ai" onclick="flNewWithAi()"><i class="fa-solid fa-wand-magic-sparkles"></i> Design a flow with AI</button>' +
             '<button class="fs-btn" onclick="flEditFlow(true)"><i class="fa-solid fa-plus"></i> Build one by hand</button></div></div>';
         return;
@@ -949,4 +950,82 @@ function flCopyRich() {
     if (navigator.clipboard && window.ClipboardItem)
         navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([html], { type: 'text/html' }), 'text/plain': new Blob([text], { type: 'text/plain' }) })]).then(function () { toast('Flow report copied'); }, function () { copyText(text); });
     else copyText(text);
+}
+
+// ── Oracle Fusion flow library (flows-catalog.js) ──────────────
+FL.lib = { area: 'ALL', term: '' };
+function flCatalog() {
+    return (window.FS_FLOW_CATALOG || []).map(function (c, i) {
+        return { i: i, area: c[0], name: c[1], param: c[2], label: c[3], description: c[4], stages: c[5], tables: c[6] };
+    });
+}
+function flArea(code) { return (window.FS_FLOW_AREAS || []).filter(function (a) { return a[0] === code; })[0] || [code, code, 'fa-diagram-project', '#57504b']; }
+/** A catalog entry counts as built when a saved flow has (roughly) its name. */
+function flBuiltFlow(c) {
+    var n = c.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return FL.list.filter(function (f) { var m = f.name.toUpperCase().replace(/[^A-Z0-9]/g, ''); return m === n || m.indexOf(n) === 0; })[0];
+}
+function flOpenLibrary() {
+    var ov = $('fl-lib');
+    if (!ov) {
+        ov = document.createElement('div'); ov.id = 'fl-lib'; ov.className = 'rp-overlay';
+        ov.addEventListener('mousedown', function (e) { if (e.target === ov) flCloseLibrary(); });
+        document.body.appendChild(ov);
+    }
+    ov.innerHTML = '<div class="rp-shell fl-lib-shell"><div class="rp-top"><div class="rp-brand"><i class="fa-solid fa-book-open"></i></div>' +
+        '<div class="rp-title-input" style="border:0;">Oracle Fusion flow library <small class="fl-lib-sub">' + flCatalog().length + ' end-to-end processes — pick one and let AI build it for your pod</small></div>' +
+        '<div class="rp-top-actions"><button class="fs-icon-btn rp-close" onclick="flCloseLibrary()" title="Close (Esc)"><i class="fa-solid fa-xmark"></i></button></div></div>' +
+        '<div class="rp-controls fl-lib-controls"><div class="ds-side-search" style="padding:0;flex:1;max-width:360px;"><i class="fa-solid fa-magnifying-glass" style="left:11px;"></i>' +
+        '<input id="fl-lib-q" placeholder="Search process, stage or table…" value="' + esc(FL.lib.term) + '" oninput="FL.lib.term=this.value;flRenderLibrary()"></div>' +
+        '<div class="fl-lib-areas" id="fl-lib-areas"></div></div>' +
+        '<div class="rp-body"><div class="fl-lib-grid" id="fl-lib-grid"></div></div></div>';
+    ov.classList.add('open');
+    document.addEventListener('keydown', flLibKey);
+    flRenderLibrary();
+    setTimeout(function () { var q = $('fl-lib-q'); if (q) q.focus(); }, 50);
+}
+function flCloseLibrary() { var ov = $('fl-lib'); if (ov) ov.classList.remove('open'); document.removeEventListener('keydown', flLibKey); }
+function flLibKey(e) { if (e.key === 'Escape') flCloseLibrary(); }
+function flLibArea(a) { FL.lib.area = a; flRenderLibrary(); }
+function flRenderLibrary() {
+    var all = flCatalog(), term = FL.lib.term.toLowerCase().trim();
+    var match = all.filter(function (c) { return !term || (c.name + ' ' + c.description + ' ' + c.stages.join(' ') + ' ' + c.tables + ' ' + c.label).toLowerCase().indexOf(term) >= 0; });
+    var counts = {}; match.forEach(function (c) { counts[c.area] = (counts[c.area] || 0) + 1; });
+    $('fl-lib-areas').innerHTML = '<button class="fl-chip' + (FL.lib.area === 'ALL' ? ' on' : '') + '" onclick="flLibArea(\'ALL\')">All <span>' + match.length + '</span></button>' +
+        (window.FS_FLOW_AREAS || []).map(function (a) {
+            return '<button class="fl-chip' + (FL.lib.area === a[0] ? ' on' : '') + '" style="--area:' + a[3] + '" onclick="flLibArea(\'' + a[0] + '\')"><i class="fa-solid ' + a[2] + '"></i> ' + esc(a[1]) + ' <span>' + (counts[a[0]] || 0) + '</span></button>';
+        }).join('');
+    var list = match.filter(function (c) { return FL.lib.area === 'ALL' || c.area === FL.lib.area; });
+    $('fl-lib-grid').innerHTML = list.map(function (c) {
+        var a = flArea(c.area), built = flBuiltFlow(c);
+        return '<div class="fl-lib-card" style="--area:' + a[3] + '">' +
+            '<div class="fl-lib-head"><span class="fl-lib-area"><i class="fa-solid ' + a[2] + '"></i> ' + esc(a[1]) + '</span>' +
+            (built ? '<span class="ds-st ds-st-ok"><i class="fa-solid fa-check"></i> Built</span>' : '') + '</div>' +
+            '<h4>' + esc(c.name) + '</h4><p>' + esc(c.description) + '</p>' +
+            '<div class="fl-lib-stages">' + c.stages.map(function (s, i) { return (i ? '<i class="fa-solid fa-chevron-right"></i>' : '') + '<span>' + esc(s) + '</span>'; }).join('') + '</div>' +
+            '<div class="fl-lib-param"><i class="fa-solid fa-keyboard"></i> Starts from <b>' + esc(c.label) + '</b> <code>' + esc(c.param) + '</code></div>' +
+            '<details class="fl-lib-tables"><summary>Key tables</summary><div>' + esc(c.tables) + '</div></details>' +
+            '<div class="fl-lib-foot">' +
+            (built ? '<button class="fs-btn sm" onclick="flCloseLibrary();showTab(\'flows\');flSelect(' + parseInt(built.id, 10) + ')"><i class="fa-solid fa-eye"></i> Open</button>' : '') +
+            '<button class="fs-btn sm ai" onclick="flBuildFromCatalog(' + c.i + ', true)"><i class="fa-solid fa-wand-magic-sparkles"></i> ' + (built ? 'Rebuild with AI' : 'Build with AI') + '</button>' +
+            '<button class="fs-btn sm" onclick="flBuildFromCatalog(' + c.i + ', false)" title="Put the request in the Ask AI box so you can adjust it first"><i class="fa-solid fa-pen"></i> Adjust request</button></div></div>';
+    }).join('') || '<div class="fs-muted" style="padding:20px;">No process matches “' + esc(term) + '”. You can still describe any process to Ask AI.</div>';
+}
+/** Opens Ask AI in flow mode with the catalog entry spelled out; send=true submits it right away. */
+function flBuildFromCatalog(i, send) {
+    var c = flCatalog()[i]; if (!c) return;
+    var a = flArea(c.area);
+    var q = 'Design the end-to-end process flow "' + c.name + '" (Oracle Fusion ' + a[1] + ').\n' +
+        c.description + '\n' +
+        'Start from ONE document: flow parameter ' + c.param + ' = ' + c.label + '.\n' +
+        'Stages to cover, in this order (drop a stage only if it does not exist in this pod; add one when it is needed to connect the chain):\n' +
+        c.stages.map(function (s, n) { return (n + 1) + '. ' + s; }).join('\n') + '\n' +
+        'Key tables to consider (verify each one — names can differ by release): ' + c.tables + '.\n' +
+        'Name the flow "' + c.name + '".';
+    flCloseLibrary();
+    FS.ai.flowMode = true; FL.fixTarget = null;
+    openAi();
+    $('fs-ai-q').value = q;
+    if (send) { setTimeout(sendAi, 60); toast('Claude is designing "' + c.name + '" — this takes a minute or two while it checks your pod'); }
+    else { $('fs-ai-q').focus(); toast('Adjust the request, then press Send'); }
 }
