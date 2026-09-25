@@ -430,7 +430,7 @@ function executeSql(sql, original) {
                 showError(err, r && (r.decoded ? 'Decoded report output:\n' + r.decoded : r.raw));
             }
         })
-        .catch(function (e) { setConn('err', 'Error'); addLog(false, 'ERROR: ' + e, sql); showError(String(e)); })
+        .catch(function (e) { FS.formatAfterRun = false; setConn('err', 'Error'); addLog(false, 'ERROR: ' + e, sql); showError(String(e)); })
         .then(function () {
             clearInterval(timer);
             FS.running = null;
@@ -480,6 +480,7 @@ function showResult(r, limit) {
         (r.capped ? '<span class="fs-chip warn" title="More rows may exist. Raise the row limit to see them."><i class="fa-solid fa-scissors"></i> capped at ' + limit.toLocaleString() + '</span>' : '');
     renderGrid();
     prepareChart();
+    if (FS.formatAfterRun) { FS.formatAfterRun = false; if (r.rows.length && typeof openReport === 'function') setTimeout(openReport, 60); }
 }
 
 function gridSearch(q) {
@@ -943,37 +944,97 @@ function bumpRuns(q, rows) {
     dbWrite('UPDATE ' + QTABLE + ' SET run_count = NVL(run_count, 0) + 1, last_run_date = SYSDATE, last_row_count = ' + (parseInt(rows, 10) || 0) +
         ' WHERE query_id = ' + parseInt(q.id, 10)).catch(function () { });
 }
-function renderQueries() {
-    renderQueryStatus();
-    var term = ($('fs-q-search').value || '').toLowerCase();
+// ── Saved Queries: list on the left, selected query in the centre ──
+FS.qsel = null;           // selected query_id
+function qFiltered() {
+    var term = (($('fs-q-search') || {}).value || '').toLowerCase();
     var mine = $('fs-q-owner') && $('fs-q-owner').value === 'mine', me = appUserName().toUpperCase();
-    var list = FS.queries.filter(function (q) {
+    return FS.queries.filter(function (q) {
         if (mine && String(q.createdBy || '').toUpperCase() !== me && String(q.updatedBy || '').toUpperCase() !== me) return false;
         return !term || (q.name + ' ' + (q.tag || '') + ' ' + (q.description || '') + ' ' + (q.createdBy || '') + ' ' + q.sql).toLowerCase().indexOf(term) >= 0;
     });
-    var grid = $('fs-query-grid');
+}
+function qSelected() { return FS.queries.filter(function (q) { return String(q.id) === String(FS.qsel); })[0]; }
+function renderQueries() {
+    renderQueryStatus();
+    var list = qFiltered(), el = $('fs-query-list');
     if (!FS.queries.length) {
-        grid.innerHTML = FS.qdb.state === 'loading' ? '' : '<div class="fs-empty" style="grid-column:1/-1;"><i class="fa-regular fa-bookmark"></i><h3>No saved queries yet</h3><p>Write a query in the SQL Builder and press <kbd>Ctrl</kbd>+<kbd>S</kbd>.</p></div>';
+        el.innerHTML = '<div class="ds-none">' + (FS.qdb.state === 'loading' ? 'Loading…' : 'No saved queries yet.') + '</div>';
+        $('fs-query-detail').innerHTML = FS.qdb.state === 'loading' ? '' : '<div class="fs-empty q-empty"><i class="fa-regular fa-bookmark"></i><h3>No saved queries yet</h3><p>Write a query in the <b>SQL Builder</b> and press <kbd>Ctrl</kbd>+<kbd>S</kbd>.</p>' +
+            '<button class="fs-btn primary" onclick="showTab(\'builder\')"><i class="fa-solid fa-code"></i> Go to SQL Builder</button></div>';
         return;
     }
-    var ro = FS.qdb.state !== 'ready';
-    grid.innerHTML = list.map(function (q) {
-        var i = FS.queries.indexOf(q);
-        var who = q.updatedBy && q.updated ? 'Updated by ' + q.updatedBy + ' · ' + q.updated : 'By ' + (q.createdBy || '?') + ' · ' + (q.created || '');
-        return '<div class="fs-q"><div class="fs-q-head"><div class="fs-q-name">' + esc(q.name) + '</div><div style="display:flex;gap:4px;">' +
-            (q.instance ? '<span class="fs-q-tag" style="background:#f1edea;color:#57504b;">' + esc(q.instance) + '</span>' : '') +
-            (q.tag ? '<span class="fs-q-tag">' + esc(q.tag) + '</span>' : '') + '</div></div>' +
-            (q.description ? '<div class="fs-q-desc">' + esc(q.description) + '</div>' : '') +
-            '<pre>' + esc(q.sql) + '</pre>' +
-            '<div class="fs-q-who"><i class="fa-regular fa-user"></i> ' + esc(who) + '</div>' +
-            '<div class="fs-q-foot"><span class="fs-muted">' + (q.runs || 0) + ' runs' + (q.lastRun ? ' · last ' + esc(q.lastRun) + (q.lastRows != null ? ' (' + q.lastRows + ' rows)' : '') : '') + '</span>' +
-            '<button class="fs-btn sm primary" onclick="queryRun(' + i + ')"><i class="fa-solid fa-play"></i> Run</button>' +
-            '<button class="fs-btn sm" onclick="queryEdit(' + i + ')"><i class="fa-solid fa-pen"></i> Edit</button>' +
-            (ro ? '' : '<button class="fs-icon-btn" title="Duplicate" onclick="queryDup(' + i + ')"><i class="fa-regular fa-clone"></i></button>' +
-                '<button class="fs-icon-btn" title="Delete" onclick="queryDelete(' + i + ')"><i class="fa-regular fa-trash-can"></i></button>') +
-            '</div></div>';
-    }).join('') || '<div class="fs-muted">No queries match.</div>';
+    // group by tag so a long library stays scannable
+    var groups = {}, order = [];
+    list.forEach(function (q) { var t = q.tag || 'Untagged'; if (!groups[t]) { groups[t] = []; order.push(t); } groups[t].push(q); });
+    order.sort(function (x, y) { return x === 'Untagged' ? 1 : y === 'Untagged' ? -1 : x.localeCompare(y); });
+    var shown = []; order.forEach(function (t) { shown = shown.concat(groups[t]); });
+    if (!qSelected() || (shown.length && shown.indexOf(qSelected()) < 0)) FS.qsel = (shown[0] || FS.queries[0]).id;
+    el.innerHTML = order.map(function (t) {
+        return (order.length > 1 ? '<div class="ds-sec"><i class="fa-solid fa-tag"></i> ' + esc(t) + ' <span>' + groups[t].length + '</span></div>' : '') +
+            groups[t].map(function (q) {
+                var i = FS.queries.indexOf(q);
+                return '<div class="ds-item q-item' + (String(q.id) === String(FS.qsel) ? ' sel' : '') + '" data-i="' + i + '" onclick="qSelect(' + i + ')" ondblclick="queryRun(' + i + ')" title="Double-click to run">' +
+                    '<i class="fa-solid fa-scroll ds-ticon"></i><div class="ds-item-body"><div class="ds-item-name">' + esc(q.name) + '</div>' +
+                    (q.description ? '<div class="q-item-desc">' + esc(q.description) + '</div>' : '') +
+                    '<div class="ds-item-meta"><span><i class="fa-solid fa-play"></i> ' + (q.runs || 0) + '</span>' +
+                    '<span><i class="fa-regular fa-user"></i> ' + esc(q.updatedBy || q.createdBy || '?') + '</span>' +
+                    (q.instance ? '<span class="ds-mode">' + esc(q.instance) + '</span>' : '') + '</div></div></div>';
+            }).join('');
+    }).join('') || '<div class="ds-none">No queries match.</div>';
+    renderQueryDetail();
 }
+function qSelect(i) {
+    FS.qsel = FS.queries[i].id;
+    renderQueries();
+    var s = document.querySelector('.q-item.sel'); if (s) s.scrollIntoView({ block: 'nearest' });
+}
+function qShownOrder() {
+    return Array.prototype.map.call(document.querySelectorAll('#fs-query-list .q-item'), function (el) { return FS.queries[+el.dataset.i]; });
+}
+function qListKey(e) {
+    var list = qShownOrder(); if (!list.length) return;
+    var i = list.indexOf(qSelected());
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        i = e.key === 'ArrowDown' ? Math.min(list.length - 1, i + 1) : Math.max(0, i - 1);
+        qSelect(FS.queries.indexOf(list[i]));
+    } else if (e.key === 'Enter' && i >= 0) { e.preventDefault(); queryRun(FS.queries.indexOf(list[i])); }
+}
+function renderQueryDetail() {
+    var el = $('fs-query-detail'), q = qSelected();
+    if (!q) { el.innerHTML = ''; return; }
+    var i = FS.queries.indexOf(q), ro = FS.qdb.state !== 'ready', pn = detectParams(q.sql);
+    var lines = q.sql.split('\n').length;
+    el.innerHTML = '<div class="fs-card ds-detail q-detail">' +
+        '<div class="ds-detail-head"><div style="min-width:0;"><div class="ds-detail-name">' + esc(q.name) + '</div>' +
+        (q.description ? '<p class="ds-detail-desc" style="margin:4px 0 0;">' + esc(q.description) + '</p>' : '') + '</div>' +
+        '<div class="ds-detail-badges">' + (q.instance ? '<span class="fs-q-tag" style="background:#f1edea;color:#57504b;">' + esc(q.instance) + '</span>' : '') +
+        (q.tag ? '<span class="fs-q-tag">' + esc(q.tag) + '</span>' : '') + '</div></div>' +
+        '<div class="q-run-row">' +
+        '<button class="fs-btn primary q-run-btn" onclick="queryRun(' + i + ')"><i class="fa-solid fa-play"></i> Run query</button>' +
+        '<button class="fs-btn rp-launch" onclick="queryRunFormat(' + i + ')" title="Run, then open the formatted dashboard"><i class="fa-solid fa-wand-magic-sparkles"></i> Run &amp; Format</button>' +
+        '<button class="fs-btn" onclick="queryEdit(' + i + ')"><i class="fa-solid fa-pen"></i> Open in editor</button>' +
+        '<span style="flex:1"></span>' +
+        '<button class="fs-icon-btn" title="Copy SQL" onclick="copyText(FS.queries[' + i + '].sql)"><i class="fa-regular fa-copy"></i></button>' +
+        (ro ? '' : '<button class="fs-icon-btn" title="Duplicate" onclick="queryDup(' + i + ')"><i class="fa-regular fa-clone"></i></button>' +
+            '<button class="fs-icon-btn" title="Delete" onclick="queryDelete(' + i + ')"><i class="fa-regular fa-trash-can"></i></button>') +
+        '</div>' +
+        (pn.length ? '<div class="ds-params"><span class="fs-muted" style="font-size:.72rem;">Asks for</span>' + pn.map(function (p) { return '<span class="ds-param"><b>' + esc(p) + '</b></span>'; }).join('') + '</div>' : '') +
+        '<div class="ds-stats q-stats">' +
+        '<div><b>' + (q.runs || 0) + '</b><span>runs</span></div>' +
+        '<div><b>' + (q.lastRows != null ? (+q.lastRows).toLocaleString() : '—') + '</b><span>rows last run</span></div>' +
+        '<div><b>' + esc(q.lastRun ? dsAgo(q.lastRun) : 'never') + '</b><span>last run</span></div>' +
+        '<div><b>' + lines + '</b><span>lines · ' + q.sql.length.toLocaleString() + ' chars</span></div></div>' +
+        '<div class="fs-q-who" style="padding-left:0;"><i class="fa-regular fa-user"></i> Created by ' + esc(q.createdBy || '?') + (q.created ? ' · ' + esc(q.created) : '') +
+        (q.updatedBy && q.updated ? ' &nbsp;·&nbsp; updated by ' + esc(q.updatedBy) + ' · ' + esc(q.updated) : '') + '</div>' +
+        '<div class="q-sql" id="q-sql-view"></div></div>';
+    var box = $('q-sql-view');
+    if (window.CodeMirror) {
+        CodeMirror(box, { value: q.sql, mode: 'text/x-sql', readOnly: true, lineNumbers: true, lineWrapping: true, viewportMargin: Infinity, cursorBlinkRate: -1 });
+    } else box.innerHTML = '<pre>' + esc(q.sql) + '</pre>';
+}
+function queryRunFormat(i) { FS.formatAfterRun = true; queryRun(i); }
 function queryEdit(i) { setCurrentQuery(FS.queries[i]); setSql(FS.queries[i].sql); showTab('builder'); }
 function queryRun(i) { queryEdit(i); setTimeout(runEditor, 50); }
 function queryDup(i) {

@@ -196,6 +196,10 @@ namespace WMSApp
                         data = FusionSqlStatus(svc, FusionSqlStore.LoadConfig());
                         break;
 
+                    case "fusionSqlShareOutlook":
+                        data = FusionSqlShareOutlook(root);
+                        break;
+
                     default:
                         data = new { success = false, error = "Unknown Fusion SQL action: " + action };
                         break;
@@ -239,6 +243,60 @@ namespace WMSApp
 
         private static string FsStr(JsonElement root, string name) =>
             root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String ? el.GetString() : null;
+
+        /// <summary>
+        /// Opens an Outlook draft (never sends) with the report as HTML body. Attachments arrive
+        /// base64-encoded; ones with a "cid" are the chart images the body references as cid:…
+        /// Without Outlook the files are left in a temp folder that is opened for the user.
+        /// </summary>
+        private object FusionSqlShareOutlook(JsonElement root)
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "GraysWMS", "FusionSqlShare", DateTime.Now.ToString("yyyyMMdd_HHmmss"));
+            Directory.CreateDirectory(dir);
+            var files = new System.Collections.Generic.List<(string Path, string Cid)>();
+            if (root.TryGetProperty("attachments", out var atts) && atts.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var a in atts.EnumerateArray())
+                {
+                    string name = string.Join("_", (Path.GetFileName(FsStr(a, "name") ?? "") ?? "").Split(Path.GetInvalidFileNameChars()));
+                    string b64 = FsStr(a, "base64");
+                    if (string.IsNullOrWhiteSpace(name) || string.IsNullOrEmpty(b64)) continue;
+                    string path = Path.Combine(dir, name);
+                    File.WriteAllBytes(path, Convert.FromBase64String(b64));
+                    files.Add((path, FsStr(a, "cid")));
+                }
+            }
+
+            string subject = FsStr(root, "subject") ?? "Fusion SQL report";
+            try
+            {
+                Type outlookType = Type.GetTypeFromProgID("Outlook.Application");
+                if (outlookType != null)
+                {
+                    dynamic app = Activator.CreateInstance(outlookType);
+                    dynamic mail = app.CreateItem(0);                 // olMailItem
+                    string to = FsStr(root, "to");
+                    if (!string.IsNullOrWhiteSpace(to)) mail.To = to;
+                    mail.Subject = subject;
+                    foreach (var f in files)
+                    {
+                        dynamic att = mail.Attachments.Add(f.Path);
+                        if (!string.IsNullOrEmpty(f.Cid))                 // PR_ATTACH_CONTENT_ID -> inline image
+                            att.PropertyAccessor.SetProperty("http://schemas.microsoft.com/mapi/proptag/0x3712001F", f.Cid);
+                    }
+                    mail.HTMLBody = FsStr(root, "html") ?? "";
+                    mail.Display(false);
+                    return new { ok = true, via = "outlook" };
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[FusionSql] Outlook share failed: " + ex.Message);
+            }
+
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", "\"" + dir + "\"") { UseShellExecute = true });
+            return new { ok = true, via = "folder", folder = dir };
+        }
 
         private string AskSavePath(string title, string fileName, string filter)
         {

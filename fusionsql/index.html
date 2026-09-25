@@ -139,6 +139,7 @@
                             <input id="fs-grid-search" placeholder="Search all cells…" oninput="gridSearch(this.value)">
                         </div>
                         <div class="fs-grid-actions">
+                            <button class="fs-btn sm rp-launch" onclick="openReport()" title="Show the results as a formatted dashboard with export and share options"><i class="fa-solid fa-wand-magic-sparkles"></i> Format Results</button>
                             <button class="fs-btn sm ds-save-btn" onclick="openSaveToApex()" title="Save this result as a table in the APEX database (refreshable)"><i class="fa-solid fa-cloud-arrow-up"></i> Save to APEX</button>
                             <button class="fs-btn sm" onclick="exportExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
                             <button class="fs-btn sm" onclick="exportPdf()"><i class="fa-solid fa-file-pdf"></i> PDF</button>
@@ -186,20 +187,28 @@
             <p>The team's shared query library. Saving with an existing name updates it.</p>
         </div>
         <div class="fs-page-actions">
-            <div class="fs-search wide">
-                <i class="fa-solid fa-magnifying-glass"></i>
-                <input id="fs-q-search" placeholder="Search name, tag or SQL…" oninput="renderQueries()">
-            </div>
-            <select id="fs-q-owner" class="fs-q-owner" onchange="renderQueries()" title="Whose queries">
-                <option value="all">Everyone</option><option value="mine">Mine</option>
-            </select>
+            <button class="fs-btn" onclick="newQuery();showTab('builder')"><i class="fa-solid fa-plus"></i> New query</button>
             <button class="fs-btn" onclick="loadQueries()" title="Reload from the database"><i class="fa-solid fa-rotate"></i></button>
             <button class="fs-btn" onclick="exportQueries()"><i class="fa-solid fa-file-export"></i> Export</button>
             <label class="fs-btn"><i class="fa-solid fa-file-import"></i> Import<input type="file" accept=".json" hidden onchange="importQueries(this)"></label>
         </div>
     </div>
     <div class="fs-q-status" id="fs-q-status"></div>
-    <div class="fs-query-grid" id="fs-query-grid"></div>
+
+    <div class="ds-layout">
+        <aside class="ds-side">
+            <div class="ds-side-search q-side-search">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input id="fs-q-search" placeholder="Search name, tag or SQL…" oninput="renderQueries()" onkeydown="qListKey(event)">
+                <select id="fs-q-owner" class="q-owner" onchange="renderQueries()" title="Whose queries">
+                    <option value="all">Everyone</option><option value="mine">Mine</option>
+                </select>
+            </div>
+            <div class="ds-side-list" id="fs-query-list" tabindex="0" onkeydown="qListKey(event)"></div>
+            <div class="ds-side-foot fs-muted"><kbd>↑</kbd><kbd>↓</kbd> browse · <kbd>Enter</kbd> or double-click runs</div>
+        </aside>
+        <div class="ds-main" id="fs-query-detail"></div>
+    </div>
 </section>
 
 <!-- ═══════════════ TAB 3: Tables List ═══════════════ -->
@@ -513,6 +522,7 @@ ORDER BY table_name</textarea>
 
 <script src="fusionsql.js"></script>
 <script src="datasets.js"></script>
+<script src="report.js"></script>
 <script src="setups-seed.js"></script>
 <script src="setups.js"></script>
 <!-- Trial period gate: shared with AI Digital Employee (same WMS_AI_TRIAL row) -->
