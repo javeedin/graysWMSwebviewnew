@@ -864,3 +864,4 @@ li.CodeMirror-hint-active { background: var(--fs-red); }
 .fl-lib-tables summary { cursor: pointer; color: var(--fs-muted); font-weight: 600; }
 .fl-lib-tables div { font-family: var(--fs-mono); font-size: .66rem; color: #57504b; margin-top: 4px; line-height: 1.5; }
 .fl-lib-foot { display: flex; gap: 6px; justify-content: flex-end; margin-top: auto; padding-top: 6px; border-top: 1px solid var(--fs-line-2); }
+.fl-lib-kind { font-size: .62rem; font-weight: 800; letter-spacing: .3px; color: #0f766e; background: #ccfbf1; border-radius: 10px; padding: 2px 8px; text-transform: uppercase; }

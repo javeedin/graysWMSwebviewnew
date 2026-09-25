@@ -715,6 +715,7 @@ var FLOW_AI_GUIDE = [
     '5. Keep each step small and readable: 5–12 useful columns, no SELECT *, and alias the amount columns used for totals (e.g. REVENUE_AMOUNT, COGS_AMOUNT). Always qualify tables with the owner (fusion.).',
     '6. "parents" = the step keys this step follows in the diagram (branches are fine, e.g. costing and invoicing both follow the shipment). "module" is one of OM, WSH, INV, CST, XLA, AR, AP, PO, RCV, GL, OTHER. "hint" = what 0 rows at this step means and which process or check to run. "measure" = one amount column to total on the diagram (optional).',
     '7. "summary" = headline figures for the report: {"label","step","column"} sums a step column; {"label","expr"} computes from earlier labels with + - * / and parentheses; add "fmt":"pct" for percentages (e.g. margin %).',
+    '8. RECONCILIATION flows (the request says PERIOD RECONCILIATION): rules 3 and 4 are replaced by the reconciliation rules in the request — steps filter by the period/ledger/BU parameters, balance steps return totals, exception steps list the items behind differences, and the summary computes the differences.',
     'Reply with a short explanation of the stages, then EXACTLY ONE fenced code block tagged flow holding valid JSON (no comments, no trailing commas), e.g.:',
     '```flow',
     '{"name":"Order to Cash","description":"…","params":[{"name":"P_ORDER_NUMBER","label":"Sales order number"}],',
@@ -956,7 +957,9 @@ function flCopyRich() {
 FL.lib = { area: 'ALL', term: '' };
 function flCatalog() {
     return (window.FS_FLOW_CATALOG || []).map(function (c, i) {
-        return { i: i, area: c[0], name: c[1], param: c[2], label: c[3], description: c[4], stages: c[5], tables: c[6] };
+        var o = c[7] || {};
+        return { i: i, area: c[0], name: c[1], param: c[2], label: c[3], description: c[4], stages: c[5], tables: c[6], recon: !!o.recon,
+            params: (o.params || [[c[2], c[3]]]).map(function (p) { return { name: p[0], label: p[1] }; }) };
     });
 }
 function flArea(code) { return (window.FS_FLOW_AREAS || []).filter(function (a) { return a[0] === code; })[0] || [code, code, 'fa-diagram-project', '#57504b']; }
@@ -975,7 +978,7 @@ function flOpenLibrary() {
     ov.innerHTML = '<div class="rp-shell fl-lib-shell"><div class="rp-top"><div class="rp-brand"><i class="fa-solid fa-book-open"></i></div>' +
         '<div class="rp-title-input" style="border:0;">Oracle Fusion flow library <small class="fl-lib-sub">' + flCatalog().length + ' end-to-end processes — pick one and let AI build it for your pod</small></div>' +
         '<div class="rp-top-actions"><button class="fs-icon-btn rp-close" onclick="flCloseLibrary()" title="Close (Esc)"><i class="fa-solid fa-xmark"></i></button></div></div>' +
-        '<div class="rp-controls fl-lib-controls"><div class="ds-side-search" style="padding:0;flex:1;max-width:360px;"><i class="fa-solid fa-magnifying-glass" style="left:11px;"></i>' +
+        '<div class="rp-controls fl-lib-controls"><div class="ds-side-search" style="padding:0;flex:1;min-width:240px;max-width:360px;"><i class="fa-solid fa-magnifying-glass" style="left:11px;"></i>' +
         '<input id="fl-lib-q" placeholder="Search process, stage or table…" value="' + esc(FL.lib.term) + '" oninput="FL.lib.term=this.value;flRenderLibrary()"></div>' +
         '<div class="fl-lib-areas" id="fl-lib-areas"></div></div>' +
         '<div class="rp-body"><div class="fl-lib-grid" id="fl-lib-grid"></div></div></div>';
@@ -1000,10 +1003,13 @@ function flRenderLibrary() {
         var a = flArea(c.area), built = flBuiltFlow(c);
         return '<div class="fl-lib-card" style="--area:' + a[3] + '">' +
             '<div class="fl-lib-head"><span class="fl-lib-area"><i class="fa-solid ' + a[2] + '"></i> ' + esc(a[1]) + '</span>' +
-            (built ? '<span class="ds-st ds-st-ok"><i class="fa-solid fa-check"></i> Built</span>' : '') + '</div>' +
+            '<span style="display:flex;gap:4px;">' + (c.recon ? '<span class="fl-lib-kind"><i class="fa-solid fa-scale-balanced"></i> Reconciliation</span>' : '') +
+            (built ? '<span class="ds-st ds-st-ok"><i class="fa-solid fa-check"></i> Built</span>' : '') + '</span></div>' +
             '<h4>' + esc(c.name) + '</h4><p>' + esc(c.description) + '</p>' +
             '<div class="fl-lib-stages">' + c.stages.map(function (s, i) { return (i ? '<i class="fa-solid fa-chevron-right"></i>' : '') + '<span>' + esc(s) + '</span>'; }).join('') + '</div>' +
-            '<div class="fl-lib-param"><i class="fa-solid fa-keyboard"></i> Starts from <b>' + esc(c.label) + '</b> <code>' + esc(c.param) + '</code></div>' +
+            (c.recon
+                ? '<div class="fl-lib-param"><i class="fa-solid fa-sliders"></i> Runs for ' + c.params.map(function (p) { return '<b>' + esc(p.label.replace(/ \(.*\)$/, '')) + '</b>'; }).join(', ') + '</div>'
+                : '<div class="fl-lib-param"><i class="fa-solid fa-keyboard"></i> Starts from <b>' + esc(c.label) + '</b> <code>' + esc(c.param) + '</code></div>') +
             '<details class="fl-lib-tables"><summary>Key tables</summary><div>' + esc(c.tables) + '</div></details>' +
             '<div class="fl-lib-foot">' +
             (built ? '<button class="fs-btn sm" onclick="flCloseLibrary();showTab(\'flows\');flSelect(' + parseInt(built.id, 10) + ')"><i class="fa-solid fa-eye"></i> Open</button>' : '') +
@@ -1015,10 +1021,20 @@ function flRenderLibrary() {
 function flBuildFromCatalog(i, send) {
     var c = flCatalog()[i]; if (!c) return;
     var a = flArea(c.area);
-    var q = 'Design the end-to-end process flow "' + c.name + '" (Oracle Fusion ' + a[1] + ').\n' +
+    var q = c.recon
+        ? 'Design the reconciliation flow "' + c.name + '" (Oracle Fusion ' + a[1] + ').\n' + c.description + '\n' +
+          'This is a PERIOD RECONCILIATION, not a single-document trace: flow parameters ' + c.params.map(function (p) { return p.name + ' = ' + p.label; }).join(', ') + '.\n' +
+          'Reconciliation rules: every step filters by these parameters (resolve ledger/BU/period names to ids inside each step, e.g. join GL_LEDGERS / GL_PERIODS); ' +
+          'the "balance" steps return TOTALS grouped by account (concatenated segments) or by the natural grouping (supplier, bank account, category…) with one amount column aliased for the summary; ' +
+          'the "exception" steps list the individual items that explain differences (unaccounted, not transferred, unposted, manual journals, errors) with their amounts, capped to the most relevant rows; ' +
+          'steps can hand accounts or ids on via outputs when a later step needs them, otherwise use the parameters only; ' +
+          'in "summary" put each side\'s total ({label, step, column}) and the differences as expressions (e.g. "Subledger - GL", "SLA - GL"), so the report shows whether it reconciles.\n' +
+          'Stages to cover, in this order (drop a stage only if it does not exist in this pod; add one if it is needed to explain a difference):\n'
+        : 'Design the end-to-end process flow "' + c.name + '" (Oracle Fusion ' + a[1] + ').\n' +
         c.description + '\n' +
         'Start from ONE document: flow parameter ' + c.param + ' = ' + c.label + '.\n' +
-        'Stages to cover, in this order (drop a stage only if it does not exist in this pod; add one when it is needed to connect the chain):\n' +
+        'Stages to cover, in this order (drop a stage only if it does not exist in this pod; add one when it is needed to connect the chain):\n';
+    q +=
         c.stages.map(function (s, n) { return (n + 1) + '. ' + s; }).join('\n') + '\n' +
         'Key tables to consider (verify each one — names can differ by release): ' + c.tables + '.\n' +
         'Name the flow "' + c.name + '".';

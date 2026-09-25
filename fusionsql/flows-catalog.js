@@ -4,7 +4,10 @@
    Fusion flow library lists them; "Build with AI" sends the stages,
    the starting document and key tables to Claude in flow mode.
    Each entry: [area, name, param name, param label, description,
-                stages[], key tables (hints for the AI)]
+                stages[], key tables (hints for the AI), options]
+   options (optional): { recon: true, params: [[name, label], …] } —
+   reconciliations compare period totals (subledger vs SLA vs GL) and
+   list the items behind each difference instead of tracing one document.
    ═══════════════════════════════════════════════════════════════ */
 
 window.FS_FLOW_AREAS = [
@@ -14,8 +17,14 @@ window.FS_FLOW_AREAS = [
     ['MFG', 'Manufacturing', 'fa-industry', '#c98500'],
     ['FIN', 'Financials', 'fa-scale-balanced', '#4a3aa7'],
     ['PRJ', 'Projects', 'fa-diagram-project', '#d55181'],
-    ['LOG', 'Logistics', 'fa-truck-fast', '#008300']
+    ['LOG', 'Logistics', 'fa-truck-fast', '#008300'],
+    ['REC', 'Reconciliations', 'fa-code-compare', '#0f766e']
 ];
+
+// Parameters shared by the period reconciliations
+var FL_REC_P = [['P_LEDGER_NAME', 'Ledger name'], ['P_PERIOD_NAME', 'Period name (e.g. SEP-26)']];
+var FL_REC_BU = [['P_LEDGER_NAME', 'Ledger name'], ['P_BU_NAME', 'Business unit'], ['P_PERIOD_NAME', 'Period name (e.g. SEP-26)']];
+function flRec(params) { return { recon: true, params: params || FL_REC_P }; }
 
 window.FS_FLOW_CATALOG = [
     // ── Order to Cash ──
@@ -190,5 +199,106 @@ window.FS_FLOW_CATALOG = [
     ['LOG', 'Inbound ASN to Putaway', 'P_SHIPMENT_NUMBER', 'ASN / shipment number',
         'Supplier shipment arriving: ASN → receipt → inspection → putaway → onhand.',
         ['ASN', 'Shipment lines', 'Receipt', 'Inspection', 'Putaway', 'Onhand'],
-        'RCV_SHIPMENT_HEADERS, RCV_SHIPMENT_LINES, RCV_TRANSACTIONS, INV_MATERIAL_TXNS, INV_ONHAND_QUANTITIES_DETAIL']
+        'RCV_SHIPMENT_HEADERS, RCV_SHIPMENT_LINES, RCV_TRANSACTIONS, INV_MATERIAL_TXNS, INV_ONHAND_QUANTITIES_DETAIL'],
+    // ── Reconciliations (period totals: subledger ↔ subledger accounting ↔ GL, plus the items behind each difference) ──
+    ['REC', 'AP to GL Reconciliation', 'P_PERIOD_NAME', 'Period name',
+        'Payables liability: open AP balance vs Payables subledger accounting vs GL liability accounts — with unaccounted, untransferred and manual GL entries that explain differences.',
+        ['AP open balance (trial balance)', 'AP subledger accounting by liability account', 'Transferred to GL', 'GL liability balance', 'Unaccounted invoices & payments', 'Accounted but not transferred', 'Manual GL journals on liability accounts', 'Differences by account'],
+        'AP_INVOICES_ALL, AP_PAYMENT_SCHEDULES_ALL, AP_INVOICE_PAYMENTS_ALL, XLA_TRANSACTION_ENTITIES, XLA_AE_HEADERS, XLA_AE_LINES (accounting_class LIABILITY), XLA_TRIAL_BALANCES, GL_JE_HEADERS, GL_JE_LINES, GL_BALANCES, GL_LEDGERS, GL_CODE_COMBINATIONS', flRec(FL_REC_BU)],
+    ['REC', 'AR to GL Reconciliation', 'P_PERIOD_NAME', 'Period name',
+        'Receivables control: aged open AR vs Receivables accounting vs GL receivable accounts — with unposted transactions, unapplied cash and manual journals.',
+        ['AR open balance (aging)', 'AR subledger accounting by receivable account', 'Transferred to GL', 'GL receivable balance', 'Incomplete / unaccounted transactions', 'Unapplied & on-account receipts', 'Manual GL journals on receivable accounts', 'Differences by account'],
+        'AR_PAYMENT_SCHEDULES_ALL, RA_CUSTOMER_TRX_ALL, RA_CUST_TRX_LINE_GL_DIST_ALL, AR_RECEIVABLE_APPLICATIONS_ALL, AR_CASH_RECEIPTS_ALL, XLA_AE_HEADERS, XLA_AE_LINES (RECEIVABLE), GL_JE_LINES, GL_BALANCES, GL_CODE_COMBINATIONS', flRec(FL_REC_BU)],
+    ['REC', 'Unapplied Cash & Customer Deposits to GL', 'P_PERIOD_NAME', 'Period name',
+        'Unapplied, on-account and unidentified receipts in Receivables vs the GL unapplied / unidentified cash accounts.',
+        ['Unapplied receipts', 'On-account & unidentified receipts', 'Receipt accounting', 'GL unapplied cash balance', 'Differences'],
+        'AR_CASH_RECEIPTS_ALL, AR_RECEIVABLE_APPLICATIONS_ALL (status UNAPP/ACC/UNID), XLA_AE_LINES, GL_BALANCES', flRec(FL_REC_BU)],
+    ['REC', 'Bank (Cash Management) to GL', 'P_PERIOD_NAME', 'Period name',
+        'Each bank account: bank statement closing balance vs system cash (GL cash account) — with unreconciled statement lines and uncleared payments/receipts.',
+        ['Bank accounts & GL cash accounts', 'Statement closing balances', 'GL cash balance', 'Unreconciled statement lines', 'Uncleared payments', 'Uncleared receipts', 'Differences by bank account'],
+        'CE_BANK_ACCOUNTS, CE_STATEMENT_HEADERS, CE_STATEMENT_LINES, CE_STATEMENT_RECONS, AP_CHECKS_ALL, AR_CASH_RECEIPTS_ALL, GL_BALANCES, GL_CODE_COMBINATIONS', flRec()],
+    ['REC', 'Payments to Bank Clearing', 'P_PERIOD_NAME', 'Period name',
+        'Supplier payments issued vs cleared in Cash Management vs cash clearing / cash accounts in GL.',
+        ['Payments issued', 'Payment accounting', 'Cleared payments', 'Uncleared payments', 'GL cash clearing balance', 'Differences'],
+        'AP_CHECKS_ALL, AP_PAYMENT_HISTORY_ALL, XLA_AE_LINES (CASH_CLEARING), CE_STATEMENT_RECONS, GL_BALANCES', flRec(FL_REC_BU)],
+    ['REC', 'Fixed Assets to GL', 'P_PERIOD_NAME', 'Period name',
+        'Asset cost and accumulated depreciation by book and category vs the GL asset cost / reserve accounts — with unposted asset transactions and pending mass additions.',
+        ['Asset cost by category', 'Accumulated depreciation by category', 'Depreciation for the period', 'Asset accounting', 'GL asset cost & reserve balances', 'Unposted asset transactions', 'Pending mass additions', 'Differences by account'],
+        'FA_BOOKS, FA_CATEGORY_BOOKS, FA_DEPRN_SUMMARY, FA_DEPRN_DETAIL, FA_TRANSACTION_HEADERS, FA_MASS_ADDITIONS, XLA_AE_LINES (application 140), GL_BALANCES', flRec([['P_LEDGER_NAME', 'Ledger name'], ['P_BOOK_TYPE_CODE', 'Asset book'], ['P_PERIOD_NAME', 'Period name (e.g. SEP-26)']])],
+    ['REC', 'CIP & Asset Clearing to GL', 'P_PERIOD_NAME', 'Period name',
+        'Construction-in-process and AP asset clearing: invoice lines sent to Assets vs mass additions vs CIP assets vs the GL clearing accounts.',
+        ['AP invoice lines to Assets', 'Mass additions', 'CIP assets', 'Asset clearing accounting', 'GL clearing balance', 'Differences'],
+        'AP_INVOICE_DISTRIBUTIONS_ALL (assets_tracking_flag), FA_MASS_ADDITIONS, FA_ASSET_INVOICES, FA_ADDITIONS_B, XLA_AE_LINES, GL_BALANCES', flRec()],
+    ['REC', 'Inventory Valuation to GL', 'P_PERIOD_NAME', 'Period name',
+        'Perpetual inventory value by organisation and subinventory (cost × onhand) vs costed inventory accounting vs GL inventory valuation accounts.',
+        ['Onhand quantity × cost by org', 'Inventory valuation (cost books)', 'Cost accounting distributions', 'Transferred to GL', 'GL inventory balance', 'Uncosted transactions', 'Differences by account'],
+        'INV_ONHAND_QUANTITIES_DETAIL, CST_PERPAVG_COST / CST_ITEM_COSTS, CST_INV_TRANSACTIONS, CST_COST_DISTRIBUTION_LINES, CST_COST_BOOKS_B, XLA_AE_LINES (application 10096), GL_BALANCES', flRec([['P_LEDGER_NAME', 'Ledger name'], ['P_COST_BOOK', 'Cost book'], ['P_PERIOD_NAME', 'Period name (e.g. SEP-26)']])],
+    ['REC', 'Receipt Accrual (AP/PO) to GL', 'P_PERIOD_NAME', 'Period name',
+        'Uninvoiced receipts: received-not-invoiced value by PO vs receipt accounting accrual vs GL accrual account — with invoices matched but not accounted.',
+        ['Receipts not invoiced', 'Receipt accrual accounting', 'Invoices clearing the accrual', 'GL accrual balance', 'Accrual aging by supplier', 'Differences'],
+        'RCV_TRANSACTIONS, PO_LINE_LOCATIONS_ALL (quantity_received vs quantity_billed), CMR_RCV_EVENTS, CMR_RCV_DISTRIBUTIONS, AP_INVOICE_DISTRIBUTIONS_ALL, XLA_AE_LINES (ACCRUAL), GL_BALANCES', flRec(FL_REC_BU)],
+    ['REC', 'COGS & Deferred COGS to Revenue', 'P_PERIOD_NAME', 'Period name',
+        'Revenue–COGS matching: shipped cost deferred vs recognised COGS vs recognised revenue per order line — lines with revenue but no COGS (or the reverse).',
+        ['Shipped lines & cost', 'Deferred COGS', 'Recognised COGS', 'Recognised revenue', 'Lines with revenue but no COGS', 'Lines with COGS but no revenue', 'GL deferred COGS & COGS balances'],
+        'CST_COGS_RECOGNITION_EVENTS / CST_REVENUE_LINES, CST_COST_DISTRIBUTION_LINES, RA_CUST_TRX_LINE_GL_DIST_ALL, DOO_FULFILL_LINES_ALL, XLA_AE_LINES, GL_BALANCES', flRec()],
+    ['REC', 'In-Transit Inventory to GL', 'P_PERIOD_NAME', 'Period name',
+        'Goods shipped between organisations but not yet received vs the intransit valuation in costing and GL.',
+        ['Intransit shipments', 'Not yet received', 'Intransit cost accounting', 'GL intransit balance', 'Differences'],
+        'INV_MATERIAL_TXNS (intransit shipment/receipt), RCV_SHIPMENT_LINES, CST_COST_DISTRIBUTION_LINES, XLA_AE_LINES, GL_BALANCES', flRec()],
+    ['REC', 'WIP Valuation to GL', 'P_PERIOD_NAME', 'Period name',
+        'Open work orders: material, resource and overhead charged less completions vs WIP accounting vs GL WIP accounts.',
+        ['Open work orders', 'Material issued', 'Resource & overhead charged', 'Completions & scrap', 'WIP accounting', 'GL WIP balance', 'Differences'],
+        'WIE_WORK_ORDERS_B, INV_MATERIAL_TXNS, WIE_RESOURCE_TXNS, CST_WORK_ORDER_COSTS / CST_WO_COST_DETAILS, XLA_AE_LINES, GL_BALANCES', flRec()],
+    ['REC', 'Shipped not Invoiced (OM to AR)', 'P_PERIOD_NAME', 'Period name',
+        'Order lines shipped or closed but not invoiced — stuck in the AR interface or waiting for AutoInvoice — valued at selling price.',
+        ['Shipped fulfillment lines', 'Sent to AR interface', 'Interface errors', 'Invoiced lines', 'Shipped not invoiced (value)', 'Aging'],
+        'DOO_FULFILL_LINES_ALL, WSH_DELIVERY_DETAILS, RA_INTERFACE_LINES_ALL, RA_INTERFACE_ERRORS_ALL, RA_CUSTOMER_TRX_LINES_ALL', flRec(FL_REC_BU)],
+    ['REC', 'Revenue Management Contract Balances to GL', 'P_PERIOD_NAME', 'Period name',
+        'ASC 606 / IFRS 15: contract liability (deferred revenue) and contract asset (unbilled) balances vs GL.',
+        ['Customer contracts', 'Billed vs satisfied amounts', 'Contract liability', 'Contract asset (unbilled)', 'Revenue accounting', 'GL balances', 'Differences'],
+        'VRM_CUSTOMER_CONTRACTS, VRM_PERF_OBLIGATIONS, VRM_SATISFACTION_EVENTS, VRM_BILLING_LINES, XLA_AE_LINES (application 10703), GL_BALANCES', flRec()],
+    ['REC', 'Project Costs to GL', 'P_PERIOD_NAME', 'Period name',
+        'Project expenditures by project and source (AP, inventory, labour, expenses) vs project cost accounting vs GL.',
+        ['Expenditures by source', 'Cost distributions', 'Project cost accounting', 'Transferred to GL', 'GL project cost / WIP balances', 'Unaccounted cost lines', 'Differences'],
+        'PJC_EXP_ITEMS_ALL, PJC_COST_DIST_LINES_ALL, PJF_PROJECTS_ALL_B, XLA_AE_LINES (application 10036), GL_BALANCES', flRec(FL_REC_BU)],
+    ['REC', 'Project Revenue & Unbilled to GL', 'P_PERIOD_NAME', 'Period name',
+        'Project revenue recognised vs invoiced: unbilled receivables and unearned revenue by contract vs GL.',
+        ['Contracts', 'Revenue distributions', 'Project invoices', 'Unbilled receivables', 'Unearned revenue', 'GL balances', 'Differences'],
+        'OKC_K_HEADERS_ALL_B, PJB_REV_DISTRIBUTIONS, PJB_INVOICE_HEADERS, PJB_INV_LINE_DISTS, XLA_AE_LINES, GL_BALANCES', flRec(FL_REC_BU)],
+    ['REC', 'Intercompany AR to AP', 'P_PERIOD_NAME', 'Period name',
+        'Intercompany receivables of the provider vs payables of the receiver for each pair of legal entities — with one-sided and mismatched transactions.',
+        ['Intercompany transactions', 'Provider AR invoices', 'Receiver AP invoices', 'Matched pairs', 'One-sided transactions', 'Amount mismatches', 'Differences by entity pair'],
+        'FUN_TRX_BATCHES, FUN_TRX_HEADERS, FUN_DIST_LINES, RA_CUSTOMER_TRX_ALL, AP_INVOICES_ALL, XLE_ENTITY_PROFILES', flRec()],
+    ['REC', 'Intercompany Balances in GL', 'P_PERIOD_NAME', 'Period name',
+        'Intercompany receivable vs payable account balances in GL by counterparty segment — the out-of-balance pairs to eliminate.',
+        ['IC receivable balances by counterparty', 'IC payable balances by counterparty', 'Out-of-balance pairs', 'Journals causing the difference'],
+        'GL_BALANCES, GL_CODE_COMBINATIONS (intercompany segment), GL_JE_LINES, FUN_BALANCE_ACCOUNTS', flRec()],
+    ['REC', 'Tax to GL', 'P_PERIOD_NAME', 'Period name',
+        'Tax registers (output and input tax by regime/rate) vs tax accounting vs GL tax accounts — with transactions missing tax accounting.',
+        ['Output tax (sales)', 'Input tax (purchases)', 'Tax accounting', 'GL tax balances', 'Tax lines not accounted', 'Differences by tax account'],
+        'ZX_LINES, ZX_REC_NREC_DIST, ZX_RATES_B, ZX_REGIMES_B, XLA_AE_LINES, GL_BALANCES', flRec()],
+    ['REC', 'Expenses to AP to GL', 'P_PERIOD_NAME', 'Period name',
+        'Employee expenses: approved reports vs Payables invoices created vs payments vs GL employee liability.',
+        ['Approved expense reports', 'Expense invoices in AP', 'Reports not yet in AP', 'Payments to employees', 'GL employee liability', 'Differences'],
+        'EXM_EXPENSE_REPORTS, EXM_EXPENSES, AP_INVOICES_ALL (EXPENSE REPORT), AP_INVOICE_PAYMENTS_ALL, XLA_AE_LINES, GL_BALANCES', flRec(FL_REC_BU)],
+    ['REC', 'Subledger to GL Journal Import', 'P_PERIOD_NAME', 'Period name',
+        'For every subledger: accounted entries vs transferred vs imported and posted in GL — by journal source/category, with gaps.',
+        ['Subledger entries by application', 'Transferred to GL', 'GL journals by source', 'Posted vs unposted', 'Entries in error / not transferred', 'Differences by source'],
+        'XLA_AE_HEADERS, XLA_AE_LINES, XLA_SUBLEDGERS, GL_IMPORT_REFERENCES, GL_JE_HEADERS, GL_JE_LINES, GL_JE_SOURCES_TL', flRec()],
+    ['REC', 'Unaccounted Events & Accounting Errors', 'P_PERIOD_NAME', 'Period name',
+        'Close blockers in every subledger: unprocessed events, draft entries and accounting errors by application and event class.',
+        ['Unprocessed events by application', 'Draft / invalid entries', 'Accounting errors', 'Oldest items', 'Transactions behind them'],
+        'XLA_EVENTS, XLA_TRANSACTION_ENTITIES, XLA_AE_HEADERS (accounting_entry_status_code), XLA_ACCOUNTING_ERRORS, XLA_SUBLEDGERS', flRec()],
+    ['REC', 'Unposted & Suspense Journals', 'P_PERIOD_NAME', 'Period name',
+        'GL hygiene before close: unposted journals, journals in error, suspense account balances and journals hitting suspense.',
+        ['Unposted journals', 'Journals in error', 'Suspense account balance', 'Journals posted to suspense', 'By source & category'],
+        'GL_JE_BATCHES, GL_JE_HEADERS, GL_JE_LINES, GL_SUSPENSE_ACCOUNTS, GL_BALANCES, GL_CODE_COMBINATIONS', flRec()],
+    ['REC', 'Trial Balance Integrity', 'P_PERIOD_NAME', 'Period name',
+        'Does the ledger balance: period activity from journal lines vs GL balances, debits vs credits by balancing segment, and opening + activity = closing.',
+        ['Balances by account', 'Journal activity for the period', 'Activity vs balance movement', 'Debit = credit by balancing segment', 'Opening + activity = closing', 'Differences'],
+        'GL_BALANCES, GL_JE_LINES, GL_JE_HEADERS, GL_CODE_COMBINATIONS, GL_PERIODS, GL_LEDGERS', flRec()],
+    ['REC', 'Foreign Currency Revaluation Check', 'P_PERIOD_NAME', 'Period name',
+        'Open foreign-currency balances revalued at period-end rates: revaluation journals vs expected unrealised gain/loss.',
+        ['Foreign-currency balances', 'Period-end rates', 'Expected revaluation', 'Revaluation journals', 'Differences'],
+        'GL_BALANCES (entered vs accounted), GL_DAILY_RATES, GL_JE_HEADERS (Revaluation), GL_JE_LINES', flRec()]
 ];
