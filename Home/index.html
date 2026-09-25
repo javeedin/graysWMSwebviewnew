@@ -393,7 +393,7 @@
             </a>
 
             <!-- Admin (dev PC only - not in the client package, so Home hides it there) -->
-            <a href="../admin/index.html" class="module-card"
+            <a href="../admin/index.html" class="module-card" id="admin-card"
                style="--card-color:#0f766e; --card-bg:rgba(15,118,110,0.1); --card-text:#0f766e;">
                 <div class="card-icon">🛠️</div>
                 <div class="card-title">Admin</div>
@@ -478,16 +478,20 @@
 
     <!-- Release module list: written by package-release.bat. Missing in dev = show every module. -->
     <script src="modules.js"></script>
+    <!-- Admin tile follows the admin folder, not the module list (a client zip unpacked over the repo brings modules.js) -->
+    <script src="../admin/present.js"></script>
     <script>
         // Hide tiles for modules that are not part of this release package.
         (function () {
+            var admin = document.getElementById('admin-card');
+            if (admin && !window.ADMIN_PRESENT) admin.remove();
             var list = window.RELEASE_MODULES;
             if (!Array.isArray(list) || !list.length) return;
             var keep = {};
             list.forEach(function (m) { keep[String(m).toLowerCase()] = 1; });
             document.querySelectorAll('.modules-grid .module-card').forEach(function (card) {
                 var m = /\.\.\/([^\/]+)\//.exec(card.getAttribute('href') || '');
-                if (m && !keep[m[1].toLowerCase()]) card.remove();
+                if (m && !keep[m[1].toLowerCase()] && card.id !== 'admin-card') card.remove();
             });
         })();
     </script>
