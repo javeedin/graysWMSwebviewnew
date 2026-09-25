@@ -23,6 +23,11 @@ REM    INCLUDE_RAG  Y to add the compiled RAG service (default N)
 REM ============================================================
 
 setlocal enabledelayedexpansion
+REM Unattended mode (Admin > Create ZIP sets RELEASE_AUTO=1): no prompts, no pauses
+set "PAUSE_CMD=pause"
+if defined RELEASE_AUTO set "PAUSE_CMD=rem"
+set "RC=0"
+if not defined DIST_OUT set "DIST_OUT=dist"
 
 set "SCRIPT_DIR=%~dp0"
 set "STAGE_DIR=%TEMP%\fusionclientweb-stage"
@@ -77,11 +82,11 @@ if errorlevel 1 (
 
 REM --- Copy dist folder ---
 echo Copying dist folder...
-if not exist "%SCRIPT_DIR%dist" (
+if not exist "%SCRIPT_DIR%%DIST_OUT%" (
     echo ERROR: dist folder not found. Run create-distribution-folder.bat first.
     goto :error
 )
-set "VERIFY_DIR=%SCRIPT_DIR%dist"
+set "VERIFY_DIR=%SCRIPT_DIR%%DIST_OUT%"
 REM --- Verify dist\ matches this build (a stale System.Text.Json.dll or deps.json
 REM     makes the app fail with "The type initializer for 'WMSApp.Form1' threw an exception") ---
 set "VERIFY_FAILED="
@@ -103,7 +108,7 @@ if defined VERIFY_FAILED (
     goto :error
 )
 mkdir "%APP_DIR%\dist"
-xcopy "%SCRIPT_DIR%dist\*" "%APP_DIR%\dist\" /s /e /y /q
+xcopy "%SCRIPT_DIR%%DIST_OUT%\*" "%APP_DIR%\dist\" /s /e /y /q
 if errorlevel 1 (
     echo ERROR: Failed to copy dist folder
     goto :error
@@ -203,6 +208,7 @@ powershell -NoProfile -Command "$size = [math]::Round((Get-Item '%OUTPUT%').Leng
 goto :cleanup
 
 :error
+set "RC=1"
 echo.
 echo ============================================
 echo   FAILED - See error above
@@ -215,4 +221,5 @@ if exist "%STAGE_DIR%" (
 )
 
 echo.
-pause
+%PAUSE_CMD%
+exit /b %RC%

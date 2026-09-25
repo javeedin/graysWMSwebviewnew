@@ -2148,6 +2148,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     await SendScriptAsync(wv, requestId, true, "New instance launched");
                                     break;
 
+                                // Admin module (admin/index.html)
+                                case var adminAction when IsAdminAction(adminAction):
+                                    HandleAdminAction(wv, action, root, requestId);
+                                    break;
+
                                 // Fusion SQL module (fusionsql/index.html)
                                 case var fsqlAction when IsFusionSqlAction(fsqlAction):
                                     await HandleFusionSqlAction(wv, action, root, requestId);

@@ -370,6 +370,7 @@ dist/*.WebView2/
 # Build output of create-distribution-folder.bat - never commit it: stale runtime
 # DLLs checked out over a fresh build break the app (type initializer errors)
 dist/
+dist-release/
 # Compiled binaries in dist (built by CI/publish, not source)
 dist/*.dll
 dist/*.exe

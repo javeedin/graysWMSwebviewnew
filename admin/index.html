@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin — Fusion Client</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --ink: #1e293b; --muted: #64748b; --line: #e2e8f0; --bg: #f1f5f9; --panel: #fff;
+            --brand: #334155; --accent: #0f766e; --ok: #15803d; --err: #b91c1c; --warn: #b45309;
+            --mono: 'Cascadia Code', Consolas, monospace;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: var(--bg); color: var(--ink); min-height: 100vh; }
+        .top { background: linear-gradient(135deg, #1e293b, #334155); color: #fff; padding: 14px 24px; display: flex; align-items: center; gap: 14px; }
+        .top a.back { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.12); color: #fff; text-decoration: none; }
+        .top a.back:hover { background: rgba(255,255,255,.22); }
+        .logo { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: linear-gradient(135deg, #14b8a6, #0f766e); font-size: 1.1rem; }
+        .top h1 { font-size: 1.2rem; }
+        .top p { font-size: .78rem; color: #cbd5e1; }
+        .ver { font-size: 10px; background: #4CAF50; padding: 2px 6px; border-radius: 4px; margin-left: 8px; vertical-align: middle; font-weight: 700; }
+        main { max-width: 1100px; margin: 0 auto; padding: 24px 20px 40px; display: grid; gap: 16px; }
+        .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 1px 2px rgba(15,23,42,.05), 0 6px 20px rgba(15,23,42,.05); }
+        .card-h { padding: 18px 22px 0; display: flex; align-items: center; gap: 12px; }
+        .card-h .ic { width: 42px; height: 42px; border-radius: 11px; display: grid; place-items: center; background: #ccfbf1; color: var(--accent); font-size: 1.1rem; }
+        .card-h h2 { font-size: 1.05rem; }
+        .card-h p { font-size: .8rem; color: var(--muted); }
+        .card-b { padding: 16px 22px 22px; }
+        .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 16px; }
+        .fact { background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+        .fact span { display: block; font-size: .66rem; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+        .fact b { display: block; font-size: .9rem; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .fact small { font-size: .72rem; color: var(--muted); }
+        .fact .link { font-size: .72rem; color: var(--accent); cursor: pointer; background: none; border: 0; padding: 0; font-weight: 600; }
+        .opts { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 16px; }
+        .opts label { font-size: .8rem; color: var(--muted); font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .opts input[type=text] { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .85rem; width: 360px; max-width: 100%; }
+        .opts input[type=text]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(15,118,110,.15); }
+        .btn { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 9px; padding: 8px 14px; font-size: .82rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+        .btn:hover { border-color: #94a3b8; }
+        .btn:disabled { opacity: .5; cursor: default; }
+        .btn.big { background: linear-gradient(135deg, #14b8a6, #0f766e); color: #fff; border: 0; padding: 13px 26px; font-size: .95rem; box-shadow: 0 6px 18px rgba(15,118,110,.3); }
+        .btn.big:hover:not(:disabled) { filter: brightness(1.07); }
+        .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .chip { font-size: .72rem; font-weight: 700; padding: 3px 10px; border-radius: 12px; display: inline-flex; align-items: center; gap: 5px; }
+        .chip.ok { background: #dcfce7; color: var(--ok); }
+        .chip.err { background: #fee2e2; color: var(--err); }
+        .chip.warn { background: #fef3c7; color: var(--warn); }
+        /* stages */
+        .run { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 18px; display: none; }
+        .run.show { display: block; }
+        .stages { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 14px; }
+        .stage { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #f8fafc; display: flex; gap: 9px; align-items: center; font-size: .8rem; color: var(--muted); }
+        .stage i { width: 18px; text-align: center; }
+        .stage.active { border-color: #5eead4; background: #f0fdfa; color: var(--ink); font-weight: 600; }
+        .stage.active i { color: var(--accent); }
+        .stage.done { color: var(--ok); background: #f0fdf4; border-color: #bbf7d0; }
+        .stage.fail { color: var(--err); background: #fef2f2; border-color: #fecaca; font-weight: 600; }
+        .status-line { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: .88rem; }
+        .status-line .t { margin-left: auto; font-family: var(--mono); color: var(--muted); font-size: .8rem; }
+        .term { background: #0f172a; color: #cbd5e1; border-radius: 10px; padding: 12px 14px; font-family: var(--mono); font-size: .74rem; line-height: 1.55; min-height: 120px; max-height: 280px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+        .term .e { color: #fca5a5; }
+        .term .g { color: #86efac; }
+        .banner { margin-top: 12px; border-radius: 10px; padding: 12px 14px; display: none; align-items: center; gap: 12px; font-size: .86rem; }
+        .banner.show { display: flex; }
+        .banner.ok { background: #f0fdf4; border: 1px solid #bbf7d0; color: #14532d; }
+        .banner.err { background: #fef2f2; border: 1px solid #fecaca; color: #7f1d1d; }
+        .banner .grow { flex: 1; }
+        .hist { width: 100%; border-collapse: collapse; font-size: .8rem; }
+        .hist th { text-align: left; color: var(--muted); font-weight: 700; padding: 6px 8px; border-bottom: 1px solid var(--line); font-size: .72rem; text-transform: uppercase; letter-spacing: .4px; }
+        .hist td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; }
+        .muted { color: var(--muted); }
+        .spin { animation: sp 1s linear infinite; }
+        @keyframes sp { to { transform: rotate(360deg); } }
+        .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 10px; font-size: .85rem; display: none; z-index: 10; }
+        @media (max-width: 800px) { .stages { grid-template-columns: 1fr 1fr; } .opts input[type=text] { width: 100%; } }
+    </style>
+</head>
+<body>
+<div class="top">
+    <a href="../Home/index.html" class="back" title="Back to Home"><i class="fa-solid fa-arrow-left"></i></a>
+    <div class="logo"><i class="fa-solid fa-screwdriver-wrench"></i></div>
+    <div>
+        <h1>Admin <span class="ver" id="app-ver">v11.0.0</span></h1>
+        <p>Build and release tools for Gray's WMS</p>
+    </div>
+</div>
+
+<main>
+    <section class="card">
+        <div class="card-h">
+            <div class="ic"><i class="fa-solid fa-file-zipper"></i></div>
+            <div>
+                <h2>Create ZIP file</h2>
+                <p>Builds the app and packages <code>fusionclientweb.zip</code> (Home, Warehouse Management, Inventory, AI Digital Employee, Fusion SQL). Runs <code>release.bat</code> for you in a console window, with the status shown here.</p>
+            </div>
+        </div>
+        <div class="card-b">
+            <div class="facts">
+                <div class="fact"><span>Repository</span><b id="f-repo" title="">…</b><button class="link" onclick="pickRepo()"><i class="fa-regular fa-folder-open"></i> Change folder</button></div>
+                <div class="fact"><span>Version</span><b id="f-ver">…</b><small>from version.json</small></div>
+                <div class="fact"><span>Last ZIP</span><b id="f-zip">…</b><small id="f-zip-when"></small></div>
+                <div class="fact"><span>Checks</span><div class="row" id="f-checks" style="margin-top:4px;"></div></div>
+            </div>
+
+            <div class="opts">
+                <label>Version comment <input type="text" id="o-comment" placeholder="e.g. v11.0.0 — Fusion SQL + APEX Data"></label>
+                <label title="Adds the AI Knowledge Base service (~150 MB)"><input type="checkbox" id="o-rag"> Include RAG service</label>
+            </div>
+
+            <div class="row">
+                <button class="btn big" id="b-run" onclick="createZip()"><i class="fa-solid fa-play"></i> Create ZIP file</button>
+                <button class="btn" onclick="openFolder()"><i class="fa-regular fa-folder-open"></i> Open folder</button>
+                <span class="muted" style="font-size:.78rem;">A console window opens and shows every step. Takes a few minutes.</span>
+            </div>
+
+            <div class="run" id="run">
+                <div class="stages" id="stages"></div>
+                <div class="status-line"><span id="s-text"></span><span class="t" id="s-time"></span></div>
+                <div class="term" id="term"></div>
+                <div class="banner" id="banner"></div>
+            </div>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-h">
+            <div class="ic" style="background:#e0e7ff;color:#4338ca;"><i class="fa-solid fa-clock-rotate-left"></i></div>
+            <div><h2>Recent builds</h2><p>On this PC</p></div>
+        </div>
+        <div class="card-b"><table class="hist"><thead><tr><th>Started</th><th>Result</th><th>Duration</th><th>ZIP</th><th>Comment</th></tr></thead><tbody id="hist"></tbody></table></div>
+    </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+// ── bridge ─────────────────────────────────────────────────────
+var _pending = {};
+function host(action, payload) {
+    return new Promise(function (resolve, reject) {
+        if (!(window.chrome && window.chrome.webview)) { reject('Open this page inside the Gray\'s WMS app.'); return; }
+        var id = 'adm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        _pending[id] = resolve;
+        window.chrome.webview.postMessage(Object.assign({ action: action, requestId: id }, payload || {}));
+    });
+}
+if (window.chrome && window.chrome.webview) {
+    window.chrome.webview.addEventListener('message', function (ev) {
+        var r = ev.data; if (typeof r === 'string') { try { r = JSON.parse(r); } catch (e) { return; } }
+        if (!r || !r.requestId || !_pending[r.requestId]) return;
+        var cb = _pending[r.requestId]; delete _pending[r.requestId]; cb(r.data);
+    });
+}
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function toast(t) { var el = $('toast'); el.textContent = t; el.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(function () { el.style.display = 'none'; }, 3500); }
+function fmtSec(s) { return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+function lsGet(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
+function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } }
+
+// ── info ───────────────────────────────────────────────────────
+var INFO = null, POLL = null, RUN = null;
+function loadInfo() {
+    return host('adminReleaseInfo').then(function (d) {
+        INFO = d || {};
+        $('f-repo').textContent = d.repoRoot || 'Not found';
+        $('f-repo').title = d.repoRoot || '';
+        $('f-ver').textContent = d.version ? 'v' + d.version : '—';
+        if (!$('o-comment').value && d.version) $('o-comment').placeholder = 'v' + d.version + ' — what changed';
+        $('f-zip').textContent = d.zip ? d.zip.sizeMb + ' MB' : 'None yet';
+        $('f-zip-when').textContent = d.zip ? d.zip.modified : '';
+        $('f-checks').innerHTML =
+            (d.repoRoot ? '<span class="chip ok"><i class="fa-solid fa-check"></i> release.bat</span>' : '<span class="chip err"><i class="fa-solid fa-xmark"></i> repo</span>') +
+            (d.dotnet ? '<span class="chip ok"><i class="fa-solid fa-check"></i> .NET SDK</span>' : '<span class="chip err" title="Install the .NET 8 SDK"><i class="fa-solid fa-xmark"></i> .NET SDK</span>');
+        $('o-rag').disabled = !d.ragExe;
+        $('o-rag').parentNode.title = d.ragExe ? 'Adds the AI Knowledge Base service (~150 MB)' : 'rag_service.exe is not built on this PC';
+        $('b-run').disabled = !d.repoRoot || d.running;
+        if (d.running && !POLL) startPolling();
+    }).catch(function (e) { $('f-repo').textContent = String(e); $('b-run').disabled = true; });
+}
+function pickRepo() { host('adminPickRepo').then(function (d) { if (d && d.ok === false && d.error) toast(d.error); loadInfo(); }); }
+function openFolder() { host('adminOpenFolder'); }
+function openLog() { host('adminOpenLog'); }
+
+// ── run ────────────────────────────────────────────────────────
+var STAGES = [
+    { key: 'start', label: 'Start', icon: 'fa-flag' },
+    { key: 'build', label: 'Build app', icon: 'fa-hammer' },
+    { key: 'verify', label: 'Verify files', icon: 'fa-shield-halved' },
+    { key: 'package', label: 'Package', icon: 'fa-box' },
+    { key: 'zip', label: 'ZIP ready', icon: 'fa-file-zipper' }
+];
+function stageIndex(m) {
+    if (m.done || m.zipped) return 5;
+    if (m.package) return 3;
+    if (m.verified) return 3;
+    if (m.published) return 2;
+    if (m.build || m.rag) return 1;
+    return 0;
+}
+function renderStages(idx, state) {
+    $('stages').innerHTML = STAGES.map(function (s, i) {
+        var cls = i < idx ? 'done' : i === idx ? (state === 'failed' ? 'fail' : state === 'running' ? 'active' : 'done') : '';
+        var icon = cls === 'done' ? 'fa-circle-check' : cls === 'fail' ? 'fa-circle-xmark' : cls === 'active' ? 'fa-spinner spin' : s.icon;
+        return '<div class="stage ' + cls + '"><i class="fa-solid ' + icon + '"></i>' + s.label + '</div>';
+    }).join('');
+}
+function createZip() {
+    var comment = $('o-comment').value.trim();
+    $('b-run').disabled = true;
+    host('adminCreateZip', { includeRag: $('o-rag').checked, comment: comment }).then(function (d) {
+        if (!d || !d.ok) { toast((d && d.error) || 'Could not start the build'); $('b-run').disabled = false; return; }
+        RUN = { started: new Date().toLocaleString(), comment: comment || $('o-comment').placeholder };
+        $('run').classList.add('show'); $('banner').className = 'banner';
+        $('term').textContent = 'Console window opened — waiting for output…';
+        renderStages(0, 'running');
+        startPolling();
+    });
+}
+function startPolling() {
+    $('run').classList.add('show');
+    clearInterval(POLL);
+    POLL = setInterval(poll, 1500);
+    poll();
+}
+function poll() {
+    host('adminReleaseStatus').then(function (d) {
+        if (!d || d.state === 'idle') return;
+        var idx = stageIndex(d.marks || {});
+        renderStages(d.state === 'done' ? 5 : idx, d.state);
+        $('s-time').textContent = fmtSec(d.elapsedSec || 0);
+        $('s-text').innerHTML = d.state === 'running' ? '<i class="fa-solid fa-spinner spin"></i> ' + esc(STAGES[Math.min(idx, 4)].label) + '…'
+            : d.state === 'done' ? '<i class="fa-solid fa-circle-check" style="color:var(--ok)"></i> Finished'
+            : '<i class="fa-solid fa-circle-xmark" style="color:var(--err)"></i> Stopped with an error';
+        var t = $('term'), atBottom = t.scrollTop + t.clientHeight >= t.scrollHeight - 8;
+        t.innerHTML = (d.tail || []).map(function (l) {
+            return /ERROR|FAILED|error /.test(l) ? '<span class="e">' + esc(l) + '</span>' : /SUCCESS|DONE|Verified|completed successfully/.test(l) ? '<span class="g">' + esc(l) + '</span>' : esc(l);
+        }).join('\n') || 'Waiting for output…';
+        if (atBottom) t.scrollTop = t.scrollHeight;
+        if (d.state !== 'running') finish(d);
+    });
+}
+function finish(d) {
+    clearInterval(POLL); POLL = null;
+    var b = $('banner');
+    if (d.state === 'done') {
+        b.className = 'banner show ok';
+        b.innerHTML = '<i class="fa-solid fa-circle-check" style="font-size:1.3rem"></i><div class="grow"><b>fusionclientweb.zip is ready</b>' +
+            (d.zip ? ' — ' + d.zip.sizeMb + ' MB<br><small>' + esc(d.zip.path) + '</small>' : '') + '</div>' +
+            '<button class="btn" onclick="openFolder()"><i class="fa-regular fa-folder-open"></i> Show ZIP</button><button class="btn" onclick="openLog()"><i class="fa-regular fa-file-lines"></i> Log</button>';
+    } else {
+        b.className = 'banner show err';
+        b.innerHTML = '<i class="fa-solid fa-triangle-exclamation" style="font-size:1.3rem"></i><div class="grow"><b>The build failed</b>' +
+            ((d.errors || []).length ? '<br><small>' + d.errors.map(esc).join('<br>') + '</small>' : ' — see the console window for details.') + '</div>' +
+            '<button class="btn" onclick="openLog()"><i class="fa-regular fa-file-lines"></i> Log</button>';
+    }
+    var h = lsGet('admin.history', []);
+    h.unshift({ started: RUN ? RUN.started : new Date().toLocaleString(), ok: d.state === 'done', sec: d.elapsedSec, mb: d.zip ? d.zip.sizeMb : null, comment: RUN ? RUN.comment : '' });
+    lsSet('admin.history', h.slice(0, 10));
+    RUN = null;
+    renderHistory();
+    loadInfo();
+}
+function renderHistory() {
+    var h = lsGet('admin.history', []);
+    $('hist').innerHTML = h.length ? h.map(function (x) {
+        return '<tr><td>' + esc(x.started) + '</td><td>' + (x.ok ? '<span class="chip ok"><i class="fa-solid fa-check"></i> Done</span>' : '<span class="chip err"><i class="fa-solid fa-xmark"></i> Failed</span>') +
+            '</td><td>' + fmtSec(x.sec || 0) + '</td><td>' + (x.mb != null ? x.mb + ' MB' : '—') + '</td><td class="muted">' + esc(x.comment) + '</td></tr>';
+    }).join('') : '<tr><td colspan="5" class="muted">No builds yet.</td></tr>';
+}
+
+document.addEventListener('DOMContentLoaded', function () { renderHistory(); setTimeout(loadInfo, 300); });
+</script>
+</body>
+</html>

@@ -9,14 +9,21 @@ echo ============================================================
 echo   Gray's WMS - Release Builder
 echo ============================================================
 echo.
+REM Unattended mode (Admin > Create ZIP sets RELEASE_AUTO=1): no prompts, no pauses
+set "PAUSE_CMD=pause"
+if defined RELEASE_AUTO set "PAUSE_CMD=rem"
+if defined RELEASE_AUTO (
+    if not defined INCLUDE_RAG set "INCLUDE_RAG=N"
+    goto :rag_chosen
+)
 choice /M "   Include RAG service in this release? (adds ~150MB)"
 if errorlevel 2 (
     set "INCLUDE_RAG=N"
-    echo   RAG service: EXCLUDED
 ) else (
     set "INCLUDE_RAG=Y"
-    echo   RAG service: INCLUDED
 )
+:rag_chosen
+if /i "%INCLUDE_RAG%"=="Y" (echo   RAG service: INCLUDED) else (echo   RAG service: EXCLUDED)
 echo.
 if "%INCLUDE_RAG%"=="Y" (
     echo   Step 1: Build RAG service ^(rag_service.exe via PyInstaller^)
@@ -27,10 +34,12 @@ if "%INCLUDE_RAG%"=="Y" (
     echo   Step 2: Package into fusionclientweb.zip  ^(no RAG^)
 )
 echo.
+if defined RELEASE_AUTO goto :confirmed
 choice /M "Continue?"
 if errorlevel 2 goto :eof
+:confirmed
 
-if "%INCLUDE_RAG%"=="N" goto :skip_rag_entirely
+if /i not "%INCLUDE_RAG%"=="Y" goto :skip_rag_entirely
 
 echo.
 echo ============================================================
@@ -41,6 +50,7 @@ echo.
 REM Check if already built - allow skipping
 if exist "%~dp0rag\dist\rag_service\rag_service.exe" (
     echo   rag_service.exe already exists.
+    if defined RELEASE_AUTO goto :skip_rag_build
     choice /M "   Rebuild RAG service? (No = use existing exe)"
     if errorlevel 2 goto :skip_rag_build
 )
@@ -55,7 +65,7 @@ if errorlevel 1 (
     if not exist "%~dp0rag\dist\rag_service.exe" (
         echo   ERROR: rag\dist\rag_service.exe does not exist.
         echo   Please run rag\build.bat manually on a machine with Python installed.
-        pause
+        %PAUSE_CMD%
         exit /b 1
     )
     echo   Using existing rag_service.exe.
@@ -68,7 +78,7 @@ if errorlevel 1 (
     popd
     echo.
     echo ERROR: RAG build failed. Aborting.
-    pause
+    %PAUSE_CMD%
     exit /b 1
 )
 popd
@@ -80,7 +90,7 @@ if not exist "%~dp0rag\dist\rag_service\rag_service.exe" (
     echo.
     echo ERROR: rag\dist\rag_service\rag_service.exe not found after build.
     echo        Run rag\build.bat manually first, then re-run release.bat.
-    pause
+    %PAUSE_CMD%
     exit /b 1
 )
 echo   rag_service OK (onedir build).
@@ -97,7 +107,7 @@ call create-distribution-folder.bat
 if errorlevel 1 (
     echo.
     echo ERROR: Build step failed. Aborting.
-    pause
+    %PAUSE_CMD%
     exit /b 1
 )
 
@@ -111,7 +121,7 @@ call package-release.bat
 if errorlevel 1 (
     echo.
     echo ERROR: Package step failed.
-    pause
+    %PAUSE_CMD%
     exit /b 1
 )
 
@@ -120,4 +130,5 @@ echo ============================================================
 echo   DONE - fusionclientweb.zip is ready to send to users
 echo ============================================================
 echo.
-pause
+%PAUSE_CMD%
+exit /b 0

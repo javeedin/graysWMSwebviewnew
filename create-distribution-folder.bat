@@ -7,19 +7,23 @@ echo Gray's WMS Distribution Builder
 echo ========================================
 echo.
 
-REM Prompt for version comment
-set /p VERSION_COMMENT=Enter version comment (e.g., Bug fixes, New feature):
+REM Unattended mode (Admin > Create ZIP sets RELEASE_AUTO=1): no prompts, no pauses
+set "PAUSE_CMD=pause"
+if defined RELEASE_AUTO set "PAUSE_CMD=rem"
 
-REM Get current date in format YYYY-MM-DD
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /format:list') do set datetime=%%I
-set RELEASE_DATE=%datetime:~0,4%-%datetime:~4,2%-%datetime:~6,2%
+REM Prompt for version comment (skipped when the caller already set it)
+if not defined VERSION_COMMENT set /p VERSION_COMMENT=Enter version comment (e.g., Bug fixes, New feature):
+
+REM Get current date in format YYYY-MM-DD (wmic is gone from current Windows 11)
+for /f %%I in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd"') do set RELEASE_DATE=%%I
 
 echo.
 echo Version Info: %RELEASE_DATE% ^|^| %VERSION_COMMENT%
 echo.
 
 set CONFIGURATION=Release
-set OUTPUT_FOLDER=dist
+REM DIST_OUT lets Admin > Create ZIP build next to a running app (whose own dist\ is locked)
+if defined DIST_OUT (set "OUTPUT_FOLDER=%DIST_OUT%") else (set "OUTPUT_FOLDER=dist")
 set RUNTIME=win-x64
 set PUBLISH_PATH=bin\%CONFIGURATION%\net8.0-windows\%RUNTIME%\publish
 
@@ -52,7 +56,7 @@ dotnet publish -c %CONFIGURATION% -r %RUNTIME% --self-contained true /p:PublishS
 if errorlevel 1 (
     echo.
     echo Publish failed! Check the error messages above.
-    pause
+    %PAUSE_CMD%
     exit /b 1
 )
 
@@ -63,7 +67,7 @@ REM Step 3: Check if publish output exists
 if not exist %PUBLISH_PATH% (
     echo.
     echo ERROR: Publish output path not found: %PUBLISH_PATH%
-    pause
+    %PAUSE_CMD%
     exit /b 1
 )
 
@@ -92,7 +96,7 @@ if exist "%VERIFY_DIR%\System.Text.Json.dll" (
 if defined VERIFY_FAILED (
     echo.
     echo dist\ does not match this build. Close any running GraysWMS.exe and run this script again.
-    pause
+    %PAUSE_CMD%
     exit /b 1
 )
 echo   Verified: GraysWMS + Anthropic + System.Text.Json 10 + SQLite are in dist\
@@ -212,4 +216,5 @@ echo.
 echo Read START_HERE.txt for deployment instructions
 echo.
 
-pause
+%PAUSE_CMD%
+exit /b 0
