@@ -23,7 +23,7 @@ namespace WMSApp.FusionSql
     // ---------------------------------------------------------------------
     public static class FusionSqlAi
     {
-        private const int MAX_TURNS = 16;
+        private const int MAX_TURNS = 24;             // flow designs verify many tables
         private const int MAX_TOOL_CHARS = 14000;
 
         private const string SYSTEM_PROMPT =

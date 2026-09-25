@@ -139,6 +139,7 @@ function showTab(name) {
     if (name === 'queries') renderQueries();
     if (name === 'datasets' && typeof dsLoadList === 'function') dsLoadList();
     if (name === 'setups' && typeof suLoad === 'function') suLoad();
+    if (name === 'flows' && typeof flLoadList === 'function') flLoadList();
 }
 function showSub(name) {
     document.querySelectorAll('.fs-subtab').forEach(function (b) { b.classList.toggle('active', b.dataset.sub === name); });
@@ -1887,8 +1888,8 @@ function sendAi() {
             : '<i class="fa-solid fa-diagram-project"></i> Full schema access — Claude will search the Fusion dictionary itself.';
         FS.ai.phase = 'Claude is working…';
         // The editor's SQL goes along so "add X to this" / "fix this" work on the real query
-        var question = q;
-        if (editorSql && editorSql.length <= 6000)
+        var question = typeof flAiDecorate === 'function' ? flAiDecorate(q) : q;
+        if (editorSql && editorSql.length <= 6000 && !FL_FLOW_Q.test(question))
             question += '\n\nCURRENT EDITOR SQL (for reference — modify or extend it only if the question refers to it):\n```sql\n' + editorSql + '\n```';
         return fsCall('fusionSqlAiSql', { question: question, schema: ctx.text, history: FS.ai.history.slice(-8) });
     }).then(function (r) {
@@ -1907,7 +1908,7 @@ function sendAi() {
         appendMsg('bot', renderAiAnswer(r.response) + (steps.length
             ? '<details class="fs-ai-research"><summary><i class="fa-solid fa-flask"></i> Research: ' + steps.length + ' step' + (steps.length === 1 ? '' : 's') + ' in the Fusion dictionary</summary><ol>' +
               steps.map(function (st) { return '<li>' + esc(st) + '</li>'; }).join('') + '</ol></details>' : ''));
-        aiNotifyDone(Date.now() - t0, /```/.test(r.response));
+        aiNotifyDone(Date.now() - t0, /```(?!flow)/.test(r.response.replace(/```flow[\s\S]*?```/gi, '')), /```flow/i.test(r.response));
     }).catch(function (e) { clearInterval(timer); typing.remove(); appendMsg('bot err', esc(e)); })
         .then(function () { FS.ai.busy = false; $('fs-ai-send').disabled = false; $('fs-ai-q').focus(); });
 }
@@ -1923,12 +1924,12 @@ function onAiProgress(msg) {
 
 /** Flash notification when Claude finishes: toast with Insert, pulse on the Ask AI button when the
  *  drawer is closed, and a blinking window title when the app is not in front. */
-function aiNotifyDone(ms, hasSql) {
+function aiNotifyDone(ms, hasSql, hasFlow) {
     var secs = (ms / 1000).toFixed(1);
     var idx = _aiBlocks.length - 1;
     var t = document.createElement('div');
     t.className = 'fs-toast ok fs-toast-ai';
-    t.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i><span>' + (hasSql ? 'SQL ready' : 'Claude answered') + ' in ' + secs + ' s</span>' +
+    t.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i><span>' + (hasFlow ? 'Flow ready — Save it from the chat' : hasSql ? 'SQL ready' : 'Claude answered') + ' in ' + secs + ' s</span>' +
         (hasSql && idx >= 0 ? '<button class="fs-btn sm ai">Insert</button><button class="fs-btn sm primary">Insert &amp; run</button>' : '');
     var btns = t.querySelectorAll('button');
     if (btns[0]) btns[0].onclick = function () { aiUse(idx); t.remove(); };
@@ -1942,7 +1943,7 @@ function aiNotifyDone(ms, hasSql) {
         var b = document.querySelector('.fs-toolbar .fs-btn.ai');
         if (b) b.classList.add('fs-ai-ready');
     }
-    if (document.hidden || !document.hasFocus()) flashTitle((hasSql ? '✓ SQL ready' : '✓ Claude answered') + ' — Fusion SQL');
+    if (document.hidden || !document.hasFocus()) flashTitle((hasFlow ? '✓ Flow ready' : hasSql ? '✓ SQL ready' : '✓ Claude answered') + ' — Fusion SQL');
 }
 var _titleFlash = null, _titleOrig = document.title;
 function flashTitle(msg) {
@@ -1965,7 +1966,14 @@ function appendMsg(cls, html) {
     return d;
 }
 var _aiBlocks = [];
+var FL_FLOW_Q = /PROCESS FLOW MODE|FLOW STEP FIX/;
 function renderAiAnswer(text) {
+    // ```flow blocks (process flow designs) become a card with "Save flow"
+    var flowCards = [];
+    text = text.replace(/```flow\s*\n?([\s\S]*?)```/gi, function (_, json) {
+        flowCards.push(typeof flRenderAiFlow === 'function' ? flRenderAiFlow(json.trim()) : '<pre>' + esc(json) + '</pre>');
+        return '\n\n@@FLOWCARD' + (flowCards.length - 1) + '@@\n\n';
+    });
     var parts = text.split(/```(?:sql)?\s*\n?([\s\S]*?)```/i), html = '';
     parts.forEach(function (p, i) {
         if (i % 2 === 1) {
@@ -1973,6 +1981,7 @@ function renderAiAnswer(text) {
             html += '<div class="fs-sqlblock"><pre>' + esc(p.trim()) + '</pre><div class="bar">' +
                 '<button class="fs-btn sm primary" onclick="aiUse(' + idx + ', true)"><i class="fa-solid fa-play"></i> Insert &amp; run</button>' +
                 '<button class="fs-btn sm" onclick="aiUse(' + idx + ')"><i class="fa-solid fa-arrow-left"></i> Insert</button>' +
+                (FL.fixTarget ? '<button class="fs-btn sm ai" onclick="flApplyFix(' + idx + ')"><i class="fa-solid fa-diagram-project"></i> Use in flow step</button>' : '') +
                 '<button class="fs-btn sm ghost" style="color:#f5e9e2" onclick="copyText(_aiBlocks[' + idx + '])"><i class="fa-solid fa-copy"></i></button></div></div>';
         } else if (p.trim()) {
             html += p.trim().split(/\n{2,}/).map(function (para) {
@@ -1981,7 +1990,7 @@ function renderAiAnswer(text) {
             }).join('');
         }
     });
-    return html;
+    return html.replace(/<p>@@FLOWCARD(\d+)@@<\/p>/g, function (_, i) { return flowCards[+i]; });
 }
 function mdInline(s) { return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>'); }
 function aiUse(i, run) {

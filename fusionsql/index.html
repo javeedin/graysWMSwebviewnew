@@ -51,6 +51,7 @@
     <button class="fs-tab active" data-tab="builder"><i class="fa-solid fa-code"></i> SQL Builder</button>
     <button class="fs-tab" data-tab="queries"><i class="fa-solid fa-bookmark"></i> Saved Queries <span class="fs-badge muted" id="fs-queries-count">0</span></button>
     <button class="fs-tab" data-tab="tables"><i class="fa-solid fa-sitemap"></i> Tables List</button>
+    <button class="fs-tab" data-tab="flows"><i class="fa-solid fa-diagram-project"></i> Flows <span class="fs-badge muted" id="fs-flows-count">0</span></button>
     <button class="fs-tab" data-tab="setups"><i class="fa-solid fa-list-check"></i> Fusion Setups</button>
     <button class="fs-tab" data-tab="datasets"><i class="fa-solid fa-database"></i> APEX Data <span class="fs-badge muted" id="fs-ds-count">0</span></button>
     <button class="fs-tab" data-tab="connection"><i class="fa-solid fa-plug"></i> Connection</button>
@@ -287,6 +288,32 @@ ORDER BY table_name, index_name</textarea>
     <div id="su-body"></div>
 </section>
 
+<!-- ═══════════════ Flows (process flows, e.g. Order to Cash) ═══════════════ -->
+<section class="fs-page" id="page-flows">
+    <div class="fs-page-head">
+        <div>
+            <h2><i class="fa-solid fa-diagram-project"></i> Flows</h2>
+            <p>Follow one document end to end — order, shipment, costing, invoice, accounting, cash — and see where it stops.</p>
+        </div>
+        <div class="fs-page-actions">
+            <button class="fs-btn ai" onclick="flNewWithAi()"><i class="fa-solid fa-wand-magic-sparkles"></i> New flow with AI</button>
+            <button class="fs-btn" onclick="flEditFlow(true)"><i class="fa-solid fa-plus"></i> New flow</button>
+            <button class="fs-btn" onclick="flLoadStarter()" title="Order to Cash and Procure to Pay starter flows"><i class="fa-solid fa-seedling"></i> Starter flows</button>
+            <button class="fs-btn" onclick="flLoadList()" title="Reload"><i class="fa-solid fa-rotate"></i></button>
+        </div>
+    </div>
+    <div class="ds-layout">
+        <aside class="ds-side">
+            <div class="ds-side-search">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input id="fl-search" placeholder="Search flows…" oninput="flRenderList()">
+            </div>
+            <div class="ds-side-list" id="fl-list"></div>
+        </aside>
+        <div class="ds-main" id="fl-main"></div>
+    </div>
+</section>
+
 <!-- ═══════════════ APEX Data (saved result tables) ═══════════════ -->
 <section class="fs-page" id="page-datasets">
     <div class="fs-page-head">
@@ -499,6 +526,7 @@ ORDER BY table_name</textarea>
                 <button onclick="aiSuggest(this)">Journal lines posted last month for an account</button>
                 <button onclick="aiSuggest(this)">Explain the package AR_RECEIPT_API_PUB and how to call CREATE_CASH</button>
                 <button onclick="aiSuggest(this)">Which tables have a CUSTOMER_TRX_ID column?</button>
+                <button onclick="aiSuggest(this)">Design the Order to Cash process flow for a sales order</button>
             </div>
         </div>
     </div>
@@ -523,6 +551,8 @@ ORDER BY table_name</textarea>
 <script src="fusionsql.js"></script>
 <script src="datasets.js"></script>
 <script src="report.js"></script>
+<script src="flows-seed.js"></script>
+<script src="flows.js"></script>
 <script src="setups-seed.js"></script>
 <script src="setups.js"></script>
 <!-- Trial period gate: shared with AI Digital Employee (same WMS_AI_TRIAL row) -->
