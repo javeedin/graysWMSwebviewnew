@@ -266,10 +266,14 @@ ORDER BY table_name, index_name</textarea>
 <section class="fs-page" id="page-setups">
     <div class="fs-page-head">
         <div>
-            <h2><i class="fa-solid fa-list-check"></i> Fusion Setups</h2>
-            <p>Module-wise setup checklist. Each task's check SQL runs on the pod like the SQL Builder — <b>Done</b> when it returns the configured records; click <b>Data</b> to drill into them.</p>
+            <h2 id="su-title"><i class="fa-solid fa-list-check"></i> Fusion Setups</h2>
+            <p id="su-desc">Module-wise setup checklist. Each task's check SQL runs on the pod like the SQL Builder — <b>Done</b> when it returns the configured records; click <b>Data</b> to drill into them.</p>
+            <div class="su-seg" id="su-seg">
+                <button data-seg="check" class="on" onclick="suSeg('check')"><i class="fa-solid fa-list-check"></i> Setup checklist</button>
+                <button data-seg="pipe" onclick="suSeg('pipe')"><i class="fa-solid fa-diagram-successor"></i> Data pipeline setups</button>
+            </div>
         </div>
-        <div class="fs-page-actions">
+        <div class="fs-page-actions" id="su-actions">
             <div class="fs-search wide">
                 <i class="fa-solid fa-magnifying-glass"></i>
                 <input id="su-search" placeholder="Search all tasks…" oninput="suRenderTasks()">
@@ -284,8 +288,11 @@ ORDER BY table_name, index_name</textarea>
             <button class="fs-btn" onclick="suLoad()" title="Reload"><i class="fa-solid fa-rotate"></i></button>
         </div>
     </div>
-    <div class="fs-q-status" id="su-status"></div>
-    <div id="su-body"></div>
+    <div id="su-check">
+        <div class="fs-q-status" id="su-status"></div>
+        <div id="su-body"></div>
+    </div>
+    <div id="ps-root" style="display:none;"></div>
 </section>
 
 <!-- ═══════════════ Flows (process flows, e.g. Order to Cash) ═══════════════ -->
@@ -555,6 +562,7 @@ ORDER BY table_name</textarea>
 <script src="flows-seed.js"></script>
 <script src="flows-catalog.js"></script>
 <script src="flows.js"></script>
+<script src="pipeline-setup.js"></script>
 <script src="setups-seed.js"></script>
 <script src="setups.js"></script>
 <!-- Trial period gate: shared with AI Digital Employee (same WMS_AI_TRIAL row) -->

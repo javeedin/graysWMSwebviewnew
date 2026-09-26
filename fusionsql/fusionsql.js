@@ -138,7 +138,7 @@ function showTab(name) {
     if (name === 'connection') renderConnection();
     if (name === 'queries') renderQueries();
     if (name === 'datasets' && typeof dsLoadList === 'function') dsLoadList();
-    if (name === 'setups' && typeof suLoad === 'function') suLoad();
+    if (name === 'setups' && typeof suLoad === 'function') { suLoad(); if (typeof suSeg === 'function') suSeg(lsGet('fusionSql.setupSeg', 'check')); }
     if (name === 'flows' && typeof flLoadList === 'function') flLoadList();
 }
 function showSub(name) {
