@@ -865,3 +865,7 @@ li.CodeMirror-hint-active { background: var(--fs-red); }
 .fl-lib-tables div { font-family: var(--fs-mono); font-size: .66rem; color: #57504b; margin-top: 4px; line-height: 1.5; }
 .fl-lib-foot { display: flex; gap: 6px; justify-content: flex-end; margin-top: auto; padding-top: 6px; border-top: 1px solid var(--fs-line-2); }
 .fl-lib-kind { font-size: .62rem; font-weight: 800; letter-spacing: .3px; color: #0f766e; background: #ccfbf1; border-radius: 10px; padding: 2px 8px; text-transform: uppercase; }
+.fs-ai-mode { display: none; margin: 0 16px 6px; padding: 5px 6px 5px 10px; border-radius: 8px; background: #f5f3ff; border: 1px solid #ddd6fe; color: #5b21b6; font-size: .74rem; font-weight: 600; align-items: center; gap: 7px; }
+.fs-ai-mode.show { display: flex; }
+.fs-ai-mode button { margin-left: auto; border: 0; background: #ede9fe; color: #5b21b6; border-radius: 6px; width: 22px; height: 22px; cursor: pointer; font-size: .9rem; line-height: 1; }
+.fs-ai-mode button:hover { background: #ddd6fe; }

@@ -726,12 +726,40 @@ var FLOW_AI_GUIDE = [
 ].join('\n');
 var FLOW_FIX_GUIDE = '\n\nFLOW STEP FIX — return the corrected SQL for this single step as ONE ```sql block. Keep the same {{KEY}} / {{KEY:str}} / {{P_...}} placeholders (do not replace them with values), keep the columns it hands on, verify tables/columns with your tools first.';
 
-function flIsFlowQuestion(q) { return /\b(process ?flow|flows?\b|end[- ]to[- ]end|order[- ]to[- ]cash|procure[- ]to[- ]pay|record[- ]to[- ]report|o2c|otc|p2p|r2r)\b/i.test(q); }
+/** Flow mode only on an explicit request: "create/design/build/give me … flow", "process flow",
+ *  "design the process", or a message starting with /flow. Mentioning OTC, P2P, "end to end",
+ *  "cash flow" or "workflow" in an ordinary question does NOT switch it on. */
+function flIsFlowQuestion(q) {
+    q = String(q || '');
+    if (/^\s*\/flow\b/i.test(q)) return true;
+    // "cash flow", "workflow", "data flow" are not process flows ("order to cash flow" is)
+    var t = q.replace(/(?<!\bto\s)\bcash\s*flows?\b/gi, ' ').replace(/\b(work|data)\s*flows?\b/gi, ' ');
+    if (/\bprocess[- ]flows?\b/i.test(t)) return true;
+    if (/\b(create|design|build|make|generate|give me|draw|map|prepare|set ?up|define)\b[^.?!\n]{0,80}?\bflows?\b/i.test(t)) return true;
+    if (/\b(design|map|draw)\b[^.?!\n]{0,40}?\bprocess\b/i.test(t)) return true;
+    return false;
+}
+/** The badge above the Ask AI box: shows when the next message will design a flow, with × to cancel. */
+function flAiModeRender() {
+    var box = $('fs-ai-q'); if (!box) return;
+    var el = $('fs-ai-mode');
+    if (!el) { el = document.createElement('div'); el.id = 'fs-ai-mode'; box.parentNode.parentNode.insertBefore(el, box.parentNode); }
+    var fix = FS.ai.fixMode, on = !FS.ai.noFlow && (FS.ai.flowMode || flIsFlowQuestion(box.value));
+    el.className = 'fs-ai-mode' + (fix || on ? ' show' : '');
+    el.innerHTML = fix ? '<i class="fa-solid fa-screwdriver-wrench"></i> Fixing a flow step — Claude returns corrected SQL for it <button onclick="FS.ai.fixMode=false;FL.fixTarget=null;flAiModeRender()" title="Cancel">×</button>'
+        : on ? '<i class="fa-solid fa-diagram-project"></i> Flow mode — Claude will design a process flow <button onclick="FS.ai.flowMode=false;FS.ai.noFlow=true;flAiModeRender()" title="Answer normally instead">×</button>'
+        : '';
+}
+(function () {
+    var box = $('fs-ai-q');
+    if (box) box.addEventListener('input', function () { if (!box.value.trim()) FS.ai.noFlow = false; flAiModeRender(); });
+})();
 function flNewWithAi() {
     FS.ai.flowMode = true; FL.fixTarget = null;
     openAi();
     var q = $('fs-ai-q');
     q.value = 'Design the end-to-end process flow for: ';
+    flAiModeRender();
     setTimeout(function () { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }, 60);
     toast('Name the process (e.g. Order to Cash, Procure to Pay, Return to Credit) and press Send');
 }
@@ -741,6 +769,7 @@ function flAiImprove() {
     openAi();
     $('fs-ai-q').value = 'Improve the process flow "' + F.name + '" (add missing stages, fix joins, add useful amounts). Current flow JSON:\n' +
         JSON.stringify({ name: F.name, description: F.description, params: F.params, steps: F.steps, summary: F.summary });
+    flAiModeRender();
     $('fs-ai-q').focus();
 }
 function flAiFix(key) {
@@ -754,13 +783,17 @@ function flAiFix(key) {
         (st && st.status === 'error' ? '\nIt fails with: ' + String(st.error).split('\n')[0].slice(0, 400) : st && st.status === 'empty' ? '\nIt returns 0 rows although the earlier steps found data — check the join.' : '') +
         '\nKeys available from earlier steps: ' + (Object.keys(avail).join(', ') || 'none') + '; flow parameters: ' + F.params.map(function (p) { return p.name; }).join(', ') +
         '.\nIt must hand on: ' + (s.outputs.join(', ') || 'nothing') + '.\nCurrent SQL:\n' + s.sql;
+    flAiModeRender();
     $('fs-ai-q').focus();
 }
 /** Used by sendAi: extra instructions for flow design / step fixes. */
 function flAiDecorate(q) {
-    if (FS.ai.fixMode) { FS.ai.fixMode = false; return q + FLOW_FIX_GUIDE; }
-    if (FS.ai.flowMode || flIsFlowQuestion(q)) { FS.ai.flowMode = false; return q + '\n' + FLOW_AI_GUIDE; }
-    return q;
+    var out = q;
+    if (FS.ai.fixMode) out = q + FLOW_FIX_GUIDE;
+    else if (!FS.ai.noFlow && (FS.ai.flowMode || flIsFlowQuestion(q))) out = q + '\n' + FLOW_AI_GUIDE;
+    FS.ai.fixMode = false; FS.ai.flowMode = false; FS.ai.noFlow = false;   // one message only
+    setTimeout(flAiModeRender, 0);
+    return out;
 }
 var _aiFlows = [];
 /** Renders a ```flow block from Claude as a card with Save. */
@@ -1042,6 +1075,7 @@ function flBuildFromCatalog(i, send) {
     FS.ai.flowMode = true; FL.fixTarget = null;
     openAi();
     $('fs-ai-q').value = q;
+    flAiModeRender();
     if (send) { setTimeout(sendAi, 60); toast('Claude is designing "' + c.name + '" — this takes a minute or two while it checks your pod'); }
     else { $('fs-ai-q').focus(); toast('Adjust the request, then press Send'); }
 }
