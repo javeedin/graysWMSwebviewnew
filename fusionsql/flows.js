@@ -56,6 +56,13 @@ var FL_MODULES = {
     OTHER: ['Other', '#57504b']
 };
 var FL_MAX_KEYS = 1000;              // Oracle IN-list limit
+var FL_BAD = /^(empty|blocked|error|cancelled)$/;   // statuses where the flow stops
+/** True for a query: SELECT / WITH, allowing leading comments and brackets (AI-written SQL often starts with -- …). */
+function flIsSelect(sql) {
+    var t = String(sql || ''), prev;
+    do { prev = t; t = t.replace(/^\s+/, '').replace(/^--[^\n]*(\n|$)/, '').replace(/^\/\*[\s\S]*?\*\//, '').replace(/^\(/, ''); } while (t !== prev);
+    return /^(SELECT|WITH)\b/i.test(t);
+}
 function flMod(m) { return FL_MODULES[m] || FL_MODULES.OTHER; }
 
 // ── database ───────────────────────────────────────────────────
@@ -98,8 +105,8 @@ function flLoadFlow(id) {
     return Promise.all([
         dbRead('SELECT flow_id, flow_name, description, params_json, summary_json, source, created_by, updated_by, ' +
             "TO_CHAR(created_date, 'YYYY-MM-DD HH24:MI') AS created, TO_CHAR(updated_date, 'YYYY-MM-DD HH24:MI') AS updated FROM " + FL_T + ' WHERE flow_id = ' + fid, 1),
-        dbRead('SELECT step_no, step_key, step_name, module, parents, outputs, measure_col, hint, ' + pieces.join(', ') +
-            ' FROM ' + FL_S + ' WHERE flow_id = ' + fid + ' ORDER BY step_no', 200),
+        dbRead('SELECT step_id, step_no, step_key, step_name, module, parents, outputs, measure_col, hint, ' + pieces.join(', ') +
+            ' FROM ' + FL_S + ' WHERE flow_id = ' + fid + ' ORDER BY step_no, step_id', 400),
         dbRead('SELECT run_id, params_json, instance, run_by, status, stopped_at, step_counts, elapsed_ms, ' +
             "TO_CHAR(run_date, 'YYYY-MM-DD HH24:MI') AS run_date FROM " + FL_R + ' WHERE flow_id = ' + fid + ' ORDER BY run_id DESC', 10).catch(function () { return []; })
     ]).then(function (res) {
@@ -111,12 +118,55 @@ function flLoadFlow(id) {
             id: h.FLOW_ID, name: h.FLOW_NAME, description: h.DESCRIPTION || '', source: h.SOURCE,
             params: js(h.PARAMS_JSON, []), summary: js(h.SUMMARY_JSON, []),
             createdBy: h.CREATED_BY, created: h.CREATED, updatedBy: h.UPDATED_BY, updated: h.UPDATED,
-            steps: res[1].map(function (r) {
+            steps: flLatestSteps(res[1]).map(function (r) {
                 var text = ''; for (var i = 0; i < SQL_PIECES; i++) text += r['P' + i] || '';
                 return { key: r.STEP_KEY, name: r.STEP_NAME, module: r.MODULE || 'OTHER', parents: csv(r.PARENTS), outputs: csv(r.OUTPUTS).map(function (x) { return x.toUpperCase(); }), measure: (r.MEASURE_COL || '').toUpperCase(), hint: r.HINT || '', sql: text };
             })
         };
     });
+}
+/** One row per step key — the newest (highest step_id) wins, in step order. */
+function flLatestSteps(rows) {
+    var byKey = {}, order = [];
+    rows.forEach(function (r) {
+        var k = String(r.STEP_KEY);
+        if (!(k in byKey)) order.push(k);
+        if (!byKey[k] || +r.STEP_ID > +byKey[k].STEP_ID) byKey[k] = r;
+    });
+    return order.map(function (k) { return byKey[k]; });
+}
+function flReadSql(r) { var t = ''; for (var i = 0; i < SQL_PIECES; i++) t += r['P' + i] || ''; return t; }
+function flNormSql(t) { return String(t || '').replace(/\r\n/g, '\n').trim(); }
+/** Saves ONE step in place (UPDATE), then reads it back to prove the database holds the new SQL. */
+function flSaveStep(F, ns) {
+    var fid = parseInt(F.id, 10), key = vlit(ns.key, 30), user = vlit(appUserName(), 120);
+    if (!flIsSelect(ns.sql)) return Promise.reject('The step SQL must be a query (SELECT … or WITH …)');
+    if (ns.sql.length > SQL_PIECE * SQL_PIECES) return Promise.reject('The SQL is ' + ns.sql.length + ' characters — the limit is ' + (SQL_PIECE * SQL_PIECES));
+    var pieces = []; for (var i = 0; i < SQL_PIECES; i++) pieces.push('TO_CHAR(SUBSTR(sql_text, ' + (i * SQL_PIECE + 1) + ', ' + SQL_PIECE + ')) AS p' + i);
+    return dbWrite('UPDATE ' + FL_S + ' SET step_name = ' + vlit(ns.name, 200) + ', module = ' + vlit(ns.module, 20) + ', parents = ' + vlit((ns.parents || []).join(','), 400) +
+        ', outputs = ' + vlit((ns.outputs || []).join(','), 1000) + ', measure_col = ' + vlit(ns.measure || '', 128) + ', hint = ' + vlit(ns.hint || '', 1000) +
+        ', sql_text = ' + clobLit(ns.sql) + ' WHERE flow_id = ' + fid + ' AND step_key = ' + key)
+        .then(function () { return dbWrite('UPDATE ' + FL_T + ' SET updated_by = ' + user + ', updated_date = SYSDATE WHERE flow_id = ' + fid).catch(function () { }); })
+        .then(function () { return dbRead('SELECT step_id, ' + pieces.join(', ') + ' FROM ' + FL_S + ' WHERE flow_id = ' + fid + ' AND step_key = ' + key + ' ORDER BY step_id', 20); })
+        .then(function (rows) {
+            if (!rows.length) throw 'The step is not in the database any more — reload the flow and try again';
+            var last = rows[rows.length - 1], got = flReadSql(last);
+            var dedupe = rows.length > 1 ? dbWrite('DELETE FROM ' + FL_S + ' WHERE flow_id = ' + fid + ' AND step_key = ' + key + ' AND step_id < ' + parseInt(last.STEP_ID, 10)).catch(function () { }) : Promise.resolve();
+            return dedupe.then(function () {
+                if (flNormSql(got) !== flNormSql(ns.sql)) throw 'The database did not keep the new SQL (it holds ' + got.length + ' of ' + ns.sql.length + ' characters)';
+            });
+        });
+}
+/** After a step is saved: update the flow in memory and mark the step (and what follows it) as edited, not run. */
+function flAfterStepSaved(ns) {
+    var F = FL.flow;
+    F.steps = F.steps.map(function (x) { return x.key === ns.key ? Object.assign({}, x, ns) : x; });
+    if (FL.run && String(FL.run.flowId) === String(F.id)) {
+        [ns.key].concat(flDescendants(ns.key)).forEach(function (k) { if (FL.run.st[k] && FL.run.st[k].status !== 'idle') FL.run.st[k] = { status: 'stale' }; });
+        flRebuildKeys(FL.run); flRestop(FL.run);
+    }
+    FL.stepSel = ns.key; FL.stepTab = 'sql';
+    flRenderMain();
 }
 /** Normalises a flow object (from AI JSON, the seed or the editor) before it is saved or shown. */
 function flNormalize(f) {
@@ -146,7 +196,7 @@ function flSave(flow) {
     var F = flNormalize(flow);
     if (!F.name) return Promise.reject('The flow needs a name');
     if (!F.steps.length) return Promise.reject('The flow has no steps');
-    var bad = F.steps.filter(function (s) { return !/^\s*(SELECT|WITH)\b/i.test(s.sql); })[0];
+    var bad = F.steps.filter(function (s) { return !flIsSelect(s.sql); })[0];
     if (bad) return Promise.reject('Step "' + bad.name + '" must be a SELECT');
     var user = vlit(appUserName(), 120), fid;
     return flEnsureTables().then(function () {
@@ -281,9 +331,9 @@ function flRenderMain() {
             return '<label class="fl-param"><span>' + esc(p.label || p.name) + '</span><input data-p="' + esc(p.name) + '" value="' + esc(saved[p.name] != null ? saved[p.name] : (p.sample || '')) + '" placeholder="' + esc(p.name) + '" onkeydown="if(event.key===\'Enter\')flRun()"></label>';
         }).join('') : '<span class="fs-muted" style="font-size:.78rem;">No parameters</span>') +
         '<label class="fl-param narrow"><span>Rows / step</span><input id="fl-limit" type="number" min="1" max="5000" value="' + (lsGet('fusionSql.flowLimit', 500)) + '"></label>' +
-        '<button class="fs-btn primary q-run-btn" id="fl-run-btn" onclick="flRun()"' + (R && !R.done ? ' disabled' : '') + '><i class="fa-solid fa-play"></i> Run flow</button>' +
-        (R && !R.done ? '<button class="fs-btn" onclick="FL.run.stop=true"><i class="fa-solid fa-stop"></i> Stop</button>' : '') +
-        (R && R.done ? '<button class="fs-btn rp-launch" onclick="flOpenReport()"><i class="fa-solid fa-wand-magic-sparkles"></i> Flow report</button>' : '') +
+        '<button class="fs-btn primary q-run-btn" id="fl-run-btn" onclick="flRun()"' + (flBusy() ? ' disabled' : '') + '><i class="fa-solid fa-play"></i> Run flow</button>' +
+
+        (R && R.done && F.steps.some(function (x) { return R.st[x.key] && R.st[x.key].status !== 'idle'; }) ? '<button class="fs-btn rp-launch" onclick="flOpenReport()" title="Shareable report — Excel, PDF, HTML, Outlook"><i class="fa-solid fa-file-lines"></i> Report</button>' : '') +
         '<span style="flex:1"></span>' +
         '<button class="fs-icon-btn" title="Edit flow (name, parameters, figures)" onclick="flEditFlow()"><i class="fa-solid fa-pen"></i></button>' +
         '<button class="fs-icon-btn" title="Add a step" onclick="flEditStep(null)"><i class="fa-solid fa-plus"></i></button>' +
@@ -306,14 +356,22 @@ function flStatusBanner() {
     var R = FL.run; if (!R) return '';
     var F = FL.flow;
     if (!R.done) {
-        var n = Object.keys(R.st).filter(function (k) { return R.st[k].status !== 'pending' && R.st[k].status !== 'running'; }).length;
-        return '<div class="fl-banner run"><span class="fs-spinner" style="width:13px;height:13px;border-width:2px;display:inline-block;"></span> Running step ' + Math.min(n + 1, F.steps.length) + ' of ' + F.steps.length + '…</div>';
+        var cur = R.cur ? F.steps.filter(function (x) { return x.key === R.cur.key; })[0] : null;
+        var left = Object.keys(R.st).filter(function (k) { return R.st[k].status === 'pending'; }).length;
+        return '<div class="fl-banner run"><span class="fs-spinner" style="width:13px;height:13px;border-width:2px;display:inline-block;"></span><div style="flex:1;">' +
+            (cur ? 'Running <b>' + esc(cur.name) + '</b> — <span id="fl-run-secs">0 s</span>' : 'Starting…') + (left ? ' <span class="fs-muted">· ' + left + ' more to go</span>' : '') + '</div>' +
+            (R.cur ? '<button class="fs-btn sm" onclick="flCancelRunning(true)" title="Cancel this query and continue with the next steps"><i class="fa-solid fa-forward-step"></i> Skip this step</button>' : '') +
+            '<button class="fs-btn sm" onclick="flCancelRunning(false)" title="Cancel this query and stop the flow"><i class="fa-solid fa-stop"></i> Stop</button></div>';
     }
+    if (R.mode && R.mode !== 'full' && !R.stoppedAt) return '';
     if (!R.stoppedAt) return '<div class="fl-banner ok"><i class="fa-solid fa-circle-check"></i> Complete — every step found data (' + fmtMs(R.ms) + ').</div>';
     var s = F.steps.filter(function (x) { return x.key === R.stoppedAt; })[0], st = R.st[R.stoppedAt] || {};
-    return '<div class="fl-banner stop"><i class="fa-solid fa-triangle-exclamation"></i><div><b>Stops at "' + esc(s ? s.name : R.stoppedAt) + '"</b> — ' +
-        (st.status === 'error' ? 'the step failed: ' + esc(String(st.error).split('\n')[0].slice(0, 200)) : st.status === 'blocked' ? 'no ' + esc(st.missing || 'input keys') + ' from the steps before it.' : '0 rows.') +
-        (s && s.hint && st.status !== 'error' ? '<br><span class="fl-hint"><i class="fa-regular fa-lightbulb"></i> ' + esc(s.hint) + '</span>' : '') + '</div></div>';
+    var ranOk = F.steps.filter(function (x) { return R.st[x.key] && R.st[x.key].status === 'ok'; }).length;
+    var bad = F.steps.filter(function (x) { return R.st[x.key] && FL_BAD.test(R.st[x.key].status); }).length;
+    return '<div class="fl-banner stop"><i class="fa-solid fa-triangle-exclamation"></i><div><b>First problem at "' + esc(s ? s.name : R.stoppedAt) + '"</b> <span class="fs-muted">(' + ranOk + ' of ' + F.steps.length + ' steps have data' + (bad > 1 ? ', ' + bad + ' with problems' : '') + ' — the other steps still ran)</span> — ' +
+        (st.status === 'error' ? 'the step failed: ' + esc(String(st.error).split('\n')[0].slice(0, 200)) : st.status === 'cancelled' ? 'you cancelled it.' : st.status === 'blocked' ? 'no ' + esc(st.missing || 'input keys') + ' from the steps before it.' : '0 rows.') +
+        ' <button class="fs-btn sm" onclick="flRunStep(\'' + R.stoppedAt + '\', true)"><i class="fa-solid fa-play"></i> Run from here</button>' +
+        (s && s.hint && /^(empty|blocked)$/.test(st.status) ? '<br><span class="fl-hint"><i class="fa-regular fa-lightbulb"></i> ' + esc(s.hint) + '</span>' : '') + '</div></div>';
 }
 function flRenderDiagram() {
     var box = $('fl-diagram'); if (!box || !FL.flow) return;
@@ -327,7 +385,7 @@ function flRenderDiagram() {
             var a = L.pos[p], b = L.pos[s.key]; if (!a || !b) return;
             var x1 = a.x + a.w, y1 = a.y + a.h / 2, x2 = b.x - 2, y2 = b.y + b.h / 2, mx = (x1 + x2) / 2;
             var ok = R && R.st[p] && R.st[p].status === 'ok' && R.st[s.key] && R.st[s.key].status === 'ok';
-            var dead = R && R.done && R.st[s.key] && /blocked|empty|error/.test(R.st[s.key].status);
+            var dead = R && R.done && R.st[s.key] && FL_BAD.test(R.st[s.key].status);
             svg.push('<path d="M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2 + '" class="fl-edge' + (ok ? ' ok' : '') + (dead ? ' dead' : '') + '" marker-end="url(#' + (ok ? 'fl-arr-ok' : 'fl-arr') + ')"/>');
         });
     });
@@ -336,13 +394,16 @@ function flRenderDiagram() {
         var p = L.pos[s.key], m = flMod(s.module), st = R && R.st[s.key] ? R.st[s.key] : null;
         var status = !st ? '<span class="fl-st idle">not run</span>'
             : st.status === 'pending' ? '<span class="fl-st idle">waiting</span>'
-            : st.status === 'running' ? '<span class="fl-st run"><i class="fa-solid fa-spinner fa-spin"></i> running</span>'
+            : st.status === 'running' ? '<span class="fl-st run"><i class="fa-solid fa-spinner fa-spin"></i> ' + Math.round((Date.now() - (st.t0 || Date.now())) / 1000) + ' s</span>'
             : st.status === 'ok' ? '<span class="fl-st ok"><i class="fa-solid fa-check"></i> ' + st.rows.length.toLocaleString() + (st.capped ? '+' : '') + ' rows</span>'
             : st.status === 'empty' ? '<span class="fl-st empty"><i class="fa-solid fa-circle-exclamation"></i> 0 rows</span>'
             : st.status === 'blocked' ? '<span class="fl-st blocked"><i class="fa-solid fa-ban"></i> no input</span>'
+            : st.status === 'cancelled' ? '<span class="fl-st blocked"><i class="fa-solid fa-circle-stop"></i> cancelled</span>'
+            : st.status === 'stale' ? '<span class="fl-st stale"><i class="fa-solid fa-pen"></i> edited — not run</span>'
+            : st.status === 'idle' ? '<span class="fl-st idle">not run</span>'
             : '<span class="fl-st err"><i class="fa-solid fa-xmark"></i> error</span>';
         var total = st && st.status === 'ok' && s.measure ? flSum(st.rows, s.measure) : null;
-        return '<div class="fl-node' + (FL.stepSel === s.key ? ' sel' : '') + (st ? ' ' + st.status : '') + (R && R.stoppedAt === s.key ? ' stop' : '') + '" style="left:' + p.x + 'px;top:' + p.y + 'px;width:' + p.w + 'px;height:' + p.h + 'px;--mod:' + m[1] + '" onclick="flSelStep(\'' + s.key + '\')" title="' + esc(m[0]) + '">' +
+        return '<div data-key="' + s.key + '" class="fl-node' + (FL.stepSel === s.key ? ' sel' : '') + (st ? ' ' + st.status : '') + (R && R.stoppedAt === s.key ? ' stop' : '') + '" style="left:' + p.x + 'px;top:' + p.y + 'px;width:' + p.w + 'px;height:' + p.h + 'px;--mod:' + m[1] + '" onclick="flSelStep(\'' + s.key + '\')" title="' + esc(m[0]) + '">' +
             '<div class="fl-node-top"><span class="fl-mod">' + esc(s.module) + '</span><span class="fl-no">' + (i + 1) + '</span></div>' +
             '<div class="fl-node-name">' + esc(s.name) + '</div>' +
             '<div class="fl-node-foot">' + status + (total != null ? '<span class="fl-total" title="Σ ' + esc(s.measure) + '">Σ ' + esc(rpCompact(total)) + '</span>' : '') + '</div></div>';
@@ -401,6 +462,10 @@ function flRenderStep() {
     if (FL.stepTab === 'data') {
         if (!st) body = '<div class="fs-muted fl-pad">Run the flow to see this step\'s rows.</div>';
         else if (st.status === 'error') body = '<div class="fs-error-box" style="margin:10px;">' + esc(st.error) + '</div><div class="fl-pad"><button class="fs-btn ai sm" onclick="flAiFix(\'' + s.key + '\')"><i class="fa-solid fa-wand-magic-sparkles"></i> Ask AI to fix this step</button></div>';
+        else if (st.status === 'running') body = '<div class="fl-pad"><span class="fs-spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;vertical-align:middle;"></span> Running… a long query can be cancelled with <b>Cancel this step</b>.</div>';
+        else if (st.status === 'cancelled') body = '<div class="fl-pad"><b>Cancelled</b> — ' + esc(st.error || '') + '. Narrow the SQL (e.g. more filters) and press <b>Run this step</b>, or raise the timeout in the Connection tab.</div>';
+        else if (st.status === 'stale') body = '<div class="fl-pad"><i class="fa-solid fa-pen" style="color:#7c3aed"></i> The SQL was edited — press <b>Run this step</b> to see its new rows.</div>';
+        else if (st.status === 'idle') body = '<div class="fl-pad fs-muted">Not run in this session — press <b>Run this step</b>.</div>';
         else if (st.status === 'blocked') body = '<div class="fl-pad fs-muted">Skipped — no values for <b>' + esc(st.missing) + '</b> from the earlier steps.' + (s.hint ? '<br><i class="fa-regular fa-lightbulb"></i> ' + esc(s.hint) : '') + '</div>';
         else if (st.status === 'empty') body = '<div class="fl-pad"><b>0 rows.</b>' + (s.hint ? ' <i class="fa-regular fa-lightbulb"></i> ' + esc(s.hint) : '') + '</div>';
         else if (st.status === 'ok') { body = '<div class="fs-grid small fl-grid" id="fl-grid"></div>'; }
@@ -422,6 +487,10 @@ function flRenderStep() {
     }
     el.innerHTML = '<div class="fl-step-head"><span class="fl-mod big" style="--mod:' + m[1] + '">' + esc(s.module) + '</span>' +
         '<div style="min-width:0;flex:1;"><div class="fl-step-name">' + (idx + 1) + '. ' + esc(s.name) + '</div><div class="fs-muted" style="font-size:.72rem;">' + esc(m[0]) + (st && st.ms != null ? ' · ' + fmtMs(st.ms) : '') + '</div></div>' +
+        (st && st.status === 'running'
+            ? '<button class="fs-btn sm" onclick="flCancelRunning(true)"><i class="fa-solid fa-circle-stop"></i> Cancel this step</button>'
+            : '<button class="fs-btn sm primary" onclick="flRunStep(\'' + s.key + '\', false)"' + (flBusy() ? ' disabled' : '') + ' title="Run only this step, with the keys from the last run"><i class="fa-solid fa-play"></i> Run this step</button>' +
+              (flDescendants(s.key).length ? '<button class="fs-btn sm" onclick="flRunStep(\'' + s.key + '\', true)"' + (flBusy() ? ' disabled' : '') + ' title="Run this step and every step after it"><i class="fa-solid fa-forward"></i> Run from here</button>' : '')) +
         '<button class="fs-btn sm" onclick="flEditStep(\'' + s.key + '\')"><i class="fa-solid fa-pen"></i> Edit</button>' +
         '<button class="fs-btn sm" onclick="flOpenInBuilder(\'' + s.key + '\')" title="Open the SQL (keys filled in when the flow has run) in the SQL Builder"><i class="fa-solid fa-code"></i> SQL Builder</button>' +
         '<button class="fs-btn sm ai" onclick="flAiFix(\'' + s.key + '\')"><i class="fa-solid fa-wand-magic-sparkles"></i> Ask AI</button>' +
@@ -464,55 +533,139 @@ function flResolve(sql, keys, params, paramNames) {
     if (missing) return { missing: missing };
     return { sql: substituteParams(text, params) };
 }
-function flRun(paramsOverride) {
-    var F = FL.flow; if (!F || (FL.run && !FL.run.done)) return;
-    if (!F.steps.length) { toast('This flow has no steps yet', 'warn'); return; }
-    var params = paramsOverride || {}, paramNames = {};
+/** Reads and checks the run bar; → { params, paramNames, limit } or null. */
+function flRunInputs(paramsOverride) {
+    var F = FL.flow, params = paramsOverride || {}, paramNames = {};
     if (!paramsOverride) document.querySelectorAll('.fl-runbar input[data-p]').forEach(function (i) { params[i.dataset.p] = i.value.trim(); });
     F.params.forEach(function (p) { paramNames[p.name.toUpperCase()] = 1; });
     var empty = F.params.filter(function (p) { return !String(params[p.name] || '').trim(); })[0];
-    if (empty) { toast('Enter ' + (empty.label || empty.name) + ' first', 'warn'); var inp = document.querySelector('.fl-runbar input[data-p="' + empty.name + '"]'); if (inp) inp.focus(); return; }
+    if (empty) { toast('Enter ' + (empty.label || empty.name) + ' first', 'warn'); var inp = document.querySelector('.fl-runbar input[data-p="' + empty.name + '"]'); if (inp) inp.focus(); return null; }
     lsSet('fusionSql.flowParams.' + F.id, params);
     var limit = Math.max(1, Math.min(5000, parseInt(($('fl-limit') || {}).value, 10) || 500));
     lsSet('fusionSql.flowLimit', limit);
-    var order = flOrder(F.steps), t0 = Date.now();
-    var R = FL.run = { flowId: F.id, params: params, st: {}, keys: {}, done: false, stoppedAt: null, stop: false, limit: limit };
+    return { params: params, paramNames: paramNames, limit: limit };
+}
+function flBusy() { return FL.run && !FL.run.done; }
+function flDescendants(key) {
+    var F = FL.flow, out = [], seen = {};
+    var walk = function (k) { F.steps.forEach(function (s) { if (s.parents.indexOf(k) >= 0 && !seen[s.key]) { seen[s.key] = 1; out.push(s.key); walk(s.key); } }); };
+    walk(key);
+    return out;
+}
+/** Keys handed on = the outputs of every step that currently has rows, in flow order. */
+function flRebuildKeys(R) {
+    R.keys = {};
+    flOrder(FL.flow.steps).forEach(function (s) {
+        var st = R.st[s.key]; if (!st || st.status !== 'ok' || !st.out) return;
+        Object.keys(st.out).forEach(function (o) {
+            var k = R.keys[o] = R.keys[o] || { list: [], seen: {} };
+            st.out[o].forEach(function (v) { var key = String(v); if (!k.seen[key]) { k.seen[key] = 1; k.list.push(v); } });
+        });
+    });
+}
+function flRestop(R) {
+    var stop = flOrder(FL.flow.steps).filter(function (s) { return R.st[s.key] && FL_BAD.test(R.st[s.key].status); })[0];
+    R.stoppedAt = stop ? stop.key : null;
+    return stop;
+}
+/** Whole flow. */
+function flRun(paramsOverride) {
+    var F = FL.flow; if (!F || flBusy()) return;
+    if (!F.steps.length) { toast('This flow has no steps yet', 'warn'); return; }
+    var inp = flRunInputs(paramsOverride); if (!inp) return;
+    var R = FL.run = { flowId: F.id, params: inp.params, paramNames: inp.paramNames, st: {}, keys: {}, done: false, stoppedAt: null, stop: false, limit: inp.limit, mode: 'full' };
     F.steps.forEach(function (s) { R.st[s.key] = { status: 'pending' }; });
+    flExecSteps(R, flOrder(F.steps));
+}
+/** One step (withAfter = false) or the step plus everything that follows it, reusing the keys of the last run. */
+function flRunStep(key, withAfter) {
+    var F = FL.flow; if (!F || flBusy()) return;
+    var inp = flRunInputs(); if (!inp) return;
+    var R = FL.run && String(FL.run.flowId) === String(F.id) ? FL.run : null;
+    if (!R || JSON.stringify(R.params) !== JSON.stringify(inp.params)) {
+        R = FL.run = { flowId: F.id, params: inp.params, st: {}, keys: {}, done: true, stoppedAt: null, limit: inp.limit };
+        F.steps.forEach(function (s) { R.st[s.key] = { status: 'idle' }; });
+    }
+    R.params = inp.params; R.paramNames = inp.paramNames; R.limit = inp.limit; R.stop = false; R.done = false; R.mode = withAfter ? 'from' : 'one';
+    var targets = {}; [key].concat(withAfter ? flDescendants(key) : []).forEach(function (k) { targets[k] = 1; });
+    var list = flOrder(F.steps).filter(function (s) { return targets[s.key]; });
+    list.forEach(function (s) { R.st[s.key] = { status: 'pending' }; });
+    flRebuildKeys(R);
+    FL.stepSel = key; FL.stepTab = 'data';
+    flExecSteps(R, list);
+}
+function flExecSteps(R, list) {
+    var F = FL.flow, t0 = Date.now();
     flRenderMain();
+    clearInterval(FL.ticker);
+    FL.ticker = setInterval(flTick, 1000);
     var next = function (i) {
         if (FL.run !== R) return Promise.resolve();                       // another flow was selected
-        if (i >= order.length || R.stop) return Promise.resolve();
-        var s = order[i], st = R.st[s.key];
-        var res = flResolve(s.sql, R.keys, params, paramNames);
+        if (i >= list.length || R.stop) return Promise.resolve();
+        var s = list[i], st = R.st[s.key];
+        flRebuildKeys(R);
+        var res = flResolve(s.sql, R.keys, R.params, R.paramNames);
         if (res.missing) { st.status = 'blocked'; st.missing = res.missing; flProgress(s.key); return next(i + 1); }
-        st.status = 'running'; st.sql = res.sql; flProgress(s.key);
-        var ts = Date.now();
-        return fsql(res.sql, limit).then(function (r) {
-            st.ms = Date.now() - ts; st.rows = r.rows || []; st.cols = r.columns || []; st.capped = !!r.capped;
-            st.status = st.rows.length ? 'ok' : 'empty';
-            s.outputs.forEach(function (o) {
-                var k = R.keys[o] = R.keys[o] || { list: [], seen: {} };
-                st.rows.forEach(function (row) {
-                    var v = row[o]; if (v === undefined) { var hit = Object.keys(row).filter(function (c) { return c.toUpperCase() === o; })[0]; v = hit ? row[hit] : undefined; }
-                    if (v === undefined || v === null || v === '') return;
-                    var key = String(v); if (!k.seen[key]) { k.seen[key] = 1; k.list.push(v); }
+        st.status = 'running'; st.sql = res.sql; st.t0 = Date.now(); R.cur = { key: s.key, id: null }; flProgress(s.key);
+        return fsCall('fusionSqlExecute', { sql: res.sql, rowLimit: R.limit }, function (id) { if (R.cur && R.cur.key === s.key) R.cur.id = id; })
+            .then(function (r) {
+                if (!r || !r.success) throw (r && r.error) || 'Query failed';
+                st.ms = Date.now() - st.t0; st.rows = r.rows || []; st.cols = r.columns || []; st.capped = !!r.capped;
+                st.status = st.rows.length ? 'ok' : 'empty';
+                st.out = {};
+                s.outputs.forEach(function (o) {
+                    var vals = [], seen = {};
+                    st.rows.forEach(function (row) {
+                        var v = row[o]; if (v === undefined) { var hit = Object.keys(row).filter(function (c) { return c.toUpperCase() === o; })[0]; v = hit ? row[hit] : undefined; }
+                        if (v === undefined || v === null || v === '') return;
+                        if (!seen[String(v)]) { seen[String(v)] = 1; vals.push(v); }
+                    });
+                    st.out[o] = vals;
                 });
-            });
-        }).catch(function (e) { st.ms = Date.now() - ts; st.status = 'error'; st.error = String(e); })
-            .then(function () { flProgress(s.key); return next(i + 1); });
+            })
+            .catch(function (e) {
+                st.ms = Date.now() - st.t0;
+                if (R.cancelKey === s.key) { st.status = 'cancelled'; st.error = 'Cancelled after ' + fmtMs(st.ms); }
+                else { st.status = 'error'; st.error = String(e); }
+            })
+            .then(function () { R.cur = null; R.cancelKey = null; flProgress(s.key); return next(i + 1); });
     };
     next(0).then(function () {
+        clearInterval(FL.ticker);
         if (FL.run !== R) return;
+        list.forEach(function (s) { if (R.st[s.key].status === 'pending') R.st[s.key] = { status: 'idle' }; });  // left after Stop
         R.done = true; R.ms = Date.now() - t0;
-        var stop = order.filter(function (s) { return /empty|blocked|error/.test(R.st[s.key].status); })[0];
-        R.stoppedAt = stop ? stop.key : null;
-        if (R.stop) R.stoppedAt = R.stoppedAt || order.filter(function (s) { return R.st[s.key].status === 'pending'; }).map(function (s) { return s.key; })[0] || null;
-        if (stop && !FL.stepSel) FL.stepSel = stop.key;
-        if (stop) FL.stepSel = stop.key;
+        flRebuildKeys(R);
+        var stop = flRestop(R);
+        if (R.mode === 'full' && stop) FL.stepSel = stop.key;
         flRenderMain();
-        flRecordRun(R);
-        toast(R.stoppedAt ? 'Flow ran — stops at "' + (F.steps.filter(function (x) { return x.key === R.stoppedAt; })[0] || {}).name + '"' : 'Flow complete — every step has data', R.stoppedAt ? 'warn' : 'ok');
+        if (R.mode === 'full') {
+            flRecordRun(R);
+            toast(R.stop ? 'Flow stopped' : R.stoppedAt ? 'Flow ran — stops at "' + (F.steps.filter(function (x) { return x.key === R.stoppedAt; })[0] || {}).name + '"' : 'Flow complete — every step has data', R.stoppedAt || R.stop ? 'warn' : 'ok');
+        } else {
+            var one = R.st[list[0].key], nm = list[0].name;
+            toast(list.length === 1 ? '"' + nm + '": ' + flStatusText(one) : 'Ran ' + list.length + ' steps from "' + nm + '"', one.status === 'ok' ? 'ok' : 'warn');
+        }
     });
+}
+/** Cancels the query that is running now. skip = carry on with the next steps; otherwise stop the run. */
+function flCancelRunning(skip) {
+    var R = FL.run; if (!R || R.done) return;
+    if (!skip) R.stop = true;
+    if (R.cur && R.cur.id) {
+        R.cancelKey = R.cur.key;
+        fsCall('fusionSqlCancel', { targetRequestId: R.cur.id }).then(function (r) { if (r && r.success === false) toast('The step had already finished', 'warn'); });
+        toast(skip ? 'Cancelling this step — the flow continues with the next one' : 'Cancelling — the flow stops', 'warn');
+    } else if (!skip) toast('Stopping after this step', 'warn');
+}
+/** Live seconds on the running step and the banner. */
+function flTick() {
+    var R = FL.run; if (!R || R.done || !R.cur) return;
+    var st = R.st[R.cur.key]; if (!st || !st.t0) return;
+    var secs = Math.round((Date.now() - st.t0) / 1000);
+    var lab = document.querySelector('.fl-node[data-key="' + R.cur.key + '"] .fl-st');
+    if (lab) lab.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ' + secs + ' s';
+    var b = $('fl-run-secs'); if (b) b.textContent = secs + ' s';
 }
 function flProgress(key) {
     if (FL.stepSel === key || !FL.stepSel) FL.stepSel = key;
@@ -595,12 +748,23 @@ function flEditStep(key) {
                     outputs: $('fe-out').value.split(',').map(function (x) { return x.trim().toUpperCase(); }).filter(Boolean),
                     measure: $('fe-meas').value.trim().toUpperCase(), hint: $('fe-hint').value.trim()
                 };
-                if (!ns.name) { toast('Give the step a name', 'warn'); return; }
-                if (!/^\s*(SELECT|WITH)\b/i.test(ns.sql)) { toast('The step SQL must be a SELECT', 'warn'); return; }
-                var copy = JSON.parse(JSON.stringify(F));
-                if (isNew) copy.steps.push(ns); else copy.steps = copy.steps.map(function (x) { return x.key === s.key ? ns : x; });
-                closeModal(); FL.stepSel = ns.key;
-                flPersist(copy, isNew ? 'Step added' : 'Step saved');
+                var out = $('fe-test'), btn = this;
+                if (!ns.name) { out.innerHTML = '<div class="fs-error-box">Give the step a name.</div>'; $('fe-name').focus(); return; }
+                if (!flIsSelect(ns.sql)) { out.innerHTML = '<div class="fs-error-box">The step SQL must be a query — it has to start with SELECT or WITH (comments before it are fine).</div>'; return; }
+                if (isNew) {
+                    var copy = JSON.parse(JSON.stringify(F)); copy.steps.push(ns);
+                    closeModal(); FL.stepSel = ns.key;
+                    flPersist(copy, 'Step added');
+                    return;
+                }
+                btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
+                flSaveStep(F, ns).then(function () {
+                    closeModal(); toast('Step saved — the database holds the new SQL. Press Run this step to see its rows.');
+                    flAfterStepSaved(ns);
+                }).catch(function (e) {
+                    btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save';
+                    out.innerHTML = '<div class="fs-error-box">Not saved: ' + esc(e) + '</div>';
+                });
             }
         }], true);
     setTimeout(function () { (isNew ? $('fe-name') : $('fe-sql')).focus(); }, 30);
@@ -834,10 +998,11 @@ function flSaveAiFlow(idx) {
 function flApplyFix(sqlIdx) {
     var T = FL.fixTarget, sql = _aiBlocks[sqlIdx];
     if (!T || !FL.flow || String(FL.flow.id) !== String(T.flowId)) { toast('Open the flow again, then retry', 'warn'); return; }
-    var copy = JSON.parse(JSON.stringify(FL.flow));
-    copy.steps.forEach(function (s) { if (s.key === T.stepKey) s.sql = sql.trim().replace(/;\s*$/, ''); });
-    closeAi(); showTab('flows'); FL.stepSel = T.stepKey; FL.fixTarget = null;
-    flPersist(copy, 'Step updated — run the flow again to check it');
+    var step = FL.flow.steps.filter(function (s) { return s.key === T.stepKey; })[0]; if (!step) return;
+    var ns = Object.assign({}, step, { sql: sql.trim().replace(/;\s*$/, '') });
+    closeAi(); showTab('flows'); FL.fixTarget = null;
+    flSaveStep(FL.flow, ns).then(function () { toast('Step updated — press Run this step to check it'); flAfterStepSaved(ns); })
+        .catch(function (e) { toast('Could not save the fixed SQL: ' + e, 'err'); });
 }
 
 // ── Flow report ────────────────────────────────────────────────
@@ -851,7 +1016,17 @@ function flReportModel() {
     };
 }
 function flStatusText(st) {
-    return st.status === 'ok' ? st.rows.length + ' rows' : st.status === 'empty' ? '0 rows' : st.status === 'blocked' ? 'no input (' + (st.missing || '') + ')' : st.status === 'error' ? 'error' : 'not run';
+    return st.status === 'ok' ? st.rows.length + ' rows' : st.status === 'empty' ? '0 rows' : st.status === 'blocked' ? 'no input (' + (st.missing || '') + ')' : st.status === 'error' ? 'error' : st.status === 'cancelled' ? 'cancelled' : st.status === 'running' ? 'running' : st.status === 'stale' ? 'edited — not run' : 'not run';
+}
+/** What went wrong at a step, for the report (error text, cancelled, or the hint for 0 rows). */
+function flProblemText(x) {
+    var st = x.st || {};
+    if (st.status === 'ok') return '';
+    if (st.status === 'error') return String(st.error || 'Error').split('\n')[0].slice(0, 300);
+    if (st.status === 'cancelled') return 'Cancelled — ' + (st.error || '');
+    if (st.status === 'blocked') return 'No ' + (st.missing || 'input keys') + ' from the earlier steps' + (x.s.hint ? ' — ' + x.s.hint : '');
+    if (st.status === 'empty') return x.s.hint || 'No rows';
+    return 'Not run';
 }
 function flOpenReport() {
     if (!FL.run || !FL.run.done) { toast('Run the flow first', 'warn'); return; }
@@ -871,12 +1046,14 @@ function flOpenReport() {
         '<button class="fs-icon-btn rp-close" onclick="closeReport()" title="Close (Esc)"><i class="fa-solid fa-xmark"></i></button></div></div>' +
         '<div class="rp-body">' +
         '<div class="rp-hero"><h1>' + esc(M.title) + '</h1><p>' + esc(M.subtitle) + '</p></div>' +
-        (stop ? '<div class="fl-banner stop"><i class="fa-solid fa-triangle-exclamation"></i><div><b>The flow stops at "' + esc(stop.name) + '"</b>' + (stop.hint ? '<br><span class="fl-hint">' + esc(stop.hint) + '</span>' : '') + '</div></div>'
+        (stop ? '<div class="fl-banner stop"><i class="fa-solid fa-triangle-exclamation"></i><div><b>First problem at "' + esc(stop.name) + '"</b><br><span class="fl-hint">' + esc(flProblemText(M.steps.filter(function (x) { return x.s.key === stop.key; })[0])) + '</span></div></div>'
             : '<div class="fl-banner ok"><i class="fa-solid fa-circle-check"></i> Complete — every stage has data.</div>') +
         (M.figures.length ? '<div class="rp-kpis">' + M.figures.map(function (f) { return '<div class="rp-kpi' + (/margin/i.test(f.label) ? ' accent' : '') + '"><span>' + esc(f.label) + '</span><b>' + esc(flFmtFig(f)) + '</b></div>'; }).join('') + '</div>' : '') +
         '<div class="rp-card"><h3><i class="fa-solid fa-route"></i> Stages</h3><div class="fl-timeline">' + M.steps.map(function (x) {
             var cls = x.st.status || 'idle'; var tot = x.s.measure && x.rows.length ? flSum(x.rows, x.s.measure) : null;
-            return '<div class="fl-tl ' + cls + '" style="--mod:' + flMod(x.s.module)[1] + '"><span class="fl-mod">' + esc(x.s.module) + '</span><b>' + x.no + '. ' + esc(x.s.name) + '</b><em>' + esc(flStatusText(x.st)) + (tot != null ? ' · Σ ' + esc(rpNum(tot)) : '') + '</em></div>';
+            var pb = flProblemText(x);
+            return '<div class="fl-tl ' + cls + '" style="--mod:' + flMod(x.s.module)[1] + '"' + (pb ? ' title="' + esc(pb) + '"' : '') + '><span class="fl-mod">' + esc(x.s.module) + '</span><b>' + x.no + '. ' + esc(x.s.name) + '</b><em>' + esc(flStatusText(x.st)) + (tot != null ? ' · Σ ' + esc(rpNum(tot)) : '') + '</em>' +
+                (pb && x.st.status !== 'idle' ? '<small class="fl-tl-pb">' + esc(pb.slice(0, 140)) + '</small>' : '') + '</div>';
         }).join('') + '</div></div>' +
         M.steps.filter(function (x) { return x.rows.length; }).map(function (x) {
             return '<div class="rp-card"><h3><span class="fl-mod" style="--mod:' + flMod(x.s.module)[1] + '">' + esc(x.s.module) + '</span> ' + x.no + '. ' + esc(x.s.name) + ' <small>' + x.rows.length + ' rows</small></h3>' +
@@ -899,11 +1076,11 @@ function flBuildExcel() {
     var row = 5;
     M.figures.forEach(function (f) { sh.getCell(row, 2).value = f.label; sh.getCell(row, 2).font = { bold: true }; var c = sh.getCell(row, 3); c.value = f.value; c.numFmt = f.fmt === 'pct' ? '0.0"%"' : '#,##0.00'; row++; });
     row++;
-    ['Step', 'Module', 'Result', 'If empty'].forEach(function (t, i) { var c = sh.getCell(row, 2 + i); c.value = t; c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: red } }; });
+    ['Step', 'Module', 'Result', 'Problem / what to check'].forEach(function (t, i) { var c = sh.getCell(row, 2 + i); c.value = t; c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: red } }; });
     M.steps.forEach(function (x) {
         row++;
         sh.getCell(row, 2).value = x.no + '. ' + x.s.name; sh.getCell(row, 3).value = x.s.module; sh.getCell(row, 4).value = flStatusText(x.st);
-        sh.getCell(row, 5).value = x.st.status === 'ok' ? '' : x.s.hint;
+        sh.getCell(row, 5).value = flProblemText(x); sh.getCell(row, 5).alignment = { wrapText: true, vertical: 'top' };
         if (x.st.status !== 'ok') sh.getCell(row, 4).font = { color: { argb: x.st.status === 'error' ? 'FFB91C1C' : 'FFB45309' }, bold: true };
     });
     var used = {};
@@ -932,7 +1109,7 @@ function flExportPdf() {
     doc.setFontSize(8); doc.setTextColor(210, 204, 199); doc.text(M.subtitle, 32, 46);
     var head = { fillColor: [199, 70, 52], textColor: 255, fontStyle: 'bold' };
     doc.autoTable({ startY: 76, head: [['Figure', 'Value']], body: M.figures.map(function (f) { return [f.label, flFmtFig(f)]; }), styles: { fontSize: 9 }, headStyles: head, margin: { left: 32 }, tableWidth: 260 });
-    doc.autoTable({ startY: doc.lastAutoTable.finalY + 14, head: [['#', 'Step', 'Module', 'Result', 'If empty']], body: M.steps.map(function (x) { return [x.no, x.s.name, x.s.module, flStatusText(x.st), x.st.status === 'ok' ? '' : x.s.hint]; }), styles: { fontSize: 8 }, headStyles: head, margin: { left: 32, right: 32 } });
+    doc.autoTable({ startY: doc.lastAutoTable.finalY + 14, head: [['#', 'Step', 'Module', 'Result', 'Problem / what to check']], body: M.steps.map(function (x) { return [x.no, x.s.name, x.s.module, flStatusText(x.st), flProblemText(x)]; }), styles: { fontSize: 8 }, headStyles: head, margin: { left: 32, right: 32 } });
     M.steps.forEach(function (x) {
         if (!x.rows.length) return;
         doc.addPage(); doc.setFontSize(11); doc.setTextColor(49, 45, 42); doc.text(x.no + '. ' + x.s.name + ' (' + x.s.module + ') — ' + x.rows.length + ' rows', 24, 30);
@@ -947,7 +1124,7 @@ function flReportHtml(maxRows) {
     var h = ['<div style="' + f + 'color:#2b2623;max-width:1100px;">',
         '<div style="background:#312d2a;border-bottom:3px solid #c74634;padding:14px 18px;border-radius:8px 8px 0 0;"><div style="font-size:19px;font-weight:700;color:#fff;">' + esc(M.title) + ' — flow report</div><div style="font-size:11px;color:#d2ccc7;">' + esc(M.subtitle) + '</div></div>'];
     if (M.figures.length) h.push('<table cellspacing="8"><tr>' + M.figures.map(function (x) { return '<td style="' + f + 'background:#faf8f7;border:1px solid #e7e2de;border-radius:8px;padding:8px 12px;"><div style="font-size:10px;color:#8a817b;font-weight:700;text-transform:uppercase;">' + esc(x.label) + '</div><div style="font-size:20px;font-weight:700;">' + esc(flFmtFig(x)) + '</div></td>'; }).join('') + '</tr></table>');
-    h.push('<table cellspacing="0" style="border-collapse:collapse;margin:8px 0 14px;"><tr><th ' + th + '>Step</th><th ' + th + '>Module</th><th ' + th + '>Result</th><th ' + th + '>If empty</th></tr>' + M.steps.map(function (x) {
+    h.push('<table cellspacing="0" style="border-collapse:collapse;margin:8px 0 14px;"><tr><th ' + th + '>Step</th><th ' + th + '>Module</th><th ' + th + '>Result</th><th ' + th + '>Problem / what to check</th></tr>' + M.steps.map(function (x) {
         var col = x.st.status === 'ok' ? '#15803d' : x.st.status === 'error' ? '#b91c1c' : '#b45309';
         return '<tr><td ' + td + '>' + x.no + '. ' + esc(x.s.name) + '</td><td ' + td + '>' + esc(x.s.module) + '</td><td ' + td.replace('"', '"color:' + col + ';font-weight:700;') + '>' + esc(flStatusText(x.st)) + '</td><td ' + td + '>' + (x.st.status === 'ok' ? '' : esc(x.s.hint)) + '</td></tr>';
     }).join('') + '</table>');
