@@ -140,6 +140,8 @@ function showTab(name) {
     if (name === 'datasets' && typeof dsLoadList === 'function') dsLoadList();
     if (name === 'setups' && typeof suLoad === 'function') { suLoad(); if (typeof suSeg === 'function') suSeg(lsGet('fusionSql.setupSeg', 'check')); }
     if (name === 'flows' && typeof flLoadList === 'function') flLoadList();
+    if (name === 'pipelines' && typeof plLoadList === 'function') plLoadList();
+    if (typeof plAutoPoll === 'function') plAutoPoll();
 }
 function showSub(name) {
     document.querySelectorAll('.fs-subtab').forEach(function (b) { b.classList.toggle('active', b.dataset.sub === name); });

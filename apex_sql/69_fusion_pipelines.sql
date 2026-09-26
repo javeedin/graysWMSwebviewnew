@@ -203,7 +203,10 @@ SELECT p.pipeline_id, p.pipeline_name, p.schedule_type, p.enabled, p.state, p.ne
        r.rows_read, r.rows_written, r.error_text,
        (SELECT COUNT(*) FROM wms_pipe_tasks t WHERE t.pipeline_id = p.pipeline_id AND t.active = 'Y') AS task_count
 FROM   wms_pipelines p
-LEFT JOIN wms_pipe_runs r ON r.run_id = (SELECT MAX(x.run_id) FROM wms_pipe_runs x WHERE x.pipeline_id = p.pipeline_id);
+LEFT JOIN (SELECT x.*,
+                  ROW_NUMBER() OVER (PARTITION BY x.pipeline_id ORDER BY x.run_id DESC) AS rn
+           FROM   wms_pipe_runs x) r
+       ON r.pipeline_id = p.pipeline_id AND r.rn = 1;
 
 -- Check
 SELECT object_name, object_type FROM user_objects

@@ -52,6 +52,7 @@
     <button class="fs-tab" data-tab="queries"><i class="fa-solid fa-bookmark"></i> Saved Queries <span class="fs-badge muted" id="fs-queries-count">0</span></button>
     <button class="fs-tab" data-tab="tables"><i class="fa-solid fa-sitemap"></i> Tables List</button>
     <button class="fs-tab" data-tab="flows"><i class="fa-solid fa-diagram-project"></i> Flows <span class="fs-badge muted" id="fs-flows-count">0</span></button>
+    <button class="fs-tab" data-tab="pipelines"><i class="fa-solid fa-diagram-successor"></i> Pipelines <span class="fs-badge muted" id="fs-pl-count">0</span></button>
     <button class="fs-tab" data-tab="setups"><i class="fa-solid fa-list-check"></i> Fusion Setups</button>
     <button class="fs-tab" data-tab="datasets"><i class="fa-solid fa-database"></i> APEX Data <span class="fs-badge muted" id="fs-ds-count">0</span></button>
     <button class="fs-tab" data-tab="connection"><i class="fa-solid fa-plug"></i> Connection</button>
@@ -141,6 +142,7 @@
                         </div>
                         <div class="fs-grid-actions">
                             <button class="fs-btn sm rp-launch" onclick="openReport()" title="Show the results as a formatted dashboard with export and share options"><i class="fa-solid fa-wand-magic-sparkles"></i> Format Results</button>
+                            <button class="fs-btn sm" onclick="plAddFromBuilder()" title="Use this SQL as a task in a data pipeline (scheduled load to a target database)"><i class="fa-solid fa-diagram-successor"></i> Add to pipeline</button>
                             <button class="fs-btn sm ds-save-btn" onclick="openSaveToApex()" title="Save this result as a table in the APEX database (refreshable)"><i class="fa-solid fa-cloud-arrow-up"></i> Save to APEX</button>
                             <button class="fs-btn sm" onclick="exportExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
                             <button class="fs-btn sm" onclick="exportPdf()"><i class="fa-solid fa-file-pdf"></i> PDF</button>
@@ -319,6 +321,31 @@ ORDER BY table_name, index_name</textarea>
             <div class="ds-side-list" id="fl-list"></div>
         </aside>
         <div class="ds-main" id="fl-main"></div>
+    </div>
+</section>
+
+<!-- ═══════════════ Pipelines (scheduled data movement) ═══════════════ -->
+<section class="fs-page" id="page-pipelines">
+    <div class="fs-page-head">
+        <div>
+            <h2><i class="fa-solid fa-diagram-successor"></i> Pipelines</h2>
+            <p>Run SQL tasks and push the rows to target databases — on demand, every n minutes, by cron, or continuously until cancelled. The pipeline server runs them.</p>
+        </div>
+        <div class="fs-page-actions">
+            <button class="fs-btn primary" onclick="plNew()"><i class="fa-solid fa-plus"></i> New pipeline</button>
+            <button class="fs-btn" onclick="showTab('setups');suSeg('pipe')" title="Pipeline server and connections"><i class="fa-solid fa-gear"></i> Server &amp; connections</button>
+            <button class="fs-btn" onclick="plLoadList()" title="Reload"><i class="fa-solid fa-rotate"></i></button>
+        </div>
+    </div>
+    <div class="ds-layout">
+        <aside class="ds-side">
+            <div class="ds-side-search">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input id="pl-search" placeholder="Search pipelines…" oninput="plRenderList()">
+            </div>
+            <div class="ds-side-list" id="pl-list"></div>
+        </aside>
+        <div class="ds-main" id="pl-main"></div>
     </div>
 </section>
 
@@ -563,6 +590,7 @@ ORDER BY table_name</textarea>
 <script src="flows-catalog.js"></script>
 <script src="flows.js"></script>
 <script src="pipeline-setup.js"></script>
+<script src="pipelines.js"></script>
 <script src="setups-seed.js"></script>
 <script src="setups.js"></script>
 <!-- Trial period gate: shared with AI Digital Employee (same WMS_AI_TRIAL row) -->
