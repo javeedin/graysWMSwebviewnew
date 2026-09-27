@@ -123,6 +123,16 @@ function prDefaultOptions(tpl) {
     });
     return { docKey: '', sheets: sheets, dateOrder: 'dmy', live: true };
 }
+/** Saved options on top of the template defaults — per sheet, and only the sheets this template has. */
+function prMergeOptions(tpl, json) {
+    var def = prDefaultOptions(tpl), saved = {};
+    try { saved = JSON.parse(json || '{}') || {}; } catch (e) { }
+    var out = Object.assign({}, def, saved);
+    out.sheets = {};
+    Object.keys(def.sheets).forEach(function (csv) { out.sheets[csv] = Object.assign({}, def.sheets[csv], (saved.sheets || {})[csv] || {}); });
+    return out;
+}
+function prSheetOpt(csv) { var o = P.load.options.sheets; return (o[csv] = o[csv] || { include: true, mode: 'row' }); }
 function prDefaultMaps(tpl) {
     var spec = prSpec(tpl), pre = prRules(tpl).presets || {}, maps = {};
     spec.sheets.forEach(function (s) {
@@ -260,14 +270,14 @@ function prCreate() {
     }).then(function (r) {
         var id = r.length ? +r[0].ID : null;
         var maps = prDefaultMaps(tpl);
-        return prSaveMaps(id, tpl, maps).then(function () { prSetBusy(null); P.step = 'source'; return prLoadList(id); });
+        return prSaveMaps(id, tpl, maps).then(function () { prSetBusy(null); P.step = 'template'; return prLoadList(id); });
     }).catch(function (e) { prSetBusy(null); toast('Could not create the load: ' + e); });
 }
 
 function prSelect(id) {
     if (P.dirty || P.srcDirty) { if (!confirm('Discard the unsaved changes of "' + P.load.name + '"?')) return Promise.resolve(); }
     P.selId = id; lsSet('pr_sel', id);
-    P.load = null; P.src = null; P.check = null; P.runs = null; P.dirty = P.srcDirty = false; P.wb = null; P.openError = null;
+    P.load = null; P.src = null; P.check = null; P.runs = null; P.dirty = P.srcDirty = false; P.wb = null; P.openError = null; P.tplSheet = null; P.tplView = null;
     prRenderList(); prRenderMain();
     var L;
     return prRead("SELECT load_id, load_name, template_file, description, source_type, source_note, status, row_count, instance, TO_CHAR(updated_date, 'YYYY-MM-DD HH24:MI') AS updated, " +
@@ -287,7 +297,7 @@ function prSelect(id) {
         if (!prSpec(L.tpl)) throw 'Template ' + L.tpl + ' is not supported by this version of the app';
         L.srcSql = res[0] || '';
         var cols = []; try { cols = JSON.parse(res[1] || '[]'); } catch (e) { }
-        try { L.options = Object.assign(prDefaultOptions(L.tpl), JSON.parse(res[2] || '{}')); } catch (e) { L.options = prDefaultOptions(L.tpl); }
+        L.options = prMergeOptions(L.tpl, res[2]);
         L.maps = {}; prSpec(L.tpl).sheets.forEach(function (s) { L.maps[s.csv] = {}; });
         res[3].forEach(function (m) { if (L.maps[m.SHEET_CSV] && m.MAP_EXPR != null) L.maps[m.SHEET_CSV][+m.COL_POS] = m.MAP_EXPR; });
         if (P.selId !== L.id) return;                    // user clicked another load meanwhile
@@ -395,7 +405,7 @@ function prDelete(id) {
 }
 
 // ── main frame ─────────────────────────────────────────────────
-var PR_STEPS = [['source', 'fa-database', 'Source'], ['map', 'fa-shuffle', 'Map'], ['check', 'fa-list-check', 'Check'], ['generate', 'fa-file-zipper', 'Generate'], ['history', 'fa-clock-rotate-left', 'History']];
+var PR_STEPS = [['template', 'fa-table-cells', 'FBDI sheets'], ['source', 'fa-database', 'Source'], ['map', 'fa-shuffle', 'Map'], ['check', 'fa-list-check', 'Check'], ['generate', 'fa-file-zipper', 'Generate'], ['history', 'fa-clock-rotate-left', 'History']];
 function prRenderMain() {
     var el = $('pr-main'); if (!el) return;
     if (P.state === 'offline') { el.innerHTML = '<div class="welcome"><h2>Prepare &amp; Load</h2><p>' + esc(P.error || '') + '</p></div>'; return; }
@@ -409,12 +419,12 @@ function prRenderMain() {
     var L = P.load;
     el.innerHTML = '<div class="pr-head" id="pr-head"></div>' +
         '<div class="pr-steps">' + PR_STEPS.map(function (s, i) {
-            return '<button class="pr-step' + (P.step === s[0] ? ' on' : '') + '" data-step="' + s[0] + '"><em>' + (i < 4 ? i + 1 : '') + '</em><i class="fa-solid ' + s[1] + '"></i> ' + s[2] + prStepBadge(s[0]) + '</button>';
+            return '<button class="pr-step' + (P.step === s[0] ? ' on' : '') + '" data-step="' + s[0] + '"><em>' + (i < 5 ? i + 1 : '') + '</em><i class="fa-solid ' + s[1] + '"></i> ' + s[2] + prStepBadge(s[0]) + '</button>';
         }).join('') + '</div>' +
         '<div class="pr-busy" id="pr-busy"' + (P.busy ? '' : ' hidden') + '><i class="fa-solid fa-circle-notch spin"></i> <span>' + esc(P.busy || '') + '</span></div>' +
         '<div class="pr-body" id="pr-body"></div>';
     prRenderHead();
-    ({ source: prRenderSource, map: prRenderMap, check: prRenderCheck, generate: prRenderGenerate, history: prRenderHistory })[P.step]();
+    ({ template: prRenderTemplate, source: prRenderSource, map: prRenderMap, check: prRenderCheck, generate: prRenderGenerate, history: prRenderHistory })[P.step]();
 }
 function prStepBadge(step) {
     if (step === 'source' && P.src) return ' <b class="sb">' + P.src.rows.length + '</b>';
@@ -601,19 +611,15 @@ function prAutoMap(onlyEmpty) {
 function prRenderMap() {
     var L = P.load, spec = prSpec(L.tpl), R = prRules(L.tpl);
     if (!spec.sheets.some(function (s) { return s.csv === P.mapCsv; })) P.mapCsv = spec.sheets[0].csv;
-    var so = L.options.sheets[P.mapCsv] || {}, sheet = spec.sheets.filter(function (s) { return s.csv === P.mapCsv; })[0];
+    var sheet = spec.sheets.filter(function (s) { return s.csv === P.mapCsv; })[0];
     var docInfo = '';
     if (P.src && L.options.docKey) { try { docInfo = FE.build(spec, {}, P.src, { docKey: L.options.docKey, sheets: {} }).docCount + ' documents'; } catch (e) { docInfo = String(e); } }
     var h = '<div class="map-top"><label class="fld grow"><span>Document key ' + (R.docKeyRequired ? '<em class="req">required</em>' : '<em>optional</em>') + '</span>' +
         '<input id="pr-dockey" list="pr-srclist" value="' + esc(L.options.docKey || '') + '" placeholder="' + esc(R.docKeyHint || '') + '"></label>' +
         '<div class="doc-info">' + (docInfo ? '<b>' + esc(docInfo) + '</b>' : '') + '<small>' + esc(R.docKeyHint || '') + '</small></div>' +
         '<label class="fld"><span>Dates in the source</span><select id="pr-dorder"><option value="dmy"' + (L.options.dateOrder !== 'mdy' ? ' selected' : '') + '>31/12/2026 (day first)</option><option value="mdy"' + (L.options.dateOrder === 'mdy' ? ' selected' : '') + '>12/31/2026 (month first)</option></select></label></div>';
-    h += '<div class="tbl-tabs">' + spec.sheets.map(function (s) {
-        var o = L.options.sheets[s.csv] || {}, m = L.maps[s.csv] || {}, n = Object.keys(m).filter(function (k) { return m[k]; }).length;
-        return '<button class="tbl-tab' + (s.csv === P.mapCsv ? ' on' : '') + (o.include === false ? ' off' : '') + '" data-mapcsv="' + s.csv + '">' + esc(s.n) + ' <small>' + (o.include === false ? 'not included' : n + ' mapped') + '</small></button>';
-    }).join('') + '</div>';
-    h += '<div class="map-bar"><label class="sw"><input type="checkbox" id="pr-incl"' + (so.include !== false ? ' checked' : '') + '> Include <code>' + esc(sheet.csv) + '.csv</code></label>' +
-        '<label>Rows <select id="pr-mode"><option value="row"' + (so.mode !== 'doc' ? ' selected' : '') + '>one per source row</option><option value="doc"' + (so.mode === 'doc' ? ' selected' : '') + '>one per document (header)</option></select></label>' +
+    h += prSheetCards(true);
+    h += '<div class="map-bar"><b class="map-cur"><i class="fa-solid fa-table-list"></i> ' + esc(sheet.n) + ' <small>→ ' + esc(sheet.csv) + '.csv</small></b>' +
         '<span class="grow"></span>' +
         '<div class="seg sm">' + [['req', 'Required'], ['mapped', 'Mapped'], ['all', 'All ' + sheet.cols.length]].map(function (f) { return '<button class="' + (P.mapFilter === f[0] ? 'on' : '') + '" data-mfilter="' + f[0] + '">' + f[1] + '</button>'; }).join('') + '</div>' +
         '<input type="search" id="pr-mapq" placeholder="Find column…" value="' + esc(P.mapQ) + '">' +
@@ -623,6 +629,84 @@ function prRenderMap() {
     $('pr-body').innerHTML = h;
     prRenderMapRows();
 }
+/** The template's sheets as linked cards: what each holds, rows per sheet, include, progress, and the link column. */
+function prSheetCards(forMap) {
+    var L = P.load, spec = prSpec(L.tpl), R = prRules(L.tpl), relax = {};
+    (R.notRequired || []).forEach(function (k) { relax[k] = 1; });
+    var multi = spec.sheets.length > 1, cur = forMap ? P.mapCsv : P.tplSheet;
+    var needKey = spec.sheets.some(function (s) { var o = prSheetOpt(s.csv); return o.include !== false && o.mode === 'doc'; });
+    var h = '<div class="sheets-how"><i class="fa-solid fa-circle-info"></i> <span>' + (multi
+        ? 'This template has <b>' + spec.sheets.length + ' sheets</b>; each becomes one CSV in the ZIP. <b>One source feeds every sheet</b>: a sheet set to <i>one row per document</i> takes the first source row of each document (rows grouped by the <b>Document key</b>); a sheet set to <i>one row per source row</i> takes every row. ' +
+          ((R.links || []).length ? 'Linked sheets must carry the <b>same value</b> in their link column (' + esc(R.links.map(function (l) { return l.label; }).join(', ')) + ') — map it to the same expression on both, e.g. <code>{#load}{#doc|pad:5}</code>.' : '')
+        : 'This template has <b>one sheet</b> — every source row becomes one row of <code>' + esc(spec.sheets[0].csv) + '.csv</code>.') + '</span>' +
+        (needKey && !L.options.docKey ? '<em class="warn-k"><i class="fa-solid fa-triangle-exclamation"></i> A sheet is set to one row per document — set the Document key in Map.</em>' : '') + '</div>';
+    h += '<div class="sheet-cards">';
+    spec.sheets.forEach(function (s, i) {
+        var o = prSheetOpt(s.csv), m = L.maps[s.csv] || {}, def = (R.sheets || {})[s.csv] || {};
+        var req = s.cols.filter(function (c) { return c.r && !relax[c.c]; });
+        var reqDone = req.filter(function (c) { return m[s.cols.indexOf(c) + 1]; }).length;
+        var mapped = Object.keys(m).filter(function (k) { return m[k]; }).length, off = o.include === false;
+        var link = (R.links || []).filter(function (l) { return l.to === s.csv; })[0];
+        if (i) h += '<div class="sheet-arrow' + (off ? ' off' : '') + '"><i class="fa-solid fa-arrow-right"></i>' + (link ? '<small>' + esc(link.label) + '</small>' : '') + '</div>';
+        h += '<div class="sheet-card' + (s.csv === cur ? ' on' : '') + (off ? ' off' : '') + '" data-mapcsv="' + s.csv + '">' +
+            '<div class="sc-h"><b>' + esc(s.n) + '</b><label class="sw" title="Put this sheet in the ZIP"><input type="checkbox" data-incl="' + s.csv + '"' + (off ? '' : ' checked') + '></label></div>' +
+            '<small class="sc-role">' + esc(def.role || '') + '</small>' +
+            '<select class="sc-mode" data-mode="' + s.csv + '"' + (off ? ' disabled' : '') + '><option value="row"' + (o.mode !== 'doc' ? ' selected' : '') + '>one row per source row</option><option value="doc"' + (o.mode === 'doc' ? ' selected' : '') + '>one row per document</option></select>' +
+            '<div class="sc-prog" title="Required columns mapped"><i style="width:' + (req.length ? Math.round(reqDone * 100 / req.length) : 100) + '%"></i></div>' +
+            '<small class="sc-meta">' + (off ? 'not in the ZIP' : reqDone + '/' + req.length + ' required · ' + mapped + ' mapped') + ' · <code>' + esc(s.csv) + '.csv</code></small></div>';
+    });
+    return h + '</div>';
+}
+
+// ── 0 · FBDI sheets — the workbook as Oracle ships it, or filled with this load's data ─
+function prColLetter(i) { var s = ''; i++; while (i) { var r = (i - 1) % 26; s = String.fromCharCode(65 + r) + s; i = Math.floor((i - 1) / 26); } return s; }
+function prRenderTemplate() {
+    var L = P.load, spec = prSpec(L.tpl), t = tplByFile(L.tpl) || {};
+    var sheets = spec.sheets, cur = P.tplSheet;
+    if (cur !== '#ins' && !sheets.some(function (s) { return s.csv === cur; })) cur = P.tplSheet = sheets[0].csv;
+    var view = P.tplView || (P.src && P.src.rows.length ? 'data' : 'oracle');
+    if (view === 'data' && !(P.src && P.src.rows.length)) view = 'oracle';
+    var built = null;
+    if (view === 'data') { try { built = FE.build(spec, L.maps, { cols: P.src.cols, rows: P.src.rows.slice(0, 300) }, { docKey: L.options.docKey, sheets: L.options.sheets, loadId: L.id }); } catch (e) { built = null; } }
+    var h = prSheetCards(false);
+    h += '<div class="xl"><div class="xl-bar"><div class="xl-file"><i class="fa-solid fa-file-excel"></i> <b>' + esc(L.tpl) + '.xlsm</b> <span class="muted">Oracle ' + esc(t.n || '') + ' · release ' + relLabel(DL.release) + '</span></div>' +
+        '<div class="seg sm"><button class="' + (view === 'oracle' ? 'on' : '') + '" data-tplview="oracle">Oracle example rows</button>' +
+        '<button class="' + (view === 'data' ? 'on' : '') + '" data-tplview="data"' + (P.src && P.src.rows.length ? '' : ' disabled title="Load source data first"') + '>With this load\'s data</button></div>' +
+        (cur !== '#ins' ? '<label class="sw"><input type="checkbox" id="pr-hideempty"' + (P.tplHideEmpty ? ' checked' : '') + '> Hide empty columns</label>' : '') + '</div>';
+    if (cur === '#ins') {
+        h += '<div class="xl-ins">' + (spec.ins || []).map(function (p, i) { return i < 2 ? '<h3>' + esc(p) + '</h3>' : '<p>' + esc(p) + '</p>'; }).join('') +
+            '<h3>What the ZIP contains</h3><table class="grid"><thead><tr><th>Sheet (interface table)</th><th>CSV in the ZIP</th><th>Columns</th><th>Required</th></tr></thead><tbody>' +
+            sheets.map(function (s) { return '<tr><td>' + esc(s.n) + '</td><td><code>' + esc(s.csv) + '.csv</code></td><td>' + s.cols.length + '</td><td>' + s.cols.filter(function (c) { return c.r; }).length + '</td></tr>'; }).join('') +
+            '</tbody></table><p class="muted">Oracle\'s workbook turns every sheet into a CSV (no header row, an extra END column) and zips them — the Generate step does exactly the same.</p></div>';
+    } else {
+        var sh = sheets.filter(function (s) { return s.csv === cur; })[0], m = L.maps[sh.csv] || {};
+        var relax = {}; (prRules(L.tpl).notRequired || []).forEach(function (k) { relax[k] = 1; });
+        var isReq = function (c) { return c.r && !relax[c.c]; };
+        var rows = view === 'data' ? (built && built.sheets.filter(function (x) { return x.csv === sh.csv; })[0] || { rows: [] }).rows.slice(0, 200) : (sh.ex || []);
+        var cols = sh.cols.map(function (c, i) { return i; });
+        if (P.tplHideEmpty) cols = cols.filter(function (i) { return isReq(sh.cols[i]) || m[i + 1] || rows.some(function (r) { return r[i] !== '' && r[i] != null; }); });   // required always stays
+        h += '<div class="xl-grid"><table><thead><tr><th class="xl-c"></th>' + cols.map(function (i) { return '<th class="xl-c">' + prColLetter(i) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+            '<tr class="xl-title"><td class="xl-r">2</td><td colspan="' + cols.length + '">' + esc(sh.n) + '</td></tr>' +
+            '<tr class="xl-req"><td class="xl-r">3</td><td colspan="' + cols.length + '"><span>*</span> Required</td></tr>' +
+            '<tr class="xl-head"><td class="xl-r">4</td>' + cols.map(function (i) {
+                var c = sh.cols[i], mapped = m[i + 1];
+                return '<td class="' + (c.r ? 'r' : '') + (mapped ? ' m' : isReq(c) && view === 'data' ? ' miss' : '') + '" data-gocol="' + esc(sh.csv + '|' + c.n) + '" title="' + esc((c.c ? c.c + ' · ' : '') + (c.t === 'D' ? 'date' : c.t === 'N' ? 'number' : 'text') + (c.l ? '(' + c.l + ')' : '') + (c.h ? '\n\n' + c.h : '') + '\n\nMapping: ' + (mapped || '— none —') + '\nClick to map this column') + '">' +
+                    (isReq(c) ? '*' : c.r ? '(*)' : '') + esc(c.n) + (mapped ? '<i class="fa-solid fa-link"></i>' : '') + '</td>';
+            }).join('') + '</tr>' +
+            (rows.length ? rows.map(function (r, ri) {
+                return '<tr><td class="xl-r">' + (ri + 5) + '</td>' + cols.map(function (i) { return '<td>' + esc(r[i] == null ? '' : r[i]) + '</td>'; }).join('') + '</tr>';
+            }).join('') : '<tr><td class="xl-r">5</td><td colspan="' + cols.length + '" class="muted" style="padding:14px">' + (view === 'data' ? (prSheetOpt(sh.csv).include === false ? 'This sheet is not included in the ZIP.' : 'No rows — map this sheet\'s columns in Map.') : 'Oracle ships no example rows for this sheet.') + '</td></tr>') +
+            '</tbody></table></div>';
+    }
+    h += '<div class="xl-tabs"><button class="' + (cur === '#ins' ? 'on' : '') + '" data-tplsheet="#ins">Instructions and CSV Generation</button>' +
+        sheets.map(function (s) {
+            var off = prSheetOpt(s.csv).include === false, n = view === 'data' && built ? ((built.sheets.filter(function (x) { return x.csv === s.csv; })[0] || { rows: [] }).rows.length) : null;
+            return '<button class="' + (s.csv === cur ? 'on' : '') + (off ? ' off' : '') + '" data-tplsheet="' + s.csv + '">' + esc(s.n) + (n != null ? ' <small>' + n + '</small>' : '') + '</button>';
+        }).join('') + '</div></div>' +
+        '<p class="muted xl-note"><i class="fa-solid fa-hand-pointer"></i> Click a column heading to map it. Hover it to see Oracle\'s description. <i class="fa-solid fa-link"></i> = already mapped.</p>';
+    $('pr-body').innerHTML = h;
+}
+
 function prSrcChips() {
     if (!P.src) return '<div class="help-b"><b>Source columns</b><p class="muted">Load data in step 1 to see its columns here.</p></div>';
     return '<div class="help-b"><b>Source columns</b><p class="muted">Click to insert into the field you are editing.</p><div class="chips">' +
@@ -955,7 +1039,11 @@ function prInsert(text) {
         if ((b = t.closest('[data-new]'))) { prNewLoad(b.getAttribute('data-new')); return; }
         if ((b = t.closest('[data-step]'))) { P.step = b.getAttribute('data-step'); prRenderMain(); return; }
         if ((b = t.closest('[data-srctype]'))) { P.load.srcType = b.getAttribute('data-srctype'); P.dirty = true; P.wb = null; prRenderMain(); return; }
-        if ((b = t.closest('[data-mapcsv]'))) { P.mapCsv = b.getAttribute('data-mapcsv'); prRenderMap(); return; }
+        if (t.closest('select, input, label.sw')) return;
+        if ((b = t.closest('[data-tplsheet]'))) { P.tplSheet = b.getAttribute('data-tplsheet'); prRenderTemplate(); return; }
+        if ((b = t.closest('[data-tplview]'))) { P.tplView = b.getAttribute('data-tplview'); prRenderTemplate(); return; }
+        if ((b = t.closest('[data-gocol]'))) { var gc = b.getAttribute('data-gocol').split('|'); P.mapCsv = gc[0]; P.mapFilter = 'all'; P.mapQ = gc.slice(1).join('|'); P.step = 'map'; prRenderMain(); return; }
+        if ((b = t.closest('[data-mapcsv]'))) { var csv = b.getAttribute('data-mapcsv'); if (P.step === 'template') { P.tplSheet = csv; prRenderTemplate(); } else { P.mapCsv = csv; prRenderMap(); } return; }
         if ((b = t.closest('[data-mfilter]'))) { P.mapFilter = b.getAttribute('data-mfilter'); prRenderMap(); return; }
         if ((b = t.closest('[data-outcsv]'))) { P.outCsv = b.getAttribute('data-outcsv'); prRenderCheckBody(); return; }
         if ((b = t.closest('[data-ins]'))) { prInsert(b.getAttribute('data-ins')); return; }
@@ -981,8 +1069,9 @@ function prInsert(text) {
         var t = e.target, L = P.load; if (!L) return;
         if (t.id === 'pr-file' && t.files[0]) prReadFile(t.files[0]);
         else if (t.id === 'pr-wsheet') { P.wbSheet = t.value; P.wbHeader = prGuessHeader(P.wb.Sheets[t.value]); prRenderSource(); }
-        else if (t.id === 'pr-incl') { L.options.sheets[P.mapCsv].include = t.checked; P.dirty = true; prRenderMap(); prRenderHead(); }
-        else if (t.id === 'pr-mode') { L.options.sheets[P.mapCsv].mode = t.value; P.dirty = true; prRenderMapRows(); prRenderHead(); }
+        else if (t.hasAttribute('data-incl')) { prSheetOpt(t.getAttribute('data-incl')).include = t.checked; P.dirty = true; prRenderMain(); }
+        else if (t.hasAttribute('data-mode')) { prSheetOpt(t.getAttribute('data-mode')).mode = t.value; P.dirty = true; prRenderMain(); }
+        else if (t.id === 'pr-hideempty') { P.tplHideEmpty = t.checked; prRenderTemplate(); }
         else if (t.id === 'pr-dorder') { L.options.dateOrder = t.value; P.dirty = true; prRenderHead(); }
         else if (t.id === 'pr-live') { L.options.live = t.checked; P.dirty = true; prRenderHead(); }
         else if (t.id === 'pr-onlybad') { P.srcOnlyBad = t.checked; prRenderSrcGrid(); }

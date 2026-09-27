@@ -341,3 +341,63 @@ textarea.code:focus, .fld input:focus, .me input:focus, .row-f input:focus { out
 .pr-it:hover .pr-del, .pr-it.sel .pr-del { opacity: 1; }
 .pr-del:hover { background: var(--err-bg); color: var(--err); }
 #pr-refresh.spinning i { animation: sp 1s linear infinite; }
+
+/* ── sheets: cards + Excel-like viewer ─────────────────── */
+.sheets-how { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; font-size: .8rem; color: var(--ink2); background: #f7fbff; border: 1px solid #d6e6f8; border-radius: 10px; padding: 10px 14px; line-height: 1.5; }
+.sheets-how > i { color: var(--accent); margin-top: 3px; }
+.sheets-how > span { flex: 1; min-width: 260px; }
+.sheets-how code { font-family: var(--mono); font-size: .74rem; background: #fff; border: 1px solid var(--line); border-radius: 5px; padding: 0 4px; }
+.warn-k { font-style: normal; color: var(--warn); font-weight: 700; flex-basis: 100%; }
+.sheet-cards { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 2px 2px 6px; }
+.sheet-card { flex: 1 1 0; min-width: 210px; max-width: 340px; border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 12px; background: #fff; cursor: pointer; display: flex; flex-direction: column; gap: 5px; }
+.sheet-card:hover { border-color: #a9c8ef; }
+.sheet-card.on { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(42,120,214,.12); }
+.sheet-card.off { background: var(--soft); opacity: .7; }
+.sheet-card.off b { text-decoration: line-through; }
+.sc-h { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.sc-h b { font-family: var(--mono); font-size: .76rem; word-break: break-all; }
+.sc-role { color: var(--muted); font-size: .72rem; line-height: 1.35; min-height: 2em; }
+.sc-mode { border: 1px solid var(--line); border-radius: 7px; padding: 4px 6px; font-size: .74rem; background: #fff; font-family: inherit; }
+.sc-prog { height: 5px; background: var(--line2); border-radius: 3px; overflow: hidden; }
+.sc-prog i { display: block; height: 100%; background: var(--ok); }
+.sc-meta { font-size: .68rem; color: var(--muted); }
+.sc-meta code { font-family: var(--mono); }
+.sheet-arrow { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 0 6px; color: var(--accent); min-width: 64px; text-align: center; }
+.sheet-arrow small { font-size: .62rem; font-weight: 700; color: var(--accent-d); line-height: 1.2; }
+.sheet-arrow.off { color: #cbd5e1; }
+.sheet-arrow.off small { color: #94a3b8; }
+.map-cur { font-size: .82rem; display: flex; gap: 6px; align-items: center; }
+.map-cur small { font-family: var(--mono); color: var(--muted); font-weight: 500; }
+
+.xl { border: 1px solid #c8d1dc; border-radius: 10px; overflow: hidden; background: #fff; display: flex; flex-direction: column; }
+.xl-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 12px; background: #217346; color: #fff; }
+.xl-bar .seg { background: rgba(255,255,255,.18); }
+.xl-bar .seg button { color: #e6f4ea; }
+.xl-bar .seg button.on { color: #185c37; }
+.xl-bar .seg button:disabled { opacity: .5; cursor: default; }
+.xl-bar .sw { color: #fff; }
+.xl-file { display: flex; gap: 8px; align-items: center; font-size: .84rem; margin-right: auto; }
+.xl-file .muted { color: #cfe8d8; font-size: .76rem; }
+.xl-grid { overflow: auto; max-height: 52vh; background: #fff; }
+.xl-grid table { border-collapse: collapse; font-family: Calibri, 'Segoe UI', sans-serif; font-size: .8rem; }
+.xl-grid th.xl-c { position: sticky; top: 0; background: #f3f3f3; color: #555; font-weight: 400; border: 1px solid #d4d4d4; padding: 2px 8px; min-width: 90px; z-index: 2; font-size: .72rem; }
+.xl-grid th.xl-c:first-child, .xl-grid td.xl-r { position: sticky; left: 0; background: #f3f3f3; color: #666; text-align: center; min-width: 34px; font-size: .72rem; z-index: 3; }
+.xl-grid td { border: 1px solid #e1e1e1; padding: 3px 8px; white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+.xl-title td:not(.xl-r) { font-size: 1rem; font-weight: 700; color: #1f4e79; border-color: transparent; }
+.xl-req td:not(.xl-r) { color: #555; border-color: transparent; font-size: .76rem; }
+.xl-req span { color: #c00000; font-weight: 700; }
+.xl-head td:not(.xl-r) { background: #dce6f1; color: #1f3864; font-weight: 700; cursor: pointer; white-space: normal; min-width: 110px; vertical-align: bottom; }
+.xl-head td.r { color: #c00000; }
+.xl-head td.m { background: #d9ead3; }
+.xl-head td i { margin-left: 5px; color: var(--ok); font-size: .7rem; }
+.xl-head td:not(.xl-r):hover { outline: 2px solid #217346; outline-offset: -2px; }
+.xl-tabs { display: flex; gap: 2px; background: #f3f3f3; border-top: 1px solid #d4d4d4; padding: 0 8px; overflow-x: auto; }
+.xl-tabs button { border: 0; border-bottom: 3px solid transparent; background: none; padding: 7px 14px; font-size: .78rem; color: #444; cursor: pointer; white-space: nowrap; font-family: Calibri, 'Segoe UI', sans-serif; }
+.xl-tabs button.on { background: #fff; color: #217346; font-weight: 700; border-bottom-color: #217346; }
+.xl-tabs button.off { color: #aaa; text-decoration: line-through; }
+.xl-tabs small { background: #e2e8f0; border-radius: 8px; padding: 0 6px; margin-left: 4px; font-size: .68rem; color: #334155; }
+.xl-ins { padding: 16px 20px; max-height: 52vh; overflow: auto; font-size: .84rem; color: var(--ink2); display: flex; flex-direction: column; gap: 8px; }
+.xl-ins h3 { color: #1f4e79; }
+.xl-note { font-size: .74rem; }
+@media (max-width: 900px) { .sheet-cards { flex-direction: column; } .sheet-card { max-width: none; } .sheet-arrow { flex-direction: row; min-height: 24px; } .sheet-arrow i { transform: rotate(90deg); } }
+.xl-head td.miss { background: #fde8e8; outline: 2px dashed #e06666; outline-offset: -3px; }

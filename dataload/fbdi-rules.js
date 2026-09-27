@@ -29,7 +29,8 @@ function frMoney(x) { return (Math.round(x * 100) / 100).toLocaleString(undefine
 FBDI_RULES.JournalImportTemplate = {
     title: 'Journals', icon: 'fa-book',
     docKeyHint: 'Optional — e.g. {Journal No}. Gives each journal a number ({#doc}) and line number ({#line}).',
-    sheets: { GlInterface: { mode: 'row' } },
+    sheets: { GlInterface: { mode: 'row', role: 'one row per journal line — journals are grouped by batch/journal name, ledger, date and currency' } },
+    links: [],
     presets: {
         GlInterface: { STATUS: 'NEW', ACTUAL_FLAG: 'A', 'Journal Entry Creation Date': '{#today}', GROUP_ID: '{#load}' }
     },
@@ -85,7 +86,9 @@ FBDI_RULES.PayablesStandardInvoiceImportTemplate = {
     docKeyHint: 'Required — the column that identifies an invoice, e.g. {Invoice No} (or {Vendor}-{Invoice No}). One header per invoice, one line per row.',
     docKeyRequired: true,
     notRequired: ['VENDOR_NAME', 'VENDOR_NUM'],               // one of the two is enough (checked below)
-    sheets: { ApInvoicesInterface: { mode: 'doc' }, ApInvoiceLinesInterface: { mode: 'row' } },
+    sheets: { ApInvoicesInterface: { mode: 'doc', role: 'invoice headers — one row per invoice' },
+              ApInvoiceLinesInterface: { mode: 'row', role: 'invoice lines — one row per line (item, freight, tax…)' } },
+    links: [{ from: 'ApInvoicesInterface', to: 'ApInvoiceLinesInterface', key: 'INVOICE_ID', label: 'Invoice ID' }],
     presets: {
         ApInvoicesInterface: { INVOICE_ID: '{#load}{#doc|pad:5}', SOURCE: 'External', INVOICE_TYPE_LOOKUP_CODE: 'STANDARD' },
         ApInvoiceLinesInterface: { INVOICE_ID: '{#load}{#doc|pad:5}', LINE_NUMBER: '{#line}', LINE_TYPE_LOOKUP_CODE: 'ITEM' }
@@ -159,8 +162,13 @@ FBDI_RULES.PayablesStandardInvoiceImportTemplate = {
 FBDI_RULES.InventoryTransactionImportTemplate = {
     title: 'Inventory Transactions', icon: 'fa-boxes-stacked',
     docKeyHint: 'Optional — e.g. {Trip} to number documents; used by SOURCE_HEADER_ID.',
-    sheets: { InvTransactionsInterface: { mode: 'row' }, InvTransactionLotsInterface: { mode: 'row', include: false },
-              InvSerialNumbersInterface: { mode: 'row', include: false }, CstTransCostInterface: { mode: 'row', include: false } },
+    sheets: { InvTransactionsInterface: { mode: 'row', role: 'one row per material transaction (receipt, issue, transfer…)' },
+              InvTransactionLotsInterface: { mode: 'row', include: false, role: 'lot numbers of lot-controlled items — optional' },
+              InvSerialNumbersInterface: { mode: 'row', include: false, role: 'serial numbers of serial-controlled items — optional' },
+              CstTransCostInterface: { mode: 'row', include: false, role: 'incoming cost per cost component — optional' } },
+    links: [{ from: 'InvTransactionsInterface', to: 'InvTransactionLotsInterface', key: 'INV_LOTSERIAL_INTERFACE_NUM', toKey: 'Inventory Lot Interface Number', label: 'Lot interface number' },
+            { from: 'InvTransactionLotsInterface', to: 'InvSerialNumbersInterface', key: 'Inventory Serial Interface Number', toKey: 'INV_SERIAL_INTERFACE_NUM', label: 'Serial interface number' },
+            { from: 'InvTransactionsInterface', to: 'CstTransCostInterface', key: 'TRANSACTION_COST_IDENTIFIER', label: 'Cost identifier' }],
     presets: {
         InvTransactionsInterface: { PROCESS_FLAG: '1', TRANSACTION_MODE: '3', LOCK_FLAG: '2', SOURCE_CODE: 'WMS',
             SOURCE_HEADER_ID: '{#load}{#doc|pad:5}', SOURCE_LINE_ID: '{#load}{#row|pad:6}' }
