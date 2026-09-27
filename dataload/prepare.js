@@ -156,6 +156,14 @@ function prLoadList(selectId) {
         else prRenderMain();
     }).catch(function (e) { P.state = 'offline'; P.error = String(e); prRenderList(); prRenderMain(); });
 }
+function prRefresh() {
+    var b = $('pr-refresh'); if (b) b.classList.add('spinning');
+    var keep = P.selId;
+    return prLoadList().then(function () {
+        if (b) b.classList.remove('spinning');
+        if (keep && !(P.dirty || P.srcDirty) && P.list.some(function (l) { return l.id === keep; })) { P.selId = null; return prSelect(keep); }
+    });
+}
 function prRenderList() {
     var el = $('pr-list'); if (!el) return;
     if (P.state === 'loading') { el.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch spin"></i> Loading…</div>'; return; }
@@ -167,7 +175,8 @@ function prRenderList() {
         var R = prRules(l.tpl);
         return '<div class="it pr-it' + (l.id === P.selId ? ' sel' : '') + '" data-id="' + l.id + '"><i class="fa-solid ' + (R.icon || 'fa-file-excel') + ' pr-ic"></i>' +
             '<div class="tx"><div class="nm">' + esc(l.name) + '</div><div class="fl">' + esc(prTplName(l.tpl)) + (l.rows != null ? ' · ' + l.rows + ' rows' : '') + '</div>' +
-            '<div class="pr-meta">' + prStatusChip(l.lastStatus || l.status) + '<span>' + esc(prAgo(l.lastRun || l.updated)) + '</span></div></div></div>';
+            '<div class="pr-meta">' + prStatusChip(l.lastStatus || l.status) + '<span>' + esc(prAgo(l.lastRun || l.updated)) + '</span>' + (l.by ? '<span>· ' + esc(l.by) + '</span>' : '') + '</div></div>' +
+            '<button class="pr-del" data-del="' + l.id + '" title="Delete this load from APEX"><i class="fa-regular fa-trash-can"></i></button></div>';
     }).join('');
 }
 
@@ -186,19 +195,58 @@ function prNewLoad(tpl) {
         '<label class="fld"><span>Description <em>(optional)</em></span><input id="pr-f-desc" maxlength="1000"></label>' +
         '<div class="modal-f"><button class="btn" data-mact="close">Cancel</button><button class="btn primary" data-mact="create"><i class="fa-solid fa-check"></i> Create load</button></div>';
     prModal(h);
-    var setName = function () { var f = document.querySelector('input[name=pr-tpl]:checked').value; if (!$('pr-f-name').dataset.touched) $('pr-f-name').value = prTplName(f) + ' — ' + new Date().toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }); };
+    var setName = function () { var f = document.querySelector('input[name=pr-tpl]:checked').value; if (!$('pr-f-name').dataset.touched) $('pr-f-name').value = prDefaultName(f); };
     setName();
-    $('pr-f-name').addEventListener('input', function () { this.dataset.touched = '1'; });
+    $('pr-f-name').addEventListener('input', function () { if (this.value.trim()) this.dataset.touched = '1'; else delete this.dataset.touched; });
     Array.prototype.forEach.call(document.querySelectorAll('input[name=pr-tpl]'), function (r) {
         r.addEventListener('change', function () {
-            Array.prototype.forEach.call(document.querySelectorAll('.tpl-card'), function (c) { c.classList.toggle('on', c.querySelector('input').checked); });
+            Array.prototype.forEach.call($('pr-modal-box').querySelectorAll('.tpl-card'), function (c) { c.classList.toggle('on', c.querySelector('input').checked); });
             setName();
         });
     });
     $('pr-f-name').focus(); $('pr-f-name').select();
 }
+function prChangeTemplate() {
+    var L = P.load; if (!L) return;
+    var supported = Object.keys(window.FBDI_SPECS || {});
+    prModal('<h2><i class="fa-solid fa-right-left"></i> Change template</h2><p class="muted">The mapping is reset to the new template\'s defaults. Your source data stays.</p><div class="tpl-pick">' +
+        supported.map(function (f) {
+            var t = tplByFile(f) || { n: f, d: '' }, R = prRules(f);
+            return '<label class="tpl-card' + (f === L.tpl ? ' on' : '') + '"><input type="radio" name="pr-chtpl" value="' + f + '"' + (f === L.tpl ? ' checked' : '') + '>' +
+                '<i class="fa-solid ' + (R.icon || 'fa-file-excel') + '"></i><b>' + esc(t.n) + '</b><small>' + esc(t.d) + '</small></label>';
+        }).join('') + '</div>' +
+        '<label class="sw"><input type="checkbox" id="pr-chname" checked> Rename the load to match</label>' +
+        '<div class="modal-f"><button class="btn" data-mact="close">Cancel</button><button class="btn primary" data-mact="chtpl"><i class="fa-solid fa-check"></i> Change</button></div>');
+    Array.prototype.forEach.call(document.querySelectorAll('input[name=pr-chtpl]'), function (r) {
+        r.addEventListener('change', function () { Array.prototype.forEach.call($('pr-modal-box').querySelectorAll('.tpl-card'), function (c) { c.classList.toggle('on', c.querySelector('input').checked); }); });
+    });
+}
+function prApplyTemplate() {
+    var L = P.load, tpl = document.querySelector('input[name=pr-chtpl]:checked').value, rename = $('pr-chname').checked;
+    prModal(null);
+    if (!L || tpl === L.tpl) return;
+    var oldName = prTplName(L.tpl);
+    prSetBusy('Switching to ' + prTplName(tpl) + '…');
+    var newName = prTplName(tpl);
+    var name = !rename || L.name.indexOf(newName) === 0 ? L.name : L.name.indexOf(oldName) === 0 ? newName + L.name.slice(oldName.length) : prDefaultName(tpl);
+    prWrite('UPDATE wms_fbdi_loads SET template_file = ' + prV(tpl, 100) + ', load_name = ' + prV(name, 200) + ", status = 'DRAFT', updated_by = " + prV(appUserName(), 120) +
+        ', updated_date = SYSDATE WHERE load_id = ' + prN(L.id)).then(function () {
+        L.tpl = tpl; L.name = name;
+        var keepDate = L.options && L.options.dateOrder;
+        L.options = prDefaultOptions(tpl); if (keepDate) L.options.dateOrder = keepDate;
+        L.maps = prDefaultMaps(tpl); P.mapCsv = prSpec(tpl).sheets[0].csv; P.check = null; P.runs = null;
+        prAutoMap(true);
+        return prSave(true);
+    }).then(function () {
+        prSetBusy(null); toast('Now a ' + prTplName(tpl) + ' load');
+        var li = P.list.filter(function (x) { return x.id === L.id; })[0]; if (li) { li.tpl = tpl; li.name = name; }
+        prRenderList(); prRenderMain();
+    }).catch(function (e) { prSetBusy(null); toast('Could not change the template: ' + e); });
+}
+function prDefaultName(tpl) { return prTplName(tpl) + ' — ' + new Date().toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }); }
 function prCreate() {
-    var tpl = document.querySelector('input[name=pr-tpl]:checked').value, name = $('pr-f-name').value.trim(), desc = $('pr-f-desc').value.trim();
+    var tpl = document.querySelector('input[name=pr-tpl]:checked').value, desc = $('pr-f-desc').value.trim();
+    var name = $('pr-f-name').dataset.touched ? $('pr-f-name').value.trim() : prDefaultName(tpl);
     if (!name) { $('pr-f-name').focus(); return; }
     var opts = prDefaultOptions(tpl), user = appUserName();
     prModal(null);
@@ -242,8 +290,8 @@ function prSelect(id) {
         try { L.options = Object.assign(prDefaultOptions(L.tpl), JSON.parse(res[2] || '{}')); } catch (e) { L.options = prDefaultOptions(L.tpl); }
         L.maps = {}; prSpec(L.tpl).sheets.forEach(function (s) { L.maps[s.csv] = {}; });
         res[3].forEach(function (m) { if (L.maps[m.SHEET_CSV] && m.MAP_EXPR != null) L.maps[m.SHEET_CSV][+m.COL_POS] = m.MAP_EXPR; });
+        if (P.selId !== L.id) return;                    // user clicked another load meanwhile
         P.load = L; P.mapCsv = prSpec(L.tpl).sheets[0].csv;
-        if (P.selId !== L.id) return;
         prRenderMain();
         if (cols.length && (L.srcType === 'FILE' || L.srcType === 'PASTE')) return prLoadRows(L, cols);
         if (cols.length) P.src = { cols: cols, rows: [], note: 'Run the query to fetch the rows' };
@@ -331,13 +379,18 @@ function prSaveRows(L, src) {
         });
     });
 }
-function prDelete() {
-    var L = P.load; if (!L || !confirm('Delete the load "' + L.name + '" with its mappings, saved rows and history?')) return;
-    var w = ' WHERE load_id = ' + prN(L.id);
+function prDelete(id) {
+    var L = P.list.filter(function (x) { return x.id === (id || P.selId); })[0] || P.load; if (!L) return;
+    if (!confirm('Delete the load "' + L.name + '" from APEX, with its mappings, saved rows and history?')) return;
+    var w = ' WHERE load_id = ' + prN(L.id), current = L.id === P.selId;
     prSetBusy('Deleting…');
     prSeq(['DELETE FROM wms_fbdi_run_files WHERE run_id IN (SELECT run_id FROM wms_fbdi_load_runs' + w + ')', 'DELETE FROM wms_fbdi_load_runs' + w,
         'DELETE FROM wms_fbdi_load_rows' + w, 'DELETE FROM wms_fbdi_load_maps' + w, 'DELETE FROM wms_fbdi_loads' + w], prWrite)
-        .then(function () { prSetBusy(null); P.dirty = P.srcDirty = false; P.load = null; P.selId = null; lsSet('pr_sel', null); toast('Load deleted'); prLoadList(); })
+        .then(function () {
+            prSetBusy(null); toast('Load deleted');
+            if (current) { P.dirty = P.srcDirty = false; P.load = null; P.selId = null; P.openError = null; lsSet('pr_sel', null); }
+            prLoadList();
+        })
         .catch(function (e) { prSetBusy(null); toast('Delete failed: ' + e); });
 }
 
@@ -374,7 +427,7 @@ function prRenderHead() {
     var t = tplByFile(L.tpl) || { n: L.tpl }, R = prRules(L.tpl);
     el.innerHTML = '<div class="d-ic" style="--c:#2a78d6"><i class="fa-solid ' + (R.icon || 'fa-file-excel') + '"></i></div>' +
         '<div class="grow"><input class="pr-name" id="pr-name" value="' + esc(L.name) + '" maxlength="200" title="Rename">' +
-        '<div class="muted pr-sub">' + esc(t.n) + ' · <code>' + esc(L.tpl) + '.xlsm</code>' + (L.description ? ' · ' + esc(L.description) : '') + '</div></div>' +
+        '<div class="muted pr-sub">' + esc(t.n) + ' · <code>' + esc(L.tpl) + '.xlsm</code> <button class="link" data-pact="chtpl" title="Switch this load to another template">Change template</button>' + (L.description ? ' · ' + esc(L.description) : '') + '</div></div>' +
         (P.dirty || P.srcDirty ? '<span class="chip warn"><i class="fa-solid fa-pen"></i> Unsaved</span>' : '<span class="chip ok"><i class="fa-solid fa-cloud"></i> Saved in APEX</span>') +
         '<button class="btn primary" data-pact="save"' + (P.dirty || P.srcDirty ? '' : ' disabled') + '><i class="fa-solid fa-floppy-disk"></i> Save</button>' +
         '<button class="btn" data-pact="delete" title="Delete this load"><i class="fa-regular fa-trash-can"></i></button>';
@@ -883,12 +936,17 @@ function prInsert(text) {
     if (!$('page-prepare')) return;
     $('pr-new').addEventListener('click', function () { prNewLoad(); });
     $('pr-q').addEventListener('input', function () { P.q = this.value.trim(); prRenderList(); });
-    $('pr-list').addEventListener('click', function (e) { var it = e.target.closest('.pr-it'); if (it) prSelect(+it.getAttribute('data-id')); });
+    $('pr-list').addEventListener('click', function (e) {
+        var d = e.target.closest('[data-del]'); if (d) { e.stopPropagation(); prDelete(+d.getAttribute('data-del')); return; }
+        var it = e.target.closest('.pr-it'); if (it) prSelect(+it.getAttribute('data-id'));
+    });
+    $('pr-refresh').addEventListener('click', function () { prRefresh(); });
     $('pr-modal').addEventListener('click', function (e) {
         if (e.target === this) prModal(null);
         var b = e.target.closest('[data-mact]'); if (!b) return;
         if (b.getAttribute('data-mact') === 'close') prModal(null);
         if (b.getAttribute('data-mact') === 'create') prCreate();
+        if (b.getAttribute('data-mact') === 'chtpl') prApplyTemplate();
     });
     $('pr-modal').addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.id === 'pr-f-name') prCreate(); if (e.key === 'Escape') prModal(null); });
     var main = $('pr-main'), mt;
@@ -907,7 +965,8 @@ function prInsert(text) {
         if ((b = t.closest('[data-rezip]'))) { prRezip(+b.getAttribute('data-rezip'), b.getAttribute('data-zipname')); return; }
         if (!(b = t.closest('[data-pact]'))) return;
         var a = b.getAttribute('data-pact');
-        if (a === 'reopen') { var rid = P.selId; P.selId = null; prSelect(rid); }
+        if (a === 'chtpl') prChangeTemplate();
+        else if (a === 'reopen') { var rid = P.selId; P.selId = null; prSelect(rid); }
         else if (a === 'save') prSave();
         else if (a === 'delete') prDelete();
         else if (a === 'usesheet') prUseSheet();
