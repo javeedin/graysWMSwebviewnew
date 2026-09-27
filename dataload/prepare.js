@@ -97,7 +97,7 @@ function prEnsureTables() {
 
 // ── helpers ────────────────────────────────────────────────────
 function prSpec(tpl) { return window.FBDI_SPECS && FBDI_SPECS[tpl]; }
-function prRules(tpl) { return (window.FBDI_RULES && FBDI_RULES[tpl]) || {}; }
+function prRules(tpl) { return typeof fbdiRules === 'function' ? fbdiRules(tpl) : (window.FBDI_RULES && FBDI_RULES[tpl]) || {}; }
 function prTplName(tpl) { var t = tplByFile(tpl); return t ? t.n : tpl; }
 function prNorm(s) { return String(s || '').toLowerCase().replace(/\(.*?\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim(); }
 function prAgo(s) {
@@ -191,56 +191,96 @@ function prRenderList() {
 }
 
 // ── new / open / save ──────────────────────────────────────────
-function prNewLoad(tpl) {
-    if ((P.dirty || P.srcDirty) && P.load && !confirm('Discard the unsaved changes of "' + P.load.name + '"?')) return;
-    var supported = Object.keys(window.FBDI_SPECS || {});
-    tpl = tpl && supported.indexOf(tpl) >= 0 ? tpl : supported[0];
-    var h = '<h2><i class="fa-solid fa-wand-magic-sparkles"></i> New load</h2><p class="muted">Pick the template to fill. More templates follow.</p><div class="tpl-pick">' +
-        supported.map(function (f) {
-            var t = tplByFile(f) || { n: f, d: '' }, R = prRules(f);
-            return '<label class="tpl-card' + (f === tpl ? ' on' : '') + '"><input type="radio" name="pr-tpl" value="' + f + '"' + (f === tpl ? ' checked' : '') + '>' +
-                '<i class="fa-solid ' + (R.icon || 'fa-file-excel') + '"></i><b>' + esc(t.n) + '</b><small>' + esc(t.d) + '</small></label>';
-        }).join('') + '</div>' +
-        '<label class="fld"><span>Load name</span><input id="pr-f-name" maxlength="200" placeholder="e.g. Month-end accruals Sep-26"></label>' +
-        '<label class="fld"><span>Description <em>(optional)</em></span><input id="pr-f-desc" maxlength="1000"></label>' +
-        '<div class="modal-f"><button class="btn" data-mact="close">Cancel</button><button class="btn primary" data-mact="create"><i class="fa-solid fa-check"></i> Create load</button></div>';
-    prModal(h);
-    var setName = function () { var f = document.querySelector('input[name=pr-tpl]:checked').value; if (!$('pr-f-name').dataset.touched) $('pr-f-name').value = prDefaultName(f); };
-    setName();
-    $('pr-f-name').addEventListener('input', function () { if (this.value.trim()) this.dataset.touched = '1'; else delete this.dataset.touched; });
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=pr-tpl]'), function (r) {
+/** Every FBDI template, grouped by area and searchable (names, sheets, columns). Templates whose Oracle macro
+    builds something other than one CSV per sheet are listed with the reason and cannot be picked. */
+function prSupported() { return FBDI_TEMPLATES.filter(function (t) { return fbdiSupported(t.f); }).map(function (t) { return t.f; }); }
+function prTplPicker(name, sel) {
+    var areas = {}, order = [];
+    FBDI_AREAS.forEach(function (a) { areas[a[0]] = { name: a[1], color: a[2], list: [] }; order.push(a[0]); });
+    FBDI_TEMPLATES.forEach(function (t) {
+        if (!areas[t.a]) { areas[t.a] = { name: t.a, color: '#64748b', list: [] }; order.push(t.a); }
+        areas[t.a].list.push(t);
+    });
+    var nOk = prSupported().length, nFull = Object.keys(FBDI_RULES).length;
+    var h = '<div class="tp-top"><div class="pr-search tp-q"><i class="fa-solid fa-magnifying-glass"></i><input type="search" data-tpq="' + name + '" placeholder="Search ' + FBDI_TEMPLATES.length + ' templates, sheets or columns…  e.g. supplier, PO_LINES, Item Number" autocomplete="off"></div>' +
+        '<small class="muted">' + nOk + ' ready · ' + nFull + ' with Fusion checks · ' + (FBDI_TEMPLATES.length - nOk) + ' not yet</small></div><div class="tp-list" data-tplist="' + name + '">';
+    order.forEach(function (k) {
+        var A = areas[k]; if (!A.list.length) return;
+        h += '<div class="tp-area" style="--ac:' + A.color + '"><div class="tp-ah">' + esc(A.name) + ' <small>' + A.list.length + '</small></div>';
+        A.list.forEach(function (t) {
+            var ix = FBDI_SPEC_INDEX[t.f] || { ok: 0, why: 'not in this version of the app' }, full = !!FBDI_RULES[t.f], R = prRules(t.f);
+            var words = (t.n + ' ' + t.f + ' ' + (t.d || '') + ' ' + (t.t || []).map(function (x) { return x.n + ' ' + (x.c || []).join(' '); }).join(' ')).toLowerCase();
+            h += '<label class="tp-row' + (ix.ok ? '' : ' no') + (t.f === sel ? ' on' : '') + '" data-words="' + esc(words) + '"' + (ix.ok ? '' : ' title="' + esc(ix.why) + '"') + '>' +
+                '<input type="radio" name="' + name + '" value="' + t.f + '"' + (t.f === sel ? ' checked' : '') + (ix.ok ? '' : ' disabled') + '>' +
+                '<i class="fa-solid ' + (R.icon || 'fa-file-excel') + '"></i><span class="tp-n"><b>' + esc(t.n) + '</b><small>' + esc(t.d || '') + '</small></span>' +
+                (ix.ok ? '<span class="tp-m">' + ix.sheets + ' sheet' + (ix.sheets === 1 ? '' : 's') + ' · ' + ix.cols + ' cols</span>' +
+                    (full ? '<span class="tp-b full" title="Hand-written rules: auto-map synonyms, balancing and totals, live lookups in Fusion">Fusion checks</span>'
+                          : '<span class="tp-b" title="Required, type and length checks from the template; sheet links worked out from the key columns the sheets share">Template checks</span>')
+                    : '<span class="tp-b no"><i class="fa-solid fa-ban"></i> Not yet — ' + esc(ix.why) + '</span>') + '</label>';
+        });
+        h += '</div>';
+    });
+    return h + '<div class="tp-none muted" hidden>No template matches.</div></div>';
+}
+function prTplPickerWire(name, onPick) {
+    var box = $('pr-modal-box'), q = box.querySelector('[data-tpq="' + name + '"]'), list = box.querySelector('[data-tplist="' + name + '"]');
+    q.addEventListener('input', function () {
+        var w = q.value.trim().toLowerCase().split(/\s+/).filter(Boolean), any = false;
+        Array.prototype.forEach.call(list.querySelectorAll('.tp-area'), function (a) {
+            var vis = 0;
+            Array.prototype.forEach.call(a.querySelectorAll('.tp-row'), function (r) {
+                var ok = w.every(function (x) { return r.getAttribute('data-words').indexOf(x) >= 0; });
+                r.hidden = !ok; if (ok) vis++;
+            });
+            a.hidden = !vis; if (vis) any = true;
+        });
+        list.querySelector('.tp-none').hidden = any;
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('input[name=' + name + ']'), function (r) {
         r.addEventListener('change', function () {
-            Array.prototype.forEach.call($('pr-modal-box').querySelectorAll('.tpl-card'), function (c) { c.classList.toggle('on', c.querySelector('input').checked); });
-            setName();
+            Array.prototype.forEach.call(list.querySelectorAll('.tp-row'), function (c) { c.classList.toggle('on', c.querySelector('input').checked); });
+            if (onPick) onPick(r.value);
         });
     });
-    $('pr-f-name').focus(); $('pr-f-name').select();
+    var on = list.querySelector('.tp-row.on'); if (on && on.scrollIntoView) on.scrollIntoView({ block: 'center' });
+    return q;
+}
+function prNewLoad(tpl) {
+    if ((P.dirty || P.srcDirty) && P.load && !confirm('Discard the unsaved changes of "' + P.load.name + '"?')) return;
+    var supported = prSupported();
+    tpl = tpl && supported.indexOf(tpl) >= 0 ? tpl : P.load && supported.indexOf(P.load.tpl) >= 0 ? P.load.tpl : supported[0];
+    var h = '<h2><i class="fa-solid fa-wand-magic-sparkles"></i> New load</h2><p class="muted">Pick the Oracle FBDI template to fill — all ' + FBDI_TEMPLATES.length + ' standard templates are listed; search finds sheets and columns too.</p>' +
+        prTplPicker('pr-tpl', tpl) +
+        '<div class="row-f"><label class="fld grow"><span>Load name</span><input id="pr-f-name" maxlength="200" placeholder="e.g. Month-end accruals Sep-26"></label>' +
+        '<label class="fld grow"><span>Description <em>(optional)</em></span><input id="pr-f-desc" maxlength="1000"></label></div>' +
+        '<div class="modal-f"><button class="btn" data-mact="close">Cancel</button><button class="btn primary" data-mact="create"><i class="fa-solid fa-check"></i> Create load</button></div>';
+    prModal(h);
+    $('pr-modal-box').classList.add('wide');
+    var setName = function () { var f = document.querySelector('input[name=pr-tpl]:checked'); if (f && !$('pr-f-name').dataset.touched) $('pr-f-name').value = prDefaultName(f.value); };
+    setName();
+    $('pr-f-name').addEventListener('input', function () { if (this.value.trim()) this.dataset.touched = '1'; else delete this.dataset.touched; });
+    prTplPickerWire('pr-tpl', setName).focus();
 }
 function prChangeTemplate() {
     var L = P.load; if (!L) return;
-    var supported = Object.keys(window.FBDI_SPECS || {});
-    prModal('<h2><i class="fa-solid fa-right-left"></i> Change template</h2><p class="muted">The mapping is reset to the new template\'s defaults. Your source data stays.</p><div class="tpl-pick">' +
-        supported.map(function (f) {
-            var t = tplByFile(f) || { n: f, d: '' }, R = prRules(f);
-            return '<label class="tpl-card' + (f === L.tpl ? ' on' : '') + '"><input type="radio" name="pr-chtpl" value="' + f + '"' + (f === L.tpl ? ' checked' : '') + '>' +
-                '<i class="fa-solid ' + (R.icon || 'fa-file-excel') + '"></i><b>' + esc(t.n) + '</b><small>' + esc(t.d) + '</small></label>';
-        }).join('') + '</div>' +
+    prModal('<h2><i class="fa-solid fa-right-left"></i> Change template</h2><p class="muted">The mapping is reset to the new template\'s defaults. Your source data stays.</p>' +
+        prTplPicker('pr-chtpl', L.tpl) +
         '<label class="sw"><input type="checkbox" id="pr-chname" checked> Rename the load to match</label>' +
         '<div class="modal-f"><button class="btn" data-mact="close">Cancel</button><button class="btn primary" data-mact="chtpl"><i class="fa-solid fa-check"></i> Change</button></div>');
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=pr-chtpl]'), function (r) {
-        r.addEventListener('change', function () { Array.prototype.forEach.call($('pr-modal-box').querySelectorAll('.tpl-card'), function (c) { c.classList.toggle('on', c.querySelector('input').checked); }); });
-    });
+    $('pr-modal-box').classList.add('wide');
+    prTplPickerWire('pr-chtpl').focus();
 }
 function prApplyTemplate() {
-    var L = P.load, tpl = document.querySelector('input[name=pr-chtpl]:checked').value, rename = $('pr-chname').checked;
+    var pick = document.querySelector('input[name=pr-chtpl]:checked'); if (!pick) return;
+    var L = P.load, tpl = pick.value, rename = $('pr-chname').checked;
     prModal(null);
     if (!L || tpl === L.tpl) return;
     var oldName = prTplName(L.tpl);
     prSetBusy('Switching to ' + prTplName(tpl) + '…');
     var newName = prTplName(tpl);
     var name = !rename || L.name.indexOf(newName) === 0 ? L.name : L.name.indexOf(oldName) === 0 ? newName + L.name.slice(oldName.length) : prDefaultName(tpl);
-    prWrite('UPDATE wms_fbdi_loads SET template_file = ' + prV(tpl, 100) + ', load_name = ' + prV(name, 200) + ", status = 'DRAFT', updated_by = " + prV(appUserName(), 120) +
-        ', updated_date = SYSDATE WHERE load_id = ' + prN(L.id)).then(function () {
+    fbdiSpec(tpl).then(function () { return prWrite('UPDATE wms_fbdi_loads SET template_file = ' + prV(tpl, 100) + ', load_name = ' + prV(name, 200) + ", status = 'DRAFT', updated_by = " + prV(appUserName(), 120) +
+        ', updated_date = SYSDATE WHERE load_id = ' + prN(L.id)); }).then(function () {
         L.tpl = tpl; L.name = name;
         var keepDate = L.options && L.options.dateOrder;
         L.options = prDefaultOptions(tpl); if (keepDate) L.options.dateOrder = keepDate;
@@ -255,14 +295,16 @@ function prApplyTemplate() {
 }
 function prDefaultName(tpl) { return prTplName(tpl) + ' — ' + new Date().toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' }); }
 function prCreate() {
-    var tpl = document.querySelector('input[name=pr-tpl]:checked').value, desc = $('pr-f-desc').value.trim();
+    var pick = document.querySelector('input[name=pr-tpl]:checked'); if (!pick) { toast('Pick a template first'); return; }
+    var tpl = pick.value, desc = $('pr-f-desc').value.trim();
     var name = $('pr-f-name').dataset.touched ? $('pr-f-name').value.trim() : prDefaultName(tpl);
     if (!name) { $('pr-f-name').focus(); return; }
-    var opts = prDefaultOptions(tpl), user = appUserName();
+    var opts, user = appUserName();
     prModal(null);
     P.dirty = P.srcDirty = false;
     prSetBusy('Creating the load…');
-    prEnsureTables().then(function () {
+    Promise.all([fbdiSpec(tpl), prEnsureTables()]).then(function () {
+        opts = prDefaultOptions(tpl);
         return prWrite('INSERT INTO wms_fbdi_loads (load_name, template_file, description, source_type, options_json, instance, status, created_by, updated_by) VALUES (' +
             prV(name, 200) + ', ' + prV(tpl, 100) + ', ' + prV(desc, 1000) + ", 'FILE', " + prClob(JSON.stringify(opts)) + ', ' + prV(currentInstance(), 10) + ", 'DRAFT', " + prV(user, 120) + ', ' + prV(user, 120) + ')');
     }).then(function () {
@@ -288,13 +330,14 @@ function prSelect(id) {
         L = { id: +x.LOAD_ID, name: x.LOAD_NAME, tpl: x.TEMPLATE_FILE, description: x.DESCRIPTION || '', srcType: x.SOURCE_TYPE || 'FILE', srcNote: x.SOURCE_NOTE || '', status: x.STATUS, rowCount: x.ROW_COUNT, updated: x.UPDATED };
         var w = 'load_id = ' + prN(id);
         return Promise.all([
+            fbdiSpec(L.tpl).catch(function (e) { throw 'This load uses ' + prTplName(L.tpl) + ' — ' + e; }),
             +x.SQL_LEN ? prReadClob('wms_fbdi_loads', 'source_sql', w) : '',
             +x.COLS_LEN ? prReadClob('wms_fbdi_loads', 'source_cols', w) : '',
             +x.OPT_LEN ? prReadClob('wms_fbdi_loads', 'options_json', w) : '',
             prRead('SELECT sheet_csv, col_pos, map_expr FROM wms_fbdi_load_maps WHERE ' + w, 5000)
         ]);
     }).then(function (res) {
-        if (!prSpec(L.tpl)) throw 'Template ' + L.tpl + ' is not supported by this version of the app';
+        res.shift();                                     // the spec — now in FBDI_SPECS
         L.srcSql = res[0] || '';
         var cols = []; try { cols = JSON.parse(res[1] || '[]'); } catch (e) { }
         L.options = prMergeOptions(L.tpl, res[2]);
@@ -443,14 +486,15 @@ function prRenderHead() {
         '<button class="btn" data-pact="delete" title="Delete this load"><i class="fa-regular fa-trash-can"></i></button>';
 }
 function prWelcome() {
-    var tpls = Object.keys(window.FBDI_SPECS || {});
+    var tpls = Object.keys(FBDI_RULES), nOk = prSupported().length;
     return '<div class="welcome"><h2>Prepare &amp; Load</h2><p>Fill an Oracle FBDI template with real data, check it against Fusion before anything is uploaded, and generate the exact ZIP Oracle\'s own workbook would produce — without Excel macros. Every load, mapping, check and ZIP is kept in APEX.</p>' +
         '<div class="flow4">' +
         '<div><i class="fa-solid fa-database"></i><b>1 · Source</b><span>Excel / CSV file, paste from Excel, or a SQL query on APEX or Fusion.</span></div>' +
         '<div><i class="fa-solid fa-shuffle"></i><b>2 · Map</b><span>Auto-map columns; use constants, <code>{Column|date}</code>, <code>{#sum:Amount}</code> and more.</span></div>' +
         '<div><i class="fa-solid fa-list-check"></i><b>3 · Check</b><span>Required, types and lengths from the template, balancing and totals, then live Fusion lookups.</span></div>' +
         '<div><i class="fa-solid fa-file-zipper"></i><b>4 · Generate</b><span>CSV files in Oracle\'s format zipped and stored — ready for UCM.</span></div></div>' +
-        '<h3 style="margin-top:22px">Templates ready</h3><div class="tpl-pick">' + tpls.map(function (f) {
+        '<h3 style="margin-top:22px">' + nOk + ' of Oracle\'s ' + FBDI_TEMPLATES.length + ' FBDI templates ready <button class="btn sm primary" data-new="" style="margin-left:8px"><i class="fa-solid fa-table-list"></i> Browse all</button></h3>' +
+        '<p class="muted">Every template gets the checks from Oracle\'s workbook (required, type, length) and sheet links worked out from its key columns. These also have hand-written rules — auto-map synonyms, balancing and live Fusion lookups:</p><div class="tpl-pick">' + tpls.map(function (f) {
             var t = tplByFile(f) || { n: f, d: '' }, R = prRules(f);
             return '<button class="tpl-card" data-new="' + f + '"><i class="fa-solid ' + (R.icon || 'fa-file-excel') + '"></i><b>' + esc(t.n) + '</b><small>' + esc(t.d) + '</small></button>';
         }).join('') + '</div></div>';
@@ -879,7 +923,7 @@ function prRenderGenerate() {
     else h += '<div class="note ok"><i class="fa-solid fa-circle-check"></i> Checked ' + prAgo(C.at.toISOString()) + ': ' + C.outRows + ' rows, no errors' + (C.warnings ? ', ' + C.warnings + ' warnings' : '') + '.</div>';
     if (fresh) {
         h += '<div class="files">' + C.built.sheets.map(function (s) {
-            var csv = FE.toCsv(s);
+            var csv = FE.toCsv(s, spec.end);
             return '<div class="file"><i class="fa-solid fa-file-csv"></i><b>' + esc(s.csv) + '.csv</b><span>' + s.rows.length + ' rows · ' + fmtSize(FE.utf8Bytes(csv)) + '</span></div>';
         }).join('') + '</div>' +
             '<div class="row-f"><label class="fld"><span>ZIP name</span><input id="pr-zipname" value="' + esc(zipBase) + '" style="width:340px"></label>' +
@@ -902,7 +946,7 @@ function prGenerate() {
     if (C.errors && !($('pr-force') && $('pr-force').checked)) { toast('Fix the errors or tick “Generate with errors”.'); return; }
     if (!window.JSZip) { toast('The ZIP library did not load — check the internet connection.'); return; }
     var name = ($('pr-zipname').value || 'fbdi').trim().replace(/[^\w.-]+/g, '_').replace(/\.zip$/i, '') + '.zip';
-    var zip = new JSZip(), files = C.built.sheets.map(function (s) { var t = FE.toCsv(s); return { name: s.csv + '.csv', rows: s.rows.length, text: t, bytes: FE.utf8Bytes(t) }; });
+    var zip = new JSZip(), files = C.built.sheets.map(function (s) { var t = FE.toCsv(s, (prSpec(P.load.tpl) || {}).end); return { name: s.csv + '.csv', rows: s.rows.length, text: t, bytes: FE.utf8Bytes(t) }; });
     files.forEach(function (f) { zip.file(f.name, f.text); });
     prSetBusy('Building ' + name + '…');
     // the stored load must match the ZIP — save pending edits first
@@ -1000,6 +1044,7 @@ function prRezip(runId, name) {
 function prModal(html) {
     var bg = $('pr-modal');
     if (!html) { bg.classList.remove('show'); return; }
+    $('pr-modal-box').className = 'modal';
     $('pr-modal-box').innerHTML = html; bg.classList.add('show');
 }
 function prInsert(text) {
@@ -1068,6 +1113,7 @@ function prInsert(text) {
     main.addEventListener('change', function (e) {
         var t = e.target, L = P.load; if (!L) return;
         if (t.id === 'pr-file' && t.files[0]) prReadFile(t.files[0]);
+        else if (t.id === 'pr-force') { var g = document.querySelector('[data-pact="generate"]'); if (g) g.disabled = !t.checked; }
         else if (t.id === 'pr-wsheet') { P.wbSheet = t.value; P.wbHeader = prGuessHeader(P.wb.Sheets[t.value]); prRenderSource(); }
         else if (t.hasAttribute('data-incl')) { prSheetOpt(t.getAttribute('data-incl')).include = t.checked; P.dirty = true; prRenderMain(); }
         else if (t.hasAttribute('data-mode')) { prSheetOpt(t.getAttribute('data-mode')).mode = t.value; P.dirty = true; prRenderMain(); }

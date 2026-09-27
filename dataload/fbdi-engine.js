@@ -269,8 +269,9 @@ FE.csvField = function (v) {
     v = v == null ? '' : String(v);
     return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
 };
-/** One sheet → CSV text in Oracle's format. */
-FE.toCsv = function (sheetOut) {
-    return sheetOut.rows.map(function (r) { return r.map(FE.csvField).join(',') + ',END'; }).join('\r\n') + (sheetOut.rows.length ? '\r\n' : '');
+/** One sheet → CSV text in Oracle's format. end: the template's macro adds a trailing END column (most do; spec.end === 0 when not). */
+FE.toCsv = function (sheetOut, end) {
+    var tail = end === false || end === 0 ? '' : ',END';
+    return sheetOut.rows.map(function (r) { return r.map(FE.csvField).join(',') + tail; }).join('\r\n') + (sheetOut.rows.length ? '\r\n' : '');
 };
 FE.utf8Bytes = function (s) { return unescape(encodeURIComponent(s)).length; };

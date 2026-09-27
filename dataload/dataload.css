@@ -329,6 +329,28 @@ textarea.code:focus, .fld input:focus, .me input:focus, .row-f input:focus { out
 .tpl-card b { font-size: .9rem; }
 .tpl-card small { color: var(--muted); font-size: .74rem; line-height: 1.4; }
 .tpl-card.on, .tpl-card:hover { border-color: var(--accent); background: #f7fbff; }
+.modal.wide { width: 980px; }
+.tp-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.tp-top .tp-q { flex: 1; min-width: 260px; margin: 0; }
+.tp-list { border: 1px solid var(--line); border-radius: 12px; max-height: 46vh; overflow: auto; padding: 4px 8px 8px; }
+.tp-area { margin-top: 6px; }
+.tp-ah { position: sticky; top: 0; background: #fff; z-index: 1; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ac); padding: 6px 4px 4px; border-bottom: 2px solid var(--ac); }
+.tp-ah small { color: var(--muted); font-weight: 500; }
+.tp-row { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 8px; cursor: pointer; border: 1.5px solid transparent; }
+.tp-row input { display: none; }
+.tp-row > i { width: 18px; text-align: center; color: var(--ac); }
+.tp-row .tp-n { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tp-row .tp-n b { font-size: .86rem; }
+.tp-row .tp-n small { color: var(--muted); font-size: .72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-row .tp-m { font-size: .72rem; color: var(--muted); white-space: nowrap; }
+.tp-row:hover { background: #f7fbff; }
+.tp-row.on { border-color: var(--accent); background: #eef6ff; }
+.tp-row.no { cursor: not-allowed; opacity: .6; }
+.tp-row.no:hover { background: none; }
+.tp-b { font-size: .68rem; padding: 2px 8px; border-radius: 99px; background: #f1f5f9; color: #475569; white-space: nowrap; }
+.tp-b.full { background: #dcfce7; color: #166534; }
+.tp-b.no { background: #fef2f2; color: #991b1b; white-space: normal; max-width: 300px; }
+.tp-none { padding: 14px; text-align: center; }
 .flow4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .flow4 div { background: var(--soft); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 5px; font-size: .8rem; color: var(--ink2); }
 .flow4 i { color: var(--accent); font-size: 1.1rem; }
@@ -479,3 +501,11 @@ textarea.code:focus, .fld input:focus, .me input:focus, .row-f input:focus { out
 .fx-pick:hover { border-color: var(--accent); background: var(--accent-bg); }
 .fx-pick.on { border-color: var(--accent); background: var(--accent-bg); box-shadow: 0 0 0 2px rgba(42,120,214,.15); }
 .fx-pollfields .grid { width: auto; min-width: 360px; } .fx-pollfields td { white-space: normal; }
+.modal.wide .row-f { display: flex; gap: 12px; flex-wrap: wrap; }
+.modal.wide .row-f .fld.grow { flex: 1; min-width: 220px; align-items: stretch; text-align: left; }
+.modal.wide .row-f .fld.grow input { width: 100%; box-sizing: border-box; }
+@media (max-width: 640px) {
+    .tp-row { flex-wrap: wrap; }
+    .tp-row .tp-n { flex-basis: calc(100% - 30px); }
+    .tp-row .tp-m { margin-left: 28px; }
+}

@@ -336,3 +336,78 @@ function frRunFusion(template, built, run, onStep) {
         });
     }, Promise.resolve()).then(function () { return results; });
 }
+
+// ── Every other template: rules worked out from the spec itself ─────────────
+/* No hand-written knowledge — the sheet links come from the key columns the sheets share (an
+   INTERFACE_*_KEY / SOURCE_*_ID beats a plain *_NUMBER, and the key found in the fewest earlier
+   sheets wins, so PO line locations hang off the lines, not the header). A "Header" first sheet
+   becomes one row per document and its directly linked "Line" sheets are switched on; the link keys
+   get generated values so parent and child always match, and control columns (Action, Import Action,
+   Operation…) start with Oracle's own sample value when it is unambiguous. Checks are the template's own
+   (required / type / length). */
+var FR_AREA_ICON = { GL: 'fa-book', AP: 'fa-file-invoice-dollar', AR: 'fa-hand-holding-dollar', CE: 'fa-building-columns', FA: 'fa-building',
+    SUP: 'fa-handshake', PO: 'fa-cart-shopping', INV: 'fa-boxes-stacked', OM: 'fa-truck-fast', CST: 'fa-coins', SCP: 'fa-chart-line', PRJ: 'fa-diagram-project' };
+var FR_KEY_SKIP = /^(OPERATION|ORG_ID|BATCH_ID|LOAD_REQUEST_ID|REQUEST_ID|OBJECT_VERSION_NUMBER|CREATED_BY|CREATION_DATE|LAST_UPDATE.*|IMPORT_ACTION|ACTION|ACTION_CODE|INSERT_UPDATE.*|PROCESS_FLAG|STATUS|STATUS_CODE|ERROR.*|INTERFACE_STATUS|TRANSACTION_TYPE|.*ATTRIBUTE.*|.*_DATE|DESCRIPTION|COMMENTS?|LEDGER_.*|BUSINESS_UNIT.*|ORGANIZATION_(CODE|NAME)|BU_NAME|PROCUREMENT_BU|ITEM_NUMBER|UOM.*|QUANTITY|REASON_.*|.*CURRENCY.*|CUSTOMER_PO_NUMBER|SEQUENCE_NUMBER|SOURCE_SYSTEM_NAME|LICENSE_PLATE_NUMBER|LINE_NUMBER|BATCH_NUMBER)$/;
+var FR_CTRL = /^(ACTION|IMPORT_ACTION|OPERATION|TRANSACTION_TYPE|INSERT_UPDATE_FLAG|PROCESS_FLAG|STATUS|STATUS_CODE|ACTION_TYPE|ACTION_TYPE_CODE|TRANSACTION_MODE|LINE_ACTION_TYPE)$/;
+var FR_KEY_LIKE = /(ID|NUM|NUMBER|KEY|REF|REFERENCE|IDENTIFIER|CODE|^SUPPLIER_NAME|^VENDOR_NAME)$/;
+function frKeyOf(c) { return String(c.c || c.n || '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, ''); }
+function frKeyRank(k) {
+    return /INTERFACE.*(ID|KEY|NUM)|_KEY$/.test(k) ? 0 : /(HEADER|PARENT|ROOT).*(ID|NUM|KEY|REF)/.test(k) ? 1
+        : /^SOURCE.*(ID|REF|IDENTIFIER|REFERENCE)$|ORIG_SYSTEM|ORIGINAL_SYSTEM/.test(k) ? 2 : /(ID|NUM|NUMBER)$/.test(k) ? 3 : 4;
+}
+var _frAuto = {};
+function frAutoRules(tpl, spec) {
+    if (_frAuto[tpl]) return _frAuto[tpl];
+    var t = (typeof tplByFile === 'function' && tplByFile(tpl)) || { n: tpl, a: '' };
+    var sh = spec.sheets, keysOf = sh.map(function (s) { var m = {}; s.cols.forEach(function (c) { m[frKeyOf(c)] = c; }); return m; });
+    var links = [], parent = {};
+    for (var i = 1; i < sh.length; i++) {
+        var best = null;
+        sh[i].cols.forEach(function (c) {
+            var k = frKeyOf(c); if (!k || FR_KEY_SKIP.test(k) || /_NAME$/.test(k) && !/^(SUPPLIER|VENDOR)_NAME$/.test(k) || !FR_KEY_LIKE.test(k)) return;
+            var found = []; for (var j = 0; j < i; j++) if (keysOf[j][k]) found.push(j);
+            if (!found.length) return;
+            var score = frKeyRank(k) * 100 + found.length;
+            if (!best || score < best.score) best = { score: score, j: found[0], k: k, c: c };
+        });
+        if (best) { parent[i] = best; links.push({ from: sh[best.j].csv, to: sh[i].csv, key: best.k, label: best.c.n, auto: true }); }
+    }
+    var rootDoc = sh.length > 1 && /head|hdr/i.test(sh[0].n + ' ' + sh[0].csv) && Object.keys(parent).some(function (i) { return parent[i].j === 0; });
+    var sheets = {}, presets = {};
+    sh.forEach(function (s, i) {
+        var p = parent[i], line = p && p.j === 0 && /line|detail|trans/i.test(s.n + ' ' + s.csv);
+        var mode = i === 0 && rootDoc ? 'doc' : 'row', incl = i === 0 || (rootDoc && !!line);
+        sheets[s.csv] = { mode: mode, include: incl,
+            role: i === 0 ? (rootDoc ? 'one row per document — set the Document key in Map' : 'the main sheet — one row per source row')
+                : (p ? 'linked to ' + sh[p.j].n + ' by ' + p.c.n : 'stand-alone sheet') + (incl ? '' : ' — optional, switch on when you need it') };
+    });
+    // generated link keys (interface keys only — business references like a supplier name stay the user's)
+    Object.keys(parent).forEach(function (i) {
+        var p = parent[i]; if (frKeyRank(p.k) > 1) return;
+        var from = sh[p.j], expr = sheets[from.csv].mode === 'doc' ? '{#load}{#doc|pad:5}' : '{#load}{#row|pad:6}';
+        var pc = keysOf[p.j][p.k], pk = pc.c || pc.n, ck = p.c.c || p.c.n;       // FE.colIndex matches the DB column or the label
+        (presets[from.csv] = presets[from.csv] || {})[pk] = presets[from.csv][pk] || expr;
+        (presets[sh[i].csv] = presets[sh[i].csv] || {})[ck] = expr;
+        if (p.j === 0 && rootDoc) ['LINE_NUMBER', 'LINE_NUM'].forEach(function (ln) { var lc = keysOf[i][ln]; if (lc) presets[sh[i].csv][lc.c || lc.n] = '{#line}'; });
+    });
+    // control columns (Action, Import Action, Operation, Process Flag…) take Oracle's own sample value when it is unambiguous
+    sh.forEach(function (s) {
+        s.cols.forEach(function (c, ci) {
+            if (!FR_CTRL.test(frKeyOf(c))) return;
+            var seen = {}; (s.ex || []).forEach(function (r) { if (r[ci]) seen[r[ci]] = 1; });
+            var vals = Object.keys(seen), pick = vals.length === 1 ? vals[0] : vals.indexOf('CREATE') >= 0 ? 'CREATE' : null;
+            if (pick) { var ps = presets[s.csv] = presets[s.csv] || {}; if (!ps[c.c || c.n]) ps[c.c || c.n] = pick; }
+        });
+    });
+    return (_frAuto[tpl] = {
+        auto: true, title: t.n, icon: FR_AREA_ICON[t.a] || 'fa-file-excel', sheets: sheets, links: links, presets: presets, synonyms: {},
+        docKeyHint: rootDoc ? 'The column that identifies one document, e.g. {Order No} — one ' + sh[0].n + ' row per value, one line per source row.'
+            : 'Optional — groups source rows into documents for {#doc} and {#line}.'
+    });
+}
+/** The rules of a template: hand-written when there are any, else worked out from its spec (once it is loaded). */
+function fbdiRules(tpl) {
+    if (FBDI_RULES[tpl]) return FBDI_RULES[tpl];
+    var spec = window.FBDI_SPECS && FBDI_SPECS[tpl], t = typeof tplByFile === 'function' && tplByFile(tpl);
+    return spec ? frAutoRules(tpl, spec) : { icon: t && FR_AREA_ICON[t.a] || 'fa-file-excel' };
+}

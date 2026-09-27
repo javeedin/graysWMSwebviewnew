@@ -192,7 +192,7 @@ function dlRenderDetail() {
         '<button class="btn ' + (loc ? 'ok' : 'primary') + '" data-act="download"><i class="fa-solid ' + (loc ? 'fa-rotate' : 'fa-download') + '"></i> ' + (loc ? 'Download again' : 'Download .xlsm') + '</button>' +
         (loc ? '<button class="btn" data-act="open"><i class="fa-regular fa-file-excel"></i> Open in Excel</button>' +
                '<button class="btn" data-act="folder"><i class="fa-regular fa-folder-open"></i> Show in folder</button>' : '') +
-        (window.FBDI_SPECS && FBDI_SPECS[t.f] ? '<button class="btn prep" data-act="prepare" title="Fill this template from Excel, pasted data or SQL"><i class="fa-solid fa-wand-magic-sparkles"></i> Prepare with real data</button>' : '') +
+        (typeof fbdiSupported === 'function' && fbdiSupported(t.f) ? '<button class="btn prep" data-act="prepare" title="Fill this template from Excel, pasted data or SQL"><i class="fa-solid fa-wand-magic-sparkles"></i> Prepare with real data</button>' : '') +
         '<button class="btn" data-act="browser" title="Download through your browser instead"><i class="fa-solid fa-arrow-up-right-from-square"></i> Browser</button>' +
         '<button class="btn" data-act="copylink"><i class="fa-regular fa-copy"></i> Copy link</button>' +
         '<span class="loc" title="' + esc(loc ? DL.folder + '\\' + t.f + '.xlsm' : tplUrl(t)) + '">' +
