@@ -17,7 +17,7 @@
         </div>
         <nav class="tabs">
             <button class="tab active" data-tab="templates"><i class="fa-solid fa-table-list"></i> Fusion FBDI Templates</button>
-            <button class="tab soon" disabled title="Next: prepare the CSV/ZIP from your data and load it into Fusion"><i class="fa-solid fa-cloud-arrow-up"></i> Prepare &amp; Load <em>next</em></button>
+            <button class="tab" data-tab="prepare" title="Fill a template from Excel, pasted data or SQL, check it against Fusion and generate the FBDI ZIP"><i class="fa-solid fa-wand-magic-sparkles"></i> Prepare &amp; Load</button>
         </nav>
     </header>
 
@@ -49,6 +49,22 @@
         </div>
     </section>
 
+    <section id="page-prepare" class="page" hidden>
+        <div class="layout">
+            <aside class="side">
+                <div class="side-h">
+                    <b>Loads</b>
+                    <button class="btn sm primary" id="pr-new" style="margin-left:auto"><i class="fa-solid fa-plus"></i> New load</button>
+                </div>
+                <div class="pr-search"><i class="fa-solid fa-magnifying-glass"></i><input id="pr-q" type="search" placeholder="Search loads…"></div>
+                <div class="list" id="pr-list"></div>
+            </aside>
+            <main class="main" id="pr-main"></main>
+        </div>
+    </section>
+
+    <div class="modal-bg" id="pr-modal"><div class="modal" id="pr-modal-box"></div></div>
+
     <div class="dl-tray" id="tray">
         <div class="dl-h"><i class="fa-solid fa-download"></i> <b id="tray-title">Downloading</b><span class="grow"></span><button class="x" id="tray-x" title="Close"><i class="fa-solid fa-xmark"></i></button></div>
         <div class="dl-bar"><i id="tray-bar"></i></div>
@@ -56,7 +72,13 @@
     </div>
     <div class="toast" id="toast"></div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="fbdi-catalog.js"></script>
+    <script src="fbdi-specs.js"></script>
+    <script src="fbdi-engine.js"></script>
+    <script src="fbdi-rules.js"></script>
     <script src="dataload.js"></script>
+    <script src="prepare.js"></script>
 </body>
 </html>

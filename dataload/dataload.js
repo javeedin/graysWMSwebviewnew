@@ -34,6 +34,24 @@ function tplByFile(f) { for (var i = 0; i < FBDI_TEMPLATES.length; i++) if (FBDI
 function colName(c) { return c.charAt(0) === '*' ? c.slice(1) : c; }
 function isReq(c) { return c.charAt(0) === '*'; }
 function hasHost() { return !!(window.chrome && window.chrome.webview); }
+function currentInstance() {
+    var v = null;
+    try { v = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || localStorage.getItem('instanceName'); } catch (e) { }
+    v = (v || 'PROD').toUpperCase();
+    return v === 'TEST' ? 'TEST' : 'PROD';
+}
+function appUserName() {
+    try { return sessionStorage.getItem('loggedInUser') || localStorage.getItem('loggedInUser') || localStorage.getItem('userName') || localStorage.getItem('username') || 'UNKNOWN'; }
+    catch (e) { return 'UNKNOWN'; }
+}
+
+// ── tabs ───────────────────────────────────────────────────────
+function dlShowTab(name) {
+    Array.prototype.forEach.call(document.querySelectorAll('.tab[data-tab]'), function (b) { b.classList.toggle('active', b.getAttribute('data-tab') === name); });
+    Array.prototype.forEach.call(document.querySelectorAll('.page'), function (p) { p.hidden = p.id !== 'page-' + name; });
+    lsSet('dl_tab', name);
+    if (name === 'prepare' && typeof prOpenTab === 'function') prOpenTab();
+}
 
 // ── host bridge ────────────────────────────────────────────────
 var _pending = {}, _progress = {};
@@ -41,9 +59,9 @@ function host(action, payload, onProgress) {
     return new Promise(function (resolve, reject) {
         if (!hasHost()) { reject('Open this page inside the Gray\'s WMS app.'); return; }
         var id = 'dl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-        _pending[id] = resolve;
+        _pending[id] = { resolve: resolve, reject: reject };
         if (onProgress) _progress[id] = onProgress;
-        window.chrome.webview.postMessage(Object.assign({ action: action, requestId: id }, payload || {}));
+        window.chrome.webview.postMessage(Object.assign({ action: action, requestId: id, instance: currentInstance() }, payload || {}));
     });
 }
 if (hasHost()) {
@@ -51,9 +69,9 @@ if (hasHost()) {
         var r = ev.data; if (typeof r === 'string') { try { r = JSON.parse(r); } catch (e) { return; } }
         if (!r || !r.requestId) return;
         if (r.action === 'dataLoadProgress') { if (_progress[r.requestId]) _progress[r.requestId](r); return; }
-        if (r.action !== 'dataLoadResponse' || !_pending[r.requestId]) return;
+        if (r.action === 'fusionSqlAiProgress' || !_pending[r.requestId]) return;
         var cb = _pending[r.requestId]; delete _pending[r.requestId]; delete _progress[r.requestId];
-        cb(r.data || {});
+        if (r.action === 'error') cb.reject(r.message || 'Host error'); else cb.resolve(r.data == null ? {} : r.data);
     });
 }
 
@@ -173,6 +191,7 @@ function dlRenderDetail() {
         '<button class="btn ' + (loc ? 'ok' : 'primary') + '" data-act="download"><i class="fa-solid ' + (loc ? 'fa-rotate' : 'fa-download') + '"></i> ' + (loc ? 'Download again' : 'Download .xlsm') + '</button>' +
         (loc ? '<button class="btn" data-act="open"><i class="fa-regular fa-file-excel"></i> Open in Excel</button>' +
                '<button class="btn" data-act="folder"><i class="fa-regular fa-folder-open"></i> Show in folder</button>' : '') +
+        (window.FBDI_SPECS && FBDI_SPECS[t.f] ? '<button class="btn prep" data-act="prepare" title="Fill this template from Excel, pasted data or SQL"><i class="fa-solid fa-wand-magic-sparkles"></i> Prepare with real data</button>' : '') +
         '<button class="btn" data-act="browser" title="Download through your browser instead"><i class="fa-solid fa-arrow-up-right-from-square"></i> Browser</button>' +
         '<button class="btn" data-act="copylink"><i class="fa-regular fa-copy"></i> Copy link</button>' +
         '<span class="loc" title="' + esc(loc ? DL.folder + '\\' + t.f + '.xlsm' : tplUrl(t)) + '">' +
@@ -361,6 +380,9 @@ function dlWire() {
         dlRefreshLocal().then(function () { dlRenderList(); dlRenderDetail(); });
     });
     $('tray-x').addEventListener('click', function () { $('tray').classList.remove('show'); });
+    Array.prototype.forEach.call(document.querySelectorAll('.tab[data-tab]'), function (b) {
+        b.addEventListener('click', function () { dlShowTab(b.getAttribute('data-tab')); });
+    });
 
     $('main').addEventListener('click', function (e) {
         var tb = e.target.closest('[data-tbl]');
@@ -373,6 +395,7 @@ function dlWire() {
         else if (act === 'folder') host('dataLoadOpenFolder', { release: DL.release, file: t.f }).catch(function (e) { toast(String(e)); });
         else if (act === 'browser') { if (hasHost()) window.chrome.webview.postMessage({ action: 'openExternalUrl', url: tplUrl(t) }); else window.open(tplUrl(t), '_blank'); }
         else if (act === 'copylink') dlCopy(tplUrl(t), 'Download link');
+        else if (act === 'prepare') { dlShowTab('prepare'); if (typeof prNewLoad === 'function') prNewLoad(t.f); }
         else if (act === 'copycols') {
             var s = t.t[DL.tbl];
             dlCopy(s.c.filter(function (c) { return !DL.reqOnly || isReq(c); }).map(colName).join('\t'), s.n + ' column names');
@@ -387,6 +410,7 @@ function dlWire() {
     // ↑/↓ walk the list when not typing
     document.addEventListener('keydown', function (e) {
         if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+        if ($('page-templates').hidden) return;
         if (/^(INPUT|SELECT|TEXTAREA)$/.test((e.target.tagName || '')) && e.target.id !== 'q') return;
         var items = Array.prototype.map.call(document.querySelectorAll('.it'), function (el) { return el.getAttribute('data-f'); });
         if (!items.length) return;
@@ -410,6 +434,7 @@ function dlWire() {
     dlWire();
     dlRenderAreas(); dlRenderList(); dlRenderDetail();
     dlRefreshLocal().then(function () { dlRenderList(); dlRenderDetail(); }).catch(function () { });
+    if (lsGet('dl_tab', 'templates') === 'prepare') setTimeout(function () { dlShowTab('prepare'); }, 0);
     // quietly look for a newer Oracle release once a week
     if (hasHost() && Date.now() - lsGet('dl_rel_checked', 0) > 7 * 864e5) setTimeout(function () { dlCheckNewer(true); }, 1500);
 })();
