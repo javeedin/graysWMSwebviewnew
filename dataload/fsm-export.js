@@ -88,7 +88,13 @@ function fxRender() {
     var e = FX.list.filter(function (x) { return x.id === FX.sel; })[0]; if (!e) { main.innerHTML = fxFormHtml(); return; }
     if (e.status === 'RUNNING') {
         main.innerHTML = '<div class="welcome"><h2><i class="fa-solid fa-circle-notch spin"></i> Exporting ' + esc(fxLabel(e)) + '</h2><p>Fusion is building the CSV file package (process ' + esc(e.pid) + '). This page checks every 10 seconds and analyses it as soon as it is ready — you can keep working meanwhile.</p>' +
-            '<p class="muted" id="fx-pollmsg">' + esc(FX.poll[e.id] && FX.poll[e.id].msg || '') + '</p><button class="btn" data-fx="checknow"><i class="fa-solid fa-rotate"></i> Check now</button></div>';
+            '<p class="muted" id="fx-pollmsg">' + esc(FX.poll[e.id] && FX.poll[e.id].msg || '') + '</p>' +
+            '<div class="row-f"><button class="btn" data-fx="checknow"><i class="fa-solid fa-rotate"></i> Check now</button>' +
+            '<button class="btn" data-fx="trydl" title="Fetch the ZIP now, in case Fusion finished but reports it differently"><i class="fa-solid fa-download"></i> Try download now</button>' +
+            '<button class="btn" data-fx="stop" title="Stop checking this export"><i class="fa-solid fa-hand"></i> Stop waiting</button></div>' +
+            '<h3 style="margin-top:14px">Fusion\'s last reply</h3><div id="fx-pollfields" class="fx-pollfields"></div>' +
+            '<p class="muted">Big offerings can take a long time. If Fusion shows it finished in Setup and Maintenance but this page does not, use <b>Try download now</b>.</p></div>';
+        setTimeout(function () { fxShowPoll(e); }, 0);
         return;
     }
     if (e.status !== 'ANALYSED') {
@@ -237,23 +243,51 @@ function fxUrls(e) {
         : base + 'setupOfferingCSVExports/' + encodeURIComponent(e.offering) + '/child/SetupOfferingCSVExportProcess/' + e.pid;
     return { status: root, file: root + '/child/' + (e.scope === 'TASK' ? 'SetupTaskCSVExportProcessResult/' : 'SetupOfferingCSVExportProcessResult/') + e.pid + '/enclosure/FileContent' };
 }
+/** The status reply, as a short list of its plain fields (links and child collections left out). */
+function fxStatusFields(r) {
+    var out = [], seen = {};
+    (function walk(o, depth) {
+        if (!o || typeof o !== 'object' || depth > 3) return;
+        Object.keys(o).forEach(function (k) {
+            var v = o[k];
+            if (k === 'links' || k === '@context') return;
+            if (v && typeof v === 'object') { walk(v, depth + 1); return; }
+            if (seen[k] || v === '' || v == null) return;
+            seen[k] = 1; out.push([k, String(v)]);
+        });
+    })(r, 0);
+    return out.slice(0, 14);
+}
+function fxIsDone(v) { return v === true || /^(true|y|yes|complete|completed|succeeded|success)$/i.test(String(v == null ? '' : v)); }
 function fxPoll(e, now) {
-    var P = FX.poll[e.id] = FX.poll[e.id] || { tries: 0, msg: '' };
+    var P = FX.poll[e.id] = FX.poll[e.id] || { tries: 0, msg: '', fields: [] };
     clearTimeout(P.t);
+    // every 10 s for the first 30 min, then every 30 s
     P.t = setTimeout(function () {
         P.tries++;
         fxRestJson('GET', fxUrls(e).status).then(function (r) {
-            var done = fxFind(r, 'ProcessCompletedFlag');
-            P.msg = 'Checked ' + new Date().toLocaleTimeString() + ' — ' + (done === true || done === 'true' ? 'finished, downloading…' : 'still running (' + P.tries + ' checks)');
-            var m = $('fx-pollmsg'); if (m) m.textContent = P.msg;
-            if (done === true || done === 'true') return fxDownload(e);
-            if (P.tries < 360) fxPoll(e);
-            else fxFail(e, 'Still not finished after an hour — check the export in FSM.');
+            P.fields = fxStatusFields(r);
+            var flag = fxFind(r, 'ProcessCompletedFlag'), stat = '';
+            P.fields.forEach(function (f) { if (/status/i.test(f[0]) && !stat) stat = f[1]; });
+            var done = fxIsDone(flag) || /^(COMPLETED|SUCCEEDED|SUCCESS|COMPLETED_WITH_WARNINGS|WARNING)$/i.test(stat);
+            var failed = /ERROR|FAIL|CANCEL/i.test(stat) && !done;
+            P.msg = 'Checked ' + new Date().toLocaleTimeString() + ' — ' + (done ? 'finished, downloading…' : failed ? 'Fusion reports: ' + stat :
+                flag === undefined ? 'no ProcessCompletedFlag in the reply (see below) — try the download' : 'still running (' + P.tries + ' checks)');
+            fxShowPoll(e);
+            if (done) return fxDownload(e);
+            if (failed) return fxFail(e, 'Fusion reports the export as ' + stat + '.');
+            if (P.tries < 400) fxPoll(e);
+            else fxFail(e, 'Still not finished after about 2 hours — check the export in FSM.');
         }).catch(function (err) {
-            P.msg = 'Status check failed: ' + err; var m = $('fx-pollmsg'); if (m) m.textContent = P.msg;
-            if (P.tries < 360) fxPoll(e);
+            P.msg = 'Status check failed: ' + err; fxShowPoll(e);
+            if (P.tries < 400) fxPoll(e);
         });
-    }, now ? 50 : 10000);
+    }, now ? 50 : (P.tries < 180 ? 10000 : 30000));
+}
+function fxShowPoll(e) {
+    var P = FX.poll[e.id] || {}, m = $('fx-pollmsg'), f = $('fx-pollfields');
+    if (m && FX.sel === e.id) m.textContent = P.msg || '';
+    if (f && FX.sel === e.id) f.innerHTML = (P.fields || []).length ? '<table class="grid"><tbody>' + P.fields.map(function (x) { return '<tr><td><b>' + esc(x[0]) + '</b></td><td>' + esc(x[1]) + '</td></tr>'; }).join('') + '</tbody></table>' : '';
 }
 function fxDownload(e) {
     var name = (e.scope === 'TASK' ? e.task : e.offering + (e.area ? '_' + e.area : '')) + '_' + e.pid;
@@ -262,6 +296,16 @@ function fxDownload(e) {
         e.path = d.path; e.bytes = d.size; e.file = name + '.zip';
         return fxAnalyseZip(e.id, fxB64ToBytes(d.base64), e.file, d.path);
     }).catch(function (err) { fxFail(e, 'Download failed: ' + err); });
+}
+/** Download without waiting for the flag; if Fusion has no ZIP yet, keep polling. */
+function fxTryDownload(e) {
+    var name = (e.scope === 'TASK' ? e.task : e.offering + (e.area ? '_' + e.area : '')) + '_' + e.pid;
+    return host('dataLoadFsmDownload', { url: fxUrls(e).file, instance: fmInst(), name: name }).then(function (d) {
+        if (!d.ok) { toast('Not ready yet: ' + (d.error || 'no file')); return; }
+        clearTimeout((FX.poll[e.id] || {}).t);
+        e.path = d.path; e.bytes = d.size; e.file = name + '.zip';
+        return fxAnalyseZip(e.id, fxB64ToBytes(d.base64), e.file, d.path);
+    }).catch(function (err) { toast('Download failed: ' + err); });
 }
 function fxFail(e, msg) {
     delete FX.poll[e.id];
@@ -494,6 +538,8 @@ function fxExportCsv() {
         else if (act === 'new') { FX.form = true; fxRender(); }
         else if (act === 'closeform') { FX.form = false; fxRender(); }
         else if (act === 'checknow' && cur) fxPoll(cur, true);
+        else if (act === 'trydl' && cur) { toast('Trying to download the ZIP…'); fxTryDownload(cur); }
+        else if (act === 'stop' && cur && confirm('Stop waiting for this export? You can still analyse the ZIP later by dropping it on the page.')) { clearTimeout((FX.poll[cur.id] || {}).t); fxFail(cur, 'Stopped by ' + appUserName() + ' while Fusion was still exporting.'); }
         else if (act === 'folder' && cur) host('dataLoadFsmOpenFolder', { path: cur.path, instance: fmInst() });
         else if (act === 'csv') fxExportCsv();
     });

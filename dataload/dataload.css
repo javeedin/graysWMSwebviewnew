@@ -478,3 +478,4 @@ textarea.code:focus, .fld input:focus, .me input:focus, .row-f input:focus { out
 .fx-pick code { font-family: var(--mono); font-size: .68rem; color: var(--muted); }
 .fx-pick:hover { border-color: var(--accent); background: var(--accent-bg); }
 .fx-pick.on { border-color: var(--accent); background: var(--accent-bg); box-shadow: 0 0 0 2px rgba(42,120,214,.15); }
+.fx-pollfields .grid { width: auto; min-width: 360px; } .fx-pollfields td { white-space: normal; }
