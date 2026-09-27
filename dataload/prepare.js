@@ -509,7 +509,9 @@ function prRenderSource() {
     if (t === 'FILE') {
         h += '<label class="drop" id="pr-drop"><input type="file" id="pr-file" accept=".xlsx,.xlsm,.xls,.csv,.txt" hidden>' +
             '<i class="fa-solid fa-cloud-arrow-up"></i><b>Drop an Excel or CSV file here</b><span>or click to choose · .xlsx .xls .csv</span>' +
-            (L.srcNote ? '<small>Current: ' + esc(L.srcNote) + '</small>' : '') + '</label>';
+            (L.srcNote ? '<small>Current: ' + esc(L.srcNote) + '</small>' : '') + '</label>' +
+            '<div class="it-bar"><i class="fa-solid fa-lightbulb"></i><span><b>Easiest:</b> download an Excel with exactly the columns ' + esc(prTplName(L.tpl)) + ' needs, fill it, drop it here — it maps itself.</span>' +
+            '<button class="btn" data-pact="inputtpl"><i class="fa-solid fa-file-arrow-down"></i> Download input template</button></div>';
         if (P.wb) {
             h += '<div class="row-f"><label>Sheet <select id="pr-wsheet">' + P.wb.SheetNames.map(function (n) { return '<option' + (n === P.wbSheet ? ' selected' : '') + '>' + esc(n) + '</option>'; }).join('') + '</select></label>' +
                 '<label>Header row <input type="number" id="pr-hrow" min="1" max="50" value="' + (P.wbHeader || 1) + '" style="width:70px"></label>' +
@@ -521,7 +523,7 @@ function prRenderSource() {
     } else {
         var fus = t === 'FUSION_SQL';
         h += '<textarea id="pr-sql" class="code" rows="8" spellcheck="false" placeholder="' + (fus ? 'SELECT … FROM Fusion tables (read-only, runs through the Fusion SQL runner)' : 'SELECT … FROM your APEX tables, e.g. WMS trips, staging tables') + '">' + esc(L.srcSql || '') + '</textarea>' +
-            '<div class="row-f"><button class="btn primary" data-pact="runsql"><i class="fa-solid fa-play"></i> Run query</button>' +
+            '<div class="row-f">' + (fus ? '' : '<button class="btn" data-pact="browse"><i class="fa-solid fa-table-list"></i> Browse tables</button>') + '<button class="btn primary" data-pact="runsql"><i class="fa-solid fa-play"></i> Run query</button>' +
             '<label>Max rows <input type="number" id="pr-maxrows" min="1" max="50000" value="' + (L.options.maxRows || 5000) + '" style="width:90px"></label>' +
             '<span class="muted">' + (fus ? 'Runs read-only against Fusion — nothing is changed.' : 'Runs through the APEX query gateway.') + ' Re-run it any time to refresh the data.</span></div>';
     }
@@ -542,6 +544,7 @@ function prRenderSrcGrid() {
         (S.note ? '<span class="muted">' + esc(S.note) + '</span>' : '') +
         (bad ? '<label class="muted"><input type="checkbox" id="pr-onlybad"' + (P.srcOnlyBad ? ' checked' : '') + '> Only rows with issues (' + Object.keys(bad).length + ')</label>' : '') +
         (editable ? '<span class="muted"><i class="fa-solid fa-pen"></i> Click a cell to fix it</span>' : '') +
+        '<button class="btn primary pf-btn" data-pact="prepfbdi" title="Check every required value is there, then run the checks"><i class="fa-solid fa-wand-magic-sparkles"></i> Prepare FBDI</button>' +
         (idx.length > PR_PREVIEW ? '<span class="muted">showing first ' + PR_PREVIEW + '</span>' : '') + '</div>' +
         '<div class="grid-w"><table class="grid"><thead><tr><th>#</th>' + S.cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
         shown.map(function (i) {
@@ -571,6 +574,7 @@ function prReadFile(file) {
     fr.onload = function () {
         try {
             var wb = XLSX.read(new Uint8Array(fr.result), { type: 'array', cellDates: true, raw: /\.csv$|\.txt$/i.test(file.name) });
+            if (typeof itRecognise === 'function' && itRecognise(wb, file.name)) return;
             P.wb = wb; P.wbName = file.name; P.wbSheet = wb.SheetNames[0]; P.wbHeader = prGuessHeader(wb.Sheets[P.wbSheet]);
             if (wb.SheetNames.length === 1) prUseSheet(); else prRenderSource();
         } catch (e) { toast('Could not read ' + file.name + ': ' + e.message); }
@@ -1105,6 +1109,9 @@ function prInsert(text) {
         else if (a === 'usesheet') prUseSheet();
         else if (a === 'usepaste') prUsePaste();
         else if (a === 'runsql') prRunSql();
+        else if (a === 'browse') paBrowseTables();
+        else if (a === 'inputtpl') itDialog();
+        else if (a === 'prepfbdi') pfStart();
         else if (a === 'automap') { var n = prAutoMap(true); toast(n ? 'Mapped ' + n + ' more columns' : 'Nothing new to map — names did not match'); prRenderMain(); }
         else if (a === 'check') prRunCheck($('pr-live') && $('pr-live').checked);
         else if (a === 'checkgo') { P.step = 'check'; prRenderMain(); prRunCheck(P.load.options.live !== false).then(function () { P.step = 'generate'; prRenderMain(); }); }

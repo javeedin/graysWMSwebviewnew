@@ -355,9 +355,29 @@ function frKeyRank(k) {
     return /INTERFACE.*(ID|KEY|NUM)|_KEY$/.test(k) ? 0 : /(HEADER|PARENT|ROOT).*(ID|NUM|KEY|REF)/.test(k) ? 1
         : /^SOURCE.*(ID|REF|IDENTIFIER|REFERENCE)$|ORIG_SYSTEM|ORIGINAL_SYSTEM/.test(k) ? 2 : /(ID|NUM|NUMBER)$/.test(k) ? 3 : 4;
 }
+/* Workbooks that do not mark their required columns (Item Import has no "*" at all): the minimum Oracle's
+   import needs, from the Oracle documentation. Keys are DB columns; '*' = every sheet that has the column. */
+var FR_REQUIRED = {
+    ItemImportTemplate: {
+        '*': ['TRANSACTION_TYPE', 'ITEM_NUMBER', 'ORGANIZATION_CODE'],
+        EgpSystemItemsInterface: ['DESCRIPTION', 'PRIMARY_UOM_NAME', 'ITEM_CATALOG_GROUP_NAME'],
+        EgpItemRevisionsInterface: ['REVISION'],
+        EgpItemCategoriesInterface: ['CATEGORY_SET_NAME']
+    },
+    ItemStructureImportTemplate: { '*': ['TRANSACTION_TYPE'] }
+};
+function frMarkRequired(tpl, spec) {
+    var R = FR_REQUIRED[tpl]; if (!R || spec._req) return;
+    spec.sheets.forEach(function (s) {
+        var keys = (R['*'] || []).concat(R[s.csv] || []);
+        s.cols.forEach(function (c) { if (keys.indexOf(String(c.c || '').toUpperCase()) >= 0) c.r = 1; });
+    });
+    spec._req = 1;
+}
 var _frAuto = {};
 function frAutoRules(tpl, spec) {
     if (_frAuto[tpl]) return _frAuto[tpl];
+    frMarkRequired(tpl, spec);
     var t = (typeof tplByFile === 'function' && tplByFile(tpl)) || { n: tpl, a: '' };
     var sh = spec.sheets, keysOf = sh.map(function (s) { var m = {}; s.cols.forEach(function (c) { m[frKeyOf(c)] = c; }); return m; });
     var links = [], parent = {};
