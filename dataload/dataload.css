@@ -471,3 +471,10 @@ textarea.code:focus, .fld input:focus, .me input:focus, .row-f input:focus { out
 .fx-area small { font-size: .7rem; color: var(--muted); }
 .mono { font-family: var(--mono); }
 .fm-filters > label { font-size: .8rem; display: flex; gap: 6px; align-items: center; font-weight: 600; color: var(--ink2); }
+.fx-picks-h { font-size: .66rem; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+.fx-picks { display: flex; flex-wrap: wrap; gap: 6px; max-height: 190px; overflow: auto; padding: 2px; }
+.fx-pick { border: 1px solid var(--line); background: #fff; border-radius: 9px; padding: 5px 10px; cursor: pointer; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; text-align: left; font-family: inherit; }
+.fx-pick b { font-size: .78rem; font-weight: 600; }
+.fx-pick code { font-family: var(--mono); font-size: .68rem; color: var(--muted); }
+.fx-pick:hover { border-color: var(--accent); background: var(--accent-bg); }
+.fx-pick.on { border-color: var(--accent); background: var(--accent-bg); box-shadow: 0 0 0 2px rgba(42,120,214,.15); }

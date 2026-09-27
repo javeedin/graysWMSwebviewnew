@@ -110,10 +110,21 @@ function fxFormHtml() {
         '<button class="btn" data-fx="codes" title="Look the codes up in FSM\'s own tables through the runner"><i class="fa-solid fa-magnifying-glass"></i> Find codes</button></div>' +
         '<datalist id="fx-offs">' + (FX.codes && FX.codes.OFFERING || []).map(fxOpt).join('') + '</datalist><datalist id="fx-areas">' + (FX.codes && FX.codes.AREA || []).map(fxOpt).join('') + '</datalist>' +
         '<datalist id="fx-tasks">' + (FX.codes && FX.codes.TASK || []).map(fxOpt).join('') + '</datalist>' + (FX.codeNote ? '<p class="muted">' + esc(FX.codeNote) + '</p>' : '') +
+        (sc !== 'TASK' && FX.codes && FX.codes.OFFERING && FX.codes.OFFERING.length ? '<div class="fx-picks-h">Offerings</div><div class="fx-picks" id="fx-picks-off">' + fxPicks('OFFERING', FX.off) + '</div>' : '') +
+        (sc === 'AREA' && FX.codes && FX.codes.AREA && FX.codes.AREA.length ? '<div class="fx-picks-h">Functional areas</div><div class="fx-picks" id="fx-picks-area">' + fxPicks('AREA', FX.area) + '</div>' : '') +
+        (sc === 'TASK' && FX.codes && FX.codes.TASK && FX.codes.TASK.length ? '<div class="fx-picks-h">Tasks</div><div class="fx-picks" id="fx-picks-task">' + fxPicks('TASK', FX.task) + '</div>' : '') +
         '<details><summary class="muted" style="cursor:pointer">Fusion address</summary><div class="row-f" style="margin-top:6px"><label class="fld grow"><span>Base URL for ' + esc(fmInst()) + '</span><input id="fx-base" value="' + esc(fxBase()) + '"></label></div></details>' +
         '<div class="row-f"><button class="btn primary big" data-fx="start"><i class="fa-solid fa-cloud-arrow-down"></i> Export and analyse</button><span class="muted">Uses the Fusion login already configured in the app; the ZIP is saved under C:\\fusion\\FSM\\' + esc(fmInst()) + '.</span></div></div>' +
         '<div class="fm-role"><h3>2 · Or analyse a ZIP you exported in FSM</h3><p class="muted">Setup and Maintenance › Actions › Export to CSV File, then drop the downloaded ZIP here.</p>' +
         '<label class="drop" id="fx-drop"><input type="file" id="fx-file" accept=".zip" hidden><i class="fa-solid fa-file-zipper"></i><b>Drop the FSM CSV export ZIP here</b><span>or click to choose</span></label></div></div>';
+}
+/** Clickable, filtered list of codes (name + code) — datalists are hard to browse. */
+function fxPicks(kind, q) {
+    var list = (FX.codes && FX.codes[kind]) || [], ql = String(q || '').toLowerCase();
+    var hit = list.filter(function (c) { return !ql || (c.code + ' ' + c.name).toLowerCase().indexOf(ql) >= 0; });
+    return hit.slice(0, 60).map(function (c) {
+        return '<button class="fx-pick' + (String(c.code) === String(q) ? ' on' : '') + '" data-fxpick="' + kind + '" data-code="' + esc(c.code) + '"><b>' + esc(c.name || c.code) + '</b><code>' + esc(c.code) + '</code></button>';
+    }).join('') + (hit.length > 60 ? '<span class="muted">… ' + (hit.length - 60) + ' more — type to filter</span>' : '') + (!hit.length ? '<span class="muted">No match.</span>' : '');
 }
 function fxOpt(c) { return '<option value="' + esc(c.code) + '">' + esc(c.name || '') + '</option>'; }
 
@@ -374,7 +385,49 @@ function fxPreview(csv) {
     }).catch(function (err) { box.innerHTML = '<div class="note warn"><i class="fa-solid fa-circle-info"></i> ' + esc(String(err)) + '</div>'; });
 }
 /** Offering / functional area / task codes from FSM's own tables (column names differ by release). */
+/** Offering and functional area codes from Fusion's `features` REST resource (Oracle's documented way:
+    features?fields=FeatureName,FeatureCode,FeatureType&q=FeatureType='OFFERING'). Resolves { OFFERING:[], AREA:[] }. */
+function fxFeatures() {
+    var all = [], base = fxBase() + FX_REST + 'features?onlyData=true&fields=FeatureName,FeatureCode,FeatureType&limit=500&offset=';
+    function page(off) {
+        return fxRestJson('GET', base + off).then(function (r) {
+            var items = r.items || [];
+            all = all.concat(items);
+            if (r.hasMore && items.length && all.length < 5000) return page(off + items.length);
+        });
+    }
+    return page(0).then(function () {
+        var out = { OFFERING: [], AREA: [], types: {} };
+        all.forEach(function (f) {
+            var t = String(f.FeatureType || '').toUpperCase(), c = { code: f.FeatureCode, name: f.FeatureName || '' };
+            out.types[t] = (out.types[t] || 0) + 1;
+            if (!c.code) return;
+            if (t === 'OFFERING') out.OFFERING.push(c);
+            else if (/AREA|FUNCTIONAL/.test(t) && !/FEATURE/.test(t)) out.AREA.push(c);
+        });
+        var byName = function (a, b) { return String(a.name).localeCompare(String(b.name)); };
+        out.OFFERING.sort(byName); out.AREA.sort(byName);
+        return out;
+    });
+}
 function fxFindCodes() {
+    var sc = FX.scope || 'OFFERING';
+    if (sc !== 'TASK') {
+        FX.codeNote = 'Asking Fusion for its offerings and functional areas…'; fxRender();
+        return fxFeatures().then(function (f) {
+            if (!f.OFFERING.length && !f.AREA.length) throw 'no offerings returned (types: ' + (Object.keys(f.types).join(', ') || 'none') + ')';
+            FX.codes = FX.codes || {};
+            FX.codes.OFFERING = f.OFFERING; FX.codes.AREA = f.AREA;
+            FX.codeNote = f.OFFERING.length + ' offerings' + (f.AREA.length ? ' and ' + f.AREA.length + ' functional areas' : '') + ' from Fusion — click the field and pick one (type part of the name to filter).';
+            fxRender();
+        }).catch(function (e) {
+            FX.codeNote = 'Fusion REST lookup failed (' + e + ') — trying FSM tables…'; fxRender();
+            return fxFindCodesSql();
+        });
+    }
+    return fxFindCodesSql();
+}
+function fxFindCodesSql() {
     var sc = FX.scope || 'OFFERING';
     var want = sc === 'TASK' ? { code: ['TASK_CODE', 'TASK_SHORT_NAME'], name: ['TASK_NAME', 'NAME'] }
         : { code: ['OFFERING_CODE', 'OFFERING_SHORT_NAME'], name: ['OFFERING_NAME', 'NAME'] };
@@ -426,6 +479,11 @@ function fxExportCsv() {
         if (FM.view !== 'exports') return;
         var b;
         if ((b = e.target.closest('[data-fxscope]'))) { FX.scope = b.getAttribute('data-fxscope'); fxRender(); return; }
+        if ((b = e.target.closest('[data-fxpick]'))) {
+            var k = b.getAttribute('data-fxpick'), code = b.getAttribute('data-code');
+            if (k === 'OFFERING') FX.off = code; else if (k === 'AREA') FX.area = code; else FX.task = code;
+            fxRender(); return;
+        }
         if ((b = e.target.closest('[data-fxfilter]'))) { FX.filter = b.getAttribute('data-fxfilter'); fxRender(); return; }
         if ((b = e.target.closest('[data-fxarea]'))) { var a = b.getAttribute('data-fxarea'); FX.areaSel = FX.areaSel === a ? null : a; fxRender(); return; }
         if ((b = e.target.closest('[data-fxprev]'))) { fxPreview(b.getAttribute('data-fxprev')); return; }
@@ -442,9 +500,11 @@ function fxExportCsv() {
     main.addEventListener('input', function (e) {
         if (FM.view !== 'exports') return;
         if (e.target.id === 'fx-q') { FX.q = e.target.value.trim(); fxRenderObjects(); }
+        var pk = { 'fx-off': ['OFFERING', 'fx-picks-off'], 'fx-area': ['AREA', 'fx-picks-area'], 'fx-task': ['TASK', 'fx-picks-task'] }[e.target.id];
         if (e.target.id === 'fx-off') FX.off = e.target.value;
         if (e.target.id === 'fx-area') FX.area = e.target.value;
         if (e.target.id === 'fx-task') FX.task = e.target.value;
+        if (pk && $(pk[1])) $(pk[1]).innerHTML = fxPicks(pk[0], e.target.value);
     });
     main.addEventListener('change', function (e) {
         if (FM.view !== 'exports') return;
