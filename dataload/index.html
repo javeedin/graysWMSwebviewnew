@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Loading — Fusion Client</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="dataload.css">
+</head>
+<body>
+    <header class="top">
+        <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
+        <div class="logo"><i class="fa-solid fa-file-import"></i></div>
+        <div>
+            <h1>Data Loading <span class="ver">v11</span></h1>
+            <p>Load data into Oracle Fusion with File-Based Data Import (FBDI)</p>
+        </div>
+        <nav class="tabs">
+            <button class="tab active" data-tab="templates"><i class="fa-solid fa-table-list"></i> Fusion FBDI Templates</button>
+            <button class="tab soon" disabled title="Next: prepare the CSV/ZIP from your data and load it into Fusion"><i class="fa-solid fa-cloud-arrow-up"></i> Prepare &amp; Load <em>next</em></button>
+        </nav>
+    </header>
+
+    <section id="page-templates" class="page">
+        <div class="bar">
+            <div class="search">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input id="q" type="search" placeholder="Search templates, interface tables or columns…  e.g. invoice, GL_INTERFACE, Supplier Number" autocomplete="off">
+            </div>
+            <label class="rel" title="Oracle publishes a template set per quarterly release — pick the one your pod runs">
+                <span>Release</span>
+                <select id="rel"></select>
+            </label>
+            <button class="btn ghost" id="b-check" title="Ask Oracle whether a newer release is published"><i class="fa-solid fa-rotate"></i> Check newer</button>
+            <button class="btn ghost" id="b-folder" title="Open the local template folder"><i class="fa-regular fa-folder-open"></i> Folder</button>
+            <button class="btn primary" id="b-dlsel" disabled><i class="fa-solid fa-download"></i> Download selected <b id="n-sel">0</b></button>
+        </div>
+        <div class="areas" id="areas"></div>
+
+        <div class="layout">
+            <aside class="side">
+                <div class="side-h">
+                    <label class="chk"><input type="checkbox" id="sel-all"> <span id="side-count">Templates</span></label>
+                    <span class="muted" id="side-dl"></span>
+                </div>
+                <div class="list" id="list"></div>
+            </aside>
+            <main class="main" id="main"></main>
+        </div>
+    </section>
+
+    <div class="dl-tray" id="tray">
+        <div class="dl-h"><i class="fa-solid fa-download"></i> <b id="tray-title">Downloading</b><span class="grow"></span><button class="x" id="tray-x" title="Close"><i class="fa-solid fa-xmark"></i></button></div>
+        <div class="dl-bar"><i id="tray-bar"></i></div>
+        <div class="dl-rows" id="tray-rows"></div>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <script src="fbdi-catalog.js"></script>
+    <script src="dataload.js"></script>
+</body>
+</html>

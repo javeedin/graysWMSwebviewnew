@@ -276,7 +276,7 @@ try
                 }
 
                 // Folders to copy
-                string[] folders = { "wms", "Home", "ap", "ar", "ca", "fa", "gl", "om", "pos", "sync", "fusionsql" };
+                string[] folders = { "wms", "Home", "ap", "ar", "ca", "fa", "gl", "om", "pos", "sync", "fusionsql", "dataload" };
 
                 foreach (string folder in folders)
                 {
@@ -2163,6 +2163,11 @@ navPanel.Controls.Add(wmsDevButton);
                                 // Admin module (admin/index.html)
                                 case var adminAction when IsAdminAction(adminAction):
                                     HandleAdminAction(wv, action, root, requestId);
+                                    break;
+
+                                // Data Loading module (dataload/index.html)
+                                case var dlAction when IsDataLoadAction(dlAction):
+                                    await HandleDataLoadAction(wv, action, root, requestId);
                                     break;
 
                                 // Fusion SQL module (fusionsql/index.html)
