@@ -25,7 +25,7 @@ function prApex(path, payload) {
     });
 }
 function prRead(sql, maxRows) {
-    return prApex('/executequery', { sql: sql, maxRows: maxRows || 500 }).then(function (d) {
+    return prApex('/executequery', { sql: sql, maxRows: Math.min(maxRows || 500, 1000) }).then(function (d) {
         var cols = (d.columns || []).map(function (c) { return String(c.name || c).toUpperCase(); });
         return (d.rows || []).map(function (r) {
             if (!Array.isArray(r)) { var o = {}; Object.keys(r).forEach(function (k) { o[k.toUpperCase()] = r[k]; }); return o; }
@@ -45,16 +45,16 @@ function prClob(s) {
     for (var i = 0; i < s.length; i += PR_PIECE) parts.push('TO_CLOB(' + prLit(s.slice(i, i + PR_PIECE)) + ')');
     return parts.join(' || ');
 }
-/** Select list that reads a CLOB in n pieces: col_0 … col_n-1. */
+/** Select list that reads a CLOB in n pieces: col_0 … col_n-1. (No DBMS_LOB — the APEX gateways refuse DBMS_/UTL_.) */
 function prPieces(col, n, from) {
     var a = [];
-    for (var i = 0; i < n; i++) a.push('DBMS_LOB.SUBSTR(' + col + ', ' + PR_PIECE + ', ' + ((from || 1) + i * PR_PIECE) + ') AS ' + col + '_' + i);
+    for (var i = 0; i < n; i++) a.push('TO_CHAR(SUBSTR(' + col + ', ' + ((from || 1) + i * PR_PIECE) + ', ' + PR_PIECE + ')) AS ' + col + '_' + i);
     return a.join(', ');
 }
 function prJoin(row, col, n) { var s = ''; for (var i = 0; i < n; i++) s += row[(col + '_' + i).toUpperCase()] || ''; return s; }
 /** Read one CLOB fully (loops 12 pieces at a time). */
 function prReadClob(table, col, where) {
-    return prRead('SELECT NVL(DBMS_LOB.GETLENGTH(' + col + '), 0) AS len FROM ' + table + ' WHERE ' + where, 1).then(function (r) {
+    return prRead('SELECT NVL(LENGTH(' + col + '), 0) AS len FROM ' + table + ' WHERE ' + where, 1).then(function (r) {
         var len = r.length ? +r[0].LEN : 0, out = '', offs = [];
         for (var o = 1; o <= len; o += PR_PIECE * 12) offs.push(o);
         return prSeq(offs, function (o) {
@@ -208,7 +208,7 @@ function prCreate() {
         return prWrite('INSERT INTO wms_fbdi_loads (load_name, template_file, description, source_type, options_json, instance, status, created_by, updated_by) VALUES (' +
             prV(name, 200) + ', ' + prV(tpl, 100) + ', ' + prV(desc, 1000) + ", 'FILE', " + prClob(JSON.stringify(opts)) + ', ' + prV(currentInstance(), 10) + ", 'DRAFT', " + prV(user, 120) + ', ' + prV(user, 120) + ')');
     }).then(function () {
-        return prRead('SELECT MAX(load_id) AS id FROM wms_fbdi_loads WHERE load_name = ' + prV(name, 200) + ' AND created_by = ' + prV(user, 120), 1);
+        return prRead('SELECT MAX(load_id) AS id FROM wms_fbdi_loads WHERE template_file = ' + prV(tpl, 100) + ' AND created_by = ' + prV(user, 120), 1);
     }).then(function (r) {
         var id = r.length ? +r[0].ID : null;
         var maps = prDefaultMaps(tpl);
@@ -219,11 +219,11 @@ function prCreate() {
 function prSelect(id) {
     if (P.dirty || P.srcDirty) { if (!confirm('Discard the unsaved changes of "' + P.load.name + '"?')) return Promise.resolve(); }
     P.selId = id; lsSet('pr_sel', id);
-    P.load = null; P.src = null; P.check = null; P.runs = null; P.dirty = P.srcDirty = false; P.wb = null;
+    P.load = null; P.src = null; P.check = null; P.runs = null; P.dirty = P.srcDirty = false; P.wb = null; P.openError = null;
     prRenderList(); prRenderMain();
     var L;
     return prRead("SELECT load_id, load_name, template_file, description, source_type, source_note, status, row_count, instance, TO_CHAR(updated_date, 'YYYY-MM-DD HH24:MI') AS updated, " +
-        'NVL(DBMS_LOB.GETLENGTH(source_sql), 0) AS sql_len, NVL(DBMS_LOB.GETLENGTH(source_cols), 0) AS cols_len, NVL(DBMS_LOB.GETLENGTH(options_json), 0) AS opt_len ' +
+        'NVL(LENGTH(source_sql), 0) AS sql_len, NVL(LENGTH(source_cols), 0) AS cols_len, NVL(LENGTH(options_json), 0) AS opt_len ' +
         'FROM wms_fbdi_loads WHERE load_id = ' + prN(id), 1).then(function (r) {
         if (!r.length) throw 'Load ' + id + ' was not found';
         var x = r[0];
@@ -248,14 +248,18 @@ function prSelect(id) {
         if (cols.length && (L.srcType === 'FILE' || L.srcType === 'PASTE')) return prLoadRows(L, cols);
         if (cols.length) P.src = { cols: cols, rows: [], note: 'Run the query to fetch the rows' };
         prRenderMain();
-    }).catch(function (e) { toast(String(e)); P.load = null; prRenderMain(); });
+    }).catch(function (e) {
+        if (P.selId !== id) return;
+        P.load = null; P.openError = String(e && e.message || e);
+        prRenderMain();
+    });
 }
 function prLoadRows(L, cols) {
     prSetBusy('Loading the saved rows…');
     var rows = [], total = +L.rowCount || 0, pages = [];
     for (var a = 1; a <= Math.max(total, 1); a += 400) pages.push(a);
     return prSeq(pages, function (a) {
-        return prRead('SELECT row_no, NVL(DBMS_LOB.GETLENGTH(row_data), 0) AS len, ' + prPieces('row_data', 6) + ' FROM wms_fbdi_load_rows WHERE load_id = ' + prN(L.id) +
+        return prRead('SELECT row_no, NVL(LENGTH(row_data), 0) AS len, ' + prPieces('row_data', 6) + ' FROM wms_fbdi_load_rows WHERE load_id = ' + prN(L.id) +
             ' AND row_no BETWEEN ' + a + ' AND ' + (a + 399) + ' ORDER BY row_no', 400).then(function (r) {
             return prSeq(r, function (x) {
                 var s = prJoin(x, 'row_data', 6);
@@ -343,6 +347,11 @@ function prRenderMain() {
     var el = $('pr-main'); if (!el) return;
     if (P.state === 'offline') { el.innerHTML = '<div class="welcome"><h2>Prepare &amp; Load</h2><p>' + esc(P.error || '') + '</p></div>'; return; }
     if (!P.selId) { el.innerHTML = prWelcome(); return; }
+    if (!P.load && P.openError) {
+        el.innerHTML = '<div class="empty" style="padding:60px"><i class="fa-solid fa-triangle-exclamation" style="color:var(--err);font-size:1.4rem"></i><br><b>This load could not be opened</b><br>' +
+            '<small>' + esc(P.openError) + '</small><br><br><button class="btn primary" data-pact="reopen"><i class="fa-solid fa-rotate"></i> Try again</button></div>';
+        return;
+    }
     if (!P.load) { el.innerHTML = '<div class="empty" style="padding:60px"><i class="fa-solid fa-circle-notch spin"></i> Opening the load…</div>'; return; }
     var L = P.load;
     el.innerHTML = '<div class="pr-head" id="pr-head"></div>' +
@@ -490,15 +499,28 @@ function prRunSql() {
     P.load.srcSql = sql; P.load.options.maxRows = max;
     prSetBusy('Running the query' + (fus ? ' on Fusion' : ' on APEX') + '…');
     var job = fus ? prFusion(sql, max).then(function (r) { return { cols: r.columns || (r.rows[0] ? Object.keys(r.rows[0]) : []), rows: r.rows || [] }; })
-        : prApex('/executequery', { sql: sql, maxRows: max }).then(function (d) {
-            var cols = (d.columns || []).map(function (c) { return String(c.name || c); });
-            return { cols: cols, rows: (d.rows || []).map(function (r) { return Array.isArray(r) ? r : cols.map(function (c) { return r[c] != null ? r[c] : r[c.toUpperCase()]; }); }) };
-        });
+        : prApexPaged(sql, max);
     job.then(function (x) {
         prSetBusy(null);
         var rows = x.rows.map(function (r) { return Array.isArray(r) ? r : x.cols.map(function (c) { return r[c] != null ? r[c] : r[String(c).toUpperCase()]; }); });
         prSetSource(x.cols, rows, (fus ? 'Fusion' : 'APEX') + ' query · ' + new Date().toLocaleString() + (rows.length >= max ? ' · limited to ' + max + ' rows' : ''));
     }).catch(function (e) { prSetBusy(null); toast('Query failed: ' + e); });
+}
+
+/** The APEX query gateway returns at most 1,000 rows per call — fetch larger results in ROWNUM pages. */
+function prApexPaged(sql, max) {
+    var PAGE = 1000, cols = null, rows = [];
+    function page(from) {
+        var q = max <= PAGE ? sql : 'SELECT * FROM (SELECT q__.*, ROWNUM AS rn__ FROM (' + sql + ') q__) WHERE rn__ BETWEEN ' + from + ' AND ' + Math.min(max, from + PAGE - 1);
+        return prApex('/executequery', { sql: q, maxRows: PAGE }).then(function (d) {
+            var c = (d.columns || []).map(function (x) { return String(x.name || x); }), rn = c.map(function (x) { return x.toUpperCase(); }).indexOf('RN__');
+            var got = (d.rows || []).map(function (r) { return Array.isArray(r) ? r : c.map(function (k) { return r[k] != null ? r[k] : r[k.toUpperCase()]; }); });
+            if (rn >= 0) { c.splice(rn, 1); got.forEach(function (r) { r.splice(rn, 1); }); }
+            cols = cols || c; rows = rows.concat(got);
+            if (max > PAGE && got.length === PAGE && rows.length < max) { prSetBusy('Running the query on APEX… ' + rows.length + ' rows'); return page(from + PAGE); }
+        });
+    }
+    return page(1).then(function () { return { cols: cols || [], rows: rows.slice(0, max) }; });
 }
 
 // ── 2 · Map ────────────────────────────────────────────────────
@@ -885,7 +907,8 @@ function prInsert(text) {
         if ((b = t.closest('[data-rezip]'))) { prRezip(+b.getAttribute('data-rezip'), b.getAttribute('data-zipname')); return; }
         if (!(b = t.closest('[data-pact]'))) return;
         var a = b.getAttribute('data-pact');
-        if (a === 'save') prSave();
+        if (a === 'reopen') { var rid = P.selId; P.selId = null; prSelect(rid); }
+        else if (a === 'save') prSave();
         else if (a === 'delete') prDelete();
         else if (a === 'usesheet') prUseSheet();
         else if (a === 'usepaste') prUsePaste();
