@@ -462,3 +462,12 @@ textarea.code:focus, .fld input:focus, .me input:focus, .row-f input:focus { out
 @media (max-width: 1100px) { .fm-kpis { grid-template-columns: repeat(3, 1fr); } .fm-row { grid-template-columns: 1fr; } }
 .fm-role .row-f > label.fld { flex-direction: column; align-items: stretch; flex: 1; min-width: 260px; }
 .fm-role .row-f > label.fld input { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: .84rem; }
+.fm-refbar[hidden], #fm-settings[hidden] { display: none; }
+.fm-views button { padding: 5px 10px; }
+.fx-areas { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px 14px; }
+.fx-area { display: grid; grid-template-columns: 1fr; gap: 3px; cursor: pointer; padding: 6px 8px; border-radius: 8px; }
+.fx-area:hover { background: var(--soft); }
+.fx-area b { font-size: .8rem; }
+.fx-area small { font-size: .7rem; color: var(--muted); }
+.mono { font-family: var(--mono); }
+.fm-filters > label { font-size: .8rem; display: flex; gap: 6px; align-items: center; font-weight: 600; color: var(--ink2); }

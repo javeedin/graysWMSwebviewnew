@@ -69,3 +69,40 @@ CREATE INDEX wms_fsm_snapshots_n1   ON wms_fsm_snapshots (instance, project_key,
 
 -- Check
 SELECT table_name FROM user_tables WHERE table_name LIKE 'WMS\_FSM%' ESCAPE '\' ORDER BY table_name;
+
+-- ── Setup data exports (FSM CSV file packages) ────────────────────
+-- Each export of an offering / functional area / task (or an uploaded ZIP)
+-- and, per business-object CSV inside it, how many rows it holds — so you
+-- see what setup exists, what is empty, and how two exports differ.
+CREATE TABLE wms_fsm_exports (
+    export_id        NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    instance         VARCHAR2(10),
+    scope            VARCHAR2(20),                    -- OFFERING / AREA / TASK / UPLOAD
+    offering_code    VARCHAR2(200),
+    area_code        VARCHAR2(200),
+    task_code        VARCHAR2(200),
+    process_id       VARCHAR2(40),
+    status           VARCHAR2(20),                    -- RUNNING / ANALYSED / FAILED
+    file_name        VARCHAR2(300),
+    file_path        VARCHAR2(500),                   -- C:\fusion\FSM\{POD}\… on the PC that downloaded it
+    file_bytes       NUMBER,
+    objects          NUMBER,
+    objects_with_data NUMBER,
+    total_rows       NUMBER,
+    note             VARCHAR2(1000),
+    requested_by     VARCHAR2(120),
+    requested_date   DATE DEFAULT SYSDATE,
+    completed_date   DATE
+);
+
+CREATE TABLE wms_fsm_export_objects (
+    export_id        NUMBER        NOT NULL,
+    csv_name         VARCHAR2(200) NOT NULL,
+    object_name      VARCHAR2(300),
+    description      VARCHAR2(1000),
+    area             VARCHAR2(60),
+    row_count        NUMBER,
+    col_count        NUMBER,
+    header           VARCHAR2(4000),
+    CONSTRAINT wms_fsm_export_objects_pk PRIMARY KEY (export_id, csv_name)
+);

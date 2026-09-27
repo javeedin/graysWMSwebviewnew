@@ -100,6 +100,27 @@ namespace WMSApp
                             data = new { ok = true, releases = await Task.WhenAll(checks) };
                             break;
                         }
+                    case "dataLoadFsmDownload":
+                        data = await FsmDownloadAsync(FbdiStr(root, "url"), FbdiStr(root, "instance"), FbdiStr(root, "name"));
+                        break;
+                    case "dataLoadFsmReadFile":
+                        {
+                            string path = FsmSafePath(FbdiStr(root, "path"));
+                            data = File.Exists(path)
+                                ? new { ok = true, path, size = new FileInfo(path).Length, base64 = Convert.ToBase64String(File.ReadAllBytes(path)) }
+                                : (object)new { ok = false, error = "The export file is no longer on this PC: " + path };
+                            break;
+                        }
+                    case "dataLoadFsmOpenFolder":
+                        {
+                            string path = FbdiStr(root, "path");
+                            string dir = Path.Combine(FSM_ROOT, (FbdiStr(root, "instance") ?? "PROD").ToUpperInvariant() == "TEST" ? "TEST" : "PROD");
+                            Directory.CreateDirectory(dir);
+                            if (!string.IsNullOrEmpty(path) && File.Exists(FsmSafePath(path))) Process.Start(new ProcessStartInfo("explorer.exe", "/select,\"" + FsmSafePath(path) + "\"") { UseShellExecute = true });
+                            else Process.Start(new ProcessStartInfo("explorer.exe", "\"" + dir + "\"") { UseShellExecute = true });
+                            data = new { ok = true, folder = dir };
+                            break;
+                        }
                     default:
                         data = new { ok = false, error = "Unknown data loading action: " + action };
                         break;
@@ -111,6 +132,63 @@ namespace WMSApp
                 data = new { ok = false, error = ex.Message };
             }
             PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "dataLoadResponse", requestId, data }));
+        }
+
+        // ── FSM setup exports (Setup Projects tab) ─────────────────────────────
+        private const string FSM_ROOT = @"C:\fusion\FSM";
+
+        /// <summary>Only files under C:\fusion\FSM can be read back.</summary>
+        private static string FsmSafePath(string path)
+        {
+            if (string.IsNullOrEmpty(path)) throw new ArgumentException("No file given.");
+            string full = Path.GetFullPath(path);
+            if (!full.StartsWith(FSM_ROOT + "\\", StringComparison.OrdinalIgnoreCase) || !full.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException("Not an FSM export file: " + path);
+            return full;
+        }
+
+        /// <summary>
+        /// Downloads an FSM CSV export package (…/SetupOfferingCSVExportProcessResult/{id}/enclosure/FileContent or the
+        /// task equivalent) with the Fusion credentials the app already holds — the password never goes to the page.
+        /// Only https://*.oraclecloud.com/fscmRestApi/ URLs are allowed. Saves C:\fusion\FSM\{PROD|TEST}\{name}.zip.
+        /// </summary>
+        private async Task<object> FsmDownloadAsync(string url, string instance, string name)
+        {
+            if (string.IsNullOrEmpty(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https" ||
+                !uri.Host.EndsWith(".oraclecloud.com", StringComparison.OrdinalIgnoreCase) || uri.AbsolutePath.IndexOf("/fscmRestApi/", StringComparison.OrdinalIgnoreCase) < 0)
+                return new { ok = false, error = "Only Oracle Fusion REST URLs (https://…oraclecloud.com/fscmRestApi/…) can be downloaded." };
+            if (!_fusionCredentialsLoaded || string.IsNullOrEmpty(_fusionUsername) || string.IsNullOrEmpty(_fusionPassword))
+            {
+                await FetchFusionCredentialsOnStartup();
+                if (!_fusionCredentialsLoaded) return new { ok = false, error = "Oracle Fusion credentials are not available." };
+            }
+            string inst = (instance ?? "PROD").ToUpperInvariant() == "TEST" ? "TEST" : "PROD";
+            string safe = Regex.Replace(string.IsNullOrEmpty(name) ? "fsm_export" : name, @"[^\w.-]+", "_");
+            if (!safe.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) safe += ".zip";
+            string dir = Path.Combine(FSM_ROOT, inst);
+            Directory.CreateDirectory(dir);
+            string path = Path.Combine(dir, safe);
+
+            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+            http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic",
+                Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(_fusionUsername + ":" + _fusionPassword)));
+            using var res = await http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead);
+            if (!res.IsSuccessStatusCode)
+            {
+                string body = await res.Content.ReadAsStringAsync();
+                return new { ok = false, error = "HTTP " + (int)res.StatusCode + (body.Length > 0 ? ": " + body.Substring(0, Math.Min(400, body.Length)) : "") };
+            }
+            byte[] bytes = await res.Content.ReadAsByteArrayAsync();
+            // Some pods return the enclosure base64-encoded as text — decode it when it is not a zip already
+            if (bytes.Length > 1 && !(bytes[0] == 'P' && bytes[1] == 'K'))
+            {
+                string text = System.Text.Encoding.ASCII.GetString(bytes).Trim().Trim('"');
+                try { var dec = Convert.FromBase64String(text); if (dec.Length > 1 && dec[0] == 'P' && dec[1] == 'K') bytes = dec; } catch (FormatException) { }
+            }
+            if (bytes.Length < 2 || bytes[0] != 'P' || bytes[1] != 'K')
+                return new { ok = false, error = "Fusion did not return a ZIP file (" + bytes.Length + " bytes) — is the export finished?" };
+            File.WriteAllBytes(path, bytes);
+            return new { ok = true, path, size = bytes.Length, base64 = Convert.ToBase64String(bytes) };
         }
 
         private static string DataLoadLocalPath(string release, string file)

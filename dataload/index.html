@@ -69,10 +69,11 @@
         <div class="layout">
             <aside class="side">
                 <div class="side-h">
-                    <b>Implementation projects</b>
+                    <div class="seg sm fm-views"><button data-fmview="projects" title="FSM implementation projects and task status"><i class="fa-solid fa-list-check"></i> Projects</button><button data-fmview="exports" title="What setup really exists — FSM CSV exports analysed"><i class="fa-solid fa-box-archive"></i> Setup data</button></div>
                     <button class="btn sm" id="fm-settings" style="margin-left:auto" title="Which FSM tables hold projects and tasks"><i class="fa-solid fa-gear"></i></button>
                 </div>
-                <div class="fm-refbar"><button class="btn primary" id="fm-refresh"><i class="fa-solid fa-cloud-arrow-down"></i> Read from Fusion</button><small class="muted" id="fm-last"></small></div>
+                <div class="fm-refbar" id="fm-refbar"><button class="btn primary" id="fm-refresh"><i class="fa-solid fa-cloud-arrow-down"></i> Read from Fusion</button><small class="muted" id="fm-last"></small></div>
+                <div class="fm-refbar" id="fx-newbar" hidden><button class="btn primary" id="fx-new"><i class="fa-solid fa-plus"></i> New setup export</button><small class="muted">Offering, functional area or task — or an FSM ZIP</small></div>
                 <div class="list" id="fm-list"></div>
             </aside>
             <main class="main" id="fm-main"></main>
@@ -97,5 +98,6 @@
     <script src="dataload.js"></script>
     <script src="prepare.js"></script>
     <script src="fsm.js"></script>
+    <script src="fsm-export.js"></script>
 </body>
 </html>

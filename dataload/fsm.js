@@ -7,7 +7,7 @@
    Uses the transport helpers of prepare.js (prRead / prWrite / prFusion / prClob …). */
 
 var FM = { state: 'idle', error: null, cfg: null, projects: [], tasks: [], snaps: [], events: [], sel: null, lastRefresh: null,
-    q: '', status: '', assignee: '', overdue: false, group: 'list', settings: false, disc: null };
+    q: '', status: '', assignee: '', overdue: false, group: 'list', settings: false, disc: null, view: lsGet('fm_view', 'projects') };
 
 var FM_DDL = {
     WMS_FSM_CONFIG: 'CREATE TABLE wms_fsm_config (instance VARCHAR2(10) PRIMARY KEY, config_json CLOB, updated_by VARCHAR2(120), updated_date DATE DEFAULT SYSDATE)',
@@ -115,7 +115,7 @@ function fmLoad() {
     FM.state = 'loading'; fmRender();
     return fmEnsure().then(fmLoadConfig).then(function (cfg) {
         FM.cfg = cfg;
-        if (!cfg) { FM.state = 'ready'; FM.settings = true; fmRender(); return; }
+        if (!cfg) { FM.state = 'ready'; FM.settings = FM.view !== 'exports'; fmRender(); return; }
         return Promise.all([fmReadStored(), fmReadHistory()]).then(function (r) {
             FM.tasks = r[0]; FM.state = 'ready'; fmBuildProjects(); fmRender();
         });
@@ -216,9 +216,26 @@ function fmRender() {
     if (info) info.textContent = FM.lastRefresh ? 'Last read from Fusion ' + prAgo(FM.lastRefresh) + ' · ' + fmInst() : fmInst();
     if (FM.state === 'loading') { side.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch spin"></i> Loading…</div>'; main.innerHTML = ''; return; }
     if (FM.state === 'offline') { side.innerHTML = ''; main.innerHTML = '<div class="welcome"><h2>Setup Projects</h2><p>' + esc(FM.error || '') + '</p><button class="btn primary" data-fm="reload"><i class="fa-solid fa-rotate"></i> Try again</button></div>'; return; }
+    fmViewChrome();
+    if (FM.view === 'exports') {
+        if (!FX.loaded) {
+            FX.loaded = 'loading';
+            side.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch spin"></i> Loading…</div>'; main.innerHTML = '';
+            fxLoad().then(function () { FX.loaded = true; fxRenderIfShown(); }).catch(function (e) { FX.loaded = false; main.innerHTML = '<div class="welcome"><h2>Setup data</h2><p>' + esc(String(e)) + '</p></div>'; });
+            return;
+        }
+        if (FX.loaded === true) fxRender();
+        return;
+    }
     fmRenderList();
     if (FM.settings || !FM.cfg) { fmRenderSettings(); return; }
     fmRenderProject();
+}
+/** Projects | Setup data switch in the side pane. */
+function fmViewChrome() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-fmview]'), function (b) { b.classList.toggle('on', b.getAttribute('data-fmview') === FM.view); });
+    var ex = FM.view === 'exports';
+    $('fm-refbar').hidden = ex; $('fm-settings').hidden = ex; $('fx-newbar').hidden = !ex;
 }
 function fmRenderList() {
     var el = $('fm-list');
@@ -440,13 +457,19 @@ function fmSaveSettings() {
 (function fmWire() {
     if (!$('page-fsm')) return;
     $('fm-refresh').addEventListener('click', function () { fmRefresh(); });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-fmview]'), function (b) {
+        b.addEventListener('click', function () { FM.view = b.getAttribute('data-fmview'); lsSet('fm_view', FM.view); fmRender(); });
+    });
+    $('fx-new').addEventListener('click', function () { FX.form = true; if (FX.loaded === true) fxRender(); });
     $('fm-settings').addEventListener('click', function () { FM.settings = true; FM.disc = null; fmRender(); });
     $('fm-list').addEventListener('click', function (e) {
+        if (FM.view === 'exports') return;
         var it = e.target.closest('[data-fmproj]'); if (!it) return;
         FM.sel = it.getAttribute('data-fmproj'); lsSet('fm_sel', FM.sel); FM.settings = false; fmRender();
     });
     var main = $('fm-main');
     main.addEventListener('click', function (e) {
+        if (FM.view === 'exports') return;
         var b = e.target.closest('[data-fm]'), s;
         if ((s = e.target.closest('[data-fmstatus]'))) { FM.status = s.getAttribute('data-fmstatus'); fmRenderProject(); return; }
         if (!b) return;
