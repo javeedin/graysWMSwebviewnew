@@ -18,6 +18,7 @@
         <nav class="tabs">
             <button class="tab active" data-tab="templates"><i class="fa-solid fa-table-list"></i> Fusion FBDI Templates</button>
             <button class="tab" data-tab="prepare" title="Fill a template from Excel, pasted data or SQL, check it against Fusion and generate the FBDI ZIP"><i class="fa-solid fa-wand-magic-sparkles"></i> Prepare &amp; Load</button>
+            <button class="tab" data-tab="fsm" title="Track Oracle FSM implementation projects and their setup tasks"><i class="fa-solid fa-list-check"></i> Setup Projects</button>
         </nav>
     </header>
 
@@ -64,6 +65,20 @@
         </div>
     </section>
 
+    <section id="page-fsm" class="page" hidden>
+        <div class="layout">
+            <aside class="side">
+                <div class="side-h">
+                    <b>Implementation projects</b>
+                    <button class="btn sm" id="fm-settings" style="margin-left:auto" title="Which FSM tables hold projects and tasks"><i class="fa-solid fa-gear"></i></button>
+                </div>
+                <div class="fm-refbar"><button class="btn primary" id="fm-refresh"><i class="fa-solid fa-cloud-arrow-down"></i> Read from Fusion</button><small class="muted" id="fm-last"></small></div>
+                <div class="list" id="fm-list"></div>
+            </aside>
+            <main class="main" id="fm-main"></main>
+        </div>
+    </section>
+
     <div class="modal-bg" id="pr-modal"><div class="modal" id="pr-modal-box"></div></div>
 
     <div class="dl-tray" id="tray">
@@ -81,5 +96,6 @@
     <script src="fbdi-rules.js"></script>
     <script src="dataload.js"></script>
     <script src="prepare.js"></script>
+    <script src="fsm.js"></script>
 </body>
 </html>

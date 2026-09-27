@@ -51,6 +51,7 @@ function dlShowTab(name) {
     Array.prototype.forEach.call(document.querySelectorAll('.page'), function (p) { p.hidden = p.id !== 'page-' + name; });
     lsSet('dl_tab', name);
     if (name === 'prepare' && typeof prOpenTab === 'function') prOpenTab();
+    if (name === 'fsm' && typeof fmOpenTab === 'function') fmOpenTab();
 }
 
 // ── host bridge ────────────────────────────────────────────────
@@ -434,7 +435,12 @@ function dlWire() {
     dlWire();
     dlRenderAreas(); dlRenderList(); dlRenderDetail();
     dlRefreshLocal().then(function () { dlRenderList(); dlRenderDetail(); }).catch(function () { });
-    if (lsGet('dl_tab', 'templates') === 'prepare') setTimeout(function () { dlShowTab('prepare'); }, 0);
+    var startTab = lsGet('dl_tab', 'templates');
+    // prepare.js / fsm.js load after this file — open their tab once every script is in
+    if (startTab === 'prepare' || startTab === 'fsm') {
+        if (document.readyState === 'complete') dlShowTab(startTab);
+        else window.addEventListener('load', function () { dlShowTab(startTab); });
+    }
     // quietly look for a newer Oracle release once a week
     if (hasHost() && Date.now() - lsGet('dl_rel_checked', 0) > 7 * 864e5) setTimeout(function () { dlCheckNewer(true); }, 1500);
 })();
