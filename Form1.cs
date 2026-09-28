@@ -178,6 +178,7 @@ try
         {
             // Read version info from version.txt in the application directory
             string versionInfo = GetVersionInfo();
+            _titleSuffix = versionInfo;
             this.Text = $"Gray's WMS | {versionInfo}";
             this.Size = new Size(1200, 800);
             this.StartPosition = FormStartPosition.CenterScreen;
@@ -1262,6 +1263,7 @@ navPanel.Controls.Add(wmsDevButton);
 
             // Show source mode in title bar so user knows where files are loading from
             this.Text += $" | [{wmsSource}]";
+            _titleSuffix += $" | [{wmsSource}]";
 
             // --page=<pageId> argument (set by "Open in new window"): skip the Home
             // dashboard and open the WMS module directly on the requested page
@@ -1567,6 +1569,7 @@ navPanel.Controls.Add(wmsDevButton);
                     UpdateSecurityIcon(tabButton.WebView);
                 }
             }
+            UpdateWindowTitle();
         }
 
         private void TabButton_CloseClicked(object sender, EventArgs e)
@@ -6153,6 +6156,7 @@ navPanel.Controls.Add(wmsDevButton);
 
                 UpdateNavigationButtons(GetCurrentWebView());
                 UpdateSecurityIcon(GetCurrentWebView());
+                UpdateWindowTitle();
 
                 // Send user session to WMS pages after navigation completes
                 string source = wv.Source.ToLower();
