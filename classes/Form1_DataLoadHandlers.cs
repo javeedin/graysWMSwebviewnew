@@ -103,6 +103,10 @@ namespace WMSApp
                     case "dataLoadFsmDownload":
                         data = await FsmDownloadAsync(FbdiStr(root, "url"), FbdiStr(root, "instance"), FbdiStr(root, "name"));
                         break;
+                    case "dataLoadFusionRest":
+                        data = await FusionRestAsync(FbdiStr(root, "method"), FbdiStr(root, "url"), FbdiStr(root, "body"),
+                            root.TryGetProperty("framework", out var fw) && fw.ValueKind == JsonValueKind.String ? fw.GetString() : null);
+                        break;
                     case "dataLoadFsmReadFile":
                         {
                             string path = FsmSafePath(FbdiStr(root, "path"));
@@ -189,6 +193,48 @@ namespace WMSApp
                 return new { ok = false, error = "Fusion did not return a ZIP file (" + bytes.Length + " bytes) — is the export finished?" };
             File.WriteAllBytes(path, bytes);
             return new { ok = true, path, size = bytes.Length, base64 = Convert.ToBase64String(bytes) };
+        }
+
+        // ── Fusion API tab: REST calls with the HTTP status kept ─────────────────
+        private static readonly string[] FusionRestRoots = { "/fscmRestApi/resources/", "/hcmRestApi/resources/", "/crmRestApi/resources/" };
+
+        /// <summary>
+        /// One Fusion REST call for the Fusion API tab. Unlike executeOracleFusion*, the reply carries the HTTP
+        /// status, so the page can tell a created row from a rejected one. Only GET / POST / PATCH, only
+        /// https://*.oraclecloud.com/{fscm|hcm|crm}RestApi/resources/ URLs; the Fusion credentials stay here.
+        /// </summary>
+        private async Task<object> FusionRestAsync(string method, string url, string body, string framework)
+        {
+            method = (method ?? "GET").ToUpperInvariant();
+            if (method != "GET" && method != "POST" && method != "PATCH")
+                return new { ok = false, error = "Only GET, POST and PATCH are allowed." };
+            if (string.IsNullOrEmpty(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https" ||
+                !uri.Host.EndsWith(".oraclecloud.com", StringComparison.OrdinalIgnoreCase) ||
+                !FusionRestRoots.Any(r => uri.AbsolutePath.IndexOf(r, StringComparison.OrdinalIgnoreCase) >= 0))
+                return new { ok = false, error = "Only Oracle Fusion REST URLs (https://…oraclecloud.com/fscmRestApi|hcmRestApi|crmRestApi/resources/…) are allowed." };
+            if (!_fusionCredentialsLoaded || string.IsNullOrEmpty(_fusionUsername) || string.IsNullOrEmpty(_fusionPassword))
+            {
+                await FetchFusionCredentialsOnStartup();
+                if (!_fusionCredentialsLoaded) return new { ok = false, error = "Oracle Fusion credentials are not available." };
+            }
+            using var req = new HttpRequestMessage(new HttpMethod(method), uri);
+            req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic",
+                Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(_fusionUsername + ":" + _fusionPassword)));
+            req.Headers.Accept.ParseAdd("application/json");
+            if (!string.IsNullOrEmpty(framework) && Regex.IsMatch(framework, @"^\d{1,2}$")) req.Headers.TryAddWithoutValidation("REST-Framework-Version", framework);
+            if (method != "GET")
+                req.Content = new StringContent(body ?? "{}", System.Text.Encoding.UTF8, "application/vnd.oracle.adf.resourceitem+json");
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
+                using var res = await http.SendAsync(req);
+                string text = await res.Content.ReadAsStringAsync();
+                if (text.Length > 4_000_000) text = text.Substring(0, 4_000_000);
+                return new { ok = true, status = (int)res.StatusCode, body = text, location = res.Headers.Location?.ToString(), ms = sw.ElapsedMilliseconds };
+            }
+            catch (TaskCanceledException) { return new { ok = false, error = "Fusion did not answer within 3 minutes.", ms = sw.ElapsedMilliseconds }; }
+            catch (HttpRequestException ex) { return new { ok = false, error = "Could not reach Fusion: " + ex.Message, ms = sw.ElapsedMilliseconds }; }
         }
 
         private static string DataLoadLocalPath(string release, string file)

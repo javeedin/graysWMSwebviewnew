@@ -12,13 +12,14 @@
         <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
         <div class="logo"><i class="fa-solid fa-file-import"></i></div>
         <div>
-            <h1>Data Loading <span class="ver">v13</span></h1>
+            <h1>Data Loading <span class="ver">v14</span></h1>
             <p>Load data into Oracle Fusion with File-Based Data Import (FBDI)</p>
         </div>
         <nav class="tabs">
             <button class="tab active" data-tab="templates"><i class="fa-solid fa-table-list"></i> Fusion FBDI Templates</button>
             <button class="tab" data-tab="prepare" title="Fill a template from Excel, pasted data or SQL, check it against Fusion and generate the FBDI ZIP"><i class="fa-solid fa-wand-magic-sparkles"></i> Prepare &amp; Load</button>
             <button class="tab" data-tab="fsm" title="Track Oracle FSM implementation projects and their setup tasks"><i class="fa-solid fa-list-check"></i> Setup Projects</button>
+            <button class="tab" data-tab="fapi" title="Load data through Oracle Fusion REST APIs — by module, Setup / Masters / Transactions"><i class="fa-solid fa-plug-circle-bolt"></i> Fusion API</button>
         </nav>
     </header>
 
@@ -80,6 +81,20 @@
         </div>
     </section>
 
+    <section id="page-fapi" class="page" hidden>
+        <div class="layout">
+            <aside class="side">
+                <div class="side-h">
+                    <b>Fusion APIs</b>
+                    <button class="btn sm ghost" id="fa-home" style="margin-left:auto" title="Overview: module × Setup / Masters / Transactions"><i class="fa-solid fa-table-cells"></i></button>
+                </div>
+                <div class="fa-filt"><div class="pr-search"><i class="fa-solid fa-magnifying-glass"></i><input id="fa-q" type="search" placeholder="Search APIs…"></div><select id="fa-area"></select></div>
+                <div class="list" id="fa-list"></div>
+            </aside>
+            <main class="main" id="fa-main"></main>
+        </div>
+    </section>
+
     <div class="modal-bg" id="pr-modal"><div class="modal" id="pr-modal-box"></div></div>
 
     <div class="dl-tray" id="tray">
@@ -100,5 +115,7 @@
     <script src="prepare-assist.js"></script>
     <script src="fsm.js"></script>
     <script src="fsm-export.js"></script>
+    <script src="fapi-catalog.js"></script>
+    <script src="fapi.js"></script>
 </body>
 </html>

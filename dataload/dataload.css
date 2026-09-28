@@ -557,3 +557,67 @@ textarea.code:focus, .fld input:focus, .me input:focus, .row-f input:focus { out
 .pf-fix { display: flex; gap: 6px; flex-wrap: wrap; }
 .pf-fix input, .pf-fix select { font: inherit; font-size: .8rem; padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px; width: 190px; }
 @media (max-width: 720px) { .pa-tb { grid-template-columns: 1fr; } }
+
+/* Fusion API tab */
+.fa-filt { display: flex; gap: 6px; padding: 0 12px 8px; }
+.fa-filt .pr-search { flex: 1; margin: 0; }
+.fa-filt select { font: inherit; font-size: .78rem; border: 1px solid var(--line); border-radius: 8px; padding: 0 6px; max-width: 120px; }
+.fa-kinds { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 4px 8px; }
+.fa-kinds button { border: 1px solid var(--line); background: #fff; border-radius: 99px; padding: 3px 9px; font: inherit; font-size: .72rem; cursor: pointer; display: flex; gap: 5px; align-items: center; }
+.fa-kinds button small { color: var(--muted); }
+.fa-kinds button.on { border-color: var(--accent); background: #eef6ff; color: var(--accent); }
+.fa-grp { margin-bottom: 6px; }
+.fa-gh { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ac); padding: 6px 8px 3px; }
+.fa-it { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; text-align: left; padding: 6px 8px; border-radius: 8px; cursor: pointer; font: inherit; }
+.fa-it .tx { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.fa-it .tx b { font-size: .82rem; }
+.fa-it .tx small { font-size: .7rem; color: var(--muted); font-family: ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; }
+.fa-it:hover { background: #f1f5f9; }
+.fa-it.sel { background: #eef6ff; }
+.fa-it .ok { color: #16a34a; } .fa-it .no { color: #dc2626; } .fa-it .q { color: #94a3b8; }
+.fa-kd { width: 20px; height: 20px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: .66rem; font-weight: 700; color: #fff; flex: none; }
+.fa-kd.wide { width: auto; padding: 1px 8px; height: auto; border-radius: 99px; }
+.fa-kd.SETUP { background: #7c3aed; } .fa-kd.MASTER { background: #0369a1; } .fa-kd.TXN { background: #15803d; } .fa-kd.UTIL { background: #475569; }
+.fa-op { font-size: .64rem; font-weight: 700; padding: 1px 6px; border-radius: 5px; margin-right: 3px; font-family: ui-monospace, Consolas, monospace; }
+.fa-op.G { background: #e0f2fe; color: #0369a1; } .fa-op.P { background: #dcfce7; color: #166534; } .fa-op.U { background: #fef3c7; color: #92400e; }
+.fa-wel { max-width: none; }
+.fa-open { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+.fa-open input { flex: 1; min-width: 220px; font: inherit; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; }
+.fa-open select { font: inherit; border: 1px solid var(--line); border-radius: 9px; padding: 0 8px; }
+.fa-matrix { width: 100%; border-collapse: separate; border-spacing: 0; font-size: .8rem; }
+.fa-matrix th, .fa-matrix td { border-bottom: 1px solid var(--line); padding: 8px; text-align: left; vertical-align: top; }
+.fa-matrix thead th { font-size: .74rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+.fa-matrix tbody th { color: var(--ac); white-space: nowrap; border-left: 3px solid var(--ac); }
+.fa-chip { border: 1px solid var(--line); background: #fff; border-radius: 99px; padding: 3px 10px; margin: 2px; font: inherit; font-size: .76rem; cursor: pointer; }
+.fa-chip small { color: var(--muted); font-size: .66rem; }
+.fa-chip:hover { border-color: var(--accent); color: var(--accent); }
+.fa-chip.no { opacity: .45; text-decoration: line-through; }
+.fa-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: .76rem; color: var(--muted); margin-top: 14px; }
+.fa-head { gap: 14px; align-items: flex-start; }
+.fa-ic { width: 46px; height: 46px; border-radius: 12px; background: var(--ac); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex: none; }
+.fa-head h2 { font-size: 1.15rem; }
+.fa-d { font-size: .8rem; margin-top: 4px; color: #334155; }
+.fa-fbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.fa-fbar .pr-search { margin: 0; width: 260px; }
+.fa-fields tr.req td:first-child, .fa-map tr.req td:first-child { border-left: 3px solid #dc2626; }
+.fa-fields .fa-help { font-size: .72rem; color: #475569; max-width: 520px; }
+b.req, em.req { color: #dc2626; font-style: normal; }
+.fa-h3 { font-size: .9rem; margin: 18px 0 6px; }
+.fa-h4 { font-size: .82rem; margin: 12px 0 4px; }
+.fa-steps { display: flex; flex-direction: column; gap: 12px; }
+.fa-sec { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.fa-sec h3 { font-size: .9rem; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fa-sec h3 .n { width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: .72rem; display: inline-flex; align-items: center; justify-content: center; }
+.fa-sec h3 small { font-weight: 400; font-size: .76rem; }
+.fa-map input { width: 100%; box-sizing: border-box; font: inherit; font-size: .8rem; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; font-family: ui-monospace, Consolas, monospace; }
+.fa-map td:first-child { width: 34%; }
+.fa-issues { font-size: .76rem; background: #fef2f2; border: 1px solid #fecaca; border-radius: 9px; padding: 8px 10px; display: flex; flex-direction: column; gap: 3px; }
+.fa-pv summary { cursor: pointer; font-size: .78rem; color: var(--accent); }
+.fa-pv pre { max-height: 260px; overflow: auto; font-size: .74rem; }
+.ok-t { color: #15803d; } .err-t { color: #b91c1c; }
+.fa-res tr.bad td { background: #fff7f7; }
+.fa-jobs { display: flex; flex-direction: column; gap: 6px; }
+.fa-job { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 8px 12px; text-align: left; font: inherit; cursor: pointer; display: flex; flex-direction: column; }
+.fa-job:hover { border-color: var(--accent); }
+.fa-job small { color: var(--muted); font-size: .72rem; }
+.fa-qbar { align-items: flex-end; }

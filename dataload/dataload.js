@@ -52,6 +52,7 @@ function dlShowTab(name) {
     lsSet('dl_tab', name);
     if (name === 'prepare' && typeof prOpenTab === 'function') prOpenTab();
     if (name === 'fsm' && typeof fmOpenTab === 'function') fmOpenTab();
+    if (name === 'fapi' && typeof faOpenTab === 'function') faOpenTab();
 }
 
 // ── host bridge ────────────────────────────────────────────────
@@ -437,7 +438,7 @@ function dlWire() {
     dlRefreshLocal().then(function () { dlRenderList(); dlRenderDetail(); }).catch(function () { });
     var startTab = lsGet('dl_tab', 'templates');
     // prepare.js / fsm.js load after this file — open their tab once every script is in
-    if (startTab === 'prepare' || startTab === 'fsm') {
+    if (startTab === 'prepare' || startTab === 'fsm' || startTab === 'fapi') {
         if (document.readyState === 'complete') dlShowTab(startTab);
         else window.addEventListener('load', function () { dlShowTab(startTab); });
     }
