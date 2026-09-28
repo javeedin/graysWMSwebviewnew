@@ -35,7 +35,7 @@ function faAreas() { return FBDI_AREAS.concat(FAPI_AREAS_EXTRA); }
 function faArea(code) { for (var i = 0, a = faAreas(); i < a.length; i++) if (a[i][0] === code) return { code: a[i][0], name: a[i][1], color: a[i][2] }; return { code: code, name: code, color: '#64748b' }; }
 function faKind(k) { for (var i = 0; i < FAPI_KINDS.length; i++) if (FAPI_KINDS[i][0] === k) return FAPI_KINDS[i]; return [k, k, '', 'fa-circle']; }
 function faOps(ops) {
-    return (ops || '').split('').map(function (o) { return '<span class="fa-op ' + o + '">' + ({ G: 'GET', P: 'POST', U: 'PATCH' }[o] || o) + '</span>'; }).join('');
+    return (ops || '').split('').map(function (o) { return '<span class="fap-op ' + o + '">' + ({ G: 'GET', P: 'POST', U: 'PATCH' }[o] || o) + '</span>'; }).join('');
 }
 /** One REST call → { status, json, text }. Throws on transport errors only; HTTP errors come back with their status. */
 function faRest(method, url, body) {
@@ -74,7 +74,7 @@ function faFiltered() {
 }
 function faRenderList() {
     var el = $('fa-list'); if (!el) return;
-    var kinds = '<div class="fa-kinds">' + [['ALL', 'All', '', 'fa-layer-group']].concat(FAPI_KINDS).map(function (k) {
+    var kinds = '<div class="fap-kinds">' + [['ALL', 'All', '', 'fa-layer-group']].concat(FAPI_KINDS).map(function (k) {
         var n = k[0] === 'ALL' ? FAPI_CATALOG.length : FAPI_CATALOG.filter(function (c) { return c.k === k[0]; }).length;
         return '<button class="' + (FA.kind === k[0] ? 'on' : '') + '" data-fakind="' + k[0] + '" title="' + esc(k[2]) + '"><i class="fa-solid ' + k[3] + '"></i> ' + k[1] + ' <small>' + n + '</small></button>';
     }).join('') + '</div>';
@@ -82,10 +82,10 @@ function faRenderList() {
     list.forEach(function (c) { if (!groups[c.a]) { groups[c.a] = []; order.push(c.a); } groups[c.a].push(c); });
     el.innerHTML = kinds + (list.length ? order.map(function (a) {
         var A = faArea(a);
-        return '<div class="fa-grp" style="--ac:' + A.color + '"><div class="fa-gh">' + esc(A.name) + '</div>' + groups[a].map(function (c) {
+        return '<div class="fap-grp" style="--ac:' + A.color + '"><div class="fap-gh">' + esc(A.name) + '</div>' + groups[a].map(function (c) {
             var p = FA.pod[c.r];
-            return '<button class="fa-it' + (FA.sel && FA.sel.r === c.r ? ' sel' : '') + '" data-fares="' + esc(c.r) + '">' +
-                '<span class="fa-kd ' + c.k + '">' + faKind(c.k)[1].slice(0, 1) + '</span><span class="tx"><b>' + esc(c.n) + '</b><small>' + esc(c.r) + '</small></span>' +
+            return '<button class="fap-it' + (FA.sel && FA.sel.r === c.r ? ' sel' : '') + '" data-fares="' + esc(c.r) + '">' +
+                '<span class="fap-kd ' + c.k + '">' + faKind(c.k)[1].slice(0, 1) + '</span><span class="tx"><b>' + esc(c.n) + '</b><small>' + esc(c.r) + '</small></span>' +
                 (p ? '<i class="fa-solid ' + (p === 'ok' ? 'fa-circle-check ok' : p === 'no' ? 'fa-circle-xmark no' : 'fa-circle-question q') + '" title="' + ({ ok: 'Available on this pod', no: 'Not found on this pod', err: 'Could not check' }[p] || '') + '"></i>' : '') + '</button>';
         }).join('') + '</div>';
     }).join('') : '<div class="empty">No API matches.</div>');
@@ -96,22 +96,22 @@ function faRenderMain() {
     var el = $('fa-main'); if (!el) return;
     if (FA.sel) { faRenderResource(); return; }
     var areas = []; FAPI_CATALOG.forEach(function (c) { if (areas.indexOf(c.a) < 0) areas.push(c.a); });
-    var h = '<div class="welcome fa-wel"><h2>Fusion API</h2><p>Load data straight through Oracle Fusion REST — one record at a time, with Fusion\'s answer (new id or the exact error) for every row. ' +
+    var h = '<div class="welcome fap-wel"><h2>Fusion API</h2><p>Load data straight through Oracle Fusion REST — one record at a time, with Fusion\'s answer (new id or the exact error) for every row. ' +
         'Use it for setups, masters and moderate volumes that must land now; use FBDI (Prepare &amp; Load) for thousands of rows. Every API is read live from your pod, so the fields and required columns are always the pod\'s own.</p>' +
-        '<div class="fa-open"><select id="fa-any-api"><option value="fscm">fscmRestApi</option><option value="hcm">hcmRestApi</option><option value="crm">crmRestApi</option></select>' +
+        '<div class="fap-open"><select id="fa-any-api"><option value="fscm">fscmRestApi</option><option value="hcm">hcmRestApi</option><option value="crm">crmRestApi</option></select>' +
         '<input id="fa-any" placeholder="Any other resource, e.g. supplierSites, bankAccountsLOV…" autocomplete="off"><button class="btn" data-faact="any"><i class="fa-solid fa-magnifying-glass"></i> Open</button>' +
         '<button class="btn ghost" data-faact="checkall" title="Ask the pod which of these APIs it has"><i class="fa-solid fa-satellite-dish"></i> Check all on pod</button></div>' +
-        '<table class="fa-matrix"><thead><tr><th>Module</th>' + FAPI_KINDS.map(function (k) { return '<th title="' + esc(k[2]) + '"><i class="fa-solid ' + k[3] + '"></i> ' + k[1] + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        '<table class="fap-matrix"><thead><tr><th>Module</th>' + FAPI_KINDS.map(function (k) { return '<th title="' + esc(k[2]) + '"><i class="fa-solid ' + k[3] + '"></i> ' + k[1] + '</th>'; }).join('') + '</tr></thead><tbody>' +
         areas.map(function (a) {
             var A = faArea(a);
             return '<tr style="--ac:' + A.color + '"><th>' + esc(A.name) + '</th>' + FAPI_KINDS.map(function (k) {
                 return '<td>' + FAPI_CATALOG.filter(function (c) { return c.a === a && c.k === k[0]; }).map(function (c) {
                     var p = FA.pod[c.r];
-                    return '<button class="fa-chip' + (p === 'no' ? ' no' : '') + '" data-fares="' + esc(c.r) + '" title="' + esc(c.d) + '">' + esc(c.n) + (c.ops.indexOf('P') >= 0 ? '' : ' <small>read</small>') + '</button>';
+                    return '<button class="fap-chip' + (p === 'no' ? ' no' : '') + '" data-fares="' + esc(c.r) + '" title="' + esc(c.d) + '">' + esc(c.n) + (c.ops.indexOf('P') >= 0 ? '' : ' <small>read</small>') + '</button>';
                 }).join('') + '</td>';
             }).join('') + '</tr>';
         }).join('') + '</tbody></table>' +
-        '<div class="fa-legend"><span><b>API or FBDI?</b></span><span><i class="fa-solid fa-bolt"></i> API: immediate result per record, ids back, fits setups, masters and up to a few hundred documents</span>' +
+        '<div class="fap-legend"><span><b>API or FBDI?</b></span><span><i class="fa-solid fa-bolt"></i> API: immediate result per record, ids back, fits setups, masters and up to a few hundred documents</span>' +
         '<span><i class="fa-solid fa-truck-ramp-box"></i> FBDI: bulk (thousands of rows), one import job, errors in the import report</span></div></div>';
     el.innerHTML = h;
 }
@@ -136,7 +136,7 @@ function faPodCheck(c) {
 function faSelect(r, custom) {
     var c = custom || FAPI_CATALOG.filter(function (x) { return x.r === r; })[0]; if (!c) return;
     FA.sel = c; FA.view = 'fields'; FA.jobId = null; FA.jobName = '';
-    FA.cfg = faDefaultCfg(); FA.run = null; FA.runs = null; FA.jobs = null; FA.sample = null;
+    FA.cfg = faDefaultCfg(); FA.run = null; FA.runs = null; FA.jobs = null; FA.sample = null; FA.sample0 = null;
     faRenderList(); faRenderResource();
     faDescribe(c).then(function () { if (FA.sel === c) { faAutoMap(); faRenderResource(); } });
     if (!FA.pod[c.r]) faPodCheck(c).then(function () { faRenderList(); if (FA.sel === c) faRenderHead(); });
@@ -167,24 +167,24 @@ function faParseDesc(obj) {
 }
 function faD() { var c = FA.sel; return c && FA.desc[(c.api || 'fscm') + ':' + c.r]; }
 function faRenderHead() {
-    var c = FA.sel, el = $('fa-head'); if (!c || !el) return;
+    var c = FA.sel, el = $('fap-head'); if (!c || !el) return;
     var A = faArea(c.a), K = faKind(c.k), p = FA.pod[c.r], t = c.f && tplByFile(c.f);
-    el.innerHTML = '<div class="fa-ic" style="--ac:' + A.color + '"><i class="fa-solid ' + K[3] + '"></i></div><div class="grow"><h2>' + esc(c.n) + '</h2>' +
-        '<div class="muted pr-sub"><code>/' + esc(c.api || 'fscm') + 'RestApi/resources/' + FA_REST_VER + '/' + esc(c.r) + '</code> · ' + esc(A.name) + ' · <span class="fa-kd ' + c.k + ' wide">' + K[1] + '</span> ' + faOps(c.ops) +
+    el.innerHTML = '<div class="fap-ic" style="--ac:' + A.color + '"><i class="fa-solid ' + K[3] + '"></i></div><div class="grow"><h2>' + esc(c.n) + '</h2>' +
+        '<div class="muted pr-sub"><code>/' + esc(c.api || 'fscm') + 'RestApi/resources/' + FA_REST_VER + '/' + esc(c.r) + '</code> · ' + esc(A.name) + ' · <span class="fap-kd ' + c.k + ' wide">' + K[1] + '</span> ' + faOps(c.ops) +
         (p ? ' · <span class="chip ' + (p === 'ok' ? 'ok' : p === 'no' ? 'err' : 'warn') + '">' + ({ ok: 'on this pod', no: 'not on this pod', err: 'not checked' }[p]) + '</span>' : '') + '</div>' +
-        '<p class="fa-d">' + esc(c.d || '') + '</p></div>' +
+        '<p class="fap-d">' + esc(c.d || '') + '</p></div>' +
         (t ? '<button class="btn" data-faact="fbdi" title="Load the same data in bulk with ' + esc(t.n) + '"><i class="fa-solid fa-truck-ramp-box"></i> Bulk? Use FBDI</button>' : '');
 }
-var FA_VIEWS = [['fields', 'fa-list', 'Fields'], ['query', 'fa-magnifying-glass', 'Query'], ['load', 'fa-upload', 'Load data'], ['runs', 'fa-clock-rotate-left', 'Runs']];
+var FA_VIEWS = [['fields', 'fa-list', 'Fields'], ['sample', 'fa-table', 'Sample data'], ['query', 'fa-magnifying-glass', 'Query'], ['load', 'fa-upload', 'Load data'], ['runs', 'fa-clock-rotate-left', 'Runs']];
 function faRenderResource() {
     var c = FA.sel, el = $('fa-main'); if (!c) return;
     var canLoad = /[PU]/.test(c.ops || 'GPU');
-    el.innerHTML = '<div class="pr-head fa-head" id="fa-head"></div><nav class="pr-steps">' + FA_VIEWS.filter(function (v) { return v[0] !== 'load' || canLoad; }).map(function (v) {
+    el.innerHTML = '<div class="pr-head fap-head" id="fap-head"></div><nav class="pr-steps">' + FA_VIEWS.filter(function (v) { return v[0] !== 'load' || canLoad; }).map(function (v) {
         return '<button class="pr-step' + (FA.view === v[0] ? ' on' : '') + '" data-faview="' + v[0] + '"><i class="fa-solid ' + v[1] + '"></i> ' + v[2] + '</button>';
     }).join('') + '</nav><div id="fa-body" class="pr-body"></div>';
     faRenderHead();
     if (FA.view === 'load' && !canLoad) FA.view = 'fields';
-    ({ fields: faRenderFields, query: faRenderQuery, load: faRenderLoad, runs: faRenderRuns })[FA.view]();
+    ({ fields: faRenderFields, sample: faRenderSample, query: faRenderQuery, load: faRenderLoad, runs: faRenderRuns })[FA.view]();
 }
 
 // ── Fields (live /describe) ────────────────────────────────────
@@ -196,44 +196,131 @@ function faRenderFields() {
     var tbl = function (attrs) {
         var list = attrs.filter(function (a) { return !q || (a.name + ' ' + a.title + ' ' + a.help).toLowerCase().indexOf(q) >= 0; })
             .sort(function (a, b) { return (b.req - a.req); });
-        return '<table class="grid fa-fields"><thead><tr><th>Field</th><th>Title</th><th>Type</th><th>Len</th><th>Req</th><th>Upd</th><th>Description</th></tr></thead><tbody>' +
+        return '<table class="grid fap-fields"><thead><tr><th>Field</th><th>Title</th><th>Type</th><th>Len</th><th>Req</th><th>Upd</th><th>Description</th></tr></thead><tbody>' +
             list.map(function (a) {
                 return '<tr' + (a.req ? ' class="req"' : '') + '><td><code>' + esc(a.name) + '</code>' + (a.lov ? ' <small class="muted">LOV</small>' : '') + '</td><td>' + esc(a.title) + '</td><td>' + esc(a.type) + '</td><td>' + (a.len || '') + '</td>' +
-                    '<td>' + (a.req ? '<b class="req">yes</b>' : a.mand ? '<small class="muted">system</small>' : '') + '</td><td>' + (a.upd ? '' : '<small class="muted">read-only</small>') + '</td><td class="fa-help">' + esc(a.help.slice(0, 220)) + '</td></tr>';
+                    '<td>' + (a.req ? '<b class="req">yes</b>' : a.mand ? '<small class="muted">system</small>' : '') + '</td><td>' + (a.upd ? '' : '<small class="muted">read-only</small>') + '</td><td class="fap-help">' + esc(a.help.slice(0, 220)) + '</td></tr>';
             }).join('') + '</tbody></table>';
     };
     var ch = Object.keys(d.children);
-    el.innerHTML = '<div class="fa-fbar"><div class="pr-search"><i class="fa-solid fa-magnifying-glass"></i><input id="fa-fq" type="search" placeholder="Filter fields…" value="' + esc(FA.fq || '') + '"></div>' +
+    el.innerHTML = '<div class="fap-fbar"><div class="pr-search"><i class="fa-solid fa-magnifying-glass"></i><input id="fa-fq" type="search" placeholder="Filter fields…" value="' + esc(FA.fq || '') + '"></div>' +
         '<span class="muted">' + d.attrs.length + ' fields · ' + d.attrs.filter(function (a) { return a.req; }).length + ' required' + (ch.length ? ' · ' + ch.length + ' child collections' : '') + (d.actions.length ? ' · actions: ' + esc(d.actions.slice(0, 8).join(', ')) : '') + '</span></div>' +
-        tbl(d.attrs) + ch.map(function (n) { return '<h3 class="fa-h3"><i class="fa-solid fa-diagram-next"></i> child: ' + esc(n) + ' <small class="muted">' + d.children[n].attrs.length + ' fields</small></h3>' + tbl(d.children[n].attrs); }).join('');
+        tbl(d.attrs) + ch.map(function (n) { return '<h3 class="fap-h3"><i class="fa-solid fa-diagram-next"></i> child: ' + esc(n) + ' <small class="muted">' + d.children[n].attrs.length + ' fields</small></h3>' + tbl(d.children[n].attrs); }).join('');
 }
 
-// ── Query (GET) ────────────────────────────────────────────────
+// ── Sample data / Query (GET) and link drill-down ───────────────
+/* Fusion returns every record with "links": self/canonical (the record), child (child collections such as
+   invoiceLines), lov (the list of values behind a field) and enclosure (attachments / file content).
+   faGrid shows them as chips; any chip opens in the drill dialog, which keeps a breadcrumb so you can go
+   deeper (invoice → lines → distributions) and back. */
+function faLinkChips(links, skipSelf) {
+    return (links || []).filter(function (l) { return l && l.href && l.rel !== 'enclosure' && !(skipSelf && (l.rel === 'self' || l.rel === 'canonical')); })
+        .filter(function (l, i, a) { return !(l.rel === 'canonical' && a.some(function (x) { return x.rel === 'self'; })); })
+        .map(function (l) {
+            var lab = l.rel === 'self' || l.rel === 'canonical' ? 'record' : (l.name || l.rel);
+            return '<button class="fap-lk ' + esc(l.rel) + '" data-fadrill="' + esc(l.href) + '" data-fatitle="' + esc(lab) + '" title="' + esc(l.rel + ': ' + l.href) + '">' +
+                '<i class="fa-solid ' + (l.rel === 'child' ? 'fa-diagram-next' : l.rel === 'lov' ? 'fa-list-ul' : 'fa-arrow-up-right-from-square') + '"></i> ' + esc(lab) + '</button>';
+        }).join('');
+}
+function faCell(v) {
+    if (v == null) return '';
+    if (Array.isArray(v)) return '<span class="muted">[' + v.length + ']</span>';
+    if (typeof v === 'object') return '<span class="muted">{…}</span>';
+    var s = String(v);
+    if (/^https:\/\/[^\s]+\/(fscm|hcm|crm)RestApi\/resources\//.test(s)) return '<button class="fap-lk" data-fadrill="' + esc(s) + '" data-fatitle="link">' + esc(s.split('/').pop()) + '</button>';
+    return esc(s);
+}
+/** Items → table: scalar columns, then the row's links as drill chips. */
+function faGrid(items, opts) {
+    opts = opts || {};
+    var cols = [];
+    items.forEach(function (it) { Object.keys(it).forEach(function (k) { if (k !== 'links' && cols.indexOf(k) < 0 && (it[k] == null || typeof it[k] !== 'object')) cols.push(k); }); });
+    var hasLinks = items.some(function (it) { return (it.links || []).length; });
+    return { cols: cols, html: '<div class="grid-w"><table class="grid fap-grid"><thead><tr>' + (hasLinks ? '<th>Drill</th>' : '') + cols.map(function (k) { return '<th>' + esc(k) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        items.map(function (it) { return '<tr>' + (hasLinks ? '<td class="fap-lks">' + faLinkChips(it.links) + '</td>' : '') + cols.map(function (k) { return '<td>' + faCell(it[k]) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>' };
+}
+function faGet(qs) {
+    return faRest('GET', faUrl(FA.sel, qs)).then(function (r) {
+        return r.status < 300 && r.json ? { items: r.json.items || [], hasMore: !!r.json.hasMore, ms: r.ms, count: r.json.count } : { error: faErr(r) };
+    }).catch(function (e) { return { error: String(e) }; });
+}
+function faResultHtml(S, csvAct) {
+    if (S.error) return '<div class="note err">' + esc(S.error) + '</div>';
+    if (!S.items.length) return '<div class="empty">No records.</div>';
+    var g = faGrid(S.items); S.cols = g.cols;
+    return '<div class="grid-h"><b>' + S.items.length + ' row' + (S.items.length === 1 ? '' : 's') + '</b>' + (S.hasMore ? '<span class="muted">more on the pod</span>' : '') + '<span class="muted">' + S.ms + ' ms</span>' +
+        '<span class="muted"><i class="fa-solid fa-diagram-next"></i> click a chip to drill into child records, lists of values or the record itself</span>' +
+        '<button class="btn sm" data-faact="' + csvAct + '"><i class="fa-solid fa-file-csv"></i> CSV</button></div>' + g.html;
+}
+function faRenderSample() {
+    var c = FA.sel, el = $('fa-body');
+    if (!FA.sample0) {
+        el.innerHTML = '<div class="empty"><i class="fa-solid fa-spinner fa-spin"></i> Reading 10 records from ' + currentInstance() + '…</div>';
+        faGet('?limit=10').then(function (S) { if (FA.sel !== c) return; FA.sample0 = S; if (FA.view === 'sample') faRenderSample(); });
+        return;
+    }
+    el.innerHTML = '<div class="row-f"><span class="muted">The first 10 records on ' + currentInstance() + ' — real values to copy the shape from before a load.</span><button class="btn sm ghost" data-faact="resample"><i class="fa-solid fa-rotate"></i> Refresh</button></div>' + faResultHtml(FA.sample0, 'scsv');
+}
 function faRenderQuery() {
-    var c = FA.sel, S = FA.sample, el = $('fa-body');
-    var h = '<div class="row-f fa-qbar"><label class="fld grow"><span>Filter <em>(q=, e.g. SupplierNumber=\'1001\' or InvoiceAmount&gt;1000)</em></span><input id="fa-qq" value="' + esc(FA.qq || '') + '"></label>' +
+    var S = FA.sample, el = $('fa-body');
+    var h = '<div class="row-f fap-qbar"><label class="fld grow"><span>Filter <em>(q=, e.g. SupplierNumber=\'1001\' or InvoiceAmount&gt;1000)</em></span><input id="fa-qq" value="' + esc(FA.qq || '') + '"></label>' +
         '<label class="fld"><span>Fields <em>(optional)</em></span><input id="fa-qf" value="' + esc(FA.qf || '') + '" placeholder="Name,Id…"></label>' +
         '<label class="fld"><span>Rows</span><input id="fa-ql" type="number" min="1" max="500" value="' + (FA.ql || 25) + '" style="width:80px"></label>' +
         '<button class="btn primary" data-faact="query"><i class="fa-solid fa-play"></i> Run</button></div>';
-    if (S && S.error) h += '<div class="note err">' + esc(S.error) + '</div>';
-    else if (S) {
-        var cols = []; S.items.forEach(function (it) { Object.keys(it).forEach(function (k) { if (cols.indexOf(k) < 0 && (it[k] == null || typeof it[k] !== 'object')) cols.push(k); }); });
-        h += '<div class="grid-h"><b>' + S.items.length + ' rows</b>' + (S.hasMore ? '<span class="muted">more on the pod</span>' : '') + '<span class="muted">' + S.ms + ' ms</span>' +
-            '<button class="btn sm" data-faact="qcsv"><i class="fa-solid fa-file-csv"></i> CSV</button></div>' +
-            '<div class="grid-w"><table class="grid"><thead><tr>' + cols.map(function (k) { return '<th>' + esc(k) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-            S.items.map(function (it) { return '<tr>' + cols.map(function (k) { return '<td>' + esc(it[k] == null ? '' : String(it[k])) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
-        S.cols = cols;
-    } else h += '<div class="empty">Read live records — handy to look up ids and codes before a load, and to confirm what a load created.</div>';
+    h += S ? faResultHtml(S, 'qcsv') : '<div class="empty">Read live records — handy to look up ids and codes before a load, and to confirm what a load created.</div>';
     el.innerHTML = h;
 }
 function faQuery() {
     var c = FA.sel; FA.qq = $('fa-qq').value.trim(); FA.qf = $('fa-qf').value.trim(); FA.ql = Math.max(1, Math.min(500, +$('fa-ql').value || 25));
-    var qs = '?onlyData=true&limit=' + FA.ql + (FA.qq ? '&q=' + encodeURIComponent(FA.qq) : '') + (FA.qf ? '&fields=' + encodeURIComponent(FA.qf) : '');
+    var qs = '?limit=' + FA.ql + (FA.qq ? '&q=' + encodeURIComponent(FA.qq) : '') + (FA.qf ? '&fields=' + encodeURIComponent(FA.qf) : '');
     $('fa-body').querySelector('[data-faact="query"]').disabled = true;
-    return faRest('GET', faUrl(c, qs)).then(function (r) {
-        FA.sample = r.status < 300 && r.json ? { items: r.json.items || [], hasMore: !!r.json.hasMore, ms: r.ms } : { error: faErr(r) };
-    }).catch(function (e) { FA.sample = { error: String(e) }; }).then(faRenderQuery);
+    return faGet(qs).then(function (S) { if (FA.sel !== c) return; FA.sample = S; faRenderQuery(); });
 }
+function faCsv(S, name) {
+    prDownload(new Blob([[S.cols.join(',')].concat(S.items.map(function (it) { return S.cols.map(function (k) { return FE.csvField(it[k]); }).join(','); })).join('\r\n')], { type: 'text/csv' }), name + '.csv');
+}
+// drill dialog
+function faDrill(url, title, reset) {
+    if (reset || !FA.drill) FA.drill = [];
+    FA.drill.push({ url: url, title: title || url.split('?')[0].split('/').pop() });
+    faDrillLoad();
+}
+function faDrillLoad() {
+    var top = FA.drill[FA.drill.length - 1], crumbs = FA.drill.map(function (d, i) {
+        return i === FA.drill.length - 1 ? '<b>' + esc(d.title) + '</b>' : '<button class="link" data-fadback="' + i + '">' + esc(d.title) + '</button>';
+    }).join(' <i class="fa-solid fa-chevron-right"></i> ');
+    prModal('<h2><i class="fa-solid fa-diagram-project"></i> ' + esc(FA.sel ? FA.sel.n : 'Fusion') + '</h2><div class="fap-crumbs">' + crumbs + '</div>' +
+        '<code class="fap-url">' + esc(top.url.replace(/^https:\/\/[^/]+/, '')) + '</code><div id="fap-drillbody"><div class="empty"><i class="fa-solid fa-spinner fa-spin"></i> Reading…</div></div>' +
+        '<div class="modal-f"><button class="btn ghost" data-faact="dcsv" disabled><i class="fa-solid fa-file-csv"></i> CSV</button><button class="btn" data-mact="close">Close</button></div>');
+    $('pr-modal-box').classList.add('wide');
+    // a collection when the path ends on the resource or on child/<name> — read 50 rows of it
+    var url = top.url, segs = ((url.split('?')[0].split('/resources/')[1] || '').split('/')).slice(1);
+    var coll = segs.length === 1 || segs[segs.length - 2] === 'child';
+    var get = coll && !/[?&]limit=/.test(url) ? url + (url.indexOf('?') < 0 ? '?' : '&') + 'limit=50' : url;
+    faRest('GET', get).then(function (r) {
+        if (FA.drill[FA.drill.length - 1] !== top) return;
+        var box = $('fap-drillbody'); if (!box) return;
+        if (r.status >= 300 || !r.json) { box.innerHTML = '<div class="note err">' + esc(faErr(r)) + '</div>'; return; }
+        var j = r.json;
+        if (Array.isArray(j.items)) {
+            top.S = { items: j.items, hasMore: !!j.hasMore, ms: r.ms };
+            box.innerHTML = faResultHtml(top.S, 'dcsv').replace(/<button class="btn sm" data-faact="dcsv">[\s\S]*?<\/button>/, '');
+            var b = document.querySelector('#pr-modal-box [data-faact="dcsv"]'); if (b) b.disabled = !j.items.length;
+        } else {
+            // one record: its fields, then its links (children, LOVs)
+            var keys = Object.keys(j).filter(function (k) { return k !== 'links'; });
+            box.innerHTML = '<div class="fap-lks fap-reclinks">' + faLinkChips(j.links, true) + '</div><table class="grid fap-kv"><tbody>' + keys.map(function (k) {
+                return '<tr><th>' + esc(k) + '</th><td>' + faCell(j[k]) + '</td></tr>';
+            }).join('') + '</tbody></table>';
+        }
+    }).catch(function (e) { var box = $('fap-drillbody'); if (box) box.innerHTML = '<div class="note err">' + esc(String(e)) + '</div>'; });
+}
+document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-fadrill]');
+    if (b) { e.preventDefault(); var inModal = !!b.closest('#pr-modal-box'); faDrill(b.getAttribute('data-fadrill'), b.getAttribute('data-fatitle'), !inModal); return; }
+    if ((b = e.target.closest('#pr-modal-box [data-fadback]'))) { FA.drill = FA.drill.slice(0, +b.getAttribute('data-fadback') + 1); faDrillLoad(); return; }
+    if ((b = e.target.closest('#pr-modal-box [data-faact="dcsv"]'))) { var top = FA.drill[FA.drill.length - 1]; if (top && top.S) faCsv(top.S, (FA.sel ? FA.sel.r + '_' : '') + top.title); }
+});
 
 // ── Load data ──────────────────────────────────────────────────
 function faAttrs(child) { var d = faD(); if (!d || d.error) return []; return child ? ((d.children[child] || {}).attrs || []) : d.attrs; }
@@ -255,9 +342,9 @@ function faRenderLoad() {
     if (!d) { el.innerHTML = '<div class="empty"><i class="fa-solid fa-spinner fa-spin"></i> Reading the fields from the pod…</div>'; return; }
     if (d.error) { faRenderFields(); return; }
     var ch = Object.keys(d.children);
-    var h = '<div class="fa-steps">';
+    var h = '<div class="fap-steps">';
     // 1 source
-    h += '<section class="fa-sec"><h3><span class="n">1</span> Data <small class="muted">' + (S ? S.rows.length + ' rows · ' + S.cols.length + ' columns' + (S.note ? ' · ' + esc(S.note) : '') : 'Excel, paste, APEX or Fusion SQL') + '</small>' +
+    h += '<section class="fap-sec"><h3><span class="n">1</span> Data <small class="muted">' + (S ? S.rows.length + ' rows · ' + S.cols.length + ' columns' + (S.note ? ' · ' + esc(S.note) : '') : 'Excel, paste, APEX or Fusion SQL') + '</small>' +
         (S ? '<button class="link" data-faact="clearsrc">change</button>' : '') + '</h3>';
     if (!S) {
         h += '<div class="seg">' + [['PASTE', 'fa-paste', 'Paste'], ['FILE', 'fa-file-excel', 'Excel / CSV'], ['APEX_SQL', 'fa-database', 'APEX SQL'], ['FUSION_SQL', 'fa-cloud', 'Fusion SQL']].map(function (s) {
@@ -272,7 +359,7 @@ function faRenderLoad() {
     h += '</section>';
     if (S) {
         // 2 how
-        h += '<section class="fa-sec"><h3><span class="n">2</span> Operation</h3><div class="row-f">' +
+        h += '<section class="fap-sec"><h3><span class="n">2</span> Operation</h3><div class="row-f">' +
             '<label class="fld"><span>Action</span><select id="fa-method">' + (/P/.test(c.ops) ? '<option value="POST"' + (cfg.method === 'POST' ? ' selected' : '') + '>Create (POST)</option>' : '') +
             (/U/.test(c.ops) ? '<option value="PATCH"' + (cfg.method === 'PATCH' ? ' selected' : '') + '>Update (PATCH)</option>' : '') + '</select></label>' +
             (cfg.method === 'PATCH' ? '<label class="fld"><span>Record key <em>(' + esc(c.key || 'the id in the URL') + ')</em></span><input id="fa-key" value="' + esc(cfg.keyExpr) + '" placeholder="{' + esc(c.key || 'Id') + '}" list="fa-cols"></label>' : '') +
@@ -281,10 +368,10 @@ function faRenderLoad() {
             '<label class="fld"><span>Dates</span><select id="fa-dorder"><option value="dmy"' + (cfg.dateOrder !== 'mdy' ? ' selected' : '') + '>DD/MM/YYYY</option><option value="mdy"' + (cfg.dateOrder === 'mdy' ? ' selected' : '') + '>MM/DD/YYYY</option></select></label></div></section>';
         h += '<datalist id="fa-cols">' + S.cols.map(function (x) { return '<option value="{' + esc(x) + '}">'; }).join('') + '</datalist>';
         // 3 map
-        h += '<section class="fa-sec"><h3><span class="n">3</span> Map fields <small class="muted">expressions like Prepare &amp; Load: <code>{Column}</code>, constants, <code>{Col|upper}</code>, <code>{#line}</code></small>' +
-            '<button class="link" data-faact="automap">auto-map</button></h3>' + faMapTable('map', '') + (cfg.child ? '<h4 class="fa-h4"><i class="fa-solid fa-diagram-next"></i> ' + esc(cfg.child) + ' (one per row)</h4>' + faMapTable('cmap', cfg.child) : '') + '</section>';
-        h += '<section class="fa-sec" id="fa-sec4">' + faCheckHtml() + '</section>';
-        if (FA.run) h += '<section class="fa-sec" id="fa-runbox">' + faRunHtml() + '</section>';
+        h += '<section class="fap-sec"><h3><span class="n">3</span> Map fields <small class="muted">expressions like Prepare &amp; Load: <code>{Column}</code>, constants, <code>{Col|upper}</code>, <code>{#line}</code></small>' +
+            '<button class="link" data-faact="automap">auto-map</button></h3>' + faMapTable('map', '') + (cfg.child ? '<h4 class="fap-h4"><i class="fa-solid fa-diagram-next"></i> ' + esc(cfg.child) + ' (one per row)</h4>' + faMapTable('cmap', cfg.child) : '') + '</section>';
+        h += '<section class="fap-sec" id="fa-sec4">' + faCheckHtml() + '</section>';
+        if (FA.run) h += '<section class="fap-sec" id="fa-runbox">' + faRunHtml() + '</section>';
     }
     el.innerHTML = h + '</div>';
 }
@@ -292,9 +379,9 @@ function faCheckHtml() {
     var c = FA.sel, cfg = FA.cfg, h;
     var B = faBuild(), bad = B.recs.filter(function (r) { return r.issues.length; }).length;
     h = '<h3><span class="n">4</span> Check &amp; send <small class="muted">' + B.recs.length + ' record' + (B.recs.length === 1 ? '' : 's') + (bad ? ' · <b class="err-t">' + bad + ' with problems</b>' : ' · ready') + '</small></h3>';
-    if (bad) h += '<div class="fa-issues">' + B.recs.filter(function (r) { return r.issues.length; }).slice(0, 8).map(function (r) { return '<div><b>Record ' + (r.i + 1) + '</b> (rows ' + r.rows.join(', ') + '): ' + esc(r.issues.join(' · ')) + '</div>'; }).join('') + (bad > 8 ? '<div class="muted">… ' + (bad - 8) + ' more</div>' : '') + '</div>';
+    if (bad) h += '<div class="fap-issues">' + B.recs.filter(function (r) { return r.issues.length; }).slice(0, 8).map(function (r) { return '<div><b>Record ' + (r.i + 1) + '</b> (rows ' + r.rows.join(', ') + '): ' + esc(r.issues.join(' · ')) + '</div>'; }).join('') + (bad > 8 ? '<div class="muted">… ' + (bad - 8) + ' more</div>' : '') + '</div>';
     if (c.f && B.recs.length > 500) h += '<div class="note warn"><i class="fa-solid fa-truck-ramp-box"></i> ' + B.recs.length + ' records — FBDI loads this much faster. <button class="btn sm" data-faact="fbdi">Use FBDI instead</button></div>';
-    h += '<details class="fa-pv"><summary>Payload of record 1</summary><pre class="code">' + esc(B.recs[0] ? JSON.stringify(B.recs[0].body, null, 2) : '') + '</pre></details>' +
+    h += '<details class="fap-pv"><summary>Payload of record 1</summary><pre class="code">' + esc(B.recs[0] ? JSON.stringify(B.recs[0].body, null, 2) : '') + '</pre></details>' +
         '<div class="row-f"><label class="fld"><span>Parallel calls</span><select id="fa-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + (cfg.par === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>' +
         '<label class="fld"><span>Stop after errors</span><input id="fa-stop" type="number" min="0" value="' + cfg.stopAfter + '" style="width:80px"></label>' +
         '<button class="btn" data-faact="test" ' + (B.recs.length ? '' : 'disabled') + ' title="Send only the first record"><i class="fa-solid fa-vial"></i> Send record 1</button>' +
@@ -306,7 +393,7 @@ function faRenderCheck() { var el = $('fa-sec4'); if (el) el.innerHTML = faCheck
 function faMapTable(which, child) {
     var cfg = FA.cfg, attrs = faAttrs(child).filter(function (a) { return a.upd || which === 'map' && cfg.method === 'PATCH' && a.name === FA.sel.key; });
     var m = cfg[which], show = FA.mapAll ? attrs : attrs.filter(function (a) { return a.req || m[a.name]; });
-    return '<table class="grid fa-map"><thead><tr><th>Field</th><th>Value</th><th>Type</th></tr></thead><tbody>' + show.map(function (a) {
+    return '<table class="grid fap-map"><thead><tr><th>Field</th><th>Value</th><th>Type</th></tr></thead><tbody>' + show.map(function (a) {
         return '<tr' + (a.req ? ' class="req"' : '') + '><td><b>' + esc(a.title) + '</b>' + (a.req ? ' <em class="req">*</em>' : '') + '<br><code>' + esc(a.name) + '</code></td>' +
             '<td><input data-famap="' + which + '|' + esc(a.name) + '" value="' + esc(m[a.name] || '') + '" list="fa-cols" placeholder="' + (a.req ? 'required' : '') + '"></td><td class="muted">' + esc(a.type) + (a.len ? '(' + a.len + ')' : '') + '</td></tr>';
     }).join('') + '</tbody></table><button class="link" data-faact="mapall">' + (FA.mapAll ? 'Only required + mapped' : 'Show all ' + attrs.length + ' fields') + '</button>';
@@ -429,7 +516,7 @@ function faRunHtml() {
     return '<h3><span class="n"><i class="fa-solid fa-paper-plane"></i></span> ' + (R.finished ? 'Finished' : 'Sending…') + ' <small class="muted">' + R.done + ' / ' + R.total + ' · <b class="ok-t">' + R.ok + ' ok</b> · <b class="err-t">' + R.err + ' rejected</b>' + (R.ms ? ' · ' + (R.ms / 1000).toFixed(1) + ' s' : '') + '</small>' +
         (R.finished ? (R.err ? '<button class="btn sm" data-faact="retry"><i class="fa-solid fa-rotate-right"></i> Retry rejected</button>' : '') + '<button class="btn sm ghost" data-faact="rescsv"><i class="fa-solid fa-file-csv"></i> Results CSV</button>' : '<button class="btn sm" data-faact="stop"><i class="fa-solid fa-stop"></i> Stop</button>') + '</h3>' +
         '<div class="dl-bar"><i style="width:' + pct + '%"></i></div>' +
-        '<div class="grid-w"><table class="grid fa-res"><thead><tr><th>#</th><th>Rows</th><th>Result</th><th>HTTP</th><th>Key / message</th></tr></thead><tbody>' +
+        '<div class="grid-w"><table class="grid fap-res"><thead><tr><th>#</th><th>Rows</th><th>Result</th><th>HTTP</th><th>Key / message</th></tr></thead><tbody>' +
         R.results.slice().sort(function (a, b) { return a.ok - b.ok || a.rec.i - b.rec.i; }).slice(0, 300).map(function (x) {
             return '<tr class="' + (x.ok ? 'ok' : 'bad') + '"><td>' + (x.rec.i + 1) + '</td><td>' + esc(x.rec.rows.join(', ')) + '</td><td>' + (x.ok ? '<span class="chip ok">created</span>' : '<span class="chip err">rejected</span>') + '</td><td>' + (x.http || '') + '</td><td>' + esc(x.ok ? x.key : x.msg) + '</td></tr>';
         }).join('') + '</tbody></table></div>';
@@ -477,8 +564,8 @@ function faJobs() {
     faEnsure().then(function () {
         return prRead("SELECT job_id, job_name, updated_by, TO_CHAR(updated_date, 'YYYY-MM-DD HH24:MI') AS upd, NVL(LENGTH(config_json), 0) AS len FROM wms_fapi_jobs WHERE resource_name = " + prV(c.r, 100) + ' ORDER BY updated_date DESC', 100);
     }).then(function (r) {
-        prModal('<h2><i class="fa-solid fa-folder-open"></i> Saved mappings — ' + esc(c.n) + '</h2>' + (r.length ? '<div class="fa-jobs">' + r.map(function (j) {
-            return '<button class="fa-job" data-fajob="' + j.JOB_ID + '"><b>' + esc(j.JOB_NAME) + '</b><small>' + esc(j.UPD + ' · ' + (j.UPDATED_BY || '')) + '</small></button>';
+        prModal('<h2><i class="fa-solid fa-folder-open"></i> Saved mappings — ' + esc(c.n) + '</h2>' + (r.length ? '<div class="fap-jobs">' + r.map(function (j) {
+            return '<button class="fap-job" data-fajob="' + j.JOB_ID + '"><b>' + esc(j.JOB_NAME) + '</b><small>' + esc(j.UPD + ' · ' + (j.UPDATED_BY || '')) + '</small></button>';
         }).join('') + '</div>' : '<div class="empty">Nothing saved for this API yet.</div>') + '<div class="modal-f"><button class="btn" data-mact="close">Close</button></div>');
     }).catch(function (e) { toast('Could not read the saved mappings: ' + e); });
 }
@@ -506,7 +593,7 @@ function faRenderRuns() {
 }
 function faRunDetail(id) {
     prRead('SELECT rec_no, source_rows, status, http_status, result_key, message FROM wms_fapi_run_rows WHERE run_id = ' + prN(id) + ' ORDER BY rec_no', 1000).then(function (r) {
-        $('fa-rundet').innerHTML = '<h3 class="fa-h3">Run ' + id + '</h3><div class="grid-w"><table class="grid fa-res"><thead><tr><th>#</th><th>Rows</th><th>Result</th><th>HTTP</th><th>Key / message</th></tr></thead><tbody>' + r.map(function (x) {
+        $('fa-rundet').innerHTML = '<h3 class="fap-h3">Run ' + id + '</h3><div class="grid-w"><table class="grid fap-res"><thead><tr><th>#</th><th>Rows</th><th>Result</th><th>HTTP</th><th>Key / message</th></tr></thead><tbody>' + r.map(function (x) {
             return '<tr class="' + (x.STATUS === 'OK' ? 'ok' : 'bad') + '"><td>' + x.REC_NO + '</td><td>' + esc(x.SOURCE_ROWS || '') + '</td><td>' + esc(x.STATUS) + '</td><td>' + (x.HTTP_STATUS || '') + '</td><td>' + esc(x.STATUS === 'OK' ? x.RESULT_KEY || '' : x.MESSAGE || '') + '</td></tr>';
         }).join('') + '</tbody></table></div>';
     }).catch(function (e) { toast(String(e)); });
@@ -538,7 +625,9 @@ function faRunDetail(id) {
             else if (a === 'redescribe') { delete FA.desc[(FA.sel.api || 'fscm') + ':' + FA.sel.r]; faSelect(FA.sel.r, FA.sel); }
             else if (a === 'fbdi') { dlShowTab('prepare'); if (typeof prNewLoad === 'function') setTimeout(function () { prNewLoad(FA.sel.f); }, 300); }
             else if (a === 'query') faQuery();
-            else if (a === 'qcsv' && FA.sample) { var S = FA.sample; prDownload(new Blob([[S.cols.join(',')].concat(S.items.map(function (it) { return S.cols.map(function (k) { return FE.csvField(it[k]); }).join(','); })).join('\r\n')], { type: 'text/csv' }), FA.sel.r + '.csv'); }
+            else if (a === 'qcsv' && FA.sample) faCsv(FA.sample, FA.sel.r);
+            else if (a === 'scsv' && FA.sample0) faCsv(FA.sample0, FA.sel.r + '_sample');
+            else if (a === 'resample') { FA.sample0 = null; faRenderSample(); }
             else if (a === 'usepaste') {
                 var tx = ($('fa-paste').value || '').replace(/\r/g, ''); if (!tx.trim()) { toast('Paste some rows first.'); return; }
                 var lines = tx.split('\n').filter(function (l) { return l.trim(); }), sep = lines[0].indexOf('\t') >= 0 ? '\t' : ',';
