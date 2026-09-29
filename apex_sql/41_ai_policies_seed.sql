@@ -45,14 +45,15 @@ WHEN MATCHED THEN UPDATE SET policy_mode = 'AUTO', max_batch = NULL, note = 'TES
 WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, note, updated_by)
 VALUES ('*', 'wms_api', 'TEST', 'AUTO', 'TEST: forms run without confirm dialog', 'SEED41');
 
--- DDL/DML from chat: AUTO on TEST (sandbox), so table experiments
--- flow freely. Change to ASK if TEST data matters to you.
+-- DDL/DML from chat: there is ONE APEX database - "TEST" only selects the
+-- Fusion pod, so db_write on TEST gets the same rules as PROD (DENY, admins
+-- ASK). The host also always resolves db_write with the PROD rules.
 MERGE INTO wms_ai_policies p
 USING (SELECT '*' u, 'db_write' a, 'TEST' i FROM dual) s
 ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i)
-WHEN MATCHED THEN UPDATE SET policy_mode = 'AUTO', max_batch = NULL, note = 'TEST sandbox: DDL/DML without card', updated_by = 'SEED41', updated_date = SYSDATE
+WHEN MATCHED THEN UPDATE SET policy_mode = 'DENY', max_batch = NULL, note = 'Same as PROD: one APEX database', updated_by = 'SEED41', updated_date = SYSDATE
 WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, note, updated_by)
-VALUES ('*', 'db_write', 'TEST', 'AUTO', 'TEST sandbox: DDL/DML without card', 'SEED41');
+VALUES ('*', 'db_write', 'TEST', 'DENY', 'Same as PROD: one APEX database', 'SEED41');
 
 -- Scheduled jobs: ASK even on TEST - jobs persist and keep running
 -- after the chat ends, so a human look is worth it.

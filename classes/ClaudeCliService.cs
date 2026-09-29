@@ -164,6 +164,45 @@ namespace WMSApp
         /// chat message. Used to resolve action policies.</summary>
         public string CurrentInstance { get; set; } = "PROD";
 
+        /// <summary>The app login (the page's appUserName), sent with every ai* message. Policies are
+        /// resolved for this user - the same identity the page's own policy checks use. Falls back to the
+        /// Windows user when the page sends none.</summary>
+        public string AppUser { get; set; }
+        public string PolicyUser =>
+            !string.IsNullOrWhiteSpace(AppUser) && !string.Equals(AppUser, "UNKNOWN", StringComparison.OrdinalIgnoreCase)
+                ? AppUser.Trim() : Environment.UserName;
+
+        /// <summary>Actions that hit the single APEX database whichever Fusion instance is selected:
+        /// "TEST" is not a sandbox for them, so they always resolve with the PROD rules.</summary>
+        private static readonly HashSet<string> SINGLE_DB_ACTIONS = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "db_write" };
+
+        // ------------------------------------------------------------
+        // Issued approvals: every approval card the app shows is registered here (fingerprint of exactly
+        // what the card shows). A decision can only run what the app itself asked about - a changed or
+        // replayed page payload is refused. One use each; they expire after 12 hours.
+        // ------------------------------------------------------------
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _issuedApprovals =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, DateTime>();
+        private static string ApprovalKey(string kind, string[] parts)
+        {
+            var sb = new StringBuilder(kind).Append('\u0002');
+            foreach (var p in parts) sb.Append((p ?? "").Trim()).Append('\u0001');
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            return kind + ":" + Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString())));
+        }
+        public void IssueApproval(string kind, params string[] parts)
+        {
+            foreach (var old in _issuedApprovals.Where(kv => (DateTime.Now - kv.Value).TotalHours > 12).Select(kv => kv.Key).ToList())
+                _issuedApprovals.TryRemove(old, out _);
+            _issuedApprovals[ApprovalKey(kind, parts)] = DateTime.Now;
+        }
+        public bool ConsumeApproval(string kind, params string[] parts) =>
+            _issuedApprovals.TryRemove(ApprovalKey(kind, parts), out var at) && (DateTime.Now - at).TotalHours <= 12;
+
+        /// <summary>Re-checked when a card is approved: a policy changed to DENY since the card was shown wins.</summary>
+        public async Task<bool> IsDeniedAsync(string actionKey, string instance = null) =>
+            (await GetPolicyAsync(actionKey, instance)).Mode == "DENY";
+
         // ------------------------------------------------------------
         // Action policies (WMS_AI_POLICIES): AUTO / ASK / DENY per
         // user + action + instance. Cached 5 minutes; missing = ASK.
@@ -177,18 +216,21 @@ namespace WMSApp
             public int? MaxBatch;
         }
         private List<PolicyRule> _policies;
+        private string _policiesUser;
         private DateTime _policiesLoadedAt = DateTime.MinValue;
         private const string POLICIES_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/policies";
 
-        private async Task<(string Mode, int? MaxBatch)> GetPolicyAsync(string actionKey)
+        private async Task<(string Mode, int? MaxBatch)> GetPolicyAsync(string actionKey, string instanceOverride = null)
         {
+            string user = PolicyUser;
             try
             {
-                if (_policies == null || (DateTime.Now - _policiesLoadedAt).TotalMinutes > 5)
+                if (_policies == null || (DateTime.Now - _policiesLoadedAt).TotalMinutes > 5 ||
+                    !string.Equals(_policiesUser, user, StringComparison.OrdinalIgnoreCase))
                 {
                     var list = new List<PolicyRule>();
-                    var resp = await _http.GetAsync(POLICIES_URL + "?appuser=" + Uri.EscapeDataString(Environment.UserName) + "&t=" + DateTime.Now.Ticks);
+                    var resp = await _http.GetAsync(POLICIES_URL + "?appuser=" + Uri.EscapeDataString(user) + "&t=" + DateTime.Now.Ticks);
                     if (resp.IsSuccessStatusCode)
                     {
                         using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
@@ -203,6 +245,7 @@ namespace WMSApp
                                     MaxBatch = p.TryGetProperty("maxBatch", out var b) && b.ValueKind == JsonValueKind.Number ? b.GetInt32() : (int?)null
                                 });
                         _policies = list;
+                        _policiesUser = user;
                         _policiesLoadedAt = DateTime.Now;
                     }
                 }
@@ -212,10 +255,11 @@ namespace WMSApp
                 Debug.WriteLine("[ClaudeCliService] policy fetch failed: " + ex.Message);
             }
 
-            if (_policies == null) return ("ASK", null);   // endpoint missing -> safe default
+            if (_policies == null || !string.Equals(_policiesUser, user, StringComparison.OrdinalIgnoreCase))
+                return ("ASK", null);   // endpoint missing / other user's rules -> safe default
 
-            string user = Environment.UserName;
-            string inst = string.Equals(CurrentInstance, "TEST", StringComparison.OrdinalIgnoreCase) ? "TEST" : "PROD";
+            string inst = string.Equals(instanceOverride ?? CurrentInstance, "TEST", StringComparison.OrdinalIgnoreCase) ? "TEST" : "PROD";
+            if (SINGLE_DB_ACTIONS.Contains(actionKey)) inst = "PROD";
             PolicyRule Find(string pu, string pi) =>
                 _policies.Find(p => string.Equals(p.Action, actionKey, StringComparison.OrdinalIgnoreCase)
                                  && string.Equals(p.AppUser, pu, StringComparison.OrdinalIgnoreCase)

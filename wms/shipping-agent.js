@@ -207,7 +207,7 @@
     // ORDS endpoints name it differently: getsalesorderlinesbytrip returns
     // FULFILL_LINE_ID, but the per-order getsalesorderlines (used by the
     // scheduled agent's Task 2) returns SOURCE_FULFILLMENT_LINE_ID /
-    // FULFILLMENT_LINE_ID. Resolve ALL variants or the auto-cancel silently
+    // FULFILLMENT_LINE_ID. Resolve ALL variants or the (approved) cancel silently
     // sends null ids and Fusion cancels nothing.
     function saLineFulfillId(l) {
         return l.FULFILL_LINE_ID || l.fulfill_line_id
@@ -3456,10 +3456,10 @@
                     <div style="margin-top:0.75rem;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:0.6rem 0.8rem;display:flex;gap:0.5rem;align-items:flex-start;">
                         <i class="fas fa-exclamation-triangle" style="color:#d97706;margin-top:2px;flex-shrink:0;"></i>
                         <div style="font-size:10.5px;color:#92400e;line-height:1.5;">
-                            <strong>Auto-cancellation:</strong> lines in <strong>Scheduled</strong> / <strong>Manual Reservation Required</strong> status
-                            will be cancelled automatically — and their related <strong>child lines will be cancelled automatically</strong> as well
-                            (numbered sub-lines such as 3.1, 3.2, or BOGO promo items). All cancellations are written to the trip's
-                            cancellation log (<i class="fas fa-file-alt"></i> Log button on the trip header).
+                            <strong>Cancellation needs approval:</strong> lines in <strong>Scheduled</strong> / <strong>Manual Reservation Required</strong> status
+                            — with their related <strong>child lines</strong> (numbered sub-lines such as 3.1, 3.2, or BOGO promo items) — are listed on an
+                            <strong>approval card</strong>; nothing is cancelled in Fusion until you approve it, and those orders are not printed until you decide.
+                            Every decision and cancellation is written to the trip's cancellation log (<i class="fas fa-file-alt"></i> Log button on the trip header).
                         </div>
                     </div>
 
@@ -4471,79 +4471,21 @@
 
         const totalToCancel = Object.values(cancelGroups).reduce((s, arr) => s + arr.length, 0);
         if (totalToCancel > 0) {
-            saConsoleLog(`Task 2 ⚠ ${totalToCancel} line(s) across ${Object.keys(cancelGroups).length} order(s) — auto-cancelling now`, 'warn');
-            saCpSetTask(`Task 2: Auto-cancelling ${totalToCancel} line(s) — Trip ${tripId}`);
-            await saLogNotification(agent.ID, tripId, null, 'ANOMALY',
-                `Trip ${tripId}: ${totalToCancel} line(s) across ${Object.keys(cancelGroups).length} order(s) — auto-cancelling`, 'WARN');
-
-            const isProd     = (instance || '').toUpperCase() !== 'TEST';
-            const fusionBase = isProd ? 'https://efmh.fa.em3.oraclecloud.com' : 'https://efmh-test.fa.em3.oraclecloud.com';
-            const cancelUrl  = (orderNum) => `${fusionBase}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${encodeURIComponent(orderNum)}`;
-            const cancelBody = (lines) => ({
-                lines: lines.map(l => ({
-                    FulfillLineId   : saLineFulfillId(l),
-                    OrderedQuantity : 0,
-                    CancelReason    : 'OUT OF STOCK'
-                }))
-            });
-
-            let autoCancelled = 0;
-            for (const orderNum of Object.keys(cancelGroups)) {
-                let lines = cancelGroups[orderNum];
-                // Guard: never PATCH lines with no resolvable FulfillLineId — Fusion
-                // would silently cancel nothing. Drop & log them so the failure is visible.
-                const missing = lines.filter(l => !saLineFulfillId(l));
-                if (missing.length) {
-                    lines = lines.filter(l => saLineFulfillId(l));
-                    saConsoleLog(`Task 2 ⚠ Order ${orderNum}: ${missing.length} line(s) have no FulfillLineId — skipped (check getsalesorderlines column names)`, 'warn');
-                    await saAppendCancelLog(tripId, `WARN order ${orderNum}: ${missing.length} line(s) skipped — no FulfillLineId resolved`);
-                }
-                if (lines.length === 0) {
-                    saConsoleLog(`Task 2 ✗ Order ${orderNum}: no cancellable line had a FulfillLineId — nothing sent to Fusion`, 'error');
-                    await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'FAILED', missing.length,
-                        `No FulfillLineId resolved for any flagged line of ${orderNum}`, null, null);
-                    continue;
-                }
-                saCpSetTask(`Task 2: Cancelling ${lines.length} line(s) for ${orderNum}`);
-                saConsoleLog(`Task 2   Cancelling ${lines.length} line(s) for order ${orderNum} …`, 'info');
-                try {
-                    await new Promise((res, rej) => {
-                        sendMessageToCSharp({
-                            action  : 'executeOracleFusionPatch',
-                            fullUrl : cancelUrl(orderNum),
-                            body    : JSON.stringify(cancelBody(lines)),
-                            instance: instance
-                        }, (err, data) => err ? rej(new Error(String(err))) : res(data));
-                    });
-                    autoCancelled += lines.length;
-                    const childCnt = lines.filter(l => l._saChildOf).length;
-                    saConsoleLog(`Task 2 ✓ Order ${orderNum}: ${lines.length} line(s) cancelled successfully${childCnt ? ` (${childCnt} child)` : ''}`, 'success');
-                    await saAppendCancelLog(tripId, `RESULT order ${orderNum}: SUCCESS — ${lines.length} line(s) cancelled (${lines.length - childCnt} main + ${childCnt} child)`);
-                    await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'SUCCESS', lines.length,
-                        `Auto-cancelled ${lines.length} line(s) via Fusion PATCH (${lines.length - childCnt} main + ${childCnt} child)`, null, null);
-                    // Update the KPI cancelled counter in DOM
-                    if (!window._saCancelledLines) window._saCancelledLines = {};
-                    window._saCancelledLines[tripId] = (window._saCancelledLines[tripId] || 0) + lines.length;
-                    // Update the backorder/cancel cell in the order row
-                    const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNum}`);
-                    if (rowEl) {
-                        const cancelCell = rowEl.querySelector('[data-col="cancel"]');
-                        if (cancelCell) cancelCell.innerHTML = `<span style="background:#fef9c3;color:#a16207;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:700;" title="Auto-cancelled by agent">${lines.length} ✓</span>`;
-                    }
-                } catch(e) {
-                    saConsoleLog(`Task 2 ✗ Order ${orderNum}: cancel failed — ${e.message}`, 'error');
-                    await saAppendCancelLog(tripId, `RESULT order ${orderNum}: FAILED — ${e.message}`);
-                    await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'FAILED', 1, e.message, null, null);
-                }
-            }
-            if (autoCancelled > 0) {
-                saConsoleLog(`Task 2 ✓ Auto-cancelled ${autoCancelled} line(s) for trip ${tripId}`, 'success');
-                showNotification(`Auto-cancelled ${autoCancelled} line(s) for trip ${tripId}.`, 'success');
-                // Refresh KPI panel
-                const kpiEl = document.getElementById(`sa-cp-kpi-${tripId}`);
-                if (kpiEl) kpiEl.innerHTML = saRenderCpKpis(saCpComputeKpi(tripId));
+            // Never cancel on our own: the lines wait on an approval card (saCancelApprovalCard) and are
+            // only sent to Fusion when a person approves them. Printing of those orders waits too (Task 3).
+            const ask = saRequestCancelApproval(agent, tripId, instance, cancelGroups);
+            if (ask === 'new') {
+                saConsoleLog(`Task 2 ⚠ ${totalToCancel} line(s) across ${Object.keys(cancelGroups).length} order(s) need cancelling — waiting for approval`, 'warn');
+                saCpSetTask(`Task 2: ${totalToCancel} line(s) waiting for cancel approval — Trip ${tripId}`);
+                await saLogNotification(agent.ID, tripId, null, 'APPROVAL',
+                    `Trip ${tripId}: ${totalToCancel} line(s) across ${Object.keys(cancelGroups).length} order(s) need cancelling — approval required`, 'WARN');
+            } else if (ask === 'pending') {
+                saConsoleLog(`Task 2 ⏳ ${totalToCancel} line(s) still waiting for cancel approval`, 'info');
+            } else if (ask === 'rejected') {
+                saConsoleLog(`Task 2 ⛔ Cancelling these ${totalToCancel} line(s) was rejected — not asking again until the lines change`, 'skip');
             }
         } else {
+            saClearCancelApproval(tripId);
             saConsoleLog(`Task 2 ✓ No lines requiring cancellation found`, 'success');
         }
 
@@ -4561,6 +4503,10 @@
             }
             const orderNumber = row.id.replace(`sa-order-row-${tripId}-`, '');
             if (!orderNumber) continue;
+            if (saCancelPendingFor(tripId, orderNumber)) {
+                saConsoleLog(`Task 3   Order ${orderNumber} — line cancellation waiting for approval, not printing yet`, 'skip');
+                continue;
+            }
             const statusText = (row.querySelector('[data-col="status"]')?.textContent || '').trim();
             const printText  = (row.querySelector('[data-col="print"]')?.textContent  || '').trim();
 
@@ -4783,6 +4729,165 @@
     }
 
     // ─── Log helpers ─────────────────────────────────────────
+    // ── Task 2 approval: cancelling order lines in Fusion always needs a person ──────────
+    // One card per trip. The card is keyed by the exact lines (order + FulfillLineId), so the same
+    // request is never shown twice and a rejected request is not asked again until the lines change.
+    function saEscHtml(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+    function saCancelSig(groups) {
+        return Object.keys(groups).sort().map(o => o + ':' + groups[o].map(l => saLineFulfillId(l) || saLineNum(l)).sort().join(',')).join('|');
+    }
+    function saCancelPendingFor(tripId, orderNumber) {
+        const a = window._saCancelApprovals && window._saCancelApprovals[tripId];
+        return !!(a && (a.state === 'pending' || a.state === 'running') && a.groups[orderNumber]);
+    }
+    function saClearCancelApproval(tripId) {
+        const a = window._saCancelApprovals && window._saCancelApprovals[tripId];
+        if (a && a.state === 'pending') { delete window._saCancelApprovals[tripId]; saRenderCancelCards(); }
+    }
+    function saRequestCancelApproval(agent, tripId, instance, groups) {
+        window._saCancelApprovals = window._saCancelApprovals || {};
+        const sig = saCancelSig(groups), cur = window._saCancelApprovals[tripId];
+        // 'done' with the same lines = the approved cancel did not go through in Fusion -> ask again
+        if (cur && cur.sig === sig && cur.state !== 'done') return cur.state === 'rejected' ? 'rejected' : 'pending';
+        if (cur && cur.state === 'running') return 'pending';
+        window._saCancelApprovals[tripId] = { sig, groups, agent, instance, tripId, state: 'pending', at: new Date(), sel: Object.fromEntries(Object.keys(groups).map(o => [o, true])) };
+        saRenderCancelCards();
+        try { if (typeof showNotification === 'function') showNotification(`Shipping Agent: approve cancelling lines for trip ${tripId}`, 'warning'); } catch (e) { }
+        return 'new';
+    }
+    function saRenderCancelCards() {
+        let box = document.getElementById('sa-cancel-approvals');
+        const list = Object.values(window._saCancelApprovals || {}).filter(a => a.state !== 'rejected' && a.state !== 'done');
+        if (!list.length) { if (box) box.remove(); return; }
+        if (!box) {
+            box = document.createElement('div');
+            box.id = 'sa-cancel-approvals';
+            box.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:10050;display:flex;flex-direction:column;gap:10px;max-height:80vh;overflow-y:auto;width:min(560px,92vw);';
+            document.body.appendChild(box);
+            box.addEventListener('click', saCancelCardClick);
+            box.addEventListener('change', e => {
+                const cb = e.target.closest('input[data-sa-sel]'); if (!cb) return;
+                const a = window._saCancelApprovals[cb.dataset.trip]; if (a) a.sel[cb.dataset.saSel] = cb.checked;
+                saRenderCancelCards();
+            });
+        }
+        box.innerHTML = list.map(a => {
+            const prod = String(a.instance || '').toUpperCase() !== 'TEST';
+            const orders = Object.keys(a.groups);
+            const nSel = orders.filter(o => a.sel[o]).reduce((n, o) => n + a.groups[o].length, 0);
+            const rows = orders.map(o => a.groups[o].map((l, i) => `<tr style="border-top:1px solid #f1f5f9;${a.sel[o] ? '' : 'opacity:.45;'}">
+                ${i === 0 ? `<td rowspan="${a.groups[o].length}" style="padding:5px 6px;vertical-align:top;"><label style="display:flex;gap:6px;align-items:center;font-weight:700;cursor:pointer;"><input type="checkbox" data-sa-sel="${saEscHtml(o)}" data-trip="${saEscHtml(a.tripId)}" ${a.sel[o] ? 'checked' : ''} ${a.state !== 'pending' ? 'disabled' : ''}>${saEscHtml(o)}</label></td>` : ''}
+                <td style="padding:5px 6px;">${saEscHtml(saLineNum(l))}${l._saChildOf ? ' <span style="color:#64748b;font-size:10px;">child</span>' : ''}</td>
+                <td style="padding:5px 6px;">${saEscHtml(saLineItem(l))}</td>
+                <td style="padding:5px 6px;">${saEscHtml(saLineStatus(l))}</td>
+                <td style="padding:5px 6px;text-align:right;">${saEscHtml(l.ORDERED_QUANTITY || l.ordered_quantity || l.ORDERED_QTY || l.ordered_qty || '')}</td>
+                <td style="padding:5px 6px;">${saLineFulfillId(l) ? '' : '<span style="color:#b91c1c;font-size:10px;" title="No FulfillLineId — this line will be skipped">no id</span>'}</td></tr>`).join('')).join('');
+            const body = a.state === 'running' ? `<div style="padding:10px 14px;color:#0e7490;font-weight:600;">⏳ Cancelling in Fusion… (approved by ${saEscHtml(a.approvedBy)})</div>`
+                : `<div style="max-height:260px;overflow:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f8fafc;text-align:left;color:#475569;">
+                    <th style="padding:5px 6px;">Order</th><th style="padding:5px 6px;">Line</th><th style="padding:5px 6px;">Item</th><th style="padding:5px 6px;">Status</th><th style="padding:5px 6px;text-align:right;">Qty</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+                  <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;padding:10px 14px;border-top:1px solid #e2e8f0;">
+                    <span style="margin-right:auto;font-size:11px;color:#64748b;">Reason sent to Fusion: OUT OF STOCK · orders on hold for printing until decided</span>
+                    <button data-sa-act="reject" data-trip="${saEscHtml(a.tripId)}" style="border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:7px 12px;font-weight:600;cursor:pointer;">Reject</button>
+                    <button data-sa-act="approve" data-trip="${saEscHtml(a.tripId)}" ${nSel ? '' : 'disabled'} style="border:0;background:#b91c1c;color:#fff;border-radius:8px;padding:7px 12px;font-weight:700;cursor:pointer;${nSel ? '' : 'opacity:.5;'}">Cancel ${nSel} line(s) in Fusion</button></div>`;
+            return `<div style="background:#fff;border:1px solid #fecaca;border-radius:14px;box-shadow:0 14px 40px rgba(15,23,42,.25);overflow:hidden;font-family:inherit;">
+                <div style="display:flex;gap:10px;align-items:center;padding:10px 14px;background:linear-gradient(135deg,#fef2f2,#fff7ed);border-bottom:1px solid #fecaca;">
+                  <span style="font-size:18px;">✋</span>
+                  <div style="flex:1;"><div style="font-weight:800;color:#7f1d1d;">Approve line cancellations — Trip ${saEscHtml(a.tripId)}</div>
+                  <div style="font-size:11px;color:#9a3412;">${saEscHtml(a.agent && (a.agent.AGENT_NAME || a.agent.NAME) || 'Shipping Agent')} found Scheduled / Manual Reservation lines · ${a.at.toLocaleTimeString()}</div></div>
+                  <span style="font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;background:${prod ? '#b91c1c' : '#0e7490'};color:#fff;">${prod ? 'PROD' : 'TEST'}</span></div>
+                ${body}</div>`;
+        }).join('');
+    }
+    async function saCancelCardClick(e) {
+        const b = e.target.closest('button[data-sa-act]'); if (!b) return;
+        const a = window._saCancelApprovals[b.dataset.trip]; if (!a || a.state !== 'pending') return;
+        const user = localStorage.getItem('loggedInUser') || sessionStorage.getItem('loggedInUser') || 'WMS_USER';
+        if (b.dataset.saAct === 'reject') {
+            a.state = 'rejected'; a.decidedBy = user;
+            saRenderCancelCards();
+            saConsoleLog(`Task 2 ⛔ Cancelling lines for trip ${a.tripId} rejected by ${user}`, 'warn');
+            await saLogActivity(a.agent.ID, a.tripId, null, 'CANCEL_REJECTED', 'SUCCESS', 1, `Line cancellation rejected by ${user}: ${Object.keys(a.groups).join(', ')}`, null, null);
+            return;
+        }
+        const chosen = {};
+        Object.keys(a.groups).forEach(o => { if (a.sel[o]) chosen[o] = a.groups[o]; });
+        if (!Object.keys(chosen).length) return;
+        a.state = 'running'; a.approvedBy = user;
+        saRenderCancelCards();
+        await saLogActivity(a.agent.ID, a.tripId, null, 'CANCEL_APPROVED', 'SUCCESS', 1, `Line cancellation approved by ${user}: ${Object.keys(chosen).join(', ')}`, null, null);
+        try { await saExecuteCancels(a.agent, a.tripId, a.instance, chosen, user); }
+        finally { a.state = 'done'; saRenderCancelCards(); }
+    }
+    async function saExecuteCancels(agent, tripId, instance, cancelGroups, approvedBy) {
+        const isProd     = (instance || '').toUpperCase() !== 'TEST';
+        const fusionBase = isProd ? 'https://efmh.fa.em3.oraclecloud.com' : 'https://efmh-test.fa.em3.oraclecloud.com';
+        const cancelUrl  = (orderNum) => `${fusionBase}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${encodeURIComponent(orderNum)}`;
+        const cancelBody = (lines) => ({
+            lines: lines.map(l => ({
+                FulfillLineId   : saLineFulfillId(l),
+                OrderedQuantity : 0,
+                CancelReason    : 'OUT OF STOCK'
+            }))
+        });
+
+        let autoCancelled = 0;
+        for (const orderNum of Object.keys(cancelGroups)) {
+            let lines = cancelGroups[orderNum];
+            // Guard: never PATCH lines with no resolvable FulfillLineId — Fusion
+            // would silently cancel nothing. Drop & log them so the failure is visible.
+            const missing = lines.filter(l => !saLineFulfillId(l));
+            if (missing.length) {
+                lines = lines.filter(l => saLineFulfillId(l));
+                saConsoleLog(`Task 2 ⚠ Order ${orderNum}: ${missing.length} line(s) have no FulfillLineId — skipped (check getsalesorderlines column names)`, 'warn');
+                await saAppendCancelLog(tripId, `WARN order ${orderNum}: ${missing.length} line(s) skipped — no FulfillLineId resolved`);
+            }
+            if (lines.length === 0) {
+                saConsoleLog(`Task 2 ✗ Order ${orderNum}: no cancellable line had a FulfillLineId — nothing sent to Fusion`, 'error');
+                await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'FAILED', missing.length,
+                    `No FulfillLineId resolved for any flagged line of ${orderNum}`, null, null);
+                continue;
+            }
+            saCpSetTask(`Task 2: Cancelling ${lines.length} line(s) for ${orderNum} (approved by ${approvedBy})`);
+            saConsoleLog(`Task 2   Cancelling ${lines.length} line(s) for order ${orderNum} …`, 'info');
+            try {
+                await new Promise((res, rej) => {
+                    sendMessageToCSharp({
+                        action  : 'executeOracleFusionPatch',
+                        fullUrl : cancelUrl(orderNum),
+                        body    : JSON.stringify(cancelBody(lines)),
+                        instance: instance
+                    }, (err, data) => err ? rej(new Error(String(err))) : res(data));
+                });
+                autoCancelled += lines.length;
+                const childCnt = lines.filter(l => l._saChildOf).length;
+                saConsoleLog(`Task 2 ✓ Order ${orderNum}: ${lines.length} line(s) cancelled successfully${childCnt ? ` (${childCnt} child)` : ''}`, 'success');
+                await saAppendCancelLog(tripId, `RESULT order ${orderNum}: SUCCESS — ${lines.length} line(s) cancelled (${lines.length - childCnt} main + ${childCnt} child)`);
+                await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'SUCCESS', lines.length,
+                    `Cancelled ${lines.length} line(s) via Fusion PATCH (${lines.length - childCnt} main + ${childCnt} child) — approved by ${approvedBy}`, null, null);
+                // Update the KPI cancelled counter in DOM
+                if (!window._saCancelledLines) window._saCancelledLines = {};
+                window._saCancelledLines[tripId] = (window._saCancelledLines[tripId] || 0) + lines.length;
+                // Update the backorder/cancel cell in the order row
+                const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNum}`);
+                if (rowEl) {
+                    const cancelCell = rowEl.querySelector('[data-col="cancel"]');
+                    if (cancelCell) cancelCell.innerHTML = `<span style="background:#fef9c3;color:#a16207;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:700;" title="Cancelled by agent — approved by ${saEscHtml(approvedBy)}">${lines.length} ✓</span>`;
+                }
+            } catch(e) {
+                saConsoleLog(`Task 2 ✗ Order ${orderNum}: cancel failed — ${e.message}`, 'error');
+                await saAppendCancelLog(tripId, `RESULT order ${orderNum}: FAILED — ${e.message}`);
+                await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'FAILED', 1, e.message, null, null);
+            }
+        }
+        if (autoCancelled > 0) {
+            saConsoleLog(`Task 2 ✓ Cancelled ${autoCancelled} line(s) for trip ${tripId} (approved by ${approvedBy})`, 'success');
+            showNotification(`Cancelled ${autoCancelled} line(s) for trip ${tripId}.`, 'success');
+            // Refresh KPI panel
+            const kpiEl = document.getElementById(`sa-cp-kpi-${tripId}`);
+            if (kpiEl) kpiEl.innerHTML = saRenderCpKpis(saCpComputeKpi(tripId));
+        }
+    }
+
     async function saLogActivity(agentId, tripId, orderNumber, activityType, status, attempt, message, detailJson, durationMs) {
         try {
             await apexPost('agents/activity/log', {

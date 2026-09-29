@@ -1690,6 +1690,11 @@ navPanel.Controls.Add(wmsDevButton);
 
                             System.Diagnostics.Debug.WriteLine($"[C#] Action: {action}, RequestId: {requestId}");
 
+                            // AI Digital Employee: policies resolve for the app login the page sends (same identity as the page's checks)
+                            if (action.StartsWith("ai", StringComparison.Ordinal) && root.TryGetProperty("appUser", out var auEl) &&
+                                auEl.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(auEl.GetString()))
+                                GetClaudeCliService().AppUser = auEl.GetString();
+
                             switch (action)
                             {
                                 case "loginSuccess":
@@ -4004,6 +4009,12 @@ navPanel.Controls.Add(wmsDevButton);
                     }
                 }
 
+                if (approve)
+                {
+                    string why = await AiApprovalGuardAsync("fusion", "fusion_write", pending?.Instance, (pending?.Method ?? "").ToUpperInvariant(), pending?.Path, pending?.Body, AiNormInstance(pending?.Instance));
+                    if (why != null) { SendErrorResponse(wv, requestId, why); return; }
+                }
+
                 Func<object, Task> onEvent = (evt) =>
                 {
                     try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
@@ -4024,6 +4035,7 @@ navPanel.Controls.Add(wmsDevButton);
 
         private void PostAiChatAnswer(WebView2 wv, string requestId, AiChatResult result)
         {
+            IssueAiApprovals(result);
             var rounds = new List<object>();
             foreach (var r in result.Rounds)
             {
@@ -4131,6 +4143,12 @@ navPanel.Controls.Add(wmsDevButton);
                         jobJson = jEl.GetString();
                 }
 
+                if (approve)
+                {
+                    string why = await AiApprovalGuardAsync("job", "schedule_job", null, jobJson);
+                    if (why != null) { SendErrorResponse(wv, requestId, why); return; }
+                }
+
                 Func<object, Task> onEvent = (evt) =>
                 {
                     try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
@@ -4202,6 +4220,12 @@ navPanel.Controls.Add(wmsDevButton);
                                 if (o.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(o.GetString()))
                                     orders.Add(o.GetString().Trim());
                     }
+                }
+
+                if (approve)
+                {
+                    string why = await AiApprovalGuardAsync("printorders", "print_orders", instance, AiNormOrders(orders), printer, AiNormInstance(instance));
+                    if (why != null) { SendErrorResponse(wv, requestId, why); return; }
                 }
 
                 Func<object, Task> onEvent = (evt) =>
@@ -4339,6 +4363,12 @@ navPanel.Controls.Add(wmsDevButton);
                     }
                 }
 
+                if (approve)
+                {
+                    string why = await AiApprovalGuardAsync("print", "print", null, printer, AiNormTitle(title));
+                    if (why != null) { SendErrorResponse(wv, requestId, why); return; }
+                }
+
                 Func<object, Task> onEvent = (evt) =>
                 {
                     try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
@@ -4394,6 +4424,12 @@ navPanel.Controls.Add(wmsDevButton);
                     if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object &&
                         pEl.TryGetProperty("sql", out var sqEl))
                         sql = sqEl.GetString() ?? "";
+                }
+
+                if (approve)
+                {
+                    string why = await AiApprovalGuardAsync("dbwrite", "db_write", null, sql);
+                    if (why != null) { SendErrorResponse(wv, requestId, why); return; }
                 }
 
                 Func<object, Task> onEvent = (evt) =>
@@ -4516,6 +4552,12 @@ navPanel.Controls.Add(wmsDevButton);
                     {
                         emailResult = JsonSerializer.Serialize(new { success = false, message = ex.Message });
                     }
+                }
+
+                if (approve)
+                {
+                    string why = await AiApprovalGuardAsync("email", "email", null, to, cc, subject, bodyHtml);
+                    if (why != null) { SendErrorResponse(wv, requestId, why); return; }
                 }
 
                 Func<object, Task> onEvent = (evt) =>

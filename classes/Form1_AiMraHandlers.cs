@@ -45,6 +45,12 @@ namespace WMSApp
                     }
                 }
 
+                if (approve)
+                {
+                    string why = await AiApprovalGuardAsync("mra", "mra_interface", instance, AiNormOrders(orders), tripId, AiNormInstance(instance));
+                    if (why != null) { SendErrorResponse(wv, requestId, why); return; }
+                }
+
                 Func<object, Task> onEvent = (evt) =>
                 {
                     try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }

@@ -751,6 +751,8 @@ function sendMessageToCSharp(message, callback) {
     }
     const requestId = generateRequestId();
     message.requestId = requestId;
+    // policies are resolved for the app login on both sides (C# and page)
+    if (typeof message.action === 'string' && message.action.indexOf('ai') === 0 && !message.appUser) message.appUser = appUserName();
     if (callback) window.pendingRequests[requestId] = callback;
     window.chrome.webview.postMessage(message);
 }
@@ -2968,11 +2970,12 @@ function openLearnTopic(id) {
 const POLICY_ACTIONS = [
     { key: 'fusion_write', name: 'Fusion writes', desc: 'Cancel order lines (incl. child lines), ship confirms — every Fusion POST/PATCH/DELETE.', hasBatch: true },
     { key: 'wms_api',      name: 'WMS operation forms', desc: 'Create trip, add orders, assign picker, pick wave/release, cancellations via the API forms.' },
-    { key: 'db_write',     name: 'Database changes', desc: 'CREATE TABLE / INSERT / UPDATE / DELETE composed in chat.' },
-    { key: 'schedule_job', name: 'Scheduled jobs', desc: 'Creating background DBMS scheduler jobs.' },
+    { key: 'db_write',     name: 'Database changes', desc: 'CREATE TABLE / INSERT / UPDATE / DELETE composed in chat. There is one APEX database, so TEST always uses the PROD rule.' },
+    { key: 'schedule_job', name: 'Scheduled jobs', desc: 'Creating background jobs — DB scheduler jobs and LOCAL jobs run by this app.' },
     { key: 'print_orders', name: 'Print order documents', desc: 'Sales Order PDF batches to a printer. (AUTO currently behaves as ASK.)' },
     { key: 'print',        name: 'Print results', desc: 'The last result grid to a printer. (AUTO currently behaves as ASK.)' },
-    { key: 'email',        name: 'Send emails', desc: 'Office 365 mails composed in chat. (AUTO currently behaves as ASK.)' }
+    { key: 'email',        name: 'Send emails', desc: 'Office 365 mails composed in chat. (AUTO currently behaves as ASK.)' },
+    { key: 'mra_interface', name: 'MRA interfacing', desc: 'Sending orders to the Mauritius Revenue Authority. Always an approval card — only DENY has an effect.' }
 ];
 const POLICY_MODES = {
     AUTO: ['#dcfce7', '#15803d', 'acts without asking'],
