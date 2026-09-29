@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V51";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V52";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string LOCAL_JOBS_CREATE_URL =
@@ -792,7 +792,7 @@ THE 6 STEPS (per order; any failure stops the order, currentStep tells where)
 TROUBLESHOOTING
 - "already done": step 1 found MRA_TRX_NO - nothing to do; show the value if asked.
 - Report failures ("Failed to check MRA status / fetch order summary / details: ...") come from the BIP SOAP call (FusionReportRunner, /xmlpserver/services/v2/ReportService runReport) - usually credentials, the report path, or the order number/org params; the Logs tab shows the XDO request and returned XML.
-- Known gap in the code: step 5 treats any HTTP reply as created and takes ResponseId as the IRN - if MRA rejects the invoice (no ResponseId) the IRN is empty and step 6 writes an empty value. When an order shows success but no IRN, check the raw MRA response in the popup's MRA tab.
+- MRA rejection: step 5 succeeds only when MRA answers HTTP 2xx WITH a ResponseId (the IRN); otherwise the order fails with "Failed to create MRA invoice: MRA did not return an IRN (HTTP n): <MRA's reply>" and nothing is written to Fusion. Explain MRA's reply (e.g. a missing TAN/BRN, bad tax code) and what to correct.
 - Order amounts are sent as absolute values; a return order becomes a credit note only because ORDER_AMOUNT is negative.
 - Credentials: the app's Fusion service account (fetched by the page); instance PROD = efmh.fa.em3.oraclecloud.com, TEST = efmh-test.fa.em3.oraclecloud.com.
 """;

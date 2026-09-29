@@ -627,13 +627,16 @@ namespace WMSApp.MRA
 
                     System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA API Response: {responseBody}");
 
-                    // Parse response
-                    var apiResponse = JsonConvert.DeserializeObject<MRAApiResponse>(responseBody);
+                    // Parse response - MRA may answer with an error text or JSON without a ResponseId
+                    MRAApiResponse apiResponse = null;
+                    try { apiResponse = JsonConvert.DeserializeObject<MRAApiResponse>(responseBody); }
+                    catch (JsonException) { }
                     string irnCode = apiResponse?.Response?.ResponseId;
                     string qrCode = apiResponse?.Response?.FiscalisedInvoices?.FirstOrDefault()?.QrCode;
 
                     // Send MRA response info to JavaScript for Tab 2
-                    bool isSuccess = !string.IsNullOrEmpty(irnCode);
+                    // Only an HTTP success WITH an IRN is a fiscalised invoice - anything else is a rejection
+                    bool isSuccess = response.IsSuccessStatusCode && !string.IsNullOrEmpty(irnCode);
                     try
                     {
                         mraResponseCallback?.Invoke(isSuccess, new {
@@ -646,6 +649,18 @@ namespace WMSApp.MRA
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Error sending MRA response data: {ex.Message}");
+                    }
+
+                    if (!isSuccess)
+                    {
+                        string body = (responseBody ?? "").Trim();
+                        return new MRAInvoiceCreationResult
+                        {
+                            Success = false,
+                            RawResponse = responseBody,
+                            ErrorMessage = $"MRA did not return an IRN (HTTP {(int)response.StatusCode})" +
+                                (body.Length > 0 ? ": " + body.Substring(0, Math.Min(500, body.Length)) : "")
+                        };
                     }
 
                     return new MRAInvoiceCreationResult
