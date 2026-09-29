@@ -1,0 +1,92 @@
+{
+  "form_key": "pos.sale",
+  "name": "POS Sale",
+  "description": "Point-of-sale counter: scan items (USB scanner or camera), customer lookup, VAT, payment and change, customer signature, receipt print.",
+  "definition": {
+    "title": "Point of Sale",
+    "icon": "cash-register",
+    "width": 1120,
+    "style": {
+      "accent": "linear-gradient(135deg,#0f766e 0%,#0e7490 55%,#1e3a8a 100%)",
+      "background": "linear-gradient(180deg,#f8fafc 0%,#eef6f7 100%)",
+      "font": "Segoe UI, Inter, Arial, sans-serif"
+    },
+    "header": {
+      "columns": 4,
+      "fields": [
+        { "key": "receipt_no", "label": "Receipt #", "type": "readonly", "section": "sale",
+          "valueSql": "SELECT 'POS-' || TO_CHAR(SYSDATE, 'YYMMDD-HH24MISS') AS VALUE FROM dual" },
+        { "key": "sale_date", "label": "Date", "type": "date", "default": "$TODAY", "required": true, "section": "sale" },
+        { "key": "cashier", "label": "Cashier", "type": "readonly", "default": "$USER", "section": "sale" },
+        { "key": "price_list", "label": "Price list", "type": "readonly", "section": "sale" },
+        { "key": "customer", "label": "Customer", "type": "picker", "span": 2, "section": "sale", "default": "Walk-in customer",
+          "pickerSql": "SELECT account_name AS ACCOUNT_NAME, account_number AS ACCOUNT_NUMBER, city AS CITY, price_list AS PRICE_LIST FROM grfu_customer WHERE status = 'A' AND (UPPER(account_name) LIKE :SEARCH OR UPPER(account_number) LIKE :SEARCH) ORDER BY account_name FETCH FIRST 50 ROWS ONLY",
+          "display": "ACCOUNT_NAME",
+          "map": { "account_number": "ACCOUNT_NUMBER", "price_list": "PRICE_LIST" },
+          "hint": "Search by name or account number - leave as walk-in for cash sales" },
+        { "key": "account_number", "label": "Account #", "type": "readonly", "section": "sale" },
+        { "key": "reference", "label": "Reference", "type": "text", "section": "sale", "hint": "optional - customer PO, phone …" },
+
+        { "key": "scan", "label": "Scan item", "type": "barcode", "span": 4, "section": "items",
+          "camera": true, "addTo": "lines", "matchKey": "item", "qtyKey": "qty",
+          "placeholder": "Scan a barcode or type an item number and press Enter",
+          "scanSql": "SELECT i.item_number AS ITEM, i.* FROM grfu_item i WHERE UPPER(i.item_number) = UPPER(:CODE) FETCH FIRST 1 ROWS ONLY" },
+
+        { "key": "items_count", "label": "Items", "type": "computed", "formula": "lines_qty", "section": "pay" },
+        { "key": "subtotal", "label": "Subtotal", "type": "computed", "formula": "lines_amount", "section": "pay" },
+        { "key": "vat_rate", "label": "VAT %", "type": "number", "default": 15, "min": 0, "max": 100, "section": "pay" },
+        { "key": "vat", "label": "VAT", "type": "computed", "formula": "subtotal * vat_rate / 100", "section": "pay" },
+        { "key": "total", "label": "TOTAL (MUR)", "type": "computed", "formula": "subtotal + vat", "big": true, "color": "#0f766e", "span": 2, "section": "pay" },
+        { "key": "payment_method", "label": "Payment", "type": "select", "required": true, "default": "Cash", "section": "pay",
+          "options": ["Cash", "Card", "Juice / Mobile", "Bank transfer", "On account"] },
+        { "key": "amount_tendered", "label": "Amount tendered", "type": "number", "min": 0, "section": "pay",
+          "showWhen": { "field": "payment_method", "op": "eq", "value": "Cash" } },
+        { "key": "change_due", "label": "CHANGE", "type": "computed", "formula": "amount_tendered - total", "big": true, "color": "#1d4ed8", "span": 2, "section": "pay",
+          "showWhen": { "field": "payment_method", "op": "eq", "value": "Cash" } },
+        { "key": "card_ref", "label": "Card / transaction ref", "type": "text", "span": 2, "section": "pay",
+          "showWhen": { "field": "payment_method", "op": "in", "value": ["Card", "Juice / Mobile", "Bank transfer"] } },
+
+        { "key": "customer_signature", "label": "Customer signature", "type": "signature", "required": true, "height": 150, "span": 3, "section": "sign",
+          "placeholder": "Customer signs here to confirm the goods were received" },
+        { "key": "signed_by", "label": "Signed by (name)", "type": "text", "section": "sign" }
+      ]
+    },
+    "sections": [
+      { "key": "sale", "title": "Sale", "display": "card", "columns": 4,
+        "style": { "headingColor": "#0f766e", "lineColor": "#99f6e4", "background": "#ffffff" } },
+      { "key": "items", "title": "Items", "display": "card", "columns": 4,
+        "style": { "headingColor": "#0e7490", "lineColor": "#a5f3fc", "background": "#ffffff" } },
+      { "key": "pay", "title": "Payment", "display": "card", "columns": 4,
+        "style": { "headingColor": "#1e3a8a", "lineColor": "#bfdbfe", "background": "#ffffff" } },
+      { "key": "sign", "title": "Confirmation", "display": "card", "columns": 4,
+        "style": { "headingColor": "#7c3aed", "lineColor": "#ddd6fe", "background": "#ffffff" } }
+    ],
+    "details": [
+      { "key": "lines", "title": "Basket", "section": "items", "required": true,
+        "qtyKey": "qty", "allowManualRow": true, "allowDelete": true,
+        "pickerSql": "SELECT i.item_number AS ITEM, i.* FROM grfu_item i WHERE UPPER(i.item_number) LIKE :SEARCH ORDER BY i.item_number FETCH FIRST 50 ROWS ONLY",
+        "pickerMap": { "item": "ITEM" },
+        "columns": [
+          { "key": "item", "label": "Item", "type": "text", "width": 120 },
+          { "key": "description", "label": "Description", "type": "text", "width": 260 },
+          { "key": "uom", "label": "UOM", "type": "text", "width": 60 },
+          { "key": "qty", "label": "Qty", "type": "number", "editable": true, "default": 1, "width": 70 },
+          { "key": "price", "label": "Unit price", "type": "number", "editable": true, "width": 95 },
+          { "key": "disc_pct", "label": "Disc %", "type": "number", "editable": true, "default": 0, "width": 70 },
+          { "key": "amount", "label": "Amount", "type": "computed", "formula": "qty * price * (1 - disc_pct / 100)" }
+        ],
+        "totals": ["qty", "amount"] }
+    ],
+    "rules": { "submitChecks": [] },
+    "mobile": { "columns": 1, "hidden": ["cashier", "price_list"], "order": ["scan", "customer", "total", "payment_method", "amount_tendered", "change_due", "customer_signature"] },
+    "actions": [
+      { "key": "complete", "label": "Complete sale", "icon": "circle-check", "style": "primary", "type": "local_file", "validate": true,
+        "confirm": "Complete sale {receipt_no} - total {total} MUR?",
+        "folder": "pos", "fileName": "{receipt_no}.json" },
+      { "key": "receipt", "label": "Print receipt", "icon": "receipt", "style": "default", "type": "print" },
+      { "key": "to_order", "label": "Create Fusion order (AI)", "icon": "wand-magic-sparkles", "style": "default", "type": "chat", "validate": true,
+        "prompt": "Create a Fusion sales order from this POS sale {receipt_no}: customer {customer} ({account_number}), payment {payment_method}. Use the basket lines as order lines. Show me the order plan first." },
+      { "key": "close", "label": "Close", "type": "close", "style": "default" }
+    ]
+  }
+}

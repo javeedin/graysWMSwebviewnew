@@ -8,7 +8,7 @@
 // {
 //   "title": "Sales Order", "icon": "file-invoice", "width": 1050,
 //   "header": { "columns": 4, "fields": [
-//     { "key","label","type": "text|number|date|textarea|checkbox|select|picker|readonly|computed",
+//     { "key","label","type": "text|number|date|textarea|checkbox|select|picker|readonly|computed|barcode|signature",
 //       "default": "value | $TODAY | $USER", "required": true, "span": 2,
 //       "min","max","pattern","hint",
 //       select:  "listSql" (aliases VALUE,LABEL - or 1st/2nd column; may
@@ -16,7 +16,15 @@
 //                reloads when that field changes = DEPENDENT LIST)
 //       picker:  "pickerSql" (:SEARCH placeholder), "display" (column
 //                shown in the field), "map": { headerKey: COLUMN }
-//       computed:"formula" e.g. "qty_total * 1.15" over header keys } ] },
+//       computed:"formula" e.g. "qty_total * 1.15" over header keys and grid totals
+//                (<detailKey>_<totalColumn>, <detailKey>_count), e.g. "lines_amount * 1.15"
+//       big: true on readonly/computed = large POS-style figure
+//       barcode: scan box - a USB/Bluetooth scanner types + Enter; "camera": true adds
+//                a webcam scan button. "addTo": detailKey + "scanSql" (:CODE = the scanned
+//                text, aliases = column keys) adds the item as a row, or +1 on "qtyKey" when
+//                the row whose "matchKey" column equals it already exists. Without addTo the
+//                scanned text is just the field value (lookups/lists react to it).
+//       signature: finger/mouse/pen pad; value = PNG data URL ("" until signed), "height" px } ] },
 //   "details": [ { "key": "lines", "title": "Order Lines",
 //     "pickerSql": ":SEARCH + header :FIELDKEY placeholders",
 //     "pickerMap": { columnKey: SQLCOLUMN },   // fills new rows
@@ -147,8 +155,16 @@
         return t;
     }
     function headerComputed() {
+        // header formulas also see every grid total as <detailKey>_<column> (e.g. lines_amount)
+        // and the row count as <detailKey>_count
+        var scope = Object.assign({}, st.values);
+        (st.def.details || []).forEach(function (det) {
+            var t = detailTotals(det);
+            Object.keys(t).forEach(function (k) { scope[det.key + '_' + k] = t[k]; });
+            scope[det.key + '_count'] = (st.details[det.key] || []).filter(function (r) { return !r._rule; }).length;
+        });
         (st.def.header.fields || []).forEach(function (f) {
-            if (f.type === 'computed' && f.formula) st.values[f.key] = evalFormula(f.formula, st.values);
+            if (f.type === 'computed' && f.formula) { st.values[f.key] = evalFormula(f.formula, scope); scope[f.key] = st.values[f.key]; }
         });
     }
     function buildPayload() {
@@ -174,7 +190,7 @@
             // picker/readonly/computed values are set programmatically (a
             // pick, a lookup, a formula) - never read them back from the
             // DOM, or a re-render right after the set would wipe them
-            if (f.type === 'picker' || f.type === 'readonly' || f.type === 'computed') return;
+            if (f.type === 'picker' || f.type === 'readonly' || f.type === 'computed' || f.type === 'signature') return;
             var el = document.getElementById('fe-h-' + f.key);
             if (!el) return;
             if (f.type === 'checkbox') st.values[f.key] = el.checked ? 'Y' : 'N';
@@ -241,6 +257,14 @@
         }
     }
     function visibleNow(item) { return !item.showWhen || condOk(item.showWhen); }
+    // which conditional items are visible right now (render stores it; change handlers compare)
+    function visSig() {
+        var d = st.def, out = '';
+        [((d.header && d.header.fields) || []), d.details || [], d.reports || [], d.actions || [], d.sections || [], d.regions || []].forEach(function (list) {
+            list.forEach(function (x) { if (x.showWhen) out += visibleNow(x) ? '1' : '0'; });
+        });
+        return out;
+    }
     function defHasConds() {
         var d = st.def;
         return (((d.header && d.header.fields) || []).some(function (f) { return f.showWhen; }))
@@ -380,7 +404,22 @@
                     '<input type="checkbox" id="fe-h-' + f.key + '" data-fkey="' + f.key + '" class="fe-hin"' + (v === 'Y' || v === true ? ' checked' : '') + '> ' + esc(f.checkLabel || 'Yes') + '</label>';
                 break;
             case 'readonly': case 'computed':
-                inner = '<input type="text" id="fe-h-' + f.key + '" value="' + esc(f.type === 'computed' && v !== '' ? fmt(v) : v) + '" readonly style="' + inputCss() + 'background:#f8fafc;">';
+                inner = '<input type="text" id="fe-h-' + f.key + '" value="' + esc(f.type === 'computed' && v !== '' ? fmt(v) : v) + '" readonly style="' + inputCss() + 'background:#f8fafc;' +
+                    (f.big ? 'font-size:24px;font-weight:800;color:' + esc(f.color || '#0f766e') + ';text-align:right;padding:8px 12px;border:2px solid ' + esc(f.color || '#0f766e') + '33;' : '') + '">';
+                break;
+            case 'barcode':
+                inner = '<div style="display:flex;gap:4px;align-items:stretch;">' +
+                    '<div style="position:relative;flex:1;"><i class="fas fa-barcode" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#0f766e;"></i>' +
+                    '<input type="text" id="fe-h-' + f.key + '" data-fkey="' + f.key + '" data-scan="' + f.key + '" class="fe-hin" value="' + (f.addTo ? '' : esc(v)) + '" autocomplete="off" placeholder="' + esc(f.placeholder || 'Scan or type a code, press Enter') + '" style="' + inputCss() + 'padding-left:32px;font-size:14px;font-weight:600;border:2px solid #99f6e4;"></div>' +
+                    (f.camera ? '<button type="button" onclick="WMSFormEngine._camera(\'' + f.key + '\')" title="Scan with the camera" style="border:none;background:linear-gradient(135deg,#14b8a6,#0f766e);color:white;border-radius:6px;cursor:pointer;padding:0 12px;font-size:14px;"><i class="fas fa-camera"></i></button>' : '') +
+                    '</div><div id="fe-scanmsg-' + f.key + '" style="font-size:10px;min-height:13px;margin-top:2px;"></div>';
+                break;
+            case 'signature':
+                inner = '<div style="position:relative;border:2px dashed #cbd5e1;border-radius:10px;background:#fff;">' +
+                    '<canvas id="fe-sig-' + f.key + '" data-sig="' + f.key + '" style="display:block;width:100%;height:' + (f.height || 140) + 'px;touch-action:none;cursor:crosshair;border-radius:10px;"></canvas>' +
+                    '<div style="position:absolute;left:14px;right:14px;bottom:26px;border-bottom:1px solid #e2e8f0;pointer-events:none;"></div>' +
+                    '<div style="position:absolute;left:14px;bottom:8px;font-size:9px;color:#94a3b8;pointer-events:none;"><i class="fas fa-pen-nib"></i> ' + esc(f.placeholder || 'Sign here') + '</div>' +
+                    '<button type="button" onclick="WMSFormEngine._sigClear(\'' + f.key + '\')" style="position:absolute;right:6px;top:6px;border:1px solid #e2e8f0;background:white;color:#64748b;border-radius:6px;cursor:pointer;padding:2px 8px;font-size:10px;"><i class="fas fa-eraser"></i> Clear</button></div>';
                 break;
             case 'date':
                 inner = '<input type="date" id="fe-h-' + f.key + '" data-fkey="' + f.key + '" class="fe-hin" value="' + esc(v) + '" style="' + inputCss() + '">';
@@ -528,7 +567,9 @@
             '<div class="meta">' + esc(new Date().toLocaleString()) + ' — ' + esc(userName()) + '</div>';
         if (scope === 'form' || !scope) {
             body += '<table class="hdr">' + ((def.header && def.header.fields) || []).map(function (f) {
-                return '<tr><th>' + esc(f.label || f.key) + '</th><td>' + esc(payload.header[f.key]) + '</td></tr>';
+                var pv = payload.header[f.key];
+                if (f.type === 'signature') return '<tr><th>' + esc(f.label || f.key) + '</th><td>' + (pv ? '<img src="' + esc(pv) + '" style="height:70px;">' : '') + '</td></tr>';
+                return '<tr><th>' + esc(f.label || f.key) + '</th><td>' + esc(pv) + '</td></tr>';
             }).join('') + '</table>';
             (def.details || []).forEach(function (det) {
                 body += printableTable(det.title || det.key, payload[det.key]);
@@ -566,6 +607,7 @@
     function render(skipCapture) {
         if (!skipCapture) captureHeader();
         headerComputed();
+        st.ui.visSig = visSig();
         var def = st.def;
         var mob = st.mobile ? (def.mobile || {}) : null;
 
@@ -707,10 +749,12 @@
                 refreshLookups(k, 0);
                 headerComputed();
                 syncComputedHeaderCells();
-                // conditional visibility may have flipped - repaint
-                if (defHasConds()) render(true);
+                // conditional visibility may have flipped - repaint only when it did, so a
+                // button clicked right after typing is not replaced under the mouse
+                if (defHasConds() && visSig() !== st.ui.visSig) render(true);
             });
         });
+        wireScanAndSign();
         // detail cells
         Array.prototype.forEach.call(document.querySelectorAll('#fe-modal .fe-cell'), function (el) {
             el.addEventListener('input', function () {
@@ -1065,6 +1109,141 @@
         });
     }
 
+    // ── barcode scan + signature pad ────────────────────────
+    function headerField(key) { return ((st.def.header && st.def.header.fields) || []).find(function (x) { return x.key === key; }); }
+    function scanMsg(key, ok, text) {
+        var el = document.getElementById('fe-scanmsg-' + key);
+        if (el) el.innerHTML = text ? '<span style="color:' + (ok ? '#15803d' : '#b91c1c') + ';font-weight:700;"><i class="fas fa-' + (ok ? 'check' : 'triangle-exclamation') + '"></i> ' + esc(text) + '</span>' : '';
+    }
+    function beep(ok) {
+        try {
+            var ac = new (window.AudioContext || window.webkitAudioContext)(), o = ac.createOscillator(), g = ac.createGain();
+            o.frequency.value = ok ? 1250 : 330; g.gain.value = 0.05; o.connect(g); g.connect(ac.destination);
+            o.start(); o.stop(ac.currentTime + (ok ? 0.08 : 0.25));
+        } catch (e) { }
+    }
+    // a scanned / typed code: add the item to the grid (or bump its qty), else just set the field
+    function handleScan(key, code) {
+        var f = headerField(key); code = String(code || '').trim();
+        if (!f || !code) return;
+        if (!f.addTo || !f.scanSql) {
+            st.values[key] = code;
+            refreshDependentLists(key); refreshLookups(key, 0); headerComputed(); syncComputedHeaderCells();
+            scanMsg(key, true, code); beep(true);
+            return;
+        }
+        var det = findDetail(f.addTo);
+        if (!det) { scanMsg(key, false, 'Grid "' + f.addTo + '" not found'); return; }
+        captureHeader();
+        var qtyKey = f.qtyKey || det.qtyKey || 'qty';
+        var matchKey = f.matchKey || ((det.columns && det.columns[0]) || {}).key;
+        var rows = st.details[det.key] = st.details[det.key] || [];
+        var hit = rows.find(function (r) { return !r._rule && String(r[matchKey]).toUpperCase() === code.toUpperCase(); });
+        if (hit) {
+            hit[qtyKey] = num(hit[qtyKey]) + 1; computeRow(det, hit);
+            scanMsg(key, true, code + ' · qty ' + hit[qtyKey]); beep(true);
+            clearScan(key); render(true); focusScan(key);
+            return;
+        }
+        var sql = bindHeaderSql(String(f.scanSql)).replace(/:CODE\b/g, sqlLit(code));
+        scanMsg(key, true, 'Looking up ' + code + '…');
+        runSql(sql, function (err, res) {
+            if (!st) return;
+            if (err || !res.length) { scanMsg(key, false, err ? 'Lookup failed: ' + err : code + ' not found'); beep(false); clearScan(key); focusScan(key); return; }
+            var r0 = res[0], row = {};
+            (det.columns || []).forEach(function (c) {
+                var v = r0[c.key.toUpperCase()];
+                row[c.key] = v !== undefined && v !== null ? v : (c.default !== undefined ? c.default : (c.type === 'number' ? 0 : ''));
+            });
+            if (!num(row[qtyKey])) row[qtyKey] = 1;
+            computeRow(det, row);
+            rows.push(row);
+            scanMsg(key, true, (row[matchKey] || code) + ' added'); beep(true);
+            clearScan(key); render(true); focusScan(key);
+            applyLineRules(det, [rows.length - 1], function (added) { if (st && added) { captureHeader(); render(); focusScan(key); } });
+        });
+    }
+    function clearScan(key) { var f = headerField(key); if (f && f.addTo) st.values[key] = ''; var el = document.getElementById('fe-h-' + key); if (el && f && f.addTo) el.value = ''; }
+    function focusScan(key) { setTimeout(function () { var el = document.getElementById('fe-h-' + key); if (el) el.focus(); }, 30); }
+
+    function drawSig(canvas, dataUrl) {
+        var ctx = canvas.getContext('2d'), r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.round(r.width * dpr)); canvas.height = Math.max(1, Math.round(r.height * dpr));
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0f172a';
+        if (dataUrl) { var img = new Image(); img.onload = function () { ctx.drawImage(img, 0, 0, r.width, r.height); }; img.src = dataUrl; }
+        return ctx;
+    }
+    function wireScanAndSign() {
+        Array.prototype.forEach.call(document.querySelectorAll('#fe-modal [data-scan]'), function (el) {
+            el.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); handleScan(el.getAttribute('data-scan'), el.value); }
+            });
+        });
+        Array.prototype.forEach.call(document.querySelectorAll('#fe-modal [data-sig]'), function (canvas) {
+            var key = canvas.getAttribute('data-sig'), ctx = drawSig(canvas, st.values[key]), drawing = false, last = null;
+            function pt(e) { var r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+            canvas.addEventListener('pointerdown', function (e) { drawing = true; last = pt(e); canvas.setPointerCapture(e.pointerId); ctx.beginPath(); ctx.arc(last.x, last.y, 1, 0, Math.PI * 2); ctx.fillStyle = '#0f172a'; ctx.fill(); });
+            canvas.addEventListener('pointermove', function (e) {
+                if (!drawing) return;
+                var p = pt(e); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); last = p;
+            });
+            function end() { if (!drawing) return; drawing = false; st.values[key] = canvas.toDataURL('image/png'); }
+            canvas.addEventListener('pointerup', end); canvas.addEventListener('pointerleave', end); canvas.addEventListener('pointercancel', end);
+        });
+    }
+    // webcam scanning: the browser's BarcodeDetector when present, else ZXing loaded on demand
+    function loadZxing(cb) {
+        if (window.ZXingBrowser) { cb(null); return; }
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js';
+        s.onload = function () { cb(window.ZXingBrowser ? null : 'scanner library did not load'); };
+        s.onerror = function () { cb('could not load the scanner library (offline?)'); };
+        document.head.appendChild(s);
+    }
+    function openCamera(key) {
+        var old = document.getElementById('fe-cam'); if (old) old.remove();
+        document.body.insertAdjacentHTML('beforeend',
+            '<div id="fe-cam" style="position:fixed;inset:0;background:rgba(15,23,42,0.8);z-index:29600;display:flex;align-items:center;justify-content:center;">' +
+            '<div style="background:#0f172a;border-radius:14px;padding:12px;width:92%;max-width:520px;text-align:center;color:white;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-weight:800;font-size:13px;"><span><i class="fas fa-camera"></i> Point the camera at the barcode</span>' +
+            '<button id="fe-cam-x" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button></div>' +
+            '<div style="position:relative;"><video id="fe-cam-v" playsinline muted style="width:100%;border-radius:10px;background:black;"></video>' +
+            '<div style="position:absolute;left:12%;right:12%;top:45%;height:2px;background:#f43f5e;box-shadow:0 0 12px #f43f5e;"></div></div>' +
+            '<div id="fe-cam-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;">Starting the camera…</div></div></div>');
+        var video = document.getElementById('fe-cam-v'), stream = null, stop = false, zx = null;
+        function done(code) {
+            stop = true;
+            try { if (zx) zx.stop(); } catch (e) { }
+            if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+            var o = document.getElementById('fe-cam'); if (o) o.remove();
+            if (code) handleScan(key, code);
+        }
+        document.getElementById('fe-cam-x').onclick = function () { done(null); };
+        var msg = function (t) { var m = document.getElementById('fe-cam-msg'); if (m) m.textContent = t; };
+        if ('BarcodeDetector' in window) {
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function (sm) {
+                stream = sm; video.srcObject = sm; video.play(); msg('Scanning…');
+                var det = new window.BarcodeDetector();
+                (function tick() {
+                    if (stop) return;
+                    det.detect(video).then(function (codes) { if (codes && codes.length) done(codes[0].rawValue); else setTimeout(tick, 150); })
+                        .catch(function () { setTimeout(tick, 300); });
+                })();
+            }).catch(function (e) { msg('Camera not available: ' + e.message); });
+        } else {
+            loadZxing(function (err) {
+                if (err) { msg(err); return; }
+                var reader = new window.ZXingBrowser.BrowserMultiFormatReader();
+                msg('Scanning…');
+                reader.decodeFromVideoDevice(undefined, video, function (result, e, controls) {
+                    zx = controls;
+                    if (result && !stop) done(result.getText());
+                }).then(function (c) { zx = c; if (stop) c.stop(); }).catch(function (e) { msg('Camera not available: ' + (e && e.message || e)); });
+            });
+        }
+    }
+
     // ── validation ──────────────────────────────────────────
     function validate(cb) {
         captureHeader();
@@ -1288,6 +1467,12 @@
             var i = (st.def.actions || []).findIndex(function (a) { return a.key === key; });
             if (i >= 0) runAction(i);
             else showResult(false, 'Sidebar button points to unknown action "' + key + '".');
+        },
+        _camera: openCamera,
+        _sigClear: function (key) {
+            st.values[key] = '';
+            var c = document.getElementById('fe-sig-' + key);
+            if (c) drawSig(c, '');
         },
         _runReport: runReport,
         _print: doPrint,
