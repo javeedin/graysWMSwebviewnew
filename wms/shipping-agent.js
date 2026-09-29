@@ -3976,6 +3976,16 @@
             window._saAgentStats[agent.ID].tickCount++;
         }
 
+        // Kill switch (AI Digital Employee > Control): a paused AI does nothing on this tick
+        const ctl = await saAiStatus();
+        if (ctl && ctl.enabled === false) {
+            saConsoleLog(`⏸ AI is paused${ctl.reason ? ' (' + ctl.reason + ')' : ''}${ctl.by ? ' by ' + ctl.by : ''} — agent does nothing until it is resumed`, 'warn');
+            saCpSetTask('AI paused — waiting');
+            return;
+        }
+        // decisions taken in the Inbox (possibly on another PC) for this agent's cancel requests
+        await saSyncCancelInbox();
+
         const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
 
         for (const trip of trips) {
@@ -4751,8 +4761,9 @@
         // 'done' with the same lines = the approved cancel did not go through in Fusion -> ask again
         if (cur && cur.sig === sig && cur.state !== 'done') return cur.state === 'rejected' ? 'rejected' : 'pending';
         if (cur && cur.state === 'running') return 'pending';
-        window._saCancelApprovals[tripId] = { sig, groups, agent, instance, tripId, state: 'pending', at: new Date(), sel: Object.fromEntries(Object.keys(groups).map(o => [o, true])) };
+        const req = window._saCancelApprovals[tripId] = { sig, groups, agent, instance, tripId, state: 'pending', at: new Date(), sel: Object.fromEntries(Object.keys(groups).map(o => [o, true])) };
         saRenderCancelCards();
+        saCreateCancelInbox(req);
         try { if (typeof showNotification === 'function') showNotification(`Shipping Agent: approve cancelling lines for trip ${tripId}`, 'warning'); } catch (e) { }
         return 'new';
     }
@@ -4794,7 +4805,7 @@
                 <div style="display:flex;gap:10px;align-items:center;padding:10px 14px;background:linear-gradient(135deg,#fef2f2,#fff7ed);border-bottom:1px solid #fecaca;">
                   <span style="font-size:18px;">✋</span>
                   <div style="flex:1;"><div style="font-weight:800;color:#7f1d1d;">Approve line cancellations — Trip ${saEscHtml(a.tripId)}</div>
-                  <div style="font-size:11px;color:#9a3412;">${saEscHtml(a.agent && (a.agent.AGENT_NAME || a.agent.NAME) || 'Shipping Agent')} found Scheduled / Manual Reservation lines · ${a.at.toLocaleTimeString()}</div></div>
+                  <div style="font-size:11px;color:#9a3412;">${saEscHtml(a.agent && (a.agent.AGENT_NAME || a.agent.NAME) || 'Shipping Agent')} found Scheduled / Manual Reservation lines · ${a.at.toLocaleTimeString()}${a.inboxId ? ` · <b title="Also waiting in AI Digital Employee › Control › Inbox — an approver can decide it from any PC">Inbox #${a.inboxId}</b>` : ''}</div></div>
                   <span style="font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;background:${prod ? '#b91c1c' : '#0e7490'};color:#fff;">${prod ? 'PROD' : 'TEST'}</span></div>
                 ${body}</div>`;
         }).join('');
@@ -4803,6 +4814,15 @@
         const b = e.target.closest('button[data-sa-act]'); if (!b) return;
         const a = window._saCancelApprovals[b.dataset.trip]; if (!a || a.state !== 'pending') return;
         const user = localStorage.getItem('loggedInUser') || sessionStorage.getItem('loggedInUser') || 'WMS_USER';
+        if (a.inboxId) {
+            const selection = JSON.stringify(Object.keys(a.groups).filter(o => a.sel[o]));
+            const d = await saHost('aiInboxDecide', { inboxId: a.inboxId, approve: b.dataset.saAct === 'approve', selectionJson: selection, note: 'decided on the Shipping Agent card' });
+            if (!d || d.ok === false) {
+                if (typeof showNotification === 'function') showNotification('Inbox: ' + ((d && d.error) || 'could not record the decision'), 'error');
+                await saSyncCancelInbox();      // someone else may have decided it already
+                return;
+            }
+        }
         if (b.dataset.saAct === 'reject') {
             a.state = 'rejected'; a.decidedBy = user;
             saRenderCancelCards();
@@ -4813,11 +4833,80 @@
         const chosen = {};
         Object.keys(a.groups).forEach(o => { if (a.sel[o]) chosen[o] = a.groups[o]; });
         if (!Object.keys(chosen).length) return;
-        a.state = 'running'; a.approvedBy = user;
+        await saRunApprovedCancel(a, chosen, user);
+    }
+    async function saRunApprovedCancel(a, chosen, approvedBy) {
+        a.state = 'running'; a.approvedBy = approvedBy;
         saRenderCancelCards();
-        await saLogActivity(a.agent.ID, a.tripId, null, 'CANCEL_APPROVED', 'SUCCESS', 1, `Line cancellation approved by ${user}: ${Object.keys(chosen).join(', ')}`, null, null);
-        try { await saExecuteCancels(a.agent, a.tripId, a.instance, chosen, user); }
-        finally { a.state = 'done'; saRenderCancelCards(); }
+        await saLogActivity(a.agent.ID, a.tripId, null, 'CANCEL_APPROVED', 'SUCCESS', 1, `Line cancellation approved by ${approvedBy}: ${Object.keys(chosen).join(', ')}`, null, null);
+        let res = { cancelled: 0, failed: 0 };
+        try { res = await saExecuteCancels(a.agent, a.tripId, a.instance, chosen, approvedBy) || res; }
+        finally {
+            a.state = 'done'; saRenderCancelCards();
+            if (a.inboxId) saHost('aiInboxComplete', { inboxId: a.inboxId, status: res.failed ? 'FAILED' : 'DONE', result: `${res.cancelled} line(s) cancelled, ${res.failed} order(s) failed` });
+            saHost('aiAudit', { source: 'SHIPPING_AGENT', actionKey: 'cancel_lines', outcome: res.failed ? 'FAILED' : 'OK', approval: a.inboxId ? 'INBOX' : 'CARD', instance: a.instance,
+                refId: 'TRIP:' + a.tripId + (a.inboxId ? ' INBOX:' + a.inboxId : ''), target: Object.keys(chosen).join(','), detail: `${res.cancelled} line(s) cancelled, approved by ${approvedBy}` });
+        }
+    }
+
+    // ── bridge + control plane (kill switch, inbox) ──────────────
+    function saHost(action, payload) {
+        return new Promise(resolve => {
+            if (typeof sendMessageToCSharp !== 'function' || !(window.chrome && window.chrome.webview)) { resolve(null); return; }
+            const user = localStorage.getItem('loggedInUser') || sessionStorage.getItem('loggedInUser') || '';
+            sendMessageToCSharp(Object.assign({ action, appUser: user }, payload || {}), (err, data) => resolve(err ? { ok: false, error: String(err) } : data), 20000, false);
+        });
+    }
+    async function saAiStatus() {
+        const d = await saHost('aiControlStatus', {});
+        return d && d.ok !== false ? d : null;      // unreachable = carry on as before
+    }
+    async function saCreateCancelInbox(a) {
+        const lines = Object.keys(a.groups).map(o => `${o}: ` + a.groups[o].map(l => `${saLineNum(l)} ${saLineItem(l)} (${saLineStatus(l)})`).join(', '));
+        const n = Object.values(a.groups).reduce((s, x) => s + x.length, 0);
+        const d = await saHost('aiInboxCreate', {
+            source: 'SHIPPING_AGENT', actionKey: 'cancel_lines', instance: String(a.instance || 'PROD').toUpperCase(), refId: 'TRIP:' + a.tripId,
+            sig: ('SA:' + a.tripId + ':' + a.sig).slice(0, 200),
+            title: `Cancel ${n} line(s) on trip ${a.tripId} (${Object.keys(a.groups).length} order(s))`,
+            summary: `Shipping Agent "${(a.agent && (a.agent.NAME || a.agent.AGENT_NAME)) || ''}" found Scheduled / Manual Reservation lines. Reason sent to Fusion: OUT OF STOCK.\n` + lines.join('\n').slice(0, 3500),
+            payloadJson: JSON.stringify({ tripId: a.tripId, orders: Object.keys(a.groups), lines: n })
+        });
+        if (!d || !d.inboxId) return;              // APEX unreachable: the card on this page still works
+        a.inboxId = d.inboxId;
+        saRenderCancelCards();
+        if (d.status === 'APPROVED' && a.state === 'pending') {       // approved while this PC was not running it
+            saConsoleLog(`Task 2 ✓ Trip ${a.tripId}: request #${d.inboxId} was already approved in the Inbox — cancelling now`, 'success');
+            await saRunApprovedCancel(a, saParseSelection(d.resultText, a), 'Inbox');
+        }
+    }
+    function saParseSelection(text, a) {
+        let orders = null;
+        try { if (text && text.indexOf('SELECTION:') === 0) orders = JSON.parse(text.slice(10)); } catch (e) { }
+        const chosen = {};
+        Object.keys(a.groups).forEach(o => { if (!orders || orders.indexOf(o) >= 0) chosen[o] = a.groups[o]; });
+        return chosen;
+    }
+    async function saSyncCancelInbox() {
+        const open = Object.values(window._saCancelApprovals || {}).filter(a => a.inboxId && a.state === 'pending');
+        if (!open.length) return;
+        const d = await saHost('aiInboxGet', { ids: open.map(a => a.inboxId) });
+        if (!d || !Array.isArray(d.items)) return;
+        for (const it of d.items) {
+            const a = open.find(x => String(x.inboxId) === String(it.INBOX_ID));
+            if (!a || a.state !== 'pending') continue;
+            if (it.STATUS === 'APPROVED') {
+                saConsoleLog(`Task 2 ✓ Trip ${a.tripId}: request #${a.inboxId} approved in the Inbox by ${it.DECIDED_BY} — cancelling`, 'success');
+                await saRunApprovedCancel(a, saParseSelection(it.RESULT_TEXT, a), it.DECIDED_BY || 'Inbox');
+            } else if (it.STATUS === 'REJECTED') {
+                a.state = 'rejected'; a.decidedBy = it.DECIDED_BY;
+                saConsoleLog(`Task 2 ⛔ Trip ${a.tripId}: request #${a.inboxId} rejected in the Inbox by ${it.DECIDED_BY}${it.DECISION_NOTE ? ' — ' + it.DECISION_NOTE : ''}`, 'warn');
+                await saLogActivity(a.agent.ID, a.tripId, null, 'CANCEL_REJECTED', 'SUCCESS', 1, `Line cancellation rejected in the Inbox by ${it.DECIDED_BY}`, null, null);
+                saRenderCancelCards();
+            } else if (it.EXPIRED === 'Y') {
+                a.state = 'done';                   // asked again on the next tick if the lines still need it
+                saRenderCancelCards();
+            }
+        }
     }
     async function saExecuteCancels(agent, tripId, instance, cancelGroups, approvedBy) {
         const isProd     = (instance || '').toUpperCase() !== 'TEST';
@@ -4831,7 +4920,7 @@
             }))
         });
 
-        let autoCancelled = 0;
+        let autoCancelled = 0, cancelFailed = 0;
         for (const orderNum of Object.keys(cancelGroups)) {
             let lines = cancelGroups[orderNum];
             // Guard: never PATCH lines with no resolvable FulfillLineId — Fusion
@@ -4875,6 +4964,7 @@
                     if (cancelCell) cancelCell.innerHTML = `<span style="background:#fef9c3;color:#a16207;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:700;" title="Cancelled by agent — approved by ${saEscHtml(approvedBy)}">${lines.length} ✓</span>`;
                 }
             } catch(e) {
+                cancelFailed++;
                 saConsoleLog(`Task 2 ✗ Order ${orderNum}: cancel failed — ${e.message}`, 'error');
                 await saAppendCancelLog(tripId, `RESULT order ${orderNum}: FAILED — ${e.message}`);
                 await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'FAILED', 1, e.message, null, null);
@@ -4887,6 +4977,7 @@
             const kpiEl = document.getElementById(`sa-cp-kpi-${tripId}`);
             if (kpiEl) kpiEl.innerHTML = saRenderCpKpis(saCpComputeKpi(tripId));
         }
+        return { cancelled: autoCancelled, failed: cancelFailed };
     }
 
     async function saLogActivity(agentId, tripId, orderNumber, activityType, status, attempt, message, detailJson, durationMs) {

@@ -2199,6 +2199,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleDataLoadAction(wv, action, root, requestId);
                                     break;
 
+                                // AI control plane: kill switch, audit, inbox (AI Digital Employee > Control)
+                                case var ctlAction when IsAiControlAction(ctlAction):
+                                    await HandleAiControlAction(wv, action, root, requestId);
+                                    break;
+
                                 // DLL Explorer (dllexplorer/index.html)
                                 case var dllAction when IsDllAction(dllAction):
                                     await HandleDllAction(wv, action, root, requestId);
@@ -4029,9 +4034,8 @@ navPanel.Controls.Add(wmsDevButton);
                     }
                 }
 
-                if (approve)
                 {
-                    string why = await AiApprovalGuardAsync("fusion", "fusion_write", pending?.Instance, (pending?.Method ?? "").ToUpperInvariant(), pending?.Path, pending?.Body, AiNormInstance(pending?.Instance));
+                    string why = await AiDecisionAsync(approve, "fusion", "fusion_write", pending?.Instance, (pending?.Method ?? "").ToUpperInvariant(), pending?.Path, pending?.Body, AiNormInstance(pending?.Instance));
                     if (why != null) { SendErrorResponse(wv, requestId, why); return; }
                 }
 
@@ -4056,6 +4060,12 @@ navPanel.Controls.Add(wmsDevButton);
         private void PostAiChatAnswer(WebView2 wv, string requestId, AiChatResult result)
         {
             IssueAiApprovals(result);
+            // tokens + cost of this answer: audited, and sent to the page a moment later (aiChatUsage)
+            _ = Task.Run(async () =>
+            {
+                var usage = await AuditAiTurnAsync(result);
+                if (usage != null) PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "aiChatEvent", eventType = "usage", requestId, usage }));
+            });
             var rounds = new List<object>();
             foreach (var r in result.Rounds)
             {
@@ -4163,9 +4173,8 @@ navPanel.Controls.Add(wmsDevButton);
                         jobJson = jEl.GetString();
                 }
 
-                if (approve)
                 {
-                    string why = await AiApprovalGuardAsync("job", "schedule_job", null, jobJson);
+                    string why = await AiDecisionAsync(approve, "job", "schedule_job", null, jobJson);
                     if (why != null) { SendErrorResponse(wv, requestId, why); return; }
                 }
 
@@ -4242,9 +4251,8 @@ navPanel.Controls.Add(wmsDevButton);
                     }
                 }
 
-                if (approve)
                 {
-                    string why = await AiApprovalGuardAsync("printorders", "print_orders", instance, AiNormOrders(orders), printer, AiNormInstance(instance));
+                    string why = await AiDecisionAsync(approve, "printorders", "print_orders", instance, AiNormOrders(orders), printer, AiNormInstance(instance));
                     if (why != null) { SendErrorResponse(wv, requestId, why); return; }
                 }
 
@@ -4383,9 +4391,8 @@ navPanel.Controls.Add(wmsDevButton);
                     }
                 }
 
-                if (approve)
                 {
-                    string why = await AiApprovalGuardAsync("print", "print", null, printer, AiNormTitle(title));
+                    string why = await AiDecisionAsync(approve, "print", "print", null, printer, AiNormTitle(title));
                     if (why != null) { SendErrorResponse(wv, requestId, why); return; }
                 }
 
@@ -4446,9 +4453,8 @@ navPanel.Controls.Add(wmsDevButton);
                         sql = sqEl.GetString() ?? "";
                 }
 
-                if (approve)
                 {
-                    string why = await AiApprovalGuardAsync("dbwrite", "db_write", null, sql);
+                    string why = await AiDecisionAsync(approve, "dbwrite", "db_write", null, sql);
                     if (why != null) { SendErrorResponse(wv, requestId, why); return; }
                 }
 
@@ -4576,9 +4582,8 @@ navPanel.Controls.Add(wmsDevButton);
 
                 if (string.IsNullOrEmpty(password)) password = SmtpVault.PasswordFor(username) ?? "";   // kept by the host, not the page
 
-                if (approve)
                 {
-                    string why = await AiApprovalGuardAsync("email", "email", null, to, cc, subject, bodyHtml);
+                    string why = await AiDecisionAsync(approve, "email", "email", null, to, cc, subject, bodyHtml);
                     if (why != null) { SendErrorResponse(wv, requestId, why); return; }
                 }
 

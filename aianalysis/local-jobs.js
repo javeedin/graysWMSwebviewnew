@@ -30,6 +30,9 @@
         sendSmtpEmail: 1, postToTeams: 1, saveLocalFile: 1, printOrder: 1, printSalesOrder: 1,
         downloadOrderPdf: 1, checkPdfExists: 1, aiListPrinters: 1, getPrintJobs: 1
     };
+    function auditBlocked(kind, target, why) {
+        try { ipc({ action: 'aiAudit', source: 'JOB', actionKey: 'job_step', outcome: 'BLOCKED', target: String(target || '').slice(0, 380), detail: kind + ': ' + why }).catch(function () { }); } catch (e) { }
+    }
     // rest steps that change data: only the app's own ORDS endpoints, never the raw SQL-write gateway
     function restWriteBlocked(url) {
         var host = '';
@@ -115,7 +118,7 @@
             var url = subst(step.url, vars);
             if (method !== 'GET') {
                 var why = restWriteBlocked(url);
-                if (why) return Promise.reject('blocked rest ' + method + ': ' + why);
+                if (why) { auditBlocked('rest ' + method, url, why); return Promise.reject('blocked rest ' + method + ': ' + why); }
             }
             var body = step.body ? JSON.stringify(subst(step.body, vars)) : '{}';
             var call = method === 'GET' ? ipc({ action: 'executeGet', fullUrl: url })
@@ -154,8 +157,10 @@
         if (type === 'ipc') {
             // escape hatch: ANY local IPC action the app supports, with the
             // exact params the model provides (email, saveLocalFile, device ops…)
-            if (!IPC_ALLOWED[step.action])
+            if (!IPC_ALLOWED[step.action]) {
+                auditBlocked('ipc', step.action, 'not an allowed local action');
                 return Promise.reject('blocked ipc "' + step.action + '": not allowed in a job/task step (allowed: ' + Object.keys(IPC_ALLOWED).join(', ') + ')');
+            }
             var msg = Object.assign({ action: step.action }, subst(step.params || {}, vars));
             return ipc(msg).then(function () { log.push('ipc ' + step.action); return {}; });
         }
@@ -211,6 +216,13 @@
 
     // ── poll: find due LOCAL jobs, claim + run them ─────────
     function poll() {
+        // kill switch (AI Digital Employee > Control): a paused AI claims nothing
+        ipc({ action: 'aiControlStatus' }).then(function (st) {
+            if (st && st.enabled === false) { console.log('[LocalJobs] AI paused - not claiming jobs'); return; }
+            pollDue();
+        }, function () { pollDue(); });
+    }
+    function pollDue() {
         var url = AI + '/jobs/list?lane=LOCAL&status=SCHEDULED&t=' + Date.now();
         getJson(url).then(function (parsed) {
             var jobs = (parsed && parsed.jobs) || [];

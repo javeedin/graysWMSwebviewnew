@@ -103,6 +103,18 @@ CREATE TABLE wms_ai_job_runs (
 -- ============================================================
 -- 4. RUNNER - executed by DBMS_SCHEDULER on every fire
 -- ============================================================
+-- Kill switch (AI Digital Employee > Control): WMS_AI_CONTROL.AI_ENABLED = 'N' pauses every job.
+CREATE OR REPLACE FUNCTION wms_ai_is_enabled RETURN VARCHAR2 IS
+    v VARCHAR2(10);
+BEGIN
+    -- dynamic, so this compiles before WMS_AI_CONTROL exists (75_ai_control.sql / created by the app)
+    EXECUTE IMMEDIATE 'SELECT NVL(UPPER(MAX(control_value)), ''Y'') FROM wms_ai_control WHERE control_key = ''AI_ENABLED''' INTO v;
+    RETURN CASE WHEN v = 'N' THEN 'N' ELSE 'Y' END;
+EXCEPTION
+    WHEN OTHERS THEN RETURN 'Y';   -- no control table yet = enabled (same as before)
+END wms_ai_is_enabled;
+/
+
 CREATE OR REPLACE PROCEDURE wms_ai_job_runner (
     p_job_id IN NUMBER
 ) IS
@@ -174,6 +186,11 @@ BEGIN
        OR (v_job.until_date IS NOT NULL AND SYSDATE > v_job.until_date) THEN
         finish_job('EXPIRED');
         COMMIT;
+        RETURN;
+    END IF;
+
+    -- kill switch: a paused AI does nothing (no run row, no count) - the job fires again later
+    IF wms_ai_is_enabled = 'N' THEN
         RETURN;
     END IF;
 

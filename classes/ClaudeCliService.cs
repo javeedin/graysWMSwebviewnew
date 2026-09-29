@@ -140,6 +140,16 @@ namespace WMSApp
         public AiPendingDbWrite PendingDbWrite { get; set; }
         public AiPendingJob PendingJob { get; set; }
         public List<AiSqlRound> Rounds { get; set; } = new List<AiSqlRound>();
+
+        // usage of this answer (all model calls of the turn, incl. retries) - audited as one "turn" row
+        public string Model { get; set; }
+        public long TokensIn { get; set; }
+        public long TokensOut { get; set; }
+        public long CacheRead { get; set; }
+        public long CacheWrite { get; set; }
+        public double? CliCostUsd { get; set; }     // Claude CLI reports its own cost
+        public int ModelCalls { get; set; }
+        public long ElapsedMs { get; set; }
     }
 
     /// <summary>
@@ -1160,6 +1170,12 @@ TROUBLESHOOTING
                 {
                     turn = await RunTurnAsync(prompt, result.SessionId);
                 }
+                result.ModelCalls++;
+                result.TokensIn += turn.TokensIn; result.TokensOut += turn.TokensOut;
+                result.CacheRead += turn.CacheRead; result.CacheWrite += turn.CacheWrite;
+                if (turn.CostUsd.HasValue) result.CliCostUsd = (result.CliCostUsd ?? 0) + turn.CostUsd.Value;
+                if (!string.IsNullOrEmpty(turn.Model)) result.Model = turn.Model;
+                else if (isApi && string.IsNullOrEmpty(result.Model)) result.Model = string.IsNullOrEmpty(engine?.Model) ? "claude-sonnet-5" : engine.Model;
                 if (!turn.Ok)
                 {
                     result.Success = false;
@@ -1186,6 +1202,22 @@ TROUBLESHOOTING
                 using (modelJson)
                 {
                     string action = modelJson.RootElement.TryGetProperty("action", out var aEl) ? aEl.GetString() : null;
+
+                    // Kill switch (AI Digital Employee > Control): while paused, nothing that changes or sends
+                    // anything runs - reads and answers still work so people can see what is going on.
+                    string actKey = ActingActionKey(action, modelJson.RootElement);
+                    if (actKey != null)
+                    {
+                        var ctl = await AiControl.StatusAsync(PolicyUser);
+                        if (!ctl.Enabled)
+                        {
+                            AuditAct(actKey, "PAUSED", "NONE", ActTarget(modelJson.RootElement), "AI paused: " + ctl.Reason, sessionId);
+                            prompt = "PAUSED_RESULT: {\"success\":false,\"error\":\"AI_PAUSED - an administrator has paused all AI actions (" +
+                                     JsonEncodedText.Encode(ctl.Reason ?? "no reason given") + (string.IsNullOrEmpty(ctl.By) ? "" : ", by " + JsonEncodedText.Encode(ctl.By)) +
+                                     "). Nothing was done. Do not retry; tell the user, and answer from what you can read.\"}";
+                            continue;
+                        }
+                    }
 
                     if (string.Equals(action, "answer", StringComparison.OrdinalIgnoreCase))
                     {
@@ -1355,6 +1387,7 @@ TROUBLESHOOTING
                                     dlResults.Add(new { order, success = false, error = "Save failed: " + exSave.Message });
                                 }
                             }
+                            AuditAct("download_orders", "OK", "NONE", string.Join(",", dlOrders), dlResults.Count + " order PDF(s) to " + folder, sessionId);
 
                             prompt = "DEVICE_RESULT: " + JsonSerializer.Serialize(new
                             {
@@ -1459,6 +1492,7 @@ TROUBLESHOOTING
                             var (poMode, _) = await GetPolicyAsync("print_orders");
                             if (poMode == "DENY")
                             {
+                                AuditAct(actKey, "DENIED", "NONE", ActTarget(modelJson.RootElement), null, sessionId);
                                 prompt = "PRINT_ORDERS_RESULT: {\"success\":false,\"error\":\"DENIED_BY_POLICY - this user is not allowed to print order documents. Tell the user and do not retry.\"}";
                                 continue;
                             }
@@ -1486,6 +1520,7 @@ TROUBLESHOOTING
                             result.Success = true;
                             result.RequiresApproval = true;
                             if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
+                            AuditAct(actKey, "ASKED", "CARD", ActTarget(modelJson.RootElement), null, sessionId);
                             result.PendingPrintOrders = new AiPendingPrintOrders
                             {
                                 Orders   = orders,
@@ -1501,6 +1536,7 @@ TROUBLESHOOTING
                             var (prMode, _) = await GetPolicyAsync("print");
                             if (prMode == "DENY")
                             {
+                                AuditAct(actKey, "DENIED", "NONE", ActTarget(modelJson.RootElement), null, sessionId);
                                 prompt = "PRINT_RESULT: {\"success\":false,\"error\":\"DENIED_BY_POLICY - this user is not allowed to print. Tell the user and do not retry.\"}";
                                 continue;
                             }
@@ -1509,6 +1545,7 @@ TROUBLESHOOTING
                             result.Success = true;
                             result.RequiresApproval = true;
                             if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
+                            AuditAct(actKey, "ASKED", "CARD", ActTarget(modelJson.RootElement), null, sessionId);
                             result.PendingPrint = new AiPendingPrint
                             {
                                 Printer = root.TryGetProperty("printer", out var prEl) && prEl.ValueKind == JsonValueKind.String ? prEl.GetString() : "",
@@ -1651,6 +1688,7 @@ TROUBLESHOOTING
 
                             if (fwMode == "DENY")
                             {
+                                AuditAct(actKey, "DENIED", "NONE", ActTarget(modelJson.RootElement), null, sessionId);
                                 prompt = "FUSION_RESULT: {\"success\":false,\"error\":\"DENIED_BY_POLICY - this user is not allowed to run Fusion write operations. Tell the user and do not retry.\"}";
                                 continue;
                             }
@@ -1687,6 +1725,7 @@ TROUBLESHOOTING
                                         success = aRound.Success, rowCount = aRound.RowCount,
                                         elapsedMs = aRound.ElapsedMs, error = aRound.Error
                                     });
+                                    AuditAct(actKey, aRound.Success ? "OK" : "FAILED", "AUTO", method + " " + path, "auto-approved by policy" + (aRound.Success ? "" : ": " + aRound.Error), sessionId);
                                     prompt = "FUSION_RESULT (auto-approved by policy - tell the user it ran without an approval card): "
                                              + TruncateForModel(aRound.ResultJson);
                                     continue;
@@ -1698,6 +1737,7 @@ TROUBLESHOOTING
                             result.Success = true;
                             result.RequiresApproval = true;
                             if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
+                            AuditAct(actKey, "ASKED", "CARD", ActTarget(modelJson.RootElement), null, sessionId);
                             result.Pending = new AiPendingFusion
                             {
                                 Method = method, Path = path, Body = body,
@@ -1736,6 +1776,7 @@ TROUBLESHOOTING
                         var (sjMode, _) = await GetPolicyAsync("schedule_job");
                         if (sjMode == "DENY")
                         {
+                            AuditAct(actKey, "DENIED", "NONE", ActTarget(modelJson.RootElement), null, sessionId);
                             prompt = "JOB_RESULT: {\"success\":false,\"error\":\"DENIED_BY_POLICY - this user is not allowed to schedule jobs. Tell the user and do not retry.\"}";
                             continue;
                         }
@@ -1745,12 +1786,14 @@ TROUBLESHOOTING
                             string sjResult = await CreateScheduledJobAsync(modelJson.RootElement.GetRawText());
                             await onEvent(new { action = "aiChatEvent", eventType = "jobCreated", result = sjResult });
                             prompt = "JOB_RESULT (auto-approved by policy - tell the user it was scheduled without an approval card): " + sjResult;
+                            AuditAct(actKey, "OK", "AUTO", ActTarget(modelJson.RootElement), "auto-approved by policy", sessionId);
                             continue;
                         }
 
                         result.Success = true;
                         result.RequiresApproval = true;
                         if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
+                        AuditAct(actKey, "ASKED", "CARD", ActTarget(modelJson.RootElement), null, sessionId);
                         result.PendingJob = new AiPendingJob { JobJson = modelJson.RootElement.GetRawText() };
                         return result;
                     }
@@ -1764,6 +1807,7 @@ TROUBLESHOOTING
                         var (dwMode, _) = await GetPolicyAsync("db_write");
                         if (dwMode == "DENY")
                         {
+                            AuditAct(actKey, "DENIED", "NONE", ActTarget(modelJson.RootElement), null, sessionId);
                             prompt = "DB_WRITE_RESULT: {\"success\":false,\"error\":\"DENIED_BY_POLICY - this user is not allowed to run DDL/DML. Tell the user and do not retry.\"}";
                             continue;
                         }
@@ -1772,12 +1816,14 @@ TROUBLESHOOTING
                             await onEvent(new { action = "aiChatEvent", eventType = "status", text = "Auto-approved by policy: executing database write..." });
                             string dwResult = await ExecuteDbWriteAsync(dwSql);
                             prompt = "DB_WRITE_RESULT (auto-approved by policy - tell the user it ran without an approval card): " + dwResult;
+                            AuditAct(actKey, "OK", "AUTO", ActTarget(modelJson.RootElement), "auto-approved by policy", sessionId);
                             continue;
                         }
 
                         result.Success = true;
                         result.RequiresApproval = true;
                         if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
+                        AuditAct(actKey, "ASKED", "CARD", ActTarget(modelJson.RootElement), null, sessionId);
                         result.PendingDbWrite = new AiPendingDbWrite { Sql = dwSql, Reason = dwReason };
                         return result;
                     }
@@ -1789,6 +1835,7 @@ TROUBLESHOOTING
                         var (mrMode, _) = await GetPolicyAsync("mra_interface");
                         if (mrMode == "DENY")
                         {
+                            AuditAct(actKey, "DENIED", "NONE", ActTarget(modelJson.RootElement), null, sessionId);
                             prompt = "MRA_RESULT: {\"success\":false,\"error\":\"DENIED_BY_POLICY - this user is not allowed to interface orders to MRA. Tell the user and do not retry.\"}";
                             continue;
                         }
@@ -1812,6 +1859,7 @@ TROUBLESHOOTING
                         result.Success = true;
                         result.RequiresApproval = true;
                         if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
+                        AuditAct(actKey, "ASKED", "CARD", ActTarget(modelJson.RootElement), null, sessionId);
                         result.PendingMra = new AiPendingMra
                         {
                             Orders   = mraOrders,
@@ -1827,6 +1875,7 @@ TROUBLESHOOTING
                         var (emMode, _) = await GetPolicyAsync("email");
                         if (emMode == "DENY")
                         {
+                            AuditAct(actKey, "DENIED", "NONE", ActTarget(modelJson.RootElement), null, sessionId);
                             prompt = "EMAIL_RESULT: {\"success\":false,\"error\":\"DENIED_BY_POLICY - this user is not allowed to send emails. Tell the user and do not retry.\"}";
                             continue;
                         }
@@ -1835,6 +1884,7 @@ TROUBLESHOOTING
                         result.Success = true;
                         result.RequiresApproval = true;
                         if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
+                        AuditAct(actKey, "ASKED", "CARD", ActTarget(modelJson.RootElement), null, sessionId);
                         result.PendingEmail = new AiPendingEmail
                         {
                             To       = root.TryGetProperty("to",       out var toEl) ? toEl.GetString() : "",
@@ -1944,6 +1994,19 @@ TROUBLESHOOTING
             public string ResultText;
             public string SessionId;
             public string Error;
+            public string Model;
+            public long TokensIn, TokensOut, CacheRead, CacheWrite;
+            public double? CostUsd;
+        }
+
+        private static long UsageNum(JsonElement u, string name) =>
+            u.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var n) ? n : 0;
+        private static void ReadUsage(JsonElement usage, TurnOutcome o)
+        {
+            o.TokensIn = UsageNum(usage, "input_tokens");
+            o.TokensOut = UsageNum(usage, "output_tokens");
+            o.CacheRead = UsageNum(usage, "cache_read_input_tokens");
+            o.CacheWrite = UsageNum(usage, "cache_creation_input_tokens");
         }
 
         private async Task<TurnOutcome> RunTurnAsync(string prompt, string sessionId)
@@ -2004,6 +2067,8 @@ TROUBLESHOOTING
 
                         if (root.TryGetProperty("session_id", out var sidEl) && sidEl.ValueKind == JsonValueKind.String)
                             outcome.SessionId = sidEl.GetString();
+                        if (type == "system" && root.TryGetProperty("model", out var smEl) && smEl.ValueKind == JsonValueKind.String)
+                            outcome.Model = smEl.GetString();
 
                         if (type == "assistant" &&
                             root.TryGetProperty("message", out var msgEl) &&
@@ -2018,6 +2083,8 @@ TROUBLESHOOTING
                         }
                         else if (type == "result")
                         {
+                            if (root.TryGetProperty("usage", out var cuEl) && cuEl.ValueKind == JsonValueKind.Object) ReadUsage(cuEl, outcome);
+                            if (root.TryGetProperty("total_cost_usd", out var tcEl) && tcEl.ValueKind == JsonValueKind.Number) outcome.CostUsd = tcEl.GetDouble();
                             bool isError = root.TryGetProperty("is_error", out var ieEl) &&
                                            ieEl.ValueKind == JsonValueKind.True;
                             string resultText = root.TryGetProperty("result", out var resEl) &&
@@ -2088,7 +2155,7 @@ TROUBLESHOOTING
             var round = new AiSqlRound { Sql = sql, Reason = reason };
             try
             {
-                var body = JsonSerializer.Serialize(new { sql, maxRows = 200, appUser = Environment.UserName });
+                var body = JsonSerializer.Serialize(new { sql, maxRows = 200, appUser = PolicyUser });
                 var resp = await _http.PostAsync(QUERY_URL,
                     new StringContent(body, Encoding.UTF8, "application/json"));
                 string respBody = await resp.Content.ReadAsStringAsync();
@@ -2201,6 +2268,8 @@ TROUBLESHOOTING
                     return outcome;
                 }
 
+                if (root.TryGetProperty("usage", out var auEl) && auEl.ValueKind == JsonValueKind.Object) ReadUsage(auEl, outcome);
+                if (root.TryGetProperty("model", out var amEl) && amEl.ValueKind == JsonValueKind.String) outcome.Model = amEl.GetString();
                 var textSb = new StringBuilder();
                 if (root.TryGetProperty("content", out var contentEl))
                 {
@@ -2444,6 +2513,40 @@ TROUBLESHOOTING
             int left = MAX_SQL_ROUNDS - used;
             return left <= 0 ? "\n[No research rounds left - answer now with what you have.]"
                  : left <= 2 ? "\n[Research rounds left: " + left + " - answer soon.]" : "";
+        }
+
+        /// <summary>The policy key of an action that changes or sends something (kill switch + audit), or null for reads.</summary>
+        private static string ActingActionKey(string action, JsonElement root)
+        {
+            string a = (action ?? "").ToLowerInvariant();
+            switch (a)
+            {
+                case "fusion":
+                    string m = root.TryGetProperty("method", out var mEl) && mEl.ValueKind == JsonValueKind.String ? mEl.GetString().ToUpperInvariant() : "GET";
+                    return m == "GET" ? null : "fusion_write";
+                case "db_write": case "schedule_job": case "mra_interface": case "email": return a;
+                case "api_form": return "wms_api";
+                case "device":
+                    string op = root.TryGetProperty("op", out var oEl) && oEl.ValueKind == JsonValueKind.String ? oEl.GetString().ToLowerInvariant() : "";
+                    return op == "print" || op == "print_orders" || op == "download_orders" || op == "import_file" || op == "move_file" ? (op == "print" ? "print" : op == "print_orders" ? "print_orders" : "device_files") : null;
+                default: return null;
+            }
+        }
+        private static string ActTarget(JsonElement root)
+        {
+            foreach (var k in new[] { "path", "sql", "to", "orders", "file", "printer", "apiId", "formKey", "name" })
+                if (root.TryGetProperty(k, out var v))
+                    return v.ValueKind == JsonValueKind.String ? Truncate(v.GetString(), 380) : Truncate(v.GetRawText(), 380);
+            return null;
+        }
+        /// <summary>One audit row for an action the model asked for (WMS_AI_AUDIT) - fire and forget.</summary>
+        private void AuditAct(string actionKey, string outcome, string approval, string target, string detail, string sessionId)
+        {
+            AiControl.Audit(new AiControl.AuditEvent
+            {
+                User = PolicyUser, Source = "CHAT", Action = actionKey, Outcome = outcome, Approval = approval,
+                Instance = SINGLE_DB_ACTIONS.Contains(actionKey ?? "") ? "PROD" : CurrentInstance, Ref = sessionId, Target = target, Detail = detail
+            });
         }
 
         private static string TruncateForModel(string s)
