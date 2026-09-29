@@ -23,7 +23,8 @@ namespace WMSApp.FusionSql
     // ---------------------------------------------------------------------
     public static class FusionSqlAi
     {
-        private const int MAX_TURNS = 24;             // flow designs verify many tables
+        private const int MAX_TURNS = 40;             // research rounds; flow designs verify many tables
+        private const int WRAP_UP_AT = 4;             // rounds left when Claude is told to start writing the answer
         private const int MAX_TOOL_CHARS = 14000;
 
         private const string SYSTEM_PROMPT =
@@ -49,6 +50,14 @@ Two kinds of requests:
 2) Explain an object (package, procedure, function, table, view…): read its spec/source/arguments with the tools and
    explain what it does, its main entry points and parameters, and how to call/use it, with a short example.
    Say so when source is wrapped or not visible to this user.
+
+Research efficiently - you have a limited number of research rounds (the count left is shown after every tool result):
+- Call SEVERAL tools in one round whenever you already know what to look up (e.g. describe_object on 5 tables at once).
+- Never describe the same object twice; trust the STARTING HINTS for columns they already list.
+- Prefer well-known Fusion joins you are sure of over re-verifying every column. Verify only what you are unsure of.
+- For a very large request (several subledgers / flows), deliver it in parts: write the first complete query now and
+  list what the follow-up queries will cover, instead of researching everything before answering.
+- When few rounds are left, stop researching and answer with what you verified; mark anything unverified as an assumption.
 
 After any SQL block add at most three short bullets on joins/assumptions. Be concise.
 If the question refers to the CURRENT EDITOR SQL, modify or extend that query.";
@@ -95,15 +104,19 @@ If the question refers to the CURRENT EDITOR SQL, modify or extend that query.";
 
             try
             {
-                for (int turn = 0; turn < MAX_TURNS; turn++)
+                // MAX_TURNS research rounds, then one last round with tools switched off: Claude must answer
+                // with what it has verified instead of the whole question failing
+                for (int turn = 0; turn <= MAX_TURNS; turn++)
                 {
-                    progress?.Invoke(turn == 0 ? "Claude is thinking…" : "Claude is reviewing what it found…");
+                    bool finalRound = turn == MAX_TURNS;
+                    progress?.Invoke(turn == 0 ? "Claude is thinking…" : finalRound ? "Claude is writing the answer from what it verified…" : "Claude is reviewing what it found…");
                     var resp = await client.Messages.Create(new MessageCreateParams
                     {
                         Model = useModel,
                         MaxTokens = 16000,
                         System = SYSTEM_PROMPT,
                         Tools = tools,
+                        ToolChoice = finalRound ? new ToolChoiceNone() : null,
                         Thinking = new ThinkingConfigAdaptive(),
                         OutputConfig = new OutputConfig { Effort = Effort.High },
                         CacheControl = new CacheControlEphemeral(),      // caches the growing prefix across tool turns
@@ -133,7 +146,9 @@ If the question refers to the CURRENT EDITOR SQL, modify or extend that query.";
                         if (stop.IndexOf("refusal", StringComparison.OrdinalIgnoreCase) >= 0 && text.Length == 0)
                             return (false, null, "Claude declined this request. Rephrase the question.", steps);
                         if (text.Length == 0)
-                            return (false, null, "Claude returned no text (stop reason: " + stop + ").", steps);
+                            return (false, null, finalRound
+                                ? "Claude used all " + MAX_TURNS + " research steps without writing an answer. Ask for one part at a time (e.g. only receipt accounting)."
+                                : "Claude returned no text (stop reason: " + stop + ").", steps);
                         if (stop.IndexOf("max_tokens", StringComparison.OrdinalIgnoreCase) >= 0)
                             text.Append("\n\n_(answer cut off at the output limit)_");
                         return (true, text.ToString(), null, steps);
@@ -151,6 +166,16 @@ If the question refers to the CURRENT EDITOR SQL, modify or extend that query.";
                         if (output.Length > MAX_TOOL_CHARS) output = output.Substring(0, MAX_TOOL_CHARS) + "\n…(truncated — narrow the request, e.g. from_line/to_line)";
                         results.Add(new ToolResultBlockParam { ToolUseID = call.ID, Content = output });
                     }
+                    // research budget: tell Claude how many rounds are left, and to wrap up near the end
+                    int left = MAX_TURNS - turn - 1;
+                    results.Add(new TextBlockParam
+                    {
+                        Text = left <= 0
+                            ? "[Research budget used up - no more tools. Write your final answer NOW from what you verified; mark anything unverified as an assumption and say what a follow-up question should cover.]"
+                            : left <= WRAP_UP_AT
+                                ? "[Research rounds left: " + left + ". Finish now - write the answer; only look up what is essential.]"
+                                : "[Research rounds left: " + left + "]"
+                    });
                     messages.Add(new MessageParam { Role = Role.User, Content = results });
                 }
                 return (false, null, "Claude used too many research steps without finishing. Ask a narrower question.", steps);
