@@ -2177,6 +2177,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleDataLoadAction(wv, action, root, requestId);
                                     break;
 
+                                // DLL Explorer (dllexplorer/index.html)
+                                case var dllAction when IsDllAction(dllAction):
+                                    await HandleDllAction(wv, action, root, requestId);
+                                    break;
+
                                 // Fusion SQL module (fusionsql/index.html)
                                 case var fsqlAction when IsFusionSqlAction(fsqlAction):
                                     await HandleFusionSqlAction(wv, action, root, requestId);

@@ -80,7 +80,7 @@ set "VERIFY_DIR=%OUTPUT_FOLDER%"
 REM --- Verify dist\ matches this build (a stale System.Text.Json.dll or deps.json
 REM     makes the app fail with "The type initializer for 'WMSApp.Form1' threw an exception") ---
 set "VERIFY_FAILED="
-for %%F in (GraysWMS.exe GraysWMS.dll GraysWMS.deps.json Anthropic.dll System.Text.Json.dll System.IO.Pipelines.dll System.Text.Encodings.Web.dll Microsoft.Data.Sqlite.dll e_sqlite3.dll System.Security.Cryptography.ProtectedData.dll) do (
+for %%F in (GraysWMS.exe GraysWMS.dll GraysWMS.deps.json Anthropic.dll System.Text.Json.dll System.IO.Pipelines.dll System.Text.Encodings.Web.dll Microsoft.Data.Sqlite.dll e_sqlite3.dll System.Security.Cryptography.ProtectedData.dll ICSharpCode.Decompiler.dll) do (
     if not exist "%VERIFY_DIR%\%%F" (
         echo ERROR: %%F is missing from %VERIFY_DIR%
         set "VERIFY_FAILED=1"

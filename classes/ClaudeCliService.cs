@@ -226,7 +226,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V54";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V55";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string LOCAL_JOBS_CREATE_URL =
@@ -680,6 +680,8 @@ namespace WMSApp
             sb.AppendLine();
             sb.AppendLine("op print_orders is for printing ORDER DOCUMENTS: for each order number the app downloads the official Sales Order PDF from Oracle BI Publisher (SOAP report GR_SalesOrder_Rep) on the given instance and prints it on the printer - use it whenever the user says print order / print the orders / print the trip's orders. Max 20 orders per request. Flow: (1) if the user says a trip (\"print all orders of trip 6812\"), FIRST run action sql to fetch that trip's order numbers for the current instance, then tell the user how many you found; (2) if no printer was named, run list_printers and use the default or ask; (3) send print_orders with the exact order numbers, printer name and the current instance. The app shows an approval card listing every order first. You then receive PRINT_ORDERS_RESULT: {results:[{order, downloaded, printed, method, error}]} or USER_REJECTED - summarize per order with action answer, calling out any failures.");
             sb.AppendLine();
+            sb.AppendLine(DLL_KNOWLEDGE);
+            sb.AppendLine();
             sb.AppendLine("## Sending emails");
             sb.AppendLine();
             sb.AppendLine("When the user asks to EMAIL something (a result, a summary, an alert), reply with:");
@@ -777,6 +779,24 @@ namespace WMSApp
         // How the app interfaces sales orders to the MRA (Mauritius Revenue Authority) e-invoicing -
         // written from classes/MRAProcessor.cs, MRAModels.cs, FusionReportRunner.cs, Form1.HandleProcessMRAInterface
         // and wms/mra-processor.js. Keep it in step with that code.
+        private const string DLL_KNOWLEDGE = """
+## Reading DLLs (what a .dll / .exe can do)
+
+The app can read any Windows DLL or EXE on this PC WITHOUT loading or running it (action dll, runs immediately, read-only):
+
+{ "action": "dll", "op": "list", "reason": "one line" }                       // DLLs in the drop folder C:\fusion\dll and this app's folder
+{ "action": "dll", "op": "inspect", "path": "C:\\fusion\\dll\\Foo.dll", "internal": false, "namespace": "optional", "reason": "one line" }
+{ "action": "dll", "op": "find", "path": "Foo.dll", "query": "invoice print", "reason": "one line" }
+{ "action": "dll", "op": "decompile", "path": "Foo.dll", "target": "Ns.Type::Method", "reason": "one line" }   // or "Ns.Type" (nested Ns.Outer+Inner)
+
+- path: a full path, or a bare file name found in C:\fusion\dll, the app folder or the Windows system folder. Only .dll/.exe/.winmd.
+- DLL_RESULT for inspect is an outline: version info, CAPABILITIES with evidence (HTTP, database, printing, registry, crypto …), references, P/Invoke / imported Windows functions, exports (native DLLs), hard-coded URLs / SQL / paths, and every public type with member signatures (+ public, # protected; internal: true adds internal types). find searches names, doc summaries and strings. decompile returns C# for .NET DLLs (native DLLs are machine code - say so and work from exports/imports/strings).
+- Passwords, keys and tokens show as *** - never guess or ask for them.
+- FIRST check saved feature maps: SELECT file_name, file_version, sha256, summary FROM wms_ai_dll_maps ORDER BY updated_date DESC (the DLL Explorer writes them; read the map with TO_CHAR(SUBSTR(feature_map, 1, 3900)) and further offsets). If one exists for the DLL, answer from it and only read the DLL for what it does not cover.
+- Otherwise: inspect once, then decompile at most 2-3 key types/methods. Answer in business words: a feature table (Feature | What it does | Where), what it talks to, settings, and which methods could become chat actions. Suggest DLL Explorer › Explain with AI (Home › DLL Explorer) for a complete saved feature map.
+- Reading a DLL never lets you RUN it. Running code from a DLL is only possible through actions the app already has (e.g. mra_interface) - never claim otherwise.
+""";
+
         private const string MRA_KNOWLEDGE = """
 ## MRA interfacing (Mauritius Revenue Authority e-invoicing) - how the app does it
 
@@ -1079,7 +1099,7 @@ TROUBLESHOOTING
             var result = new AiChatResult { SessionId = sessionId };
             string prompt = initialPrompt;
             bool retriedMalformed = false;
-            int guard = 0;
+            int guard = 0, dllReads = 0;
 
             while (guard++ < (MAX_SQL_ROUNDS * 2) + 4)
             {
@@ -1454,6 +1474,54 @@ TROUBLESHOOTING
                         }
 
                         prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"Unknown device op '" + op + "' - use list_printers, system_info, print, print_orders, download_orders or list_files\"}";
+                        continue;
+                    }
+
+                    if (string.Equals(action, "dll", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Read-only: the DLL is parsed / decompiled on this PC, never loaded or run. Secrets are masked.
+                        var root = modelJson.RootElement;
+                        string op = root.TryGetProperty("op", out var dopEl) && dopEl.ValueKind == JsonValueKind.String ? dopEl.GetString().ToLowerInvariant() : "inspect";
+                        string dPath = root.TryGetProperty("path", out var dpEl) && dpEl.ValueKind == JsonValueKind.String ? dpEl.GetString() : null;
+                        string dArg(string n) => root.TryGetProperty(n, out var el) && el.ValueKind == JsonValueKind.String ? el.GetString() : null;
+                        bool dInternal = root.TryGetProperty("internal", out var diEl) && diEl.ValueKind == JsonValueKind.True;
+                        if (++dllReads > 6)
+                        {
+                            prompt = "DLL_RESULT: {\"success\":false,\"error\":\"You have read the DLL 6 times this turn - answer now with what you found and offer the DLL Explorer's Explain with AI for a full feature map.\"}";
+                            continue;
+                        }
+                        string dRes;
+                        try
+                        {
+                            if (op == "list")
+                            {
+                                dRes = JsonSerializer.Serialize(new { success = true, dropFolder = DllInspector.DROP_FOLDER, files = DllInspector.Suggest() });
+                            }
+                            else
+                            {
+                                string full = DllInspector.ResolvePath(dPath);
+                                await onEvent(new { action = "aiChatEvent", eventType = "status",
+                                    text = op == "decompile" ? "Decompiling " + dArg("target") + "..." : op == "find" ? "Searching " + Path.GetFileName(full) + "..." : "Reading " + Path.GetFileName(full) + "..." });
+                                if (op == "decompile")
+                                    dRes = await Task.Run(() => DllInspector.Decompile(full, dArg("target"), 24000));
+                                else if (op == "find")
+                                {
+                                    var rep = await Task.Run(() => DllInspector.InspectCached(full, true));
+                                    dRes = JsonSerializer.Serialize(DllInspector.Find(rep, dArg("query"), 80));
+                                }
+                                else
+                                {
+                                    var rep = await Task.Run(() => DllInspector.InspectCached(full, dInternal));
+                                    dRes = DllInspector.Outline(rep, 30000, dArg("namespace"));
+                                }
+                                dRes = DllInspector.Redact(dRes);
+                            }
+                        }
+                        catch (Exception exDll)
+                        {
+                            dRes = JsonSerializer.Serialize(new { success = false, error = exDll.Message });
+                        }
+                        prompt = "DLL_RESULT: " + dRes;
                         continue;
                     }
 

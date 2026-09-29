@@ -31,6 +31,7 @@ namespace WMSApp
                 case "home": return "Fusion Client";
                 case "dataload": return "Data Loading";
                 case "fusionsql": return "Fusion SQL";
+                case "dllexplorer": return "DLL Explorer";
                 case "admin": return "Admin";
                 case "gl": return "General Ledger";
                 case "ap": return "Accounts Payable";
