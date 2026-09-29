@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V50";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V51";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string LOCAL_JOBS_CREATE_URL =
@@ -372,6 +372,8 @@ namespace WMSApp
             sb.AppendLine("### Creating sales orders (TWO ROUTES - always ask which one first)");
             sb.AppendLine();
             sb.AppendLine("Order creation metadata (customers, their price lists, price list items, order types, salesreps) lives in the APEX DB - gather it with action sql against the schema catalog below; you do NOT need Fusion GETs for the data. After showing the composed order plan, ALWAYS ask the user (action answer) which route to use - never pick silently unless they already said:");
+            sb.AppendLine();
+            sb.AppendLine(MRA_KNOWLEDGE);
             sb.AppendLine();
             sb.AppendLine("## File intake processing (folder of PDFs/documents)");
             sb.AppendLine();
@@ -758,6 +760,42 @@ namespace WMSApp
             _systemPromptCache = null;   // API mode re-reads the fresh prompt
             return objectCount;
         }
+
+        // How the app interfaces sales orders to the MRA (Mauritius Revenue Authority) e-invoicing -
+        // written from classes/MRAProcessor.cs, MRAModels.cs, FusionReportRunner.cs, Form1.HandleProcessMRAInterface
+        // and wms/mra-processor.js. Keep it in step with that code.
+        private const string MRA_KNOWLEDGE = """
+## MRA interfacing (Mauritius Revenue Authority e-invoicing) - how the app does it
+
+Use this to explain, troubleshoot or check MRA interfacing. The interfacing itself runs in the desktop app (C# MRAProcessor), NOT through chat: you cannot send an invoice to MRA. To (re)interface an order, tell the user where to click (below). You CAN check an order's data/status with Fusion SQL / reports and explain failures.
+
+WHERE USERS RUN IT (WMS module)
+- Trip Details grid: MRA button per order -> popup (wms/mra-processor.js) with tabs Order data / MRA request+response / Logs, IRN and QR code shown at the end.
+- Trip Print "MRA Interface" button: all orders of the trip one by one, per-order status, logs and Retry (wms/auto-inventory-processing.js).
+- SO Trip Print "MRA Interface": same batch for sales-order trips (wms/auto-sales-order-processing.js).
+All send the IPC action processMRAInterface {orderNumber, fusionUsername, fusionPassword, instance PROD|TEST}; progress comes back as mraProcessingProgress / mraOrderData / mraRequestData / mraResponseData / mraLog, the result as processMRAInterfaceResponse {success, message, irnCode, qrCodeBase64, headerId, currentStep, errorDetails}.
+
+THE 6 STEPS (per order; any failure stops the order, currentStep tells where)
+1. CheckingMRAStatus - BIP report /Custom/DEXPRESS/ORDER MANAGEMENT/POS_RERPOTS/MRA_TRX_NO_CHECK_BIP.xdo, param source_order_number. Data table 1 row with a non-empty MRA_TRX_NO = already interfaced -> stops with "MRA interface is already done for order X" (not an error; never sent twice).
+2. FetchingOrderSummary - ORDER_SUMMARY_4_ORDER_NUMBER_BIP.xdo (same folder), params INVENTORY_ORG_ID=300000003277749, ORG_ID=300000003234003, SOURCE_ORDER_NUMBER. Header fields used: HEADER_ID, ORDER_TYPE_CODE, ORDER_DATE, ORDER_AMOUNT, TAX_AMOUNT, DISCOUNT_AMOUNT, MRA_TAN, MRA_BRN, MRA_ID, MRA_CUSTOMER_CAT, SOURCE_ORDER_NUMBER, REFERENCE_NO, ACCOUNT_NAME, BRN, CUSTOMER_MAIN_CAT, VATREGNO. No row -> "Order summary not found".
+3. FetchingOrderDetails - ORDER_DETAILS_MRA_BIP.xdo, same params. Line fields: LINE_NUMBER, LINE_STATUS, ITEM_NUMBER, DESCRIPTION, ORIGINAL_QTY, UNIT_LIST_PRICE, DISCOUNT_AMOUNT, NET_AMOUNT, TAX_AMOUNT, TAX_CLASSIFICATION_CODE. No rows -> "Order details not found".
+4. ValidatingOrderLines - every LINE_STATUS must be CLOSED, AWAIT_BILLING, BILLED, SHIPPED or CANCELED; otherwise "Cannot interface to MRA: Found N line(s) that are not closed/billed/shipped" with the open lines listed (e.g. "Line 3: AWAIT_SHIPPING"). Fix: ship/close those lines in Fusion, then run MRA again.
+5. CreatingMRAInvoice - builds the invoice JSON and POSTs it to http://mra.busi.in/MRAInvoice.php (the MRA gateway; plain JSON, no auth header). Mapping:
+   - invoiceTypeDesc STD; CRN (credit note) when ORDER_AMOUNT < 0 with reasonStated "RETURN ORDER" and invoiceRefIdentifier = REFERENCE_NO (else SOURCE_ORDER_NUMBER); PRF when ORDER_TYPE_CODE = 'PRO-FORMA INVOICE'.
+   - ebsMraId=MRA_ID, invoiceCounter=HEADER_ID, transactionType=MRA_CUSTOMER_CAT, personType VATR, currency MUR, invoiceIdentifier=SOURCE_ORDER_NUMBER, salesTransactions CASH, previousNoteHash "prevNote", dateTimeInvoiceIssued=ORDER_DATE as yyyyMMdd HH:mm:ss.
+   - Totals (absolute values, 3 decimals): invoiceTotal = totalAmtPaid = ORDER_AMOUNT, totalVatAmount = TAX_AMOUNT, totalAmtWoVatCur/Mur = ORDER_AMOUNT - TAX_AMOUNT, discountTotalAmount = DISCOUNT_AMOUNT.
+   - seller: GRAYS INC BU, tan=MRA_TAN, brn=MRA_BRN, BEAU-PLAN, phone 2093000, ebsCounterNo 20. buyer: name=ACCOUNT_NAME, brn=BRN, businessAddr=CUSTOMER_MAIN_CAT, buyerType VATR, tan=VATREGNO.
+   - itemList per line: itemNo/productCodeMra = running number, productCodeOwn=ITEM_NUMBER, itemDesc=DESCRIPTION, quantity=ORIGINAL_QTY (integer), unitPrice=UNIT_LIST_PRICE, discount=discountedValue=|DISCOUNT_AMOUNT|, vatAmt=TAX_AMOUNT, totalPrice=NET_AMOUNT, amtWoVatCur/Mur=NET_AMOUNT-TAX_AMOUNT; nature SERVICES when ITEM_NUMBER contains 'SGG' else GOODS; taxCode TC01 for TAX_CLASSIFICATION_CODE 6004, TC03 for 23006, anything else TC01.
+   - Response: Response.ResponseId = the IRN, Response.FiscalisedInvoices[0].QrCode = QR code (base64).
+6. UpdatingFusionOrder - PATCH /fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/{HEADER_ID} (Basic auth, pod by instance) with body {"additionalInformation":[{"Category":"DOO_HEADERS_ADD_INFO","HeaderEffBGRAYSprivateVO":[{"ContextCode":"GRAYS","holdreleasedby":"<IRN>"}]}]} - the IRN is stored on the order header extensible flexfield GRAYS, attribute holdreleasedby. Only HTTP 200 counts as success; otherwise "MRA invoice created but failed to update Fusion: <status> - <body>" (the invoice exists at MRA - do NOT resend blindly; fix the order/EFF issue and update the flexfield).
+
+TROUBLESHOOTING
+- "already done": step 1 found MRA_TRX_NO - nothing to do; show the value if asked.
+- Report failures ("Failed to check MRA status / fetch order summary / details: ...") come from the BIP SOAP call (FusionReportRunner, /xmlpserver/services/v2/ReportService runReport) - usually credentials, the report path, or the order number/org params; the Logs tab shows the XDO request and returned XML.
+- Known gap in the code: step 5 treats any HTTP reply as created and takes ResponseId as the IRN - if MRA rejects the invoice (no ResponseId) the IRN is empty and step 6 writes an empty value. When an order shows success but no IRN, check the raw MRA response in the popup's MRA tab.
+- Order amounts are sent as absolute values; a return order becomes a credit note only because ORDER_AMOUNT is negative.
+- Credentials: the app's Fusion service account (fetched by the page); instance PROD = efmh.fa.em3.oraclecloud.com, TEST = efmh-test.fa.em3.oraclecloud.com.
+""";
 
         // Verbatim working payload (one line) for POST salesOrdersForOrderHub -
         // GRAYS EFF segments, frozen prices via charges/chargeComponents
