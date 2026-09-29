@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V52";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V53";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string LOCAL_JOBS_CREATE_URL =
@@ -775,9 +775,10 @@ WHERE USERS RUN IT (WMS module)
 - SO Trip Print "MRA Interface": same batch for sales-order trips (wms/auto-sales-order-processing.js).
 All send the IPC action processMRAInterface {orderNumber, fusionUsername, fusionPassword, instance PROD|TEST}; progress comes back as mraProcessingProgress / mraOrderData / mraRequestData / mraResponseData / mraLog, the result as processMRAInterfaceResponse {success, message, irnCode, qrCodeBase64, headerId, currentStep, errorDetails}.
 
-THE 6 STEPS (per order; any failure stops the order, currentStep tells where)
+THE STEPS (per order; any failure stops the order, currentStep tells where)
 1. CheckingMRAStatus - BIP report /Custom/DEXPRESS/ORDER MANAGEMENT/POS_RERPOTS/MRA_TRX_NO_CHECK_BIP.xdo, param source_order_number. Data table 1 row with a non-empty MRA_TRX_NO = already interfaced -> stops with "MRA interface is already done for order X" (not an error; never sent twice).
 2. FetchingOrderSummary - ORDER_SUMMARY_4_ORDER_NUMBER_BIP.xdo (same folder), params INVENTORY_ORG_ID=300000003277749, ORG_ID=300000003234003, SOURCE_ORDER_NUMBER. Header fields used: HEADER_ID, ORDER_TYPE_CODE, ORDER_DATE, ORDER_AMOUNT, TAX_AMOUNT, DISCOUNT_AMOUNT, MRA_TAN, MRA_BRN, MRA_ID, MRA_CUSTOMER_CAT, SOURCE_ORDER_NUMBER, REFERENCE_NO, ACCOUNT_NAME, BRN, CUSTOMER_MAIN_CAT, VATREGNO. No row -> "Order summary not found".
+2b. CheckingOrderType - the order's ORDER_TYPE_CODE is looked up in the APEX table MRA_ORDER_TYPES (SELECT * FROM mra_order_types - you can query it with action sql). ONLY order types with INTERFACE_FLAG = 'Y' are sent to MRA. INTERFACE_FLAG = 'N', or a type missing from the table, means the order is deliberately NOT interfaced: result skipped=true, message "Not sent to MRA: order type 'X' has INTERFACE_FLAG = N in MRA_ORDER_TYPES" / "... is not set up in MRA_ORDER_TYPES" - this is correct behaviour, not an error. If the table cannot be read the order is not sent either ("Could not read/check MRA_ORDER_TYPES ...") - retry later. To change which types go to MRA, the business updates MRA_ORDER_TYPES (INTERFACE_FLAG Y/N); do not suggest bypassing it.
 3. FetchingOrderDetails - ORDER_DETAILS_MRA_BIP.xdo, same params. Line fields: LINE_NUMBER, LINE_STATUS, ITEM_NUMBER, DESCRIPTION, ORIGINAL_QTY, UNIT_LIST_PRICE, DISCOUNT_AMOUNT, NET_AMOUNT, TAX_AMOUNT, TAX_CLASSIFICATION_CODE. No rows -> "Order details not found".
 4. ValidatingOrderLines - every LINE_STATUS must be CLOSED, AWAIT_BILLING, BILLED, SHIPPED or CANCELED; otherwise "Cannot interface to MRA: Found N line(s) that are not closed/billed/shipped" with the open lines listed (e.g. "Line 3: AWAIT_SHIPPING"). Fix: ship/close those lines in Fusion, then run MRA again.
 5. CreatingMRAInvoice - builds the invoice JSON and POSTs it to http://mra.busi.in/MRAInvoice.php (the MRA gateway; plain JSON, no auth header). Mapping:

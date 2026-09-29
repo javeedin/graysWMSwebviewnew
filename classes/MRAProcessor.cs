@@ -24,6 +24,10 @@ namespace WMSApp.MRA
         private const string ORDER_SUMMARY_REPORT = "/Custom/DEXPRESS/ORDER MANAGEMENT/POS_RERPOTS/ORDER_SUMMARY_4_ORDER_NUMBER_BIP.xdo";
         private const string ORDER_DETAILS_REPORT = "/Custom/DEXPRESS/ORDER MANAGEMENT/POS_RERPOTS/ORDER_DETAILS_MRA_BIP.xdo";
 
+        // APEX table MRA_ORDER_TYPES says which order types go to MRA: INTERFACE_FLAG = 'Y' only
+        private const string APEX_QUERY_URL =
+            "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/executequery";
+
         // Org IDs
         private const string INVENTORY_ORG_ID = "300000003277749";
         private const string ORG_ID = "300000003234003";
@@ -85,6 +89,23 @@ namespace WMSApp.MRA
                     result.Success = false;
                     result.Message = "Order summary not found";
                     result.CurrentStep = MRAProcessingStep.Failed;
+                    return result;
+                }
+
+                // Step 2b: Only order types with INTERFACE_FLAG = 'Y' in MRA_ORDER_TYPES are sent to MRA
+                progressCallback?.Invoke("Checking the order type against MRA_ORDER_TYPES...", MRAProcessingStep.CheckingOrderType);
+                result.CurrentStep = MRAProcessingStep.CheckingOrderType;
+
+                string orderTypeCode = orderSummary.Tables[1].Columns.Contains("ORDER_TYPE_CODE")
+                    ? orderSummary.Tables[1].Rows[0]["ORDER_TYPE_CODE"]?.ToString()?.Trim() ?? ""
+                    : "";
+                var typeCheck = await CheckOrderTypeAsync(orderTypeCode, logCallback);
+                if (!typeCheck.Allowed)
+                {
+                    result.Success = false;
+                    result.Skipped = typeCheck.Excluded;
+                    result.Message = typeCheck.Message;
+                    result.CurrentStep = typeCheck.Excluded ? MRAProcessingStep.Completed : MRAProcessingStep.Failed;
                     return result;
                 }
 
@@ -415,6 +436,58 @@ namespace WMSApp.MRA
             }
 
             return reportResult.DataSet;
+        }
+
+        /// <summary>
+        /// Step 2b: is this order type interfaced to MRA? Reads APEX table MRA_ORDER_TYPES through the
+        /// read-only query gateway. Only a row for the type with INTERFACE_FLAG = 'Y' lets the order through;
+        /// 'N' or a type missing from the table means "do not interface" (Excluded). When the table cannot
+        /// be read the order is NOT sent either (Excluded = false, so it shows as a failure to retry).
+        /// </summary>
+        private async Task<(bool Allowed, bool Excluded, string Message)> CheckOrderTypeAsync(string orderType, Action<string, string> logCallback)
+        {
+            if (string.IsNullOrWhiteSpace(orderType))
+                return (false, false, "Cannot check MRA_ORDER_TYPES: the order summary has no ORDER_TYPE_CODE - not sent to MRA");
+            try
+            {
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+                string body = JsonConvert.SerializeObject(new { sql = "SELECT * FROM mra_order_types", maxRows = 1000, appUser = Environment.UserName });
+                var resp = await http.PostAsync(APEX_QUERY_URL, new StringContent(body, Encoding.UTF8, "application/json"));
+                string text = await resp.Content.ReadAsStringAsync();
+                var root = Newtonsoft.Json.Linq.JObject.Parse(text);
+                if (root.Value<bool?>("success") == false || root["rows"] == null)
+                    return (false, false, "Could not read MRA_ORDER_TYPES (" + (root.Value<string>("error") ?? "HTTP " + (int)resp.StatusCode) + ") - not sent to MRA");
+
+                var cols = (root["columns"] as Newtonsoft.Json.Linq.JArray ?? new Newtonsoft.Json.Linq.JArray())
+                    .Select(c => (c.Type == Newtonsoft.Json.Linq.JTokenType.Object ? c.Value<string>("name") : c.ToString())?.ToUpperInvariant() ?? "").ToList();
+                var rows = new List<Dictionary<string, string>>();
+                foreach (var r in (Newtonsoft.Json.Linq.JArray)root["rows"])
+                {
+                    var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    if (r is Newtonsoft.Json.Linq.JArray arr) { for (int i = 0; i < arr.Count && i < cols.Count; i++) d[cols[i]] = arr[i]?.ToString(); }
+                    else if (r is Newtonsoft.Json.Linq.JObject obj) foreach (var p in obj.Properties()) d[p.Name.ToUpperInvariant()] = p.Value?.ToString();
+                    rows.Add(d);
+                }
+                var names = cols.Count > 0 ? cols : (rows.FirstOrDefault()?.Keys.ToList() ?? new List<string>());
+                string flagCol = names.FirstOrDefault(c => c == "INTERFACE_FLAG")
+                              ?? names.FirstOrDefault(c => c.Contains("INTERFACE") && c.Contains("FLAG"))
+                              ?? names.FirstOrDefault(c => c.Contains("INTERFACE"));
+                var typeCols = names.Where(c => c != flagCol && c.Contains("TYPE")).ToList();
+                if (flagCol == null || typeCols.Count == 0)
+                    return (false, false, "MRA_ORDER_TYPES has no INTERFACE_FLAG / order type column (columns: " + string.Join(", ", names) + ") - not sent to MRA");
+
+                var matches = rows.Where(r => typeCols.Any(c => r.TryGetValue(c, out var v) && string.Equals(v?.Trim(), orderType, StringComparison.OrdinalIgnoreCase))).ToList();
+                logCallback?.Invoke($"MRA_ORDER_TYPES: order type '{orderType}' → {(matches.Count == 0 ? "not in the table" : string.Join(", ", matches.Select(m => flagCol + "=" + (m.TryGetValue(flagCol, out var f) ? f : ""))))}", "info");
+                if (matches.Any(m => m.TryGetValue(flagCol, out var f) && string.Equals(f?.Trim(), "Y", StringComparison.OrdinalIgnoreCase)))
+                    return (true, false, "");
+                return (false, true, matches.Count == 0
+                    ? $"Not sent to MRA: order type '{orderType}' is not set up in MRA_ORDER_TYPES (only INTERFACE_FLAG = Y types are interfaced)"
+                    : $"Not sent to MRA: order type '{orderType}' has {flagCol} = N in MRA_ORDER_TYPES");
+            }
+            catch (Exception ex)
+            {
+                return (false, false, "Could not check MRA_ORDER_TYPES (" + ex.Message + ") - not sent to MRA");
+            }
         }
 
         /// <summary>

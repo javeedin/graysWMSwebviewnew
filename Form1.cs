@@ -4742,7 +4742,8 @@ navPanel.Controls.Add(wmsDevButton);
                         orderNumber = result.OrderNumber,
                         headerId = result.HeaderId,
                         currentStep = result.CurrentStep.ToString(),
-                        errorDetails = result.ErrorDetails
+                        errorDetails = result.ErrorDetails,
+                        skipped = result.Skipped
                     };
 
                     string responseJson = JsonSerializer.Serialize(response);

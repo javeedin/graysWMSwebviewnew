@@ -233,6 +233,8 @@ namespace WMSApp.MRA
         public string HeaderId { get; set; }
         public MRAProcessingStep CurrentStep { get; set; }
         public string ErrorDetails { get; set; }
+        /// <summary>True when the order was deliberately not sent (order type INTERFACE_FLAG = N / not in MRA_ORDER_TYPES).</summary>
+        public bool Skipped { get; set; }
     }
 
     public enum MRAProcessingStep
@@ -240,6 +242,7 @@ namespace WMSApp.MRA
         Initial,
         CheckingMRAStatus,
         FetchingOrderSummary,
+        CheckingOrderType,
         FetchingOrderDetails,
         ValidatingOrderLines,
         CreatingMRAInvoice,
