@@ -1796,6 +1796,10 @@ function handleTurnResponse(chat, err, resp) {
         return;
     }
     // order-document print (SOAP PDF download + print) waiting for approval
+    if (resp.requiresApproval && resp.pendingMra) {
+        renderMraApprovalCard(chat, resp.pendingMra, resp.apiConversation);
+        return;
+    }
     if (resp.requiresApproval && resp.pendingPrintOrders) {
         renderPrintOrdersApprovalCard(chat, resp.pendingPrintOrders, resp.apiConversation);
         return;
@@ -2669,6 +2673,58 @@ function renderPrintOrdersApprovalCard(chat, pending, apiConversation) {
             <div class="adecision"></div>
         </div>`);
     box.scrollTop = box.scrollHeight;
+}
+
+// MRA interfacing (Mauritius Revenue Authority) - always an approval card; each order runs through the
+// same C# MRAProcessor as the WMS "MRA Interface" buttons, status lines stream while it works.
+function renderMraApprovalCard(chat, pending, apiConversation) {
+    setStatus('Waiting for your approval…');
+    const box = document.getElementById('messages');
+    const cardId = 'mra-' + Date.now();
+    window._pendingMra = { chat: chat, pending: pending, cardId: cardId, apiConversation: apiConversation || null };
+    const orders = pending.orders || [];
+    const inst = (pending.instance || 'PROD').toUpperCase();
+    const chips = orders.map(o =>
+        `<span style="display:inline-block;background:white;border:1px solid #c4b5fd;border-radius:6px;padding:1px 8px;font-size:10px;font-family:monospace;margin:2px;">${esc(o)}</span>`).join('');
+    box.insertAdjacentHTML('beforeend', `
+        <div class="approval-card" id="${cardId}" style="border-color:#a78bfa;background:#faf5ff;">
+            <div class="ah" style="background:#ede9fe;color:#5b21b6;"><i class="fas fa-file-invoice-dollar"></i> Interface to MRA — approval required</div>
+            <div class="ab" style="color:#1e293b;">
+                <div><strong>${orders.length}</strong> order(s)${pending.tripId ? ' of trip <strong>' + esc(String(pending.tripId)) + '</strong>' : ''} will be fiscalised with the Mauritius Revenue Authority and the IRN written back to the Fusion order:</div>
+                <div style="margin:5px 0;max-height:110px;overflow-y:auto;">${chips}</div>
+                <div><strong>Instance:</strong> <span style="font-weight:800;color:${inst === 'TEST' ? '#b45309' : '#166534'};">${esc(inst)}</span></div>
+                ${pending.reason ? `<div style="margin-top:4px;font-size:10px;color:#64748b;">${esc(pending.reason)}</div>` : ''}
+                <div style="margin-top:4px;font-size:9.5px;color:#64748b;">Already-interfaced orders and order types with INTERFACE_FLAG = N in MRA_ORDER_TYPES are skipped automatically. Orders with lines not yet shipped/closed will fail and are reported.</div>
+            </div>
+            <div class="af" style="background:#faf5ff;">
+                <button class="btn-reject" onclick="decideMra(false)"><i class="fas fa-times"></i> Cancel</button>
+                <button class="btn-approve" style="background:#7c3aed;" onclick="decideMra(true)"><i class="fas fa-paper-plane"></i> Interface ${orders.length} order(s)</button>
+            </div>
+            <div class="adecision"></div>
+        </div>`);
+    box.scrollTop = box.scrollHeight;
+}
+
+function decideMra(approve) {
+    const ctx = window._pendingMra;
+    if (!ctx) return;
+    window._pendingMra = null;
+    const card = document.getElementById(ctx.cardId);
+    if (card) {
+        card.querySelector('.af')?.remove();
+        card.querySelector('.adecision').innerHTML =
+            `<div style="padding:6px 10px;font-size:10px;color:${approve ? '#6d28d9' : '#64748b'};">${approve ? '<i class="fas fa-spinner fa-spin"></i> Interfacing to MRA — one order at a time…' : 'Cancelled — nothing was sent to MRA.'}</div>`;
+    }
+    setBusy(true);
+    setStatus(approve ? 'Interfacing to MRA…' : 'Claude is thinking…');
+    sendMessageToCSharp({
+        action: 'aiMraDecision',
+        approve: approve,
+        sessionId: ctx.chat.sessionId,
+        engine: currentEngine(),
+        apiConversation: ctx.apiConversation,
+        pending: { orders: ctx.pending.orders || [], tripId: ctx.pending.tripId || '', instance: ctx.pending.instance }
+    }, function (err, resp) { handleTurnResponse(ctx.chat, err, resp); });
 }
 
 function decidePrintOrders(approve) {

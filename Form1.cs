@@ -1914,6 +1914,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleAiPrintOrdersDecision(wv, messageJson, requestId);
                                     break;
 
+                                case "aiMraDecision":
+                                    await HandleAiMraDecision(wv, messageJson, requestId);
+                                    break;
+
                                 case "aiListPrinters":
                                     {
                                         var printersNode = System.Text.Json.Nodes.JsonNode.Parse(
@@ -4082,6 +4086,13 @@ navPanel.Controls.Add(wmsDevButton);
                     printer = result.PendingPrintOrders.Printer,
                     instance = result.PendingPrintOrders.Instance,
                     reason = result.PendingPrintOrders.Reason
+                },
+                pendingMra = result.PendingMra == null ? null : new
+                {
+                    orders = result.PendingMra.Orders,
+                    tripId = result.PendingMra.TripId,
+                    instance = result.PendingMra.Instance,
+                    reason = result.PendingMra.Reason
                 },
                 rounds = rounds
             }));

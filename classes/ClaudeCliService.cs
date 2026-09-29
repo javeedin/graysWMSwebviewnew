@@ -74,6 +74,18 @@ namespace WMSApp
     }
 
     /// <summary>
+    /// MRA interfacing request waiting for on-screen user approval (always - never auto-approved):
+    /// each order runs through MRAProcessor, the same code as the WMS "MRA Interface" buttons.
+    /// </summary>
+    public class AiPendingMra
+    {
+        public List<string> Orders { get; set; } = new List<string>();
+        public string TripId { get; set; }
+        public string Instance { get; set; }
+        public string Reason { get; set; }
+    }
+
+    /// <summary>
     /// A scheduled job definition waiting for on-screen user approval.
     /// JobJson is the model's raw schedule_job object.
     /// </summary>
@@ -119,6 +131,7 @@ namespace WMSApp
         public string ApiFormJson { get; set; }  // raw {"action":"api_form",...} object - JS renders the form and runs the API after user confirmation
         public AiPendingPrint PendingPrint { get; set; }
         public AiPendingPrintOrders PendingPrintOrders { get; set; }
+        public AiPendingMra PendingMra { get; set; }
         public string Error { get; set; }
         public string SessionId { get; set; }
         public bool RequiresApproval { get; set; }
@@ -213,7 +226,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V53";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V54";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string LOCAL_JOBS_CREATE_URL =
@@ -767,7 +780,18 @@ namespace WMSApp
         private const string MRA_KNOWLEDGE = """
 ## MRA interfacing (Mauritius Revenue Authority e-invoicing) - how the app does it
 
-Use this to explain, troubleshoot or check MRA interfacing. The interfacing itself runs in the desktop app (C# MRAProcessor), NOT through chat: you cannot send an invoice to MRA. To (re)interface an order, tell the user where to click (below). You CAN check an order's data/status with Fusion SQL / reports and explain failures.
+Use this to explain, troubleshoot, check and RUN MRA interfacing.
+
+RUNNING IT FROM CHAT (action mra_interface) - when the user asks to interface / fiscalise / send to MRA an order, several orders or a TRIP:
+1. Resolve the order numbers. For a trip: action sql
+   SELECT DISTINCT order_number FROM wms_trip_details WHERE trip_id = <trip> AND instance_name = '<CURRENT_INSTANCE>' ORDER BY order_number
+   (nothing back -> try without the instance filter and tell the user which instance the trip is on; never guess numbers). Say how many orders you found.
+2. Send ONE action with all of them (max 50):
+   { "action": "mra_interface", "orders": ["418978","419001"], "tripId": "8121", "instance": "PROD|TEST", "reason": "one line" }
+   The app ALWAYS shows an approval card listing every order - nothing is sent before the user approves. The app itself skips already-interfaced orders and order types with MRA_ORDER_TYPES.INTERFACE_FLAG = N; do not pre-filter.
+3. You receive MRA_RESULT: {success, instance, tripId, summary:{total, interfaced, alreadyDone, notRequired, failed}, results:[{order, status: INTERFACED|ALREADY_DONE|NOT_REQUIRED|FAILED, irn, headerId, step, message}]} or USER_REJECTED.
+   Answer with a status table per order (Order | Status | IRN | Step | Reason), the totals, and for each FAILED order the fix in plain words (TROUBLESHOOTING below - e.g. lines not shipped). Never re-send failed orders on your own; offer to retry once the cause is fixed.
+Users can also run it from WMS: Trip Print / SO Trip Print "MRA Interface", Trip Details MRA button, or Shipping Agent "Print Trip" (MRA first, then prints).
 
 WHERE USERS RUN IT (WMS module)
 - Trip Details grid: MRA button per order -> popup (wms/mra-processor.js) with tabs Order data / MRA request+response / Logs, IRN and QR code shown at the end.
@@ -1642,6 +1666,46 @@ TROUBLESHOOTING
                         result.RequiresApproval = true;
                         if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
                         result.PendingDbWrite = new AiPendingDbWrite { Sql = dwSql, Reason = dwReason };
+                        return result;
+                    }
+
+                    if (string.Equals(action, "mra_interface", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var root = modelJson.RootElement;
+                        // Always an approval card - a policy can only DENY it, never auto-approve
+                        var (mrMode, _) = await GetPolicyAsync("mra_interface");
+                        if (mrMode == "DENY")
+                        {
+                            prompt = "MRA_RESULT: {\"success\":false,\"error\":\"DENIED_BY_POLICY - this user is not allowed to interface orders to MRA. Tell the user and do not retry.\"}";
+                            continue;
+                        }
+                        var mraOrders = new List<string>();
+                        if (root.TryGetProperty("orders", out var moEl) && moEl.ValueKind == JsonValueKind.Array)
+                            foreach (var o in moEl.EnumerateArray())
+                            {
+                                string v = o.ValueKind == JsonValueKind.String ? o.GetString() : o.ToString();
+                                if (!string.IsNullOrWhiteSpace(v) && !mraOrders.Contains(v.Trim())) mraOrders.Add(v.Trim());
+                            }
+                        if (mraOrders.Count == 0)
+                        {
+                            prompt = "MRA_RESULT: {\"success\":false,\"error\":\"mra_interface needs a non-empty orders array - fetch the order numbers with action sql first\"}";
+                            continue;
+                        }
+                        if (mraOrders.Count > 50)
+                        {
+                            prompt = "MRA_RESULT: {\"success\":false,\"error\":\"Too many orders (" + mraOrders.Count + ") - max 50 per request. Split it and ask the user.\"}";
+                            continue;
+                        }
+                        result.Success = true;
+                        result.RequiresApproval = true;
+                        if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
+                        result.PendingMra = new AiPendingMra
+                        {
+                            Orders   = mraOrders,
+                            TripId   = root.TryGetProperty("tripId", out var mtEl) ? (mtEl.ValueKind == JsonValueKind.String ? mtEl.GetString() : mtEl.ToString()) : "",
+                            Instance = root.TryGetProperty("instance", out var miEl) && miEl.ValueKind == JsonValueKind.String && miEl.GetString().ToUpperInvariant() == "TEST" ? "TEST" : "PROD",
+                            Reason   = root.TryGetProperty("reason", out var mnEl) && mnEl.ValueKind == JsonValueKind.String ? mnEl.GetString() : ""
+                        };
                         return result;
                     }
 
