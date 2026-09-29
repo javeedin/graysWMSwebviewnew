@@ -1933,55 +1933,150 @@
     };
 
     // Print ALL fully-interfaced orders in a trip
+    // ─── MRA before printing ──────────────────────────────────
+    // Print Trip first interfaces every printable order to MRA (same C# MRAProcessor as the MRA buttons),
+    // then prints only the orders MRA accepted, already had, or whose order type is not interfaced
+    // (MRA_ORDER_TYPES INTERFACE_FLAG = N). A failed MRA order is never printed.
+    window._saMra = window._saMra || {};                  // { tripId: { order: {st, irn, msg} } }
+    function saMraBadge(r) {
+        if (!r) return '<span style="color:#94a3b8;font-size:9px;">—</span>';
+        const tip = esc((r.irn ? 'IRN ' + r.irn + (r.msg ? ' — ' : '') : '') + (r.msg || ''));
+        const b = {
+            RUNNING: ['<i class="fas fa-spinner fa-spin"></i> MRA…', '#ede9fe', '#6d28d9'],
+            DONE:    ['<i class="fas fa-check"></i> Interfaced', '#dcfce7', '#15803d'],
+            ALREADY: ['<i class="fas fa-check-double"></i> Done', '#dcfce7', '#15803d'],
+            SKIPPED: ['<i class="fas fa-minus-circle"></i> Not req.', '#f1f5f9', '#475569'],
+            FAILED:  ['<i class="fas fa-times-circle"></i> Failed', '#fef2f2', '#b91c1c']
+        }[r.st] || ['—', '#f1f5f9', '#94a3b8'];
+        return `<span onclick="saMraDetails(this)" data-tip="${tip}" title="${tip}" style="display:inline-flex;align-items:center;gap:3px;background:${b[1]};color:${b[2]};border-radius:10px;padding:2px 8px;font-size:9px;font-weight:700;cursor:${r.st === 'RUNNING' ? 'default' : 'pointer'};white-space:nowrap;">${b[0]}</span>`;
+    }
+    function saMraBadgeFor(tripId, order) { return saMraBadge(((window._saMra || {})[tripId] || {})[order]); }
+    function saMraSet(tripId, order, r) {
+        (window._saMra[tripId] = window._saMra[tripId] || {})[order] = r;
+        const cell = document.querySelector(`#sa-order-row-${CSS.escape(String(tripId))}-${CSS.escape(String(order))} [data-col="mra"]`);
+        if (cell) cell.innerHTML = saMraBadge(r);
+    }
+    window.saMraDetails = function(el) {
+        const row = el.closest('tr[id^="sa-order-row-"]'); if (!row) return;
+        const tip = el.getAttribute('data-tip') || '';
+        if (tip) alert(tip);
+    };
+    async function saMraCredentials() {
+        if (window.F_username && window.F_password) return { username: window.F_username, password: window.F_password };
+        if (typeof fetchFusionCredentialsForBatchMRA === 'function') return await fetchFusionCredentialsForBatchMRA();
+        throw new Error('Fusion credentials are not available');
+    }
+    /** One order through the C# MRA processor → { st, irn, msg } */
+    function saMraInterfaceOrder(orderNumber, instanceName, creds) {
+        return new Promise(resolve => {
+            if (!window.chrome?.webview) { resolve({ st: 'FAILED', msg: 'WebView2 not available' }); return; }
+            const requestId = 'sa_mra_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+            let timer = null;
+            const handler = function(event) {
+                let data = event.data;
+                if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { return; } }
+                if (!data || data.requestId !== requestId) return;
+                if (data.action === 'error') { done({ st: 'FAILED', msg: data.message || 'MRA processing error' }); return; }
+                if (data.action !== 'processMRAInterfaceResponse') return;
+                if (data.success) done({ st: 'DONE', irn: data.irnCode || '', msg: data.message || '' });
+                else if (data.skipped) done({ st: 'SKIPPED', msg: data.message || 'Order type not interfaced to MRA' });
+                else if (/already done/i.test(data.message || '')) done({ st: 'ALREADY', msg: data.message });
+                else done({ st: 'FAILED', msg: data.message || 'MRA interface failed', step: data.currentStep });
+            };
+            function done(r) { clearTimeout(timer); window.chrome.webview.removeEventListener('message', handler); resolve(r); }
+            window.chrome.webview.addEventListener('message', handler);
+            timer = setTimeout(() => done({ st: 'FAILED', msg: 'MRA request timed out after 3 minutes' }), 180000);
+            window.chrome.webview.postMessage({ action: 'processMRAInterface', requestId, orderNumber,
+                fusionUsername: creds.username, fusionPassword: creds.password, instance: instanceName || 'PROD' });
+        });
+    }
+
     window.saPrintTrip = async function(tripId, instanceName) {
         const agent    = window._saCurrentAgent;
         const container = document.getElementById(`sa-trip-orders-${tripId}`);
         if (!container) return;
 
         const btn = document.getElementById(`sa-btn-print-trip-${tripId}`);
-        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Printing...'; }
+        const setBtn = (html, disabled) => { if (btn) { btn.disabled = disabled; btn.innerHTML = html; } };
 
         const rows = Array.from(container.querySelectorAll('tr[id^="sa-order-row-"]'));
-        let printed = 0, skipped = 0;
-
+        const printable = [];
+        let notReady = 0;
         for (const row of rows) {
             const orderNumber = row.id.replace(`sa-order-row-${tripId}-`, '');
             if (!orderNumber) continue;
-
-            // Only print if status cell shows Interfaced or Shipped (all lines done)
-            const statusCell = row.querySelector('[data-col="status"]');
-            const statusText = statusCell ? statusCell.textContent.trim() : '';
+            // Only orders whose status cell shows Interfaced or Shipped (all lines done)
+            const statusText = (row.querySelector('[data-col="status"]')?.textContent || '').trim();
             const isPrintable = (statusText.includes('Interfaced') || statusText.includes('Shipped')) && !statusText.includes('/');
-            if (!isPrintable) {
-                skipped++;
-                continue; // not fully interfaced
-            }
-
-            // Get tripDate from row data attribute
+            if (!isPrintable) { notReady++; continue; }
             let tripDate = new Date().toISOString().split('T')[0];
             const dataRow = row.querySelector('[data-row]');
             if (dataRow) {
-                try { const rd = JSON.parse(dataRow.getAttribute('data-row')); tripDate = rd.TRIP_DATE || tripDate; } catch(e) {}
+                try { const rd = JSON.parse(decodeURIComponent(escape(atob(dataRow.getAttribute('data-row'))))); tripDate = rd.TRIP_DATE || tripDate; }
+                catch (e) { try { const rd = JSON.parse(dataRow.getAttribute('data-row')); tripDate = rd.TRIP_DATE || tripDate; } catch (e2) {} }
             }
+            printable.push({ orderNumber, tripDate });
+        }
+        if (!printable.length) {
+            showNotification(`Nothing to print: no order of trip ${tripId} is fully interfaced yet (${notReady} not ready).`, 'warning');
+            return;
+        }
 
+        // ── Phase 1: MRA ──────────────────────────────────────
+        setBtn('<i class="fas fa-spinner fa-spin"></i> MRA...', true);
+        let creds;
+        try { creds = await saMraCredentials(); }
+        catch (e) {
+            setBtn('<i class="fas fa-print"></i> Print Trip', false);
+            showNotification('MRA needs the Fusion credentials: ' + e.message + ' — nothing was printed.', 'error');
+            return;
+        }
+        const mra = { DONE: 0, ALREADY: 0, SKIPPED: 0, FAILED: 0 };
+        const toPrint = [];
+        for (let i = 0; i < printable.length; i++) {
+            const o = printable[i];
+            const prev = ((window._saMra[tripId] || {})[o.orderNumber]) || null;
+            let r;
+            if (prev && (prev.st === 'DONE' || prev.st === 'ALREADY' || prev.st === 'SKIPPED')) r = prev;   // this session already settled it
+            else {
+                setBtn(`<i class="fas fa-spinner fa-spin"></i> MRA ${i + 1}/${printable.length}`, true);
+                saMraSet(tripId, o.orderNumber, { st: 'RUNNING' });
+                r = await saMraInterfaceOrder(o.orderNumber, instanceName, creds);
+                saMraSet(tripId, o.orderNumber, r);
+            }
+            mra[r.st] = (mra[r.st] || 0) + 1;
+            if (r.st !== 'FAILED') toPrint.push(o);
+            else console.warn(`[ShippingAgent] MRA failed for ${o.orderNumber}: ${r.msg}`);
+        }
+        if (agent) {
+            saLogActivity(agent.ID, tripId, null, 'MRA', mra.FAILED ? 'FAILED' : 'SUCCESS', 1,
+                `Trip MRA — ${mra.DONE} interfaced, ${mra.ALREADY} already done, ${mra.SKIPPED} not required, ${mra.FAILED} failed`, null, null);
+        }
+
+        // ── Phase 2: print what MRA cleared ──────────────────
+        let printed = 0;
+        for (let i = 0; i < toPrint.length; i++) {
+            const o = toPrint[i];
+            setBtn(`<i class="fas fa-spinner fa-spin"></i> Printing ${i + 1}/${toPrint.length}`, true);
             try {
-                await saPrintOrder(orderNumber, tripId, tripDate, instanceName, true); // silent=true: no popup
+                await saPrintOrder(o.orderNumber, tripId, o.tripDate, instanceName, true); // silent=true: no popup
                 printed++;
                 // Small delay between orders to avoid rate-limiting on Fusion SOAP (skipped in direct mode)
                 const isDirect = document.getElementById(`sa-chk-direct-${tripId}`)?.checked;
                 if (!isDirect) await new Promise(r => setTimeout(r, 800));
             } catch(e) {
-                console.warn(`[ShippingAgent] Print failed for ${orderNumber}:`, e.message);
+                console.warn(`[ShippingAgent] Print failed for ${o.orderNumber}:`, e.message);
             }
         }
 
-        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-print"></i> Print Trip'; }
+        setBtn('<i class="fas fa-print"></i> Print Trip', false);
 
         if (agent) {
             saLogActivity(agent.ID, tripId, null, 'PRINT', 'SUCCESS', 1,
-                `Trip print done — ${printed} printed, ${skipped} skipped (not fully interfaced)`, null, null);
+                `Trip print done — ${printed} printed, ${mra.FAILED} held back (MRA failed), ${notReady} not fully interfaced`, null, null);
         }
-        showNotification(`Trip print complete: ${printed} printed, ${skipped} skipped.`, 'success');
+        const mraText = `MRA: ${mra.DONE} interfaced, ${mra.ALREADY} already done, ${mra.SKIPPED} not required` + (mra.FAILED ? `, ${mra.FAILED} FAILED (not printed — click the red badge for the reason)` : '');
+        showNotification(`${mraText}. Printed ${printed}` + (notReady ? `, ${notReady} not ready` : '') + '.', mra.FAILED ? 'warning' : 'success');
     };
 
     // Cancel Orders — shows dialog immediately with spinner, then loads lines.
@@ -2895,6 +2990,7 @@
                 <td style="padding:6px 8px;text-align:center;" data-col="backorder">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="cancel">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="order_lines">${spin}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="mra">${saMraBadgeFor(tripId, o.ORDER_NUMBER)}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="print">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="plines"><span style="color:#94a3b8;font-size:9px;">—</span></td>
                 <td style="padding:6px 8px;text-align:center;" data-col="checked"><span style="color:#94a3b8;font-size:9px;">—</span></td>
@@ -2987,6 +3083,7 @@
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Backorder</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Cancelled</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Order Lines</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;" title="MRA (Mauritius Revenue Authority) e-invoicing status — Print Trip interfaces to MRA before printing">MRA St</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Printing</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;" title="Line count from GR_SO_LINE_COUNT_BIP report">PLines</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Last Checked</th>
