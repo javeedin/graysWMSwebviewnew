@@ -2018,15 +2018,29 @@ function getEngineSettings() {
     try {
         const s = JSON.parse(localStorage.getItem(ENGINE_LS_KEY) || 'null');
         if (!s || !s.mode) return { mode: 'cli' };
-        return { mode: s.mode, apiKey: s.k ? atob(s.k) : '', model: s.model || 'claude-sonnet-5' };
+        // the key itself is kept by the app (encrypted on this PC); s.k is only an old copy awaiting migration
+        return { mode: s.mode, legacyKey: s.k ? atob(s.k) : '', hostKey: !!s.hk, model: s.model || 'claude-sonnet-5' };
     } catch (e) { return { mode: 'cli' }; }
 }
+
+// One-time move of an API key saved by older versions (base64 in localStorage) into the app's encrypted store
+(function migrateEngineKey() {
+    try {
+        const s = JSON.parse(localStorage.getItem(ENGINE_LS_KEY) || 'null');
+        if (!s || !s.k || !(window.chrome && window.chrome.webview)) return;
+        sendMessageToCSharp({ action: 'aiEngineKeySave', apiKey: atob(s.k) }, function (err, resp) {
+            if (err || !resp || !resp.hasKey) return;
+            delete s.k; s.hk = true;
+            localStorage.setItem(ENGINE_LS_KEY, JSON.stringify(s));
+        });
+    } catch (e) { }
+})();
 
 // engine payload for C# — null means CLI (default behavior)
 function currentEngine() {
     const s = getEngineSettings();
     if (s.mode !== 'api') return null;
-    return { mode: 'api', apiKey: s.apiKey, model: s.model };
+    return s.legacyKey ? { mode: 'api', apiKey: s.legacyKey, model: s.model } : { mode: 'api', model: s.model };
 }
 
 function openEngineSettings() {
@@ -2057,8 +2071,8 @@ function openEngineSettings() {
                     </span>
                 </label>
                 <div id="eng-api-fields" style="display:${cur.mode === 'api' ? 'block' : 'none'};margin-top:0.8rem;">
-                    <label style="font-size:11px;font-weight:700;color:#334155;display:block;margin-bottom:3px;">API key <span style="color:#dc2626;">*</span></label>
-                    <input id="eng-key" type="password" value="${esc(cur.apiKey || '')}" placeholder="sk-ant-..."
+                    <label style="font-size:11px;font-weight:700;color:#334155;display:block;margin-bottom:3px;">API key ${cur.hostKey ? '<span style="color:#16a34a;font-weight:600;">✓ saved on this PC, encrypted — type a new one only to replace it</span>' : '<span style="color:#dc2626;">*</span>'}</label>
+                    <input id="eng-key" type="password" value="" placeholder="${cur.hostKey ? '••••••••  (kept by the app)' : 'sk-ant-...'}" autocomplete="off"
                         style="width:100%;box-sizing:border-box;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12.5px;outline:none;margin-bottom:0.7rem;">
                     <label style="font-size:11px;font-weight:700;color:#334155;display:block;margin-bottom:3px;">Model</label>
                     <select id="eng-model" style="width:100%;box-sizing:border-box;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12.5px;outline:none;">
@@ -2100,8 +2114,8 @@ function testEngine() {
         });
         return;
     }
-    const key = (document.getElementById('eng-key').value || '').trim();
-    if (!key) { st.innerHTML = '<span style="color:#dc2626;">Enter the API key first</span>'; return; }
+    const key = (document.getElementById('eng-key').value || '').trim();   // blank = test the key the app keeps
+    if (!key && !getEngineSettings().hostKey) { st.innerHTML = '<span style="color:#dc2626;">Enter the API key first</span>'; return; }
     st.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Testing API key…';
     sendMessageToCSharp({ action: 'aiApiTest', apiKey: key, model: document.getElementById('eng-model').value }, function (err, resp) {
         if (err) { st.innerHTML = '<span style="color:#dc2626;">✗ ' + esc(err) + '</span>'; return; }
@@ -2115,8 +2129,22 @@ function saveEngineSettings() {
     const api = document.querySelector('input[name="eng-mode"]:checked')?.value === 'api';
     if (api) {
         const key = (document.getElementById('eng-key').value || '').trim();
-        if (!key) { document.getElementById('eng-status').innerHTML = '<span style="color:#dc2626;">API key is required for API mode</span>'; return; }
-        localStorage.setItem(ENGINE_LS_KEY, JSON.stringify({ mode: 'api', k: btoa(key), model: document.getElementById('eng-model').value }));
+        const model = document.getElementById('eng-model').value;
+        const st = document.getElementById('eng-status');
+        if (!key) {
+            if (!getEngineSettings().hostKey) { st.innerHTML = '<span style="color:#dc2626;">API key is required for API mode</span>'; return; }
+            localStorage.setItem(ENGINE_LS_KEY, JSON.stringify({ mode: 'api', hk: true, model: model }));
+        } else {
+            // the key goes to the app's encrypted store (DPAPI) - the page keeps only "api mode + model"
+            st.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving the key…';
+            sendMessageToCSharp({ action: 'aiEngineKeySave', apiKey: key }, function (err, resp) {
+                if (err || !resp || !resp.ok) { st.innerHTML = '<span style="color:#dc2626;">✗ ' + esc(err || (resp && resp.error) || 'Could not save the key') + '</span>'; return; }
+                localStorage.setItem(ENGINE_LS_KEY, JSON.stringify({ mode: 'api', hk: true, model: model }));
+                document.getElementById('eng-modal')?.remove();
+                updateEngineChip();
+            });
+            return;
+        }
     } else {
         localStorage.setItem(ENGINE_LS_KEY, JSON.stringify({ mode: 'cli' }));
     }
@@ -2161,10 +2189,24 @@ const EMAIL_LS_KEY = 'aiEmailSettings';
 function getEmailSettings() {
     try {
         const s = JSON.parse(localStorage.getItem(EMAIL_LS_KEY) || 'null');
-        if (!s || !s.username || !s.p) return null;
-        return { server: s.server || 'smtp.office365.com', port: s.port || 587, username: s.username, password: atob(s.p) };
+        if (!s || !s.username || !(s.p || s.hp)) return null;
+        // the password is kept by the app (encrypted on this PC); s.p is only an old copy awaiting migration
+        return { server: s.server || 'smtp.office365.com', port: s.port || 587, username: s.username, password: s.p ? atob(s.p) : '', hostPw: !!s.hp };
     } catch (e) { return null; }
 }
+
+// One-time move of an SMTP password saved by older versions (base64 in localStorage) into the app's encrypted store
+(function migrateSmtpPassword() {
+    try {
+        const s = JSON.parse(localStorage.getItem(EMAIL_LS_KEY) || 'null');
+        if (!s || !s.p || !s.username || !(window.chrome && window.chrome.webview)) return;
+        sendMessageToCSharp({ action: 'aiSmtpSave', server: s.server, port: s.port || 587, username: s.username, password: atob(s.p) }, function (err, resp) {
+            if (err || !resp || !resp.ok) return;
+            delete s.p; s.hp = true;
+            localStorage.setItem(EMAIL_LS_KEY, JSON.stringify(s));
+        });
+    } catch (e) { }
+})();
 
 function openEmailSettings(resumeSendAfterSave) {
     document.getElementById('em-modal')?.remove();
@@ -2182,8 +2224,8 @@ function openEmailSettings(resumeSendAfterSave) {
                 <label style="font-size:11px;font-weight:700;color:#334155;display:block;margin-bottom:3px;">Email address (username) <span style="color:#dc2626;">*</span></label>
                 <input id="em-user" type="email" value="${esc(cur.username || '')}" placeholder="name@yourcompany.com"
                     style="width:100%;box-sizing:border-box;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12.5px;outline:none;margin-bottom:0.7rem;">
-                <label style="font-size:11px;font-weight:700;color:#334155;display:block;margin-bottom:3px;">Password / App Password <span style="color:#dc2626;">*</span></label>
-                <input id="em-pass" type="password" value="${esc(cur.password || '')}"
+                <label style="font-size:11px;font-weight:700;color:#334155;display:block;margin-bottom:3px;">Password / App Password ${cur.hostPw ? '<span style="color:#16a34a;font-weight:600;">✓ saved on this PC, encrypted — type only to replace</span>' : '<span style="color:#dc2626;">*</span>'}</label>
+                <input id="em-pass" type="password" value="" placeholder="${cur.hostPw ? '••••••••  (kept by the app)' : ''}" autocomplete="off"
                     style="width:100%;box-sizing:border-box;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12.5px;outline:none;margin-bottom:0.7rem;">
                 <div style="display:flex;gap:0.6rem;">
                     <div style="flex:2;">
@@ -2198,7 +2240,7 @@ function openEmailSettings(resumeSendAfterSave) {
                     </div>
                 </div>
                 <div id="em-status" style="font-size:11px;margin-top:0.6rem;min-height:16px;"></div>
-                <div style="font-size:9.5px;color:#94a3b8;margin-top:0.3rem;">Stored only on this PC (browser storage of this app). Never sent to the AI model.</div>
+                <div style="font-size:9.5px;color:#94a3b8;margin-top:0.3rem;">The password is kept by the app on this PC, encrypted for your Windows user. Never sent to the AI model.</div>
             </div>
             <div style="padding:0.7rem 1.1rem;border-top:1px solid #f1f5f9;display:flex;gap:0.5rem;">
                 <button onclick="testEmailSettings()"
@@ -2233,7 +2275,8 @@ window.handleEmailSendResult = function (success, message) {
 
 function testEmailSettings() {
     const f = readEmailForm();
-    if (!f.username || !f.password) { window.handleEmailSendResult(false, 'Enter email and password first'); return; }
+    const saved = getEmailSettings();
+    if (!f.username || (!f.password && !(saved && saved.hostPw && saved.username === f.username))) { window.handleEmailSendResult(false, 'Enter email and password first'); return; }
     document.getElementById('em-status').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Testing connection…';
     sendMessageToCSharp({
         action: 'testSmtpConnection',
@@ -2244,16 +2287,18 @@ function testEmailSettings() {
 
 function saveEmailSettings(resumeSend) {
     const f = readEmailForm();
-    if (!f.username || !f.password) { window.handleEmailSendResult(false, 'Email and password are required'); return; }
-    try {
-        localStorage.setItem(EMAIL_LS_KEY, JSON.stringify({
-            username: f.username, p: btoa(f.password), server: f.server, port: f.port
-        }));
-    } catch (e) { }
-    document.getElementById('em-modal')?.remove();
-    setStatus('Email settings saved (' + f.username + ')');
-    setTimeout(() => setStatus(''), 2000);
-    if (resumeSend && window._pendingEmailCtx) decideEmail(true);
+    const saved = getEmailSettings();
+    const keepPw = !f.password && saved && saved.hostPw && saved.username === f.username;
+    if (!f.username || (!f.password && !keepPw)) { window.handleEmailSendResult(false, 'Email and password are required'); return; }
+    // the password goes to the app's encrypted store; the page keeps server, port and username only
+    sendMessageToCSharp({ action: 'aiSmtpSave', server: f.server, port: f.port, username: f.username, password: f.password }, function (err, resp) {
+        if (err || !resp || !resp.ok) { window.handleEmailSendResult(false, err || (resp && resp.error) || 'Could not save the settings'); return; }
+        try { localStorage.setItem(EMAIL_LS_KEY, JSON.stringify({ username: f.username, hp: true, server: f.server, port: f.port })); } catch (e) { }
+        document.getElementById('em-modal')?.remove();
+        setStatus('Email settings saved (' + f.username + ')');
+        setTimeout(() => setStatus(''), 2000);
+        if (resumeSend && window._pendingEmailCtx) decideEmail(true);
+    });
 }
 
 // ── Email approval card ────────────────────────────────────

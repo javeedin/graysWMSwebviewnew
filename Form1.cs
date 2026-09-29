@@ -1903,6 +1903,17 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleAiApiTest(wv, messageJson, requestId);
                                     break;
 
+                                case "claudeChat":
+                                    await HandleClaudeChat(wv, root, requestId);
+                                    break;
+
+                                case "aiEngineKeySave":
+                                case "aiEngineKeyStatus":
+                                case "aiSmtpSave":
+                                case "aiSmtpStatus":
+                                    HandleAiEngineKey(wv, action, root, requestId);
+                                    break;
+
                                 case "aiDbWriteDecision":
                                     await HandleAiDbWriteDecision(wv, messageJson, requestId);
                                     break;
@@ -2143,6 +2154,12 @@ navPanel.Controls.Add(wmsDevButton);
                                     break;
 
                                 case "getMobileListenerInfo":
+                                    await HandleGetMobileListenerInfo(wv, requestId);
+                                    break;
+
+                                case "setMobileListenerRequireToken":
+                                    if (_mobileListener != null)
+                                        _mobileListener.RequireToken = root.TryGetProperty("requireToken", out var rtEl) && rtEl.ValueKind == JsonValueKind.True;
                                     await HandleGetMobileListenerInfo(wv, requestId);
                                     break;
 
@@ -3850,6 +3867,8 @@ navPanel.Controls.Add(wmsDevButton);
             if (eEl.TryGetProperty("mode",   out var m) && m.ValueKind == JsonValueKind.String) cfg.Mode = m.GetString();
             if (eEl.TryGetProperty("apiKey", out var k) && k.ValueKind == JsonValueKind.String) cfg.ApiKey = k.GetString();
             if (eEl.TryGetProperty("model",  out var md) && md.ValueKind == JsonValueKind.String) cfg.Model = md.GetString();
+            // the key is kept by the host (DPAPI); the page no longer holds it
+            if (string.IsNullOrWhiteSpace(cfg.ApiKey)) cfg.ApiKey = StoredAiKey();
             return cfg;
         }
 
@@ -3864,6 +3883,7 @@ navPanel.Controls.Add(wmsDevButton);
                     if (root.TryGetProperty("apiKey", out var k)) apiKey = k.GetString() ?? "";
                     if (root.TryGetProperty("model", out var m)) model = m.GetString() ?? "";
                 }
+                if (string.IsNullOrWhiteSpace(apiKey)) apiKey = StoredAiKey() ?? "";
                 var (ok, message) = await GetClaudeCliService().TestApiKeyAsync(apiKey, model);
                 wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
                 {
@@ -4553,6 +4573,8 @@ navPanel.Controls.Add(wmsDevButton);
                         emailResult = JsonSerializer.Serialize(new { success = false, message = ex.Message });
                     }
                 }
+
+                if (string.IsNullOrEmpty(password)) password = SmtpVault.PasswordFor(username) ?? "";   // kept by the host, not the page
 
                 if (approve)
                 {
@@ -7108,6 +7130,7 @@ navPanel.Controls.Add(wmsDevButton);
                     int smtpPort = root.TryGetProperty("smtpPort", out var prt) ? prt.GetInt32() : 587;
                     string username = root.TryGetProperty("username", out var usr) ? usr.GetString() ?? "" : "";
                     string password = root.TryGetProperty("password", out var pwd) ? pwd.GetString() ?? "" : "";
+                    if (string.IsNullOrEmpty(password)) password = SmtpVault.PasswordFor(username) ?? "";   // kept by the host, not the page
                     bool useSsl = root.TryGetProperty("useSsl", out var ssl) ? ssl.GetBoolean() : true;
                     string from = root.TryGetProperty("from", out var frm) ? frm.GetString() ?? "" : "";
                     string to = root.TryGetProperty("to", out var toEl) ? toEl.GetString() ?? "" : "";
@@ -7187,6 +7210,7 @@ navPanel.Controls.Add(wmsDevButton);
                     int smtpPort = root.TryGetProperty("smtpPort", out var prt) ? prt.GetInt32() : 587;
                     string username = root.TryGetProperty("username", out var usr) ? usr.GetString() ?? "" : "";
                     string password = root.TryGetProperty("password", out var pwd) ? pwd.GetString() ?? "" : "";
+                    if (string.IsNullOrEmpty(password)) password = SmtpVault.PasswordFor(username) ?? "";   // kept by the host, not the page
                     bool useSsl = root.TryGetProperty("useSsl", out var ssl) ? ssl.GetBoolean() : true;
 
                     System.Diagnostics.Debug.WriteLine($"[SMTP TEST] Testing connection to {smtpServer}:{smtpPort}");
@@ -7501,14 +7525,17 @@ navPanel.Controls.Add(wmsDevButton);
             try
             {
                 var ips  = MobileNotificationListener.GetLocalIPs();
+                string tok = _mobileListener?.Token ?? "";
                 var info = new
                 {
                     isRunning = _mobileListener?.IsRunning ?? false,
                     port      = _mobileListener?.Port ?? 8766,
                     ips,
-                    notifyUrl = ips.Length > 0
+                    token     = tok,
+                    requireToken = _mobileListener?.RequireToken ?? false,
+                    notifyUrl = (ips.Length > 0
                         ? $"http://{ips[0]}:{_mobileListener?.Port ?? 8766}/notify"
-                        : $"http://localhost:{_mobileListener?.Port ?? 8766}/notify"
+                        : $"http://localhost:{_mobileListener?.Port ?? 8766}/notify") + (tok.Length > 0 ? "?token=" + tok : "")
                 };
                 string json  = Newtonsoft.Json.JsonConvert.SerializeObject(info);
                 string reqId = requestId?.Replace("'", "\\'") ?? "";

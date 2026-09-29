@@ -560,6 +560,16 @@
                 var steps = def && (def.steps || (def.action && def.action.steps));
                 if (!steps || !steps.length) { alert('The AI did not return runnable steps. Try again, or add steps via Edit.'); return; }
                 var completion = (def.completionSql || def.completion_sql || '');
+                // AI-written steps run without a card on Execute - so the user reviews them before they are saved
+                var lines = (window.LocalJobRunner && LocalJobRunner.describe) ? LocalJobRunner.describe(steps) : [];
+                if (!confirm('Review the steps the AI wrote before saving them. Execute will run them WITHOUT asking again.\n' +
+                        '⚠ = changes something (prints, sends, posts) · ⛔ = not allowed, will be blocked\n\n' +
+                        lines.slice(0, 30).join('\n') + (lines.length > 30 ? '\n… +' + (lines.length - 30) + ' more' : '') +
+                        (completion ? '\n\nDone when this returns no rows:\n' + String(completion).replace(/\s+/g, ' ').slice(0, 300) : '') +
+                        '\n\nSave these steps?')) {
+                    logEvent(id, 'AI', 'NOTE', 'AI-built steps were not saved (user declined after review).', function () { });
+                    return;
+                }
                 var sql = 'UPDATE wms_ai_tasks SET action_json = ' + clob(JSON.stringify({ steps: steps })) +
                     ', completion_sql = ' + (completion ? clob(completion) : 'NULL') +
                     ', updated_by = ' + q('AI') + ', updated_date = SYSDATE WHERE task_id = ' + parseInt(id, 10);

@@ -22,6 +22,23 @@
         : 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
 
     var POLL_MS = 60000;        // check for due LOCAL jobs every minute
+
+    // ── safety: what a job / task step may do without an approval card ──
+    // ipc steps: only these local actions (mail, Teams, files, printing, PDFs). Anything else - Fusion
+    // writes, database writes, AI decisions, admin - is refused, because a step runs with no card.
+    var IPC_ALLOWED = {
+        sendSmtpEmail: 1, postToTeams: 1, saveLocalFile: 1, printOrder: 1, printSalesOrder: 1,
+        downloadOrderPdf: 1, checkPdfExists: 1, aiListPrinters: 1, getPrintJobs: 1
+    };
+    // rest steps that change data: only the app's own ORDS endpoints, never the raw SQL-write gateway
+    function restWriteBlocked(url) {
+        var host = '';
+        try { host = new URL(url).host.toLowerCase(); } catch (e) { return 'not a valid URL'; }
+        var own = ''; try { own = new URL(AI).host.toLowerCase(); } catch (e) { }
+        if (host !== own) return 'writes are only allowed to the app\'s own APEX endpoints (' + own + '), not ' + host;
+        if (/\/ai\/executewrite/i.test(url)) return 'the raw SQL-write gateway (ai/executewrite) cannot be called from a job';
+        return null;
+    }
     var running = {};           // jobId -> true while this app is executing it
     var timer = null;
 
@@ -96,6 +113,10 @@
         if (type === 'rest') {
             var method = (step.method || 'GET').toUpperCase();
             var url = subst(step.url, vars);
+            if (method !== 'GET') {
+                var why = restWriteBlocked(url);
+                if (why) return Promise.reject('blocked rest ' + method + ': ' + why);
+            }
             var body = step.body ? JSON.stringify(subst(step.body, vars)) : '{}';
             var call = method === 'GET' ? ipc({ action: 'executeGet', fullUrl: url })
                                         : ipc({ action: 'executePost', fullUrl: url, body: body });
@@ -133,6 +154,8 @@
         if (type === 'ipc') {
             // escape hatch: ANY local IPC action the app supports, with the
             // exact params the model provides (email, saveLocalFile, device ops…)
+            if (!IPC_ALLOWED[step.action])
+                return Promise.reject('blocked ipc "' + step.action + '": not allowed in a job/task step (allowed: ' + Object.keys(IPC_ALLOWED).join(', ') + ')');
             var msg = Object.assign({ action: step.action }, subst(step.params || {}, vars));
             return ipc(msg).then(function () { log.push('ipc ' + step.action); return {}; });
         }
@@ -220,6 +243,22 @@
             }, Promise.resolve())
                 .then(function () { return { ok: true, log: log, vars: vars }; })
                 .catch(function (e) { log.push('FAILED: ' + e); return { ok: false, log: log, vars: vars, error: String(e) }; });
+        },
+        // one line per step for a review dialog; flags the ones that change something
+        describe: function (steps) {
+            var arr = Array.isArray(steps) ? steps : ((steps && steps.steps) || []);
+            function one(s, ind) {
+                var t = String(s.type || 'rest').toLowerCase(), m = String(s.method || 'GET').toUpperCase(), line;
+                if (t === 'rest') line = (m === 'GET' ? '' : '⚠ ') + 'REST ' + m + ' ' + (s.url || '') + (m !== 'GET' && restWriteBlocked(String(s.url || '').replace(/\{[A-Za-z0-9_]+\}/g, 'x')) ? '   (will be BLOCKED)' : '');
+                else if (t === 'query' || t === 'report') line = t + ': ' + String(s.sql || '').replace(/\s+/g, ' ').slice(0, 160);
+                else if (t === 'ipc') line = (IPC_ALLOWED[s.action] ? '⚠ ' : '⛔ ') + 'local action ' + s.action + (IPC_ALLOWED[s.action] ? '' : '   (will be BLOCKED)');
+                else if (t === 'foreach') return [ind + 'for each row of: ' + String(s.query && s.query.sql || '').replace(/\s+/g, ' ').slice(0, 140)].concat((s.do || []).map(function (x) { return one(x, ind + '    ')[0]; }));
+                else line = '⚠ ' + t + ' ' + (s.orderNumber || '');
+                return [ind + line];
+            }
+            var out = [];
+            arr.forEach(function (s, i) { one(s, '').forEach(function (l, k) { out.push((k === 0 ? (i + 1) + '. ' : '   ') + l); }); });
+            return out;
         },
         // returns the number of rows a completion SELECT returns (0 = done); -1 on error
         completionCount: function (sql) {

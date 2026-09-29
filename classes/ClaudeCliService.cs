@@ -118,7 +118,7 @@ namespace WMSApp
     }
 
     /// <summary>
-    /// Final outcome of one user message (after up to 5 SQL/Fusion rounds).
+    /// Final outcome of one user message (after up to MAX_SQL_ROUNDS SQL/Fusion rounds).
     /// </summary>
     public class AiChatResult
     {
@@ -268,9 +268,9 @@ namespace WMSApp
             return rule == null ? ("ASK", null) : (rule.Mode?.ToUpperInvariant() ?? "ASK", rule.MaxBatch);
         }
 
-        private const int MAX_SQL_ROUNDS = 5;
+        private const int MAX_SQL_ROUNDS = 8;          // research rounds (sql / fusion / ords) per turn
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V55";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V56";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string LOCAL_JOBS_CREATE_URL =
@@ -376,7 +376,7 @@ namespace WMSApp
             sb.AppendLine("To answer the user:");
             sb.AppendLine("{ \"action\": \"answer\", \"markdown\": \"### heading\\n| markdown table |\" }");
             sb.AppendLine();
-            sb.AppendLine("After each sql action you receive a user message starting with SQL_RESULT: containing columns, rows (max 200), rowCount, truncated, or error. After each fusion action you receive FUSION_RESULT: with the HTTP status and response body (possibly truncated). You have at most 5 sql/fusion rounds per question; then you must answer.");
+            sb.AppendLine("After each sql action you receive a user message starting with SQL_RESULT: containing columns, rows (max 200), rowCount, truncated, or error. After each fusion action you receive FUSION_RESULT: with the HTTP status and response body (possibly truncated). You have at most " + MAX_SQL_ROUNDS + " sql/fusion rounds per question (a note tells you when few are left); then you must answer. Plan: combine what you need into fewer, well-aimed queries.");
             sb.AppendLine();
             sb.AppendLine("<!-- " + PROMPT_TEMPLATE_MARKER + " -->");
             sb.AppendLine("## Oracle Fusion REST catalog");
@@ -633,7 +633,8 @@ namespace WMSApp
             sb.AppendLine("- { \"type\": \"rest\", \"method\": \"GET|POST\", \"url\": \"...ORDS...\", \"body\": {...}, \"extract\": { \"VAR\": \"items[1].X\" } }  // runs from the PC");
             sb.AppendLine("- { \"type\": \"print\", \"orderNumber\": \"{ORD}\", \"tripId\": \"6720\", \"printer\": \"optional\" }        // print an order");
             sb.AppendLine("- { \"type\": \"download_pdf\", \"orderNumber\": \"{ORD}\", \"tripId\": \"6720\" }                        // download its PDF to C:\\fusion");
-            sb.AppendLine("- { \"type\": \"ipc\", \"action\": \"<localAction>\", \"params\": { ... } }  // escape hatch for any other local action (email, saveLocalFile, device ops) using that action's EXACT param names");
+            sb.AppendLine("- { \"type\": \"ipc\", \"action\": \"<localAction>\", \"params\": { ... } }  // a local action with that action's EXACT param names. ONLY these are allowed (anything else is blocked at run time): sendSmtpEmail, postToTeams, saveLocalFile, printOrder, printSalesOrder, downloadOrderPdf, checkPdfExists, aiListPrinters, getPrintJobs");
+            sb.AppendLine("- Job/task steps run with NO approval card, so a rest step that changes data (POST/PUT/PATCH/DELETE) may only call this app's own APEX ORDS endpoints - never Fusion and never ai/executewrite (both are blocked). Fusion writes belong in action fusion (approval card), not in a job.");
             sb.AppendLine("- { \"type\": \"forEach\", \"query\": { \"sql\": \"SELECT order_number ...\" }, \"do\": [ { \"type\": \"download_pdf\", \"orderNumber\": \"{ORDER_NUMBER}\" }, { \"type\": \"print\", \"orderNumber\": \"{ORDER_NUMBER}\" } ] }  // iterate rows; each row's columns are available as {COLUMN_NAME}");
             sb.AppendLine("LOCAL {VAR} substitution uses {NAME} (or #NAME#). completionSql for a LOCAL REPEAT_UNTIL_DONE is still a plain SELECT (done when 0 rows). Prefer forEach for 'do X for every order that ...'.");
             sb.AppendLine();
@@ -1517,7 +1518,7 @@ TROUBLESHOOTING
                             return result;
                         }
 
-                        prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"Unknown device op '" + op + "' - use list_printers, system_info, print, print_orders, download_orders or list_files\"}";
+                        prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"Unknown device op '" + op + "' - use list_printers, system_info, print, print_orders, download_orders, list_files, import_file or move_file\"}";
                         continue;
                     }
 
@@ -1613,7 +1614,7 @@ TROUBLESHOOTING
                             error = round.Error
                         });
 
-                        prompt = "SQL_RESULT: " + round.ResultJson;
+                        prompt = "SQL_RESULT: " + TruncateSqlForModel(round.ResultJson) + RoundsLeftNote(result.Rounds.Count);
                         continue;
                     }
 
@@ -1726,7 +1727,7 @@ TROUBLESHOOTING
                             error = fRound.Error
                         });
 
-                        prompt = "FUSION_RESULT: " + TruncateForModel(fRound.ResultJson);
+                        prompt = "FUSION_RESULT: " + TruncateForModel(fRound.ResultJson) + RoundsLeftNote(result.Rounds.Count);
                         continue;
                     }
 
@@ -2426,6 +2427,23 @@ TROUBLESHOOTING
             }
             catch { }
             return 0;
+        }
+
+        /// <summary>SQL results were sent to the model in full; a wide SELECT could flood the context. Cut like Fusion results.</summary>
+        private static string TruncateSqlForModel(string s)
+        {
+            if (s == null) return "";
+            return s.Length <= FUSION_RESULT_MAX_CHARS
+                ? s
+                : s.Substring(0, FUSION_RESULT_MAX_CHARS) + " ...(truncated - select fewer columns, aggregate, or add WHERE / FETCH FIRST n ROWS ONLY)";
+        }
+
+        /// <summary>Tells the model how many research rounds remain, so it answers before the budget runs out.</summary>
+        private static string RoundsLeftNote(int used)
+        {
+            int left = MAX_SQL_ROUNDS - used;
+            return left <= 0 ? "\n[No research rounds left - answer now with what you have.]"
+                 : left <= 2 ? "\n[Research rounds left: " + left + " - answer soon.]" : "";
         }
 
         private static string TruncateForModel(string s)

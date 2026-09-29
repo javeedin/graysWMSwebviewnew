@@ -4708,8 +4708,9 @@
         return new Promise((resolve) => {
             const requestId = 'sa-ai-' + Date.now();
             window.pendingRequests = window.pendingRequests || {};
-            window.pendingRequests[requestId] = async (response) => {
-                const msg = response?.content?.[0]?.text || 'Analysis complete.';
+            // the WMS bridge calls back (err, data); data = { success, error, content: [{ text }] }
+            window.pendingRequests[requestId] = async (err, response) => {
+                const msg = (!err && response?.content?.[0]?.text) || (response?.error ? 'AI analysis unavailable: ' + response.error : 'Analysis complete.');
                 await saLogActivity(agent.ID, trip.TRIP_ID, null, 'AI_ANALYSIS', 'SUCCESS', 1, msg.substring(0, 500), null, null);
                 await saLogNotification(agent.ID, trip.TRIP_ID, null, 'COMPLETION', msg.substring(0, 500), 'INFO');
                 resolve(msg);

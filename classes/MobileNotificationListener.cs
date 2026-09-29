@@ -25,6 +25,57 @@ namespace WMSApp
 
         private const int DEFAULT_PORT = 8766;
 
+        // ── Security ──────────────────────────────────────────────────────
+        // Only devices on the local network may post (private / loopback / link-local addresses).
+        // A pairing token (X-WMS-Token header or ?token=) marks a notification as verified; with
+        // RequireToken on, anything without it is refused. RequireToken starts OFF so phones that
+        // were set up before the token existed keep working until their URL is updated.
+        private class SecurityConfig { public string Token { get; set; } public bool RequireToken { get; set; } }
+        private static string ConfigPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GraysWMS", "mobile_listener.json");
+        private SecurityConfig _sec;
+        private SecurityConfig Sec
+        {
+            get
+            {
+                if (_sec != null) return _sec;
+                try { if (File.Exists(ConfigPath)) _sec = JsonConvert.DeserializeObject<SecurityConfig>(File.ReadAllText(ConfigPath)); } catch { }
+                if (_sec == null || string.IsNullOrEmpty(_sec.Token))
+                {
+                    var b = new byte[18];
+                    System.Security.Cryptography.RandomNumberGenerator.Fill(b);
+                    _sec = new SecurityConfig { Token = Convert.ToBase64String(b).Replace('+', 'A').Replace('/', 'B').TrimEnd('='), RequireToken = _sec?.RequireToken ?? false };
+                    SaveSec();
+                }
+                return _sec;
+            }
+        }
+        private void SaveSec()
+        {
+            try { Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)); File.WriteAllText(ConfigPath, JsonConvert.SerializeObject(_sec)); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[MobileListener] config save failed: " + ex.Message); }
+        }
+        public string Token => Sec.Token;
+        public bool RequireToken
+        {
+            get => Sec.RequireToken;
+            set { Sec.RequireToken = value; SaveSec(); }
+        }
+        private static bool IsLocalNetwork(EndPoint ep)
+        {
+            if (!(ep is IPEndPoint ip)) return false;
+            var a = ip.Address.IsIPv4MappedToIPv6 ? ip.Address.MapToIPv4() : ip.Address;
+            if (IPAddress.IsLoopback(a)) return true;
+            if (a.AddressFamily == AddressFamily.InterNetworkV6) return a.IsIPv6LinkLocal || a.IsIPv6SiteLocal || (a.GetAddressBytes()[0] & 0xFE) == 0xFC;
+            var b = a.GetAddressBytes();
+            return b[0] == 10 || (b[0] == 172 && b[1] >= 16 && b[1] <= 31) || (b[0] == 192 && b[1] == 168) || (b[0] == 169 && b[1] == 254);
+        }
+        private static bool TimingSafeEquals(string x, string y)
+        {
+            if (x == null || y == null) return false;
+            var a = Encoding.UTF8.GetBytes(x); var b = Encoding.UTF8.GetBytes(y);
+            return a.Length == b.Length && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(a, b);
+        }
+
         public MobileNotificationListener(int port = DEFAULT_PORT)
         {
             Port = port;
@@ -100,6 +151,12 @@ namespace WMSApp
                     catch (IOException) { /* read timeout — process what we have */ }
 
                     string raw = Encoding.UTF8.GetString(buf, 0, total);
+                    if (!IsLocalNetwork(client.Client.RemoteEndPoint))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MobileListener] refused {client.Client.RemoteEndPoint}: not on the local network");
+                        WriteResponse(stream, 403, "Forbidden", "", "{\"error\":\"local network only\"}");
+                        return;
+                    }
                     ParseAndRespond(stream, raw);
                 }
             }
@@ -121,12 +178,23 @@ namespace WMSApp
             string   reqLine = lines.Length > 0 ? lines[0] : "";
             string[] parts  = reqLine.Split(' ');
             string   method = parts.Length > 0 ? parts[0].ToUpperInvariant() : "GET";
-            string   path   = parts.Length > 1 ? parts[1].ToLowerInvariant().TrimEnd('/') : "/";
+            string   target = parts.Length > 1 ? parts[1] : "/";
+            int      qm     = target.IndexOf('?');
+            string   path   = (qm >= 0 ? target.Substring(0, qm) : target).ToLowerInvariant().TrimEnd('/');
+
+            // pairing token: X-WMS-Token header or ?token= in the URL
+            string token = null;
+            foreach (var h in lines)
+                if (h.StartsWith("X-WMS-Token:", StringComparison.OrdinalIgnoreCase)) { token = h.Substring(12).Trim(); break; }
+            if (token == null && qm >= 0)
+                foreach (var kv in target.Substring(qm + 1).Split('&'))
+                    if (kv.StartsWith("token=", StringComparison.OrdinalIgnoreCase)) { token = Uri.UnescapeDataString(kv.Substring(6)); break; }
+            bool verified = TimingSafeEquals(token, Sec.Token);
 
             const string cors =
                 "Access-Control-Allow-Origin: *\r\n" +
                 "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n" +
-                "Access-Control-Allow-Headers: Content-Type\r\n";
+                "Access-Control-Allow-Headers: Content-Type, X-WMS-Token\r\n";
 
             // OPTIONS preflight
             if (method == "OPTIONS")
@@ -146,6 +214,11 @@ namespace WMSApp
             // POST /notify
             if (path.EndsWith("/notify") && method == "POST")
             {
+                if (!verified && Sec.RequireToken)
+                {
+                    WriteResponse(stream, 401, "Unauthorized", cors + "Content-Type: application/json\r\n", "{\"error\":\"missing or wrong token\"}");
+                    return;
+                }
                 // Content-Length may be set — trim body to it
                 foreach (var line in lines)
                 {
@@ -173,6 +246,7 @@ namespace WMSApp
                     foreach (var n in list)
                     {
                         n.ReceivedAt = receivedAt;
+                        n.Verified = verified;
                         NotificationReceived?.Invoke(n);
                     }
                     count = list.Count;
@@ -185,6 +259,7 @@ namespace WMSApp
                     catch { notif = new MobileNotification { Type = "alert", Message = body }; }
 
                     notif.ReceivedAt = receivedAt;
+                    notif.Verified = verified;
                     NotificationReceived?.Invoke(notif);
                     count = 1;
                 }
@@ -255,6 +330,8 @@ namespace WMSApp
     public class MobileNotification
     {
         [JsonProperty("type")]        public string   Type        { get; set; } = "alert";
+        /// <summary>Set by the listener: true when the sender used this PC's pairing token.</summary>
+        [JsonProperty("verified")]    public bool     Verified    { get; set; }
         [JsonProperty("orderNumber")] public string   OrderNumber { get; set; }
         [JsonProperty("message")]     public string   Message     { get; set; }
         [JsonProperty("sender")]      public string   Sender      { get; set; }

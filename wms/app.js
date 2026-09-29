@@ -277,13 +277,27 @@ function _loadMobileListenerInfo() {
             const statusDot = info.isRunning
                 ? '<span style="color:#22c55e;">●</span> Listening'
                 : '<span style="color:#ef4444;">●</span> Not running';
+            const tok = info.token ? '?token=' + encodeURIComponent(info.token) : '';
             const urls = (info.ips || []).map(ip =>
-                `<code style="background:#e2e8f0;padding:1px 4px;border-radius:3px;">http://${ip}:${info.port}/notify</code>`
+                `<code style="background:#e2e8f0;padding:1px 4px;border-radius:3px;user-select:all;">http://${ip}:${info.port}/notify${tok}</code>`
             ).join('  ');
-            bar.innerHTML = `${statusDot} on port <strong>${info.port}</strong>&nbsp;&nbsp;${urls}`;
+            // Local network only. The token marks a sender as trusted; "Require token" refuses the rest.
+            const sec = info.token
+                ? `&nbsp;&nbsp;<label style="font-size:11px;cursor:pointer;" title="Put the URL with ?token= (or header X-WMS-Token) in the phone app, then switch this on so nothing else on the network can post">
+                     <input type="checkbox" ${info.requireToken ? 'checked' : ''} onchange="setMobileRequireToken(this.checked)"> Require token</label>
+                   ${info.requireToken ? '' : '<span style="color:#b45309;font-size:11px;" title="Any device on the local network can post notifications until Require token is on"> ⚠ open to the local network</span>'}`
+                : '';
+            bar.innerHTML = `${statusDot} on port <strong>${info.port}</strong>&nbsp;&nbsp;${urls}${sec}`;
         } catch(e) {
             bar.textContent = String(data);
         }
+    }, 8000, false);
+}
+
+function setMobileRequireToken(on) {
+    sendMessageToCSharp({ action: 'setMobileListenerRequireToken', requireToken: !!on }, function () {
+        if (typeof showNotification === 'function') showNotification(on ? 'Mobile listener: only senders with the token are accepted' : 'Mobile listener: token not required', on ? 'success' : 'warning');
+        _loadMobileListenerInfo();
     }, 8000, false);
 }
 

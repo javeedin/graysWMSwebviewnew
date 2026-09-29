@@ -86,7 +86,7 @@
         bridge(msg, function (err, data) { if (err) return cb(String(err)); try { cb(null, typeof data === 'string' ? JSON.parse(data) : data); } catch (e) { cb(null, data); } });
     }
     function emailSettings() {
-        try { var s = JSON.parse(localStorage.getItem('aiEmailSettings') || 'null'); if (!s || !s.username) return null; return { server: s.server || 'smtp.office365.com', port: s.port || 587, username: s.username, password: s.p ? atob(s.p) : '' }; } catch (e) { return null; }
+        try { var s = JSON.parse(localStorage.getItem('aiEmailSettings') || 'null'); if (!s || !s.username) return null; return { server: s.server || 'smtp.office365.com', port: s.port || 587, username: s.username, password: s.p ? atob(s.p) : '' /* blank = the app fills in its saved password */ }; } catch (e) { return null; }
     }
     function sendEmail(to, subject, body, cb) {
         var s = emailSettings();
