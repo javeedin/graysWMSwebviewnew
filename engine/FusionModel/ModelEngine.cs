@@ -742,7 +742,7 @@ namespace FusionModel
             DateOnly d => d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
             TimeOnly t => t.ToString("HH:mm:ss", CultureInfo.InvariantCulture),
             DateTimeOffset o => o.ToString("o", CultureInfo.InvariantCulture),
-            System.Numerics.BigInteger b => b.ToString(CultureInfo.InvariantCulture),
+            System.Numerics.BigInteger b => b >= long.MinValue && b <= long.MaxValue ? (long)b : b.ToString(CultureInfo.InvariantCulture),   // SUM of integers is HUGEINT: keep it a number
             decimal m => (double)m,
             float f => (double)f,
             byte[] bytes => Convert.ToBase64String(bytes),

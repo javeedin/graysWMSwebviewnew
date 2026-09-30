@@ -23,6 +23,10 @@ namespace FusionModel
         public List<RoleDef> Roles { get; set; } = new();
         /// <summary>Business vocabulary for search and the AI: "DSO", "open orders", "backlog" → the measures/columns they mean.</summary>
         public List<GlossaryTerm> Glossary { get; set; } = new();
+        /// <summary>Reconciliation checks: two measures that must agree (or compare) for every group.</summary>
+        public List<CheckDef> Checks { get; set; } = new();
+        /// <summary>Packs applied to this model (id → version), so updates can be offered.</summary>
+        public Dictionary<string, string> Packs { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
         public ModuleDef Module(string name) => Modules.FirstOrDefault(m => string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase));
         public TableDef Table(string module, string name) =>
@@ -92,6 +96,26 @@ namespace FusionModel
         public List<string> Refs { get; set; } = new();
         /// <summary>A rule the AI must follow when this term is used ("exclude cancelled lines").</summary>
         public string Rule { get; set; }
+    }
+
+    /// <summary>
+    /// A reconciliation check: Left and Right (measure expressions) are compared for every group of By
+    /// (e.g. GL journals vs GL balances by ledger and month). Op: = (within Tolerance), &lt;=, &gt;=.
+    /// </summary>
+    public sealed class CheckDef
+    {
+        public string Name { get; set; }
+        public string Description { get; set; }
+        public string Folder { get; set; }
+        public string Left { get; set; }
+        public string LeftLabel { get; set; }
+        public string Right { get; set; }
+        public string RightLabel { get; set; }
+        public string Op { get; set; } = "=";
+        public List<string> By { get; set; } = new();
+        public double Tolerance { get; set; } = 0.01;
+        /// <summary>Compare only groups that have both sides (e.g. months loaded in both tables).</summary>
+        public bool BothSides { get; set; }
     }
 
     /// <summary>Column documentation (description + synonyms) kept on the table.</summary>

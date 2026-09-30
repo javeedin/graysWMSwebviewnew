@@ -87,6 +87,13 @@ namespace FusionModel.Ai
             },
             new ToolDef
             {
+                Name = "run_checks",
+                Description = "Run the model's reconciliation checks (e.g. GL journals vs balances, AP invoices vs schedules, trial balance) and get PASS/FAIL " +
+                              "with the biggest differences. Use for 'do the books reconcile', 'is AP in balance' questions.",
+                Properties = { ["names"] = P(new { type = "array", items = new { type = "string" }, description = "Check names (empty = all)" }) },
+            },
+            new ToolDef
+            {
                 Name = "run_sql",
                 Description = "One read-only DuckDB SELECT across all modules (tables are module.table, e.g. sales.lines; the calendar is memory.main.calendar). " +
                               "For row-level questions and checks the measures cannot express. Not available to users restricted by security roles.",
@@ -106,6 +113,7 @@ namespace FusionModel.Ai
             "describe" => "📋 Describing " + Arg(i, "name"),
             "evaluate" => "▶ Measures: " + Clip(Regex.Replace(Arg(i, "query") ?? "", @"\s+", " "), 110),
             "lookup_values" => "🔤 Values of " + Arg(i, "column") + (string.IsNullOrEmpty(Arg(i, "search")) ? "" : " like \"" + Arg(i, "search") + "\""),
+            "run_checks" => "⚖ Running reconciliation checks",
             "run_sql" => "▶ SQL: " + Clip(Regex.Replace(Arg(i, "sql") ?? "", @"\s+", " "), 110),
             _ => "⚙ " + name
         };
@@ -133,6 +141,7 @@ namespace FusionModel.Ai
                     "describe" => DescribeThing(Arg(input, "name") ?? ""),
                     "evaluate" => EvaluateText(Arg(input, "query") ?? "", user, Math.Clamp(ArgInt(input, "top", 200), 1, 5000)),
                     "lookup_values" => LookupValues(Arg(input, "column") ?? "", Arg(input, "search"), user, Math.Clamp(ArgInt(input, "limit", 25), 1, 200)),
+                    "run_checks" => RunChecks(input, user),
                     "run_sql" => RunSql(Arg(input, "sql") ?? "", user, Math.Clamp(ArgInt(input, "max_rows", 100), 1, 500)),
                     _ => "ERROR: unknown tool " + name
                 };
@@ -286,6 +295,25 @@ namespace FusionModel.Ai
         {
             var vals = _e.LookupValues(column, search, user, limit);
             return vals.Count == 0 ? "(no values" + (string.IsNullOrEmpty(search) ? "" : " containing \"" + search + "\"") + ")" : string.Join("\n", vals);
+        }
+
+        public string RunChecks(IReadOnlyDictionary<string, JsonElement> input, string user)
+        {
+            List<string> names = null;
+            if (input != null && input.TryGetValue("names", out var n) && n.ValueKind == JsonValueKind.Array)
+                names = n.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()).Where(x => !string.IsNullOrWhiteSpace(x)).ToList();
+            var results = _e.RunChecks(user, names?.Count > 0 ? names : null);
+            if (results.Count == 0) return "(no checks in the model - add a Fusion pack or define checks in Model › Checks)";
+            var sb = new StringBuilder();
+            foreach (var r in results)
+            {
+                sb.Append(r.Status).Append("  ").Append(r.Name).Append(" - ").Append(r.Description);
+                if (r.Status == "ERROR") sb.Append(" · ").Append(r.Error);
+                else sb.Append(" · ").Append(r.Groups).Append(" groups compared, ").Append(r.Failing).Append(" differ").Append(r.Skipped > 0 ? ", " + r.Skipped + " one-sided skipped" : "");
+                sb.Append('\n');
+                if (r.Rows.Count > 0) sb.Append(FormatTable(r.Columns, r.Rows, r.Failing > r.Rows.Count, null, 10, null));
+            }
+            return sb.ToString();
         }
 
         public string RunSql(string sql, string user, int max)

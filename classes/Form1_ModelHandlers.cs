@@ -264,6 +264,75 @@ namespace WMSApp
                             break;
                         }
 
+                    case "fmPacks":
+                        {
+                            var model = engine.LoadModel();
+                            data = new
+                            {
+                                ok = true,
+                                packs = FusionModel.Packs.FusionPacks.All.Select(p => new
+                                {
+                                    p.Id, p.Version, p.Title, p.Area, p.Description, p.Notes, module = p.Module.Name,
+                                    applied = model.Packs.TryGetValue(p.Id, out var v) ? v : null,
+                                    tables = p.Tables.Select(t => new { t.Name, t.Description, strategy = t.Strategy.ToString(), sql = t.Source.Sql, columns = t.ColumnTypes.Count }),
+                                    measures = p.Measures.Select(x => new { x.Name, x.Description, x.Expression }),
+                                    checks = p.Checks.Select(x => new { x.Name, x.Description }),
+                                    glossary = p.Glossary.Select(x => x.Term)
+                                })
+                            };
+                            break;
+                        }
+
+                    case "fmPackProbe":
+                        {
+                            var pack = FusionModel.Packs.FusionPacks.Get(PStr(root, "id")) ?? throw new InvalidOperationException("Unknown pack");
+                            var results = new List<ProbeResult>();
+                            foreach (var t in pack.Tables)
+                            {
+                                try { PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "fmProgress", requestId, message = "Checking " + t.Name + " on the pod…" })); } catch { }
+                                results.Add(await engine.ProbeTableAsync(t));
+                            }
+                            data = new { ok = true, results };
+                            break;
+                        }
+
+                    case "fmPackApply":
+                        {
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can add packs to the model." }; break; }
+                            var pack = FusionModel.Packs.FusionPacks.Get(PStr(root, "id")) ?? throw new InvalidOperationException("Unknown pack");
+                            var model = engine.LoadModel();
+                            var r = FusionModel.Packs.FusionPacks.Apply(model, pack, PBool(root, "overwrite"));
+                            var errors = model.Validate();
+                            if (errors.Count > 0) { data = new { ok = false, error = string.Join("\n", errors) }; break; }
+                            engine.SaveModel(model);
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "MODEL", Action = "pack_apply", Outcome = "OK", Ref = pack.Id, Detail = r.Added.Count + " added, " + r.Updated.Count + " updated, " + r.Kept.Count + " kept" });
+                            data = new { ok = true, result = r };
+                            break;
+                        }
+
+                    case "fmChecks":
+                        {
+                            List<string> names = root.TryGetProperty("names", out var nl) && nl.ValueKind == JsonValueKind.Array ? nl.EnumerateArray().Select(x => x.GetString()).ToList() : null;
+                            data = new { ok = true, results = await Task.Run(() => engine.RunChecks(user, names)) };
+                            break;
+                        }
+
+                    case "fmReports":
+                        data = new { ok = true, reports = engine.LoadReports().OrderBy(x => x.Folder).ThenBy(x => x.Name) };
+                        break;
+
+                    case "fmReportSave":
+                        {
+                            var rep = root.GetProperty("report").Deserialize<ReportDef>(FusionModel.Json.Options);
+                            rep.By = user;
+                            data = new { ok = true, report = engine.SaveReport(rep) };
+                            break;
+                        }
+
+                    case "fmReportDelete":
+                        data = new { ok = engine.DeleteReport(PStr(root, "id")) };
+                        break;
+
                     default:
                         data = new { ok = false, error = "Unknown action " + action };
                         break;

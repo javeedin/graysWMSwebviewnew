@@ -283,7 +283,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 8;          // research rounds (sql / fusion / ords) per turn
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-MODEL-V57";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-MODEL-V58";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string LOCAL_JOBS_CREATE_URL =
@@ -870,6 +870,7 @@ VERIFIED EXAMPLES. For KPI / trend / "how much / how many" questions prefer it o
 { "action": "model", "op": "evaluate", "query": "EVALUATE SUMMARIZECOLUMNS(customers[REGION], calendar[Year], \"Sales\", [Sales]) ORDER BY [Sales] DESC", "reason": "one line" }
 { "action": "model", "op": "values", "column": "customers[NAME]", "search": "acme", "reason": "one line" }
 { "action": "model", "op": "sql", "sql": "SELECT … FROM wms.trip_orders …", "reason": "one line" }   // DuckDB, module.table names; not for users restricted by roles
+{ "action": "model", "op": "checks", "names": [], "reason": "one line" }   // reconciliation checks (GL journals vs balances, AP/AR vs schedules …): PASS/FAIL + biggest differences
 
 - You receive MODEL_RESULT: text (a small table, or ERROR: … - correct and retry once).
 - Search first; reuse a VERIFIED EXAMPLE's query when one matches; follow a glossary term's RULE; get exact spellings with values.
@@ -1638,7 +1639,7 @@ TROUBLESHOOTING
                         // Read-only: the Fusion Model's tools (search, describe, measures, values, SQL); the user's security roles apply
                         var root = modelJson.RootElement;
                         string op = root.TryGetProperty("op", out var mopEl) && mopEl.ValueKind == JsonValueKind.String ? mopEl.GetString().ToLowerInvariant() : "overview";
-                        string tool = op switch { "search" => "search_model", "values" => "lookup_values", "sql" => "run_sql", "describe" => "describe", "evaluate" => "evaluate", _ => "overview" };
+                        string tool = op switch { "search" => "search_model", "values" => "lookup_values", "sql" => "run_sql", "describe" => "describe", "evaluate" => "evaluate", "checks" => "run_checks", _ => "overview" };
                         string mRes;
                         if (++modelReads > 10)
                             mRes = "ERROR: 10 model calls this turn - answer now with what you found.";

@@ -449,7 +449,26 @@ namespace FusionModel.Semantic
                 return Map(left, v => "(" + v + " IN (" + string.Join(", ", items.Select(i => i.Const)) + "))");
             }
             var l = S(b.Left, ctx); var r = S(b.Right, ctx);
-            return Combine(new[] { l, r }, v => BinarySql(b.Op, v[0], v[1]));
+            bool dates = b.Op is "+" or "-" && (IsDateExpr(b.Left) || IsDateExpr(b.Right));
+            return Combine(new[] { l, r }, v => dates ? DateArith(b.Op, v[0], v[1]) : BinarySql(b.Op, v[0], v[1]));
+        }
+
+        /// <summary>Date ± days and date − date (days), as DAX does; a blank date stays blank.</summary>
+        private static string DateArith(string op, string a, string b) => "(" + a + " " + op + " " + b + ")";
+
+        /// <summary>Whether an expression is a date (TODAY(), a date column, MAX of a date column …) - decided from the syntax.</summary>
+        private bool IsDateExpr(Node n)
+        {
+            switch (n)
+            {
+                case ColumnNode c:
+                    try { return _m.ResolveColumn(c.Table, c.Column, c.Pos).IsDate; } catch { return false; }
+                case CallNode c when c.Name is "TODAY" or "NOW" or "DATE" or "EOMONTH" or "EDATE" or "STARTOFMONTH" or "ENDOFMONTH": return true;
+                case CallNode c when c.Name is "MAX" or "MIN" or "LASTDATE" or "FIRSTDATE" or "SELECTEDVALUE" or "MAXX" or "MINX":
+                    return c.Args.Count > 0 && IsDateExpr(c.Args[c.Name is "MAXX" or "MINX" ? Math.Min(1, c.Args.Count - 1) : 0]);
+                case BinaryNode b when b.Op is "+" or "-": return b.Op == "+" ? IsDateExpr(b.Left) || IsDateExpr(b.Right) : IsDateExpr(b.Left) && !IsDateExpr(b.Right);
+                default: return false;
+            }
         }
 
         private static string BinarySql(string op, string a, string b) => op switch
@@ -871,7 +890,9 @@ namespace FusionModel.Semantic
                         var list = b.Right as ListNode ?? throw new MeasureException("IN needs a list { … }", b.Pos);
                         return "(" + Row(b.Left, fb, rowTable, ctx) + " IN (" + string.Join(", ", list.Items.Select(i => Row(i, fb, rowTable, ctx))) + "))";
                     }
-                    return BinarySql(b.Op, Row(b.Left, fb, rowTable, ctx), Row(b.Right, fb, rowTable, ctx));
+                    return b.Op is "+" or "-" && (IsDateExpr(b.Left) || IsDateExpr(b.Right))
+                        ? DateArith(b.Op, Row(b.Left, fb, rowTable, ctx), Row(b.Right, fb, rowTable, ctx))
+                        : BinarySql(b.Op, Row(b.Left, fb, rowTable, ctx), Row(b.Right, fb, rowTable, ctx));
                 case CallNode c:
                     {
                         var a = c.Args;
@@ -937,6 +958,7 @@ namespace FusionModel.Semantic
                             return;
                         }
                         if (TryRunningDate(f, out var dt)) { target.Dates.Add(dt); return; }
+                        if (TryScalarCompare(f, outer, target, replace: true)) return;
                         var tables = Columns(f).Select(c => c.Table).Distinct().ToList();
                         if (tables.Count == 1)
                         {
@@ -953,6 +975,7 @@ namespace FusionModel.Semantic
                             {
                                 Args(c, 1, 1);
                                 if (TryColumnPredicate(c.Args[0], outer, out var col, out var pred)) { target.AddPred(col, pred); return; }
+                                if (TryScalarCompare(c.Args[0], outer, target, replace: false)) return;
                                 var tables = Columns(c.Args[0]).Select(x => x.Table).Distinct().ToList();
                                 if (tables.Count == 1) { target.RowFilters.Add(new RowFilter { Table = tables[0], Cond = c.Args[0], Env = outer }); return; }
                                 ApplyTableFilter(c.Args[0], outer, target, keep: true);
@@ -1102,6 +1125,7 @@ namespace FusionModel.Semantic
                 return;
             }
             if (clears && !keep) target.RemoveTables(Expanded(spec.Table));
+            if (TryScalarCompare(c.Args[1], spec.Ctx, target, replace: false)) return;
             try
             {
                 // a row condition (columns only) filters the table's rows; one with measures becomes a set on its key
@@ -1137,6 +1161,42 @@ namespace FusionModel.Semantic
             };
             return true;
         }
+
+        /// <summary>
+        /// col op scalar, where the scalar is computed in the outer filter context (a VAR, MAX(col), an aggregate - no
+        /// measure, which would need context transition): the scalar is compiled once in <paramref name="outer"/>, and the
+        /// values of col that satisfy the comparison become a set filter correlated on the outer grouping keys.
+        /// E.g. VAR d = MAX(t[DATE]) RETURN CALCULATE(…, t[DATE] = d) → the rows of the last date in each group.
+        /// </summary>
+        private bool TryScalarCompare(Node n, Ctx outer, Ctx target, bool replace)
+        {
+            if (n is not BinaryNode b || b.Op is not ("=" or "<>" or "<" or ">" or "<=" or ">=")) return false;
+            ColumnNode cn; Node other; string op;
+            if (b.Left is ColumnNode l && !Columns(b.Right).Any()) { cn = l; other = b.Right; op = b.Op; }
+            else if (b.Right is ColumnNode r && !Columns(b.Left).Any()) { cn = r; other = b.Left; op = Flip(b.Op); }
+            else return false;
+            if (HasMeasure(other)) return false;
+            var col = _m.ResolveColumn(cn.Table, cn.Column, cn.Pos);
+            var scalar = S(other, outer);
+            if (scalar.IsConst) return false;                       // a constant is a plain predicate
+            var env = outer.Clone();
+            env.RemoveColumn(col);
+            var values = Keyed(col, env);
+            var inner = Combine(new[] { values, scalar }, v => "(" + v[0] + " " + op + " " + v[1] + ")");
+            if (replace) target.RemoveColumn(col);
+            target.SetFilters.Add(new SetFilter { Column = col, Inner = inner, Cond = "COALESCE({v}, FALSE)" });
+            return true;
+        }
+
+        private static bool HasMeasure(Node n) => n switch
+        {
+            BracketNode => true,
+            BinaryNode b => HasMeasure(b.Left) || HasMeasure(b.Right),
+            UnaryNode u => HasMeasure(u.Operand),
+            CallNode c => c.Args.Any(a => a != null && HasMeasure(a)),
+            VarBlockNode v => v.Vars.Any(x => HasMeasure(x.Expr)) || HasMeasure(v.Return),
+            _ => false
+        };
 
         /// <summary>col op constant / col IN {…} / combinations of those on one column → a SQL predicate over {c}.</summary>
         private bool TryColumnPredicate(Node n, Ctx ctx, out SemColumn col, out string pred)

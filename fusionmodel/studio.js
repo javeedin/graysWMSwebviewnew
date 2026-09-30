@@ -22,7 +22,7 @@ function daxTable(key) {
 }
 function studioModel() {
     var m = S.model;
-    m.relationships = m.relationships || []; m.measures = m.measures || []; m.roles = m.roles || []; m.glossary = m.glossary || [];
+    m.relationships = m.relationships || []; m.measures = m.measures || []; m.roles = m.roles || []; m.glossary = m.glossary || []; m.checks = m.checks || [];
     m.calendar = m.calendar || { enabled: true, startYear: 0, endYear: 0, fiscalYearStartMonth: 1 };
     return m;
 }
@@ -34,12 +34,12 @@ function renderStudio() {
         var m = studioModel();
         $('studio-nav').innerHTML = [['measures', 'fa-calculator', 'Measures', m.measures.length], ['relationships', 'fa-diagram-project', 'Relationships', m.relationships.length],
             ['calendar', 'fa-calendar-days', 'Calendar', ''], ['security', 'fa-user-shield', 'Security', m.roles.length],
-            ['glossary', 'fa-book', 'Glossary', m.glossary.length], ['docs', 'fa-align-left', 'Descriptions', '']].map(function (x) {
+            ['glossary', 'fa-book', 'Glossary', m.glossary.length], ['docs', 'fa-align-left', 'Descriptions', ''], ['checks', 'fa-scale-balanced', 'Checks', m.checks.length]].map(function (x) {
             return '<button class="ritem' + (ST.sec === x[0] ? ' on' : '') + '" data-sec="' + x[0] + '"><i class="fa-solid ' + x[1] + '"></i><span><b>' + x[2] + '</b>' +
                 (x[3] !== '' ? '<small>' + x[3] + '</small>' : '') + '</span></button>';
         }).join('') + '<div class="studio-foot"><button class="btn primary block" data-act="save"' + (S.isAdmin ? '' : ' disabled') + '><i class="fa-solid fa-floppy-disk"></i> Save model' + (S.dirty ? ' *' : '') + '</button>' +
             '<button class="btn block" data-act="validate"><i class="fa-solid fa-spell-check"></i> Check all measures</button></div>';
-        ({ measures: renderMeasures, relationships: renderRelationships, calendar: renderCalendar, security: renderSecurity, glossary: renderGlossary, docs: renderDocs })[ST.sec]();
+        ({ measures: renderMeasures, relationships: renderRelationships, calendar: renderCalendar, security: renderSecurity, glossary: renderGlossary, docs: renderDocs, checks: renderChecks })[ST.sec]();
     });
 }
 

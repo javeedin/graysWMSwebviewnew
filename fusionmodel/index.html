@@ -6,18 +6,21 @@
     <title>Fusion Model — Fusion Client</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="fusionmodel.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 </head>
 <body>
     <header class="top">
         <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
         <div class="logo"><i class="fa-solid fa-cubes-stacked"></i></div>
         <div>
-            <h1>Fusion Model <span class="ver">phase 3</span></h1>
+            <h1>Fusion Model <span class="ver">phase 4</span></h1>
             <p>One fast, shared dataset — DuckDB module files loaded from APEX and Oracle Fusion, read by every PC</p>
         </div>
         <nav class="tabs">
             <button class="tab active" data-tab="modules"><i class="fa-solid fa-layer-group"></i> Modules</button>
             <button class="tab" data-tab="model"><i class="fa-solid fa-calculator"></i> Model</button>
+            <button class="tab" data-tab="reports"><i class="fa-solid fa-chart-column"></i> Reports</button>
             <button class="tab" data-tab="ask"><i class="fa-solid fa-wand-magic-sparkles"></i> Ask</button>
             <button class="tab" data-tab="explore"><i class="fa-solid fa-magnifying-glass-chart"></i> Explore</button>
             <button class="tab" data-tab="log"><i class="fa-solid fa-gauge-high"></i> Refresh Center</button>
@@ -30,6 +33,7 @@
         <aside class="side">
             <div class="side-h"><b>Modules</b><button class="btn sm" data-act="reload" title="Reload"><i class="fa-solid fa-rotate"></i></button></div>
             <div class="rlist" id="modlist"></div>
+            <button class="btn block primary" data-act="packs"><i class="fa-solid fa-box-open"></i> Fusion packs</button>
             <button class="btn block" data-act="starter" data-key="wms"><i class="fa-solid fa-warehouse"></i> Add WMS starter</button>
             <button class="btn block" data-act="starter" data-key="fusion_ref"><i class="fa-solid fa-building-columns"></i> Add Fusion reference starter</button>
             <button class="btn block" data-act="addmodule"><i class="fa-solid fa-plus"></i> New module</button>
@@ -48,6 +52,14 @@
     <section class="page" id="page-model" hidden>
         <aside class="side"><div class="side-h"><b>Model</b></div><div class="rlist" id="studio-nav"></div></aside>
         <main class="main scroll" id="studio-main"></main>
+    </section>
+
+    <section class="page" id="page-reports" hidden>
+        <aside class="side"><div class="side-h"><b>Reports</b></div><div class="rlist" id="rp-list"></div></aside>
+        <main class="main scroll">
+            <div class="card rp-builder" id="rp-builder"></div>
+            <div id="rp-out"></div>
+        </main>
     </section>
 
     <section class="page" id="page-ask" hidden>
@@ -107,5 +119,7 @@
     <script src="fusionmodel.js"></script>
     <script src="studio.js"></script>
     <script src="ask.js"></script>
+    <script src="packs.js"></script>
+    <script src="reports.js"></script>
 </body>
 </html>
