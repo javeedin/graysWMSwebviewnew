@@ -69,7 +69,8 @@ function renderAcct() {
 function showTab(t) {
     S.tab = t;
     document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === t); });
-    ['modules', 'explore', 'log', 'settings'].forEach(function (p) { $('page-' + p).hidden = p !== t; });
+    ['modules', 'model', 'explore', 'log', 'settings'].forEach(function (p) { $('page-' + p).hidden = p !== t; });
+    if (t === 'model') renderStudio();
     if (t === 'modules') renderModules();
     if (t === 'explore' && !S.schema.length) loadSchema();
     if (t === 'log') loadLog();
@@ -149,6 +150,7 @@ function saveModel() {
     if (bad.length) { toast('Names must be lowercase letters, digits and _: ' + bad.join(', ')); return Promise.reject('names'); }
     busy('Saving the model…');
     return fm('fmModelSave', { model: S.model }).then(function () { busy(null); S.dirty = false; toast('Model saved'); return loadAll(); })
+        .then(function () { if (S.tab === 'model') renderStudio(); })
         .catch(function (e) { busy(null); toast('Not saved: ' + e); throw e; });
 }
 
@@ -210,7 +212,7 @@ function renderTree() {
     });
     var names = Object.keys(mods);
     $('tree').innerHTML = names.length ? names.map(function (m) {
-        return '<details class="tmod" open><summary><i class="fa-solid fa-database"></i> ' + esc(m) + '</summary>' + Object.keys(mods[m]).map(function (t) {
+        return '<details class="tmod" open><summary><i class="fa-solid fa-' + (m === 'memory' ? 'calendar-days' : 'database') + '"></i> ' + esc(m === 'memory' ? 'model (generated)' : m) + '</summary>' + Object.keys(mods[m]).map(function (t) {
             return '<details class="ttab"' + (q ? ' open' : '') + '><summary><i class="fa-solid fa-table"></i> ' + esc(t) + ' <button class="btn sm" data-act="qtable" data-q="' + esc(m + '.' + t) + '" title="Query this table" style="margin-left:auto;padding:2px 6px"><i class="fa-solid fa-play"></i></button></summary>' +
                 mods[m][t].map(function (r) { return '<div class="tcol" data-ins="' + esc(r[2]) + '"><span>' + esc(r[2]) + '</span><small>' + esc(r[3]) + '</small></div>'; }).join('') + '</details>';
         }).join('') + '</details>';
@@ -224,7 +226,10 @@ function runQuery() {
     var sql = $('sql').value.trim(); if (!sql) return;
     $('qinfo').textContent = 'running…';
     var t0 = Date.now();
-    fm('fmQuery', { sql: sql, maxRows: +$('maxrows').value || 1000 }).then(function (d) {
+    var dax = $('qmode') && $('qmode').value === 'dax';
+    (dax ? fm('fmEvaluateText', { text: sql }).then(function (d) {
+        var r = d.result; return { result: { columns: r.columns.map(function (c) { return { name: c.name, type: c.role === 'measure' ? 'DOUBLE' : c.type }; }), rows: r.rows, capped: r.capped, ms: r.ms } };
+    }) : fm('fmQuery', { sql: sql, maxRows: +$('maxrows').value || 1000 })).then(function (d) {
         S.last = d.result; renderGrid(d.result);
         $('qinfo').textContent = num(d.result.rows.length) + ' rows' + (d.result.capped ? ' (more not shown)' : '') + ' · ' + d.result.ms + ' ms in DuckDB · ' + (Date.now() - t0) + ' ms total';
     }).catch(function (e) { $('qinfo').textContent = ''; $('grid').innerHTML = '<div class="err pad">' + esc(e) + '</div>'; });
@@ -418,6 +423,7 @@ document.addEventListener('change', function (e) {
 document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && !$('modal').hidden) modal(null);
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target.id === 'sql') { e.preventDefault(); runQuery(); }
+    if (e.target.id === 'qmode') return;
 });
 window.addEventListener('beforeunload', function (e) { if (S.dirty) { e.preventDefault(); e.returnValue = ''; } });
 

@@ -17,6 +17,7 @@
         </div>
         <nav class="tabs">
             <button class="tab active" data-tab="modules"><i class="fa-solid fa-layer-group"></i> Modules</button>
+            <button class="tab" data-tab="model"><i class="fa-solid fa-calculator"></i> Model</button>
             <button class="tab" data-tab="explore"><i class="fa-solid fa-magnifying-glass-chart"></i> Explore</button>
             <button class="tab" data-tab="log"><i class="fa-solid fa-gauge-high"></i> Refresh Center</button>
             <button class="tab" data-tab="settings"><i class="fa-solid fa-gear"></i> Settings</button>
@@ -43,6 +44,11 @@
         </main>
     </section>
 
+    <section class="page" id="page-model" hidden>
+        <aside class="side"><div class="side-h"><b>Model</b></div><div class="rlist" id="studio-nav"></div></aside>
+        <main class="main scroll" id="studio-main"></main>
+    </section>
+
     <section class="page" id="page-explore" hidden>
         <aside class="side">
             <div class="side-h"><b>Tables</b><button class="btn sm" data-act="schema" title="Reload"><i class="fa-solid fa-rotate"></i></button></div>
@@ -54,6 +60,7 @@
                 <textarea id="sql" spellcheck="false" placeholder="SELECT customer, SUM(shipped_qty) AS shipped FROM wms.trip_orders GROUP BY customer ORDER BY shipped DESC">SELECT * FROM information_schema.tables WHERE table_schema = 'main' ORDER BY table_catalog, table_name</textarea>
                 <div class="ebar">
                     <button class="btn primary" data-act="run"><i class="fa-solid fa-play"></i> Run <small>Ctrl+Enter</small></button>
+                    <select id="qmode" title="SQL over the tables, or a measure query (EVALUATE SUMMARIZECOLUMNS …)"><option value="sql">SQL</option><option value="dax">Measures (EVALUATE)</option></select>
                     <label class="muted sm">max rows <input type="number" id="maxrows" class="num" value="1000" min="1" max="100000"></label>
                     <span class="grow"></span>
                     <span class="muted sm" id="qinfo"></span>
@@ -82,5 +89,6 @@
 
     <script src="starter.js"></script>
     <script src="fusionmodel.js"></script>
+    <script src="studio.js"></script>
 </body>
 </html>

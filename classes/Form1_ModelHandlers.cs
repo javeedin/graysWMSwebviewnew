@@ -148,6 +148,21 @@ namespace WMSApp
                             break;
                         }
 
+                    case "fmEvaluate":
+                        {
+                            var req = root.GetProperty("request").Deserialize<FusionModel.Semantic.SemanticRequest>(FusionModel.Json.Options);
+                            data = new { ok = true, result = await Task.Run(() => engine.Evaluate(req, user)) };
+                            break;
+                        }
+
+                    case "fmEvaluateText":
+                        data = new { ok = true, result = await Task.Run(() => engine.EvaluateText(PStr(root, "text") ?? "", user)) };
+                        break;
+
+                    case "fmValidate":
+                        data = new { ok = true, errors = await Task.Run(() => engine.ValidateMeasures()) };
+                        break;
+
                     case "fmSync":
                         data = new { ok = true, copied = await Task.Run(() => engine.SyncCache()) };
                         break;

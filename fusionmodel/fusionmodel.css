@@ -229,3 +229,21 @@ tr.revoked td { opacity: .55; }
 .rc-head .row { gap: 28px; font-size: .84rem; }
 .rc-head b { color: var(--muted); font-weight: 600; margin-right: 6px; }
 .rc-mod .kv { grid-template-columns: 90px 1fr; font-size: .8rem; }
+/* model studio */
+.studio-foot { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; }
+#page-model .side { gap: 6px; }
+#studio-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.studio-split { display: grid; grid-template-columns: 250px 1fr; gap: 16px; align-items: start; }
+.studio-list { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 8px; display: flex; flex-direction: column; gap: 2px; max-height: calc(100vh - 140px); overflow-y: auto; }
+.studio-edit { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+textarea.dax { width: 100%; font-family: var(--mono); font-size: .84rem; line-height: 1.5; border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; background: #0f172a; color: #e2e8f0; resize: vertical; }
+.card input.desc { width: 100%; border: 1px solid var(--line); background: var(--soft); border-radius: 8px; padding: 7px 9px; font-size: .82rem; }
+.grid.mini { max-height: 320px; border: 1px solid var(--line); border-radius: 9px; }
+.null { color: #cbd5e1; font-style: italic; }
+.sqlbox { background: #0f172a; color: #c7d2fe; font-family: var(--mono); font-size: .72rem; padding: 10px; border-radius: 8px; white-space: pre-wrap; word-break: break-all; margin: 0 10px 10px; }
+.help .sm { line-height: 1.7; }
+table.rel select { border: 1px solid var(--line); border-radius: 7px; padding: 4px 6px; font-size: .78rem; background: var(--soft); max-width: 200px; }
+.card.role { background: var(--soft); }
+.card.role .row { align-items: center; }
+.card.role select, .card.role input { border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; font-size: .8rem; background: #fff; }
+#qmode { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font-size: .8rem; background: #fff; }

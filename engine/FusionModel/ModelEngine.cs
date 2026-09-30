@@ -482,6 +482,7 @@ namespace FusionModel
                 copied.Add(Path.GetFileName(dst));
             }
             Json.WriteAtomic(CacheManifestPath, manifest);
+            try { if (File.Exists(ModelPath)) File.Copy(ModelPath, Path.Combine(Settings.CacheRoot, "model.json"), true); } catch { }
             if (copied.Count > 0) ResetSession();        // the next query attaches the new versions
             // old local versions: remove when nothing holds them any more (a file still open elsewhere is left for next time)
             var current = new HashSet<string>(manifest.Modules.Values.Select(e => Path.GetFileName(e.File)), StringComparer.OrdinalIgnoreCase);
@@ -534,16 +535,23 @@ namespace FusionModel
             }
         }
 
+        /// <summary>The model for reading: the shared model.json, or the copy in the local cache when the share is offline.</summary>
+        public ModelDefinition LoadModelForRead() =>
+            (SharedReachable ? Json.Read<ModelDefinition>(ModelPath) : null) ?? Json.Read<ModelDefinition>(Path.Combine(Settings.CacheRoot ?? "", "model.json")) ?? new ModelDefinition();
+
         private DuckDBConnection Session()
         {
             var files = ReadableFiles();
-            string key = string.Join("|", files.OrderBy(k => k.Key).Select(k => k.Key + "=" + k.Value));
+            var model = LoadModelForRead();
+            string key = "model" + model.Version + ";" + JsonSerializer.Serialize(model.Calendar) + "|" + string.Join("|", files.OrderBy(k => k.Key).Select(k => k.Key + "=" + k.Value));
             if (_session != null && key == _sessionKey) return _session;
             ResetSessionNoLock();
             var conn = new DuckDBConnection("Data Source=:memory:");
             conn.Open();
             foreach (var (name, path) in files)
                 Exec(conn, "ATTACH " + Names.Lit(path) + " AS " + Names.Q(name) + " (READ_ONLY)");
+            if (model.Calendar?.Enabled != false)
+                Exec(conn, FusionModel.Semantic.SemanticModel.CalendarSql(model.Calendar, DateTime.Now.Year));
             // queries (people, reports, the AI) may not read other files, load extensions or change settings
             Exec(conn, "SET enable_external_access = false");
             Exec(conn, "SET lock_configuration = true");
@@ -558,6 +566,76 @@ namespace FusionModel
             try { _session?.Dispose(); } catch { }
             _session = null; _sessionKey = null;
         }
+
+        // ── semantic queries (measures with filter context) ───────────
+        private FusionModel.Semantic.SemanticModel _sem;
+        private string _semKey;
+
+        /// <summary>The model bound to the published data (cached until the model or a module version changes).</summary>
+        public FusionModel.Semantic.SemanticModel Semantic()
+        {
+            var model = LoadModelForRead();
+            var manifest = Settings.ReadMode == "CACHE" ? Json.Read<Manifest>(CacheManifestPath) ?? LoadManifest() : LoadManifest();
+            string key = model.Version + "|" + string.Join(",", manifest.Modules.Select(m => m.Key + "=" + m.Value.Version)) + "|" + JsonSerializer.Serialize(model.Measures) + JsonSerializer.Serialize(model.Relationships) + JsonSerializer.Serialize(model.Roles);
+            if (_sem == null || _semKey != key) { _sem = FusionModel.Semantic.SemanticModel.Build(model, manifest); _semKey = key; }
+            return _sem;
+        }
+
+        /// <summary>Measures by columns with filters, for <paramref name="user"/> (their roles' row filters apply).</summary>
+        public FusionModel.Semantic.SemanticResult Evaluate(FusionModel.Semantic.SemanticRequest req, string user) => Run(Semantic(), req, user, null, null);
+
+        /// <summary>DEFINE MEASURE … EVALUATE SUMMARIZECOLUMNS(…) / ROW(…) [ORDER BY …].</summary>
+        public FusionModel.Semantic.SemanticResult EvaluateText(string text, string user)
+        {
+            var sem = Semantic();
+            var planner = new FusionModel.Semantic.QueryPlanner(sem);
+            var (req, local, filters) = planner.ParseEvaluate(text);
+            return Run(sem, req, user, local, filters);
+        }
+
+        private FusionModel.Semantic.SemanticResult Run(FusionModel.Semantic.SemanticModel sem, FusionModel.Semantic.SemanticRequest req, string user,
+                                                         Dictionary<string, MeasureDef> local, List<FusionModel.Semantic.Node> filters)
+        {
+            var sw = Stopwatch.StartNew();
+            var plan = new FusionModel.Semantic.QueryPlanner(sem).Build(req, user, local, filters);
+            var res = new FusionModel.Semantic.SemanticResult { Columns = plan.Columns, Sql = plan.Sql };
+            lock (_sessionLock)
+            {
+                var conn = Session();
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = plan.Sql;
+                    using var r = cmd.ExecuteReader();
+                    for (int i = 0; i < r.FieldCount && i < res.Columns.Count; i++) res.Columns[i].Type ??= SafeTypeName(r, i);
+                    while (r.Read())
+                    {
+                        if (res.Rows.Count >= plan.Limit) { res.Capped = true; break; }
+                        var row = new object[r.FieldCount];
+                        for (int i = 0; i < row.Length; i++) row[i] = r.IsDBNull(i) ? null : ToPlain(r.GetValue(i));
+                        res.Rows.Add(row);
+                    }
+                }
+                if (plan.TotalsSql != null)
+                {
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText = plan.TotalsSql;
+                    using var r = cmd.ExecuteReader();
+                    if (r.Read())
+                    {
+                        var t = new object[res.Columns.Count];
+                        int m = 0;
+                        for (int i = 0; i < res.Columns.Count; i++)
+                            if (res.Columns[i].Role == "measure") { t[i] = r.IsDBNull(m) ? null : ToPlain(r.GetValue(m)); m++; }
+                        res.Totals = t;
+                    }
+                }
+            }
+            res.Ms = sw.ElapsedMilliseconds;
+            return res;
+        }
+
+        /// <summary>Measures that do not compile (name → error), checked against the published tables.</summary>
+        public Dictionary<string, string> ValidateMeasures() => new FusionModel.Semantic.QueryPlanner(Semantic()).Validate();
 
         // ── status and log ───────────────────────────────────────────
         public EngineStatus Status()
@@ -686,6 +764,12 @@ namespace FusionModel
     public static class Types
     {
         private static readonly string[] Numeric = { "TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT", "FLOAT", "DOUBLE" };
+
+        public static bool IsNumeric(string t)
+        {
+            string u = (t ?? "").ToUpperInvariant();
+            return Rank(u) >= 0 || u is "REAL" or "UINTEGER" or "UBIGINT" or "USMALLINT" or "UTINYINT";
+        }
 
         /// <summary>The type the target column must become to hold the staged values, or null when it already can.</summary>
         public static string Wider(string target, string staged)

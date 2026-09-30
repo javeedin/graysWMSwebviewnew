@@ -13,6 +13,14 @@ namespace FusionModel
         public int Version { get; set; } = 1;
         public List<ModuleDef> Modules { get; set; } = new();
         public List<TableDef> Tables { get; set; } = new();
+        /// <summary>Joins between tables: From = the many side (e.g. wms.trip_orders.CUSTOMER), To = the one side.</summary>
+        public List<RelationshipDef> Relationships { get; set; } = new();
+        /// <summary>Measures in the DAX-compatible language, each with a home table.</summary>
+        public List<MeasureDef> Measures { get; set; } = new();
+        public CalendarDef Calendar { get; set; } = new();
+        public List<HierarchyDef> Hierarchies { get; set; } = new();
+        /// <summary>Row-level security: members see only the rows their filters allow (applied to every query and to the AI).</summary>
+        public List<RoleDef> Roles { get; set; } = new();
 
         public ModuleDef Module(string name) => Modules.FirstOrDefault(m => string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase));
         public TableDef Table(string module, string name) =>
@@ -48,6 +56,57 @@ namespace FusionModel
                 errors.Add($"Table '{dup.Key}' is defined twice.");
             return errors;
         }
+    }
+
+    public sealed class RelationshipDef
+    {
+        public string FromTable { get; set; }            // module.table (many side) - "calendar" for the generated calendar
+        public string FromColumn { get; set; }
+        public string ToTable { get; set; }              // module.table (one side) or "calendar"
+        public string ToColumn { get; set; }
+        public bool Active { get; set; } = true;
+        public string CrossFilter { get; set; } = "single";   // single | both
+    }
+
+    public sealed class MeasureDef
+    {
+        public string Table { get; set; }                // home table (module.table) - where it is listed
+        public string Name { get; set; }
+        public string Expression { get; set; }
+        public string Format { get; set; }               // #,0 · #,0.00 · 0.0% · …
+        public string Folder { get; set; }
+        public string Description { get; set; }
+    }
+
+    /// <summary>The generated date table ("calendar"): one row per day, Gregorian and fiscal attributes.</summary>
+    public sealed class CalendarDef
+    {
+        public bool Enabled { get; set; } = true;
+        public int StartYear { get; set; }               // 0 = five years back
+        public int EndYear { get; set; }                 // 0 = next year
+        public int FiscalYearStartMonth { get; set; } = 1;
+    }
+
+    public sealed class HierarchyDef
+    {
+        public string Name { get; set; }
+        public string Table { get; set; }
+        public List<string> Levels { get; set; } = new();
+    }
+
+    public sealed class RoleDef
+    {
+        public string Name { get; set; }
+        /// <summary>App logins (case-insensitive); "*" = everyone not in another role.</summary>
+        public List<string> Members { get; set; } = new();
+        public List<RoleFilter> Filters { get; set; } = new();
+    }
+
+    public sealed class RoleFilter
+    {
+        public string Table { get; set; }                // module.table
+        public string Column { get; set; }
+        public List<string> Values { get; set; } = new();  // the rows this role may see
     }
 
     public sealed class ModuleDef
