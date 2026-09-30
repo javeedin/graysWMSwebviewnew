@@ -154,15 +154,15 @@ function drawChart(p) {
         ? p.pvals.map(function (pv, i) { return { label: pv, data: p.rows.map(function (row) { return num((row.cells[pv] || [])[0]); }), backgroundColor: RP_PALETTE[i % RP_PALETTE.length], borderColor: RP_PALETTE[i % RP_PALETTE.length] }; })
         : p.measures.map(function (m, i) { return { label: m.name, data: p.rows.map(function (row) { return num((row.cells[''] || [])[i]); }), backgroundColor: type === 'pie' ? p.rows.map(function (_, j) { return RP_PALETTE[j % RP_PALETTE.length]; }) : RP_PALETTE[i % RP_PALETTE.length], borderColor: RP_PALETTE[i % RP_PALETTE.length] }; });
     if (type === 'pie') datasets = datasets.slice(0, 1);
-    // a percentage next to amounts would be a flat line at 0: give it its own axis on the right
+    // one value axis: a percentage next to amounts is left out of the chart (it stays in the table below)
     var pct = function (m) { return /%$/.test(m.format || ''); };
-    var mixed = !p.pivot && type !== 'pie' && r.chart !== 'hbar' && p.measures.some(pct) && p.measures.some(function (m) { return !pct(m); });
-    if (mixed) datasets.forEach(function (d, i) { if (pct(p.measures[i])) { d.yAxisID = 'y1'; d.type = 'line'; d.tension = .25; d.backgroundColor = d.borderColor; } });
+    var mixed = !p.pivot && type !== 'pie' && p.measures.some(pct) && p.measures.some(function (m) { return !pct(m); });
+    if (mixed) datasets = datasets.filter(function (d, i) { return !pct(p.measures[i]); });
     datasets.forEach(function (d) { if (r.chart === 'area') { d.fill = true; d.backgroundColor = d.borderColor + '33'; } if (type === 'line') d.tension = .25; });
     RP.chart = new Chart($('rp-canvas'), {
         type: type, data: { labels: labels, datasets: datasets },
         options: { responsive: true, maintainAspectRatio: false, animation: false, indexAxis: r.chart === 'hbar' ? 'y' : 'x', plugins: { legend: { display: datasets.length > 1 || type === 'pie', position: 'bottom' } },
-            scales: type === 'pie' ? {} : Object.assign({ y: { beginAtZero: true } }, mixed ? { y1: { position: 'right', beginAtZero: true, grid: { drawOnChartArea: false }, ticks: { callback: function (v) { return Math.round(v * 100) + '%'; } } } } : {}) }
+            scales: type === 'pie' ? {} : { y: { beginAtZero: true } } }
     });
 }
 

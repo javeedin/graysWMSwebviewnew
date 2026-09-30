@@ -69,10 +69,11 @@ function renderAcct() {
 function showTab(t) {
     S.tab = t;
     document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === t); });
-    ['modules', 'model', 'reports', 'ask', 'explore', 'log', 'settings'].forEach(function (p) { $('page-' + p).hidden = p !== t; });
+    ['modules', 'model', 'dash', 'reports', 'ask', 'explore', 'log', 'settings'].forEach(function (p) { $('page-' + p).hidden = p !== t; });
     if (t === 'model') renderStudio();
     if (t === 'ask') renderAsk();
     if (t === 'reports') renderReports();
+    if (t === 'dash') renderDashboards();
     if (t === 'modules') renderModules();
     if (t === 'explore' && !S.schema.length) loadSchema();
     if (t === 'log') loadLog();

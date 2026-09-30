@@ -360,6 +360,70 @@ namespace WMSApp
                         data = new { ok = engine.DeleteReport(PStr(root, "id")) };
                         break;
 
+                    case "fmDashboards":
+                        data = new { ok = true, dashboards = engine.LoadDashboards() };
+                        break;
+
+                    case "fmDashboardSave":
+                        {
+                            var d = System.Text.Json.Nodes.JsonNode.Parse(root.GetProperty("dashboard").GetRawText()) as System.Text.Json.Nodes.JsonObject;
+                            var old = engine.LoadDashboards().FirstOrDefault(x => (string)x["id"] == (string)d?["id"]);
+                            // a locked dashboard is changed only by its author or an AI admin; others save a copy
+                            if (old != null && (bool?)old["locked"] == true && !string.Equals((string)old["by"], user, StringComparison.OrdinalIgnoreCase) && !await AiControl.IsAdminAsync(user))
+                            { data = new { ok = false, error = "This dashboard is locked by " + (string)old["by"] + " - save a copy." }; break; }
+                            data = new { ok = true, dashboard = engine.SaveDashboard(d, user) };
+                            break;
+                        }
+
+                    case "fmDashboardDelete":
+                        {
+                            string id = PStr(root, "id");
+                            var old = engine.LoadDashboards().FirstOrDefault(x => (string)x["id"] == id);
+                            if (old != null && !string.Equals((string)old["by"], user, StringComparison.OrdinalIgnoreCase) && !await AiControl.IsAdminAsync(user))
+                            { data = new { ok = false, error = "Only " + (string)old["by"] + " or an AI admin can delete this dashboard." }; break; }
+                            data = new { ok = engine.DeleteDashboard(id) };
+                            break;
+                        }
+
+                    case "fmDashboardAuto":
+                        data = new { ok = true, dashboard = await Task.Run(() => FusionModel.Ai.DashboardCopilot.Auto(engine, user, string.IsNullOrWhiteSpace(PStr(root, "module")) ? null : PStr(root, "module"))) };
+                        break;
+
+                    case "fmDashAi":
+                        {
+                            if (!await AiControl.IsEnabledAsync(user)) { data = new { ok = false, error = "The AI is paused (AI Digital Employee › Control)." }; break; }
+                            string mode = (PStr(root, "mode") ?? "create").ToLowerInvariant();
+                            string prompt = PStr(root, "prompt") ?? "";
+                            string question = prompt;
+                            if (mode == "edit" && root.TryGetProperty("dashboard", out var cur))
+                                question = "CURRENT DASHBOARD (change it as asked, keep the rest):\n```dashboard\n" + cur.GetRawText() + "\n```\nCURRENT PAGE: " + (PStr(root, "page") ?? "") + "\nREQUEST: " + prompt;
+                            if (mode == "insights" && root.TryGetProperty("pageData", out var pd))
+                            {
+                                string raw = pd.GetRawText();
+                                question = "THE PAGE THE USER IS LOOKING AT (visuals with their data):\n" + (raw.Length > 40000 ? raw.Substring(0, 40000) + "…" : raw) + "\n\nREQUEST: " + (string.IsNullOrWhiteSpace(prompt) ? "Explain this page." : prompt);
+                            }
+                            _modelAskCts?.Dispose();
+                            _modelAskCts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            var r = await ModelAskAgent.AskAsync(engine, question, root.TryGetProperty("history", out var hh) ? hh.Clone() : default, user, PStr(root, "model"),
+                                msg => { try { PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "fmProgress", requestId, message = msg })); } catch { } },
+                                _modelAskCts.Token, FusionModel.Ai.DashboardCopilot.SystemPrompt(mode),
+                                mode == "insights" ? null : a => FusionModel.Ai.DashboardCopilot.Check(engine, user, a));
+                            double? cost = null;
+                            try { cost = await AiControl.CostAsync(r.Model, r.TokensIn, r.TokensOut, r.CacheRead, r.CacheWrite, user); } catch { }
+                            AiControl.Audit(new AiControl.AuditEvent
+                            {
+                                User = user, Source = "MODEL", Action = "dashboard_" + mode, Outcome = r.Ok ? "OK" : "FAILED", Model = r.Model,
+                                TokensIn = r.TokensIn, TokensOut = r.TokensOut, CacheRead = r.CacheRead, CacheWrite = r.CacheWrite, CostUsd = cost, DurationMs = sw.ElapsedMilliseconds,
+                                Detail = (prompt.Length > 300 ? prompt.Substring(0, 300) : prompt) + (r.Ok ? "" : " · " + r.Error)
+                            });
+                            var dash = r.Ok && mode != "insights" ? FusionModel.Ai.DashboardCopilot.Extract(r.Answer) : null;
+                            string text = r.Answer == null ? null : System.Text.RegularExpressions.Regex.Replace(r.Answer, @"```dashboard\s*\n.*?```", "", System.Text.RegularExpressions.RegexOptions.Singleline).Trim();
+                            string stillWrong = dash != null ? FusionModel.Ai.DashboardCopilot.Check(engine, user, r.Answer) : null;
+                            data = new { ok = r.Ok, error = r.Error, answer = text, dashboard = dash, warnings = stillWrong, steps = r.Steps, costUsd = cost };
+                            break;
+                        }
+
                     default:
                         data = new { ok = false, error = "Unknown action " + action };
                         break;

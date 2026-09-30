@@ -14,12 +14,13 @@
         <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
         <div class="logo"><i class="fa-solid fa-cubes-stacked"></i></div>
         <div>
-            <h1>Fusion Model <span class="ver">phase 4</span></h1>
+            <h1>Fusion Model <span class="ver">dashboards</span></h1>
             <p>One fast, shared dataset — DuckDB module files loaded from APEX and Oracle Fusion, read by every PC</p>
         </div>
         <nav class="tabs">
             <button class="tab active" data-tab="modules"><i class="fa-solid fa-layer-group"></i> Modules</button>
             <button class="tab" data-tab="model"><i class="fa-solid fa-calculator"></i> Model</button>
+            <button class="tab" data-tab="dash"><i class="fa-solid fa-chart-pie"></i> Dashboards</button>
             <button class="tab" data-tab="reports"><i class="fa-solid fa-chart-column"></i> Reports</button>
             <button class="tab" data-tab="ask"><i class="fa-solid fa-wand-magic-sparkles"></i> Ask</button>
             <button class="tab" data-tab="explore"><i class="fa-solid fa-magnifying-glass-chart"></i> Explore</button>
@@ -52,6 +53,18 @@
     <section class="page" id="page-model" hidden>
         <aside class="side"><div class="side-h"><b>Model</b></div><div class="rlist" id="studio-nav"></div></aside>
         <main class="main scroll" id="studio-main"></main>
+    </section>
+
+    <section class="page" id="page-dash" hidden>
+        <div class="dash" id="dash-root">
+            <div class="dash-top" id="dash-top"></div>
+            <div class="dash-body">
+                <aside class="dash-left" id="dash-left"></aside>
+                <main class="dash-main"><div class="dash-canvas" id="dash-canvas"></div><div class="dash-pages" id="dash-pages"></div></main>
+                <aside class="dash-right" id="dash-right"></aside>
+                <aside class="dash-copilot" id="dash-copilot"></aside>
+            </div>
+        </div>
     </section>
 
     <section class="page" id="page-reports" hidden>
@@ -121,5 +134,7 @@
     <script src="ask.js"></script>
     <script src="packs.js"></script>
     <script src="reports.js"></script>
+    <script src="dashboards.js"></script>
+    <script src="dash-edit.js"></script>
 </body>
 </html>

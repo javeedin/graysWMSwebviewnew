@@ -37,9 +37,13 @@ namespace WMSApp
 
         private static long N(object o) => o == null ? 0 : Convert.ToInt64(o);
 
+        /// <param name="systemPrompt">Replaces the default guide (e.g. the dashboard designer's).</param>
+        /// <param name="checkAnswer">Checks a final answer; a non-null result is sent back to Claude to fix (at most twice).</param>
         public static async Task<AskResult> AskAsync(ModelEngine engine, string question, JsonElement history, string user, string model,
-                                                     Action<string> progress, CancellationToken ct)
+                                                     Action<string> progress, CancellationToken ct,
+                                                     string systemPrompt = null, Func<string, string> checkAnswer = null)
         {
+            int repairs = 0;
             var res = new AskResult { Model = string.IsNullOrWhiteSpace(model) ? DEFAULT_MODEL : model };
             string key = WMSApp.FusionSql.FusionSqlStore.LoadAiKey();
             if (string.IsNullOrEmpty(key)) { res.Error = "No Claude API key saved. Add it in Fusion SQL › Ask AI (⚙)."; return res; }
@@ -80,7 +84,7 @@ namespace WMSApp
                     {
                         Model = res.Model,
                         MaxTokens = 12000,
-                        System = ModelTools.Guide,
+                        System = systemPrompt ?? ModelTools.Guide,
                         Tools = apiTools,
                         ToolChoice = last ? new ToolChoiceNone() : null,
                         Thinking = new ThinkingConfigAdaptive(),
@@ -110,6 +114,15 @@ namespace WMSApp
                     {
                         string stop = resp.StopReason?.ToString() ?? "";
                         if (text.Length == 0) { res.Error = stop.IndexOf("refusal", StringComparison.OrdinalIgnoreCase) >= 0 ? "Claude declined this request." : "Claude returned no answer (" + stop + ")."; return res; }
+                        string problems = checkAnswer == null || repairs >= 2 ? null : await Task.Run(() => checkAnswer(text.ToString()), ct).ConfigureAwait(false);
+                        if (problems != null && !last)
+                        {
+                            repairs++;
+                            res.Steps.Add("🔧 Fixing: " + (problems.Length > 120 ? problems.Substring(0, 120) + "…" : problems));
+                            progress?.Invoke(res.Steps[^1]);
+                            messages.Add(new MessageParam { Role = Role.User, Content = "The app checked your answer and found problems - fix them and send the complete answer again:\n" + problems });
+                            continue;
+                        }
                         res.Ok = true;
                         res.Answer = text.ToString();
                         return res;
