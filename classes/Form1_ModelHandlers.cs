@@ -24,6 +24,7 @@ namespace WMSApp
         private static readonly HttpClient _modelHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         private CancellationTokenSource _modelRefreshCts;
         private CancellationTokenSource _modelAskCts;
+        private CancellationTokenSource _modelAutoCts;
         private System.Threading.Timer _modelSyncTimer;
         private static readonly JsonSerializerOptions _modelJson = new JsonSerializerOptions(FusionModel.Json.Options) { WriteIndented = false };
 
@@ -116,10 +117,11 @@ namespace WMSApp
         private async Task HandleModelAction(WebView2 wv, string action, JsonElement root, string requestId)
         {
             string user = PStr(root, "appUser");
-            if (string.IsNullOrWhiteSpace(user) || user == "UNKNOWN") user = GetClaudeCliService().PolicyUser;
             object data;
             try
             {
+                // inside the try: whatever fails here still answers the page (a request without a reply spins forever)
+                if (string.IsNullOrWhiteSpace(user) || user == "UNKNOWN") user = GetClaudeCliService().PolicyUser;
                 var engine = GetModelEngine();
                 switch (action)
                 {
@@ -179,6 +181,7 @@ namespace WMSApp
 
                     case "fmCancel":
                         _modelRefreshCts?.Cancel();
+                        _modelAutoCts?.Cancel();
                         data = new { ok = true };
                         break;
 
@@ -386,8 +389,26 @@ namespace WMSApp
                         }
 
                     case "fmDashboardAuto":
-                        data = new { ok = true, dashboard = await Task.Run(() => FusionModel.Ai.DashboardCopilot.Auto(engine, user, string.IsNullOrWhiteSpace(PStr(root, "module")) ? null : PStr(root, "module"))) };
-                        break;
+                        {
+                            // progress to the page, Cancel (fmCancel) and a 2-minute limit: the page is never left spinning
+                            _modelAutoCts?.Dispose();
+                            _modelAutoCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+                            var ct = _modelAutoCts.Token;
+                            string module = string.IsNullOrWhiteSpace(PStr(root, "module")) ? null : PStr(root, "module");
+                            var notes = new List<string>();
+                            string last = "starting";
+                            void progress(string m) { last = m; try { PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "fmProgress", requestId, message = m })); } catch { } }
+                            var work = Task.Run(() => FusionModel.Ai.DashboardCopilot.Auto(engine, user, module, null, progress, ct, notes));
+                            if (await Task.WhenAny(work, Task.Delay(TimeSpan.FromMinutes(2).Add(TimeSpan.FromSeconds(10)))) != work)
+                            {
+                                _modelAutoCts.Cancel();
+                                data = new { ok = false, error = "Quick dashboard stopped after 2 minutes (last step: " + last + ")." };
+                                break;
+                            }
+                            try { data = new { ok = true, dashboard = await work, notes }; }
+                            catch (OperationCanceledException) { data = new { ok = false, error = "Quick dashboard was stopped (last step: " + last + ")." }; }
+                            break;
+                        }
 
                     case "fmDashAi":
                         {

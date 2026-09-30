@@ -550,11 +550,12 @@ namespace FusionModel
                 var conn = Session();
                 using var cmd = conn.CreateCommand();
                 cmd.CommandText = sql;
-                using var reader = cmd.ExecuteReader();
+                using var limit = new QueryLimit(cmd, timeout, default);
+                using var reader = limit.Run(() => cmd.ExecuteReader());
                 var result = new QueryResult();
                 for (int i = 0; i < reader.FieldCount; i++)
                     result.Columns.Add(new ColumnInfo { Name = reader.GetName(i), Type = SafeTypeName(reader, i) });
-                while (reader.Read())
+                while (limit.Run(() => reader.Read()))
                 {
                     if (result.Rows.Count >= maxRows) { result.Capped = true; break; }
                     var row = new object[reader.FieldCount];
@@ -615,6 +616,11 @@ namespace FusionModel
         /// <summary>Measures by columns with filters, for <paramref name="user"/> (their roles' row filters apply).</summary>
         public FusionModel.Semantic.SemanticResult Evaluate(FusionModel.Semantic.SemanticRequest req, string user) => Run(Semantic(), req, user, null, null);
 
+        /// <summary>As <see cref="Evaluate(FusionModel.Semantic.SemanticRequest, string)"/>, stopped after <paramref name="timeout"/>
+        /// (<see cref="TimeoutException"/>) or when <paramref name="ct"/> is cancelled.</summary>
+        public FusionModel.Semantic.SemanticResult Evaluate(FusionModel.Semantic.SemanticRequest req, string user, TimeSpan? timeout, CancellationToken ct = default) =>
+            Run(Semantic(), req, user, null, null, timeout, ct);
+
         /// <summary>DEFINE MEASURE … EVALUATE SUMMARIZECOLUMNS(…) / ROW(…) [ORDER BY …].</summary>
         public FusionModel.Semantic.SemanticResult EvaluateText(string text, string user)
         {
@@ -625,7 +631,8 @@ namespace FusionModel
         }
 
         private FusionModel.Semantic.SemanticResult Run(FusionModel.Semantic.SemanticModel sem, FusionModel.Semantic.SemanticRequest req, string user,
-                                                         Dictionary<string, MeasureDef> local, List<FusionModel.Semantic.Node> filters)
+                                                         Dictionary<string, MeasureDef> local, List<FusionModel.Semantic.Node> filters,
+                                                         TimeSpan? timeout = null, CancellationToken ct = default)
         {
             var sw = Stopwatch.StartNew();
             var plan = new FusionModel.Semantic.QueryPlanner(sem).Build(req, user, local, filters);
@@ -636,9 +643,10 @@ namespace FusionModel
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = plan.Sql;
-                    using var r = cmd.ExecuteReader();
+                    using var limit = new QueryLimit(cmd, timeout, ct);
+                    using var r = limit.Run(() => cmd.ExecuteReader());
                     for (int i = 0; i < r.FieldCount && i < res.Columns.Count; i++) res.Columns[i].Type ??= SafeTypeName(r, i);
-                    while (r.Read())
+                    while (limit.Run(() => r.Read()))
                     {
                         if (res.Rows.Count >= plan.Limit) { res.Capped = true; break; }
                         var row = new object[r.FieldCount];
@@ -650,8 +658,9 @@ namespace FusionModel
                 {
                     using var cmd = conn.CreateCommand();
                     cmd.CommandText = plan.TotalsSql;
-                    using var r = cmd.ExecuteReader();
-                    if (r.Read())
+                    using var limit = new QueryLimit(cmd, timeout, ct);
+                    using var r = limit.Run(() => cmd.ExecuteReader());
+                    if (limit.Run(() => r.Read()))
                     {
                         var t = new object[res.Columns.Count];
                         int m = 0;

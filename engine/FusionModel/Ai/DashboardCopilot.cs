@@ -94,8 +94,13 @@ Options (all optional): ""format"": ""#,0"" | ""0.0%"", ""color"": ""#hex"", ""l
         /// A dashboard without AI: KPI cards for the first measures, the trend over months, breakdowns by the main
         /// dimensions, a detail table and a year slicer - every visual checked against the model, failing ones dropped.
         /// </summary>
-        public static JsonObject Auto(ModelEngine engine, string user, string module = null, string name = null)
+        public static JsonObject Auto(ModelEngine engine, string user, string module = null, string name = null) => Auto(engine, user, module, name, null, default, null);
+
+        /// <summary>Quick dashboard with progress, cancel and time limits: a column check that takes over 15 s and a visual
+        /// that takes over 45 s are left out (said in <paramref name="notes"/>) instead of holding the page.</summary>
+        public static JsonObject Auto(ModelEngine engine, string user, string module, string name, Action<string> progress, CancellationToken ct, List<string> notes)
         {
+            progress?.Invoke("Reading the model…");
             var sem = engine.Semantic();
             var measures = sem.Measures.Values
                 .Where(m => module == null || (m.Table ?? "").StartsWith(module + ".", StringComparison.OrdinalIgnoreCase))
@@ -119,11 +124,14 @@ Options (all optional): ""format"": ""#,0"" | ""0.0%"", ""color"": ""#hex"", ""l
                                                        !System.Text.RegularExpressions.Regex.IsMatch(c.Name, @"(_ID|_KEY|ID|_NUM|_NUMBER|DESCRIPTION|_DATE)$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)))
                 {
                     if (dims.Count >= 3) break;
+                    ct.ThrowIfCancellationRequested();
+                    progress?.Invoke("Looking for categories: " + t.Name + "." + c.Name);
                     try
                     {
-                        var n = Convert.ToInt64(engine.Query("SELECT approx_count_distinct(" + Names.Q(c.Name) + ") FROM " + t.SqlName, 1).Rows[0][0]);
+                        var n = Convert.ToInt64(engine.Query("SELECT approx_count_distinct(" + Names.Q(c.Name) + ") FROM " + t.SqlName, 1, TimeSpan.FromSeconds(15)).Rows[0][0]);
                         if (n >= 2 && n <= 50) dims.Add(planner.Display(c));
                     }
+                    catch (TimeoutException) { notes?.Add("Skipped " + t.Name + "." + c.Name + " as a category (counting its values took over 15 s)."); }
                     catch { }
                 }
             JsonObject V(string id, string type, string title, int x, int y, int w, int h, string[] cat, string series, IEnumerable<string> vals, JsonObject opt = null, int? top = null, string sortBy = null)
@@ -167,9 +175,12 @@ Options (all optional): ""format"": ""#,0"" | ""0.0%"", ""color"": ""#hex"", ""l
             };
             // drop what does not run on this model
             var page = (JsonObject)((JsonArray)d["pages"])[0];
-            var bad = engine.ValidateDashboard(d, user).Select(e => e.Split(':')[0]).ToHashSet();
+            var problems = engine.ValidateDashboard(d, user, TimeSpan.FromSeconds(45), ct, progress);
+            foreach (var p in problems) notes?.Add("Left out " + p);
+            var bad = problems.Select(e => e.Split(':')[0]).ToHashSet();
             var keep = ((JsonArray)page["visuals"]).OfType<JsonObject>().Where(v => !bad.Contains("Overview › " + (string)v["title"])).Select(v => v.DeepClone()).ToArray();
             page["visuals"] = new JsonArray(keep);
+            if (keep.Length == 0) throw new InvalidOperationException("None of the visuals ran on this model" + (problems.Count > 0 ? ": " + problems[0] : "") + ". Load the module's tables first (Modules › Refresh).");
             return d;
         }
 

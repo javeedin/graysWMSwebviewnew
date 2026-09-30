@@ -86,9 +86,14 @@ namespace FusionModel
             node is JsonArray a ? a.Deserialize<List<FilterSpec>>(Json.Options) ?? new() : new();
 
         /// <summary>Runs every visual of a dashboard (5 rows each) and returns the problems as "page › visual: error".</summary>
-        public List<string> ValidateDashboard(JsonObject d, string user)
+        public List<string> ValidateDashboard(JsonObject d, string user) => ValidateDashboard(d, user, null);
+
+        /// <summary>Runs every visual (top 5 rows); each one stops after <paramref name="perVisual"/> (reported as an error)
+        /// and all stop when <paramref name="ct"/> is cancelled. <paramref name="progress"/> gets "visual i of n".</summary>
+        public List<string> ValidateDashboard(JsonObject d, string user, TimeSpan? perVisual, CancellationToken ct = default, Action<string> progress = null)
         {
             var errors = new List<string>();
+            int total = (d["pages"] as JsonArray ?? new JsonArray()).OfType<JsonObject>().Sum(p => (p["visuals"] as JsonArray)?.Count ?? 0), n = 0;
             var dashFilters = Filters(d["filters"]);
             foreach (var p in (d["pages"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
             {
@@ -96,6 +101,8 @@ namespace FusionModel
                 foreach (var v in (p["visuals"] as JsonArray ?? new JsonArray()).OfType<JsonObject>())
                 {
                     string where = (string)p["name"] + " › " + ((string)v["title"] ?? (string)v["type"] ?? "visual");
+                    ct.ThrowIfCancellationRequested();
+                    progress?.Invoke("Checking visual " + (++n) + " of " + total + ": " + ((string)v["title"] ?? (string)v["type"]));
                     string type = ((string)v["type"] ?? "").ToLowerInvariant();
                     if (!Visuals.Contains(type)) { errors.Add(where + ": unknown visual type '" + type + "' (use " + string.Join(", ", Visuals) + ")"); continue; }
                     if (type is "text") continue;
@@ -105,8 +112,9 @@ namespace FusionModel
                         if (req.Measures.Count == 0 && req.GroupBy.Count == 0) { errors.Add(where + ": no fields"); continue; }
                         if (type != "slicer" && req.Measures.Count == 0) { errors.Add(where + ": needs at least one value (measure)"); continue; }
                         req.Top = 5;
-                        Evaluate(req, user);
+                        Evaluate(req, user, perVisual, ct);
                     }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
                     catch (Exception ex) { errors.Add(where + ": " + ex.Message); }
                 }
             }

@@ -525,11 +525,25 @@ function dashQuick() {
     var mods = (S.model.modules || []).map(function (m) { return m.name; });
     var module = mods.length > 1 ? prompt('Quick dashboard for which module? (' + mods.join(', ') + ' — empty = all)', '') : '';
     if (module === null) return;
-    busy('Designing the page…');
-    fm('fmDashboardAuto', { module: module || '' }).then(function (r) {
+    // progress from the app, Cancel on the overlay (fmCancel) and a watchdog: the spinner never stays up for ever
+    var done = false, watchdog = setTimeout(function () {
+        if (done) return; done = true; busy(null); host('fmCancel').catch(function () { });
+        modal('<h2><i class="fa-solid fa-triangle-exclamation"></i> Quick dashboard did not answer</h2>' +
+            '<p>The app did not reply within 3 minutes. If you pulled new code, rebuild and restart GraysWMS; otherwise check that the module\'s tables are loaded (Modules › Refresh).</p>' +
+            '<div class="modal-f"><button class="btn primary" data-mact="close">OK</button></div>');
+    }, 180000);
+    busy('Designing the page…', true);
+    fm('fmDashboardAuto', { module: module || '' }, function (msg) { if (!done) busy(msg, true); }).then(function (r) {
+        if (done) return; done = true; clearTimeout(watchdog);
         busy(null); dashOpen(null); DB.cur = normDash(r.dashboard); DB.edit = true; DB.dirty = true; dashRender(true);
-        toast('Quick dashboard ready — change anything, then Save');
-    }).catch(function (e) { busy(null); toast(String(e)); });
+        var notes = r.notes || [];
+        toast('Quick dashboard ready — change anything, then Save' + (notes.length ? ' · ' + notes.length + ' visual(s) left out: ' + notes[0] : ''));
+    }).catch(function (e) {
+        if (done) return; done = true; clearTimeout(watchdog); busy(null);
+        modal('<h2><i class="fa-solid fa-bolt"></i> Quick dashboard</h2><p>' + esc(String(e)) + '</p>' +
+            (/No measures|None of the visuals/.test(String(e)) ? '<p class="muted sm">Quick dashboard builds on the measures of loaded tables. Add a Fusion pack or a starter in <b>Modules</b>, load it with <b>Refresh</b>, then try again.</p>' : '') +
+            '<div class="modal-f"><button class="btn primary" data-mact="close">OK</button></div>');
+    });
 }
 
 // ── Copilot ────────────────────────────────────────────────────
