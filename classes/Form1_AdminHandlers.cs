@@ -57,7 +57,10 @@ namespace WMSApp
                     case "adminCreateZip":
                         data = AdminStartRelease(
                             root.TryGetProperty("includeRag", out var r) && r.ValueKind == JsonValueKind.True,
-                            root.TryGetProperty("comment", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : "");
+                            root.TryGetProperty("comment", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : "",
+                            root.TryGetProperty("modules", out var mods) && mods.ValueKind == JsonValueKind.Array
+                                ? mods.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()).ToList()
+                                : null);
                         break;
                     case "adminReleaseStatus":
                         data = AdminReleaseStatus();
@@ -157,16 +160,49 @@ namespace WMSApp
                 zip = repo == null ? null : AdminZipInfo(repo),
                 dotnet,
                 ragExe = repo != null && File.Exists(Path.Combine(repo, "rag", "dist", "rag_service", "rag_service.exe")),
+                modules = repo == null ? null : AdminModuleFolders(repo),
                 running = _adminReleaseProc != null && !_adminReleaseProc.HasExited,
                 exe = Application.ExecutablePath
             };
         }
 
-        private object AdminStartRelease(bool includeRag, string comment)
+        // Modules the ZIP can carry besides wms (always in) — the Home tiles. Fusion SQL is part of every release.
+        // (rag is the separate "Include RAG service" option.) Built per call: no static initializers in Form1.
+        private static string[] AdminModuleKeys() => new[]
+        {
+            "Inventory", "om", "fusionsql", "dataload", "dllexplorer", "fusionmodel", "powerbi",
+            "aianalysis", "formsdesigner", "agentflow", "internetsearch"
+        };
+
+        private static object AdminModuleFolders(string repo) =>
+            AdminModuleKeys().Select(k =>
+            {
+                var d = new DirectoryInfo(Path.Combine(repo, k));
+                bool ok = d.Exists && File.Exists(Path.Combine(d.FullName, "index.html"));
+                double mb = 0;
+                if (ok) try { mb = Math.Round(d.EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length) / 1048576.0, 1); } catch { }
+                return new { key = k, exists = ok, sizeMb = mb };
+            }).ToList();
+
+        private object AdminStartRelease(bool includeRag, string comment, List<string> modules)
         {
             if (_adminReleaseProc != null && !_adminReleaseProc.HasExited) return new { ok = false, error = "A build is already running — see its console window." };
             var repo = AdminRepoRoot();
             if (repo == null) return new { ok = false, error = "Repository folder not found. Use 'Change folder' to pick the folder with release.bat." };
+
+            // Chosen modules → MODULES for release.bat / package-release.bat. Only known folders that exist in the repo
+            // (the names end up in a batch file); null = the scripts' default list.
+            string moduleList = null;
+            if (modules != null)
+            {
+                var known = AdminModuleKeys();
+                var bad = modules.Where(m => !known.Contains(m, StringComparer.OrdinalIgnoreCase)).ToList();
+                if (bad.Count > 0) return new { ok = false, error = "Unknown module: " + string.Join(", ", bad) };
+                var pick = known.Where(k => k == "fusionsql" || modules.Contains(k, StringComparer.OrdinalIgnoreCase)).ToList();
+                var missing = pick.Where(k => !File.Exists(Path.Combine(repo, k, "index.html"))).ToList();
+                if (missing.Count > 0) return new { ok = false, error = "Module folder not found in the repository: " + string.Join(", ", missing) };
+                moduleList = string.Join(" ", pick);
+            }
 
             string dir = Path.Combine(Path.GetTempPath(), "GraysWMS", "release");
             Directory.CreateDirectory(dir);
@@ -185,6 +221,7 @@ namespace WMSApp
             sb.AppendLine("$env:INCLUDE_RAG = " + ps(includeRag ? "Y" : "N"));
             sb.AppendLine("$env:VERSION_COMMENT = " + ps(comment));
             sb.AppendLine("$env:DIST_OUT = 'dist-release'");
+            if (moduleList != null) sb.AppendLine("$env:MODULES = " + ps(moduleList));
             sb.AppendLine("Write-Host ''; Write-Host '  Gray''s WMS - Create ZIP file' -ForegroundColor Cyan; Write-Host ('  Repository: ' + (Get-Location)) -ForegroundColor DarkGray; Write-Host ''");
             sb.AppendLine("cmd.exe /c \"release.bat 2>&1\" | Tee-Object -FilePath " + ps(_adminReleaseLog));
             sb.AppendLine("$rc = $LASTEXITCODE");

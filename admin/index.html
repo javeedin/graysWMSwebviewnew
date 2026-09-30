@@ -73,6 +73,25 @@
         .muted { color: var(--muted); }
         .spin { animation: sp 1s linear infinite; }
         @keyframes sp { to { transform: rotate(360deg); } }
+        /* module picker */
+        .mods { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 14px; margin-bottom: 16px; background: #f8fafc; }
+        .mods-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+        .mods-h b { font-size: .86rem; }
+        .mods-h .sum { font-size: .76rem; color: var(--muted); }
+        .mods-h .pre { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+        .mods-h .pre button { border: 1px solid var(--line); background: #fff; border-radius: 14px; padding: 3px 10px; font-size: .72rem; font-weight: 600; color: var(--ink); cursor: pointer; }
+        .mods-h .pre button:hover { border-color: var(--accent); color: var(--accent); }
+        .mod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+        .mod { display: flex; align-items: flex-start; gap: 9px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; cursor: pointer; min-width: 0; }
+        .mod:hover { border-color: #94a3b8; }
+        .mod.on { border-color: #5eead4; background: #f0fdfa; }
+        .mod.lock { cursor: default; }
+        .mod.gone { opacity: .5; cursor: not-allowed; }
+        .mod input { margin-top: 3px; accent-color: var(--accent); }
+        .mod .tx { min-width: 0; }
+        .mod .tx b { display: block; font-size: .82rem; }
+        .mod .tx small { display: block; font-size: .7rem; color: var(--muted); line-height: 1.35; }
+        .mod .tag { font-size: .62rem; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; color: var(--accent); }
         .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 10px; font-size: .85rem; display: none; z-index: 10; }
         @media (max-width: 800px) { .stages { grid-template-columns: 1fr 1fr; } .opts input[type=text] { width: 100%; } }
     </style>
@@ -93,7 +112,7 @@
             <div class="ic"><i class="fa-solid fa-file-zipper"></i></div>
             <div>
                 <h2>Create ZIP file</h2>
-                <p>Builds the app and packages <code>fusionclientweb.zip</code> (Home, Warehouse Management, Inventory, AI Digital Employee, Fusion SQL). Runs <code>release.bat</code> for you in a console window, with the status shown here.</p>
+                <p>Builds the app and packages <code>fusionclientweb.zip</code> with the modules you choose below (Home only shows those). Runs <code>release.bat</code> for you in a console window, with the status shown here.</p>
             </div>
         </div>
         <div class="card-b">
@@ -102,6 +121,20 @@
                 <div class="fact"><span>Version</span><b id="f-ver">…</b><small>from version.json</small></div>
                 <div class="fact"><span>Last ZIP</span><b id="f-zip">…</b><small id="f-zip-when"></small></div>
                 <div class="fact"><span>Checks</span><div class="row" id="f-checks" style="margin-top:4px;"></div></div>
+            </div>
+
+            <div class="mods">
+                <div class="mods-h">
+                    <b><i class="fa-solid fa-cubes"></i> Modules in this ZIP</b>
+                    <span class="sum" id="mod-sum"></span>
+                    <div class="pre">
+                        <button type="button" onclick="modPreset('all')">Everything</button>
+                        <button type="button" onclick="modPreset('default')">Standard</button>
+                        <button type="button" onclick="modPreset('wms')">WMS only</button>
+                        <button type="button" onclick="modPreset('fusion')">Fusion tools</button>
+                    </div>
+                </div>
+                <div class="mod-grid" id="mod-grid"></div>
             </div>
 
             <div class="opts">
@@ -129,7 +162,7 @@
             <div class="ic" style="background:#e0e7ff;color:#4338ca;"><i class="fa-solid fa-clock-rotate-left"></i></div>
             <div><h2>Recent builds</h2><p>On this PC</p></div>
         </div>
-        <div class="card-b"><table class="hist"><thead><tr><th>Started</th><th>Result</th><th>Duration</th><th>ZIP</th><th>Comment</th></tr></thead><tbody id="hist"></tbody></table></div>
+        <div class="card-b"><table class="hist"><thead><tr><th>Started</th><th>Result</th><th>Duration</th><th>ZIP</th><th>Modules</th><th>Comment</th></tr></thead><tbody id="hist"></tbody></table></div>
     </section>
 </main>
 <div class="toast" id="toast"></div>
@@ -159,6 +192,56 @@ function fmtSec(s) { return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2
 function lsGet(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { } }
 
+// ── modules ────────────────────────────────────────────────────
+// Keys = folder names (same list as AdminModuleKeys in Form1_AdminHandlers.cs). wms is always in the ZIP.
+var MODS = [
+    { key: 'wms', label: 'Warehouse Management', note: 'Trips, print jobs, printers', always: true },
+    { key: 'fusionsql', label: 'Fusion SQL', note: 'Live read-only SQL on Oracle Fusion', always: true },
+    { key: 'Inventory', label: 'Inventory', note: 'Items, onhand, transactions, receiving' },
+    { key: 'om', label: 'Order Management', note: 'Sales orders and fulfilment' },
+    { key: 'aianalysis', label: 'AI Digital Employee', note: 'AI chat, agents, approvals' },
+    { key: 'dataload', label: 'Data Loading', note: 'FBDI templates, Fusion REST loads' },
+    { key: 'fusionmodel', label: 'Fusion Model', note: 'DuckDB dataset, dashboards, Ask AI' },
+    { key: 'powerbi', label: 'Power BI', note: 'Datasets and embedded reports' },
+    { key: 'dllexplorer', label: 'DLL Explorer', note: 'Read a .dll/.exe, AI feature map' },
+    { key: 'formsdesigner', label: 'Forms Designer', note: 'Designer page (the AI form engine ships anyway)' },
+    { key: 'agentflow', label: 'Agent Flow', note: 'Agent flow designer' },
+    { key: 'internetsearch', label: 'Internet Search', note: 'Web search page' }
+];
+var MOD_PRESETS = {
+    all: null,
+    default: ['Inventory', 'aianalysis', 'dataload', 'dllexplorer', 'powerbi', 'fusionmodel'],
+    wms: ['Inventory'],
+    fusion: ['dataload', 'fusionmodel', 'powerbi', 'aianalysis']
+};
+var MOD_ON = lsGet('admin.modules', null) || MOD_PRESETS.default.slice();
+var MOD_INFO = {};   // key -> { exists, sizeMb } from the host
+function modAvail(m) { return m.always || !MOD_INFO[m.key] || MOD_INFO[m.key].exists; }
+function modIsOn(m) { return m.always || (MOD_ON.indexOf(m.key) >= 0 && modAvail(m)); }
+function renderMods() {
+    $('mod-grid').innerHTML = MODS.map(function (m) {
+        var on = modIsOn(m), gone = !modAvail(m), info = MOD_INFO[m.key];
+        return '<label class="mod' + (on ? ' on' : '') + (m.always ? ' lock' : '') + (gone ? ' gone' : '') + '"' +
+            (gone ? ' title="Folder not found in the repository"' : '') + '>' +
+            '<input type="checkbox" data-mod="' + m.key + '"' + (on ? ' checked' : '') + (m.always || gone ? ' disabled' : '') + '>' +
+            '<span class="tx"><b>' + esc(m.label) + '</b><small>' + esc(m.note) + '</small>' +
+            (m.always ? '<span class="tag">Always included</span>' : info && info.exists ? '<small>' + info.sizeMb + ' MB</small>' : gone ? '<span class="tag" style="color:var(--err)">Not in repo</span>' : '') +
+            '</span></label>';
+    }).join('');
+    var picked = MODS.filter(modIsOn), mb = picked.reduce(function (t, m) { return t + ((MOD_INFO[m.key] || {}).sizeMb || 0); }, 0);
+    $('mod-sum').textContent = picked.length + ' of ' + MODS.length + ' modules' + (mb ? ' · pages ≈ ' + mb.toFixed(1) + ' MB (plus the app, ~170 MB)' : '');
+}
+function modPreset(k) {
+    MOD_ON = MOD_PRESETS[k] ? MOD_PRESETS[k].slice() : MODS.filter(function (m) { return !m.always; }).map(function (m) { return m.key; });
+    lsSet('admin.modules', MOD_ON); renderMods();
+}
+function chosenModules() { return MODS.filter(function (m) { return modIsOn(m) && m.key !== 'wms'; }).map(function (m) { return m.key; }); }
+document.addEventListener('change', function (e) {
+    var k = e.target && e.target.getAttribute && e.target.getAttribute('data-mod'); if (!k) return;
+    MOD_ON = MOD_ON.filter(function (x) { return x !== k; }); if (e.target.checked) MOD_ON.push(k);
+    lsSet('admin.modules', MOD_ON); renderMods();
+});
+
 // ── info ───────────────────────────────────────────────────────
 var INFO = null, POLL = null, RUN = null;
 function loadInfo() {
@@ -175,6 +258,7 @@ function loadInfo() {
             (d.dotnet ? '<span class="chip ok"><i class="fa-solid fa-check"></i> .NET SDK</span>' : '<span class="chip err" title="Install the .NET 8 SDK"><i class="fa-solid fa-xmark"></i> .NET SDK</span>');
         $('o-rag').disabled = !d.ragExe;
         $('o-rag').parentNode.title = d.ragExe ? 'Adds the AI Knowledge Base service (~150 MB)' : 'rag_service.exe is not built on this PC';
+        MOD_INFO = {}; (d.modules || []).forEach(function (m) { MOD_INFO[m.key] = m; }); renderMods();
         $('b-run').disabled = !d.repoRoot || d.running;
         if (d.running && !POLL) startPolling();
     }).catch(function (e) { $('f-repo').textContent = String(e); $('b-run').disabled = true; });
@@ -209,9 +293,10 @@ function renderStages(idx, state) {
 function createZip() {
     var comment = $('o-comment').value.trim();
     $('b-run').disabled = true;
-    host('adminCreateZip', { includeRag: $('o-rag').checked, comment: comment }).then(function (d) {
+    var mods = chosenModules();
+    host('adminCreateZip', { includeRag: $('o-rag').checked, comment: comment, modules: mods }).then(function (d) {
         if (!d || !d.ok) { toast((d && d.error) || 'Could not start the build'); $('b-run').disabled = false; return; }
-        RUN = { started: new Date().toLocaleString(), comment: comment || $('o-comment').placeholder };
+        RUN = { started: new Date().toLocaleString(), comment: comment || $('o-comment').placeholder, modules: ['wms'].concat(mods).join(', ') + ($('o-rag').checked ? ', rag' : '') };
         $('run').classList.add('show'); $('banner').className = 'banner';
         $('term').textContent = 'Console window opened — waiting for output…';
         renderStages(0, 'running');
@@ -256,7 +341,7 @@ function finish(d) {
             '<button class="btn" onclick="openLog()"><i class="fa-regular fa-file-lines"></i> Log</button>';
     }
     var h = lsGet('admin.history', []);
-    h.unshift({ started: RUN ? RUN.started : new Date().toLocaleString(), ok: d.state === 'done', sec: d.elapsedSec, mb: d.zip ? d.zip.sizeMb : null, comment: RUN ? RUN.comment : '' });
+    h.unshift({ started: RUN ? RUN.started : new Date().toLocaleString(), ok: d.state === 'done', sec: d.elapsedSec, mb: d.zip ? d.zip.sizeMb : null, modules: RUN ? RUN.modules : '', comment: RUN ? RUN.comment : '' });
     lsSet('admin.history', h.slice(0, 10));
     RUN = null;
     renderHistory();
@@ -266,11 +351,11 @@ function renderHistory() {
     var h = lsGet('admin.history', []);
     $('hist').innerHTML = h.length ? h.map(function (x) {
         return '<tr><td>' + esc(x.started) + '</td><td>' + (x.ok ? '<span class="chip ok"><i class="fa-solid fa-check"></i> Done</span>' : '<span class="chip err"><i class="fa-solid fa-xmark"></i> Failed</span>') +
-            '</td><td>' + fmtSec(x.sec || 0) + '</td><td>' + (x.mb != null ? x.mb + ' MB' : '—') + '</td><td class="muted">' + esc(x.comment) + '</td></tr>';
-    }).join('') : '<tr><td colspan="5" class="muted">No builds yet.</td></tr>';
+            '</td><td>' + fmtSec(x.sec || 0) + '</td><td>' + (x.mb != null ? x.mb + ' MB' : '—') + '</td><td class="muted" style="font-size:.72rem">' + esc(x.modules || 'standard') + '</td><td class="muted">' + esc(x.comment) + '</td></tr>';
+    }).join('') : '<tr><td colspan="6" class="muted">No builds yet.</td></tr>';
 }
 
-document.addEventListener('DOMContentLoaded', function () { renderHistory(); setTimeout(loadInfo, 300); });
+document.addEventListener('DOMContentLoaded', function () { renderMods(); renderHistory(); setTimeout(loadInfo, 300); });
 </script>
 </body>
 </html>
