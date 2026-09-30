@@ -118,6 +118,7 @@ try
                 // Start mobile notification listener
                 StartMobileListener();
                 try { PowerBiService.StartScheduler(); } catch (Exception pbiEx) { System.Diagnostics.Debug.WriteLine("[PowerBI] scheduler start: " + pbiEx.Message); }
+                StartModelEngineIfRefresher();
             }
             catch (Exception ex)
             {
@@ -1554,7 +1555,10 @@ navPanel.Controls.Add(wmsDevButton);
                     tab.IsSelected = false;
                     tab.BackColor = Color.FromArgb(50, 50, 50);
                     if (tab.WebView != null)
+                    {
                         tab.WebView.Visible = false;
+                        if (tab != tabButton) SetBackgroundMemory(tab.WebView, true);
+                    }
                 }
             }
 
@@ -1563,6 +1567,7 @@ navPanel.Controls.Add(wmsDevButton);
             if (tabButton.WebView != null)
             {
                 tabButton.WebView.Visible = true;
+                SetBackgroundMemory(tabButton.WebView, false);
                 if (tabButton.WebView.CoreWebView2 != null)
                 {
                     urlTextBox.Text = tabButton.WebView.Source?.ToString() ?? "";
@@ -1653,6 +1658,7 @@ navPanel.Controls.Add(wmsDevButton);
                     System.Diagnostics.Debug.WriteLine($"[CACHE] Warning: Could not clear cache: {cacheEx.Message}");
                 }
 
+                AttachWebViewHealth(wv);
                 wv.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
                 wv.CoreWebView2.Settings.AreDevToolsEnabled = true;
                 wv.CoreWebView2.Settings.IsWebMessageEnabled = true;
@@ -2203,6 +2209,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     break;
 
                                 // Power BI module (powerbi/index.html)
+                                case var fmAction when IsModelAction(fmAction):
+                                    await HandleModelAction(wv, action, root, requestId);
+                                    break;
+
                                 case var pbiAction when IsPowerBiAction(pbiAction):
                                     await HandlePowerBiAction(wv, action, root, requestId);
                                     break;

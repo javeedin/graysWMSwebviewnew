@@ -12,6 +12,7 @@ REM       fusionsql\    (Fusion SQL           - TRIAL)
 REM       dataload\     (Data Loading - Fusion FBDI templates)
 REM       dllexplorer\  (DLL Explorer - read a .dll/.exe, AI feature map)
 REM       powerbi\      (Power BI - datasets from APEX, embedded reports)
+REM       fusionmodel\  (Fusion Model - DuckDB module files, shared dataset)
 REM       formsdesigner\form-engine.js  (runtime used by AI Digital Employee)
 REM       dist\         (.NET build output + runtime)
 REM       app.js, config.js, index.html, styles.css, etc.
@@ -21,7 +22,7 @@ REM  row in APEX table WMS_AI_TRIAL (apex_sql\67_trial_period.sql).
 REM
 REM  Options (set before calling, e.g. from release.bat):
 REM    MODULES      module folders besides wms
-REM                 default: Inventory aianalysis fusionsql dataload dllexplorer powerbi
+REM                 default: Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel
 REM    INCLUDE_RAG  Y to add the compiled RAG service (default N)
 REM ============================================================
 
@@ -118,7 +119,7 @@ if errorlevel 1 (
 )
 
 REM --- Copy module folders ---
-if not defined MODULES set "MODULES=Inventory aianalysis fusionsql dataload dllexplorer powerbi"
+if not defined MODULES set "MODULES=Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel"
 echo Modules in this release: wms %MODULES%
 for %%F in (%MODULES%) do (
     if exist "%SCRIPT_DIR%%%F" (

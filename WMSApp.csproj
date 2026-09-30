@@ -28,6 +28,14 @@
     <!-- <PublishTrimmed>true</PublishTrimmed> -->
   </PropertyGroup>
 
+  <!-- engine/ is its own project (net8.0, no Windows APIs): keep its files out of this project's default globs -->
+  <ItemGroup>
+    <Compile Remove="engine\**" />
+    <EmbeddedResource Remove="engine\**" />
+    <None Remove="engine\**" />
+    <ProjectReference Include="engine\FusionModel\FusionModel.csproj" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3537.50" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
@@ -152,6 +160,10 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="dataload\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="fusionmodel\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>

@@ -25,11 +25,11 @@ dotnet restore
 
 REM Build the project
 echo [3/4] Building project...
-dotnet build -c %CONFIG%
+dotnet build WMSApp.csproj -c %CONFIG%
 
 REM Publish single-file executable
 echo [4/4] Publishing single-file executable...
-dotnet publish -c %CONFIG% -o "%OUTPUT_DIR%" --self-contained true -r win-x64 -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true
+dotnet publish WMSApp.csproj -c %CONFIG% -o "%OUTPUT_DIR%" --self-contained true -r win-x64 -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true
 
 echo.
 echo ==========================================

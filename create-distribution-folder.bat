@@ -45,14 +45,14 @@ mkdir %OUTPUT_FOLDER%
 REM Step 2: Publish the project as SELF-CONTAINED
 echo.
 echo Publishing project (self-contained with .NET runtime included)...
-echo Running: dotnet publish -c %CONFIGURATION% -r %RUNTIME% --self-contained true
+echo Running: dotnet publish WMSApp.csproj -c %CONFIGURATION% -r %RUNTIME% --self-contained true
 echo This will bundle .NET 8 runtime - no installation required!
 echo.
 
 REM Clear the previous publish output so no old DLL can survive into dist\
 if exist "%PUBLISH_PATH%" rmdir /s /q "%PUBLISH_PATH%"
 
-dotnet publish -c %CONFIGURATION% -r %RUNTIME% --self-contained true /p:PublishSingleFile=false /p:IncludeNativeLibrariesForSelfExtract=true
+dotnet publish WMSApp.csproj -c %CONFIGURATION% -r %RUNTIME% --self-contained true /p:PublishSingleFile=false /p:IncludeNativeLibrariesForSelfExtract=true
 if errorlevel 1 (
     echo.
     echo Publish failed! Check the error messages above.
@@ -80,7 +80,7 @@ set "VERIFY_DIR=%OUTPUT_FOLDER%"
 REM --- Verify dist\ matches this build (a stale System.Text.Json.dll or deps.json
 REM     makes the app fail with "The type initializer for 'WMSApp.Form1' threw an exception") ---
 set "VERIFY_FAILED="
-for %%F in (GraysWMS.exe GraysWMS.dll GraysWMS.deps.json Anthropic.dll System.Text.Json.dll System.IO.Pipelines.dll System.Text.Encodings.Web.dll Microsoft.Data.Sqlite.dll e_sqlite3.dll System.Security.Cryptography.ProtectedData.dll ICSharpCode.Decompiler.dll Microsoft.Identity.Client.dll Microsoft.Identity.Client.Extensions.Msal.dll) do (
+for %%F in (GraysWMS.exe GraysWMS.dll GraysWMS.deps.json Anthropic.dll System.Text.Json.dll System.IO.Pipelines.dll System.Text.Encodings.Web.dll Microsoft.Data.Sqlite.dll e_sqlite3.dll System.Security.Cryptography.ProtectedData.dll ICSharpCode.Decompiler.dll Microsoft.Identity.Client.dll Microsoft.Identity.Client.Extensions.Msal.dll FusionModel.dll DuckDB.NET.Data.dll DuckDB.NET.Bindings.dll duckdb.dll) do (
     if not exist "%VERIFY_DIR%\%%F" (
         echo ERROR: %%F is missing from %VERIFY_DIR%
         set "VERIFY_FAILED=1"

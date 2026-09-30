@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fusion Model — Fusion Client</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="fusionmodel.css">
+</head>
+<body>
+    <header class="top">
+        <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
+        <div class="logo"><i class="fa-solid fa-cubes-stacked"></i></div>
+        <div>
+            <h1>Fusion Model <span class="ver">phase 0</span></h1>
+            <p>One fast, shared dataset — DuckDB module files loaded from APEX and Oracle Fusion, read by every PC</p>
+        </div>
+        <nav class="tabs">
+            <button class="tab active" data-tab="modules"><i class="fa-solid fa-layer-group"></i> Modules</button>
+            <button class="tab" data-tab="explore"><i class="fa-solid fa-magnifying-glass-chart"></i> Explore</button>
+            <button class="tab" data-tab="log"><i class="fa-solid fa-clock-rotate-left"></i> Refresh log</button>
+            <button class="tab" data-tab="settings"><i class="fa-solid fa-gear"></i> Settings</button>
+        </nav>
+        <div class="acct" id="acct"></div>
+    </header>
+
+    <section class="page" id="page-modules">
+        <aside class="side">
+            <div class="side-h"><b>Modules</b><button class="btn sm" data-act="reload" title="Reload"><i class="fa-solid fa-rotate"></i></button></div>
+            <div class="rlist" id="modlist"></div>
+            <button class="btn block" data-act="starter" data-key="wms"><i class="fa-solid fa-warehouse"></i> Add WMS starter</button>
+            <button class="btn block" data-act="starter" data-key="fusion_ref"><i class="fa-solid fa-building-columns"></i> Add Fusion reference starter</button>
+            <button class="btn block" data-act="addmodule"><i class="fa-solid fa-plus"></i> New module</button>
+        </aside>
+        <main class="main scroll" id="modmain">
+            <div class="empty">
+                <div class="art"><i class="fa-solid fa-cubes-stacked"></i></div>
+                <h2>Your data, one model</h2>
+                <p>A <b>module</b> is one DuckDB file (e.g. <b>wms</b>, <b>gl</b>, <b>ap</b>). Each <b>table</b> in it is loaded from APEX or Oracle Fusion by SQL —
+                    in full, or only the rows changed since the last refresh. The refresher PC publishes a new version; every PC reads it.</p>
+                <p>Start with a starter on the left, then <b>Refresh</b>.</p>
+            </div>
+        </main>
+    </section>
+
+    <section class="page" id="page-explore" hidden>
+        <aside class="side">
+            <div class="side-h"><b>Tables</b><button class="btn sm" data-act="schema" title="Reload"><i class="fa-solid fa-rotate"></i></button></div>
+            <div class="search"><i class="fa-solid fa-magnifying-glass"></i><input id="tq" type="search" placeholder="Find a table or column…"></div>
+            <div class="tree" id="tree"></div>
+        </aside>
+        <main class="main">
+            <div class="editor">
+                <textarea id="sql" spellcheck="false" placeholder="SELECT customer, SUM(shipped_qty) AS shipped FROM wms.trip_orders GROUP BY customer ORDER BY shipped DESC">SELECT * FROM information_schema.tables WHERE table_schema = 'main' ORDER BY table_catalog, table_name</textarea>
+                <div class="ebar">
+                    <button class="btn primary" data-act="run"><i class="fa-solid fa-play"></i> Run <small>Ctrl+Enter</small></button>
+                    <label class="muted sm">max rows <input type="number" id="maxrows" class="num" value="1000" min="1" max="100000"></label>
+                    <span class="grow"></span>
+                    <span class="muted sm" id="qinfo"></span>
+                    <button class="btn sm" data-act="csv" title="Download the result as CSV"><i class="fa-solid fa-file-csv"></i> CSV</button>
+                </div>
+            </div>
+            <div class="grid" id="grid"><div class="muted pad">Tables are named <b>module.table</b> (e.g. <code>wms.trip_orders</code>) — queries can join across modules. Read-only.</div></div>
+        </main>
+    </section>
+
+    <section class="page" id="page-log" hidden>
+        <main class="main scroll"><div class="card"><div class="mh"><b>Refresh log</b><small class="muted">newest first, from the shared folder</small><button class="btn sm" data-act="log"><i class="fa-solid fa-rotate"></i></button></div><div id="logbox"></div></div></main>
+    </section>
+
+    <section class="page" id="page-settings" hidden>
+        <main class="main scroll"><div class="setup" id="setup"></div></main>
+    </section>
+
+    <div class="modal" id="modal" hidden><div class="modal-box" id="modal-box"></div></div>
+    <div class="busy" id="busy" hidden><div><i class="fa-solid fa-circle-notch fa-spin"></i> <span>Working…</span><button class="btn sm" data-act="cancel" id="b-cancel" hidden>Cancel</button></div></div>
+    <div id="toast" class="toast"></div>
+
+    <script src="starter.js"></script>
+    <script src="fusionmodel.js"></script>
+</body>
+</html>

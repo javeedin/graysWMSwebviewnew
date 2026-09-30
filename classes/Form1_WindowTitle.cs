@@ -33,6 +33,7 @@ namespace WMSApp
                 case "fusionsql": return "Fusion SQL";
                 case "dllexplorer": return "DLL Explorer";
                 case "powerbi": return "Power BI";
+                case "fusionmodel": return "Fusion Model";
                 case "admin": return "Admin";
                 case "gl": return "General Ledger";
                 case "ap": return "Accounts Payable";

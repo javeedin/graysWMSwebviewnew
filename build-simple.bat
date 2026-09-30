@@ -2,7 +2,7 @@
 echo Building Gray's WMS Application...
 echo.
 
-dotnet build -c Release
+dotnet build WMSApp.csproj -c Release
 
 if errorlevel 1 (
     echo.
