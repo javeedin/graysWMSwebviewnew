@@ -6381,6 +6381,9 @@ navPanel.Controls.Add(wmsDevButton);
 
         private void CoreWebView2_NewWindowRequested(object sender, CoreWebView2NewWindowRequestedEventArgs e)
         {
+            // Microsoft sign-in popups (e.g. an embedded Power BI report) must stay real popups so they can
+            // report back to the page that opened them - see Form1_PowerBiHandlers.cs
+            if (TryOpenSignInPopup(e)) return;
             e.Handled = true;
             AddNewTab(e.Uri);
         }

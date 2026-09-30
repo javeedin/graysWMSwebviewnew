@@ -28,11 +28,11 @@ function ago(s) { if (!s) return 'never'; var d = new Date(String(s).replace(' '
 
 // ── bridge ─────────────────────────────────────────────────────
 var _pending = {}, _progress = {};
-function host(action, payload, onProgress) {
+function host(action, payload, onProgress, raw) {
     return new Promise(function (resolve, reject) {
         if (!hasHost()) { reject('Open this page inside the Gray\'s WMS app.'); return; }
         var id = 'pb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-        _pending[id] = { resolve: resolve, reject: reject };
+        _pending[id] = { resolve: resolve, reject: reject, raw: !!raw };
         if (onProgress) _progress[id] = onProgress;
         window.chrome.webview.postMessage(Object.assign({ action: action, requestId: id, appUser: appUser() }, payload || {}));
     });
@@ -43,8 +43,10 @@ if (hasHost()) window.chrome.webview.addEventListener('message', function (ev) {
     if (r.action === 'pbiProgress') { if (_progress[r.requestId]) _progress[r.requestId](r.message); return; }
     var cb = _pending[r.requestId]; if (!cb) return;
     delete _pending[r.requestId]; delete _progress[r.requestId];
-    if (r.action === 'error') cb.reject(r.message || 'Host error'); else cb.resolve(r.data == null ? {} : r.data);
+    if (r.action === 'error') cb.reject(r.message || (r.data && r.data.message) || 'Host error'); else cb.resolve(cb.raw ? r : r.data == null ? {} : r.data);
 });
+/** The whole reply (statusCode, success, data) - for the REST relays. */
+function hostRaw(action, payload) { return host(action, payload, null, true); }
 function pb(action, payload, onProgress) {
     return host(action, payload, onProgress).then(function (d) { if (d && d.ok === false) throw d.error || 'failed'; return d; });
 }
@@ -73,7 +75,7 @@ function loadStatus() {
 }
 function renderAcct() {
     var st = S.status || {};
-    $('acct').innerHTML = !st.configured ? '<span class="pill warn"><i class="fa-solid fa-triangle-exclamation"></i> Not set up</span>'
+    $('acct').innerHTML = !st.configured ? '<span class="pill dim" title="Report links and Power BI Desktop work without an app registration. Publishing from the app needs one (Setup)."><i class="fa-solid fa-link"></i> Links &amp; Desktop mode</span>'
         : st.signedIn ? '<span class="pill ok" title="' + esc(st.mode === 'APP' ? 'App (service principal) mode' : 'Signed in') + '"><i class="fa-solid fa-circle-check"></i> ' + esc(st.account || 'signed in') + '</span>'
         : '<button class="btn sm light" data-act="signin"><i class="fa-brands fa-microsoft"></i> Sign in</button>';
 }
@@ -89,18 +91,23 @@ function showTab(t) {
 }
 
 // ════════════════════════════════ REPORTS ════════════════════════════════
+function apiReady() { var st = S.status || {}; return !!(st.configured && st.signedIn && st.workspaceId); }
 function loadReports() {
-    var st = S.status || {};
-    if (!st.configured || !st.signedIn || !st.workspaceId) {
-        $('rlist').innerHTML = '<div class="muted pad">' + (!st.configured ? 'Power BI is not set up yet — see <a href="#" data-act="gosetup">Setup</a>.' : !st.signedIn ? '<a href="#" data-act="signin">Sign in</a> to see the reports.' : 'Pick the workspace in <a href="#" data-act="gosetup">Setup</a>.') + '</div>';
-        return Promise.resolve();
-    }
     $('rlist').innerHTML = '<div class="muted pad"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading…</div>';
-    return Promise.all([pb('pbiReports'), pb('pbiDatasets')]).then(function (r) {
+    $('b-new').hidden = !apiReady();
+    var api = apiReady() ? Promise.all([pb('pbiReports'), pb('pbiDatasets')]).catch(function (e) { S.apiError = String(e); return [{ items: [] }, { items: [] }]; })
+        : Promise.resolve([{ items: [] }, { items: [] }]);
+    return Promise.all([loadLinks(), api]).then(function (all) {
+        var r = all[1];
         S.reports = (r[0].items || []).sort(function (a, b) { return String(a.name).localeCompare(b.name); });
         S.pbiDatasets = r[1].items || [];
         renderReportList();
         var q = new URLSearchParams(location.search);
+        if (q.get('link') && !S.cur) {     // ?link=<id or name>&filter=Table.Column:value
+            var ln = S.links.find(function (x) { return String(x.LINK_ID) === q.get('link') || x.NAME === q.get('link'); });
+            var qf = q.get('filter');
+            if (ln) openLink(ln, qf && /^[^.]+\.[^:]+:.+$/.test(qf) ? [{ table: qf.split('.')[0], column: qf.split(':')[0].split('.')[1], value: qf.split(':').slice(1).join(':'), numeric: /^-?\d+$/.test(qf.split(':').slice(1).join(':')) }] : undefined);
+        }
         if (q.get('report') && !S.cur) {
             var rep = S.reports.find(function (x) { return x.id === q.get('report') || x.name === q.get('report'); });
             if (rep) {
@@ -113,12 +120,24 @@ function loadReports() {
 }
 function renderReportList() {
     var q = S.rq.toLowerCase();
-    var list = S.reports.filter(function (r) { return !q || String(r.name).toLowerCase().indexOf(q) >= 0; });
+    var hit = function (n) { return !q || String(n).toLowerCase().indexOf(q) >= 0; };
+    var links = (S.links || []).filter(function (l) { return hit(l.NAME) || hit(l.FOLDER || ''); });
+    var list = S.reports.filter(function (r) { return hit(r.name); });
     var dsName = {}; S.pbiDatasets.forEach(function (d) { dsName[d.id] = d.name; });
-    $('rlist').innerHTML = list.length ? list.map(function (r) {
-        return '<button class="ritem' + (S.cur && S.cur.id === r.id ? ' on' : '') + '" data-rep="' + esc(r.id) + '"><i class="fa-solid ' + (r.reportType === 'PaginatedReport' ? 'fa-file-lines' : 'fa-chart-pie') + '"></i>' +
-            '<span><b>' + esc(r.name) + '</b><small>' + esc(dsName[r.datasetId] || '') + '</small></span></button>';
-    }).join('') : '<div class="muted pad">' + (S.reports.length ? 'No match.' : 'No reports in this workspace yet — click <b>New report</b>.') + '</div>';
+    var h = '', folder = null;
+    links.forEach(function (l) {
+        if ((l.FOLDER || '') !== folder) { folder = l.FOLDER || ''; if (folder || links.some(function (x) { return x.FOLDER; })) h += '<div class="rgroup">' + esc(folder || 'Reports') + '</div>'; }
+        h += '<button class="ritem' + (S.cur && S.cur.id === 'L' + l.LINK_ID ? ' on' : '') + '" data-link="' + esc(l.LINK_ID) + '"><i class="fa-solid ' + (l.IS_PUBLIC === 'Y' ? 'fa-globe' : 'fa-chart-pie') + '"></i>' +
+            '<span><b>' + esc(l.NAME) + '</b><small>' + esc(l.DESCRIPTION || (l.IS_PUBLIC === 'Y' ? 'public link' : 'Power BI link')) + '</small></span></button>';
+    });
+    if (list.length) {
+        h += '<div class="rgroup">Workspace (app registration)</div>' + list.map(function (r) {
+            return '<button class="ritem' + (S.cur && S.cur.id === r.id ? ' on' : '') + '" data-rep="' + esc(r.id) + '"><i class="fa-solid ' + (r.reportType === 'PaginatedReport' ? 'fa-file-lines' : 'fa-chart-column') + '"></i>' +
+                '<span><b>' + esc(r.name) + '</b><small>' + esc(dsName[r.datasetId] || '') + '</small></span></button>';
+        }).join('');
+    }
+    $('rlist').innerHTML = h || '<div class="muted pad">' + ((S.links || []).length || S.reports.length ? 'No match.' :
+        'No reports yet. Click <b>Add report</b> and paste a Power BI report link — no app registration needed.' + (S.linkError ? '<br><span class="err">' + esc(S.linkError) + '</span>' : '')) + '</div>';
 }
 
 function embedConfig(info, extra) {
@@ -141,11 +160,12 @@ function resetEmbed() {
 
 function openReport(rep) {
     if (!service) { toast('The Power BI library did not load'); return; }
-    S.cur = rep; S.editing = false;
+    S.cur = rep; rep.kind = 'api'; S.editing = false;
     renderReportList();
     resetEmbed();
     $('rbar').hidden = false; $('rtitle').textContent = rep.name;
-    $('b-save').hidden = true; $('b-edit').hidden = false;
+    $('b-save').hidden = true; $('b-edit').hidden = false; $('b-link').hidden = true; $('b-deffilters').hidden = true;
+    document.querySelector('[data-act="print"]').hidden = false; document.querySelector('[data-act="addfilter"]').hidden = false;
     renderFilters();
     var getInfo = function () { return pb('pbiEmbedInfo', { reportId: rep.id, datasetId: rep.datasetId, allowEdit: true }); };
     busy('Opening ' + rep.name + '…');
@@ -174,7 +194,7 @@ function createReport(datasetId) {
     S.cur = null; S.editing = true;
     renderReportList();
     resetEmbed();
-    $('rbar').hidden = false; $('rtitle').textContent = 'New report'; $('b-edit').hidden = true; $('b-save').hidden = true;
+    $('rbar').hidden = false; $('rtitle').textContent = 'New report'; $('b-edit').hidden = true; $('b-save').hidden = true; $('b-link').hidden = true; $('b-deffilters').hidden = true;
     S.filters = []; renderFilters();
     var getInfo = function () { return pb('pbiEmbedInfo', { datasetId: datasetId, allowEdit: true }); };
     busy('Opening the Power BI editor…');
@@ -193,11 +213,14 @@ function createReport(datasetId) {
 
 // filters: Table · Column = value (any table/column of the report's dataset)
 function renderFilters() {
+    var link = S.cur && S.cur.kind === 'link';
+    $('b-deffilters').hidden = !link || JSON.stringify(S.filters) === (S.cur.link.FILTERS_JSON || '[]');
     $('filters').innerHTML = S.filters.map(function (f, i) {
         return '<span class="chip">' + esc(f.table) + ' · ' + esc(f.column) + ' = <b>' + esc(f.value) + '</b><button data-rmf="' + i + '" title="Remove"><i class="fa-solid fa-xmark"></i></button></span>';
     }).join('');
 }
 function applyFilters() {
+    if (S.cur && S.cur.kind === 'link') return loadLinkFrame();     // link reports: filters go into the URL
     if (!S.embed || !models) return;
     var fs = S.filters.map(function (f) {
         var vals = String(f.value).split(',').map(function (x) { x = x.trim(); return /^-?\d+(\.\d+)?$/.test(x) && f.numeric ? +x : x; });
@@ -211,6 +234,7 @@ function addFilter() {
     modal('<h2><i class="fa-solid fa-filter"></i> Filter the report</h2><p class="muted">Shows only the rows where the column has this value (several values: separate with commas). The same filter works on every page of the report.</p>' +
         '<div class="row"><label class="fld"><span>Table</span><input id="f-t" placeholder="e.g. TripOrders"></label><label class="fld"><span>Column</span><input id="f-c" placeholder="e.g. TripId"></label></div>' +
         '<label class="fld"><span>Value(s)</span><input id="f-v" placeholder="e.g. 8121"></label><label class="chk"><input type="checkbox" id="f-n"> The column is a number</label>' +
+        (S.cur && S.cur.kind === 'link' ? '<p class="muted sm">Use the table and column names as they appear in the report’s Data pane.</p>' : '') +
         '<div class="modal-f"><button class="btn" data-mact="close">Cancel</button><button class="btn primary" data-mact="addf"><i class="fa-solid fa-check"></i> Apply</button></div>');
 }
 
@@ -270,12 +294,13 @@ function renderDef() {
         '<div class="muted sm">' + (d.pbiDatasetId ? '<i class="fa-solid fa-circle-check" style="color:#16a34a"></i> Published to Power BI · last refresh ' + esc(ago(row.LAST_REFRESH)) + (row.LAST_ROWS ? ' · ' + (+row.LAST_ROWS).toLocaleString() + ' rows' : '') : 'Not published yet') +
         (row.LAST_STATUS === 'FAILED' ? ' · <span class="err">last refresh failed: ' + esc(row.LAST_ERROR || '') + '</span>' : '') + '</div></div>' +
         '<div class="dsact"><button class="btn" data-act="dssave"><i class="fa-solid fa-floppy-disk"></i> Save</button>' +
-        '<button class="btn primary" data-act="publish"' + (st.isAdmin ? '' : ' disabled title="AI admins only"') + '><i class="fa-solid fa-cloud-arrow-up"></i> Publish</button>' +
-        '<button class="btn green" data-act="refresh"' + (d.pbiDatasetId ? '' : ' disabled title="Publish first"') + '><i class="fa-solid fa-rotate"></i> Refresh data</button></div></div>';
+        '<button class="btn' + (st.configured ? '' : ' primary') + '" data-act="kit" title="Power BI Desktop reads these tables from APEX — no app registration needed"><i class="fa-solid fa-desktop"></i> Power BI Desktop</button>' +
+        (st.configured ? '<button class="btn primary" data-act="publish"' + (st.isAdmin ? '' : ' disabled title="AI admins only"') + '><i class="fa-solid fa-cloud-arrow-up"></i> Publish</button>' +
+        '<button class="btn green" data-act="refresh"' + (d.pbiDatasetId ? '' : ' disabled title="Publish first"') + '><i class="fa-solid fa-rotate"></i> Refresh data</button>' : '') + '</div></div>';
     h += '<div class="card"><div class="row"><label class="fld"><span>Schedule</span><select data-f="schedMode">' +
         [['MANUAL', 'Manual only'], ['DAILY', 'Daily at'], ['HOURLY', 'Every hour']].map(function (o) { return '<option value="' + o[0] + '"' + (d.schedule.mode === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
         '<label class="fld"' + (d.schedule.mode === 'DAILY' ? '' : ' hidden') + '><span>Time</span><input type="time" data-f="schedTime" value="' + esc(d.schedule.time || '06:00') + '"></label>' +
-        '<p class="muted sm grow" style="align-self:end;">Scheduled refreshes run from any PC where someone is signed in to Power BI with the app open — only one PC does each run.</p></div></div>';
+        '<p class="muted sm grow" style="align-self:end;">' + (st.configured ? 'Scheduled refreshes run from any PC where someone is signed in to Power BI with the app open — only one PC does each run.' : 'Used when the app pushes data itself (needs the app registration). With Power BI Desktop, the refresh schedule is set in the Power BI service.') + '</p></div></div>';
     d.tables.forEach(function (t, ti) {
         h += '<div class="card tbl"><div class="tblh"><i class="fa-solid fa-table"></i><input class="tname" data-t="' + ti + '" data-tf="name" value="' + esc(t.name) + '" spellcheck="false">' +
             '<label class="muted sm">max rows <input type="number" class="num" data-t="' + ti + '" data-tf="maxRows" value="' + (t.maxRows || 100000) + '"></label><span class="grow"></span>' +
@@ -372,7 +397,9 @@ function detect(ti) {
 // ════════════════════════════════ SETUP ════════════════════════════════
 function renderSetup() {
     var st = S.status || {}, ro = st.isAdmin ? '' : ' disabled';
-    var h = '<div class="card"><h3><i class="fa-solid fa-plug"></i> Connection</h3>' +
+    if (!S.keysLoaded) { S.keysLoaded = true; loadKeys().then(function () { if (S.tab === 'setup') renderSetup(); }); }
+    var h = renderDesktopSetup() + '<div class="card"><h3><i class="fa-solid fa-plug"></i> App registration <span class="tag grey">optional — needs your IT</span></h3>' +
+        '<p class="muted sm">With an Entra ID app registration the app can also publish and refresh datasets itself and build reports inside the app. Everything else works without it.</p>' +
         '<div class="steps3"><div class="' + (st.configured ? 'done' : '') + '"><b>1</b> App registration<small>' + (st.configured ? 'set' : 'needed') + '</small></div>' +
         '<div class="' + (st.signedIn ? 'done' : '') + '"><b>2</b> Sign in<small>' + (st.signedIn ? esc(st.account || '') : 'not yet') + '</small></div>' +
         '<div class="' + (st.workspaceId ? 'done' : '') + '"><b>3</b> Workspace<small>' + (st.workspaceId ? 'chosen' : 'not chosen') + '</small></div></div>' +
@@ -385,7 +412,7 @@ function renderSetup() {
         (st.isAdmin ? '<button class="btn primary" data-act="savecfg"><i class="fa-solid fa-floppy-disk"></i> Save</button> ' : '') +
         (st.configured ? (st.signedIn ? '<button class="btn" data-act="signout"><i class="fa-solid fa-right-from-bracket"></i> Sign out</button>' : '<button class="btn primary" data-act="signin"><i class="fa-brands fa-microsoft"></i> Sign in to Power BI</button>') : '') +
         (st.authError ? '<p class="err">' + esc(st.authError) + '</p>' : '') + '</div>';
-    h += '<div class="card"><h3><i class="fa-solid fa-folder-tree"></i> Workspace</h3><p class="muted sm">Reports and datasets of this workspace appear in the app; published datasets are created here.</p><div id="s-ws">' +
+    if (st.configured) h += '<div class="card"><h3><i class="fa-solid fa-folder-tree"></i> Workspace</h3><p class="muted sm">Reports and datasets of this workspace appear in the app; published datasets are created here.</p><div id="s-ws">' +
         (st.signedIn ? '<span class="muted sm"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading workspaces…</span>' : '<span class="muted sm">Sign in first.</span>') + '</div></div>';
     h += '<div class="card guide"><h3><i class="fa-solid fa-list-check"></i> For your IT / Power BI admin (one time)</h3><ol>' +
         '<li><b>Microsoft Entra ID › App registrations › New registration</b> — name e.g. <i>Gray\'s WMS Power BI</i>, single tenant.</li>' +
@@ -419,16 +446,25 @@ function signIn() {
 }
 
 // ── modal + events ─────────────────────────────────────────────
-function modal(html) { if (html == null) { $('modal').hidden = true; return; } $('modal-box').innerHTML = html; $('modal').hidden = false; }
+function modal(html, cls) { if (html == null) { $('modal').hidden = true; return; } $('modal-box').className = 'modal-box' + (cls ? ' ' + cls : ''); $('modal-box').innerHTML = html; $('modal').hidden = false; }
 
 document.addEventListener('click', function (e) {
-    var b = e.target.closest('button, a[data-act], [data-rep], [data-def]');
+    var b = e.target.closest('button, a[data-act], [data-rep], [data-def], [data-link]');
     if (!b) { if (e.target.id === 'modal') modal(null); return; }
     var d = b.dataset;
     if (b.tagName === 'A') e.preventDefault();
     if (d.tab) return showTab(d.tab);
     if (d.rep) { var r = S.reports.find(function (x) { return x.id === d.rep; }); if (r) openReport(r); return; }
     if (d.def) return openDef(d.def);
+    if (d.link) { var ln = S.links.find(function (x) { return String(x.LINK_ID) === d.link; }); if (ln) openLink(ln); return; }
+    if (d.copy) return copyFrom(d.copy);
+    if (d.mact === 'savelink') return saveLink(d.id);
+    if (d.mact === 'dellink') return deleteLink(S.linkEdit && S.linkEdit.link && S.linkEdit.link.LINK_ID);
+    if (d.mact === 'clearlf') { if (S.linkEdit) S.linkEdit.filters = []; b.parentNode.remove(); return; }
+    if (d.mact === 'newkey') return newKeyModal();
+    if (d.mact === 'mkkey') return createKey();
+    if (d.mact === 'testkey') return runKeyTest(S.lastKey, 'k-test');
+    if (d.mact === 'kitdl') return downloadText(((S.def && S.def.key) || 'dataset') + '_power_bi_desktop.txt', S.kitText || '');
     if (d.rmf != null) { S.filters.splice(+d.rmf, 1); renderFilters(); applyFilters(); return; }
     if (d.mact === 'close') return modal(null);
     if (d.mact === 'create') return createReport($('nr-ds').value);
@@ -447,10 +483,21 @@ document.addEventListener('click', function (e) {
         case 'addfilter': return addFilter();
         case 'edit': if (S.embed) { S.embed.switchMode('edit'); S.editing = true; $('b-edit').hidden = true; $('b-save').hidden = false; } return;
         case 'save': if (S.embed) S.embed.save(); return;
-        case 'refreshvis': if (S.embed && S.embed.refresh) S.embed.refresh().catch(function () { S.embed.reload(); }); return;
+        case 'addlink': return linkModal(null);
+        case 'editlink': return S.cur && S.cur.link && linkModal(S.cur.link);
+        case 'deffilters': saveLinkFilters(); $('b-deffilters').hidden = true; return;
+        case 'hidehint': try { localStorage.setItem('pbiHintSeen', '1'); } catch (x) { } b.parentNode.remove(); return;
+        case 'testfeed': return runKeyTest($('s-tkey').value.trim(), 's-tout');
+        case 'newkey': return (S.defs.length ? Promise.resolve() : loadDefs()).then(newKeyModal);
+        case 'revokekey': return revokeKey(d.id);
+        case 'kit': return desktopKit();
+        case 'refreshvis': if (S.cur && S.cur.kind === 'link') return loadLinkFrame();
+            if (S.embed && S.embed.refresh) S.embed.refresh().catch(function () { S.embed.reload(); }); return;
         case 'print': if (S.embed) S.embed.print(); return;
-        case 'full': if (S.embed) S.embed.fullscreen(); return;
-        case 'open': if (S.cur && S.cur.webUrl) window.chrome.webview.postMessage({ action: 'openExternalUrl', url: S.cur.webUrl }); // fire-and-forget: the host sends no reply return;
+        case 'full': if (S.cur && S.cur.kind === 'link') { var fr = $('embed').querySelector('iframe'); if (fr && fr.requestFullscreen) fr.requestFullscreen(); return; }
+            if (S.embed) S.embed.fullscreen(); return;
+        case 'open': if (S.cur && S.cur.kind === 'link') { window.chrome.webview.postMessage({ action: 'openExternalUrl', url: S.cur.link.SOURCE_URL && /^https:/.test(S.cur.link.SOURCE_URL) ? S.cur.link.SOURCE_URL : S.cur.link.URL }); return; }
+            if (S.cur && S.cur.webUrl) window.chrome.webview.postMessage({ action: 'openExternalUrl', url: S.cur.webUrl }); // fire-and-forget: the host sends no reply return;
         case 'dssave': return saveDef().catch(function () { });
         case 'publish': return publish(false);
         case 'refresh': return refreshData();
@@ -471,6 +518,7 @@ document.addEventListener('click', function (e) {
 document.addEventListener('input', function (e) {
     var x = e.target, d = x.dataset;
     if (x.id === 'rq') { S.rq = x.value; renderReportList(); return; }
+    if (x.id === 'l-url') { checkLinkInput(); return; }
     if (!S.def) return;
     if (d.f === 'name') { S.def.name = x.value; markDirty(); }
     else if (d.tf != null) { var tb = S.def.tables[+d.t]; var old = tb.name; tb[d.tf] = d.tf === 'maxRows' ? +x.value : x.value; markDirty();
@@ -493,5 +541,6 @@ window.addEventListener('beforeunload', function (e) { if (S.dirty) { e.preventD
     if (!hasHost()) { $('rempty-text').textContent = 'Open this page inside the Gray\'s WMS app.'; return; }
     if (!service) { $('rempty-text').textContent = 'The Power BI library (lib/powerbi.min.js) did not load.'; }
     var q = new URLSearchParams(location.search);
-    loadStatus().then(function () { showTab(q.get('tab') || ((S.status || {}).configured ? 'reports' : 'setup')); });
+    S.emptyEl = $('rempty');
+    loadStatus().then(function () { showTab(q.get('tab') || 'reports'); });
 })();

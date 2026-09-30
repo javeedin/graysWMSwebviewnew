@@ -162,6 +162,50 @@ namespace WMSApp
             PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "pbiResponse", requestId, data }));
         }
 
+        private static readonly string[] SIGN_IN_HOSTS = { "login.microsoftonline.com", "login.microsoft.com", "login.live.com", "login.windows.net", "app.powerbi.com" };
+
+        /// <summary>
+        /// A Microsoft sign-in window opened by a page (the "Sign in" button of an embedded Power BI report) is shown as a
+        /// real popup (same browser profile, window.opener kept) instead of a new tab, so the report picks up the sign-in.
+        /// </summary>
+        private bool TryOpenSignInPopup(Microsoft.Web.WebView2.Core.CoreWebView2NewWindowRequestedEventArgs e)
+        {
+            if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) || u.Scheme != Uri.UriSchemeHttps) return false;
+            if (!SIGN_IN_HOSTS.Any(h => u.Host.Equals(h, StringComparison.OrdinalIgnoreCase))) return false;
+            var deferral = e.GetDeferral();
+            OpenSignInPopupAsync(e, deferral);
+            return true;
+        }
+
+        private async void OpenSignInPopupAsync(Microsoft.Web.WebView2.Core.CoreWebView2NewWindowRequestedEventArgs e, Microsoft.Web.WebView2.Core.CoreWebView2Deferral deferral)
+        {
+            System.Windows.Forms.Form popup = null;
+            try
+            {
+                popup = new System.Windows.Forms.Form
+                {
+                    Text = "Sign in - Microsoft", Width = 520, Height = 700, StartPosition = System.Windows.Forms.FormStartPosition.CenterParent,
+                    ShowInTaskbar = false, MinimizeBox = false
+                };
+                var wv = new WebView2 { Dock = System.Windows.Forms.DockStyle.Fill };
+                popup.Controls.Add(wv);
+                popup.Show(this);
+                await wv.EnsureCoreWebView2Async(await GetSharedEnvironmentAsync());
+                var f = popup;
+                wv.CoreWebView2.WindowCloseRequested += (s, a) => { try { f.Close(); } catch { } };
+                wv.CoreWebView2.DocumentTitleChanged += (s, a) => { try { f.Text = wv.CoreWebView2.DocumentTitle; } catch { } };
+                e.NewWindow = wv.CoreWebView2;
+                e.Handled = true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[PowerBI] sign-in popup: " + ex.Message);
+                try { popup?.Close(); } catch { }
+                e.Handled = false;
+            }
+            finally { deferral.Complete(); }
+        }
+
         private static async Task<PowerBiService.Token> PbiToken(PowerBiService.Config cfg)
         {
             if (!PowerBiService.Ready(cfg)) throw new InvalidOperationException("Power BI is not set up yet (Setup tab).");

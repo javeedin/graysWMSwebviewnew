@@ -15,7 +15,7 @@
         <div class="logo"><i class="fa-solid fa-chart-column"></i></div>
         <div>
             <h1>Power BI <span class="ver">v1</span></h1>
-            <p>Gray's reports inside the app — datasets fed from APEX, reports embedded and built right here</p>
+            <p>Gray's reports inside the app — datasets fed from APEX, reports embedded right here</p>
         </div>
         <nav class="tabs">
             <button class="tab active" data-tab="reports"><i class="fa-solid fa-chart-pie"></i> Reports</button>
@@ -32,14 +32,17 @@
                 <button class="btn sm" id="b-reload" title="Reload the list"><i class="fa-solid fa-rotate"></i></button>
             </div>
             <div class="rlist" id="rlist"></div>
-            <button class="btn primary block" id="b-new"><i class="fa-solid fa-wand-magic-sparkles"></i> New report</button>
+            <button class="btn primary block" data-act="addlink"><i class="fa-solid fa-link"></i> Add report</button>
+            <button class="btn block" id="b-new" hidden title="Opens the Power BI editor here (needs the app registration)"><i class="fa-solid fa-wand-magic-sparkles"></i> New report</button>
         </aside>
         <main class="main">
             <div class="rbar" id="rbar" hidden>
                 <b id="rtitle"></b>
                 <div class="filters" id="filters"></div>
                 <button class="btn sm" data-act="addfilter" title="Filter a column to a value, e.g. TripOrders · TripId = 8121"><i class="fa-solid fa-filter"></i> Filter</button>
+                <button class="btn sm" data-act="deffilters" id="b-deffilters" hidden title="Open this report with these filters every time"><i class="fa-solid fa-thumbtack"></i> Keep filters</button>
                 <span class="grow"></span>
+                <button class="btn sm" data-act="editlink" id="b-link" hidden title="Rename, change the link or remove"><i class="fa-solid fa-sliders"></i></button>
                 <button class="btn sm" data-act="edit" id="b-edit" title="Edit this report here (needs edit rights on the workspace)"><i class="fa-solid fa-pen"></i> Edit</button>
                 <button class="btn sm" data-act="save" id="b-save" hidden><i class="fa-solid fa-floppy-disk"></i> Save</button>
                 <button class="btn sm" data-act="refreshvis" title="Reload the visuals"><i class="fa-solid fa-rotate"></i></button>
@@ -51,7 +54,8 @@
                 <div class="empty" id="rempty">
                     <div class="art"><i class="fa-solid fa-chart-column"></i></div>
                     <h2>Power BI, inside Gray's WMS</h2>
-                    <p id="rempty-text">Pick a report on the left, or build a new one on a dataset.</p>
+                    <p id="rempty-text">Pick a report on the left, or click <b>Add report</b> and paste a Power BI report link.<br>
+                    No reports yet? <b>Datasets › Power BI Desktop</b> connects Power BI Desktop to the WMS data.</p>
                 </div>
             </div>
         </main>
@@ -69,7 +73,7 @@
                 <div class="art"><i class="fa-solid fa-database"></i></div>
                 <h2>What goes into Power BI</h2>
                 <p>A dataset here is a set of tables, each an <b>APEX SQL query</b>, plus <b>measures</b> (DAX) and <b>relationships</b>.
-                    <b>Publish</b> creates it in your Power BI workspace; <b>Refresh</b> reads the queries and sends the rows — by hand or on a schedule.</p>
+                    <b>Power BI Desktop</b> gives you the code to load it into Power BI Desktop straight from APEX (no app registration); with an app registration, <b>Publish</b> and <b>Refresh</b> push it from the app.</p>
             </div>
         </main>
     </section>
@@ -84,5 +88,6 @@
 
     <script src="starter.js"></script>
     <script src="powerbi.js"></script>
+    <script src="desktop.js"></script>
 </body>
 </html>
