@@ -15,6 +15,9 @@
          The check reads this project's own properties, so they must be set here, not on the reference. -->
     <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
+    <!-- Always restore for win-x64 too, so a restore run without a runtime (Visual Studio, older obj) still has the
+         net8.0/win-x64 target in project.assets.json (NETSDK1047 otherwise). -->
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>
