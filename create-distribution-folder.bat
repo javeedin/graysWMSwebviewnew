@@ -71,6 +71,27 @@ if not exist %PUBLISH_PATH% (
     exit /b 1
 )
 
+REM Step 3b: MCP server (FusionModel.Mcp.exe) - not referenced by WMSApp.csproj, published here
+REM          self-contained and copied next to GraysWMS.exe (only its own 4 files; the runtime comes from the app)
+echo.
+echo Publishing the Fusion Model MCP server (FusionModel.Mcp.exe)...
+set "MCP_OUT=%~dp0obj\mcp-publish"
+if exist "%MCP_OUT%" rmdir /s /q "%MCP_OUT%"
+dotnet publish "%~dp0engine\FusionModel.Mcp\FusionModel.Mcp.csproj" -c %CONFIGURATION% -r %RUNTIME% --self-contained true -o "%MCP_OUT%" --nologo
+if errorlevel 1 (
+    echo.
+    echo MCP server publish failed! Check the error messages above.
+    %PAUSE_CMD%
+    exit /b 1
+)
+for %%F in (FusionModel.Mcp.exe FusionModel.Mcp.dll FusionModel.Mcp.deps.json FusionModel.Mcp.runtimeconfig.json) do copy /y "%MCP_OUT%\%%F" "%PUBLISH_PATH%\" >nul
+if not exist "%PUBLISH_PATH%\FusionModel.Mcp.exe" (
+    echo ERROR: FusionModel.Mcp.exe was not copied to %PUBLISH_PATH%
+    %PAUSE_CMD%
+    exit /b 1
+)
+echo MCP server OK.
+
 REM Step 4: Copy publish output
 echo.
 echo Copying application files...

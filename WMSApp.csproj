@@ -34,32 +34,10 @@
     <EmbeddedResource Remove="engine\**" />
     <None Remove="engine\**" />
     <ProjectReference Include="engine\FusionModel\FusionModel.csproj" />
-    <!-- MCP server (FusionModel.Mcp.exe) ships next to the app so Claude Desktop / Claude Code can use the model.
-         The app does not use its code: the reference only builds it first (no compile reference), and the targets
-         below copy the exe next to GraysWMS.exe. FusionModel.Mcp.csproj is self-contained win-x64 itself. -->
-    <ProjectReference Include="engine\FusionModel.Mcp\FusionModel.Mcp.csproj" ReferenceOutputAssembly="false" />
+    <!-- The MCP server (engine\FusionModel.Mcp, FusionModel.Mcp.exe) is NOT referenced here: Visual Studio's restore of an
+         exe referenced by this self-contained app failed (NETSDK1150 / NETSDK1047). create-distribution-folder.bat
+         publishes it self-contained and copies it next to GraysWMS.exe; a dev build simply runs without it. -->
   </ItemGroup>
-
-  <PropertyGroup>
-    <!-- NETSDK1150 ("non self-contained executable cannot be referenced by a self-contained executable") depends on how
-         each SDK / Visual Studio version evaluates the referenced exe; the MCP exe is self-contained by its own csproj
-         and is only copied, so the check is not needed here. -->
-    <ValidateExecutableReferencesMatchSelfContained>false</ValidateExecutableReferencesMatchSelfContained>
-    <FusionModelMcpOut>$(MSBuildThisFileDirectory)engine\FusionModel.Mcp\bin\$(Configuration)\net8.0\win-x64\</FusionModelMcpOut>
-  </PropertyGroup>
-
-  <ItemGroup>
-    <FusionModelMcpFile Include="$(FusionModelMcpOut)FusionModel.Mcp.exe;$(FusionModelMcpOut)FusionModel.Mcp.dll;$(FusionModelMcpOut)FusionModel.Mcp.deps.json;$(FusionModelMcpOut)FusionModel.Mcp.runtimeconfig.json" />
-  </ItemGroup>
-
-  <Target Name="CopyFusionModelMcp" AfterTargets="Build" Condition="'$(DesignTimeBuild)' != 'true'">
-    <Error Condition="!Exists('$(FusionModelMcpOut)FusionModel.Mcp.exe')" Text="FusionModel.Mcp.exe was not built ($(FusionModelMcpOut)). Rebuild the solution." />
-    <Copy SourceFiles="@(FusionModelMcpFile)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
-  </Target>
-
-  <Target Name="PublishFusionModelMcp" AfterTargets="Publish">
-    <Copy SourceFiles="@(FusionModelMcpFile)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
-  </Target>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3537.50" />

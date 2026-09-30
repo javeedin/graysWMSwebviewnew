@@ -9,15 +9,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>FusionModel.Mcp</AssemblyName>
     <RootNamespace>FusionModel.Mcp</RootNamespace>
-    <!-- GraysWMS is a self-contained win-x64 app and references this exe (so FusionModel.Mcp.exe ships next to it).
-         .NET 8 refuses a framework-dependent exe under a self-contained one (NETSDK1150), and a framework-dependent
-         FusionModel.Mcp.exe would also need .NET installed on the PC — so this exe is always self-contained, win-x64 unless a runtime is given (publish -r ...).
-         The check reads this project's own properties, so they must be set here, not on the reference. -->
-    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
-    <SelfContained>true</SelfContained>
-    <!-- Always restore for win-x64 too, so a restore run without a runtime (Visual Studio, older obj) still has the
-         net8.0/win-x64 target in project.assets.json (NETSDK1047 otherwise). -->
-    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <!-- Not referenced by WMSApp.csproj and not built with the solution; release builds publish it with
+         "-r win-x64" and self-contained (create-distribution-folder.bat, publish-fusion-model.bat). -->
   </PropertyGroup>
 
   <ItemGroup>
