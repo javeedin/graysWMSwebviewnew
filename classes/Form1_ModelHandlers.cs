@@ -23,6 +23,7 @@ namespace WMSApp
         private static readonly object _modelEngineLock = new object();
         private static readonly HttpClient _modelHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         private CancellationTokenSource _modelRefreshCts;
+        private CancellationTokenSource _modelAskCts;
         private System.Threading.Timer _modelSyncTimer;
         private static readonly JsonSerializerOptions _modelJson = new JsonSerializerOptions(FusionModel.Json.Options) { WriteIndented = false };
 
@@ -50,6 +51,7 @@ namespace WMSApp
                     var r = await GetFusionSqlService().ExecuteAsync(sql, maxRows, ct).ConfigureAwait(false);
                     return (r.Success, r.Error, r.Rows);
                 }));
+                try { var vk = LoadModelEmbedKey(); if (!string.IsNullOrEmpty(vk)) engine.Embedder = new FusionModel.Ai.VoyageEmbedder(_modelHttp, vk); } catch { }
                 engine.StartScheduler(() => "SCHEDULE", msg => System.Diagnostics.Debug.WriteLine(msg));
                 _modelSyncTimer = new System.Threading.Timer(_ =>
                 {
@@ -70,6 +72,22 @@ namespace WMSApp
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[FusionModel] start: " + ex.Message); }
         }
 
+        // Voyage embeddings key (optional, adds "meaning" to search): DPAPI-encrypted for this Windows user, never sent to the page
+        private static string ModelEmbedKeyPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GraysWMS", "FusionModel", "voyage.key");
+        private static string LoadModelEmbedKey()
+        {
+            if (!File.Exists(ModelEmbedKeyPath)) return null;
+            return System.Text.Encoding.UTF8.GetString(System.Security.Cryptography.ProtectedData.Unprotect(
+                Convert.FromBase64String(File.ReadAllText(ModelEmbedKeyPath)), null, System.Security.Cryptography.DataProtectionScope.CurrentUser));
+        }
+        private static void SaveModelEmbedKey(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key)) { if (File.Exists(ModelEmbedKeyPath)) File.Delete(ModelEmbedKeyPath); return; }
+            Directory.CreateDirectory(Path.GetDirectoryName(ModelEmbedKeyPath));
+            File.WriteAllText(ModelEmbedKeyPath, Convert.ToBase64String(System.Security.Cryptography.ProtectedData.Protect(
+                System.Text.Encoding.UTF8.GetBytes(key.Trim()), null, System.Security.Cryptography.DataProtectionScope.CurrentUser)));
+        }
+
         private async Task HandleModelAction(WebView2 wv, string action, JsonElement root, string requestId)
         {
             string user = PStr(root, "appUser");
@@ -81,7 +99,7 @@ namespace WMSApp
                 switch (action)
                 {
                     case "fmStatus":
-                        data = new { ok = true, status = engine.Status(), isAdmin = await AiControl.IsAdminAsync(user), user };
+                        data = new { ok = true, status = engine.Status(), isAdmin = await AiControl.IsAdminAsync(user), user, mcpPath = Path.Combine(AppContext.BaseDirectory, "FusionModel.Mcp.exe") };
                         break;
 
                     case "fmSettingsSave":
@@ -170,6 +188,81 @@ namespace WMSApp
                     case "fmLog":
                         data = new { ok = true, entries = engine.ReadLog(root.TryGetProperty("last", out var l) && l.TryGetInt32(out var ln) ? ln : 100) };
                         break;
+
+                    case "fmSearch":
+                        {
+                            int k = root.TryGetProperty("k", out var kk) && kk.TryGetInt32(out var kn) ? kn : 20;
+                            var (hits, note) = await Task.Run(() => engine.SearchAsync(PStr(root, "query") ?? "", k));
+                            data = new { ok = true, note, hits = hits.Select(h => new { h.Entry.Id, h.Entry.Kind, h.Entry.Title, h.Entry.Ref, h.Entry.Detail, h.Entry.Rule, score = Math.Round(h.Score * 1000, 1), why = h.Why }) };
+                            break;
+                        }
+
+                    case "fmAsk":
+                        {
+                            if (!await AiControl.IsEnabledAsync(user)) { data = new { ok = false, error = "The AI is paused (AI Digital Employee › Control)." }; break; }
+                            _modelAskCts?.Dispose();
+                            _modelAskCts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+                            var history = root.TryGetProperty("history", out var hh) ? hh.Clone() : default;
+                            string question = PStr(root, "question") ?? "";
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            var r = await ModelAskAgent.AskAsync(engine, question, history, user, PStr(root, "model"),
+                                msg => { try { PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "fmProgress", requestId, message = msg })); } catch { } },
+                                _modelAskCts.Token);
+                            double? cost = null;
+                            try { cost = await AiControl.CostAsync(r.Model, r.TokensIn, r.TokensOut, r.CacheRead, r.CacheWrite, user); } catch { }
+                            AiControl.Audit(new AiControl.AuditEvent
+                            {
+                                User = user, Source = "MODEL", Action = "turn", Outcome = r.Ok ? "OK" : "FAILED", Model = r.Model,
+                                TokensIn = r.TokensIn, TokensOut = r.TokensOut, CacheRead = r.CacheRead, CacheWrite = r.CacheWrite, CostUsd = cost, DurationMs = sw.ElapsedMilliseconds,
+                                Detail = (question.Length > 300 ? question.Substring(0, 300) : question) + (r.Ok ? "" : " · " + r.Error)
+                            });
+                            data = new { ok = r.Ok, error = r.Error, answer = r.Answer, steps = r.Steps, query = r.Query, queryKind = r.QueryKind, costUsd = cost };
+                            break;
+                        }
+
+                    case "fmAskCancel":
+                        _modelAskCts?.Cancel();
+                        data = new { ok = true };
+                        break;
+
+                    case "fmExamples":
+                        data = new { ok = true, examples = engine.LoadExamples().OrderByDescending(x => x.Utc) };
+                        break;
+
+                    case "fmExampleSave":
+                        {
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can mark answers as verified." }; break; }
+                            var x = root.GetProperty("example").Deserialize<VerifiedExample>(FusionModel.Json.Options);
+                            x.By = user;
+                            // only a query that runs is saved as verified
+                            if (string.Equals(x.Kind, "sql", StringComparison.OrdinalIgnoreCase)) await Task.Run(() => engine.Query(x.Query, 1));
+                            else await Task.Run(() => engine.EvaluateText(x.Query, user));
+                            data = new { ok = true, example = engine.SaveExample(x) };
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "MODEL", Action = "example_save", Outcome = "OK", Detail = x.Question });
+                            break;
+                        }
+
+                    case "fmExampleDelete":
+                        if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can remove verified examples." }; break; }
+                        data = new { ok = engine.DeleteExample(PStr(root, "id")) };
+                        break;
+
+                    case "fmEmbedStatus":
+                        data = new { ok = true, hasKey = File.Exists(ModelEmbedKeyPath), provider = engine.Embedder?.Name };
+                        break;
+
+                    case "fmEmbedKeySave":
+                        {
+                            string k = PStr(root, "key");
+                            SaveModelEmbedKey(k);
+                            engine.Embedder = string.IsNullOrWhiteSpace(k) ? null : new FusionModel.Ai.VoyageEmbedder(_modelHttp, k.Trim(), PStr(root, "embedModel"));
+                            string test = null;
+                            if (engine.Embedder != null)
+                                try { await engine.Embedder.EmbedAsync(new[] { "test" }, true, CancellationToken.None); }
+                                catch (Exception ex) { test = ex.Message; }
+                            data = new { ok = test == null, error = test, provider = engine.Embedder?.Name };
+                            break;
+                        }
 
                     default:
                         data = new { ok = false, error = "Unknown action " + action };

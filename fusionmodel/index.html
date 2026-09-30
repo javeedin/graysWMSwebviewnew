@@ -12,12 +12,13 @@
         <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
         <div class="logo"><i class="fa-solid fa-cubes-stacked"></i></div>
         <div>
-            <h1>Fusion Model <span class="ver">phase 0</span></h1>
+            <h1>Fusion Model <span class="ver">phase 3</span></h1>
             <p>One fast, shared dataset — DuckDB module files loaded from APEX and Oracle Fusion, read by every PC</p>
         </div>
         <nav class="tabs">
             <button class="tab active" data-tab="modules"><i class="fa-solid fa-layer-group"></i> Modules</button>
             <button class="tab" data-tab="model"><i class="fa-solid fa-calculator"></i> Model</button>
+            <button class="tab" data-tab="ask"><i class="fa-solid fa-wand-magic-sparkles"></i> Ask</button>
             <button class="tab" data-tab="explore"><i class="fa-solid fa-magnifying-glass-chart"></i> Explore</button>
             <button class="tab" data-tab="log"><i class="fa-solid fa-gauge-high"></i> Refresh Center</button>
             <button class="tab" data-tab="settings"><i class="fa-solid fa-gear"></i> Settings</button>
@@ -47,6 +48,21 @@
     <section class="page" id="page-model" hidden>
         <aside class="side"><div class="side-h"><b>Model</b></div><div class="rlist" id="studio-nav"></div></aside>
         <main class="main scroll" id="studio-main"></main>
+    </section>
+
+    <section class="page" id="page-ask" hidden>
+        <aside class="side">
+            <div class="side-h"><b>Find in the model</b></div>
+            <div class="search"><i class="fa-solid fa-magnifying-glass"></i><input id="ask-search" type="search" placeholder="revenue, backlog, a customer name…"></div>
+            <div class="rlist" id="ask-hits"></div>
+        </aside>
+        <main class="main ask">
+            <div class="ask-thread scroll" id="ask-thread"></div>
+            <div class="ask-bar">
+                <textarea id="ask-in" rows="2" placeholder="Ask a business question — e.g. which customers have the most open orders this month?"></textarea>
+                <button class="btn primary" data-act="asksend"><i class="fa-solid fa-paper-plane"></i> Ask</button>
+            </div>
+        </main>
     </section>
 
     <section class="page" id="page-explore" hidden>
@@ -90,5 +106,6 @@
     <script src="starter.js"></script>
     <script src="fusionmodel.js"></script>
     <script src="studio.js"></script>
+    <script src="ask.js"></script>
 </body>
 </html>

@@ -21,6 +21,8 @@ namespace FusionModel
         public List<HierarchyDef> Hierarchies { get; set; } = new();
         /// <summary>Row-level security: members see only the rows their filters allow (applied to every query and to the AI).</summary>
         public List<RoleDef> Roles { get; set; } = new();
+        /// <summary>Business vocabulary for search and the AI: "DSO", "open orders", "backlog" → the measures/columns they mean.</summary>
+        public List<GlossaryTerm> Glossary { get; set; } = new();
 
         public ModuleDef Module(string name) => Modules.FirstOrDefault(m => string.Equals(m.Name, name, StringComparison.OrdinalIgnoreCase));
         public TableDef Table(string module, string name) =>
@@ -76,6 +78,39 @@ namespace FusionModel
         public string Format { get; set; }               // #,0 · #,0.00 · 0.0% · …
         public string Folder { get; set; }
         public string Description { get; set; }
+        /// <summary>Other names people use for it ("revenue", "turnover").</summary>
+        public List<string> Synonyms { get; set; } = new();
+    }
+
+    /// <summary>A business term: what it means and which measures / Table[Column]s / tables it maps to.</summary>
+    public sealed class GlossaryTerm
+    {
+        public string Term { get; set; }
+        public string Definition { get; set; }
+        public List<string> Synonyms { get; set; } = new();
+        /// <summary>[Measure], module.table[COLUMN] or module.table.</summary>
+        public List<string> Refs { get; set; } = new();
+        /// <summary>A rule the AI must follow when this term is used ("exclude cancelled lines").</summary>
+        public string Rule { get; set; }
+    }
+
+    /// <summary>Column documentation (description + synonyms) kept on the table.</summary>
+    public sealed class ColumnDoc
+    {
+        public string Description { get; set; }
+        public List<string> Synonyms { get; set; } = new();
+    }
+
+    /// <summary>A question with the query a person checked as right (examples.json in the shared folder).</summary>
+    public sealed class VerifiedExample
+    {
+        public string Id { get; set; }
+        public string Question { get; set; }
+        public string Kind { get; set; } = "evaluate";   // evaluate (DEFINE/EVALUATE text) or sql
+        public string Query { get; set; }
+        public string Note { get; set; }
+        public string By { get; set; }
+        public DateTime Utc { get; set; }
     }
 
     /// <summary>The generated date table ("calendar"): one row per day, Gregorian and fiscal attributes.</summary>
@@ -131,6 +166,9 @@ namespace FusionModel
         public string Module { get; set; }
         public string Name { get; set; }
         public string Description { get; set; }
+        public List<string> Synonyms { get; set; } = new();
+        /// <summary>Column name → description / synonyms (search and the AI read these).</summary>
+        public Dictionary<string, ColumnDoc> Columns { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         public SourceDef Source { get; set; } = new();
         public LoadStrategy Strategy { get; set; } = LoadStrategy.Full;
         public List<string> Key { get; set; } = new();

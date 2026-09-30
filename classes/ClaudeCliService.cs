@@ -178,6 +178,9 @@ namespace WMSApp
         /// resolved for this user - the same identity the page's own policy checks use. Falls back to the
         /// Windows user when the page sends none.</summary>
         public string AppUser { get; set; }
+
+        /// <summary>The Fusion Model engine (set by Form1); the read-only "model" chat action uses it.</summary>
+        public static Func<FusionModel.ModelEngine> ModelEngineProvider { get; set; }
         public string PolicyUser =>
             !string.IsNullOrWhiteSpace(AppUser) && !string.Equals(AppUser, "UNKNOWN", StringComparison.OrdinalIgnoreCase)
                 ? AppUser.Trim() : Environment.UserName;
@@ -280,7 +283,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 8;          // research rounds (sql / fusion / ords) per turn
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V56";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-MODEL-V57";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string LOCAL_JOBS_CREATE_URL =
@@ -737,6 +740,8 @@ namespace WMSApp
             sb.AppendLine();
             sb.AppendLine(DLL_KNOWLEDGE);
             sb.AppendLine();
+            sb.AppendLine(MODEL_KNOWLEDGE);
+            sb.AppendLine();
             sb.AppendLine("## Sending emails");
             sb.AppendLine();
             sb.AppendLine("When the user asks to EMAIL something (a result, a summary, an alert), reply with:");
@@ -850,6 +855,27 @@ The app can read any Windows DLL or EXE on this PC WITHOUT loading or running it
 - FIRST check saved feature maps: SELECT file_name, file_version, sha256, summary FROM wms_ai_dll_maps ORDER BY updated_date DESC (the DLL Explorer writes them; read the map with TO_CHAR(SUBSTR(feature_map, 1, 3900)) and further offsets). If one exists for the DLL, answer from it and only read the DLL for what it does not cover.
 - Otherwise: inspect once, then decompile at most 2-3 key types/methods. Answer in business words: a feature table (Feature | What it does | Where), what it talks to, settings, and which methods could become chat actions. Suggest DLL Explorer › Explain with AI (Home › DLL Explorer) for a complete saved feature map.
 - Reading a DLL never lets you RUN it. Running code from a DLL is only possible through actions the app already has (e.g. mra_interface) - never claim otherwise.
+""";
+
+        private const string MODEL_KNOWLEDGE = """
+## Fusion Model (the company's semantic model - measures with business definitions)
+
+The Fusion Model holds analysis data in DuckDB module files (WMS, and Fusion modules such as GL / AP / AR / PO / OM / INV when loaded)
+with MEASURES whose definitions the business agreed (a DAX-compatible language with filter context), a calendar, a glossary and
+VERIFIED EXAMPLES. For KPI / trend / "how much / how many" questions prefer it over writing raw SQL (action model, read-only, runs immediately):
+
+{ "action": "model", "op": "overview", "reason": "one line" }                                   // modules, tables, measures, glossary
+{ "action": "model", "op": "search", "query": "backlog by customer", "reason": "one line" }      // measures, columns, terms (+ rules), verified examples, values
+{ "action": "model", "op": "describe", "name": "[Sales] | sales.lines | lines[QTY] | Backlog", "reason": "one line" }
+{ "action": "model", "op": "evaluate", "query": "EVALUATE SUMMARIZECOLUMNS(customers[REGION], calendar[Year], \"Sales\", [Sales]) ORDER BY [Sales] DESC", "reason": "one line" }
+{ "action": "model", "op": "values", "column": "customers[NAME]", "search": "acme", "reason": "one line" }
+{ "action": "model", "op": "sql", "sql": "SELECT … FROM wms.trip_orders …", "reason": "one line" }   // DuckDB, module.table names; not for users restricted by roles
+
+- You receive MODEL_RESULT: text (a small table, or ERROR: … - correct and retry once).
+- Search first; reuse a VERIFIED EXAMPLE's query when one matches; follow a glossary term's RULE; get exact spellings with values.
+- evaluate: DEFINE MEASURE t[Name] = … EVALUATE SUMMARIZECOLUMNS(columns…, filters…, "Name", expression…) or ROW(…); ORDER BY.
+  Filters: TREATAS({"A","B"}, t[COL]), FILTER(ALL(t[COL]), …), CALCULATE(…, t[COL] = "x"); time: TOTALYTD, SAMEPERIODLASTYEAR, DATEADD over calendar[Date].
+- The data is as of the module's last refresh (overview shows it) - say so when freshness matters; for live, row-level WMS lookups use action sql.
 """;
 
         private const string MRA_KNOWLEDGE = """
@@ -1154,7 +1180,7 @@ TROUBLESHOOTING
             var result = new AiChatResult { SessionId = sessionId };
             string prompt = initialPrompt;
             bool retriedMalformed = false;
-            int guard = 0, dllReads = 0;
+            int guard = 0, dllReads = 0, modelReads = 0;
 
             while (guard++ < (MAX_SQL_ROUNDS * 2) + 4)
             {
@@ -1604,6 +1630,27 @@ TROUBLESHOOTING
                             dRes = JsonSerializer.Serialize(new { success = false, error = exDll.Message });
                         }
                         prompt = "DLL_RESULT: " + dRes;
+                        continue;
+                    }
+
+                    if (string.Equals(action, "model", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Read-only: the Fusion Model's tools (search, describe, measures, values, SQL); the user's security roles apply
+                        var root = modelJson.RootElement;
+                        string op = root.TryGetProperty("op", out var mopEl) && mopEl.ValueKind == JsonValueKind.String ? mopEl.GetString().ToLowerInvariant() : "overview";
+                        string tool = op switch { "search" => "search_model", "values" => "lookup_values", "sql" => "run_sql", "describe" => "describe", "evaluate" => "evaluate", _ => "overview" };
+                        string mRes;
+                        if (++modelReads > 10)
+                            mRes = "ERROR: 10 model calls this turn - answer now with what you found.";
+                        else if (ModelEngineProvider == null)
+                            mRes = "ERROR: the Fusion Model is not available in this app.";
+                        else
+                        {
+                            await onEvent(new { action = "aiChatEvent", eventType = "status", text = "Fusion Model: " + op + "..." });
+                            try { mRes = await Task.Run(() => new FusionModel.Ai.ModelTools(ModelEngineProvider()).RunAsync(tool, root, PolicyUser)); }
+                            catch (Exception exM) { mRes = "ERROR: " + exM.Message; }
+                        }
+                        prompt = "MODEL_RESULT: " + mRes;
                         continue;
                     }
 

@@ -22,7 +22,7 @@ function daxTable(key) {
 }
 function studioModel() {
     var m = S.model;
-    m.relationships = m.relationships || []; m.measures = m.measures || []; m.roles = m.roles || [];
+    m.relationships = m.relationships || []; m.measures = m.measures || []; m.roles = m.roles || []; m.glossary = m.glossary || [];
     m.calendar = m.calendar || { enabled: true, startYear: 0, endYear: 0, fiscalYearStartMonth: 1 };
     return m;
 }
@@ -33,12 +33,13 @@ function renderStudio() {
     go.then(function () {
         var m = studioModel();
         $('studio-nav').innerHTML = [['measures', 'fa-calculator', 'Measures', m.measures.length], ['relationships', 'fa-diagram-project', 'Relationships', m.relationships.length],
-            ['calendar', 'fa-calendar-days', 'Calendar', ''], ['security', 'fa-user-shield', 'Security', m.roles.length]].map(function (x) {
+            ['calendar', 'fa-calendar-days', 'Calendar', ''], ['security', 'fa-user-shield', 'Security', m.roles.length],
+            ['glossary', 'fa-book', 'Glossary', m.glossary.length], ['docs', 'fa-align-left', 'Descriptions', '']].map(function (x) {
             return '<button class="ritem' + (ST.sec === x[0] ? ' on' : '') + '" data-sec="' + x[0] + '"><i class="fa-solid ' + x[1] + '"></i><span><b>' + x[2] + '</b>' +
                 (x[3] !== '' ? '<small>' + x[3] + '</small>' : '') + '</span></button>';
         }).join('') + '<div class="studio-foot"><button class="btn primary block" data-act="save"' + (S.isAdmin ? '' : ' disabled') + '><i class="fa-solid fa-floppy-disk"></i> Save model' + (S.dirty ? ' *' : '') + '</button>' +
             '<button class="btn block" data-act="validate"><i class="fa-solid fa-spell-check"></i> Check all measures</button></div>';
-        ({ measures: renderMeasures, relationships: renderRelationships, calendar: renderCalendar, security: renderSecurity })[ST.sec]();
+        ({ measures: renderMeasures, relationships: renderRelationships, calendar: renderCalendar, security: renderSecurity, glossary: renderGlossary, docs: renderDocs })[ST.sec]();
     });
 }
 
@@ -63,6 +64,7 @@ function renderMeasures() {
           '<textarea class="dax" data-mf2="expression" spellcheck="false" rows="' + Math.max(4, String(x.expression || '').split('\n').length + 1) + '" placeholder="CALCULATE(SUM(lines[AMOUNT]), SAMEPERIODLASTYEAR(\'calendar\'[Date]))">' + esc(x.expression || '') + '</textarea>' +
           (ST.errors[x.name] ? '<p class="err sm"><i class="fa-solid fa-triangle-exclamation"></i> ' + esc(ST.errors[x.name]) + '</p>' : '') +
           '<input data-mf2="description" value="' + esc(x.description || '') + '" placeholder="What it means (people and the AI read this)" class="desc">' +
+          '<input data-mf2="synonyms" value="' + esc((x.synonyms || []).join(', ')) + '" placeholder="Other names people use: revenue, turnover (comma separated)" class="desc">' +
           '<div class="row"><label class="fld"><span>Try it by</span><select id="st-by"><option value="">(total only)</option>' + keys.map(function (k) {
               return '<optgroup label="' + esc(k) + '">' + (modelColumns()[k] || []).map(function (c) { var v = daxTable(k) + '[' + c + ']'; return '<option value="' + esc(v) + '"' + (ST.testBy === v ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</optgroup>';
           }).join('') + '</select></label>' +
@@ -174,6 +176,40 @@ function renderSecurity() {
         }).join('') : '<p class="muted">No roles: everyone sees all rows.</p>') + '</div>';
 }
 
+// ── glossary ───────────────────────────────────────────────────
+function csvList(v) { return String(v || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean); }
+function renderGlossary() {
+    var g = studioModel().glossary;
+    $('studio-main').innerHTML = '<div class="card"><div class="mh"><b>Glossary</b><small class="muted">the words your business uses and what they mean in the model — search and the AI read these. A rule is followed whenever the term is used.</small>' +
+        '<button class="btn sm" data-act="gadd"><i class="fa-solid fa-plus"></i> Term</button></div>' +
+        (g.length ? g.map(function (t, i) {
+            return '<div class="card role"><div class="row"><label class="fld" style="max-width:220px"><span>Term</span><input data-gi="' + i + '" data-gf="term" value="' + esc(t.term || '') + '" placeholder="Backlog"></label>' +
+                '<label class="fld grow"><span>Also called (comma separated)</span><input data-gi="' + i + '" data-gf="synonyms" value="' + esc((t.synonyms || []).join(', ')) + '" placeholder="order book, open orders"></label>' +
+                '<button class="btn sm" data-act="gdel" data-gi="' + i + '" style="align-self:end"><i class="fa-solid fa-trash"></i></button></div>' +
+                '<label class="fld"><span>Definition</span><input data-gi="' + i + '" data-gf="definition" value="' + esc(t.definition || '') + '" placeholder="Orders received but not shipped yet"></label>' +
+                '<div class="row"><label class="fld grow"><span>Means (measures, table[COLUMN] or module.table — comma separated)</span><input data-gi="' + i + '" data-gf="refs" value="' + esc((t.refs || []).join(', ')) + '" placeholder="[Open Orders], sales.lines[STATUS]"></label>' +
+                '<label class="fld grow"><span>Rule for the AI</span><input data-gi="' + i + '" data-gf="rule" value="' + esc(t.rule || '') + '" placeholder="Exclude cancelled lines"></label></div></div>';
+        }).join('') : '<p class="muted">No terms yet. Add the words people ask with — "DSO", "backlog", "fill rate" — and point them at measures.</p>') + '</div>';
+}
+
+// ── descriptions (tables and columns) ──────────────────────────
+function renderDocs() {
+    var m = studioModel(), cols = modelColumns();
+    var tabs = m.tables.map(function (t, i) { return { t: t, i: i, key: t.module + '.' + t.name }; });
+    if (ST.docT == null || !tabs[ST.docT]) ST.docT = 0;
+    var cur = tabs[ST.docT];
+    $('studio-main').innerHTML = !cur ? '<div class="empty"><h2>No tables yet</h2></div>' :
+        '<div class="card"><div class="row"><label class="fld" style="max-width:320px"><span>Table</span><select id="doc-t">' + tabs.map(function (x) { return '<option value="' + x.i + '"' + (x.i === cur.i ? ' selected' : '') + '>' + esc(x.key) + '</option>'; }).join('') + '</select></label>' +
+        '<label class="fld grow"><span>Also called</span><input data-dt="synonyms" value="' + esc((cur.t.synonyms || []).join(', ')) + '" placeholder="clients, accounts"></label></div>' +
+        '<label class="fld"><span>Description</span><input data-dt="description" value="' + esc(cur.t.description || '') + '"></label>' +
+        '<table class="doc-cols"><thead><tr><th>Column</th><th>Description</th><th>Also called</th></tr></thead><tbody>' +
+        (cols[cur.key] || []).map(function (c) {
+            var d = (cur.t.columns || {})[c] || {};
+            return '<tr><td><code>' + esc(c) + '</code></td><td><input data-dc="' + esc(c) + '" data-dcf="description" value="' + esc(d.description || '') + '"></td>' +
+                '<td><input data-dc="' + esc(c) + '" data-dcf="synonyms" value="' + esc((d.synonyms || []).join(', ')) + '"></td></tr>';
+        }).join('') + '</tbody></table>' + (!(cols[cur.key] || []).length ? '<p class="muted sm">Refresh the module first — columns come from the published file.</p>' : '') + '</div>';
+}
+
 // ── events (studio only) ───────────────────────────────────────
 document.addEventListener('click', function (e) {
     var b = e.target.closest('[data-sec], [data-mi], button, a[data-act]');
@@ -199,13 +235,23 @@ document.addEventListener('click', function (e) {
         case 'roledel': m.roles.splice(+d.rol, 1); markDirty(); return renderStudio();
         case 'rfadd': var t0 = tableKeys().filter(function (k) { return k !== 'calendar'; })[0]; m.roles[+d.rol].filters.push({ table: t0, column: (modelColumns()[t0] || [])[0], values: [] }); markDirty(); return renderStudio();
         case 'rfdel': m.roles[+d.rol].filters.splice(+d.rfi, 1); markDirty(); return renderStudio();
+        case 'gadd': m.glossary.push({ term: '', synonyms: [], definition: '', refs: [], rule: '' }); markDirty(); return renderStudio();
+        case 'gdel': m.glossary.splice(+d.gi, 1); markDirty(); return renderStudio();
     }
 });
 document.addEventListener('input', function (e) {
     var x = e.target, d = x.dataset;
     if (!S.model || !$('page-model') || $('page-model').hidden) return;
     var m = studioModel();
+    if (d.mf2 === 'synonyms' && m.measures[ST.cur]) { m.measures[ST.cur].synonyms = csvList(x.value); markDirty(); return; }
     if (d.mf2 && m.measures[ST.cur]) { m.measures[ST.cur][d.mf2] = x.value; markDirty(); if (d.mf2 === 'name') renderMeasures(); return; }
+    if (d.gf != null && m.glossary[+d.gi]) { var gt = m.glossary[+d.gi]; gt[d.gf] = d.gf === 'synonyms' || d.gf === 'refs' ? csvList(x.value) : x.value; markDirty(); return; }
+    if (d.dt || d.dc) {
+        var tb = m.tables[ST.docT]; if (!tb) return;
+        if (d.dt) tb[d.dt] = d.dt === 'synonyms' ? csvList(x.value) : x.value;
+        else { tb.columns = tb.columns || {}; var cd = tb.columns[d.dc] = tb.columns[d.dc] || {}; cd[d.dcf] = d.dcf === 'synonyms' ? csvList(x.value) : x.value; }
+        markDirty(); return;
+    }
     if (d.cf) { var c = m.calendar; if (d.cf === 'enabled') c.enabled = x.checked; else c[d.cf] = +x.value || 0; markDirty(); return; }
     if (d.rol != null) {
         var r = m.roles[+d.rol];
@@ -226,6 +272,7 @@ document.addEventListener('change', function (e) {
         if (d.rf === 'toTable') r.toColumn = (modelColumns()[x.value] || [])[0];
         markDirty(); if (d.rf === 'fromTable' || d.rf === 'toTable') renderStudio();
     }
+    if (x.id === 'doc-t') { ST.docT = +x.value; return renderDocs(); }
     if (d.mf2 === 'table' && m.measures[ST.cur]) { m.measures[ST.cur].table = x.value; markDirty(); renderMeasures(); }
     if (d.cf === 'enabled' || d.cf === 'fiscalYearStartMonth') { m.calendar[d.cf] = d.cf === 'enabled' ? x.checked : +x.value; markDirty(); }
     if (d.rolf === 'table' || d.rolf === 'column') { var rr = m.roles[+d.rol].filters[+d.rfi]; rr[d.rolf] = x.value; if (d.rolf === 'table') rr.column = (modelColumns()[x.value] || [])[0]; markDirty(); renderStudio(); }

@@ -14,7 +14,7 @@ namespace FusionModel
     ///
     /// Shared folder layout:  model.json · manifest.json · refresher.lock · refresh_log.jsonl · modules\{module}_{version}.duckdb
     /// </summary>
-    public sealed class ModelEngine : IDisposable
+    public sealed partial class ModelEngine : IDisposable
     {
         private readonly string _settingsPath;
         private readonly Dictionary<string, ISource> _sources = new(StringComparer.OrdinalIgnoreCase);

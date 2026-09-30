@@ -34,6 +34,8 @@
     <EmbeddedResource Remove="engine\**" />
     <None Remove="engine\**" />
     <ProjectReference Include="engine\FusionModel\FusionModel.csproj" />
+    <!-- MCP server (FusionModel.Mcp.exe) ships next to the app so Claude Desktop / Claude Code can use the model -->
+    <ProjectReference Include="engine\FusionModel.Mcp\FusionModel.Mcp.csproj" />
   </ItemGroup>
 
   <ItemGroup>

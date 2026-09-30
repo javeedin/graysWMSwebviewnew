@@ -43,7 +43,7 @@ function fm(action, payload, onProgress) {
 // ── load ───────────────────────────────────────────────────────
 function loadAll() {
     return Promise.all([fm('fmStatus'), fm('fmModelGet').catch(function () { return { model: { version: 0, modules: [], tables: [] } }; })]).then(function (r) {
-        S.status = r[0].status; S.isAdmin = !!r[0].isAdmin;
+        S.status = r[0].status; S.isAdmin = !!r[0].isAdmin; S.mcpPath = r[0].mcpPath || 'C:\\fusion\\app\\FusionModel.Mcp.exe';
         if (!S.dirty) S.model = normModel(r[1].model);
         renderAcct();
         if (S.tab === 'modules') renderModules();
@@ -69,8 +69,9 @@ function renderAcct() {
 function showTab(t) {
     S.tab = t;
     document.querySelectorAll('.tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === t); });
-    ['modules', 'model', 'explore', 'log', 'settings'].forEach(function (p) { $('page-' + p).hidden = p !== t; });
+    ['modules', 'model', 'ask', 'explore', 'log', 'settings'].forEach(function (p) { $('page-' + p).hidden = p !== t; });
     if (t === 'model') renderStudio();
+    if (t === 'ask') renderAsk();
     if (t === 'modules') renderModules();
     if (t === 'explore' && !S.schema.length) loadSchema();
     if (t === 'log') loadLog();
@@ -329,7 +330,16 @@ function renderSettings() {
         '<b>Shared folder</b><span>' + (st.sharedReachable ? '<span style="color:#15803d">reachable</span>' : '<span class="err">not reachable</span>') + '</span>' +
         '<b>Refresh running</b><span>' + (st.lease ? esc(st.lease.machine) + ' since ' + new Date(st.lease.acquiredUtc).toLocaleTimeString() : st.building ? esc(st.building) : 'no') + '</span></div>' +
         '<div class="row">' + (S.isAdmin ? '<button class="btn primary" data-act="savecfg"><i class="fa-solid fa-floppy-disk"></i> Save</button>' : '<span class="pill warn">Only AI admins can change these settings.</span>') +
-        '<button class="btn" data-act="sync"><i class="fa-solid fa-download"></i> Copy the latest versions now</button></div></div>';
+        '<button class="btn" data-act="sync"><i class="fa-solid fa-download"></i> Copy the latest versions now</button></div></div>' +
+        '<div class="card"><h3><i class="fa-solid fa-brain"></i> Search by meaning (optional)</h3>' +
+        '<p class="muted sm">Search already matches words, typos, glossary terms, column values and verified examples. A Voyage AI key adds matching by meaning ("turnover" finds <b>Sales</b> without a synonym). The key is encrypted for this Windows user and never sent to the page.</p>' +
+        '<div class="row"><label class="fld grow"><span>Voyage AI API key <small id="emb-st" class="muted"></small></span><input id="s-emb" type="password" class="mono" placeholder="pa-…  (empty + Save = remove)"></label>' +
+        '<button class="btn" data-act="embsave" style="align-self:end"><i class="fa-solid fa-key"></i> Save &amp; test</button></div></div>' +
+        '<div class="card"><h3><i class="fa-solid fa-plug"></i> Use the model from other AI tools (MCP)</h3>' +
+        '<p class="muted sm"><b>FusionModel.Mcp.exe</b> (next to the app) is a read-only MCP server: Claude Desktop, Claude Code or any MCP client can search the model, run measures and look up values — with this user\'s security roles. It reads this PC\'s settings.</p>' +
+        '<pre class="code">' + esc(JSON.stringify({ mcpServers: { 'fusion-model': { command: S.mcpPath, args: ['--user', appUser() || 'YOUR_LOGIN'] } } }, null, 2)) + '</pre>' +
+        '<p class="muted sm">Claude Desktop: Settings › Developer › Edit Config, paste into <code>claude_desktop_config.json</code> and restart. Claude Code: <code>claude mcp add fusion-model -- "' + esc(S.mcpPath) + '" --user ' + esc(appUser() || 'YOUR_LOGIN') + '</code>. The path is this PC\'s copy of the app.</p></div>';
+    fm('fmEmbedStatus').then(function (r) { var el = $('emb-st'); if (el) el.textContent = r.hasKey ? '· key saved' + (r.provider ? ' (' + r.provider + ')' : '') : '· no key (words-only search)'; }).catch(function () { });
 }
 function saveSettings() {
     var s = Object.assign({}, (S.status || {}).settings || {}, {
@@ -383,6 +393,10 @@ document.addEventListener('click', function (e) {
         case 'csv': return downloadCsv();
         case 'log': return loadLog();
         case 'savecfg': return saveSettings();
+        case 'embsave':
+            busy('Testing the key…');
+            return fm('fmEmbedKeySave', { key: $('s-emb').value }).then(function (r) { busy(null); $('s-emb').value = ''; toast(r.provider ? 'Key saved — search now matches by meaning' : 'Key removed'); renderSettings(); })
+                .catch(function (x) { busy(null); toast('Key saved but the test failed: ' + x); renderSettings(); });
         case 'sync': busy('Copying…'); return fm('fmSync').then(function (r) { busy(null); toast((r.copied || []).length ? 'Copied ' + r.copied.join(', ') : 'Already up to date'); S.schema = []; return loadAll(); }).then(renderSettings).catch(function (x) { busy(null); toast(String(x)); });
     }
 });

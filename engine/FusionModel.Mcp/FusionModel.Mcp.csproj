@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- MCP server (stdio) over the Fusion Model: lets Claude Desktop / Claude Code / other MCP clients ask the model.
+       Read-only; uses the same settings file as the app (or command-line options). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>FusionModel.Mcp</AssemblyName>
+    <RootNamespace>FusionModel.Mcp</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FusionModel\FusionModel.csproj" />
+  </ItemGroup>
+
+</Project>

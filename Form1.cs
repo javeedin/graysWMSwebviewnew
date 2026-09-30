@@ -3878,6 +3878,7 @@ navPanel.Controls.Add(wmsDevButton);
         {
             if (_claudeCliService == null)
                 _claudeCliService = new ClaudeCliService();
+            ClaudeCliService.ModelEngineProvider ??= GetModelEngine;
             return _claudeCliService;
         }
 
