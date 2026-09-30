@@ -117,6 +117,7 @@ try
 
                 // Start mobile notification listener
                 StartMobileListener();
+                try { PowerBiService.StartScheduler(); } catch (Exception pbiEx) { System.Diagnostics.Debug.WriteLine("[PowerBI] scheduler start: " + pbiEx.Message); }
             }
             catch (Exception ex)
             {
@@ -2197,6 +2198,11 @@ navPanel.Controls.Add(wmsDevButton);
                                 // Data Loading module (dataload/index.html)
                                 case var dlAction when IsDataLoadAction(dlAction):
                                     await HandleDataLoadAction(wv, action, root, requestId);
+                                    break;
+
+                                // Power BI module (powerbi/index.html)
+                                case var pbiAction when IsPowerBiAction(pbiAction):
+                                    await HandlePowerBiAction(wv, action, root, requestId);
                                     break;
 
                                 // AI control plane: kill switch, audit, inbox (AI Digital Employee > Control)

@@ -36,6 +36,8 @@
     <PackageReference Include="Anthropic" Version="12.50.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.31" />
     <PackageReference Include="ICSharpCode.Decompiler" Version="9.1.0.7988" />
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.90.1" />
+    <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.90.1" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 
@@ -150,6 +152,10 @@
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
     <Content Include="dataload\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="powerbi\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
