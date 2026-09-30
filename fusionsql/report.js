@@ -167,6 +167,7 @@ function rpShellHtml() {
         '<button onclick="rpCopySummary()"><i class="fa-solid fa-align-left" style="color:#57504b"></i><span><b>Copy summary text</b><small>KPIs + insights as plain text</small></span></button>' +
         '<button onclick="rpCopyChart()"><i class="fa-solid fa-chart-simple" style="color:#7c3aed"></i><span><b>Copy chart image</b><small>Paste into chat, slides or mail</small></span></button>' +
         '<button onclick="closeReport();openSaveToApex()"><i class="fa-solid fa-cloud-arrow-up" style="color:#c74634"></i><span><b>Save to APEX</b><small>Share the data with the team as a refreshable table</small></span></button>' +
+        '<button onclick="closeReport();openSendToModel()"><i class="fa-solid fa-cubes-stacked" style="color:#4338ca"></i><span><b>Send to Fusion Model</b><small>Add the query to the shared DuckDB dataset: measures, dashboards, Ask AI</small></span></button>' +
         '</div></div>' +
         '<button class="fs-icon-btn rp-close" onclick="closeReport()" title="Close (Esc)"><i class="fa-solid fa-xmark"></i></button>' +
         '</div></div>' +

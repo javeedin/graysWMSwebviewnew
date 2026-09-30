@@ -24,6 +24,13 @@ if errorlevel 2 (
 )
 :rag_chosen
 if /i "%INCLUDE_RAG%"=="Y" (echo   RAG service: INCLUDED) else (echo   RAG service: EXCLUDED)
+REM Modules packaged besides wms (package-release.bat always adds fusionsql if it is missing)
+if not defined MODULES set "MODULES=Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel"
+set "APP_VER=?"
+for /f "delims=" %%V in ('powershell -NoProfile -Command "(Get-Content -Raw '%~dp0version.json' | ConvertFrom-Json).version"') do set "APP_VER=%%V"
+echo   Version: %APP_VER%
+echo   Modules: wms %MODULES%
+echo            ^(Fusion SQL, Fusion Model, Power BI, Data Loading, DLL Explorer, AI Digital Employee, Inventory^)
 echo.
 if "%INCLUDE_RAG%"=="Y" (
     echo   Step 1: Build RAG service ^(rag_service.exe via PyInstaller^)
@@ -125,9 +132,18 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM --- The zip must contain Fusion SQL (and the Fusion Model it feeds) ---
+powershell -NoProfile -Command "Add-Type -Assembly 'System.IO.Compression.FileSystem'; $z=[System.IO.Compression.ZipFile]::OpenRead('%~dp0fusionclientweb.zip'); $n=$z.Entries | ForEach-Object { $_.FullName -replace '\\','/' }; $z.Dispose(); $miss=@('graysWMSwebviewnew/fusionsql/index.html','graysWMSwebviewnew/fusionsql/fusionsql.js','graysWMSwebviewnew/fusionmodel/index.html','graysWMSwebviewnew/dist/GraysWMS.exe') | Where-Object { $n -notcontains $_ }; if ($miss) { Write-Host ('  MISSING in zip: ' + ($miss -join ', ')); exit 1 } else { Write-Host '  Zip check: Fusion SQL, Fusion Model and GraysWMS.exe present' }"
+if errorlevel 1 (
+    echo.
+    echo ERROR: the zip is incomplete.
+    %PAUSE_CMD%
+    exit /b 1
+)
+
 echo.
 echo ============================================================
-echo   DONE - fusionclientweb.zip is ready to send to users
+echo   DONE - fusionclientweb.zip (v%APP_VER%) is ready to send to users
 echo ============================================================
 echo.
 %PAUSE_CMD%

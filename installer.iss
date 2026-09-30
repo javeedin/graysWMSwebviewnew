@@ -13,7 +13,7 @@
 ; ============================================================
 
 #define AppName "Gray's WMS"
-#define AppVersion "11.0.0"
+#define AppVersion "12.0.0"
 #define AppPublisher "Gray's Inc"
 #define AppExeName "GraysWMS.exe"
 #define InstallBase "C:\fusion\fusionclientweb\graysWMSwebviewnew"
@@ -56,8 +56,8 @@ Name: "{app}"; Permissions: everyone-full
 Name: "{app}\{#DistFolder}"; Permissions: everyone-full
 
 [Files]
-; ── Main executable (single-file, self-contained) ──
-Source: "{#DistFolder}\{#AppExeName}"; DestDir: "{app}\{#DistFolder}"; Flags: ignoreversion
+; ── The .NET build: GraysWMS.exe and its libraries (Fusion SQL: SQLite; Fusion Model: DuckDB; MCP server) ──
+Source: "{#DistFolder}\*"; DestDir: "{app}\{#DistFolder}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; ── Root web files ──
 Source: "index.html";               DestDir: "{app}"; Flags: ignoreversion
@@ -80,6 +80,17 @@ Source: "gl\*";    DestDir: "{app}\gl";   Flags: ignoreversion recursesubdirs cr
 Source: "om\*";    DestDir: "{app}\om";   Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "pos\*";   DestDir: "{app}\pos";  Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "sync\*";  DestDir: "{app}\sync"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+; ── Modules (same set as package-release.bat; Fusion SQL always included) ──
+Source: "Inventory\*";    DestDir: "{app}\Inventory";    Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "aianalysis\*";   DestDir: "{app}\aianalysis";   Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "fusionsql\*";    DestDir: "{app}\fusionsql";    Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "fusionmodel\*";  DestDir: "{app}\fusionmodel";  Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dataload\*";     DestDir: "{app}\dataload";     Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dllexplorer\*";  DestDir: "{app}\dllexplorer";  Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "powerbi\*";      DestDir: "{app}\powerbi";      Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "formsdesigner\form-engine.js"; DestDir: "{app}\formsdesigner"; Flags: ignoreversion
+Source: "version.json";    DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; Desktop shortcut

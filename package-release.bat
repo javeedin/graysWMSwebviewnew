@@ -1,14 +1,14 @@
 @echo off
 REM ============================================================
 REM  package-release.bat
-REM  Creates a single zip: fusionclientweb.zip  (v11.0.0 client package)
+REM  Creates a single zip: fusionclientweb.zip  (v12.0.0 client package)
 REM  Extract INTO C:\fusion\fusionclientweb\ and it creates:
 REM    C:\fusion\fusionclientweb\graysWMSwebviewnew\
 REM       Home\         (launcher - shows only the modules in this package)
 REM       wms\          (Warehouse Management)
 REM       Inventory\    (Inventory)
 REM       aianalysis\   (AI Digital Employee  - TRIAL)
-REM       fusionsql\    (Fusion SQL           - TRIAL)
+REM       fusionsql\    (Fusion SQL - always included; TRIAL)
 REM       dataload\     (Data Loading - Fusion FBDI templates)
 REM       dllexplorer\  (DLL Explorer - read a .dll/.exe, AI feature map)
 REM       powerbi\      (Power BI - datasets from APEX, embedded reports)
@@ -120,6 +120,8 @@ if errorlevel 1 (
 
 REM --- Copy module folders ---
 if not defined MODULES set "MODULES=Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel"
+REM Fusion SQL is part of every release (the Fusion Model and Data Loading use its runner too)
+echo " %MODULES% " | findstr /i /c:" fusionsql " >nul || set "MODULES=%MODULES% fusionsql"
 echo Modules in this release: wms %MODULES%
 for %%F in (%MODULES%) do (
     if exist "%SCRIPT_DIR%%%F" (
@@ -131,6 +133,15 @@ for %%F in (%MODULES%) do (
         goto :error
     )
 )
+
+REM --- Fusion SQL must be complete: the page and every script it loads ---
+for %%F in (index.html fusionsql.js fusionsql.css report.js datasets.js flows.js flows-seed.js flows-catalog.js setups.js setups-seed.js pipelines.js pipeline-setup.js tomodel.js) do (
+    if not exist "%APP_DIR%\fusionsql\%%F" (
+        echo ERROR: fusionsql\%%F is missing from the package
+        goto :error
+    )
+)
+echo   - fusionsql\ verified (page + 12 scripts)
 
 REM --- AI Digital Employee loads ..\formsdesigner\form-engine.js (engine only, not the designer) ---
 if not exist "%APP_DIR%\formsdesigner\form-engine.js" (

@@ -31,7 +31,7 @@
         <div class="fs-brand">
             <div class="fs-logo"><i class="fa-solid fa-database"></i></div>
             <div>
-                <div class="fs-title">Fusion SQL <span class="fs-ver">v11.0.0</span><span id="trial-badge" class="fs-trial" style="display:none;"></span></div>
+                <div class="fs-title">Fusion SQL <span class="fs-ver">v12.0.0</span><span id="trial-badge" class="fs-trial" style="display:none;"></span></div>
                 <div class="fs-subtitle">Read-only SQL workbench for Oracle Fusion Cloud · via BI Publisher</div>
             </div>
         </div>
@@ -144,6 +144,7 @@
                             <button class="fs-btn sm rp-launch" onclick="openReport()" title="Show the results as a formatted dashboard with export and share options"><i class="fa-solid fa-wand-magic-sparkles"></i> Format Results</button>
                             <button class="fs-btn sm" onclick="plAddFromBuilder()" title="Use this SQL as a task in a data pipeline (scheduled load to a target database)"><i class="fa-solid fa-diagram-successor"></i> Add to pipeline</button>
                             <button class="fs-btn sm ds-save-btn" onclick="openSaveToApex()" title="Save this result as a table in the APEX database (refreshable)"><i class="fa-solid fa-cloud-arrow-up"></i> Save to APEX</button>
+                            <button class="fs-btn sm" onclick="openSendToModel()" title="Add this query as a table of the Fusion Model (the shared DuckDB dataset): measures, reports, dashboards, Ask AI"><i class="fa-solid fa-cubes-stacked"></i> Send to Fusion Model</button>
                             <button class="fs-btn sm" onclick="exportExcel()"><i class="fa-solid fa-file-excel"></i> Excel</button>
                             <button class="fs-btn sm" onclick="exportPdf()"><i class="fa-solid fa-file-pdf"></i> PDF</button>
                             <button class="fs-btn sm" onclick="copyGrid()"><i class="fa-solid fa-copy"></i> Copy</button>
@@ -585,6 +586,7 @@ ORDER BY table_name</textarea>
 
 <script src="fusionsql.js"></script>
 <script src="datasets.js"></script>
+    <script src="tomodel.js"></script>
 <script src="report.js"></script>
 <script src="flows-seed.js"></script>
 <script src="flows-catalog.js"></script>

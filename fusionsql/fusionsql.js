@@ -108,6 +108,8 @@ if (window.chrome && window.chrome.webview) {
         var resp = ev.data;
         if (typeof resp === 'string') { try { resp = JSON.parse(resp); } catch (e) { return; } }
         if (resp && resp.action === 'fusionSqlAiProgress') { if (typeof onAiProgress === 'function') onAiProgress(resp.message); return; }
+        // Fusion Model progress (Send to Fusion Model) - not a reply, the request is still running
+        if (resp && resp.action === 'fmProgress') { if (typeof TM !== 'undefined' && TM.onProgress) TM.onProgress(resp.message); return; }
         if (!resp || !resp.requestId || !_fsPending[resp.requestId]) return;
         var p = _fsPending[resp.requestId];
         delete _fsPending[resp.requestId];

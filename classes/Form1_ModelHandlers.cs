@@ -424,6 +424,27 @@ namespace WMSApp
                             break;
                         }
 
+                    case "fmAddTable":
+                        {
+                            // Fusion SQL › "Send to Fusion Model": one table (the query) into a module, optionally loaded at once
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can add tables to the Fusion Model." }; break; }
+                            var t = root.GetProperty("table").Deserialize<TableDef>(FusionModel.Json.Options);
+                            engine.AddTable(t, PStr(root, "moduleTitle"), PBool(root, "replace"));
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "MODEL", Action = "table_add", Outcome = "OK", Ref = t.Module + "." + t.Name, Detail = "from Fusion SQL · " + t.Source?.Kind + " · " + t.Strategy });
+                            BuildResult r = null;
+                            if (PBool(root, "refresh"))
+                            {
+                                _modelRefreshCts?.Dispose();
+                                _modelRefreshCts = new CancellationTokenSource();
+                                var progress = new Progress<string>(msg => { try { PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "fmProgress", requestId, message = msg })); } catch { } });
+                                r = await Task.Run(() => engine.RefreshAsync(t.Module, new[] { t.Name }, true, user, progress, _modelRefreshCts.Token));
+                                if (r.Ok) try { engine.SyncCache(); } catch { }
+                                AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "MODEL", Action = "refresh", Outcome = r.Ok ? "OK" : "FAILED", Ref = t.Module, Detail = r.Ok ? r.Version + " · " + t.Name : r.Error });
+                            }
+                            data = new { ok = r == null || r.Ok, error = r?.Error, loaded = r?.Tables.FirstOrDefault()?.Rows, version = r?.Version };
+                            break;
+                        }
+
                     default:
                         data = new { ok = false, error = "Unknown action " + action };
                         break;

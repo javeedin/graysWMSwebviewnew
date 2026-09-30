@@ -72,6 +72,27 @@ namespace FusionModel
             Json.WriteAtomic(ModelPath, model);
         }
 
+        /// <summary>
+        /// Adds (or with <paramref name="replace"/> replaces) one table in the model, creating its module when needed - what
+        /// Fusion SQL's "Send to Fusion Model" does. Only this table's problems stop it.
+        /// </summary>
+        public ModelDefinition AddTable(TableDef t, string moduleTitle, bool replace)
+        {
+            if (t == null || !Names.IsValid(t.Module) || !Names.IsValid(t.Name))
+                throw new ArgumentException("Module and table names: lowercase letters, digits and _ (start with a letter).");
+            var model = LoadModel();
+            if (model.Module(t.Module) == null)
+                model.Modules.Add(new ModuleDef { Name = t.Module, Title = string.IsNullOrWhiteSpace(moduleTitle) ? t.Module : moduleTitle.Trim() });
+            var old = model.Table(t.Module, t.Name);
+            if (old != null && !replace) throw new InvalidOperationException("Table " + t.Module + "." + t.Name + " already exists - choose another name or replace it.");
+            if (old != null) model.Tables.Remove(old);
+            model.Tables.Add(t);
+            var mine = model.Validate().Where(e => e.StartsWith(t.Module + "." + t.Name + ":", StringComparison.OrdinalIgnoreCase) || e.Contains("'" + t.Name + "'")).ToList();
+            if (mine.Count > 0) throw new InvalidOperationException(string.Join("\n", mine));
+            SaveModel(model);
+            return model;
+        }
+
         public Manifest LoadManifest() =>
             (SharedReachable ? Json.Read<Manifest>(ManifestPath) : Json.Read<Manifest>(CacheManifestPath)) ?? new Manifest();
 
@@ -310,9 +331,18 @@ namespace FusionModel
                             Json.WriteAtomic(ckptPath, new Checkpoint { DefinitionHash = t.DefinitionHash(), LastKey = key, Rows = n, StartedUtc = started == default ? DateTime.UtcNow : started });
                         };
                     }
+                    // declared DATE / TIMESTAMP columns: Oracle's ISO text (2026-01-31T00:00:00.000+00:00, 2026/01/31) → what DuckDB casts
+                    var dateCols = new HashSet<string>((t.ColumnTypes ?? new()).Where(kv => kv.Value != null &&
+                        (kv.Value.StartsWith("DATE", StringComparison.OrdinalIgnoreCase) || kv.Value.StartsWith("TIMESTAMP", StringComparison.OrdinalIgnoreCase))).Select(kv => kv.Key), StringComparer.OrdinalIgnoreCase);
                     await foreach (var page in src.ReadAsync(req, ct).ConfigureAwait(false))
                     {
-                        foreach (var row in page.Rows) { w.WriteLine(JsonSerializer.Serialize(row)); n++; }
+                        foreach (var row in page.Rows)
+                        {
+                            if (dateCols.Count > 0)
+                                foreach (var k in row.Keys.Where(dateCols.Contains).ToList())
+                                    if (row[k] is string sv) row[k] = sv.Length == 0 ? null : BiccSource.NormDate(sv);
+                            w.WriteLine(JsonSerializer.Serialize(row)); n++;
+                        }
                         progress?.Invoke(n);
                     }
                 }

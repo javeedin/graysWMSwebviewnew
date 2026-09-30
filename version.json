@@ -1,6 +1,6 @@
 {
-    "version": "11.0.0",
-    "build_date": "2026-09-24",
+    "version": "12.0.0",
+    "build_date": "2026-09-30",
     "files": {
         "index.html": "2026-09-11",
         "app.js": "2026-09-11",
@@ -10,7 +10,8 @@
         "wms/picker-view.html": "2026-06-09",
         "printer-management-new.js": "2026-06-09",
         "api-log.js": "2026-06-09",
-        "fusionsql/index.html": "2026-09-24"
+        "fusionsql/index.html": "2026-09-30",
+        "fusionmodel/index.html": "2026-09-30"
     },
-    "changelog": "v11.0.0 \u2014 New Fusion SQL module: read-only SQL workbench for Oracle Fusion through a BI Publisher runner (SQL Builder with parameters and date picker, Saved Queries in APEX, Tables List schema browser, Excel/CSV/PDF export, charts, API Inspector). Ask AI agent with full dictionary access (objects, columns, PL/SQL source, dependencies, sample queries). APEX Data: save results as FSQ_ tables with their source SQL, refresh (REPLACE/APPEND) and query back in a two-pane explorer. Fusion Setups: module-wise setup checklist with check SQL, DONE/NOT DONE per pod and drill-down. Inventory Query Onhand: Export to Excel."
+    "changelog": "v12.0.0 \u2014 Fusion Model: a shared DuckDB dataset (one file per module) loaded from APEX, Oracle Fusion SQL and BICC extracts, with a DAX-compatible measure language, Fusion packs (GL, AP, AR, PO, OM, INV), reconciliation checks, Ask AI, Reports and Power BI-style Dashboards with Copilot; Fusion SQL results can be sent to the Fusion Model (Send to Fusion Model). Power BI module, Data Loading (FBDI templates, Prepare & Load, Setup Projects, Fusion API), DLL Explorer, AI control plane (kill switch, audit, approval inbox). Fusion SQL included in every release."
 }

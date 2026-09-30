@@ -951,3 +951,9 @@ li.CodeMirror-hint-active { background: var(--fs-red); }
 .pl-modes { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-bottom: 6px; }
 .pl-modes .fs-radio { margin: 0; align-items: flex-start; text-align: left; }
 .pl-modes .fs-radio small { display: block; font-weight: 400; color: var(--fs-muted); font-size: .7rem; }
+
+/* Send to Fusion Model */
+.tm-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.tm-row select, .tm-row input { width: 100%; }
+.fs-check { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-weight: 500; }
+.fs-form select { width: 100%; }

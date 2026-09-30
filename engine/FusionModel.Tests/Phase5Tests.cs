@@ -112,5 +112,35 @@ namespace FusionModel.Tests
             Assert.Equal(new[] { "1=100", "2=220", "3=-50", "4=400" }, rows);
             Assert.Equal(2, r2.Tables[0].Loaded);                        // only the changed rows were read again
         }
+        [Fact]
+        public async Task Fusion_sql_result_sent_to_the_model_loads_with_its_dates()
+        {
+            var e = new ModelEngine(Path.Combine(_dir, "s2.json"), new EngineSettings { SharedRoot = Path.Combine(_dir, "shared2"), CacheRoot = Path.Combine(_dir, "cache2"), ReadMode = "DIRECT" });
+            e.SaveSettings(e.Settings);
+            e.RegisterSource(new FusionSource((sql, max, ct) => Task.FromResult((true, (string)null, new List<Dictionary<string, object>>
+            {
+                new() { ["INVOICE_ID"] = "1", ["INVOICE_DATE"] = "2026-01-31T00:00:00.000+00:00", ["AMOUNT"] = "100.5", ["LAST_UPDATE_DATE"] = "2026-02-01T08:15:00.000+00:00" },
+                new() { ["INVOICE_ID"] = "2", ["INVOICE_DATE"] = "2026/02/28", ["AMOUNT"] = "40", ["LAST_UPDATE_DATE"] = "" }
+            })), "fusion:TEST"));
+            var t = new TableDef
+            {
+                Module = "fsql", Name = "open_invoices", Description = "From Fusion SQL", Key = { "INVOICE_ID" }, Paging = "rownum",
+                Source = new SourceDef { Kind = "fusion:TEST", Sql = "SELECT invoice_id, invoice_date, amount FROM ap_invoices_all" },
+                ColumnTypes = { ["INVOICE_ID"] = "BIGINT", ["INVOICE_DATE"] = "DATE", ["AMOUNT"] = "DOUBLE", ["LAST_UPDATE_DATE"] = "TIMESTAMP" }
+            };
+            var m = e.AddTable(t, "Fusion SQL", replace: false);
+            Assert.Equal("Fusion SQL", m.Module("fsql").Title);
+            Assert.Throws<InvalidOperationException>(() => e.AddTable(t, null, replace: false));      // exists
+            e.AddTable(t, null, replace: true);
+            Assert.Throws<ArgumentException>(() => e.AddTable(new TableDef { Module = "Bad Name", Name = "x" }, null, false));
+            var r = await e.RefreshAsync("fsql", new[] { "open_invoices" }, true, "t", null, default);
+            Assert.True(r.Ok, r.Error);
+            var q = e.Query("SELECT typeof(INVOICE_DATE), CAST(INVOICE_DATE AS VARCHAR), typeof(LAST_UPDATE_DATE), SUM(AMOUNT) OVER () FROM fsql.open_invoices ORDER BY INVOICE_ID");
+            Assert.Equal("DATE", q.Rows[0][0]);
+            Assert.Equal("2026-01-31", q.Rows[0][1]);
+            Assert.Equal("2026-02-28", q.Rows[1][1]);
+            Assert.Equal("TIMESTAMP", q.Rows[0][2]);
+            Assert.Equal(140.5, Convert.ToDouble(q.Rows[0][3]));
+        }
     }
 }
