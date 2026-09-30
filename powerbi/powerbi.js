@@ -500,6 +500,7 @@ document.addEventListener('click', function (e) {
         case 'addlink': return linkModal(null);
         case 'editlink': return S.cur && S.cur.link && linkModal(S.cur.link);
         case 'window': return openInWindow();
+        case 'signinonce': return signInOnce();
         case 'deffilters': saveLinkFilters(); $('b-deffilters').hidden = true; return;
         case 'hidehint': try { localStorage.setItem('pbiHintSeen', '1'); } catch (x) { } b.parentNode.remove(); return;
         case 'testfeed': return runKeyTest($('s-tkey').value.trim(), 's-tout');

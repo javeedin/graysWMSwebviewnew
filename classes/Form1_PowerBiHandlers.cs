@@ -183,6 +183,8 @@ namespace WMSApp
                 };
                 var wv = new WebView2 { Dock = System.Windows.Forms.DockStyle.Fill };
                 f.Controls.Add(wv);
+                // signed in there -> the page reloads its embedded report
+                f.FormClosed += (s, a) => { try { page.CoreWebView2?.PostWebMessageAsJson("{\"action\":\"pbiSignInClosed\"}"); } catch { } };
                 f.Show();
                 await wv.EnsureCoreWebView2Async(await GetSharedEnvironmentAsync());
                 wv.CoreWebView2.NewWindowRequested += (s, e) =>
@@ -243,8 +245,18 @@ namespace WMSApp
         /// </summary>
         private bool TryOpenSignInPopup(Microsoft.Web.WebView2.Core.CoreWebView2NewWindowRequestedEventArgs e, Microsoft.Web.WebView2.Core.CoreWebView2 opener)
         {
-            if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) || u.Scheme != Uri.UriSchemeHttps) return false;
-            if (!SIGN_IN_HOSTS.Any(h => u.Host.Equals(h, StringComparison.OrdinalIgnoreCase))) return false;
+            // any window opened from the Power BI page or from a Power BI page (Power BI may open it as about:blank first
+            // and load the Microsoft login afterwards), or a window that opens straight on a Microsoft sign-in address
+            bool fromPowerBi = false;
+            try
+            {
+                if (opener != null && Uri.TryCreate(opener.Source, UriKind.Absolute, out var src))
+                    fromPowerBi = src.Host.Equals(PBI_LOCAL_HOST, StringComparison.OrdinalIgnoreCase) || src.Host.EndsWith("powerbi.com", StringComparison.OrdinalIgnoreCase);
+            }
+            catch { }
+            bool signInUrl = Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttps && SIGN_IN_HOSTS.Any(h => u.Host.Equals(h, StringComparison.OrdinalIgnoreCase));
+            if (!fromPowerBi && !signInUrl) return false;
+            System.Diagnostics.Debug.WriteLine("[PowerBI] popup " + (e.Uri ?? "") + " from " + (opener?.Source ?? ""));
             var deferral = e.GetDeferral();
             OpenSignInPopupAsync(e, deferral, opener);
             return true;

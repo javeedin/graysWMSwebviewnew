@@ -92,7 +92,8 @@ function loadLinkFrame() {
     el.appendChild(f);
     var hint = document.createElement('div');
     hint.className = 'embed-hint';
-    hint.innerHTML = '<i class="fa-solid fa-circle-info"></i><span>First time? Click <b>Sign in</b> in the report and use your Microsoft (Outlook) account. Still blank after signing in? Click <b>Open in window</b> (top right). “Upgrade” or “no access”? Your Power BI licence is Free — start the Pro trial.</span>' +
+    hint.innerHTML = '<i class="fa-solid fa-circle-info"></i><span>Blank after <b>Sign in</b>? Click <b>Sign in once</b>: a Power BI window opens — sign in with your Outlook account, wait for the Power BI home page, close the window, and the report here reloads signed in. “Upgrade” or “no access”? Your licence is Free — start the Pro trial.</span>' +
+        '<button class="btn sm primary" data-act="signinonce">Sign in once</button>' +
         '<button class="lnk" data-act="hidehint">Got it</button>';
     try { if (localStorage.getItem('pbiHintSeen') !== '1') el.appendChild(hint); } catch (e) { el.appendChild(hint); }
 }
@@ -345,4 +346,11 @@ function openInWindow() {
         var ex = pbFilterExpr(S.filters); url = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'filter=' + encodeURIComponent(ex).replace(/%2F/g, '/');
     }
     pb('pbiOpenWindow', { url: url, title: S.cur.name || S.cur.link && S.cur.link.NAME }).catch(function (e) { toast(String(e)); });
+}
+
+/** Sign in to Power BI in a normal (top-level) window; closing it reloads the embedded report, which then reuses that sign-in. */
+function signInOnce() {
+    pb('pbiOpenWindow', { url: 'https://app.powerbi.com/home', title: 'sign in, then close this window' })
+        .then(function () { toast('Sign in in the Power BI window, then close it'); })
+        .catch(function (e) { toast(String(e)); });
 }
