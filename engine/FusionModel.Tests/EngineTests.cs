@@ -4,18 +4,21 @@ using Xunit;
 
 namespace FusionModel.Tests
 {
-    /// <summary>A source whose rows the test decides; records the watermark it was asked for.</summary>
+    /// <summary>A source whose rows the test decides; records the requests it was asked for.</summary>
     internal sealed class FakeSource : ISource
     {
         public string Kind => "fake";
         public Func<TableDef, string, List<Dictionary<string, object>>> Rows = (_, _) => new();
         public List<string> Watermarks { get; } = new();
+        public List<ReadRequest> Requests { get; } = new();
+        public long? Count;
 
-        public async IAsyncEnumerable<RowPage> ReadAsync(TableDef table, string watermark, [EnumeratorCancellation] CancellationToken ct)
+        public async IAsyncEnumerable<RowPage> ReadAsync(ReadRequest req, [EnumeratorCancellation] CancellationToken ct)
         {
-            Watermarks.Add(watermark);
+            Watermarks.Add(req.Watermark);
+            Requests.Add(req);
             await Task.Yield();
-            var all = Rows(table, watermark);
+            var all = Rows(req.Table, req.Watermark);
             for (int i = 0; i < all.Count; i += 2)          // pages of 2, to exercise paging
             {
                 var p = new RowPage();
@@ -23,6 +26,8 @@ namespace FusionModel.Tests
                 yield return p;
             }
         }
+
+        public Task<long?> CountAsync(ReadRequest req, CancellationToken ct) => Task.FromResult(Count);
     }
 
     public sealed class EngineTests : IDisposable

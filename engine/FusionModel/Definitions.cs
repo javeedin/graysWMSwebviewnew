@@ -33,6 +33,11 @@ namespace FusionModel
                 if (Module(t.Module) == null) errors.Add($"{where}: module '{t.Module}' does not exist.");
                 if (t.Source == null || string.IsNullOrWhiteSpace(t.Source.Kind)) errors.Add($"{where}: no source.");
                 else if (t.Source.Kind != "file" && string.IsNullOrWhiteSpace(t.Source.Sql)) errors.Add($"{where}: the source SQL is empty.");
+                if (t.Strategy == LoadStrategy.Window)
+                {
+                    if (string.IsNullOrWhiteSpace(t.WindowColumn)) errors.Add($"{where}: a window table needs a date column (e.g. ACCOUNTING_DATE).");
+                    if (t.WindowMonths < 1 || t.WindowMonths > 120) errors.Add($"{where}: window months must be 1–120.");
+                }
                 if (t.Strategy == LoadStrategy.Incremental)
                 {
                     if (t.Key == null || t.Key.Count == 0) errors.Add($"{where}: an incremental table needs a key.");
@@ -60,7 +65,7 @@ namespace FusionModel
     }
 
     [JsonConverter(typeof(JsonStringEnumConverter))]
-    public enum LoadStrategy { Full, Incremental }
+    public enum LoadStrategy { Full, Incremental, Window }
 
     public sealed class TableDef
     {
@@ -77,6 +82,22 @@ namespace FusionModel
         public int PageSize { get; set; }
         /// <summary>Optional declared types (column → DuckDB type); others are detected from the data.</summary>
         public Dictionary<string, string> ColumnTypes { get; set; } = new();
+        /// <summary>Window strategy: the date column and how many months (current month included) are reloaded each time.</summary>
+        public string WindowColumn { get; set; }
+        public int WindowMonths { get; set; } = 3;
+        /// <summary>auto (keyset when there is exactly one key column), keyset or rownum.</summary>
+        public string Paging { get; set; } = "auto";
+        /// <summary>Compare the source's COUNT(*) with the rows loaded (full loads).</summary>
+        public bool CountCheck { get; set; }
+
+        public bool UsesKeyset => Key != null && Key.Count == 1 && !string.Equals(Paging, "rownum", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>Changes when anything that affects the rows changes (resuming a half-finished load is only safe for the same definition).</summary>
+        public string DefinitionHash()
+        {
+            string raw = string.Join("\u0001", Source?.Kind, Source?.Sql, Source?.Path, Strategy, string.Join(",", Key ?? new()), IncrementalColumn, WindowColumn, WindowMonths, Paging);
+            return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(raw))).Substring(0, 16);
+        }
     }
 
     public sealed class SourceDef
@@ -125,6 +146,11 @@ namespace FusionModel
         public DateTime LoadedUtc { get; set; }
         public long LastLoadedRows { get; set; }
         public long LastMs { get; set; }
+        public double RowsPerSecond { get; set; }
+        public string LastMode { get; set; }             // full, incremental, window, resumed
+        /// <summary>COUNT(*) at the source for the last full load (null = not checked).</summary>
+        public long? SourceCount { get; set; }
+        public List<string> Drift { get; set; } = new();  // column changes seen in the last load
         public List<ColumnInfo> Columns { get; set; } = new();
     }
 

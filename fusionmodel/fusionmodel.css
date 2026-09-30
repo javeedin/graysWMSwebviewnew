@@ -224,3 +224,8 @@ tr.revoked td { opacity: .55; }
 .tcard input.desc { width: 100%; border: 1px solid transparent; background: transparent; border-radius: 8px; padding: 5px 8px; font-size: .82rem; color: var(--ink2); }
 .tcard input.desc:hover, .tcard input.desc:focus { border-color: var(--line); background: var(--soft); outline: none; }
 .tcard .tblh .stateline { margin-left: 4px; }
+.rc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.rc-head { margin-bottom: 14px; }
+.rc-head .row { gap: 28px; font-size: .84rem; }
+.rc-head b { color: var(--muted); font-weight: 600; margin-right: 6px; }
+.rc-mod .kv { grid-template-columns: 90px 1fr; font-size: .8rem; }

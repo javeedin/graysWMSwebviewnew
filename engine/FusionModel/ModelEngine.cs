@@ -124,12 +124,24 @@ namespace FusionModel
                         var tsw = Stopwatch.StartNew();
                         states.TryGetValue(t.Name, out var st);
                         bool exists = TableExists(conn, t.Name);
-                        bool incremental = !full && t.Strategy == LoadStrategy.Incremental && exists && !string.IsNullOrEmpty(st?.Watermark);
-                        progress?.Report($"{t.Name}: {(incremental ? "changes since " + st.Watermark : "full load")}…");
+                        // the load mode for this run: the first load of any table is always full
+                        string mode = full || !exists ? "full"
+                            : t.Strategy == LoadStrategy.Incremental && !string.IsNullOrEmpty(st?.Watermark) ? "incremental"
+                            : t.Strategy == LoadStrategy.Window ? "window" : "full";
+                        var req = new ReadRequest { Table = t, Watermark = mode == "incremental" ? st.Watermark : null };
+                        if (mode == "window")
+                        {
+                            var now = DateTime.Now;
+                            req.WindowStart = new DateTime(now.Year, now.Month, 1).AddMonths(-(Math.Clamp(t.WindowMonths, 1, 120) - 1));
+                        }
+                        var notes = new List<string>();
+                        req.Note = n => { lock (notes) notes.Add(n); progress?.Report($"{t.Name}: {n}"); };
+                        progress?.Report($"{t.Name}: {(mode == "incremental" ? "changes since " + st.Watermark : mode == "window" ? "months from " + req.WindowStart.Value.ToString("yyyy-MM") : "full load")}…");
                         try
                         {
-                            long loaded = await StageAsync(conn, t, incremental ? st.Watermark : null, n => progress?.Report($"{t.Name}: {n:N0} rows read…"), ct).ConfigureAwait(false);
-                            if (!incremental)
+                            var staged = await StageAsync(conn, module, t, req, mode, n => progress?.Report($"{t.Name}: {n:N0} rows read…"), ct).ConfigureAwait(false);
+                            long loaded = staged.Rows;
+                            if (mode == "full")
                             {
                                 if (loaded >= 0)
                                 {
@@ -138,6 +150,15 @@ namespace FusionModel
                                 }
                                 else if (exists) Exec(conn, "DELETE FROM " + Names.Q(t.Name));     // source empty: keep the columns, no rows
                             }
+                            else if (mode == "window")
+                            {
+                                // the window is replaced as a whole: rows deleted at the source disappear too
+                                var col = Describe(conn, t.Name).FirstOrDefault(c => string.Equals(c.Name, t.WindowColumn, StringComparison.OrdinalIgnoreCase))
+                                          ?? throw new InvalidOperationException("Window column " + t.WindowColumn + " is not in the table");
+                                Exec(conn, "DELETE FROM " + Names.Q(t.Name) + " WHERE TRY_CAST(" + Names.Q(col.Name) + " AS TIMESTAMP) >= TIMESTAMP '" + req.WindowStart.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + "'");
+                                if (loaded > 0) InsertStaged(conn, t);
+                                Exec(conn, "DROP TABLE IF EXISTS __stg");
+                            }
                             else if (loaded > 0)
                             {
                                 Merge(conn, t);
@@ -145,17 +166,33 @@ namespace FusionModel
                             }
                             else Exec(conn, "DROP TABLE IF EXISTS __stg");
 
+                            var cols = TableExists(conn, t.Name) ? Describe(conn, t.Name) : new List<ColumnInfo>();
+                            var drift = Drift(st?.Columns, cols);
+                            long? sourceCount = null;
+                            if (t.CountCheck && mode == "full" && t.Source.Kind != "file" && _sources.TryGetValue(t.Source.Kind ?? "", out var cs))
+                            {
+                                sourceCount = await cs.CountAsync(new ReadRequest { Table = t }, ct).ConfigureAwait(false);
+                                if (sourceCount != null && sourceCount != Math.Max(0, loaded))
+                                    req.Note($"COUNT CHECK: the source has {sourceCount:N0} rows, {Math.Max(0, loaded):N0} were loaded");
+                            }
+                            double secs = Math.Max(0.001, tsw.Elapsed.TotalSeconds);
                             st = new TableState
                             {
                                 LoadedUtc = DateTime.UtcNow, LastLoadedRows = Math.Max(0, loaded), LastMs = tsw.ElapsedMilliseconds,
+                                RowsPerSecond = Math.Round(Math.Max(0, loaded) / secs, 1), LastMode = staged.Resumed ? mode + " (resumed)" : mode,
                                 Rows = TableExists(conn, t.Name) ? Scalar<long>(conn, "SELECT COUNT(*) FROM " + Names.Q(t.Name)) : 0,
                                 Watermark = WatermarkOf(conn, t) ?? st?.Watermark,
-                                Columns = TableExists(conn, t.Name) ? Describe(conn, t.Name) : new List<ColumnInfo>()
+                                SourceCount = sourceCount, Drift = drift, Columns = cols
                             };
                             states[t.Name] = st;
-                            result.Tables.Add(new TableResult { Table = t.Name, Loaded = Math.Max(0, loaded), Rows = st.Rows, Ms = st.LastMs, Incremental = incremental });
-                            Log(new { module, table = t.Name, by, status = "OK", incremental, loaded = Math.Max(0, loaded), rows = st.Rows, ms = st.LastMs });
-                            progress?.Report($"{t.Name}: {st.Rows:N0} rows ({Math.Max(0, loaded):N0} loaded)");
+                            result.Tables.Add(new TableResult
+                            {
+                                Table = t.Name, Loaded = Math.Max(0, loaded), Rows = st.Rows, Ms = st.LastMs, Incremental = mode == "incremental", Mode = st.LastMode,
+                                RowsPerSecond = st.RowsPerSecond, SourceCount = sourceCount, Drift = drift, Notes = notes
+                            });
+                            Log(new { module, table = t.Name, by, status = "OK", mode = st.LastMode, incremental = mode == "incremental", loaded = Math.Max(0, loaded), rows = st.Rows, ms = st.LastMs,
+                                      rowsPerSecond = st.RowsPerSecond, sourceCount, drift = drift.Count > 0 ? drift : null, notes = notes.Count > 0 ? notes : null });
+                            progress?.Report($"{t.Name}: {st.Rows:N0} rows ({Math.Max(0, loaded):N0} loaded, {st.RowsPerSecond:N0} rows/s){(drift.Count > 0 ? " · columns changed: " + string.Join("; ", drift) : "")}");
                         }
                         catch (Exception ex) when (ex is not OperationCanceledException)
                         {
@@ -202,8 +239,24 @@ namespace FusionModel
             }
         }
 
-        /// <summary>Reads the source into __stg. Returns rows staged, or −1 when the source returned no rows (nothing staged).</summary>
-        private async Task<long> StageAsync(DuckDBConnection conn, TableDef t, string watermark, Action<long> progress, CancellationToken ct)
+        private sealed class Staged { public long Rows; public bool Resumed; }
+
+        private sealed class Checkpoint
+        {
+            public string DefinitionHash { get; set; }
+            public string LastKey { get; set; }
+            public long Rows { get; set; }
+            public DateTime StartedUtc { get; set; }
+        }
+
+        private string WorkDir => Path.Combine(Root, "work");
+
+        /// <summary>
+        /// Reads the source into __stg; Rows = rows staged, or −1 when the source returned no rows (nothing staged).
+        /// Full loads of keyset tables keep their rows and last key in the shared work folder, so a load that fails
+        /// half way resumes from the last good page on the next run (same definition, within 24 hours).
+        /// </summary>
+        private async Task<Staged> StageAsync(DuckDBConnection conn, string module, TableDef t, ReadRequest req, string mode, Action<long> progress, CancellationToken ct)
         {
             Exec(conn, "DROP TABLE IF EXISTS __stg");
             if (t.Source.Kind == "file")
@@ -218,30 +271,92 @@ namespace FusionModel
                 };
                 Exec(conn, "CREATE TABLE __stg AS SELECT * FROM " + fn);
                 ApplyTypes(conn, t);
-                return Scalar<long>(conn, "SELECT COUNT(*) FROM __stg");
+                return new Staged { Rows = Scalar<long>(conn, "SELECT COUNT(*) FROM __stg") };
             }
             if (!_sources.TryGetValue(t.Source.Kind ?? "", out var src)) throw new InvalidOperationException("No source registered for '" + t.Source.Kind + "'");
-            string tmp = Path.Combine(Path.GetTempPath(), "fm_" + Guid.NewGuid().ToString("N") + ".ndjson");
+
+            bool checkpointed = mode == "full" && t.UsesKeyset;
+            string data, ckptPath = null;
             long n = 0;
+            bool resumed = false;
+            if (checkpointed)
+            {
+                Directory.CreateDirectory(WorkDir);
+                data = Path.Combine(WorkDir, module + "." + t.Name + ".ndjson");
+                ckptPath = Path.Combine(WorkDir, module + "." + t.Name + ".checkpoint.json");
+                var ck = Json.Read<Checkpoint>(ckptPath);
+                if (ck != null && ck.DefinitionHash == t.DefinitionHash() && DateTime.UtcNow - ck.StartedUtc < TimeSpan.FromHours(24) && File.Exists(data) && ck.LastKey != null)
+                {
+                    req.ResumeAfterKey = ck.LastKey; n = ck.Rows; resumed = true;
+                    req.Note?.Invoke($"resuming after key {ck.LastKey.Substring(2)} ({ck.Rows:N0} rows already read)");
+                    TruncateToLines(data, ck.Rows);                    // drop a page written after the last checkpoint
+                }
+                else { TryDelete(data); TryDelete(ckptPath); Json.WriteAtomic(ckptPath, new Checkpoint { DefinitionHash = t.DefinitionHash(), StartedUtc = DateTime.UtcNow }); }
+            }
+            else data = Path.Combine(Path.GetTempPath(), "fm_" + Guid.NewGuid().ToString("N") + ".ndjson");
+
+            bool ok = false;
             try
             {
-                using (var w = new StreamWriter(tmp, false, new UTF8Encoding(false)))
+                using (var w = new StreamWriter(data, resumed, new UTF8Encoding(false)))
                 {
-                    await foreach (var page in src.ReadAsync(t, watermark, ct).ConfigureAwait(false))
+                    if (checkpointed)
+                    {
+                        var started = (Json.Read<Checkpoint>(ckptPath) ?? new Checkpoint()).StartedUtc;
+                        req.OnKey = key =>
+                        {
+                            w.Flush();
+                            Json.WriteAtomic(ckptPath, new Checkpoint { DefinitionHash = t.DefinitionHash(), LastKey = key, Rows = n, StartedUtc = started == default ? DateTime.UtcNow : started });
+                        };
+                    }
+                    await foreach (var page in src.ReadAsync(req, ct).ConfigureAwait(false))
                     {
                         foreach (var row in page.Rows) { w.WriteLine(JsonSerializer.Serialize(row)); n++; }
                         progress?.Invoke(n);
                     }
                 }
-                if (n == 0) return -1;
-                Exec(conn, "CREATE TABLE __stg AS SELECT * FROM read_json(" + Names.Lit(tmp) + ", format = 'newline_delimited', sample_size = -1)");
+                ok = true;
+                if (n == 0) return new Staged { Rows = -1, Resumed = resumed };
+                Exec(conn, "CREATE TABLE __stg AS SELECT * FROM read_json(" + Names.Lit(data) + ", format = 'newline_delimited', sample_size = -1)");
                 // columns that were empty in every row come back as JSON: make them plain text
                 foreach (var c in Describe(conn, "__stg").Where(c => c.Type == "JSON"))
                     Exec(conn, "ALTER TABLE __stg ALTER " + Names.Q(c.Name) + " TYPE VARCHAR");
                 ApplyTypes(conn, t);
-                return n;
+                return new Staged { Rows = n, Resumed = resumed };
             }
-            finally { TryDelete(tmp); }
+            finally
+            {
+                // keep a checkpointed load's rows for the next run; everything else is removed
+                if (!checkpointed || ok) { TryDelete(data); if (ckptPath != null) TryDelete(ckptPath); }
+            }
+        }
+
+        private static void TruncateToLines(string path, long lines)
+        {
+            string tmp = path + ".trim";
+            using (var r = new StreamReader(path))
+            using (var w = new StreamWriter(tmp, false, new UTF8Encoding(false)))
+            {
+                string line; long i = 0;
+                while (i < lines && (line = r.ReadLine()) != null) { w.WriteLine(line); i++; }
+            }
+            File.Move(tmp, path, true);
+        }
+
+        /// <summary>Column changes since the last load: "added X (TYPE)", "removed X", "X: OLD → NEW".</summary>
+        public static List<string> Drift(List<ColumnInfo> before, List<ColumnInfo> after)
+        {
+            var d = new List<string>();
+            if (before == null || before.Count == 0 || after == null) return d;
+            foreach (var a in after)
+            {
+                var b = before.FirstOrDefault(x => string.Equals(x.Name, a.Name, StringComparison.OrdinalIgnoreCase));
+                if (b == null) d.Add($"added {a.Name} ({a.Type})");
+                else if (!string.Equals(a.Type, b.Type, StringComparison.OrdinalIgnoreCase)) d.Add($"{a.Name}: {b.Type} → {a.Type}");
+            }
+            foreach (var b in before.Where(b => !after.Any(a => string.Equals(a.Name, b.Name, StringComparison.OrdinalIgnoreCase))))
+                d.Add($"removed {b.Name}");
+            return d;
         }
 
         private static void ApplyTypes(DuckDBConnection conn, TableDef t)
@@ -266,7 +381,16 @@ namespace FusionModel
             var keys = t.Key.Select(k => staged.FirstOrDefault(c => string.Equals(c.Name, k, StringComparison.OrdinalIgnoreCase))?.Name
                                           ?? throw new InvalidOperationException("Key column " + k + " is not in the source rows")).ToList();
             Exec(conn, "DELETE FROM " + Names.Q(t.Name) + " AS t USING __stg AS s WHERE " + string.Join(" AND ", keys.Select(k => "t." + Names.Q(k) + " = s." + Names.Q(k))));
-            // widen target columns first: DuckDB would otherwise cast silently (2.5 into a BIGINT column becomes 2)
+            InsertStaged(conn, t);
+        }
+
+        /// <summary>Adds new columns, widens changed types (DuckDB would otherwise cast silently: 2.5 into a BIGINT column becomes 2), inserts __stg.</summary>
+        private static void InsertStaged(DuckDBConnection conn, TableDef t)
+        {
+            var staged = Describe(conn, "__stg");
+            var target = Describe(conn, t.Name);
+            foreach (var c in staged.Where(s => !target.Any(x => string.Equals(x.Name, s.Name, StringComparison.OrdinalIgnoreCase))))
+                Exec(conn, "ALTER TABLE " + Names.Q(t.Name) + " ADD COLUMN " + Names.Q(c.Name) + " " + c.Type);
             target = Describe(conn, t.Name);
             foreach (var st in staged)
             {
@@ -456,7 +580,12 @@ namespace FusionModel
                         Tables = model.Tables.Where(t => string.Equals(t.Module, m.Name, StringComparison.OrdinalIgnoreCase)).Select(t =>
                         {
                             TableState ts = null; e?.Tables.TryGetValue(t.Name, out ts);
-                            return new TableStatus { Name = t.Name, Source = t.Source?.Kind, Strategy = t.Strategy.ToString(), Rows = ts?.Rows, Watermark = ts?.Watermark, LoadedUtc = ts?.LoadedUtc, Columns = ts?.Columns?.Count ?? 0 };
+                            return new TableStatus
+                            {
+                                Name = t.Name, Source = t.Source?.Kind, Strategy = t.Strategy.ToString(), Rows = ts?.Rows, Watermark = ts?.Watermark, LoadedUtc = ts?.LoadedUtc,
+                                Columns = ts?.Columns?.Count ?? 0, LastMs = ts?.LastMs, LastLoadedRows = ts?.LastLoadedRows, RowsPerSecond = ts?.RowsPerSecond, LastMode = ts?.LastMode,
+                                SourceCount = ts?.SourceCount, Drift = ts?.Drift ?? new List<string>(), CountCheck = t.CountCheck, Paging = t.UsesKeyset ? "keyset" : "rownum"
+                            };
                         }).ToList()
                     });
                 }
@@ -672,6 +801,11 @@ namespace FusionModel
     {
         public string Table { get; set; }
         public bool Incremental { get; set; }
+        public string Mode { get; set; }
+        public double RowsPerSecond { get; set; }
+        public long? SourceCount { get; set; }
+        public List<string> Drift { get; set; } = new();
+        public List<string> Notes { get; set; } = new();
         public long Loaded { get; set; }
         public long Rows { get; set; }
         public long Ms { get; set; }
@@ -713,6 +847,14 @@ namespace FusionModel
     public sealed class TableStatus
     {
         public string Name { get; set; }
+        public long? LastMs { get; set; }
+        public long? LastLoadedRows { get; set; }
+        public double? RowsPerSecond { get; set; }
+        public string LastMode { get; set; }
+        public long? SourceCount { get; set; }
+        public bool CountCheck { get; set; }
+        public string Paging { get; set; }
+        public List<string> Drift { get; set; } = new();
         public string Source { get; set; }
         public string Strategy { get; set; }
         public long? Rows { get; set; }

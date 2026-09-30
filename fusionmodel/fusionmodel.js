@@ -119,10 +119,15 @@ function renderModule() {
             '<input data-t="' + i + '" data-tf="description" value="' + esc(t.description || '') + '" placeholder="What this table holds (the AI reads this)" class="desc">' +
             '<div class="row"><label class="fld" style="max-width:190px"><span>Source</span><select data-t="' + i + '" data-tf="kind">' +
             [['apex', 'APEX (app database)'], ['fusion', 'Oracle Fusion'], ['file', 'File (CSV / Parquet / JSON)']].map(function (o) { return '<option value="' + o[0] + '"' + (t.source.kind === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
-            '<label class="fld" style="max-width:190px"><span>Load</span><select data-t="' + i + '" data-tf="strategy"><option value="full"' + (inc ? '' : ' selected') + '>Full every time</option><option value="incremental"' + (inc ? ' selected' : '') + '>Only changed rows</option></select></label>' +
+            '<label class="fld" style="max-width:200px"><span>Load</span><select data-t="' + i + '" data-tf="strategy">' +
+                [['full', 'Full every time'], ['incremental', 'Only changed rows'], ['window', 'Last N months']].map(function (o) { return '<option value="' + o[0] + '"' + (t.strategy === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
             '<label class="fld"><span>Key column(s)</span><input data-t="' + i + '" data-tf="key" value="' + esc(t.key.join(', ')) + '" placeholder="e.g. INVOICE_ID"></label>' +
             '<label class="fld"' + (inc ? '' : ' hidden') + '><span>Changed-since column</span><input data-t="' + i + '" data-tf="incrementalColumn" value="' + esc(t.incrementalColumn || '') + '" placeholder="LAST_UPDATE_DATE"></label>' +
-            '<label class="fld" style="max-width:120px"><span>Rows per call</span><input type="number" data-t="' + i + '" data-tf="pageSize" value="' + (t.pageSize || '') + '" placeholder="' + (t.source.kind === 'fusion' ? '5000' : '1000') + '"></label></div>' +
+            (t.strategy === 'window' ? '<label class="fld"><span>Date column</span><input data-t="' + i + '" data-tf="windowColumn" value="' + esc(t.windowColumn || '') + '" placeholder="ACCOUNTING_DATE"></label>' +
+                '<label class="fld" style="max-width:110px"><span>Months</span><input type="number" min="1" max="120" data-t="' + i + '" data-tf="windowMonths" value="' + (t.windowMonths || 3) + '"></label>' : '') +
+            '<label class="fld" style="max-width:120px"><span>Rows per call</span><input type="number" data-t="' + i + '" data-tf="pageSize" value="' + (t.pageSize || '') + '" placeholder="' + (t.source.kind === 'fusion' ? '5000' : '1000') + '"></label>' +
+            '<label class="fld" style="max-width:150px"><span>Paging</span><select data-t="' + i + '" data-tf="paging">' + [['auto', 'Auto'], ['keyset', 'By key (fast)'], ['rownum', 'Row numbers']].map(function (o) { return '<option value="' + o[0] + '"' + ((t.paging || 'auto') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
+            '<label class="chk" style="align-self:end;padding-bottom:8px"><input type="checkbox" data-t="' + i + '" data-tf="countCheck"' + (t.countCheck ? ' checked' : '') + '> Check the row count</label></div>' +
             (t.source.kind === 'file' ? '<label class="fld"><span>File path (on the refresher PC)</span><input data-t="' + i + '" data-tf="path" value="' + esc(t.source.path || '') + '" placeholder="C:\\fusion\\model\\files\\budget.csv"></label>'
                 : '<textarea class="sql" data-t="' + i + '" data-tf="sql" spellcheck="false" rows="' + Math.min(12, Math.max(3, String(t.source.sql || '').split('\n').length + 1)) + '" placeholder="SELECT … FROM …">' + esc(t.source.sql || '') + '</textarea>') +
             '</div>';
@@ -163,7 +168,7 @@ function refresh(module, tables, full) {
             var summary = 'Published ' + module + ' ' + (r.version || '') + ' in ' + ((r.ms || 0) / 1000).toFixed(1) + ' s — ' + (r.tables || []).map(function (t) { return t.table + ' ' + num(t.rows) + (t.incremental ? ' (' + num(t.loaded) + ' changed)' : ''); }).join(', ');
             note(summary); toast(summary);
             S.schema = [];
-            return loadAll();
+            return loadAll().then(function () { if (S.tab === 'log') loadLog(); });
         });
     }).catch(function (e) {
         busy(null);
@@ -246,15 +251,63 @@ function downloadCsv() {
     document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
 
+// ════════════════════════════════ REFRESH CENTER ════════════════════════════════
+/** When the refresher runs this module next (same rules as the engine's scheduler). */
+function nextRun(sched, lastIso) {
+    var mode = (sched && sched.mode || 'MANUAL').toUpperCase(), last = lastIso ? new Date(lastIso) : null, now = new Date();
+    if (mode === 'HOURLY') return last ? new Date(Math.max(now.getTime(), last.getTime() + 58 * 60000)) : now;
+    if (mode !== 'DAILY') return null;
+    var hm = String(sched.time || '06:00').split(':'), slot = new Date(now.getFullYear(), now.getMonth(), now.getDate(), +hm[0] || 0, +hm[1] || 0);
+    if (now < slot) slot.setDate(slot.getDate() - 1);
+    return !last || last < slot ? now : new Date(slot.getTime() + 86400000);
+}
+function whenText(d) {
+    if (!d) return 'manual only';
+    var m = Math.round((d - Date.now()) / 60000);
+    return m <= 0 ? 'due now' : m < 60 ? 'in ' + m + ' min' : m < 1440 ? 'at ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleString();
+}
+function renderRefreshCenter() {
+    var st = S.status || {}, s = st.settings || {}, mods = st.modules || [];
+    var dis = S.isAdmin ? '' : ' disabled';
+    $('rc-mods').innerHTML = '<div class="card rc-head"><div class="row">' +
+        '<span><b>Refresher</b> ' + (s.isRefresher ? 'this PC (' + esc(st.machine) + ')' : 'another PC — this PC only reads') + '</span>' +
+        '<span><b>Running now</b> ' + (st.lease ? esc(st.lease.machine) + ' since ' + new Date(st.lease.acquiredUtc).toLocaleTimeString() : st.building ? esc(st.building) : 'nothing') + '</span>' +
+        '<span><b>Read mode</b> ' + (s.readMode === 'DIRECT' ? 'shared folder' : 'local copy') + '</span></div></div>' +
+        (mods.length ? '<div class="rc-grid">' + mods.map(function (m) {
+            var nr = nextRun(m.schedule, m.publishedUtc), rows = (m.tables || []).reduce(function (a, t) { return a + (t.rows || 0); }, 0);
+            var failed = (m.tables || []).some(function (t) { return (t.drift || []).length; });
+            return '<div class="card rc-mod"><div class="mh"><b>' + esc(m.title || m.name) + '</b><small class="muted">' + esc(m.name) + '</small></div>' +
+                '<div class="kv"><b>Published</b><span>' + (m.version ? ago(m.publishedUtc) + ' · ' + esc(m.version) : 'never') + '</span>' +
+                '<b>Rows</b><span>' + num(rows) + ' in ' + (m.tables || []).length + ' tables · ' + size(m.bytes) + '</span>' +
+                '<b>Schedule</b><span>' + esc((m.schedule || {}).mode === 'DAILY' ? 'daily at ' + m.schedule.time : ((m.schedule || {}).mode || 'MANUAL').toLowerCase()) + '</span>' +
+                '<b>Next run</b><span>' + (s.isRefresher || !nr ? whenText(nr) : whenText(nr) + ' (on the refresher PC)') + '</span></div>' +
+                (failed ? '<p class="warn-t sm"><i class="fa-solid fa-triangle-exclamation"></i> Column changes in the last load — see Table health.</p>' : '') +
+                '<div class="row"><button class="btn sm primary" data-act="rcrefresh" data-m="' + esc(m.name) + '"' + dis + '><i class="fa-solid fa-rotate"></i> Refresh</button>' +
+                '<button class="btn sm" data-mod="' + esc(m.name) + '" data-act="open"><i class="fa-solid fa-pen"></i> Edit</button></div></div>';
+        }).join('') + '</div>' : '<div class="muted pad">No modules yet.</div>');
+    var rows = [];
+    mods.forEach(function (m) { (m.tables || []).forEach(function (t) { rows.push({ m: m.name, t: t }); }); });
+    $('rc-tables').innerHTML = rows.length ? '<table class="tbl-log"><tr><th>Table</th><th>Load</th><th>Paging</th><th>Rows</th><th>Last load</th><th>Loaded</th><th>Time</th><th>Rows/s</th><th>Count check</th><th>Column changes</th></tr>' + rows.map(function (x) {
+        var t = x.t, cc = t.sourceCount == null ? (t.countCheck ? '<span class="muted">—</span>' : '<span class="muted">off</span>')
+            : t.sourceCount === t.lastLoadedRows ? '<span class="st OK">' + num(t.sourceCount) + ' ✓</span>' : '<span class="st FAILED">source ' + num(t.sourceCount) + '</span>';
+        return '<tr><td><b>' + esc(x.m) + '.' + esc(t.name) + '</b><br><small class="muted">' + esc(t.source || '') + '</small></td><td>' + esc((t.lastMode || '—')) + '<br><small class="muted">' + esc(String(t.strategy || '').toLowerCase()) + '</small></td>' +
+            '<td>' + esc(t.paging || '') + '</td><td>' + num(t.rows) + '</td><td>' + ago(t.loadedUtc) + '</td><td>' + num(t.lastLoadedRows) + '</td>' +
+            '<td>' + (t.lastMs != null ? (t.lastMs / 1000).toFixed(1) + ' s' : '—') + '</td><td>' + (t.rowsPerSecond != null ? num(Math.round(t.rowsPerSecond)) : '—') + '</td><td>' + cc + '</td>' +
+            '<td>' + ((t.drift || []).length ? '<span class="warn-t">' + t.drift.map(esc).join('<br>') + '</span>' : '<span class="muted">none</span>') + '</td></tr>';
+    }).join('') + '</table>' : '<div class="muted pad">Nothing loaded yet.</div>';
+}
+
 // ════════════════════════════════ LOG + SETTINGS ════════════════════════════════
 function loadLog() {
+    renderRefreshCenter();
     $('logbox').innerHTML = '<div class="muted pad"><i class="fa-solid fa-circle-notch fa-spin"></i></div>';
     fm('fmLog', { last: 200 }).then(function (d) {
         var e = d.entries || [];
         $('logbox').innerHTML = e.length ? '<table class="tbl-log"><tr><th>When</th><th>Module</th><th>Table</th><th>Status</th><th>Rows</th><th>Loaded</th><th>Time</th><th>By</th><th>Detail</th></tr>' + e.map(function (x) {
             return '<tr><td>' + esc(new Date(x.at).toLocaleString()) + '</td><td>' + esc(x.module || '') + '</td><td>' + esc(x.table || '') + '</td><td><span class="st ' + (x.status === 'FAILED' ? 'FAILED' : x.status === 'CANCELLED' ? 'RUNNING' : 'OK') + '">' + esc(x.status) + '</span></td>' +
                 '<td>' + (x.rows != null ? num(x.rows) : '') + '</td><td>' + (x.loaded != null ? num(x.loaded) + (x.incremental ? ' changed' : '') : '') + '</td><td>' + (x.ms != null ? (x.ms / 1000).toFixed(1) + ' s' : '') + '</td>' +
-                '<td>' + esc(x.by || '') + ' <small class="muted">' + esc(x.machine || '') + '</small></td><td>' + esc(x.error || x.version || '') + '</td></tr>';
+                '<td>' + esc(x.by || '') + ' <small class="muted">' + esc(x.machine || '') + '</small></td><td>' + esc(x.error || x.version || '') + (x.mode ? ' <small class="muted">' + esc(x.mode) + '</small>' : '') +
+                (x.notes ? '<br><small class="warn-t">' + x.notes.map(esc).join('<br>') + '</small>' : '') + (x.drift ? '<br><small class="warn-t">columns: ' + x.drift.map(esc).join('; ') + '</small>' : '') + '</td></tr>';
         }).join('') + '</table>' : '<div class="muted pad">No refreshes yet.</div>';
     }).catch(function (e) { $('logbox').innerHTML = '<div class="err pad">' + esc(e) + '</div>'; });
 }
@@ -288,7 +341,7 @@ document.addEventListener('click', function (e) {
     if (!b) { if (e.target.id === 'modal') modal(null); return; }
     var d = b.dataset;
     if (d.tab) return showTab(d.tab);
-    if (d.mod) { if (S.dirty && S.cur !== d.mod && !confirm('Discard unsaved changes?')) return; if (S.cur !== d.mod && S.dirty) { S.dirty = false; loadAll(); } S.cur = d.mod; renderModules(); return; }
+    if (d.mod) { if (S.dirty && S.cur !== d.mod && !confirm('Discard unsaved changes?')) return; if (S.cur !== d.mod && S.dirty) { S.dirty = false; loadAll(); } S.cur = d.mod; if (S.tab !== 'modules') showTab('modules'); else renderModules(); return; }
     if (d.ins) return insertAtCursor(d.ins);
     if (d.mact === 'close') return modal(null);
     if (d.mact === 'mkmod') {
@@ -305,6 +358,7 @@ document.addEventListener('click', function (e) {
         case 'addmodule': return newModuleModal();
         case 'save': return saveModel().catch(function () { });
         case 'refresh': return refresh(S.cur, null, false);
+        case 'rcrefresh': return refresh(d.m, null, false);
         case 'full': return confirm('Reload every table of ' + S.cur + ' in full?') && refresh(S.cur, null, true);
         case 'rtable': return refresh(S.cur, [S.model.tables[t].name], false);
         case 'cancel': return host('fmCancel').catch(function () { });
@@ -342,6 +396,8 @@ document.addEventListener('input', function (e) {
         if (d.tf === 'sql' || d.tf === 'path') t.source[d.tf] = x.value;
         else if (d.tf === 'key') t.key = x.value.split(',').map(function (k) { return k.trim(); }).filter(Boolean);
         else if (d.tf === 'pageSize') t.pageSize = +x.value || 0;
+        else if (d.tf === 'windowMonths') t.windowMonths = +x.value || 3;
+        else if (d.tf === 'paging' || d.tf === 'countCheck') return;
         else if (d.tf === 'name') t.name = x.value.trim().toLowerCase();
         else if (d.tf !== 'kind' && d.tf !== 'strategy') t[d.tf] = x.value;
         markDirty();
@@ -356,7 +412,8 @@ document.addEventListener('change', function (e) {
         var t = S.model.tables[+d.t];
         if (d.tf === 'kind') t.source.kind = x.value; else t.strategy = x.value;
         markDirty(); renderModule();
-    }
+    } else if (d.t != null && d.tf === 'paging') { S.model.tables[+d.t].paging = x.value; markDirty(); }
+    else if (d.t != null && d.tf === 'countCheck') { S.model.tables[+d.t].countCheck = x.checked; markDirty(); }
 });
 document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && !$('modal').hidden) modal(null);

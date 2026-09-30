@@ -33,9 +33,9 @@ namespace FusionModel.Tests
         {
             var fake = new FakeApex();
             var src = new ApexSource(new HttpClient(fake), "https://apex.example/ai/executequery");
-            var t = new TableDef { Source = new SourceDef { Kind = "apex", Sql = "SELECT id, name FROM t;" }, PageSize = 2, Key = { "id" } };
+            var t = new TableDef { Source = new SourceDef { Kind = "apex", Sql = "SELECT id, name FROM t;" }, PageSize = 2, Key = { "id" }, Paging = "rownum" };
             var rows = new List<Dictionary<string, object>>();
-            await foreach (var p in src.ReadAsync(t, null, default)) rows.AddRange(p.Rows);
+            await foreach (var p in src.ReadAsync(new ReadRequest { Table = t }, default)) rows.AddRange(p.Rows);
             Assert.Equal(5, rows.Count);
             Assert.Equal(3, fake.Sqls.Count);                                 // 2 + 2 + 1
             Assert.All(rows, r => Assert.False(r.ContainsKey("RN__")));
@@ -50,7 +50,7 @@ namespace FusionModel.Tests
             var handler = new StubHandler("{\"success\":false,\"error\":\"ORA-00942: table or view does not exist\"}");
             var src = new ApexSource(new HttpClient(handler), "https://apex.example/q");
             var t = new TableDef { Source = new SourceDef { Kind = "apex", Sql = "SELECT * FROM nope" } };
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => { await foreach (var _ in src.ReadAsync(t, null, default)) { } });
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => { await foreach (var _ in src.ReadAsync(new ReadRequest { Table = t }, default)) { } });
             Assert.Contains("ORA-00942", ex.Message);
         }
 

@@ -18,7 +18,7 @@
         <nav class="tabs">
             <button class="tab active" data-tab="modules"><i class="fa-solid fa-layer-group"></i> Modules</button>
             <button class="tab" data-tab="explore"><i class="fa-solid fa-magnifying-glass-chart"></i> Explore</button>
-            <button class="tab" data-tab="log"><i class="fa-solid fa-clock-rotate-left"></i> Refresh log</button>
+            <button class="tab" data-tab="log"><i class="fa-solid fa-gauge-high"></i> Refresh Center</button>
             <button class="tab" data-tab="settings"><i class="fa-solid fa-gear"></i> Settings</button>
         </nav>
         <div class="acct" id="acct"></div>
@@ -65,7 +65,11 @@
     </section>
 
     <section class="page" id="page-log" hidden>
-        <main class="main scroll"><div class="card"><div class="mh"><b>Refresh log</b><small class="muted">newest first, from the shared folder</small><button class="btn sm" data-act="log"><i class="fa-solid fa-rotate"></i></button></div><div id="logbox"></div></div></main>
+        <main class="main scroll">
+            <div class="rc-mods" id="rc-mods"></div>
+            <div class="card"><div class="mh"><b>Table health</b><small class="muted">last load of every table: mode, speed, source count check, column changes</small></div><div id="rc-tables"></div></div>
+            <div class="card"><div class="mh"><b>Refresh log</b><small class="muted">newest first, from the shared folder</small><button class="btn sm" data-act="log"><i class="fa-solid fa-rotate"></i></button></div><div id="logbox"></div></div>
+        </main>
     </section>
 
     <section class="page" id="page-settings" hidden>
