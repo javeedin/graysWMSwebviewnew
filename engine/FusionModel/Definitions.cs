@@ -46,7 +46,8 @@ namespace FusionModel
                 if (!Names.IsValid(t.Name)) errors.Add($"Table name '{t.Name}' must be lowercase letters, digits and _ (start with a letter).");
                 if (Module(t.Module) == null) errors.Add($"{where}: module '{t.Module}' does not exist.");
                 if (t.Source == null || string.IsNullOrWhiteSpace(t.Source.Kind)) errors.Add($"{where}: no source.");
-                else if (t.Source.Kind != "file" && string.IsNullOrWhiteSpace(t.Source.Sql)) errors.Add($"{where}: the source SQL is empty.");
+                else if (t.Source.Kind is "file" or "bicc") { if (string.IsNullOrWhiteSpace(t.Source.Path)) errors.Add($"{where}: the source needs a path (file, or BICC folder / pattern)."); }
+                else if (string.IsNullOrWhiteSpace(t.Source.Sql)) errors.Add($"{where}: the source SQL is empty.");
                 if (t.Strategy == LoadStrategy.Window)
                 {
                     if (string.IsNullOrWhiteSpace(t.WindowColumn)) errors.Add($"{where}: a window table needs a date column (e.g. ACCOUNTING_DATE).");
@@ -225,7 +226,9 @@ namespace FusionModel
     {
         public string Kind { get; set; }                 // apex, fusion, file
         public string Sql { get; set; }
-        public string Path { get; set; }                 // file sources: csv / parquet / json path
+        public string Path { get; set; }                 // file sources: csv / parquet / json path · bicc: folder or file pattern
+        /// <summary>bicc: file column → model column (BICC headers are VO attribute names).</summary>
+        public Dictionary<string, string> Rename { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>This PC's own settings (not shared).</summary>

@@ -51,6 +51,22 @@ namespace WMSApp
                     var r = await GetFusionSqlService().ExecuteAsync(sql, maxRows, ct).ConfigureAwait(false);
                     return (r.Success, r.Error, r.Rows);
                 }));
+                // one source per pod, whatever instance the app is logged in to: "fusion:PROD", "fusion:TEST"
+                foreach (var pod in new[] { "PROD", "TEST" })
+                {
+                    string inst = pod;
+                    var podSvc = new WMSApp.FusionSql.FusionSqlService(async () =>
+                    {
+                        if (!_fusionCredentialsLoaded || string.IsNullOrEmpty(_fusionUsername) || string.IsNullOrEmpty(_fusionPassword))
+                            await FetchFusionCredentialsOnStartup();
+                        return (_fusionUsername, _fusionPassword);
+                    }, () => inst);
+                    engine.RegisterSource(new FusionSource(async (sql, maxRows, ct) =>
+                    {
+                        var r = await podSvc.ExecuteAsync(sql, maxRows, ct).ConfigureAwait(false);
+                        return (r.Success, r.Error, r.Rows);
+                    }, "fusion:" + pod));
+                }
                 try { var vk = LoadModelEmbedKey(); if (!string.IsNullOrEmpty(vk)) engine.Embedder = new FusionModel.Ai.VoyageEmbedder(_modelHttp, vk); } catch { }
                 engine.StartScheduler(() => "SCHEDULE", msg => System.Diagnostics.Debug.WriteLine(msg));
                 _modelSyncTimer = new System.Threading.Timer(_ =>
@@ -88,6 +104,15 @@ namespace WMSApp
                 System.Text.Encoding.UTF8.GetBytes(key.Trim()), null, System.Security.Cryptography.DataProtectionScope.CurrentUser)));
         }
 
+        /// <summary>licence.json in the shared folder (or next to the app): shown in Settings; the app itself never blocks on it.</summary>
+        private static object ModelLicence(ModelEngine engine)
+        {
+            string shared = engine.SharedReachable ? Path.Combine(engine.Settings.SharedRoot, "licence.json") : null;
+            string path = shared != null && File.Exists(shared) ? shared : Path.Combine(AppContext.BaseDirectory, "licence.json");
+            var c = FusionModel.Licensing.Licences.VerifyFile(path);
+            return new { valid = c.Valid, reason = c.Reason, customer = c.Licence?.Customer, edition = c.Licence?.Edition, expires = c.Licence?.ExpiresUtc, packs = c.Licence?.Packs, daysLeft = c.DaysLeft };
+        }
+
         private async Task HandleModelAction(WebView2 wv, string action, JsonElement root, string requestId)
         {
             string user = PStr(root, "appUser");
@@ -99,7 +124,7 @@ namespace WMSApp
                 switch (action)
                 {
                     case "fmStatus":
-                        data = new { ok = true, status = engine.Status(), isAdmin = await AiControl.IsAdminAsync(user), user, mcpPath = Path.Combine(AppContext.BaseDirectory, "FusionModel.Mcp.exe") };
+                        data = new { ok = true, status = engine.Status(), isAdmin = await AiControl.IsAdminAsync(user), user, mcpPath = Path.Combine(AppContext.BaseDirectory, "FusionModel.Mcp.exe"), licence = ModelLicence(engine) };
                         break;
 
                     case "fmSettingsSave":
@@ -301,7 +326,9 @@ namespace WMSApp
                             if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can add packs to the model." }; break; }
                             var pack = FusionModel.Packs.FusionPacks.Get(PStr(root, "id")) ?? throw new InvalidOperationException("Unknown pack");
                             var model = engine.LoadModel();
-                            var r = FusionModel.Packs.FusionPacks.Apply(model, pack, PBool(root, "overwrite"));
+                            string kind = PStr(root, "source");
+                            if (!string.IsNullOrWhiteSpace(kind) && kind != "fusion" && kind != "fusion:PROD" && kind != "fusion:TEST") { data = new { ok = false, error = "Unknown source " + kind }; break; }
+                            var r = FusionModel.Packs.FusionPacks.Apply(model, pack, PBool(root, "overwrite"), kind);
                             var errors = model.Validate();
                             if (errors.Count > 0) { data = new { ok = false, error = string.Join("\n", errors) }; break; }
                             engine.SaveModel(model);

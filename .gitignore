@@ -375,3 +375,6 @@ dist-release/
 dist/*.dll
 dist/*.exe
 Home/modules.js
+
+# Fusion Model product release output (publish-fusion-model.bat)
+dist-model/

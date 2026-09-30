@@ -55,10 +55,12 @@ namespace FusionModel.Packs
         /// Adds the pack to the model. What is missing is added; what exists is kept as the customer changed it, unless
         /// <paramref name="overwrite"/> (then tables, measures, terms and checks of the pack are replaced by the shipped ones).
         /// </summary>
-        public static PackApplyResult Apply(ModelDefinition m, PackDef p, bool overwrite = false)
+        /// <param name="sourceKind">Load the pack's tables from this source instead of "fusion" (e.g. "fusion:TEST" for another pod).</param>
+        public static PackApplyResult Apply(ModelDefinition m, PackDef p, bool overwrite = false, string sourceKind = null)
         {
             var r = new PackApplyResult { Pack = p.Id };
             var clone = JsonSerializer.Deserialize<PackDef>(JsonSerializer.Serialize(p, Json.Options), Json.Options)!;   // never share objects with the catalog
+            if (!string.IsNullOrWhiteSpace(sourceKind)) foreach (var t in clone.Tables) t.Source.Kind = sourceKind.Trim();
             if (m.Module(clone.Module.Name) == null) { m.Modules.Add(clone.Module); r.Added.Add("module " + clone.Module.Name); }
 
             void Upsert<T>(List<T> list, T item, Func<T, bool> same, string label)

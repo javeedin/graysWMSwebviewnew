@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FusionModel.Tests", "engine
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FusionModel.Mcp", "engine\FusionModel.Mcp\FusionModel.Mcp.csproj", "{73A9E7A3-8669-4AAF-92FC-DB74A03CF5FB}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FusionModel.Server", "engine\FusionModel.Server\FusionModel.Server.csproj", "{BA37A1ED-EBB6-477B-BB4A-A32389DFED63}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -35,6 +37,10 @@ Global
 		{73A9E7A3-8669-4AAF-92FC-DB74A03CF5FB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{73A9E7A3-8669-4AAF-92FC-DB74A03CF5FB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{73A9E7A3-8669-4AAF-92FC-DB74A03CF5FB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BA37A1ED-EBB6-477B-BB4A-A32389DFED63}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BA37A1ED-EBB6-477B-BB4A-A32389DFED63}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BA37A1ED-EBB6-477B-BB4A-A32389DFED63}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BA37A1ED-EBB6-477B-BB4A-A32389DFED63}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -46,5 +52,6 @@ Global
 		{40AB7E48-510E-427B-B014-DF82780A514C} = {5BCEDCD1-A035-40ED-9540-9733ACD216C7}
 		{919CCBB5-F35B-44AF-AC1F-7C6792FD7C0A} = {5BCEDCD1-A035-40ED-9540-9733ACD216C7}
 		{73A9E7A3-8669-4AAF-92FC-DB74A03CF5FB} = {5BCEDCD1-A035-40ED-9540-9733ACD216C7}
+		{BA37A1ED-EBB6-477B-BB4A-A32389DFED63} = {5BCEDCD1-A035-40ED-9540-9733ACD216C7}
 	EndGlobalSection
 EndGlobal

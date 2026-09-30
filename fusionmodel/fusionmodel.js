@@ -43,7 +43,7 @@ function fm(action, payload, onProgress) {
 // ── load ───────────────────────────────────────────────────────
 function loadAll() {
     return Promise.all([fm('fmStatus'), fm('fmModelGet').catch(function () { return { model: { version: 0, modules: [], tables: [] } }; })]).then(function (r) {
-        S.status = r[0].status; S.isAdmin = !!r[0].isAdmin; S.mcpPath = r[0].mcpPath || 'C:\\fusion\\app\\FusionModel.Mcp.exe';
+        S.status = r[0].status; S.isAdmin = !!r[0].isAdmin; S.licence = r[0].licence; S.mcpPath = r[0].mcpPath || 'C:\\fusion\\app\\FusionModel.Mcp.exe';
         if (!S.dirty) S.model = normModel(r[1].model);
         renderAcct();
         if (S.tab === 'modules') renderModules();
@@ -121,7 +121,7 @@ function renderModule() {
             '<button class="btn sm" data-act="rmtable" data-t="' + i + '"' + dis + ' title="Remove"><i class="fa-solid fa-trash"></i></button></div>' +
             '<input data-t="' + i + '" data-tf="description" value="' + esc(t.description || '') + '" placeholder="What this table holds (the AI reads this)" class="desc">' +
             '<div class="row"><label class="fld" style="max-width:190px"><span>Source</span><select data-t="' + i + '" data-tf="kind">' +
-            [['apex', 'APEX (app database)'], ['fusion', 'Oracle Fusion'], ['file', 'File (CSV / Parquet / JSON)']].map(function (o) { return '<option value="' + o[0] + '"' + (t.source.kind === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
+            [['apex', 'APEX (app database)'], ['fusion', 'Oracle Fusion (logged-in pod)'], ['fusion:PROD', 'Oracle Fusion — PROD pod'], ['fusion:TEST', 'Oracle Fusion — TEST pod'], ['bicc', 'BICC extract folder'], ['file', 'File (CSV / Parquet / JSON)']].map(function (o) { return '<option value="' + o[0] + '"' + (t.source.kind === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
             '<label class="fld" style="max-width:200px"><span>Load</span><select data-t="' + i + '" data-tf="strategy">' +
                 [['full', 'Full every time'], ['incremental', 'Only changed rows'], ['window', 'Last N months']].map(function (o) { return '<option value="' + o[0] + '"' + (t.strategy === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
             '<label class="fld"><span>Key column(s)</span><input data-t="' + i + '" data-tf="key" value="' + esc(t.key.join(', ')) + '" placeholder="e.g. INVOICE_ID"></label>' +
@@ -131,7 +131,9 @@ function renderModule() {
             '<label class="fld" style="max-width:120px"><span>Rows per call</span><input type="number" data-t="' + i + '" data-tf="pageSize" value="' + (t.pageSize || '') + '" placeholder="' + (t.source.kind === 'fusion' ? '5000' : '1000') + '"></label>' +
             '<label class="fld" style="max-width:150px"><span>Paging</span><select data-t="' + i + '" data-tf="paging">' + [['auto', 'Auto'], ['keyset', 'By key (fast)'], ['rownum', 'Row numbers']].map(function (o) { return '<option value="' + o[0] + '"' + ((t.paging || 'auto') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
             '<label class="chk" style="align-self:end;padding-bottom:8px"><input type="checkbox" data-t="' + i + '" data-tf="countCheck"' + (t.countCheck ? ' checked' : '') + '> Check the row count</label></div>' +
-            (t.source.kind === 'file' ? '<label class="fld"><span>File path (on the refresher PC)</span><input data-t="' + i + '" data-tf="path" value="' + esc(t.source.path || '') + '" placeholder="C:\\fusion\\model\\files\\budget.csv"></label>'
+            (t.source.kind === 'bicc' ? '<label class="fld"><span>BICC folder or file pattern (CSV or ZIP extracts, newest file wins per key)</span><input data-t="' + i + '" data-tf="path" value="' + esc(t.source.path || '') + '" placeholder="\\\\fileserver\\bicc\\file_fscmtopmodelam_finextractam_apinvoiceextractpvo-*"></label>' +
+                '<label class="fld"><span>Rename columns (one per line: FILE_COLUMN = MODEL_COLUMN)</span><textarea class="sql" rows="3" data-t="' + i + '" data-tf="rename" spellcheck="false" placeholder="INVOICEID = INVOICE_ID">' + esc(Object.keys(t.source.rename || {}).map(function (k) { return k + ' = ' + t.source.rename[k]; }).join('\n')) + '</textarea></label>'
+            : t.source.kind === 'file' ? '<label class="fld"><span>File path (on the refresher PC)</span><input data-t="' + i + '" data-tf="path" value="' + esc(t.source.path || '') + '" placeholder="C:\\fusion\\model\\files\\budget.csv"></label>'
                 : '<textarea class="sql" data-t="' + i + '" data-tf="sql" spellcheck="false" rows="' + Math.min(12, Math.max(3, String(t.source.sql || '').split('\n').length + 1)) + '" placeholder="SELECT … FROM …">' + esc(t.source.sql || '') + '</textarea>') +
             '</div>';
     });
@@ -332,6 +334,11 @@ function renderSettings() {
         '<b>Refresh running</b><span>' + (st.lease ? esc(st.lease.machine) + ' since ' + new Date(st.lease.acquiredUtc).toLocaleTimeString() : st.building ? esc(st.building) : 'no') + '</span></div>' +
         '<div class="row">' + (S.isAdmin ? '<button class="btn primary" data-act="savecfg"><i class="fa-solid fa-floppy-disk"></i> Save</button>' : '<span class="pill warn">Only AI admins can change these settings.</span>') +
         '<button class="btn" data-act="sync"><i class="fa-solid fa-download"></i> Copy the latest versions now</button></div></div>' +
+        '<div class="card"><h3><i class="fa-solid fa-certificate"></i> Licence</h3>' + (function (l) {
+            l = l || {};
+            return l.valid ? '<p><span class="ck-b PASS">VALID</span> ' + esc(l.edition || '') + ' licence for <b>' + esc(l.customer || '') + '</b> until ' + esc(String(l.expires || '').slice(0, 10)) + ' · ' + l.daysLeft + ' days left · packs: ' + esc((l.packs || []).join(', ')) + '</p>'
+                : '<p class="muted sm"><span class="ck-b">NONE</span> ' + esc(l.reason || '') + ' This app keeps working without one; a licence from the vendor (licence.json in the shared folder) unlocks the model server for other customers.</p>';
+        })(S.licence) + '</div>' +
         '<div class="card"><h3><i class="fa-solid fa-brain"></i> Search by meaning (optional)</h3>' +
         '<p class="muted sm">Search already matches words, typos, glossary terms, column values and verified examples. A Voyage AI key adds matching by meaning ("turnover" finds <b>Sales</b> without a synonym). The key is encrypted for this Windows user and never sent to the page.</p>' +
         '<div class="row"><label class="fld grow"><span>Voyage AI API key <small id="emb-st" class="muted"></small></span><input id="s-emb" type="password" class="mono" placeholder="pa-…  (empty + Save = remove)"></label>' +
@@ -414,6 +421,7 @@ document.addEventListener('input', function (e) {
     if (d.tf != null && d.t != null) {
         var t = S.model.tables[+d.t];
         if (d.tf === 'sql' || d.tf === 'path') t.source[d.tf] = x.value;
+        else if (d.tf === 'rename') { var rn = {}; x.value.split('\n').forEach(function (l) { var m2 = l.split('='); if (m2.length === 2 && m2[0].trim() && m2[1].trim()) rn[m2[0].trim()] = m2[1].trim(); }); t.source.rename = rn; }
         else if (d.tf === 'key') t.key = x.value.split(',').map(function (k) { return k.trim(); }).filter(Boolean);
         else if (d.tf === 'pageSize') t.pageSize = +x.value || 0;
         else if (d.tf === 'windowMonths') t.windowMonths = +x.value || 3;

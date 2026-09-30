@@ -34,6 +34,7 @@ namespace FusionModel
             Settings = Json.Read<EngineSettings>(settingsPath) ?? defaults ?? new EngineSettings();
             Settings.SharedRoot ??= defaults?.SharedRoot;
             Settings.CacheRoot ??= defaults?.CacheRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FusionModel", "cache");
+            RegisterSource(new BiccSource());            // BICC extract folders need nothing from the host
         }
 
         // ── settings and paths ───────────────────────────────────────

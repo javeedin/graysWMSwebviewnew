@@ -42,7 +42,9 @@ namespace FusionModel
         {
             var sw = Stopwatch.StartNew();
             var r = new CheckResult { Name = c.Name, Description = c.Description, Folder = c.Folder };
-            string left = c.LeftLabel ?? "Left", right = c.RightLabel ?? "Right";
+            if (string.IsNullOrWhiteSpace(c.Left) || string.IsNullOrWhiteSpace(c.Right))
+            { r.Status = "ERROR"; r.Error = "Write both sides of the check (Left and Right)."; return r; }
+            string left = string.IsNullOrWhiteSpace(c.LeftLabel) ? "Left" : c.LeftLabel, right = string.IsNullOrWhiteSpace(c.RightLabel) ? "Right" : c.RightLabel;
             if (left == right) right += " ";
             var req = new SemanticRequest { GroupBy = (c.By ?? new()).ToList(), Filters = filters?.ToList() ?? new(), Top = 100_000, Totals = (c.By ?? new()).Count > 0 };
             req.Measures.Add(new MeasureSpec { Name = left, Expression = c.Left });

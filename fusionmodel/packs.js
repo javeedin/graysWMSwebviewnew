@@ -37,6 +37,7 @@ function renderPacks() {
                 '</div>' : '') +
             '</div>';
     }).join('') + '</div>' +
+    '<div class="row pad"><label class="fld" style="max-width:320px"><span>Load new packs from</span><select id="pk-src"><option value="">Oracle Fusion — the pod the app is logged in to</option><option value="fusion:PROD">Oracle Fusion — PROD pod</option><option value="fusion:TEST">Oracle Fusion — TEST pod</option></select></label></div>' +
     '<p class="muted sm pad">Tables read the standard Fusion tables through the Fusion SQL runner. <b>Check on pod</b> runs each query for its first rows and compares the columns — nothing is loaded. After adding, refresh the new modules in Modules.</p>';
 }
 
@@ -52,7 +53,7 @@ function applyPack(id, overwrite) {
     if (S.dirty) { toast('Save or discard your model changes first'); return; }
     if (overwrite && !confirm('Replace this pack\'s tables, measures, terms and checks with the shipped version? Your changes to them are lost.')) return;
     busy('Adding the pack…');
-    fm('fmPackApply', { id: id, overwrite: !!overwrite }).then(function (r) {
+    fm('fmPackApply', { id: id, overwrite: !!overwrite, source: ($('pk-src') || {}).value || '' }).then(function (r) {
         busy(null);
         var x = r.result || {};
         toast((x.added || []).length + ' added' + ((x.updated || []).length ? ', ' + x.updated.length + ' replaced' : '') + ((x.kept || []).length ? ', ' + x.kept.length + ' kept as you changed them' : ''));
