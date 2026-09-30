@@ -92,7 +92,7 @@ function loadLinkFrame() {
     el.appendChild(f);
     var hint = document.createElement('div');
     hint.className = 'embed-hint';
-    hint.innerHTML = '<i class="fa-solid fa-circle-info"></i><span>First time? Click <b>Sign in</b> in the report and use your Microsoft (Outlook) account. Blank or “no access”? You need a Power BI Pro / trial licence and access to the report.</span>' +
+    hint.innerHTML = '<i class="fa-solid fa-circle-info"></i><span>First time? Click <b>Sign in</b> in the report and use your Microsoft (Outlook) account. Still blank after signing in? Click <b>Open in window</b> (top right). “Upgrade” or “no access”? Your Power BI licence is Free — start the Pro trial.</span>' +
         '<button class="lnk" data-act="hidehint">Got it</button>';
     try { if (localStorage.getItem('pbiHintSeen') !== '1') el.appendChild(hint); } catch (e) { el.appendChild(hint); }
 }
@@ -331,4 +331,18 @@ function renderDesktopSetup() {
                 '<td>' + esc(k.LAST_USED || '—') + '</td><td>' + esc(k.USE_COUNT || 0) + '</td><td>' + (k.REVOKED === 'Y' ? '<span class="st FAILED">revoked</span>' : st.isAdmin ? '<button class="btn sm" data-act="revokekey" data-id="' + k.KEY_ID + '">Revoke</button>' : '') + '</td></tr>';
         }).join('') + '</table>' : '<p class="muted sm">No keys yet.</p>') +
         '<p class="muted sm"><i class="fa-solid fa-circle-info"></i> One-time APEX step: run <code>apex_sql/77_powerbi_feed.sql</code> in SQL Workshop (creates the feed endpoint). “Test the feed” tells you if it is missing.</p></div>';
+}
+
+/** The Microsoft sign-in popup closed: reload the embedded report so it picks up the sign-in. */
+function onSignInClosed() {
+    if (S.cur && S.cur.kind === 'link') setTimeout(loadLinkFrame, 700);
+}
+/** Fallback: the report in its own app window (a normal page, not an iframe). */
+function openInWindow() {
+    var url = S.cur && (S.cur.kind === 'link' ? (S.cur.link.SOURCE_URL && /^https:\/\/app\.powerbi\.com\/(groups|view)/i.test(S.cur.link.SOURCE_URL) ? S.cur.link.SOURCE_URL : pbLinkUrl(S.cur.link, S.filters)) : S.cur.webUrl);
+    if (!url) return;
+    if (S.cur.kind === 'link' && S.filters.length && /\/groups\//.test(url)) {       // report URLs take the same ?filter=
+        var ex = pbFilterExpr(S.filters); url = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'filter=' + encodeURIComponent(ex).replace(/%2F/g, '/');
+    }
+    pb('pbiOpenWindow', { url: url, title: S.cur.name || S.cur.link && S.cur.link.NAME }).catch(function (e) { toast(String(e)); });
 }

@@ -1617,7 +1617,9 @@ navPanel.Controls.Add(wmsDevButton);
                     var opts = new CoreWebView2EnvironmentOptions
                     {
                         AdditionalBrowserArguments =
-                            "--disable-features=BlockInsecurePrivateNetworkRequests"
+                            // ThirdPartyStoragePartitioning off: an embedded Power BI report (iframe on a module page)
+                            // must see the sign-in done in its popup (powerbi/desktop.js)
+                            "--disable-features=BlockInsecurePrivateNetworkRequests,ThirdPartyStoragePartitioning"
                     };
                     _sharedEnv = await CoreWebView2Environment.CreateAsync(
                         browserExecutableFolder: null,
@@ -6383,7 +6385,7 @@ navPanel.Controls.Add(wmsDevButton);
         {
             // Microsoft sign-in popups (e.g. an embedded Power BI report) must stay real popups so they can
             // report back to the page that opened them - see Form1_PowerBiHandlers.cs
-            if (TryOpenSignInPopup(e)) return;
+            if (TryOpenSignInPopup(e, sender as Microsoft.Web.WebView2.Core.CoreWebView2)) return;
             e.Handled = true;
             AddNewTab(e.Uri);
         }

@@ -25,6 +25,7 @@ namespace WMSApp
 
         private async Task HandlePowerBiAction(WebView2 wv, string action, JsonElement root, string requestId)
         {
+            if (action == "pbiOpenWindow") { OpenPowerBiWindow(wv, PStr(root, "url"), PStr(root, "title"), requestId); return; }
             string user = PStr(root, "appUser");
             if (string.IsNullOrWhiteSpace(user) || user == "UNKNOWN") user = GetClaudeCliService().PolicyUser;
             object data;
@@ -162,22 +163,58 @@ namespace WMSApp
             PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "pbiResponse", requestId, data }));
         }
 
+        /// <summary>
+        /// Opens a Power BI report in its own app window (top-level page, not an iframe) - the fallback when the embedded
+        /// report stays blank after signing in. Only https://*.powerbi.com.
+        /// </summary>
+        private async void OpenPowerBiWindow(WebView2 page, string url, string title, string requestId)
+        {
+            object data;
+            try
+            {
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || u.Scheme != Uri.UriSchemeHttps ||
+                    !(u.Host.Equals("powerbi.com", StringComparison.OrdinalIgnoreCase) || u.Host.EndsWith(".powerbi.com", StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException("Only Power BI links can be opened.");
+                var f = new System.Windows.Forms.Form
+                {
+                    Text = string.IsNullOrWhiteSpace(title) ? "Power BI" : "Power BI - " + title, Width = 1280, Height = 820,
+                    StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen, Icon = this.Icon
+                };
+                var wv = new WebView2 { Dock = System.Windows.Forms.DockStyle.Fill };
+                f.Controls.Add(wv);
+                f.Show();
+                await wv.EnsureCoreWebView2Async(await GetSharedEnvironmentAsync());
+                wv.CoreWebView2.NewWindowRequested += (s, e) =>
+                {
+                    if (TryOpenSignInPopup(e, wv.CoreWebView2)) return;
+                    e.Handled = true;
+                    if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var nu) && (nu.Scheme == Uri.UriSchemeHttps || nu.Scheme == Uri.UriSchemeHttp))
+                        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(e.Uri) { UseShellExecute = true }); } catch { }
+                };
+                wv.CoreWebView2.Navigate(u.AbsoluteUri);
+                data = new { ok = true };
+            }
+            catch (Exception ex) { data = new { ok = false, error = ex.Message }; }
+            try { PostWebViewMessage(page, JsonSerializer.Serialize(new { action = "pbiResponse", requestId, data })); } catch { }
+        }
+
         private static readonly string[] SIGN_IN_HOSTS = { "login.microsoftonline.com", "login.microsoft.com", "login.live.com", "login.windows.net", "app.powerbi.com" };
 
         /// <summary>
         /// A Microsoft sign-in window opened by a page (the "Sign in" button of an embedded Power BI report) is shown as a
         /// real popup (same browser profile, window.opener kept) instead of a new tab, so the report picks up the sign-in.
         /// </summary>
-        private bool TryOpenSignInPopup(Microsoft.Web.WebView2.Core.CoreWebView2NewWindowRequestedEventArgs e)
+        private bool TryOpenSignInPopup(Microsoft.Web.WebView2.Core.CoreWebView2NewWindowRequestedEventArgs e, Microsoft.Web.WebView2.Core.CoreWebView2 opener)
         {
             if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) || u.Scheme != Uri.UriSchemeHttps) return false;
             if (!SIGN_IN_HOSTS.Any(h => u.Host.Equals(h, StringComparison.OrdinalIgnoreCase))) return false;
             var deferral = e.GetDeferral();
-            OpenSignInPopupAsync(e, deferral);
+            OpenSignInPopupAsync(e, deferral, opener);
             return true;
         }
 
-        private async void OpenSignInPopupAsync(Microsoft.Web.WebView2.Core.CoreWebView2NewWindowRequestedEventArgs e, Microsoft.Web.WebView2.Core.CoreWebView2Deferral deferral)
+        private async void OpenSignInPopupAsync(Microsoft.Web.WebView2.Core.CoreWebView2NewWindowRequestedEventArgs e, Microsoft.Web.WebView2.Core.CoreWebView2Deferral deferral,
+            Microsoft.Web.WebView2.Core.CoreWebView2 opener)
         {
             System.Windows.Forms.Form popup = null;
             try
@@ -189,6 +226,9 @@ namespace WMSApp
                 };
                 var wv = new WebView2 { Dock = System.Windows.Forms.DockStyle.Fill };
                 popup.Controls.Add(wv);
+                wv.CoreWebView2InitializationCompleted += (s, a) => { if (a.IsSuccess) wv.CoreWebView2.NewWindowRequested += (s2, e2) => TryOpenSignInPopup(e2, wv.CoreWebView2); };
+                // tell the page that opened it, so an embedded report reloads with the new sign-in
+                popup.FormClosed += (s, a) => { try { opener?.PostWebMessageAsJson("{\"action\":\"pbiSignInClosed\"}"); } catch { } };
                 popup.Show(this);
                 await wv.EnsureCoreWebView2Async(await GetSharedEnvironmentAsync());
                 var f = popup;

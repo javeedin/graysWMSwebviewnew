@@ -39,6 +39,7 @@ function host(action, payload, onProgress, raw) {
 }
 if (hasHost()) window.chrome.webview.addEventListener('message', function (ev) {
     var r = ev.data; if (typeof r === 'string') { try { r = JSON.parse(r); } catch (e) { return; } }
+    if (r && r.action === 'pbiSignInClosed') { if (typeof onSignInClosed === 'function') onSignInClosed(); return; }
     if (!r || !r.requestId) return;
     if (r.action === 'pbiProgress') { if (_progress[r.requestId]) _progress[r.requestId](r.message); return; }
     var cb = _pending[r.requestId]; if (!cb) return;
@@ -485,6 +486,7 @@ document.addEventListener('click', function (e) {
         case 'save': if (S.embed) S.embed.save(); return;
         case 'addlink': return linkModal(null);
         case 'editlink': return S.cur && S.cur.link && linkModal(S.cur.link);
+        case 'window': return openInWindow();
         case 'deffilters': saveLinkFilters(); $('b-deffilters').hidden = true; return;
         case 'hidehint': try { localStorage.setItem('pbiHintSeen', '1'); } catch (x) { } b.parentNode.remove(); return;
         case 'testfeed': return runKeyTest($('s-tkey').value.trim(), 's-tout');
