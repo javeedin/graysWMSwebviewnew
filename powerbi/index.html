@@ -4,6 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Power BI — Fusion Client</title>
+    <script>
+        /* An embedded Power BI report does not sign in / render inside a file:// page. The host serves the app folder at
+           https://grays-wms.example/ (pbiServeFolder) and this page reloads from there; older hosts ignore it and the page
+           stays on file://. ?u= carries the app login, ?home= the file:// folder for the way back. */
+        (function () {
+            var wv = window.chrome && window.chrome.webview;
+            if (location.protocol !== 'file:' || !wv || /[?&]nohttps=1/.test(location.search)) return;
+            var id = 'pbv_' + Date.now(), done = false;
+            var h = function (ev) {
+                var r = ev.data; if (typeof r === 'string') { try { r = JSON.parse(r); } catch (e) { return; } }
+                if (!r || r.requestId !== id) return;
+                done = true; wv.removeEventListener('message', h);
+                if (!r.data || !r.data.ok) return;
+                var u = ''; try { u = sessionStorage.getItem('loggedInUser') || localStorage.getItem('loggedInUser') || ''; } catch (e) { }
+                var q = new URLSearchParams(location.search);
+                q.set('home', location.href.replace(/powerbi\/index\.html.*$/i, '')); if (u) q.set('u', u);
+                location.replace(r.data.baseUrl + 'powerbi/index.html?' + q.toString());
+            };
+            wv.addEventListener('message', h);
+            wv.postMessage({ action: 'pbiServeFolder', requestId: id, url: location.href.split('?')[0] });
+        })();
+    </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="powerbi.css">
     <!-- powerbi-client 2.25.0 (Microsoft, MIT - lib/LICENSE.txt), shipped with the app -->

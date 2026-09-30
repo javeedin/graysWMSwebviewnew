@@ -26,6 +26,7 @@ namespace WMSApp
         private async Task HandlePowerBiAction(WebView2 wv, string action, JsonElement root, string requestId)
         {
             if (action == "pbiOpenWindow") { OpenPowerBiWindow(wv, PStr(root, "url"), PStr(root, "title"), requestId); return; }
+            if (action == "pbiServeFolder" || action == "pbiNavigate") { PbiLocalHost(wv, action, PStr(root, "url"), requestId); return; }
             string user = PStr(root, "appUser");
             if (string.IsNullOrWhiteSpace(user) || user == "UNKNOWN") user = GetClaudeCliService().PolicyUser;
             object data;
@@ -197,6 +198,42 @@ namespace WMSApp
             catch (Exception ex) { data = new { ok = false, error = ex.Message }; }
             try { PostWebViewMessage(page, JsonSerializer.Serialize(new { action = "pbiResponse", requestId, data })); } catch { }
         }
+
+        public const string PBI_LOCAL_HOST = "grays-wms.example";
+
+        /// <summary>
+        /// pbiServeFolder: serves the app's page folder (the one holding powerbi/index.html, given as the page's own file:// URL)
+        /// at https://grays-wms.example/ for this tab, so the Power BI page runs as a normal https page - an embedded Power BI
+        /// report does not sign in / render inside a file:// page. pbiNavigate: back to a file:// page of that same folder
+        /// (an https page may not open file:// itself).
+        /// </summary>
+        private void PbiLocalHost(WebView2 wv, string action, string url, string requestId)
+        {
+            object data;
+            try
+            {
+                if (!Uri.TryCreate(url, UriKind.Absolute, out var u) || !u.IsFile) throw new InvalidOperationException("Expected a file:// page URL");
+                string path = System.IO.Path.GetFullPath(u.LocalPath);
+                if (action == "pbiServeFolder")
+                {
+                    string dir = System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(path));      // …\powerbi\index.html -> …
+                    if (dir == null || !System.IO.File.Exists(System.IO.Path.Combine(dir, "powerbi", "index.html"))) throw new InvalidOperationException("Not the app folder");
+                    wv.CoreWebView2.SetVirtualHostNameToFolderMapping(PBI_LOCAL_HOST, dir, Microsoft.Web.WebView2.Core.CoreWebView2HostResourceAccessKind.Allow);
+                    _pbiServedDir = dir;
+                    data = new { ok = true, baseUrl = "https://" + PBI_LOCAL_HOST + "/" };
+                }
+                else
+                {
+                    if (_pbiServedDir == null || !path.StartsWith(_pbiServedDir + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || !System.IO.File.Exists(path))
+                        throw new InvalidOperationException("Only pages of the app folder");
+                    wv.CoreWebView2.Navigate(u.AbsoluteUri);
+                    data = new { ok = true };
+                }
+            }
+            catch (Exception ex) { data = new { ok = false, error = ex.Message }; }
+            try { PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "pbiResponse", requestId, data })); } catch { }
+        }
+        private string _pbiServedDir;
 
         private static readonly string[] SIGN_IN_HOSTS = { "login.microsoftonline.com", "login.microsoft.com", "login.live.com", "login.windows.net", "app.powerbi.com" };
 

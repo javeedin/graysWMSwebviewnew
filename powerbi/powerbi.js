@@ -20,7 +20,19 @@ function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function
 function toast(t) { var el = $('toast'); el.textContent = t; el.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(function () { el.style.display = 'none'; }, 4200); }
 function busy(msg) { $('busy').hidden = !msg; if (msg) $('busy').querySelector('span').textContent = msg; }
 function hasHost() { return !!(window.chrome && window.chrome.webview); }
+// served from https://grays-wms.example/ (see index.html): the login and the way home come in the URL
+(function () {
+    var q = new URLSearchParams(location.search);
+    try { if (q.get('u')) sessionStorage.setItem('loggedInUser', q.get('u')); if (q.get('home')) sessionStorage.setItem('pbiHome', q.get('home')); } catch (e) { }
+})();
 function appUser() { try { return sessionStorage.getItem('loggedInUser') || localStorage.getItem('loggedInUser') || ''; } catch (e) { return ''; } }
+function goHome(ev) {
+    if (location.protocol === 'file:') return;          // the normal link works
+    var home = ''; try { home = sessionStorage.getItem('pbiHome') || ''; } catch (e) { }
+    if (!/^file:/i.test(home)) return;
+    ev.preventDefault();
+    pb('pbiNavigate', { url: home + 'Home/index.html' }).catch(function () { history.back(); });
+}
 function lit(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
 function v(s, max) { s = String(s == null ? '' : s).slice(0, max || 4000); return s ? lit(s) : 'NULL'; }
 function clob(s) { s = String(s || ''); if (!s) return 'EMPTY_CLOB()'; var p = []; for (var i = 0; i < s.length; i += 1000) p.push('TO_CLOB(' + lit(s.slice(i, i + 1000)) + ')'); return p.join(' || '); }
@@ -450,6 +462,7 @@ function signIn() {
 function modal(html, cls) { if (html == null) { $('modal').hidden = true; return; } $('modal-box').className = 'modal-box' + (cls ? ' ' + cls : ''); $('modal-box').innerHTML = html; $('modal').hidden = false; }
 
 document.addEventListener('click', function (e) {
+    if (e.target.closest('a.back')) return goHome(e);
     var b = e.target.closest('button, a[data-act], [data-rep], [data-def], [data-link]');
     if (!b) { if (e.target.id === 'modal') modal(null); return; }
     var d = b.dataset;
