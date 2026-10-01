@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Microsoft.Web.WebView2.WinForms;
+using WMSApp.FusionSql;
 
 namespace WMSApp
 {
