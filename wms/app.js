@@ -2509,6 +2509,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         console.log('Volume-related columns:', volumeCols);
                         volumeCols.forEach(col => console.log(`${col}:`, tripDetails[0][col], typeof tripDetails[0][col]));
                     }
+                    window.tripDetailsAllData = tripDetails;   // used by Move order to trip (trip-move.js)
                     displayTripDetailsData(tripDetails);
                 } catch (e) {
                     if (tripDetailsGridContainer) {
@@ -5635,7 +5636,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Add Actions column at the beginning
             columns.unshift({
                 caption: 'Actions',
-                width: 90,
+                width: 120,
                 alignment: 'center',
                 allowFiltering: false,
                 allowSorting: false,
@@ -5672,6 +5673,32 @@ document.addEventListener('DOMContentLoaded', function() {
                     });
 
                     const $div = $('<div>').css({ display: 'flex', gap: '0.4rem', justifyContent: 'center' });
+
+                    // Move to another trip (before Remove)
+                    $('<button>')
+                        .addClass('icon-btn')
+                        .attr('title', 'Move to another trip')
+                        .html('<i class="fas fa-right-left" style="color: #2563eb;"></i>')
+                        .on('click', function() {
+                            if (typeof window.openMoveOrderToTrip !== 'function') { alert('Move order is not loaded. Please refresh the page.'); return; }
+                            window.openMoveOrderToTrip({
+                                orderNumber: orderNumber, fromTripId: tripIdFromRow, instance: instanceName, row: rowData,
+                                onMoved: function() {
+                                    try {
+                                        const inst = gridContainer.dxDataGrid('instance');
+                                        const live = (inst && inst.option('dataSource')) || tripData || [];
+                                        const filtered = (Array.isArray(live) ? live : []).filter(r => (r.ORDER_NUMBER || r.order_number || '') !== orderNumber);
+                                        tripData = filtered;
+                                        if (inst) { inst.option('dataSource', filtered); inst.refresh(); }
+                                        else if (typeof refreshTripDetails === 'function') { refreshTripDetails(tripIdFromRow); }
+                                    } catch (gridErr) {
+                                        if (typeof refreshTripDetails === 'function') refreshTripDetails(tripIdFromRow);
+                                    }
+                                },
+                                onFailed: function() { if (typeof refreshTripDetails === 'function') refreshTripDetails(tripIdFromRow); }
+                            });
+                        })
+                        .appendTo($div);
 
                     // Remove button
                     $('<button>')

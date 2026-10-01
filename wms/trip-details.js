@@ -473,7 +473,7 @@ function initializeTripOrdersGrid() {
                 },
                 {
                     caption: 'Actions',
-                    width: 120,
+                    width: 150,
                     cellTemplate: function(container, options) {
                         console.log('[Trip Details] Rendering Actions column for order:', options.data.source_order_number);
 
@@ -511,7 +511,27 @@ function initializeTripOrdersGrid() {
                                 removeOrderFromTrip(options.data);
                             });
 
+                        const moveBtn = $('<button>')
+                            .addClass('grid-action-btn btn-retry')
+                            .html('<i class="fas fa-right-left"></i>')
+                            .attr('title', 'Move to another trip')
+                            .css({ 'background': '#2563eb', 'margin-right': '4px' })
+                            .on('click', function() {
+                                if (typeof window.openMoveOrderToTrip !== 'function') { alert('Move order is not loaded. Please refresh the page.'); return; }
+                                const fromTrip = tripDetailsData?.trip_id || document.getElementById('trip-detail-id')?.textContent?.trim() || '';
+                                window.openMoveOrderToTrip({
+                                    orderNumber: options.data.source_order_number, fromTripId: fromTrip, row: options.data,
+                                    instance: window.currentTripInstance || tripDetailsData?.instance || options.data.instance,
+                                    onMoved: function() {
+                                        tripOrdersData = tripOrdersData.filter(o => o.source_order_number !== options.data.source_order_number);
+                                        if (tripOrdersGrid) tripOrdersGrid.option('dataSource', tripOrdersData);
+                                        updateOrdersCount();
+                                    }
+                                });
+                            });
+
                         container.append(mraBtn);
+                        container.append(moveBtn);
                         container.append(removeBtn);
                     },
                     allowFiltering: false,
