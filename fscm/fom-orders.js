@@ -97,8 +97,8 @@ FOM.searchLines = function () {
 FOM.lineExt = function (l) { var e = FOM.num(l.ExtendedAmount); return e != null ? e : FOM.r2(FOM.n(l.OrderedQuantity) * FOM.n(l.UnitSellingPrice)); };
 FOM.orderValue = function (o) { return FOM.sum(o.lines || [], FOM.lineExt); };
 FOM.searchOrdersTab = function (p) {
-    p.innerHTML = '<div class="row-btns"><label class="fom-chk"><input type="checkbox" data-ref> Show DOO_REFERENCE</label><span class="grow"></span><button class="btn sm" data-xo><i class="fa-solid fa-file-excel"></i> Export Orders</button></div><div data-g style="display:flex;flex-direction:column;gap:10px;flex:1;min-height:340px"></div>';
-    var g = FX.grid(p.querySelector('[data-g]'), {
+    p.innerHTML = '<div class="row-btns"><label class="fom-chk"><input type="checkbox" data-ref> Show DOO_REFERENCE</label><span class="grow"></span><button class="btn sm" data-xo><i class="fa-solid fa-file-excel"></i> Export Orders</button></div><div data-gw style="display:flex;flex-direction:column;gap:10px;flex:1;min-height:340px"></div>';
+    var g = FX.grid(p.querySelector('[data-gw]'), {
         id: 'fso', csvName: 'sales_orders', key: 'HeaderId', emptyText: FOM.S.searched ? 'No sales orders matched.' : 'Choose a business unit and search.',
         onRow: function (r) { FOM.openOrder(r); },
         columns: [
@@ -148,8 +148,8 @@ FOM.exportOrders = function (rows) {
     FOM.xlsx('SalesOrders_' + FOM.ts() + '.xlsx', [{ name: 'Orders', aoa: aoa, merges: [[0, 0, 0, 12]], cols: [16, 32, 12, 16, 8, 10, 14, 10, 10, 14, 26, 12, 18] }]);
 };
 FOM.searchLinesTab = function (p) {
-    p.innerHTML = '<div class="row-btns"><span class="muted" style="font-size:.78rem">Lines of the loaded orders (expand=lines), with their header.</span><span class="grow"></span><button class="btn sm" data-xl><i class="fa-solid fa-file-excel"></i> Export Lines</button></div><div data-g style="display:flex;flex-direction:column;gap:10px;flex:1;min-height:340px"></div>';
-    var g = FX.grid(p.querySelector('[data-g]'), {
+    p.innerHTML = '<div class="row-btns"><span class="muted" style="font-size:.78rem">Lines of the loaded orders (expand=lines), with their header.</span><span class="grow"></span><button class="btn sm" data-xl><i class="fa-solid fa-file-excel"></i> Export Lines</button></div><div data-gw style="display:flex;flex-direction:column;gap:10px;flex:1;min-height:340px"></div>';
+    var g = FX.grid(p.querySelector('[data-gw]'), {
         id: 'fsl2', csvName: 'sales_order_lines', key: '_key', emptyText: 'Search orders first — their lines appear here.',
         columns: [
             { label: 'Source Txn #', get: function (r) { return r._src || r._ord; }, html: function (r) { return '<a class="fom-a" data-oo>' + esc(r._src || r._ord) + '</a>'; } },

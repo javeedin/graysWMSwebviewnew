@@ -162,7 +162,7 @@ FOM.edRenderLines = function (E) {
         else if (a === 'drill') FOM.chargesDrill(E, l);
         else if (a === 'retlots') FOM.retLotsDlg(E, l);
     };
-    if (focusKey && focusF) { var fe = tb.querySelector('tr[data-k="' + focusKey + '"] [data-f="' + focusF + '"]'); if (fe) fe.focus(); }
+    if (focusKey && focusF) { var fe = tb.querySelector('tr[data-k="' + focusKey + '"] [data-f="' + focusF + '"]'); if (fe) { fe.focus(); if (fe.type === 'number' && fe.select) fe.select(); } }
     if (!E._altN) { E._altN = true; E.el.addEventListener('keydown', function (e) { if (e.altKey && (e.key === 'n' || e.key === 'N') && !E.isReturn()) { e.preventDefault(); FOM.edAddBlank(E); } }); }
 };
 FOM.edLine = function (E, key) { return E.lines.filter(function (l) { return l.key === key; })[0]; };
@@ -334,7 +334,7 @@ FOM.chargesDlg = function (E) {
         title: '<i class="fa-solid fa-receipt"></i> Charges', xwide: true,
         body: '<div class="row-btns"><div class="seg" data-scope><button class="on" data-s="one">Specific line</button><button data-s="all">Global — split across ' + elig.length + ' lines</button></div><select class="fom-in" data-line style="max-width:360px">' + elig.map(function (l, i) { return '<option value="' + i + '">Line ' + esc(l.srcLineNumber || i + 1) + ' — ' + esc(l.itemNumber) + ' (' + FOM.amt(FOM.lineTotal(l)) + ')</option>'; }).join('') + '</select></div>' +
             '<h4>Existing charges</h4><div data-ex></div><h4>Add a charge</h4><div class="row-btns" data-pre>' + Object.keys(FOM.CHARGE_PRESETS).map(function (k, i) { return '<button class="btn sm' + (i === 0 ? ' primary' : '') + '" data-p="' + k + '">' + k + '</button>'; }).join('') + '</div>' +
-            '<div class="form"><label>Charge definition <b class="r">*</b><input data-c="def"></label><label>Charge sub type<input data-c="sub"></label><label>Apply to<select data-c="apply">' + FOM.opts(['PRICE', 'SHIPPING', 'RETURN'], 'SHIPPING') + '</select></label><label>Charge type code<input data-c="type"></label><label>Amount (' + esc(E.ccy()) + ') <b class="r">*</b><input type="number" step="any" data-c="amt"></label></div><div data-split></div><div data-res></div>',
+            '<div class="form"><label><span>Charge definition <b class="r">*</b></span><input data-c="def"></label><label>Charge sub type<input data-c="sub"></label><label>Apply to<select data-c="apply">' + FOM.opts(['PRICE', 'SHIPPING', 'RETURN'], 'SHIPPING') + '</select></label><label>Charge type code<input data-c="type"></label><label><span>Amount (' + esc(E.ccy()) + ') <b class="r">*</b></span><input type="number" step="any" data-c="amt"></label></div><div data-split></div><div data-res></div>',
         buttons: [{ label: 'Close', act: 'close' }, { label: 'Add charge', act: 'add', cls: 'primary' }],
         onOpen: function (dd) {
             var scope = 'one';

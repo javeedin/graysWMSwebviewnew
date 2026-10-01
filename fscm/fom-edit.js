@@ -13,20 +13,20 @@ FOM.registerOrder = function (opts) {
         title: '<i class="fa-solid fa-file-circle-plus"></i> ' + (opts.title || 'Register New Order'), xwide: true,
         body: '<div class="fom-reg">' +
             '<section><h4>Order details</h4><div class="form">' +
-            '<label>Business Unit <b class="r">*</b><select data-r="bu"><option value="">Loading…</option></select></label>' +
-            '<label>Base Ccy <b class="r">*</b><input data-r="base" readonly></label>' +
-            '<label>Txn Ccy <b class="r">*</b><select data-r="txn">' + FOM.opts(FOM.currencies(), '') + '</select></label>' +
+            '<label><span>Business Unit <b class="r">*</b></span><select data-r="bu"><option value="">Loading…</option></select></label>' +
+            '<label><span>Base Ccy <b class="r">*</b></span><input data-r="base" readonly></label>' +
+            '<label><span>Txn Ccy <b class="r">*</b></span><select data-r="txn">' + FOM.opts(FOM.currencies(), '') + '</select></label>' +
             '<label>Rate<input data-r="rate" type="number" step="any" value="1"></label>' +
             '<label>Rate Type<select data-r="rtype">' + FOM.opts(['Corporate', 'Spot', 'User'], 'User') + '</select></label>' +
             '<label>Currency Date<input data-r="cdate" type="date" value="' + FX.today() + '"></label>' +
-            '<label>Order Type <b class="r">*</b><select data-r="type"><option value="">Loading…</option></select></label>' +
-            '<label>Order Date <b class="r">*</b><input data-r="date" type="date" value="' + FX.today() + '"></label>' +
-            '<label data-branch hidden>Branch Business Unit <b class="r">*</b><select data-r="branch"></select></label></div><div data-bnote></div></section>' +
-            '<section><h4>Customer</h4><div class="form"><label class="wide">Customer Name <b class="r">*</b><div class="fom-inbtn"><input data-r="cust" readonly placeholder="Search the customer…"><button class="btn" data-find><i class="fa-solid fa-magnifying-glass"></i> Find</button></div></label>' +
+            '<label><span>Order Type <b class="r">*</b></span><select data-r="type"><option value="">Loading…</option></select></label>' +
+            '<label><span>Order Date <b class="r">*</b></span><input data-r="date" type="date" value="' + FX.today() + '"></label>' +
+            '<label data-branch hidden><span>Branch Business Unit <b class="r">*</b></span><select data-r="branch"></select></label></div><div data-bnote></div></section>' +
+            '<section><h4>Customer</h4><div class="form"><label class="wide"><span>Customer Name <b class="r">*</b></span><div class="fom-inbtn"><input data-r="cust" readonly placeholder="Search the customer…"><button class="btn" data-find><i class="fa-solid fa-magnifying-glass"></i> Find</button></div></label>' +
             '<label>Account #<input data-r="acct" readonly></label><label>Credit limit<input data-r="cl" readonly></label><label class="wide">Bill To Address<input data-r="bill" readonly></label><label class="wide">Ship To Address<input data-r="ship" readonly></label></div></section>' +
-            '<section><h4>Terms &amp; fulfillment</h4><div class="form"><label>Payment Terms <b class="r">*</b><input data-r="terms" list="fom-reg-terms" placeholder="Type or pick"><datalist id="fom-reg-terms"></datalist></label>' +
+            '<section><h4>Terms &amp; fulfillment</h4><div class="form"><label><span>Payment Terms <b class="r">*</b></span><input data-r="terms" list="fom-reg-terms" placeholder="Type or pick"><datalist id="fom-reg-terms"></datalist></label>' +
             '<label>Sales Rep<input data-r="rep" list="fom-reg-reps" placeholder="Type or pick"><datalist id="fom-reg-reps"></datalist></label>' +
-            '<label>Warehouse <b class="r">*</b><select data-r="wh"><option value="">Select a BU first</option></select></label><label>Sub Inventory<select data-r="sub"><option value=""></option></select></label>' +
+            '<label><span>Warehouse <b class="r">*</b></span><select data-r="wh"><option value="">Select a BU first</option></select></label><label>Sub Inventory<select data-r="sub"><option value=""></option></select></label>' +
             '<label class="wide fom-chk"><input type="checkbox" data-r="inv"> <span data-invt>Standard fulfillment (recommended)</span></label><label class="wide">Remarks<input data-r="rem"></label></div></section></div>' +
             '<div data-err></div>',
         buttons: [{ label: 'Cancel', act: 'close' }, { label: 'Proceed to Lines <i class="fa-solid fa-arrow-right"></i>', act: 'go', cls: 'primary' }],
@@ -284,7 +284,7 @@ FOM.shippedLotSerials = function (item, org, orders) {
 /** Edit mode: lines with charges + lot serials → grid lines (§3.3.14). */
 FOM.edLoadLines = function (E) {
     return FOM.orderLines(E.editOrder, 'charges.chargeComponents,lotSerials').then(function (raw) {
-        E.rawLines = raw;
+        E.rawLines = raw; E.loading = false;
         E.lines = raw.map(FOM.mapExistingLine);
         E.lines.forEach(function (ln) { if (ln.taxPct && !ln.taxCode) { var m = E.taxList.filter(function (t) { return Math.abs(t.pct - ln.taxPct) < 0.01; }); if (m.length === 1) ln.taxCode = m[0].code; } });
         if (!E.hdr.subinventory && E.lines[0]) E.hdr.subinventory = E.lines[0].subinventory || '';
@@ -414,7 +414,7 @@ FOM.edHeaderPane = function (E) {
         '<label>Order Type' + sel('orderType', types.map(function (t) { return { v: t.v, t: t.t + (t.branch ? ' — BRANCH' : '') }; }), h.orderType, lock) + '</label>' +
         (ed ? '<div class="row-btns">' + (E.hdrLocked ? '<button class="btn sm" data-hx="unlock"><i class="fa-solid fa-pen"></i> Edit type / date</button>' : '<button class="btn sm primary" data-hx="savehdr"><i class="fa-solid fa-floppy-disk"></i> Save</button><button class="btn sm" data-hx="lock">Cancel</button>') + '</div>' : '') +
         '<label>Customer PO<input data-h="customerPONumber" value="' + esc(h.customerPONumber || '') + '"></label>' +
-        (E.isBranch ? '<label>Branch BU <b class="r">*</b><select data-h="branchBU"' + (E.branchLocked ? ' disabled' : '') + ' data-bus><option>' + esc(h.branchBU || '') + '</option></select></label><div class="note" style="font-size:.72rem">Will create a linked PO' + (E.branchPoCode ? ' with the ' + esc(E.branchPoCode) + '- prefix' : '') + '.</div>' : '') +
+        (E.isBranch ? '<label><span>Branch BU <b class="r">*</b></span><select data-h="branchBU"' + (E.branchLocked ? ' disabled' : '') + ' data-bus><option>' + esc(h.branchBU || '') + '</option></select></label><div class="note" style="font-size:.72rem">Will create a linked PO' + (E.branchPoCode ? ' with the ' + esc(E.branchPoCode) + '- prefix' : '') + '.</div>' : '') +
         '</div></section>' +
         '<section><h4><i class="fa-solid fa-user"></i> Customer information</h4><div class="form one">' +
         '<label>Customer Name<div class="fom-inbtn"><input value="' + esc(h.customerName || '') + '" readonly><button class="btn sm" data-hx="cust"' + (ed && h.customerName ? ' disabled title="The buying party cannot change on an existing order"' : '') + '><i class="fa-solid fa-magnifying-glass"></i></button></div></label>' +
@@ -628,7 +628,7 @@ FOM.edSave = function (E) {
         }
         E.orderKey = j.OrderKey || j.HeaderId; E.headerId = j.HeaderId; E.fusionNo = j.OrderNumber; E.status = j.StatusCode || j.Status || 'DOO_DRAFT'; E.submitted = FOM.yes(j.SubmittedFlag); E.orderSelf = FOM.self(j);
         E.errors = []; E.lines.forEach(function (l) { l.error = null; });
-        FOM.relabel(E.tab.id, E.orderNumber);
+        FOM.relabel(E.tab.id, E.orderNumber); E.ltabs.hide('credits', false); FOM.edLoadCredits(E);
         FOM.edResultDlg(E, true, warn);
         FOM.edRefreshStatuses(E).then(function () { FOM.edResCount(E); });
         E.drawTitle(); E.drawToolbar();

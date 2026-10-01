@@ -73,7 +73,7 @@ FOM.autoInvoicePanel = function (el, preset) {
     vals[0] = '1'; vals[1] = preset.buId ? String(preset.buId) : ''; vals[2] = String(FOM.cfg('aiSourceId')); vals[3] = FX.today(); vals[15] = preset.orderNo || ''; vals[16] = preset.orderNo || ''; vals[23] = 'Y';
     el.innerHTML = '<div class="form"><label>Job package<input data-pk value="' + esc(FOM.cfg('aiPackage')) + '"></label><label>Job definition<input data-jd value="' + esc(FOM.cfg('aiJob')) + '"></label>' +
         '<label>Business Unit<select data-bu><option value="">All business units</option></select></label></div>' +
-        '<details class="fom-det" open><summary>Parameters (26, blank → #NULL)</summary><div class="form fom-ai">' + FOM.AI_PARAMS.map(function (p, i) { return '<label>' + (i + 1) + '. ' + esc(p) + (i === 2 ? ' <b class="r">*</b>' : '') + '<input data-p="' + i + '" value="' + esc(vals[i]) + '"' + (/Date$/.test(p) && i !== 23 ? ' placeholder="YYYY-MM-DD"' : '') + '></label>'; }).join('') + '</div></details>' +
+        '<details class="fom-det" open><summary>Parameters (26, blank → #NULL)</summary><div class="form fom-ai">' + FOM.AI_PARAMS.map(function (p, i) { return '<label><span>' + (i + 1) + '. ' + esc(p) + (i === 2 ? ' <b class="r">*</b>' : '') + '</span><input data-p="' + i + '" value="' + esc(vals[i]) + '"' + (/Date$/.test(p) && i !== 23 ? ' placeholder="YYYY-MM-DD"' : '') + '></label>'; }).join('') + '</div></details>' +
         '<div class="row-btns"><button class="btn primary" data-go><i class="fa-solid fa-paper-plane"></i> Submit AutoInvoice</button><button class="btn" data-st disabled><i class="fa-solid fa-rotate"></i> Refresh status</button><button class="btn" data-cp disabled><i class="fa-regular fa-copy"></i> Copy request</button><span data-sc></span><span class="grow"></span><span class="muted mono" data-rid></span></div><div data-out></div>';
     var reqId = null, q = function (s) { return el.querySelector(s); };
     FOM.bus().then(function (l) { q('[data-bu]').innerHTML = '<option value="">All business units</option>' + FOM.opts(l, vals[1]); }).catch(function () { });
@@ -82,7 +82,7 @@ FOM.autoInvoicePanel = function (el, preset) {
     function status() {
         if (!reqId) return;
         q('[data-sc]').innerHTML = FOM.essStatusChip('CHECKING');
-        FOM.essStatus(reqId).then(function (s) { q('[data-sc]').innerHTML = FOM.essStatusChip(s || 'UNKNOWN'); FOM.aiRemember({ id: reqId, order: q('[data-p="15"]').value, at: new Date().toISOString(), status: s }); }).catch(function (e) { q('[data-sc]').innerHTML = '<span class="chip err">' + esc(FOM.emsg(e)) + '</span>'; });
+        FOM.essStatus(reqId).then(function (s) { q('[data-sc]').innerHTML = FOM.essStatusChip(s || 'UNKNOWN'); FOM.aiRemember({ id: reqId, order: q('[data-p="15"]').value, at: new Date().toISOString(), status: s }); if (preset.onSubmit) preset.onSubmit(reqId); }).catch(function (e) { q('[data-sc]').innerHTML = '<span class="chip err">' + esc(FOM.emsg(e)) + '</span>'; });
     }
     q('[data-st]').onclick = status;
     q('[data-cp]').onclick = function () { FOM.copy(String(reqId)); };

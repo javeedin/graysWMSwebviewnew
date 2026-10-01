@@ -225,7 +225,7 @@ FOM.mapper = function (el, grid, hasHeader, onBuild) {
     var head = hasHeader ? grid[0] || [] : (grid[0] || []).map(function (c, i) { return 'Column ' + (i + 1); }), map = hasHeader ? FOM.guessCols(head) : { item: 0, qty: 1, price: 2, desc: -1 };
     var ncol = Math.max.apply(null, grid.slice(0, 50).map(function (r) { return r.length; }).concat([1]));
     var cols = []; for (var i = 0; i < ncol; i++) cols.push({ v: String(i), t: (hasHeader ? head[i] || '' : 'Column ' + (i + 1)) + ' (' + String.fromCharCode(65 + (i % 26)) + ')' });
-    var sel = function (k, lab) { return '<label class="fom-lab">' + lab + '<select class="fom-in" data-map="' + k + '"><option value="-1">—</option>' + FOM.opts(cols, String(map[k])) + '</select></label>'; };
+    var sel = function (k, lab) { return '<label class="fom-lab">' + lab + '<select class="fom-in" data-map="' + k + '"><option value="-1">—</option>' + FOM.opts(cols, map[k] >= 0 ? String(map[k]) : '') + '</select></label>'; };
     el.innerHTML = '<div class="row-btns" style="align-items:flex-end;margin:8px 0">' + sel('item', 'Item *') + sel('qty', 'Qty') + sel('price', 'Price') + sel('desc', 'Description') + '<span class="grow"></span><button class="btn primary" data-build>Build preview</button></div>' +
         '<div class="fom-tw" style="max-height:220px">' + FOM.table(grid.slice(0, 30), cols.map(function (c, i) { return { label: c.t, html: function (r) { return esc(r[i] == null ? '' : r[i]); } }; })) + '</div><div class="muted" style="font-size:.72rem">First 30 rows shown.</div>';
     el.querySelector('[data-build]').onclick = function () {

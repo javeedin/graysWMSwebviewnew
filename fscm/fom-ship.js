@@ -21,6 +21,7 @@ FOM.shipStatusChip = function (s) {
     var u = String(s || '').toUpperCase(), c = /SHIP|INTERFACED/.test(u) ? 'ok' : /BACKORDER/.test(u) ? 'err' : /STAGED/.test(u) ? 'warn' : /RELEASE/.test(u) ? 'done' : 'info';
     return s ? '<span class="chip ' + c + '">' + esc(s) + '</span>' : '';
 };
+FOM.firstShipment = function (lines) { var l = (lines || []).filter(function (x) { return x.Shipment || x.ShipmentName; })[0]; return l ? l.Shipment || l.ShipmentName : ''; };
 FOM.shipLines = function (order) { return FOM.all('shipmentLines', { q: "Order='" + String(order).replace(/'/g, "''") + "'", orderBy: 'OrderLine:asc', limit: 500 }, 5000); };
 FOM.orderTypeCode = function (row) {
     var c = row.OrderTypeCode; if (c) return c;
@@ -204,7 +205,7 @@ FOM.localIso = function (v) {
 FOM.shipConfirmDlg = function (shipment, org, onDone) {
     var d = FOM.dlg({
         title: '<i class="fa-solid fa-truck"></i> Ship confirm',
-        body: '<div class="form"><label>Shipment <b class="r">*</b><input data-s value="' + esc(shipment || '') + '"></label><label>Organization <b class="r">*</b><input data-o value="' + esc(org || '') + '"></label>' +
+        body: '<div class="form"><label><span>Shipment <b class="r">*</b></span><input data-s value="' + esc(shipment || '') + '"></label><label><span>Organization <b class="r">*</b></span><input data-o value="' + esc(org || '') + '"></label>' +
             '<label>Actual ship date (optional)<input type="datetime-local" data-d></label><label data-rl hidden>Ship confirm rule<input data-r value="' + esc(FOM.cfg('shipConfirmRule')) + '"></label></div>' +
             '<div class="note" data-n>Without a date: POST shippingTransactions (confirm with the rule defaults, ship date = today).</div><div data-res></div>',
         buttons: [{ label: 'Close', act: 'close' }, { label: 'Ship Confirm', act: 'go', cls: 'primary' }],
@@ -297,7 +298,7 @@ FOM.autoShipDlg = function (orderNo, orgIn, onDone) {
         }).then(function () {
             return FOM.shipLines(orderNo).then(function (r) {
                 lines = r; draw();
-                var sh = (r[0] && (r[0].Shipment || r[0].ShipmentName)) || '';
+                var sh = FOM.firstShipment(r);
                 if (!sh) throw 'No shipment on the lines yet — use Create Shipment, then Ship Confirm.';
                 say('4/4 Ship confirm ' + sh + '…');
                 return FOM.write('POST', 'shippingTransactions', { ShipmentName: sh, Action: 'CONFIRM', Organization: org });
@@ -312,7 +313,7 @@ FOM.autoShipDlg = function (orderNo, orgIn, onDone) {
         if (x === 'check') load();
         else if (x === 'release') FOM.confirm('Pick release', 'Release order <b>' + esc(orderNo) + '</b> from <b>' + esc(org) + '</b> (pickWaves)?', 'Pick Release').then(function (ok) { if (!ok) return; prog('<i class="fa-solid fa-circle-notch fa-spin"></i> Releasing…'); release().then(function () { prog('Pick Release Success', 'ok'); load(); }).catch(function (er) { prog(esc(FOM.emsg(er)), 'err'); }); });
         else if (x === 'pick') FOM.openPickSlips(orderNo, load);
-        else if (x === 'ship') FOM.shipConfirmDlg((lines[0] && (lines[0].Shipment || lines[0].ShipmentName)) || '', org, load);
+        else if (x === 'ship') FOM.shipConfirmDlg(FOM.firstShipment(lines), org, load);
         else if (x === 'auto') FOM.confirm('Run all steps', 'Pick release, wait, pick-confirm serial items from on-hand and ship confirm order <b>' + esc(orderNo) + '</b>?', 'Run').then(function (ok) { if (ok) runAll(); });
         else if (x === 'shipm') {
             var c = candidates(), fails = [];
@@ -390,7 +391,7 @@ FOM.shipOrderDlg = function (order, row) {
         onAction: function (a, dd) {
             if (a === 'refresh') { load(); return false; }
             if (a === 'slip') { FOM.openPickSlips(order, load); return false; }
-            if (a === 'ship') { FOM.shipConfirmDlg(hdr.Shipment || hdr.ShipmentName || (lines[0] && lines[0].Shipment) || '', hdr.OrganizationCode, load); return false; }
+            if (a === 'ship') { FOM.shipConfirmDlg(hdr.Shipment || hdr.ShipmentName || FOM.firstShipment(lines), hdr.OrganizationCode, load); return false; }
             if (a === 'release') {
                 var code = FOM.orderTypeCode(hdr);
                 FOM.confirm('Pick release', 'Release order <b>' + esc(order) + '</b> (' + esc(hdr.OrderType || code) + ') from <b>' + esc(hdr.OrganizationCode) + '</b>?', 'Pick Release').then(function (ok) {

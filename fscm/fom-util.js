@@ -23,7 +23,7 @@ FOM.DEFAULTS = {
     returnReason: 'ORA_QTY_CHANGE',
     currencies: 'AED,USD,RWF,EUR,GBP,INR,SAR,KES,TZS,UGX,ZAR,XOF,MUR',
     taxCodes: '',                             // manual list "CODE=pct, CODE2=pct" (blank = read from Fusion)
-    bipCustomer: '/Custom/fusion_client/AR/CUSTOMER_SEARCH_BY_NAME_BIP.xdo',
+    bipCustomer: '/Custom/DEXPRESS/Receivables/CUSTOMER_SEARCH_BY_NAME_BIP.xdo',
     custSqlFallback: 'Y',                     // search HZ_ tables with Fusion SQL when the BIP report fails
     companyName: "Gray's",
     posSubmit: 'N', posSilent: 'N'
@@ -413,7 +413,7 @@ FOM.returnReasons = function () {
 FOM.opts = function (list, val, blank) { return (blank != null ? '<option value="">' + esc(blank) + '</option>' : '') + list.map(function (x) { x = typeof x === 'string' ? { v: x, t: x } : x; return '<option value="' + esc(x.v) + '"' + (String(x.v) === String(val) ? ' selected' : '') + '>' + esc(x.t) + '</option>'; }).join('') + (val && !list.some(function (x) { return String(typeof x === 'string' ? x : x.v) === String(val); }) ? '<option value="' + esc(val) + '" selected>' + esc(val) + '</option>' : ''); };
 
 // ── customers (BI Publisher, §11/§12; Fusion SQL fallback) ─────
-FOM.BIP_COLS = { PARTY_NUMBER: 'partyNumber', ACCOUNT_NAME: 'accountName', ACCOUNT_NUMBER: 'accountNumber', ADDRESS1: 'address1', ADDRESS2: 'address2', CITY: 'city', COUNTRY: 'country', CREDIT_LIMIT: 'creditLimit', PR_CREDIT_LIMIT: 'prCreditLimit', CUSTOMER_CLASS_CODE: 'customerClassCode', STATUS: 'status', CUST_ACCOUNT_ID: 'custAccountId', PARTY_ID: 'partyId', BILL_TO_SITE_USE_ID: 'billToSiteUseId', SHIP_TO_PARTY_SITE_ID: 'shipToPartySiteId', BU_NAME: 'buName' };
+FOM.BIP_COLS = { PARTY_NUMBER: 'partyNumber', ACCOUNT_NAME: 'accountName', ACCOUNT_NUMBER: 'accountNumber', CUSTOMER_NAME: 'accountName', CUSTOMER_NUMBER: 'accountNumber', PARTY_NAME: 'accountName', SITE_USE_ID: 'billToSiteUseId', PARTY_SITE_ID: 'shipToPartySiteId', CUSTOMER_CLASS: 'customerClassCode', ADDRESS1: 'address1', ADDRESS2: 'address2', CITY: 'city', COUNTRY: 'country', CREDIT_LIMIT: 'creditLimit', PR_CREDIT_LIMIT: 'prCreditLimit', CUSTOMER_CLASS_CODE: 'customerClassCode', STATUS: 'status', CUST_ACCOUNT_ID: 'custAccountId', PARTY_ID: 'partyId', BILL_TO_SITE_USE_ID: 'billToSiteUseId', SHIP_TO_PARTY_SITE_ID: 'shipToPartySiteId', BU_NAME: 'buName' };
 FOM.mapBipCust = function (row) {
     var c = {}; Object.keys(row).forEach(function (k) { var f = FOM.BIP_COLS[String(k).toUpperCase()]; if (!f) return; var v = row[k]; if (v === '' || v == null) return; c[f] = /creditLimit/i.test(f) ? FOM.num(v) : v; });
     return c;
@@ -421,7 +421,7 @@ FOM.mapBipCust = function (row) {
 /** type: 'name' | 'account' → Promise<[customer]> (source noted in .source). */
 FOM.searchCustomers = function (buId, term, type) {
     var params = { BUSINESS_UNIT_ID: buId ? String(buId) : '' };
-    if (type === 'account') params.account_number = term; else params.CUSTOMER_NAME = term;
+    if (type === 'account') { params.account_number = term; params.CUSTOMER_NUMBER = term; } else params.CUSTOMER_NAME = term;   // Gray's report takes CUSTOMER_NUMBER; the original app's took account_number
     return FX.host('omBip', { path: FOM.cfg('bipCustomer'), params: params }).then(function (r) {
         if (!r || r.ok === false) throw (r && r.error) || 'Report failed';
         var l = (r.rows || []).map(FOM.mapBipCust).filter(function (c) { return c.accountName || c.accountNumber; }); l.source = 'BI Publisher'; return l;
@@ -484,7 +484,7 @@ FOM.findCustomer = function (buId, buName, start) {
 // ── items / costs / on-hand (3.3.4) ────────────────────────────
 FOM.costOf = function (r) { return FOM.num(FOM.pf(r, ['TotalUnitCost', 'UnitCost', 'ItemCost', 'UnitAverageCost', 'AverageUnitCost'])); };
 FOM.parseVU = function (vu) { var p = String(vu || '').split(/(?<!\\)-/); return { costOrg: p[0] || '', invOrg: p[1] || '', subinv: p[2] || '', lot: p.slice(3).join('-').replace(/\\-/g, '-') }; };
-FOM.uomOf = function (r) { return FOM.pf(r, ['PrimaryUOMValue', 'PrimaryUOMCode', 'PrimaryUnitOfMeasure', 'UOMCode', 'UOM']); };
+FOM.uomOf = function (r) { return FOM.pf(r, ['PrimaryUOMCode', 'PrimaryUOMValue', 'PrimaryUnitOfMeasure', 'UOMCode', 'UOM']); };
 FOM.searchItems = function (t, org) {
     var q = String(t).replace(/'/g, "''"), o = org ? ';OrganizationCode=' + org : '';
     return Promise.all([

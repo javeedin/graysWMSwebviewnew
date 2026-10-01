@@ -29,6 +29,8 @@ FOM.effContexts = function (kind) {
                     } else visit(o[k]);
                 });
             })(d);
+            var mine = out.filter(function (c) { return FOM.effKind(c.voName) === kind; });
+            if (mine.length) out = mine;
             if (!out.length) throw 'no contexts';
             return out;
         });
