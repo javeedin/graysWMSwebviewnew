@@ -86,12 +86,15 @@ FX.err = function (status, body) {
     (j['o:errorDetails'] || []).forEach(function (d) { parts.push((d['o:errorPath'] ? d['o:errorPath'] + ': ' : '') + (d.detail || d.title || '')); });
     return parts.join('\n') || ('HTTP ' + status);
 };
-/** One call → parsed JSON (throws a readable message on HTTP errors). */
+/** One call → parsed JSON (throws a readable message on HTTP errors).
+    opts.contentType: 'action' (application/vnd.oracle.adf.action+json, for custom actions) or 'json'; default = resource item.
+    opts.upsert: true sends the Upsert-Mode: true header (POST that updates the row when it exists). */
 FX.rest = function (method, path, opts, body) {
     opts = opts || {};
     var url = FX.url(path, opts);
     var t0 = Date.now();
-    return FX.host('dataLoadFusionRest', { method: method || 'GET', url: url, body: body == null ? null : (typeof body === 'string' ? body : JSON.stringify(body)), framework: opts.framework || null }).then(function (r) {
+    var ct = opts.contentType === 'action' ? 'application/vnd.oracle.adf.action+json' : opts.contentType === 'json' ? 'application/json' : null;
+    return FX.host('dataLoadFusionRest', { method: method || 'GET', url: url, body: body == null ? null : (typeof body === 'string' ? body : JSON.stringify(body)), framework: opts.framework || null, contentType: ct, upsert: !!opts.upsert }).then(function (r) {
         FX.lastCall = { method: method, url: url, status: r && r.status, ms: Date.now() - t0 };
         if (!r || r.ok === false) throw (r && r.error) || 'No reply from Fusion';
         if (r.status < 200 || r.status >= 300) throw FX.err(r.status, r.body);
@@ -100,6 +103,22 @@ FX.rest = function (method, path, opts, body) {
     });
 };
 FX.get = function (path, opts) { return FX.rest('GET', path, opts); };
+/** Like FX.rest but never throws on an HTTP status: → { ok (2xx), status, json (parsed or null), text, url }. Throws only when the host cannot reach Fusion. */
+FX.restRaw = function (method, path, opts, body) {
+    opts = opts || {};
+    var url = FX.url(path, opts);
+    var ct = opts.contentType === 'action' ? 'application/vnd.oracle.adf.action+json' : opts.contentType === 'json' ? 'application/json' : null;
+    return FX.host('dataLoadFusionRest', { method: method || 'GET', url: url, body: body == null ? null : (typeof body === 'string' ? body : JSON.stringify(body)), framework: opts.framework || null, contentType: ct, upsert: !!opts.upsert }).then(function (r) {
+        FX.lastCall = { method: method, url: url, status: r && r.status };
+        if (!r || r.ok === false) throw (r && r.error) || 'No reply from Fusion';
+        var j = null; try { j = r.body ? JSON.parse(r.body) : null; } catch (e) { }
+        return { ok: r.status >= 200 && r.status < 300, status: r.status, json: j, text: r.body || '', url: url, error: r.status >= 200 && r.status < 300 ? null : FX.err(r.status, r.body) };
+    });
+};
+/** Custom action on a resource item, e.g. FX.action('draftPurchaseOrders/123', 'submit') → POST {name, parameters}. */
+FX.action = function (path, name, params, opts) {
+    return FX.rest('POST', path, Object.assign({ contentType: 'action', onlyData: false }, opts || {}), { name: name, parameters: params || [] });
+};
 /** All pages (hasMore) up to max rows. */
 FX.restAll = function (path, opts, max, onPage) {
     opts = Object.assign({ limit: 500 }, opts || {}); max = max || 5000;
@@ -246,7 +265,8 @@ FX.typeahead = function (input, search, onPick, minLen) {
 };
 
 // ── grid ───────────────────────────────────────────────────────
-/** cfg: { resource, version, fields, expand, orderBy, finder, fixedQ, pageSize, filters:[{id,label,type,ph,value,options,lov,q(v,all)}],
+/** cfg: { resource, version, fields, expand, orderBy, finder, fixedQ, qJoin (default ' and '; ';' for the v1 q syntax), pageSize,
+           filters:[{id,label,type,ph,value,options,lov,blank (false = no blank option),q(v,all)}],
            columns:[{f,label,fmt,n,get(row),html(row)}], key, title, onRow(row), kpis(rows) → [{k,label,value,filter(row)}],
            actions:[{label,icon,cls,run(grid)}], transform(rows), load(grid) (custom loader → Promise<rows>), autoLoad, csvName, select } */
 FX.grid = function (el, cfg) {
@@ -267,7 +287,7 @@ FX.grid = function (el, cfg) {
         '<div data-g="body" style="flex:1;overflow:auto"></div><div class="grid-foot" data-g="foot"></div></div>';
     var q = function (k) { return el.querySelector('[data-g="' + k + '"]'); };
     (cfg.filters || []).forEach(function (f) {
-        if (f.type === 'lov') FX.fillSelect(fid(f), typeof f.lov === 'function' ? f.lov() : FX.lov(f.lov), f.value, f.blank == null ? 'All' : f.blank);
+        if (f.type === 'lov') FX.fillSelect(fid(f), typeof f.lov === 'function' ? f.lov() : FX.lov(f.lov), typeof f.value === 'function' ? f.value() : f.value, f.blank === false ? null : f.blank == null ? 'All' : f.blank);
         var inp = $(fid(f)); if (inp && inp.tagName === 'INPUT') inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') g.search(); });
     });
     el.addEventListener('click', function (e) {
@@ -291,7 +311,7 @@ FX.grid = function (el, cfg) {
     g.buildQ = function () {
         var parts = cfg.fixedQ ? [typeof cfg.fixedQ === 'function' ? cfg.fixedQ(g) : cfg.fixedQ] : [];
         (cfg.filters || []).forEach(function (f) { var v = g.val(f.id); if (v && f.q) { var p = f.q(v, g); if (p) parts.push(p); } });
-        return parts.filter(Boolean).join(' and ');
+        return parts.filter(Boolean).join(cfg.qJoin || ' and ');
     };
     g.search = function () {
         if (cfg.validate) { var m = cfg.validate(g); if (m) { FX.toast(m, 'err'); return; } }
@@ -341,10 +361,11 @@ FX.grid = function (el, cfg) {
 };
 
 // ── drawer ─────────────────────────────────────────────────────
-/** o: { title, sub, chips:[html], facts:[[label, value(html)]], tabs:[{label, render(el)} | {label, rest:{path, opts, columns}}], actions:[{label, icon, cls, run}] } */
+/** o: { title, sub, width (px, default 820), chips:[html], facts:[[label, value(html)]], tabs:[{label, render(el)} | {label, rest:{path, opts, columns}}], actions:[{label, icon, cls, run}] } */
 FX.drawer = function (o) {
     FX.closeDrawer();
     var d = document.createElement('div'); d.className = 'drawer'; d.id = 'fx-drawer';
+    if (o.width) d.style.width = 'min(' + o.width + 'px, 96vw)';
     var tabs = [{ label: 'Details', render: function (el) { el.innerHTML = (o.facts ? '<div class="facts">' + o.facts.filter(function (f) { return f && f[1] !== undefined && f[1] !== null && f[1] !== ''; }).map(function (f) { return '<div><span>' + esc(f[0]) + '</span>' + f[1] + '</div>'; }).join('') + '</div>' : '') + (o.extra || ''); if (o.onDetails) o.onDetails(el); } }].concat(o.tabs || []);
     d.innerHTML = '<div class="drawer-h"><div><h2>' + o.title + '</h2>' + (o.sub ? '<div class="muted" style="font-size:.78rem">' + o.sub + '</div>' : '') + '</div>' + (o.chips || []).join('') +
         '<span class="grow"></span>' + (o.raw ? '<button class="btn icon sm" data-d="raw" title="Raw record"><i class="fa-solid fa-code"></i></button>' : '') + '<button class="btn icon" data-d="close"><i class="fa-solid fa-xmark"></i></button></div>' +

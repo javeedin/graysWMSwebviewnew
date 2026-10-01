@@ -105,7 +105,9 @@ namespace WMSApp
                         break;
                     case "dataLoadFusionRest":
                         data = await FusionRestAsync(FbdiStr(root, "method"), FbdiStr(root, "url"), FbdiStr(root, "body"),
-                            root.TryGetProperty("framework", out var fw) && fw.ValueKind == JsonValueKind.String ? fw.GetString() : null);
+                            root.TryGetProperty("framework", out var fw) && fw.ValueKind == JsonValueKind.String ? fw.GetString() : null,
+                            FbdiStr(root, "contentType"),
+                            root.TryGetProperty("upsert", out var ups) && ups.ValueKind == JsonValueKind.True);
                         break;
                     case "dataLoadFsmReadFile":
                         {
@@ -203,7 +205,10 @@ namespace WMSApp
         /// status, so the page can tell a created row from a rejected one. Only GET / POST / PATCH, only
         /// https://*.oraclecloud.com/{fscm|hcm|crm}RestApi/resources/ URLs; the Fusion credentials stay here.
         /// </summary>
-        private async Task<object> FusionRestAsync(string method, string url, string body, string framework)
+        // Content types a page may ask for: custom actions (submit, cancel …) need the ADF action type; everything else is a resource item.
+        private static readonly string[] FusionRestContentTypes = { "application/vnd.oracle.adf.resourceitem+json", "application/vnd.oracle.adf.action+json", "application/json" };
+
+        private async Task<object> FusionRestAsync(string method, string url, string body, string framework, string contentType = null, bool upsert = false)
         {
             method = (method ?? "GET").ToUpperInvariant();
             if (method != "GET" && method != "POST" && method != "PATCH")
@@ -223,7 +228,11 @@ namespace WMSApp
             req.Headers.Accept.ParseAdd("application/json");
             if (!string.IsNullOrEmpty(framework) && Regex.IsMatch(framework, @"^\d{1,2}$")) req.Headers.TryAddWithoutValidation("REST-Framework-Version", framework);
             if (method != "GET")
-                req.Content = new StringContent(body ?? "{}", System.Text.Encoding.UTF8, "application/vnd.oracle.adf.resourceitem+json");
+            {
+                string ct = FusionRestContentTypes.FirstOrDefault(c => string.Equals(c, contentType, StringComparison.OrdinalIgnoreCase)) ?? FusionRestContentTypes[0];
+                req.Content = new StringContent(body ?? "{}", System.Text.Encoding.UTF8, ct);
+                if (upsert && method == "POST") req.Headers.TryAddWithoutValidation("Upsert-Mode", "true");
+            }
             var sw = Stopwatch.StartNew();
             try
             {
