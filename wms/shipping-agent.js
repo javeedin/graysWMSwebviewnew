@@ -1846,13 +1846,15 @@
 
         try {
             if (directMode) {
-                // ── DIRECT MODE: straight to SOAP, no line count check, no DB insert ──
+                // ── DIRECT MODE: straight to SOAP, no line count check; the print job row is still saved
+                //    (not awaited, so it costs no time) — the Picker Monitor reads wms_print_jobs ──
                 const dlResult = await saDownloadOrderPdf(orderNumber, tripId, actualTripDate, instanceName);
                 const filePath = dlResult.filePath || dlResult.pdfPath || '';
                 if (!filePath) throw new Error('PDF path not returned from C#');
                 const base64   = dlResult.base64 || '';
                 const fileSize = dlResult.fileSize || Math.round(base64.length * 0.75);
                 const hasLines = fileSize > 500;
+                if (hasLines) saInsertPrintJob(orderNumber, tripId, actualTripDate, instanceName, filePath, fileSize, accountName, accountNumber);
                 if (rowEl) {
                     const pc = rowEl.querySelector('[data-col="print"]');
                     if (pc) pc.innerHTML = hasLines
@@ -3050,7 +3052,7 @@
                         <i class="fas fa-file-pdf"></i> Verify PDFs
                     </button>
                     <label style="display:flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#475569;cursor:pointer;padding:4px 8px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:5px;"
-                        title="When checked: skip line count check and DB logging — call SOAP printSalesOrder directly for maximum speed">
+                        title="When checked: skip the line count check — call SOAP printSalesOrder directly for maximum speed (the print job is still saved to wms_print_jobs)">
                         <input type="checkbox" id="sa-chk-direct-${esc(tripId)}" checked style="cursor:pointer;">
                         Direct Download
                     </label>
