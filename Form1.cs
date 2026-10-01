@@ -2214,6 +2214,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     await SendScriptAsync(wv, requestId, true, "New instance launched");
                                     break;
 
+                                // AI Hub (aihub/index.html): model gateway, evals, LangGraph agents
+                                case var hubAction when IsAiHubAction(hubAction):
+                                    await HandleAiHubAction(wv, action, root, requestId);
+                                    break;
+
                                 // Pipeline server on this PC (Fusion SQL › Pipelines › This PC)
                                 case var pipeSrvAction when IsPipeSrvAction(pipeSrvAction):
                                     await HandlePipeSrvAction(wv, action, root, requestId);

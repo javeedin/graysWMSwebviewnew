@@ -204,6 +204,7 @@ var MODS = [
     { key: 'dataload', label: 'Data Loading', note: 'FBDI templates, Fusion REST loads' },
     { key: 'fusionmodel', label: 'Fusion Model', note: 'DuckDB dataset, dashboards, Ask AI' },
     { key: 'powerbi', label: 'Power BI', note: 'Datasets and embedded reports' },
+    { key: 'aihub', label: 'AI Hub', note: 'Claude on AWS / NVIDIA NIM gateway, evals, LangGraph Pipeline Doctor' },
     { key: 'dllexplorer', label: 'DLL Explorer', note: 'Read a .dll/.exe, AI feature map' },
     { key: 'formsdesigner', label: 'Forms Designer', note: 'Designer page (the AI form engine ships anyway)' },
     { key: 'agentflow', label: 'Agent Flow', note: 'Agent flow designer' },
@@ -211,9 +212,9 @@ var MODS = [
 ];
 var MOD_PRESETS = {
     all: null,
-    default: ['Inventory', 'aianalysis', 'dataload', 'dllexplorer', 'powerbi', 'fusionmodel'],
+    default: ['Inventory', 'aianalysis', 'dataload', 'dllexplorer', 'powerbi', 'fusionmodel', 'aihub'],
     wms: ['Inventory'],
-    fusion: ['fscm', 'dataload', 'fusionmodel', 'powerbi', 'aianalysis']
+    fusion: ['fscm', 'dataload', 'fusionmodel', 'powerbi', 'aianalysis', 'aihub']
 };
 var MOD_ON = lsGet('admin.modules', null) || MOD_PRESETS.default.slice();
 var MOD_INFO = {};   // key -> { exists, sizeMb } from the host

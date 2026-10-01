@@ -22,7 +22,7 @@ REM  row in APEX table WMS_AI_TRIAL (apex_sql\67_trial_period.sql).
 REM
 REM  Options (set before calling, e.g. from release.bat):
 REM    MODULES      module folders besides wms
-REM                 default: Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel
+REM                 default: Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel aihub
 REM    INCLUDE_RAG  Y to add the compiled RAG service (default N)
 REM ============================================================
 
@@ -119,7 +119,7 @@ if errorlevel 1 (
 )
 
 REM --- Copy module folders ---
-if not defined MODULES set "MODULES=Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel"
+if not defined MODULES set "MODULES=Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel aihub"
 REM Fusion SQL is part of every release (the Fusion Model and Data Loading use its runner too)
 echo " %MODULES% " | findstr /i /c:" fusionsql " >nul || set "MODULES=%MODULES% fusionsql"
 echo Modules in this release: wms %MODULES%
@@ -163,6 +163,16 @@ if exist "%SCRIPT_DIR%pipeline-server\pipeline_server\__main__.py" (
         goto :error
     )
     echo   - pipeline-server\ ^(sources^)
+)
+
+REM --- AI Hub service sources (AI Hub page > Install copies them to C:\fusion\ai-hub), only with the aihub module ---
+echo " %MODULES% " | findstr /i /c:" aihub " >nul && if exist "%SCRIPT_DIR%ai-hub\ai_hub\__main__.py" (
+    robocopy "%SCRIPT_DIR%ai-hub" "%APP_DIR%\ai-hub" /E /XD .venv data runtime tests __pycache__ .pytest_cache /XF *.pyc /NFL /NDL /NJH /NJS /NP >nul
+    if errorlevel 8 (
+        echo ERROR: copying ai-hub failed
+        goto :error
+    )
+    echo   - ai-hub\ ^(sources^)
 )
 
 REM --- Admin page (Home shows its tile only on a PC where the source repo / release.bat is found) ---

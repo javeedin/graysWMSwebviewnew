@@ -90,6 +90,9 @@ Source: "fusionmodel\*";  DestDir: "{app}\fusionmodel";  Flags: ignoreversion re
 Source: "dataload\*";     DestDir: "{app}\dataload";     Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "dllexplorer\*";  DestDir: "{app}\dllexplorer";  Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "powerbi\*";      DestDir: "{app}\powerbi";      Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "aihub\*";        DestDir: "{app}\aihub";        Flags: ignoreversion recursesubdirs createallsubdirs
+; AI Hub service sources only - the AI Hub page installs Python and the packages on the PC
+Source: "ai-hub\*"; DestDir: "{app}\ai-hub"; Excludes: ".venv,data,runtime,tests,__pycache__,.pytest_cache,*.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "formsdesigner\form-engine.js"; DestDir: "{app}\formsdesigner"; Flags: ignoreversion
 ; Pipeline server sources only - Fusion SQL > Pipelines > This PC installs Python, the packages and the settings on the PC
 Source: "pipeline-server\*"; DestDir: "{app}\pipeline-server"; Excludes: ".venv,data,data-demo,runtime,tests,__pycache__,.pytest_cache,.nicegui,*.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs
