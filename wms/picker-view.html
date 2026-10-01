@@ -2192,8 +2192,8 @@ function paintPdfCard(orderNum, rows) {
         color = '#d97706'; bg = '#fef3c7'; icon = 'fa-print'; lbl = `${printed}/${total} printed`;
         gridHtml = `<span style="color:#d97706;font-weight:700;font-size:0.75rem;"><i class="fas fa-check-circle"></i> Yes</span>`;
     } else if (overall.includes('DOWNLOAD') || overall.includes('COMPLETED')) {
-        color = '#2563eb'; bg = '#dbeafe'; icon = 'fa-check-circle'; lbl = 'PDF Downloaded';
-        gridHtml = `<span style="color:#2563eb;font-weight:700;font-size:0.75rem;"><i class="fas fa-check-circle"></i> Yes</span>`;
+        color = '#dc2626'; bg = '#fef08a'; icon = 'fa-check-circle'; lbl = 'PDF Downloaded';
+        gridHtml = `<span style="background:#fef08a;color:#dc2626;border-radius:0.35rem;padding:0.1rem 0.4rem;font-weight:700;font-size:0.75rem;"><i class="fas fa-check-circle"></i> Yes</span>`;
     } else {
         color = '#6b7280'; bg = '#f1f5f9'; icon = 'fa-hourglass'; lbl = 'Not printed yet';
         gridHtml = `<span style="color:#6b7280;font-size:0.75rem;"><i class="fas fa-hourglass"></i> —</span>`;
