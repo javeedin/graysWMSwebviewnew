@@ -90,8 +90,32 @@ class ServerConfig:
         return token
 
     def check_token(self, user: str, token: str) -> bool:
+        if self._match(user, token):
+            return True
+        # a new token made while the server runs (`new-token`, the WMS app's "Connect this app") counts at once
+        if self._reload_token():
+            return self._match(user, token)
+        return False
+
+    def _match(self, user: str, token: str) -> bool:
         if not self.api_token_sha256:
             return False
         ok_user = hmac.compare_digest((user or "").encode(), (self.api_user or "").encode())
         ok_tok = hmac.compare_digest(hashlib.sha256((token or "").encode()).hexdigest(), self.api_token_sha256)
         return ok_user and ok_tok
+
+    def _reload_token(self) -> bool:
+        """True when config.json changed since the last look and holds a different token hash."""
+        try:
+            p = self.path()
+            m = p.stat().st_mtime
+            if m == getattr(self, "_token_mtime", None):
+                return False
+            self._token_mtime = m
+            h = json.loads(p.read_text(encoding="utf-8")).get("api_token_sha256") or ""
+            if h and h != self.api_token_sha256:
+                self.api_token_sha256 = h
+                return True
+        except (OSError, ValueError):
+            pass
+        return False

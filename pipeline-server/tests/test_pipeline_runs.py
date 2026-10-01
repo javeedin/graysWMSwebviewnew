@@ -179,3 +179,39 @@ def test_supervisor_schedule_and_api(env):
         assert snap["server"]["mode"] == "RUNNING" and snap["finished"]
     finally:
         sup.shutdown()
+
+
+def test_local_stop_request_and_token_reload(tmp_path, monkeypatch):
+    """What the WMS app's Local server panel relies on: a token made while the server runs works at once,
+    and data\\stop.request stops the server gracefully and removes the pid file."""
+    monkeypatch.setenv("PIPELINE_HOME", str(tmp_path))
+    monkeypatch.setenv("PIPELINE_SECRETS", "file")
+    import json as _json
+    import socket
+    from pipeline_server import app as app_mod
+    from pipeline_server.__main__ import main
+    cfg = ServerConfig()
+    cfg.control.driver = "memory"
+    cfg.worker_mode = "thread"
+    cfg.host = "127.0.0.1"
+    with socket.socket() as so:
+        so.bind(("127.0.0.1", 0))
+        cfg.port = so.getsockname()[1]
+    old = cfg.new_token()
+    cfg.save()
+    assert cfg.check_token("pipeline", old)
+    import contextlib, io
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        assert main(["new-token", "--json"]) == 0
+    new = _json.loads(buf.getvalue())["api_token"]
+    assert cfg.check_token("pipeline", new) and not cfg.check_token("pipeline", old)
+    t = threading.Thread(target=app_mod.serve, args=(cfg,), daemon=True)
+    t.start()
+    deadline = time.time() + 30
+    while time.time() < deadline and not app_mod.pid_file().exists():
+        time.sleep(0.2)
+    assert app_mod.pid_file().read_text().split()[1] == str(cfg.port)
+    app_mod.stop_file().write_text("app")
+    t.join(40)
+    assert not t.is_alive() and not app_mod.pid_file().exists() and not app_mod.stop_file().exists()

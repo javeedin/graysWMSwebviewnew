@@ -2214,6 +2214,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     await SendScriptAsync(wv, requestId, true, "New instance launched");
                                     break;
 
+                                // Pipeline server on this PC (Fusion SQL › Pipelines › This PC)
+                                case var pipeSrvAction when IsPipeSrvAction(pipeSrvAction):
+                                    await HandlePipeSrvAction(wv, action, root, requestId);
+                                    break;
+
                                 // Admin module (admin/index.html)
                                 case var adminAction when IsAdminAction(adminAction):
                                     HandleAdminAction(wv, action, root, requestId);

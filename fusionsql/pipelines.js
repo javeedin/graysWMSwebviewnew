@@ -198,7 +198,8 @@ function plRenderList() {
 function plServerBar() {
     var el = $('pl-server-bar'); if (!el) return;
     var s = psDefaultServer();
-    if (!s) { el.innerHTML = '<span class="fs-muted"><i class="fa-solid fa-server"></i> No pipeline server yet — add it in <a href="#" onclick="showTab(\'setups\');suSeg(\'pipe\');return false;">Setups › Data pipeline setups</a>.</span>'; return; }
+    var pcBtn = '<button class="fs-btn sm" onclick="plLocalServer()" title="Set up, start and stop the pipeline server on this computer, with its live log"><i class="fa-solid fa-laptop-code"></i> This PC</button>';
+    if (!s) { el.innerHTML = '<span class="fs-muted"><i class="fa-solid fa-server"></i> No pipeline server yet — run one on this PC (<b>This PC</b>) or add one in <a href="#" onclick="showTab(\'setups\');suSeg(\'pipe\');return false;">Setups › Data pipeline setups</a>.</span><span style="flex:1"></span>' + pcBtn; return; }
     var limit = Math.max(90, 3 * (parseInt(s.poll, 10) || 30));
     var alive = s.hbSecs != null && s.hbSecs <= limit && s.status !== 'OFFLINE';
     var mode = alive ? (s.status === 'ONLINE' ? 'RUNNING' : s.status) : 'OFFLINE';
@@ -207,11 +208,12 @@ function plServerBar() {
     var btn = function (act, icon, label, warn) { return '<button class="fs-btn sm' + (warn ? ' ghost' : '') + '" onclick="plEngine(\'' + act + '\')"' + (alive ? '' : ' disabled') + '><i class="fa-solid ' + icon + '"></i> ' + label + '</button>'; };
     el.innerHTML = '<span class="pl-sb-dot" style="background:' + color + '"></span><b>' + esc(s.name) + '</b>' +
         '<span class="pl-sb-mode" style="color:' + color + '">' + (alive ? 'engine ' + mode.toLowerCase() : 'offline') + '</span>' +
-        '<span class="fs-muted">' + (alive ? esc(s.testMsg || '') + ' · heartbeat ' + ago : 'last heartbeat ' + ago + ' — start the server (start-server.bat / the service) on ' + esc(s.host)) + (s.version ? ' · v' + esc(s.version) : '') + '</span>' +
+        '<span class="fs-muted">' + (alive ? esc(s.testMsg || '') + ' · heartbeat ' + ago : 'last heartbeat ' + ago + ' — start the server on ' + esc(s.host) + (/^(localhost|127\.0\.0\.1)$/i.test(String(s.host)) ? ' (This PC › Start)' : '')) + (s.version ? ' · v' + esc(s.version) : '') + '</span>' +
         '<span style="flex:1"></span>' +
         (mode === 'RUNNING' ? btn('pause', 'fa-pause', 'Pause') : btn('resume', 'fa-play', mode === 'STOPPED' ? 'Start' : 'Resume')) +
         (mode === 'RUNNING' || mode === 'PAUSED' ? btn('drain', 'fa-hourglass-end', 'Drain') : '') +
         (mode !== 'STOPPED' && alive ? btn('stop', 'fa-stop', 'Stop now', true) : '') +
+        pcBtn +
         '<button class="fs-btn sm" onclick="plOpenConsole()" title="The live console of the pipeline server (opens in the browser)"><i class="fa-solid fa-display"></i> Open console</button>' +
         '<button class="fs-icon-btn" title="Refresh" onclick="psLoad().then(plServerBar)"><i class="fa-solid fa-rotate"></i></button>';
 }
@@ -231,6 +233,216 @@ function plOpenConsole() {
     var s = psDefaultServer(); if (!s) return;
     var url = psBaseUrl(s) + '/ui/';
     // the host opens it in the default browser (no reply comes back, so post it without waiting)
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ action: 'openExternalUrl', url: url });
+    else window.open(url, '_blank');
+}
+
+// ── This PC: run the pipeline server on this computer ─────────
+// The host (Form1_PipelineServerHandlers.cs, pipeSrv* actions) finds the pipeline-server folder, runs
+// setup.ps1 / install-service.ps1 in a visible console, starts the server in the background (it keeps running
+// when WMS closes), stops it gracefully (data\stop.request → runs cancelled at their next page) or kills it,
+// tails data\logs\server.log and makes a new API token so "Connect this app" can fill the server row.
+var LSV = { st: null, timer: null, busy: null, follow: true, err: null };
+function lsvCall(action, payload, ms) {
+    return Promise.race([fsCall(action, payload || {}), new Promise(function (_, rej) {
+        setTimeout(function () { rej('The app did not answer — this needs Gray\'s WMS 12 with the pipeline server control (update the app).'); }, ms || 12000);
+    })]).then(function (d) { if (d && d.ok === false) throw d.error || 'failed'; return d; });
+}
+function plLocalServer() {
+    openModal('Pipeline server on this PC', '<div id="lsv-root" class="lsv"><div class="fs-muted"><i class="fa-solid fa-spinner fa-spin"></i> Looking for the pipeline server on this PC…</div></div>',
+        [{ label: 'Close', cls: 'ghost', onClick: closeModal }], true);
+    LSV.st = null; LSV.err = null; LSV.follow = true;
+    lsvRefresh();
+    clearInterval(LSV.timer);
+    LSV.timer = setInterval(function () {
+        if (!$('lsv-root') || !$('fs-modal').classList.contains('open')) { clearInterval(LSV.timer); LSV.timer = null; return; }
+        lsvRefresh();
+    }, 2500);
+}
+function lsvRefresh() {
+    return lsvCall('pipeSrvStatus', { lines: 150 }, 8000).then(function (st) { LSV.st = st; LSV.err = null; lsvRender(); })
+        .catch(function (e) { LSV.err = String(e); lsvRender(); });
+}
+/** The server row in APEX that points to this PC (same name as config.json, or localhost on the same port). */
+function lsvRow(st) {
+    if (!st) return null;
+    var name = String(st.serverName || '').toUpperCase();
+    return PS.servers.filter(function (s) { return name && String(s.name).toUpperCase() === name; })[0] ||
+        PS.servers.filter(function (s) { return /^(localhost|127\.0\.0\.1)$/i.test(String(s.host)) && +s.port === +st.port; })[0] || null;
+}
+function lsvUptime(started) {
+    if (!started) return '';
+    var t = new Date(started.replace(' ', 'T')).getTime(); if (!t) return '';
+    var s = Math.max(0, Math.round((Date.now() - t) / 1000));
+    return s < 90 ? s + ' s' : s < 5400 ? Math.round(s / 60) + ' min' : s < 172800 ? (s / 3600).toFixed(1) + ' h' : Math.round(s / 86400) + ' days';
+}
+function lsvLogLine(l) {
+    var cls = /\b(ERROR|CRITICAL|Traceback|Exception|FAILED)\b/.test(l) ? 'err' : /\b(WARN|WARNING)\b/.test(l) ? 'warn' : /^=====/.test(l) ? 'mark' : /\b(SUCCESS|started|Uvicorn running|Application startup complete)\b/i.test(l) ? 'ok' : '';
+    return '<div class="lsv-ll ' + cls + '">' + esc(l) + '</div>';
+}
+function lsvRender() {
+    var el = $('lsv-root'); if (!el) return;
+    var st = LSV.st;
+    if (!st) { el.innerHTML = '<div class="lsv-alert err"><i class="fa-solid fa-triangle-exclamation"></i> ' + esc(LSV.err || 'No answer') + '</div>'; return; }
+    if (!st.found) {
+        el.innerHTML = '<div class="lsv-hero off"><div class="lsv-orb"></div><div><div class="lsv-big">No pipeline server folder on this PC</div>' +
+            '<div class="fs-muted">Copy the <b>pipeline-server</b> folder from the WMS repository to this PC (e.g. <code>C:\\pipeline-server</code>), then pick it here. Looked in: ' + esc((st.searched || []).join(' · ')) + '.</div></div></div>' +
+            '<div class="lsv-actions"><button class="fs-btn primary" onclick="lsvDo(\'pipeSrvPickFolder\')"><i class="fa-solid fa-folder-open"></i> Choose the folder…</button></div>';
+        return;
+    }
+    var row = lsvRow(st), busy = LSV.busy;
+    var state = busy ? busy.state : st.running ? 'RUNNING' : 'STOPPED';
+    var stateTxt = { RUNNING: 'Running', STOPPED: 'Stopped', STARTING: 'Starting…', STOPPING: 'Stopping…' }[state] || state;
+    var how = st.autostart === 'service' ? 'Windows service ' : st.autostart === 'task' ? 'scheduled task ' : '';
+    var steps = [
+        { ok: true, t: 'Folder', d: st.folder, btn: '<button class="fs-btn sm ghost" onclick="lsvDo(\'pipeSrvPickFolder\')">Change…</button>' },
+        { ok: st.venv, t: 'Python + packages', d: st.venv ? '.venv ready' : 'not installed yet', btn: '<button class="fs-btn sm' + (st.venv ? ' ghost' : ' primary') + '" onclick="lsvDo(\'pipeSrvSetup\')"><i class="fa-solid fa-wand-magic-sparkles"></i> ' + (st.venv ? 'Run setup again' : 'Set up') + '</button>' },
+        { ok: st.configured && st.hasToken, t: 'Settings', d: st.configured ? (esc(st.serverName || '') + ' · port ' + st.port + ' · control ' + esc(st.control || '?') + (st.fusionUser ? ' · Fusion ' + esc(st.fusionUser) : ' · no Fusion user')) : 'setup asks for them', btn: '' },
+        { ok: !!(row && row.apiToken && row.publicKey), t: 'Connected to this app', d: row ? (esc(row.name) + ' → ' + esc(row.host) + ':' + esc(row.port) + (row.publicKey ? ' · key ' + esc(String(row.fingerprint || '').slice(0, 14)) + '…' : ' · no key yet')) : 'no server row for it yet',
+            btn: st.configured ? '<button class="fs-btn sm' + (row && row.apiToken && row.publicKey ? ' ghost' : ' primary') + '" onclick="lsvConnect()"' + (st.running ? '' : ' disabled title="Start the server first"') + '><i class="fa-solid fa-link"></i> Connect this app</button>' : '' },
+        { ok: !!st.autostart, t: 'Starts with Windows', d: st.autostart ? how + 'GraysPipelineServer' : 'only when you start it', btn: st.venv && st.configured ? '<button class="fs-btn sm ghost" onclick="lsvAutostart()"><i class="fa-solid fa-power-off"></i> ' + (st.autostart ? 'Change / remove' : 'Set up') + '</button>' : '' }
+    ];
+    var b = function (act, icon, label, cls, dis, title) { return '<button class="fs-btn ' + (cls || '') + '" onclick="' + act + '"' + (dis ? ' disabled' : '') + (title ? ' title="' + esc(title) + '"' : '') + '><i class="fa-solid ' + icon + '"></i> ' + label + '</button>'; };
+    var ready = st.venv && st.configured, running = st.running && !busy;
+    var html = '<div class="lsv-hero ' + (state === 'RUNNING' ? 'on' : state === 'STOPPED' ? 'off' : 'mid') + '"><div class="lsv-orb"></div><div style="flex:1;min-width:0">' +
+        '<div class="lsv-big">' + stateTxt + (st.running && !busy ? ' <span class="lsv-sub">' + (st.pid ? 'pid ' + st.pid + ' · ' : '') + 'port ' + st.port + (st.started ? ' · up ' + lsvUptime(st.started) : '') + (how ? ' · ' + how.trim() : '') + '</span>' : '') + '</div>' +
+        '<div class="fs-muted">' + (busy ? esc(busy.msg) : st.running ? 'Pipelines run in the background — closing WMS does not stop the server.' : ready ? 'Start it here, or let it start with Windows.' : 'Set it up first (one time, about 2 minutes).') + '</div></div>' +
+        '<div class="lsv-actions">' +
+        (st.running ? b('lsvStop(false)', 'fa-stop', 'Stop', 'primary', busy, 'Running runs are cancelled at their next page and continue from their watermark next time') + b('lsvRestart()', 'fa-rotate', 'Restart', '', busy) + b('plOpenLocalConsole()', 'fa-display', 'Console', '', busy) :
+            b('lsvStart(false)', 'fa-play', 'Start', 'primary', !ready || busy) + b('lsvStart(true)', 'fa-flask', 'Try the demo', 'ghost', !st.venv || busy, 'Sample pipelines and generated rows — nothing touches Fusion or APEX')) +
+        '</div></div>';
+    html += '<div class="lsv-steps">' + steps.map(function (x, i) {
+        return '<div class="lsv-step ' + (x.ok ? 'ok' : '') + '"><span class="lsv-n">' + (x.ok ? '<i class="fa-solid fa-check"></i>' : i + 1) + '</span><div class="lsv-st"><b>' + x.t + '</b><span>' + x.d + '</span></div>' + x.btn + '</div>';
+    }).join('') + '</div>';
+    html += '<div class="lsv-loghead"><b><i class="fa-solid fa-terminal"></i> Server log</b><span class="fs-muted">' + esc(st.logPath || '') + '</span><span style="flex:1"></span>' +
+        '<label class="fs-muted"><input type="checkbox" ' + (LSV.follow ? 'checked' : '') + ' onchange="LSV.follow=this.checked"> follow</label>' +
+        '<button class="fs-icon-btn" title="Open the log in Notepad" onclick="lsvDo(\'pipeSrvOpenLog\', true)"><i class="fa-solid fa-up-right-from-square"></i></button>' +
+        '<button class="fs-icon-btn" title="Open the folder" onclick="lsvDo(\'pipeSrvOpenFolder\', true)"><i class="fa-regular fa-folder-open"></i></button>' +
+        (st.running ? '<button class="fs-icon-btn" title="Kill the process now (if Stop does not work)" onclick="lsvStop(true)"><i class="fa-solid fa-skull-crossbones"></i></button>' : '') + '</div>' +
+        '<div class="lsv-log" id="lsv-log">' + ((st.log || []).length ? st.log.map(lsvLogLine).join('') : '<div class="lsv-ll">(no log yet — it fills when the server is started from here)</div>') + '</div>';
+    if (LSV.err) html = '<div class="lsv-alert err">' + esc(LSV.err) + '</div>' + html;
+    var old = $('lsv-log'), keep = old && !LSV.follow ? old.scrollTop : null;
+    el.innerHTML = html;
+    var lg = $('lsv-log'); if (lg) lg.scrollTop = keep != null ? keep : lg.scrollHeight;
+}
+function lsvDo(action, quiet) {
+    return lsvCall(action, {}, action === 'pipeSrvPickFolder' ? 600000 : 15000).then(function (r) {
+        if (r && r.message && !quiet) toast(r.message);
+        if (r && r.found !== undefined) { LSV.st = r; lsvRender(); }
+        else lsvRefresh();
+    }).catch(function (e) { toast(String(e), 'err'); });
+}
+function lsvBusy(state, msg) { LSV.busy = state ? { state: state, msg: msg } : null; lsvRender(); }
+function lsvWaitFor(running, secs) {
+    var until = Date.now() + secs * 1000;
+    return new Promise(function (res) {
+        (function tick() {
+            lsvCall('pipeSrvStatus', { lines: 150 }, 8000).then(function (st) {
+                LSV.st = st;
+                if (!!st.running === running || Date.now() > until) return res(st);
+                lsvRender(); setTimeout(tick, 1000);
+            }).catch(function () { if (Date.now() > until) res(null); else setTimeout(tick, 1000); });
+        })();
+    });
+}
+function lsvStart(demo) {
+    lsvBusy('STARTING', demo ? 'Starting the demo (sample pipelines, DuckDB) …' : 'Starting the pipeline server …');
+    return lsvCall('pipeSrvStart', { demo: !!demo }, 30000).then(function (r) {
+        toast(r.message || 'Starting');
+        return lsvWaitFor(true, 60);
+    }).then(function (st) {
+        lsvBusy(null);
+        if (st && st.running) {
+            toast(demo ? 'Demo running — open the console (the sign-in token is in the log)' : 'Pipeline server running', 'ok');
+            if (!demo) setTimeout(function () { psLoad().then(function () { plServerBar(); lsvRender(); if (!lsvRow(st) || !lsvRow(st).apiToken) toast('Next: Connect this app', 'warn'); }); }, 4000);
+        } else toast('It did not start within a minute — see the log below', 'err');
+    }).catch(function (e) { lsvBusy(null); toast(String(e), 'err'); });
+}
+function lsvStop(force) {
+    var go = function () {
+        lsvBusy('STOPPING', force ? 'Killing the process …' : 'Stopping — running runs are cancelled at their next page (up to ~35 s) …');
+        return lsvCall('pipeSrvStop', { force: !!force }, 60000).then(function (r) {
+            toast(r.message || 'Stopped', r.how === 'kill' && !force ? 'warn' : 'ok');
+            return lsvWaitFor(false, 20);
+        }).then(function () { lsvBusy(null); setTimeout(function () { psLoad().then(plServerBar); }, 1500); })
+            .catch(function (e) { lsvBusy(null); toast(String(e), 'err'); });
+    };
+    if (force) confirmModalKeep('Kill the pipeline server?', 'The process stops at once. Runs that were running are queued again at the next start and continue from their last saved watermark.', go);
+    else return go();
+}
+/** confirm without closing the This PC dialog: an inline bar instead of a second modal. */
+function confirmModalKeep(title, text, onYes) {
+    var el = $('lsv-root'); if (!el) return;
+    var bar = document.createElement('div');
+    bar.className = 'lsv-alert warn';
+    bar.innerHTML = '<b>' + esc(title) + '</b> ' + esc(text) + ' <span style="flex:1"></span><button class="fs-btn sm ghost">Cancel</button><button class="fs-btn sm primary">Yes</button>';
+    var btns = bar.querySelectorAll('button');
+    btns[0].onclick = function () { bar.remove(); };
+    btns[1].onclick = function () { bar.remove(); onYes(); };
+    clearInterval(LSV.timer); LSV.timer = null;              // keep the bar until the user answers
+    el.insertBefore(bar, el.firstChild);
+    btns[0].addEventListener('click', plResumeLsvPoll); btns[1].addEventListener('click', plResumeLsvPoll);
+}
+function plResumeLsvPoll() {
+    clearInterval(LSV.timer);
+    LSV.timer = setInterval(function () {
+        if (!$('lsv-root') || !$('fs-modal').classList.contains('open')) { clearInterval(LSV.timer); LSV.timer = null; return; }
+        lsvRefresh();
+    }, 2500);
+}
+function lsvRestart() {
+    Promise.resolve(lsvStop(false)).then(function () { if (LSV.st && !LSV.st.running) lsvStart(false); });
+}
+function lsvAutostart() {
+    var el = $('lsv-root'); if (!el) return;
+    var st = LSV.st || {};
+    clearInterval(LSV.timer); LSV.timer = null;
+    var bar = document.createElement('div');
+    bar.className = 'lsv-alert info';
+    bar.innerHTML = '<div style="flex:1"><b>Start the server with Windows</b> — it must run as <i>you</i> (the passwords are in your Windows Credential Manager).<br>' +
+        '<button class="fs-btn sm primary" data-m="Logon">When I sign in (laptop)</button> <button class="fs-btn sm" data-m="Startup">At boot, signed in or not (admin)</button> ' +
+        '<button class="fs-btn sm" data-m="Service">Windows service via NSSM (server, admin)</button>' + (st.autostart ? ' <button class="fs-btn sm ghost" data-m="remove">Remove</button>' : '') +
+        ' <button class="fs-btn sm ghost" data-m="">Cancel</button></div>';
+    bar.querySelectorAll('button').forEach(function (x) {
+        x.onclick = function () {
+            var m = x.getAttribute('data-m'); bar.remove(); plResumeLsvPoll();
+            if (!m) return;
+            (m === 'remove' ? lsvCall('pipeSrvUninstallService', {}) : lsvCall('pipeSrvInstallService', { mode: m })).then(function (r) { toast(r.message || 'Opened'); }).catch(function (e) { toast(String(e), 'err'); });
+        };
+    });
+    el.insertBefore(bar, el.firstChild);
+}
+/** New API token from the local server → saved on its server row (insert or update) → Test (fetches the encryption key). */
+function lsvConnect() {
+    var st = LSV.st; if (!st) return;
+    var row = lsvRow(st);
+    var go = function () {
+        lsvBusy('RUNNING', 'Making a new API token and saving it on the server row …');
+        var info;
+        lsvCall('pipeSrvNewToken', {}, 70000).then(function (r) {
+            info = r.info || {};
+            var user = vlit(appUserName(), 120), hasDefault = PS.servers.some(function (s) { return s.isDefault && s.active; });
+            var cols = { server_name: vlit(info.server_name || st.serverName || 'PIPELINE-SERVER', 100), protocol: "'http'", host: "'localhost'", port: parseInt(info.port || st.port, 10) || 8000, base_path: "'/'",
+                api_user: vlit(info.api_user || 'pipeline', 100), api_token: vlit(info.api_token, 400), timezone: vlit(info.timezone || 'UTC', 60), active: "'Y'" };
+            return psEnsureTables().then(function () {
+                if (row) return dbWrite('UPDATE wms_pipe_servers SET ' + Object.keys(cols).map(function (k) { return k + ' = ' + cols[k]; }).join(', ') + ', updated_by = ' + user + ', updated_date = SYSDATE WHERE server_id = ' + parseInt(row.id, 10));
+                cols.is_default = hasDefault ? "'N'" : "'Y'";
+                return dbWrite('INSERT INTO wms_pipe_servers (' + Object.keys(cols).join(', ') + ', created_by, created_date) VALUES (' + Object.keys(cols).map(function (k) { return cols[k]; }).join(', ') + ', ' + user + ', SYSDATE)');
+            });
+        }).then(function () { return psLoad(); }).then(function () {
+            var r2 = lsvRow(st); if (!r2) throw 'The server row was not found after saving';
+            return psTestServer(r2.id);
+        }).then(function () {
+            lsvBusy(null); plServerBar();
+            var r3 = lsvRow(st);
+            toast(r3 && r3.publicKey ? 'Connected — the app reaches the server and has its encryption key' : 'Saved — but the test did not reach the server (see Setups › Data pipeline setups)', r3 && r3.publicKey ? 'ok' : 'warn');
+        }).catch(function (e) { lsvBusy(null); toast('Connect failed: ' + e, 'err'); });
+    };
+    if (row && row.apiToken) confirmModalKeep('Make a new API token?', 'The server row "' + row.name + '" gets the new token at once; the old one stops working (other PCs read the token from the same row, so they keep working).', go);
+    else go();
+}
+function plOpenLocalConsole() {
+    var url = (LSV.st && LSV.st.consoleUrl) || 'http://localhost:8000/ui/';
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ action: 'openExternalUrl', url: url });
     else window.open(url, '_blank');
 }

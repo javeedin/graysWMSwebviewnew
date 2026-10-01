@@ -34,7 +34,8 @@ def main(argv=None):
     d.add_argument("--port", type=int, default=8000)
     sub.add_parser("run")
     sub.add_parser("test")
-    sub.add_parser("new-token")
+    nt = sub.add_parser("new-token")
+    nt.add_argument("--json", action="store_true", help="one JSON line (the WMS app's Connect this app)")
     sub.add_parser("set-fusion-password")
     sub.add_parser("set-db-password")
     sub.add_parser("status")
@@ -84,6 +85,10 @@ def main(argv=None):
     if cmd == "new-token":
         token = cfg.new_token()
         cfg.save()
+        if a.json:
+            print(json.dumps({"api_user": cfg.api_user, "api_token": token, "server_name": cfg.server_name, "port": cfg.port,
+                              "timezone": cfg.timezone, "fingerprint": secrets_store.fingerprint()}))
+            return 0
         print(f"API user : {cfg.api_user}\nAPI token: {token}\nPaste the token into the WMS app (Data pipeline setups › this server).")
         return 0
     if cmd == "set-fusion-password":

@@ -32,7 +32,15 @@ live **console** in the browser. The WMS app shows the same status and can pause
    only this server can read them.
 5. Build pipelines in **Fusion SQL › Pipelines** (or "Add to pipeline" under any query result).
 
-Start it: **start-server.bat** (runs in a window). Background, started with Windows:
+**Easiest — from the WMS app on the same PC:** Fusion SQL › Pipelines › **This PC**. It finds this folder
+(next to the source repo, `C:\pipeline-server`, `C:\fusion\pipeline-server`, or pick it), and has
+**Set up** (opens setup.ps1), **Start** / **Stop** / **Restart** (the server runs in the background and keeps running
+when WMS closes; output in `data\logs\server.log`, shown live), **Try the demo**, **Connect this app** (makes a new
+API token, saves it on the server row and fetches the encryption key — no copy / paste), and **Starts with Windows**
+(install-service.ps1). Stop is graceful: it creates `data\stop.request`, running runs are cancelled at their next page
+(queued again at the next start) and the server exits; the skull button kills it.
+
+Or by hand: **start-server.bat** (runs in a window). Background, started with Windows:
 **install-service.ps1** as administrator (NSSM service if `tools\nssm.exe` exists, else a scheduled task
 at startup; `-Mode Logon` on a laptop). It runs as the account that ran setup, because the passwords live
 in that account's Windows Credential Manager.
