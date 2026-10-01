@@ -91,7 +91,7 @@ function stkSearchTab(p) {
 function stkTxnModal(kind, sel, onDone) {
     var T = STK.TYPES[kind], isT = kind === 'transfer', posted = false;
     var lines = sel.map(function (r) { var q = STK.onh(r); return { item: r.ItemNumber, org: r.OrganizationCode, orgId: r.OrganizationId, itemId: r.InventoryItemId, fromSub: r.SubinventoryCode, toSub: '', lot: r.LotNumber || '', uom: r.PrimaryUOMCode || r.PrimaryUnitOfMeasure || r.UOMCode || '', avail: q, qty: kind === 'receipt' ? '' : q, locator: '' }; });
-    var orgs = IU.distinct(lines.map(function (l) { return l.org; }));
+    var orgs = IU.distinct(lines.map(function (l) { return l.org; })), subsList = [];
     FX.modal({
         title: '<i class="fa-solid ' + T.icon + '"></i> ' + esc(T.btn) + ' — ' + lines.length + ' line(s)', wide: true,
         body: '<div class="filters" style="padding:0">' + STK.methodHtml() + '<label>Transaction date<input type="date" id="tm-date" value="' + FX.today() + '"></label>' +
@@ -120,7 +120,6 @@ function stkTxnModal(kind, sel, onDone) {
             return false;
         }
     });
-    var subsList = [];
     function draw(subs) {
         if (subs && subs.length) subsList = subs;
         var tb = $('tm-tbl'); if (!tb) return;
@@ -135,7 +134,7 @@ function stkTxnModal(kind, sel, onDone) {
 
 function stkLoadTab(p) {
     var L = { lines: [], subs: [] };
-    p.innerHTML = '<div class="card"><div class="filters"><label>Organization <b style="color:var(--err)">*</b><select id="sl-org"></select></label>' +
+    p.innerHTML = '<div class="card"><div class="filters"><label><span>Organization <b style="color:var(--err)">*</b></span><select id="sl-org"></select></label>' +
         '<label>Transaction<select id="sl-type"><option value="receipt">Load On-Hand (misc receipt)</option><option value="issue">Issue Out (misc issue)</option></select></label>' +
         '<label>Transaction date<input type="date" id="sl-date" value="' + FX.today() + '"></label><label>Account (optional)<input id="sl-acct" placeholder="distribution account" style="min-width:200px"></label>' + STK.methodHtml() + '</div></div>' +
         '<div class="two"><div class="card pad" style="display:flex;flex-direction:column;gap:8px"><b><i class="fa-solid fa-paste" style="color:var(--accent)"></i> Paste lines</b><span class="muted" style="font-size:.76rem">Item Number, Qty, Subinventory, Lot — tab, comma or 2+ spaces.</span><textarea class="big" id="sl-paste" style="min-height:90px"></textarea><div class="row-btns"><button class="btn" id="sl-add"><i class="fa-solid fa-plus"></i> Add lines</button><button class="btn" id="sl-clear"><i class="fa-solid fa-eraser"></i> Clear</button></div></div>' +

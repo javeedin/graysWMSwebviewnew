@@ -12,7 +12,7 @@ INV.itemMaster = {
         el.innerHTML =
             '<div class="card"><div class="filters">' +
             '<label>Source<div class="seg" id="im-src"><button data-s="rest">Fusion REST</button><button data-s="sql">Fusion SQL</button></div></label>' +
-            '<label>Organization <b style="color:var(--err)">*</b><select id="im-org"></select></label>' +
+            '<label><span>Organization <b style="color:var(--err)">*</b></span><select id="im-org"></select></label>' +
             '<label>Item Number' + IU.inp('im-item', 'starts with…') + '</label>' +
             '<label>Description' + IU.inp('im-desc', 'starts with…') + '</label>' +
             '<label>Status<select id="im-status"><option value="">All</option><option>Active</option><option>Inactive</option><option>Obsolete</option></select></label>' +
@@ -114,7 +114,7 @@ INV.itemMaster = {
                 $('im-pt').textContent = st.rows.length + ' items' + (r.cancelled ? ' (cancelled — partial)' : '') + (r.total != null && r.total > st.rows.length ? ' · ' + r.total + ' in Fusion' : '');
                 $('im-bar').style.width = '100%';
             }).catch(function (e) { grid.error(e); $('im-pt').textContent = 'Failed'; })
-                .then(function () { $('im-cancel').hidden = true; setTimeout(function () { if (tok === st.tok) $('im-prog').hidden = true; }, 2500); });
+                .then(function () { $('im-cancel').hidden = true; setTimeout(function () { var pe = $('im-prog'); if (pe && tok === st.tok) pe.hidden = true; }, 2500); });
         }
         function drawKpis() {
             var list = [{ label: 'Items Found', value: st.rows.length.toLocaleString() }];

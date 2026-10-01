@@ -187,7 +187,7 @@ CST.saveSteps = function (steps) { lsSet(CST.stKey(), steps.map(function (s) { r
 CST.essCls = function (s) { var u = String(s || '').toUpperCase(); return /SUCCEED|^COMPLETED$|FINISHED/.test(u) ? 'ok' : /ERROR|FAIL/.test(u) ? 'err' : /WARN/.test(u) ? 'warn' : /RUN|READY|WAIT|SCHEDUL|PENDING/.test(u) ? 'done' : ''; };
 CST.essChip = function (s) { return s ? '<span class="chip ' + CST.essCls(s) + '">' + esc(s) + '</span>' : ''; };
 CST.submit = function (pkg, def, params) {
-    return FX.rest('POST', 'erpintegrations', {}, { OperationName: 'submitESSJobRequest', JobPackageName: pkg, JobDefName: def, ESSParameters: params || '' }).then(function (j) {
+    return FX.rest('POST', 'erpintegrations', { contentType: 'json' }, { OperationName: 'submitESSJobRequest', JobPackageName: pkg, JobDefName: def, ESSParameters: params || '' }).then(function (j) {
         var id = IU.first(j, ['ReqstId', 'reqstId', 'RequestId', 'DocumentId']);
         if (!id || String(id) === '-1') throw 'Fusion did not return a request id:\n' + JSON.stringify(j, null, 2).slice(0, 1500);
         return { id: String(id), raw: j };
@@ -195,9 +195,9 @@ CST.submit = function (pkg, def, params) {
 };
 CST.status = function (id) {
     function read(j) { return { status: IU.first(j, ['RequestStatus', 'requestStatus', 'Status']) || 'UNKNOWN', raw: j }; }
-    return FX.rest('POST', 'erpintegrations', {}, { OperationName: 'getESSJobStatus', ReqstId: String(id) }).then(read, function (e) {
+    return FX.rest('POST', 'erpintegrations', { contentType: 'json' }, { OperationName: 'getESSJobStatus', ReqstId: String(id) }).then(read, function (e) {
         // older pods used the lower-case attribute name of the original screen
-        return FX.rest('POST', 'erpintegrations', {}, { OperationName: 'getESSJobStatus', requestId: String(id) }).then(read, function () { return { status: 'HTTP ' + ((FX.lastCall || {}).status || '?'), raw: String(e) }; });
+        return FX.rest('POST', 'erpintegrations', { contentType: 'json' }, { OperationName: 'getESSJobStatus', requestId: String(id) }).then(read, function () { return { status: 'HTTP ' + ((FX.lastCall || {}).status || '?'), raw: String(e) }; });
     });
 };
 /** Package + definition from an ESS_REQUEST_HISTORY row (DEFINITION = JobDefinition://oracle/apps/…/JobName) or any deep-scanned keys. */

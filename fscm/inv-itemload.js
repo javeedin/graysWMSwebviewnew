@@ -23,7 +23,7 @@ INV.itemLoading = {
         function searchTab(p) {
             var grid, ms;
             p.innerHTML = '<div class="card"><div class="filters">' +
-                '<label>Organizations <b style="color:var(--err)">*</b><div id="il-orgs"></div></label>' +
+                '<label><span>Organizations <b style="color:var(--err)">*</b></span><div id="il-orgs"></div></label>' +
                 '<label>Description' + IU.inp('il-desc', 'starts with… (when no items pasted)') + '</label>' +
                 '<label style="flex:1;min-width:260px">Item numbers<textarea id="il-items" rows="2" placeholder="one per line, or comma / tab separated (max 500)" style="border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-family:var(--mono);font-size:.78rem;text-transform:none;font-weight:500;color:var(--ink)"></textarea></label>' +
                 '<div class="go"><span class="muted" id="il-cnt" style="font-size:.78rem;align-self:center"></span><button class="btn primary" id="il-go"><i class="fa-solid fa-magnifying-glass"></i> Search</button></div></div></div>' +

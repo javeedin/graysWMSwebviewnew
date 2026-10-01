@@ -410,7 +410,7 @@ IU.itemCostModal = function (item, srcOrg, dstOrg) {
 
 /** Filter-card builder: fields [{id,label,html}] + buttons html. */
 IU.filterCard = function (fields, buttons) {
-    return '<div class="card"><div class="filters">' + fields.map(function (f) { return '<label' + (f.style ? ' style="' + f.style + '"' : '') + '>' + esc(f.label) + (f.req ? ' <b style="color:var(--err)">*</b>' : '') + f.html + '</label>'; }).join('') + '<div class="go">' + (buttons || '') + '</div></div></div>';
+    return '<div class="card"><div class="filters">' + fields.map(function (f) { return '<label' + (f.style ? ' style="' + f.style + '"' : '') + '><span>' + esc(f.label) + (f.req ? ' <b style="color:var(--err)">*</b>' : '') + '</span>' + f.html + '</label>'; }).join('') + '<div class="go">' + (buttons || '') + '</div></div></div>';
 };
 IU.inp = function (id, ph, val, type, style) { return '<input id="' + id + '" type="' + (type || 'search') + '" placeholder="' + esc(ph || '') + '" value="' + esc(val == null ? '' : val) + '"' + (style ? ' style="' + style + '"' : '') + '>'; };
 IU.enter = function (ids, fn) { ids.forEach(function (id) { var e = $(id); if (e) e.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') fn(); }); }); };

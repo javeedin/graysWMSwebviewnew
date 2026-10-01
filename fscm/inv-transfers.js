@@ -4,7 +4,7 @@
 INV.transfers = {
     id: 'transfers', label: 'Transfer Orders', icon: 'fa-truck-arrow-right', group: 'Movements', desc: 'Search, create, edit, print and copy transfer orders',
     render: function (el) {
-        var linesCache = {}, newSeq = 0;
+        var linesCache = {}, newSeq = 0, pendingSeed = null;
         function toLines(h) {
             var id = h.HeaderId;
             if (!linesCache[id]) linesCache[id] = IU.allHref(IU.link(h, 'transferOrderLines') || FX.url('transferOrders/' + id + '/child/transferOrderLines', { onlyData: false })).catch(function (e) { delete linesCache[id]; throw e; });
@@ -13,7 +13,7 @@ INV.transfers = {
         var tabs = IU.tabs(el, [
             { id: 'orders', label: 'Search Orders', icon: 'fa-magnifying-glass', render: ordersTab },
             { id: 'lines', label: 'Search Lines', icon: 'fa-list', render: linesTab },
-            { id: 'new', label: 'New Transfer Order', icon: 'fa-plus', render: function (p) { newTO(p, null); } }
+            { id: 'new', label: 'New Transfer Order', icon: 'fa-plus', render: function (p) { newTO(p, pendingSeed); pendingSeed = null; } }
         ], { right: '<button class="btn sm primary" data-newto style="margin:4px"><i class="fa-solid fa-plus"></i> New Transfer Order</button>' });
         el.querySelector('.stabs').addEventListener('click', function (e) { if (e.target.closest('[data-newto]')) openNew(null); });
         function openNew(seed) {
@@ -79,7 +79,7 @@ INV.transfers = {
                     var f = ls[0];
                     if (ls.some(function (l) { return l.SourceOrganizationCode !== f.SourceOrganizationCode || l.DestinationOrganizationCode !== f.DestinationOrganizationCode; })) FX.toast('Lines use different organizations — the first line\'s source / destination are used.');
                     var seed = { src: f.SourceOrganizationCode, dst: f.DestinationOrganizationCode, srcSub: f.SourceSubinventoryCode || '', dstSub: f.DestinationSubinventoryCode || '', needBy: f.NeedByDate ? String(f.NeedByDate).slice(0, 10) : '', lines: ls.map(function (l) { return { item: l.ItemNumber, qty: l.RequestedQuantity, uom: l.QuantityUOMCode || IU.cfg('toUom') }; }) };
-                    var pane = tabs.pane('new'); pane.innerHTML = ''; newTO(pane, seed); tabs.show('new');
+                    if (tabs.list.some(function (t) { return t.id === 'new' && t.done; })) newTO(tabs.pane('new'), seed); else pendingSeed = seed; tabs.show('new');
                     FX.toast('Copied ' + ls.length + ' line(s) from ' + sel[0].HeaderNumber + ' into the new transfer order.', 'ok');
                 }).catch(function (e) { FX.busy(); FX.toast(String(e), 'err'); });
             };
@@ -181,15 +181,16 @@ INV.transfers = {
         }
 
         // ── New Transfer Order ──
-        function newTO(p, seed) {
+        function newTO(p0, seed) {
             seed = seed || {};
+            var p = document.createElement('div'); p.className = 'spane'; p0.innerHTML = ''; p0.appendChild(p);
             var S = { src: seed.src || lsGet('fxinv_to_src', ''), dst: seed.dst || lsGet('fxinv_to_dst', ''), srcSub: seed.srcSub || '', dstSub: seed.dstSub || '', needBy: seed.needBy || IU.days(+IU.cfg('toNeedByDays') || 3), lines: [], seq: 0 };
             var uid = 'nt' + Math.random().toString(36).slice(2, 7), id = function (x) { return uid + '-' + x; };
             function newLine(o) { o = o || {}; return { key: ++S.seq, item: o.item || '', qty: o.qty == null ? '' : o.qty, uom: o.uom || IU.cfg('toUom'), desc: '', sq: null, dq: null, sqErr: '', dqErr: '', loading: false }; }
             S.lines = (seed.lines && seed.lines.length ? seed.lines : [{}]).map(newLine);
             p.innerHTML = '<div class="card pad" style="display:flex;flex-direction:column;gap:10px"><div class="form">' +
-                '<label>Source Org <b class="r">*</b><select id="' + id('src') + '"></select></label><label>Source Subinventory<select id="' + id('ssub') + '"><option value="">—</option></select></label>' +
-                '<label>Destination Org <b class="r">*</b><select id="' + id('dst') + '"></select></label><label>Destination Subinventory<select id="' + id('dsub') + '"><option value="">—</option></select></label>' +
+                '<label><span>Source Org <b class="r">*</b></span><select id="' + id('src') + '"></select></label><label>Source Subinventory<select id="' + id('ssub') + '"><option value="">—</option></select></label>' +
+                '<label><span>Destination Org <b class="r">*</b></span><select id="' + id('dst') + '"></select></label><label>Destination Subinventory<select id="' + id('dsub') + '"><option value="">—</option></select></label>' +
                 '<label>Need-By Date<input type="date" id="' + id('need') + '" value="' + esc(S.needBy) + '"></label>' +
                 '<label>Interface Source<input id="' + id('if') + '" value="' + esc(IU.cfg('toIface')) + '"></label><label>Supply Order Source<input id="' + id('os') + '" value="' + esc(IU.cfg('toOrderSource')) + '"></label>' +
                 '<label>Supply Request Status<input id="' + id('rs') + '" value="' + esc(IU.cfg('toReqStatus')) + '"></label><label>Preparer / Requester e-mail<input id="' + id('em') + '" value="' + esc(IU.email()) + '" placeholder="name@company.com"></label></div></div>' +
@@ -223,7 +224,7 @@ INV.transfers = {
                 if (l[k] == null) return '<span class="muted">—</span>';
                 return '<button class="lnk ' + (l[k] > 0 ? 'qty-ok' : k === 'sq' ? 'qty-zero' : '') + '" style="' + (l[k] > 0 ? '' : k === 'dq' ? 'color:var(--warn)' : '') + '" data-a="matrix1">' + IU.qty(l[k]) + '</button>';
             }
-            function paint(l) { var tr = $(id('tbl')).querySelector('tr[data-k="' + l.key + '"]'); if (!tr) return; tr.querySelector('[data-c="desc"]').innerHTML = cellDesc(l); tr.querySelector('[data-c="sq"]').innerHTML = cellQ(l, 'sq'); tr.querySelector('[data-c="dq"]').innerHTML = cellQ(l, 'dq'); }
+            function paint(l) { var tb0 = $(id('tbl')); if (!tb0) return; var tr = tb0.querySelector('tr[data-k="' + l.key + '"]'); if (!tr) return; tr.querySelector('[data-c="desc"]').innerHTML = cellDesc(l); tr.querySelector('[data-c="sq"]').innerHTML = cellQ(l, 'sq'); tr.querySelector('[data-c="dq"]').innerHTML = cellQ(l, 'dq'); }
             function onhand(org, item) { return FX.restAll('inventoryOnhandBalances', { q: 'OrganizationCode=' + FX.qv(org) + ';ItemNumber=' + FX.qv(item) }, 5000); }
             function loadInfo(l) {
                 var item = l.item.trim(); if (!item) return;
@@ -340,10 +341,11 @@ INV.transfers = {
                         if (a !== 'go') return;
                         var res = $(id('res'));
                         res.innerHTML = '<div class="note"><i class="fa-solid fa-circle-notch fa-spin"></i> Submitting batch ' + esc(batch) + '…</div>';
-                        FX.rest('POST', 'supplyRequests', {}, body).then(function (j) {
-                            res.innerHTML = '<div class="card pad" style="display:flex;flex-direction:column;gap:8px"><div class="note ok"><i class="fa-solid fa-circle-check"></i> Supply request submitted — transfer order will be created by SCO. Batch <b>' + esc(batch) + '</b> · HTTP ' + esc((FX.lastCall || {}).status) + '</div><pre class="json">' + esc(JSON.stringify(j, null, 2).slice(0, 6000)) + '</pre></div>';
-                            FX.toast('Supply request submitted.', 'ok');
-                        }).catch(function (e) { res.innerHTML = '<div class="card pad"><div class="note err" style="white-space:pre-wrap"><b>HTTP ' + esc((FX.lastCall || {}).status || '') + '</b>\n' + esc(String(e).slice(0, 6000)) + '</div></div>'; });
+                        FX.restRaw('POST', 'supplyRequests', { contentType: 'json' }, body).then(function (r) {
+                            var txt = r.json ? JSON.stringify(r.json, null, 2) : r.text;
+                            res.innerHTML = '<div class="card pad" style="display:flex;flex-direction:column;gap:8px"><div class="note ' + (r.ok ? 'ok' : 'err') + '" style="white-space:pre-wrap"><i class="fa-solid ' + (r.ok ? 'fa-circle-check' : 'fa-circle-xmark') + '"></i> HTTP ' + r.status + ' — ' + (r.ok ? 'Supply request submitted — transfer order will be created by SCO. Batch <b>' + esc(batch) + '</b>. Find it later on the search tabs.' : esc(r.error || 'rejected')) + '</div><pre class="json">' + esc(String(txt || '').slice(0, 6000)) + '</pre></div>';
+                            FX.toast(r.ok ? 'Supply request submitted.' : 'Fusion rejected the supply request.', r.ok ? 'ok' : 'err');
+                        }).catch(function (e) { res.innerHTML = '<div class="card pad"><div class="note err" style="white-space:pre-wrap">' + esc(String(e).slice(0, 6000)) + '</div></div>'; });
                     }
                 });
             }
@@ -398,7 +400,7 @@ INV.transfers = {
                             if (e.q != null && Number(e.q) !== Number(l.RequestedQuantity)) body.RequestedQuantity = Number(e.q);
                             if (e.d != null && String(e.d).slice(0, 10) !== String(l.NeedByDate || '').slice(0, 10)) body.NeedByDate = String(e.d).slice(0, 10);
                             var url = IU.self(l) || 'transferOrders/' + h.HeaderId + '/child/transferOrderLines/' + lid(l);
-                            return FX.rest('PATCH', url, {}, body).then(function (j) { log.push({ ok: true, t: 'Line ' + lid(l) + ': HTTP ' + ((FX.lastCall || {}).status || 200) + ' OK — ' + JSON.stringify(body) }); },
+                            return FX.rest('PATCH', url, { contentType: 'json' }, body).then(function (j) { log.push({ ok: true, t: 'Line ' + lid(l) + ': HTTP ' + ((FX.lastCall || {}).status || 200) + ' OK — ' + JSON.stringify(body) }); },
                                 function (er) { log.push({ ok: false, t: 'Line ' + lid(l) + ': ' + String(er).slice(0, 400) }); });
                         });
                     }, Promise.resolve()).then(function () {
