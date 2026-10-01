@@ -2158,6 +2158,7 @@ function updateEngineChip() {
     const txt = document.getElementById('cli-chip-text');
     const s = getEngineSettings();
     chip.classList.remove('ok', 'bad');
+    chip.onclick = null; chip.style.cursor = ''; chip.title = '';
     if (s.mode === 'api') {
         chip.classList.add('ok');
         txt.textContent = 'API mode · ' + (s.model || 'claude-sonnet-5');
@@ -2166,8 +2167,25 @@ function updateEngineChip() {
     txt.textContent = 'Checking Claude CLI…';
     sendMessageToCSharp({ action: 'aiCliStatus' }, function (err, resp) {
         if (err || !resp || !resp.installed) {
-            chip.classList.add('bad');
-            txt.textContent = 'Claude CLI not found — use ⚙ to switch to API key mode';
+            // No CLI on this PC: if the app already keeps a Claude API key (saved here or in Fusion SQL › Ask AI),
+            // switch to API mode on its own - otherwise the chip opens the setup with API mode chosen.
+            sendMessageToCSharp({ action: 'aiEngineKeyStatus' }, function (kerr, kresp) {
+                if (!kerr && kresp && kresp.hasKey) {
+                    localStorage.setItem(ENGINE_LS_KEY, JSON.stringify({ mode: 'api', hk: true, model: s.model || 'claude-sonnet-5' }));
+                    chip.classList.add('ok');
+                    txt.textContent = 'API mode · ' + (s.model || 'claude-sonnet-5') + ' (no Claude CLI on this PC)';
+                    return;
+                }
+                chip.classList.add('bad');
+                txt.textContent = 'Claude CLI not found — click here to use an API key instead';
+                chip.style.cursor = 'pointer';
+                chip.title = 'This PC has no Claude CLI. Click to enter a Claude API key (API mode needs no CLI).';
+                chip.onclick = function () {
+                    openEngineSettings();
+                    const r = document.querySelector('input[name="eng-mode"][value="api"]');
+                    if (r) { r.checked = true; engModeChanged(); }
+                };
+            });
         } else {
             chip.classList.add('ok');
             txt.textContent = 'Claude CLI ' + (resp.version || 'ready');
