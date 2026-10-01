@@ -85,6 +85,7 @@ function plLoadList() {
                 enabled: r.ENABLED === 'Y', state: r.STATE, nextRun: r.NEXT_RUN, tasks: +r.TASK_COUNT || 0, lastStatus: r.LAST_STATUS, lastRun: r.LAST_RUN };
         });
         var b = $('fs-pl-count'); if (b) { b.textContent = PL.list.length; b.classList.toggle('muted', !PL.list.length); }
+        plServerBar();
         if (PL.selId && !PL.list.some(function (p) { return String(p.id) === String(PL.selId); })) PL.selId = null;
         if (PL.selId === null && PL.list.length && !PL.creating) return plSelect(PL.list[0].id);
         plRenderList(); plRenderMain();
@@ -189,6 +190,49 @@ function plRenderList() {
             (p.lastRun ? '<span><i class="fa-regular fa-clock"></i> ' + esc(dsAgo(p.lastRun)) + '</span>' : '') +
             (p.schedule !== 'MANUAL' ? '<span class="ds-mode">' + (p.enabled ? 'ON' : 'OFF') + '</span>' : '') + '</div></div></div>';
     }).join('') || '<div class="ds-none">' + (PL.list.length ? 'No pipelines match.' : 'No pipelines yet.') + '</div>');
+}
+
+// ── pipeline server bar: heartbeat, engine state, controls ─────
+// The server writes last_heartbeat + status (ONLINE | PAUSED | DRAINING | STOPPED | OFFLINE) every poll;
+// no heartbeat for 3 polls = offline. Controls call POST /engine/{pause|resume|drain|stop} on the server.
+function plServerBar() {
+    var el = $('pl-server-bar'); if (!el) return;
+    var s = psDefaultServer();
+    if (!s) { el.innerHTML = '<span class="fs-muted"><i class="fa-solid fa-server"></i> No pipeline server yet — add it in <a href="#" onclick="showTab(\'setups\');suSeg(\'pipe\');return false;">Setups › Data pipeline setups</a>.</span>'; return; }
+    var limit = Math.max(90, 3 * (parseInt(s.poll, 10) || 30));
+    var alive = s.hbSecs != null && s.hbSecs <= limit && s.status !== 'OFFLINE';
+    var mode = alive ? (s.status === 'ONLINE' ? 'RUNNING' : s.status) : 'OFFLINE';
+    var color = { RUNNING: 'var(--fs-green)', PAUSED: '#b45309', DRAINING: '#b45309', STOPPED: 'var(--fs-red)', OFFLINE: 'var(--fs-red)' }[mode] || 'var(--fs-muted)';
+    var ago = s.hbSecs == null ? 'never seen' : s.hbSecs < 90 ? s.hbSecs + ' s ago' : s.hbSecs < 5400 ? Math.round(s.hbSecs / 60) + ' min ago' : Math.round(s.hbSecs / 3600) + ' h ago';
+    var btn = function (act, icon, label, warn) { return '<button class="fs-btn sm' + (warn ? ' ghost' : '') + '" onclick="plEngine(\'' + act + '\')"' + (alive ? '' : ' disabled') + '><i class="fa-solid ' + icon + '"></i> ' + label + '</button>'; };
+    el.innerHTML = '<span class="pl-sb-dot" style="background:' + color + '"></span><b>' + esc(s.name) + '</b>' +
+        '<span class="pl-sb-mode" style="color:' + color + '">' + (alive ? 'engine ' + mode.toLowerCase() : 'offline') + '</span>' +
+        '<span class="fs-muted">' + (alive ? esc(s.testMsg || '') + ' · heartbeat ' + ago : 'last heartbeat ' + ago + ' — start the server (start-server.bat / the service) on ' + esc(s.host)) + (s.version ? ' · v' + esc(s.version) : '') + '</span>' +
+        '<span style="flex:1"></span>' +
+        (mode === 'RUNNING' ? btn('pause', 'fa-pause', 'Pause') : btn('resume', 'fa-play', mode === 'STOPPED' ? 'Start' : 'Resume')) +
+        (mode === 'RUNNING' || mode === 'PAUSED' ? btn('drain', 'fa-hourglass-end', 'Drain') : '') +
+        (mode !== 'STOPPED' && alive ? btn('stop', 'fa-stop', 'Stop now', true) : '') +
+        '<button class="fs-btn sm" onclick="plOpenConsole()" title="The live console of the pipeline server (opens in the browser)"><i class="fa-solid fa-display"></i> Open console</button>' +
+        '<button class="fs-icon-btn" title="Refresh" onclick="psLoad().then(plServerBar)"><i class="fa-solid fa-rotate"></i></button>';
+}
+function plEngine(act) {
+    var s = psDefaultServer(); if (!s) return;
+    var go = function () {
+        psCall(s, '/engine/' + act, 'POST', {}).then(function (r) {
+            toast('Pipeline server: engine ' + String((r && r.engine) || act).toLowerCase());
+            setTimeout(function () { psLoad().then(plServerBar); }, 1500);
+        }).catch(function (e) { toast('The pipeline server did not answer: ' + e, 'err'); });
+    };
+    if (act === 'stop') confirmModal('Stop the pipeline server engine?', 'Every running run is cancelled at its next page (incremental tasks continue from their watermark next time). Nothing new starts until you press Start.', go);
+    else if (act === 'drain') confirmModal('Drain the engine?', 'Running runs finish, then the engine stops. Nothing new starts.', go);
+    else go();
+}
+function plOpenConsole() {
+    var s = psDefaultServer(); if (!s) return;
+    var url = psBaseUrl(s) + '/ui/';
+    // the host opens it in the default browser (no reply comes back, so post it without waiting)
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage({ action: 'openExternalUrl', url: url });
+    else window.open(url, '_blank');
 }
 
 // ── render: main ───────────────────────────────────────────────

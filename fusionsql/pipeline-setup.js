@@ -33,7 +33,7 @@ var PS_DDL = {
         'username VARCHAR2(200), password_enc VARCHAR2(4000), default_schema VARCHAR2(128), options_json VARCHAR2(4000), ' +
         "active VARCHAR2(1) DEFAULT 'Y' CHECK (active IN ('Y','N')), last_test_status VARCHAR2(20), last_test_date DATE, last_test_msg VARCHAR2(4000), " +
         'notes VARCHAR2(2000), created_by VARCHAR2(120), created_date DATE DEFAULT SYSDATE, updated_by VARCHAR2(120), updated_date DATE, ' +
-        "CONSTRAINT wms_pipe_conn_type_ck CHECK (conn_type IN ('ORACLE_EZ','ORACLE_TNS','ORACLE_WALLET','APEX_REST','MSSQL','MYSQL','POSTGRES')))",
+        "CONSTRAINT wms_pipe_conn_type_ck2 CHECK (conn_type IN ('ORACLE_EZ','ORACLE_TNS','ORACLE_WALLET','APEX_REST','MSSQL','MYSQL','POSTGRES','DUCKDB')))",
         'CREATE UNIQUE INDEX wms_pipe_connections_name_ux ON wms_pipe_connections (UPPER(conn_name))'
     ]
 };
@@ -44,7 +44,9 @@ var PS_TYPES = {
     APEX_REST: { label: 'APEX REST API', sub: 'ORDS endpoint', icon: 'fa-plug', color: '#2a78d6', fields: ['rest_url', 'auth_type', 'username', 'password'] },
     MSSQL: { label: 'SQL Server', sub: 'host · port · database', icon: 'fa-server', color: '#4a3aa7', port: 1433, fields: ['host', 'port', 'database_name', 'username', 'password', 'default_schema', 'opt_encrypt', 'opt_trust'] },
     MYSQL: { label: 'MySQL', sub: 'host · port · database', icon: 'fa-server', color: '#0f766e', port: 3306, fields: ['host', 'port', 'database_name', 'username', 'password', 'opt_ssl'] },
-    POSTGRES: { label: 'PostgreSQL', sub: 'host · port · database', icon: 'fa-server', color: '#2563eb', port: 5432, fields: ['host', 'port', 'database_name', 'username', 'password', 'default_schema', 'opt_sslmode'] }
+    POSTGRES: { label: 'PostgreSQL', sub: 'host · port · database', icon: 'fa-server', color: '#2563eb', port: 5432, fields: ['host', 'port', 'database_name', 'username', 'password', 'default_schema', 'opt_sslmode'] },
+    DUCKDB: { label: 'DuckDB file', sub: 'on the pipeline server', icon: 'fa-feather', color: '#b45309', fields: ['database_name'],
+        labels: { database_name: ['DuckDB file on the pipeline server', 'e.g. C:\\pipeline-server\\data\\fusion.duckdb (created if missing)'] } }
 };
 var PS_FIELDS = {
     host: ['Host / IP', 'e.g. 10.0.0.25 or db.company.com'],
@@ -73,6 +75,14 @@ function psEnsureTables() {
         Object.keys(PS_DDL).forEach(function (t) { if (!have[t]) todo = todo.concat(PS_DDL[t]); });
         if (todo.length) toast('Creating the pipeline setup tables in the APEX database…', 'warn');
         return todo.reduce(function (p, ddl) { return p.then(function () { return dbWrite(ddl); }); }, Promise.resolve());
+    }).then(function () {
+        // older tables: let connections be DUCKDB too (the pipeline server does the same on start)
+        return dbRead("SELECT constraint_name FROM user_constraints WHERE table_name = 'WMS_PIPE_CONNECTIONS' AND constraint_type = 'C' AND constraint_name LIKE 'WMS_PIPE_CONN_TYPE%'", 5).then(function (r) {
+            var names = r.map(function (x) { return x.CONSTRAINT_NAME; });
+            if (names.indexOf('WMS_PIPE_CONN_TYPE_CK2') >= 0) return;
+            return (names.indexOf('WMS_PIPE_CONN_TYPE_CK') >= 0 ? dbWrite('ALTER TABLE wms_pipe_connections DROP CONSTRAINT wms_pipe_conn_type_ck') : Promise.resolve())
+                .then(function () { return dbWrite("ALTER TABLE wms_pipe_connections ADD CONSTRAINT wms_pipe_conn_type_ck2 CHECK (conn_type IN ('ORACLE_EZ','ORACLE_TNS','ORACLE_WALLET','APEX_REST','MSSQL','MYSQL','POSTGRES','DUCKDB'))"); });
+        }).catch(function () { });
     });
 }
 function psLoad() {
@@ -81,6 +91,7 @@ function psLoad() {
         return Promise.all([
             dbRead('SELECT server_id, server_name, protocol, host, port, base_path, api_user, api_token, public_key, key_fingerprint, timezone, poll_seconds, max_parallel, ' +
                 "is_default, active, status, server_version, TO_CHAR(last_heartbeat, 'YYYY-MM-DD HH24:MI:SS') AS last_heartbeat, " +
+                "ROUND((CAST(SYSTIMESTAMP AS DATE) - CAST(last_heartbeat AS DATE)) * 86400) AS hb_secs, " +
                 "TO_CHAR(last_test_date, 'YYYY-MM-DD HH24:MI') AS last_test_date, last_test_msg, notes FROM wms_pipe_servers ORDER BY is_default DESC, UPPER(server_name)", 200),
             dbRead('SELECT conn_id, conn_name, conn_type, server_id, host, port, service_name, database_name, tns_alias, tns_descriptor, wallet_path, rest_url, auth_type, ' +
                 "username, CASE WHEN password_enc IS NOT NULL THEN 'Y' ELSE 'N' END AS has_password, SUBSTR(password_enc, 1, 40) AS pw_head, default_schema, options_json, active, " +
@@ -91,7 +102,7 @@ function psLoad() {
         PS.servers = res[0].map(function (r) {
             return { id: r.SERVER_ID, name: r.SERVER_NAME, protocol: r.PROTOCOL || 'http', host: r.HOST, port: r.PORT, basePath: r.BASE_PATH || '/', apiUser: r.API_USER || '', apiToken: r.API_TOKEN || '',
                 publicKey: r.PUBLIC_KEY || '', fingerprint: r.KEY_FINGERPRINT || '', timezone: r.TIMEZONE || 'UTC', poll: r.POLL_SECONDS, maxParallel: r.MAX_PARALLEL,
-                isDefault: r.IS_DEFAULT === 'Y', active: r.ACTIVE !== 'N', status: r.STATUS, version: r.SERVER_VERSION, heartbeat: r.LAST_HEARTBEAT, testDate: r.LAST_TEST_DATE, testMsg: r.LAST_TEST_MSG, notes: r.NOTES || '' };
+                isDefault: r.IS_DEFAULT === 'Y', active: r.ACTIVE !== 'N', status: r.STATUS, version: r.SERVER_VERSION, heartbeat: r.LAST_HEARTBEAT, hbSecs: r.HB_SECS == null ? null : +r.HB_SECS, testDate: r.LAST_TEST_DATE, testMsg: r.LAST_TEST_MSG, notes: r.NOTES || '' };
         });
         PS.conns = res[1].map(function (r) {
             var opt = {}; try { opt = r.OPTIONS_JSON ? JSON.parse(r.OPTIONS_JSON) : {}; } catch (e) { }
@@ -155,6 +166,7 @@ function psDot(status) { return '<span class="ds-dot ' + (status === 'ONLINE' ||
 function psConnSummary(c) {
     var t = c.type;
     if (t === 'APEX_REST') return c.rest_url || '—';
+    if (t === 'DUCKDB') return c.database_name || '—';
     if (t === 'ORACLE_TNS') return (c.username ? c.username + '@' : '') + (c.tns_alias || 'descriptor');
     if (t === 'ORACLE_WALLET') return (c.username ? c.username + '@' : '') + (c.service_name || '');
     return (c.username ? c.username + '@' : '') + (c.host || '?') + (c.port ? ':' + c.port : '') + '/' + (c.service_name || c.database_name || '');
@@ -306,7 +318,7 @@ function psRenderConn(el, c) {
     var server = psFind('server', n.serverId) || psDefaultServer();
     var canEncrypt = server && server.publicKey;
     var f = function (k) {
-        var def = PS_FIELDS[k], v = n[k];
+        var def = (T.labels && T.labels[k]) || PS_FIELDS[k], v = n[k];
         if (k === 'port') return psIn('pc-port', def[0], v || T.port || '', 'type="number" min="1" max="65535"');
         if (k === 'tns_descriptor') return '<div class="ps-f wide"><label for="pc-tns_descriptor">' + def[0] + '</label><textarea id="pc-tns_descriptor" class="fs-db-sql" style="min-height:54px;" placeholder="' + esc(def[1]) + '">' + esc(v) + '</textarea></div>';
         if (k === 'auth_type') return '<div class="ps-f"><label>' + def[0] + '</label><select id="pc-auth_type">' + ['NONE', 'BASIC', 'BEARER'].map(function (a) { return '<option' + (n.auth_type === a ? ' selected' : '') + '>' + a + '</option>'; }).join('') + '</select></div>';
