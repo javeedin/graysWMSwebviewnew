@@ -14,8 +14,8 @@ namespace WMSApp.PrintManagement
     /// </summary>
     public class FusionPdfDownloader
     {
-        private const string TEST_URL = "https://efmh-test.fa.em3.oraclecloud.com/xmlpserver/services/v2/ReportService";
-        private const string PROD_URL = "https://efmh.fa.em3.oraclecloud.com/xmlpserver/services/v2/ReportService";
+        internal const string TEST_URL = "https://efmh-test.fa.em3.oraclecloud.com/xmlpserver/services/v2/ReportService";
+        internal const string PROD_URL = "https://efmh.fa.em3.oraclecloud.com/xmlpserver/services/v2/ReportService";
         private const string REPORT_PATH = "/Custom/OQ/GR_SalesOrder_Rep.xdo";
 
         private readonly HttpClient _httpClient;

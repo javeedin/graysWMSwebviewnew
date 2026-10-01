@@ -2208,6 +2208,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleDataLoadAction(wv, action, root, requestId);
                                     break;
 
+                                // Order Management module (om/index.html)
+                                case var omAction when IsOrderMgmtAction(omAction):
+                                    await HandleOrderMgmtAction(wv, action, root, requestId);
+                                    break;
+
                                 // Power BI module (powerbi/index.html)
                                 case var fmAction when IsModelAction(fmAction):
                                     await HandleModelAction(wv, action, root, requestId);
