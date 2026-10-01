@@ -75,12 +75,13 @@ function pcRender() {
     var steps = [['Header', !!(h.procurementBU && h.supplierName && h.shipToOrg)], ['Lines', PC.lines.length > 0 && PC.lines.every(function (l) { return l.needBy; })], ['Saved in Fusion', saved && !unsaved], ['Submitted', /PENDING|APPROVED|OPEN/i.test(h.status)]];
     var curStep = steps.findIndex(function (s) { return !s[1]; });
     var inp = function (k, type, ph, extra) { return '<input data-h="' + k + '" type="' + (type || 'text') + '" value="' + esc(h[k]) + '" placeholder="' + esc(ph || '') + '"' + (extra || '') + '>'; };
-    var lab = function (t2, req, html, cls) { return '<label class="' + (cls || '') + '">' + esc(t2) + (req ? ' <b class="r">*</b>' : '') + html + '</label>'; };
+    var lab = function (t2, req, html, cls) { return '<label class="' + (cls || '') + '"><span>' + esc(t2) + (req ? ' <b class="r">*</b>' : '') + '</span>' + html + '</label>'; };
     root.innerHTML =
         '<div class="pu-steps">' + steps.map(function (s, i) { return '<div class="s ' + (s[1] ? 'done' : i === curStep ? 'cur' : '') + '"><span class="n">' + (s[1] ? '<i class="fa-solid fa-check"></i>' : i + 1) + '</span><span><b>' + s[0] + '</b>' + (i === 0 ? 'BU, supplier, ship-to' : i === 1 ? PC.lines.length + ' line(s)' : i === 2 ? (saved ? 'POHeaderId ' + esc(PC.poHeaderId) : 'draftPurchaseOrders') : esc(h.status)) + '</span></div>'; }).join('') + '</div>' +
         '<div class="card pu-head"><i class="fa-solid fa-file-invoice" style="color:var(--accent);font-size:1.3rem"></i><div><div class="muted" style="font-size:.66rem;text-transform:uppercase;letter-spacing:.3px">Purchase order</div>' +
         '<span class="po-no">' + (h.poNumber ? esc(h.poNumber) : '<span class="muted">(number on save)</span>') + '</span></div>' + FX.chip(h.status) + '<span class="chip info">' + esc(h.docType) + '</span>' + (edit ? '<span class="chip warn">Editing from Fusion</span>' : '') +
         '<div class="tot"><div><span>Ordered</span><b data-tot="amt">' + FX.fmt.money(t.amt) + '</b></div><div><span>Tax</span><b data-tot="tax">' + FX.fmt.money(t.tax) + '</b></div><div><span>Total ' + esc(h.currency) + '</span><b data-tot="net">' + FX.fmt.money(t.net) + '</b></div></div></div>' +
+        (edit ? '<div class="note warn"><i class="fa-solid fa-circle-info"></i> Editing draft ' + esc(h.poNumber) + ' from Fusion: <b>Save changes</b> sends the lines only — new lines are added, existing lines get their quantity, price, description and need-by updated. Header fields shown here are not changed in Fusion. Removing saved lines needs DELETE, which the relay does not allow yet.</div>' : '') +
         '<div class="row-btns">' +
         '<button class="btn" data-pc="json-save"><i class="fa-solid fa-download"></i> Save JSON</button><button class="btn" data-pc="json-load"><i class="fa-solid fa-upload"></i> Load JSON</button>' +
         '<button class="btn" data-pc="preview" title="The request(s) that Save will send"><i class="fa-solid fa-code"></i> Request</button>' +
@@ -127,6 +128,7 @@ function pcFillLovs() {
     var h = PC.header;
     var bp = FX.lov('payBUs');
     FX.fillSelect('pc-bu', bp, h.procurementBU, 'Select…').then(function (l) {
+        if (!h.procurementBU && l.length === 1) { h.procurementBU = l[0].v; $('pc-bu').value = h.procurementBU; }
         var b = l.filter(function (x) { return x.v === String(h.procurementBU); })[0];
         PC._buCcy = b && b.ccy || PC._buCcy; PC._buName = b && b.name;
         if (b && !h.currency) { h.currency = b.ccy || ''; var c = $('pc-ccy'); if (c) c.value = h.currency; }
@@ -159,7 +161,7 @@ function pcSites() {
     var h = PC.header;
     FX.fillSelect('pc-site', FX.restAll('suppliers/' + h.supplierId + '/child/sites', { limit: 100, fields: 'SupplierSiteId,SupplierSite,ProcurementBU,InactiveDate' }, 500).then(function (r) {
         return r.filter(function (s) { return !s.InactiveDate || s.InactiveDate > FX.today(); }).map(function (s) { return { v: s.SupplierSite, t: s.SupplierSite + (s.ProcurementBU ? ' · ' + s.ProcurementBU : ''), o: s }; });
-    }), h.supplierSite, '(none)');
+    }), h.supplierSite, '(none)').then(function (l) { if (!h.supplierSite && l.length === 1) { h.supplierSite = l[0].v; var e = $('pc-site'); if (e) e.value = h.supplierSite; } });
 }
 function pcFxBox() {
     var el = $('pc-fx'); if (!el) return;
@@ -186,7 +188,7 @@ function pcChange(e) {
     var t = e.target, h = PC.header;
     if (t.matches('[data-h]')) {
         var k = t.getAttribute('data-h'); h[k] = t.type === 'checkbox' ? t.checked : t.value.trim();
-        if (k === 'currency') { h.currency = h.currency.toUpperCase(); t.value = h.currency; pcLoadFx(); }
+        if (k === 'currency') { h.currency = h.currency.toUpperCase(); PC.fx = null; pcRender(); pcLoadFx(); return; }
         if (k === 'procurementBU') {
             PUR.remember('bu', h.procurementBU); h.requisitioningBU = ''; h.billToBU = ''; h.shipToOrg = ''; h.subinventory = '';
             pcBU().then(function (b) { PC._buCcy = b && b.ccy; PC._buName = b && b.name; if (b && b.ccy) h.currency = b.ccy; pcRender(); pcLoadFx(); });

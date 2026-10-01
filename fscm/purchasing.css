@@ -17,7 +17,7 @@
 .pu-head .po-no { font-size: 1.15rem; font-weight: 700; font-family: var(--mono); }
 .pu-head .tot { margin-left: auto; display: flex; gap: 18px; }
 .pu-head .tot div { text-align: right; }
-.pu-head .tot span { display: block; font-size: .64rem; text-transform: uppercase; color: var(--muted); letter-spacing: .3px; }
+.pu-head .tot > div > span { display: block; font-size: .64rem; text-transform: uppercase; color: var(--muted); letter-spacing: .3px; }
 .pu-head .tot b { font-size: 1.02rem; font-variant-numeric: tabular-nums; }
 .pu-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); padding: 0 10px; overflow-x: auto; }
 .pu-tabs button { border: 0; background: none; padding: 9px 12px; font-size: .78rem; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; display: flex; gap: 6px; align-items: center; }
@@ -67,3 +67,5 @@
 .pu-menu button small { display: block; color: var(--muted); font-family: var(--mono); font-size: .68rem; }
 .kpi.bad b { color: var(--err); } .kpi.good b { color: var(--ok); } .kpi.amber b { color: var(--warn); }
 .kpi small { display: block; color: var(--muted); font-size: .66rem; margin-top: 2px; }
+.pu-sec .form { grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 8px 12px; }
+i.ccy { font-style: normal; color: var(--muted); font-size: .7em; font-weight: 600; margin-left: 2px; text-transform: none; letter-spacing: 0; }

@@ -27,7 +27,7 @@ PUR.n = function (v) { var n = +v; return isNaN(n) ? 0 : n; };
 PUR.sum = function (rows, f) { return rows.reduce(function (s, r) { return s + PUR.n(typeof f === 'function' ? f(r) : r[f]); }, 0); };
 PUR.distinct = function (rows, f) { var m = {}; rows.forEach(function (r) { var v = typeof f === 'function' ? f(r) : r[f]; if (v != null && v !== '') m[v] = 1; }); return Object.keys(m); };
 PUR.first = function (o) { for (var i = 1; i < arguments.length; i++) { var v = o && o[arguments[i]]; if (v != null && v !== '') return v; } return null; };
-PUR.money = function (v, ccy) { return v == null || v === '' ? '—' : FX.fmt.money(v) + (ccy ? ' <span class="muted" style="font-size:.7em">' + esc(ccy) + '</span>' : ''); };
+PUR.money = function (v, ccy) { return v == null || v === '' ? '—' : FX.fmt.money(v) + (ccy ? ' <i class="ccy">' + esc(ccy) + '</i>' : ''); };
 PUR.compact = function (v) { v = PUR.n(v); var a = Math.abs(v); return a >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : a >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (v / 1e3).toFixed(1) + 'k' : FX.fmt.num(v, 2); };
 PUR.stamp = function () { var d = new Date(), p = function (n) { return ('0' + n).slice(-2); }; return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()); };
 PUR.download = function (name, text, type) { var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: type || 'application/json' })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); };
@@ -438,7 +438,7 @@ function purManagePOs(el) {
             { id: 'dop', label: 'Created', type: 'select', value: '>', options: [{ v: '>', t: 'after' }, { v: '>=', t: 'on or after' }, { v: '=', t: 'on' }, { v: '<=', t: 'on or before' }, { v: '<', t: 'before' }] },
             { id: 'cd', label: 'Creation date', type: 'date', value: p.po || p.supplier ? '' : FX.daysAgo(2), q: function (v, g2) { return g2.val('num') ? null : 'CreationDate' + (g2.val('dop') || '>') + v; } }
         ],
-        validate: function (g2) { return g2.val('bu') ? null : 'Procurement Business Unit is mandatory'; },
+        validate: function (g2) { if (!g2.val('bu')) return 'Procurement Business Unit is mandatory'; PUR.remember('bu', g2.val('bu')); return null; },
         columns: [
             { label: 'Created', f: 'CreationDate', fmt: 'date' },
             { label: 'Order', f: 'OrderNumber', html: function (r) { return '<b class="mono">' + esc(r.OrderNumber) + '</b>'; } },

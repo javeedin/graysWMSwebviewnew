@@ -28,6 +28,7 @@ FX.fmt = {
 };
 FX.statusCls = function (s) {
     s = String(s || '').toUpperCase();
+    if (/INCOMPLETE|NOT[ _]/.test(s)) return 'warn';
     if (/CANCEL|REJECT|ERROR|FAIL|CLOSED_FOR|HOLD|BLOCK|INACTIVE|EXPIRED|SHORT/.test(s)) return 'err';
     if (/CLOSED|COMPLETE|SHIPPED|RECEIVED|BILLED|FULFILLED|INTERFACED|SUCCE|PROCESSED|DELIVERED|CONFIRMED|ACTIVE|APPROVED$|OPEN$|YES/.test(s)) return 'ok';
     if (/PENDING|DRAFT|AWAIT|INCOMPLETE|IN_PROCESS|PROCESSING|WAIT|PARTIAL|BACK|NEW|RUNNING|STAGED/.test(s)) return 'warn';
@@ -291,7 +292,7 @@ FX.grid = function (el, cfg) {
         var inp = $(fid(f)); if (inp && inp.tagName === 'INPUT') inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') g.search(); });
     });
     el.addEventListener('click', function (e) {
-        var b = e.target.closest('[data-g]');
+        var b = e.target.closest('[data-g="search"],[data-g="more"],[data-g="csv"],[data-g="call"]');
         if (b) {
             var k = b.getAttribute('data-g');
             if (k === 'search') g.search(); else if (k === 'more') g.load(true); else if (k === 'csv') FX.csv(g.visible(), cfg.columns, cfg.csvName || cfg.resource || 'export');
@@ -405,7 +406,7 @@ FX.facts = function (r, fields) { return fields.map(function (f) { var v = typeo
 /** fields: [{id, label, type: text|number|date|select|lov|textarea, req, value, options, lov, wide, ph}] → html; read with FX.formVals(prefix) */
 FX.form = function (prefix, fields) {
     return '<div class="form">' + fields.map(function (f) {
-        var id = prefix + f.id, v = f.value == null ? '' : f.value, lab = esc(f.label) + (f.req ? ' <b class="r">*</b>' : '');
+        var id = prefix + f.id, v = f.value == null ? '' : f.value, lab = '<span>' + esc(f.label) + (f.req ? ' <b class="r">*</b>' : '') + '</span>';
         if (f.type === 'select') return '<label class="' + (f.wide ? 'wide' : '') + '">' + lab + '<select id="' + id + '">' + (f.options || []).map(function (o) { o = typeof o === 'string' ? { v: o, t: o } : o; return '<option value="' + esc(o.v) + '"' + (o.v === v ? ' selected' : '') + '>' + esc(o.t) + '</option>'; }).join('') + '</select></label>';
         if (f.type === 'lov') return '<label class="' + (f.wide ? 'wide' : '') + '">' + lab + '<select id="' + id + '" data-lov="' + esc(f.lov || '') + '"></select></label>';
         if (f.type === 'textarea') return '<label class="wide">' + lab + '<textarea id="' + id + '" rows="' + (f.rows || 3) + '" placeholder="' + esc(f.ph || '') + '">' + esc(v) + '</textarea></label>';

@@ -225,6 +225,7 @@ FOM.tabs = function (el, tabs, opts) {
         var t = tabs.filter(function (x) { return x.id === id; })[0] || tabs[0]; api.cur = t.id;
         Array.prototype.forEach.call(bar.children, function (b) { b.classList.toggle('on', b.getAttribute('data-ft') === t.id); });
         Object.keys(panes).forEach(function (k) { panes[k].hidden = k !== t.id; });
+        if (panes[t.id] && t.fresh) { panes[t.id].remove(); delete panes[t.id]; }
         if (!panes[t.id]) { var p = document.createElement('div'); p.className = 'fom-pane'; body.appendChild(p); panes[t.id] = p; t.render(p, function () { api.reload(t.id); }); }
         if (opts.onShow) opts.onShow(t.id);
     };

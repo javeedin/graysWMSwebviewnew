@@ -149,7 +149,7 @@ function sbByCcy() {
     SB.pay.forEach(function (p) { var c = p.ccy || '—'; m[c] = m[c] || { ccy: c, n: 0, amount: 0, paid: 0, remaining: 0, pays: 0, payN: 0 }; if (!/VOID/i.test(p.status || '')) { m[c].pays += p.amount; m[c].payN++; } });
     return Object.keys(m).map(function (k) { return m[k]; }).sort(function (a, b) { return b.amount - a.amount; });
 }
-function sbBal(v, ccy) { if (v < 0) return '<span style="color:var(--warn)">(' + FX.fmt.money(-v) + ') credit</span>'; return '<span style="color:' + (v > 0 ? 'var(--err)' : 'var(--ok)') + '">' + FX.fmt.money(v) + '</span>' + (ccy ? ' <span class="muted" style="font-size:.7em">' + esc(ccy) + '</span>' : ''); }
+function sbBal(v, ccy) { if (v < 0) return '<span style="color:var(--warn)">(' + FX.fmt.money(-v) + ') credit</span>'; return '<span style="color:' + (v > 0 ? 'var(--err)' : 'var(--ok)') + '">' + FX.fmt.money(v) + '</span>' + (ccy ? ' <i class="ccy">' + esc(ccy) + '</i>' : ''); }
 function sbDraw() {
     var s = SB.sup, cc = sbByCcy();
     $('sb-out').innerHTML = '<div class="card pu-head"><i class="fa-solid fa-building" style="font-size:1.4rem;color:var(--accent)"></i><div><div style="font-weight:700;font-size:1.05rem">' + esc(s.Supplier || s.SupplierNumber) + '</div><div class="row-btns" style="margin-top:3px"><span class="chip">' + esc(s.SupplierNumber) + '</span>' + FX.chip(s.Status || 'Active') + (s.SupplierType ? '<span class="chip info">' + esc(s.SupplierType) + '</span>' : '') +
