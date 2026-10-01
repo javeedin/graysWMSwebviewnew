@@ -31,18 +31,22 @@ if (-not (Find-Claude)) {
     try { Invoke-RestMethod https://claude.ai/install.ps1 | Invoke-Expression }
     catch { Write-Host ('  The installer could not run: ' + $_) -ForegroundColor Yellow }
 }
+# Always make sure the native installer's folder is on the PATH (it sometimes is not:
+# ""Native installation exists but ...\.local\bin is not in your PATH"")
+$bin = ""$env:USERPROFILE\.local\bin""
+if (Test-Path $bin) {
+    $userPath = [Environment]::GetEnvironmentVariable(""Path"", ""User"")
+    if (-not (($userPath -split ';') -contains $bin)) {
+        [Environment]::SetEnvironmentVariable(""Path"", (($userPath + "";$bin"").TrimStart(';')), ""User"")
+        Write-Host ""  Added $bin to your PATH."" -ForegroundColor DarkGray
+    }
+    if (-not (($env:Path -split ';') -contains $bin)) { $env:Path += "";$bin"" }
+}
 if (-not (Find-Claude) -and (Get-Command npm -ErrorAction SilentlyContinue)) {
     Write-Host '  Trying npm (Node.js is installed) ...' -ForegroundColor Cyan
     npm install -g @anthropic-ai/claude-code
 }
 if (Find-Claude) {
-    # the native installer does not always put %USERPROFILE%\.local\bin on the user PATH - add it so claude works everywhere
-    $bin = Join-Path $env:USERPROFILE '.local\bin'
-    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-    if ((Test-Path (Join-Path $bin 'claude.exe')) -and -not (($userPath -split ';') -contains $bin)) {
-        [Environment]::SetEnvironmentVariable('Path', ($userPath.TrimEnd(';') + ';' + $bin).TrimStart(';'), 'User')
-        Write-Host ('  Added ' + $bin + ' to your PATH.') -ForegroundColor DarkGray
-    }
     Write-Host ''
     claude --version
     Write-Host ''
