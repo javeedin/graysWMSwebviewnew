@@ -232,6 +232,11 @@
                 <span>Shipping Agents</span>
                 <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('shipping-agents')" title="Open in new window"></i>
             </div>
+            <div class="menu-item" data-page="mra-interface">
+                <i class="fas fa-file-invoice"></i>
+                <span>MRA Interface</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('mra-interface')" title="Open in new window"></i>
+            </div>
             <div class="menu-item" data-page="printer-setup-new">
                 <i class="fas fa-print"></i>
                 <span>Printer Setups</span>
@@ -266,6 +271,7 @@
         
         <main class="main-content" id="main-content">
             <div id="daily-history" class="page-content" style="display: none;"></div>
+            <div id="mra-interface" class="page-content" style="display: none;"></div>
             <div id="trip-management" class="page-content">
                 <div class="parameters-section">
                     <div class="parameters-header" id="parameters-toggle">
@@ -8571,6 +8577,7 @@
         document.write('<script src="trip-move.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="mra-processor.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="shipping-agent.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="mra-interface.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 
     <!-- Login Session Handler -->

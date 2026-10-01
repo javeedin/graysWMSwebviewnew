@@ -2030,7 +2030,7 @@
         const base = 'display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:10px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;';
         if (err) return `<span onclick="saMraToggleFlag(this)" title="Could not read ${SA_MRA_CFG}: ${esc(err)} — click to retry" style="${base}background:#fee2e2;color:#b91c1c;"><i class="fas fa-exclamation-triangle"></i> MRA: ?</span>`;
         if (!f) return `<span style="${base}background:#f1f5f9;color:#94a3b8;cursor:default;"><i class="fas fa-spinner fa-spin"></i> MRA</span>`;
-        const tip = `MRA interface on Print Trip: ${f.flag === 'Y' ? 'YES' : 'NO'}` + (f.by ? ` — set by ${f.by} ${f.at}` : '') + ' — click to change';
+        const tip = `MRA interface on Print Trip: ${f.flag === 'Y' ? 'YES' : 'NO'}` + (f.by ? ` — set by ${f.by} ${f.at}` : '') + ' — click to open MRA Interface';
         return f.flag === 'Y'
             ? `<span onclick="saMraToggleFlag(this)" title="${esc(tip)}" style="${base}background:#dcfce7;color:#15803d;border:1px solid #86efac;"><i class="fas fa-flag"></i> MRA: Yes</span>`
             : `<span onclick="saMraToggleFlag(this)" title="${esc(tip)}" style="${base}background:#fef08a;color:#dc2626;border:1px solid #facc15;"><i class="fas fa-flag"></i> MRA: No</span>`;
@@ -2046,7 +2046,14 @@
             slots.forEach(el => { el.innerHTML = saMraFlagChip(null, e.message); });
         }
     }
+    window.saMraRefreshFlags = () => saMraPaintFlags(true);
+    // The chip opens WMS › MRA Interface (switch with a reason + change history); the confirm toggle
+    // below is only the fallback when that page is not in this window.
     window.saMraToggleFlag = async function(el) {
+        if (typeof window.navigateToPage === 'function' && window.MraInterface && document.querySelector('.menu-item[data-page="mra-interface"]')) {
+            window.navigateToPage('mra-interface');
+            return;
+        }
         const slot = el.closest('.sa-mra-flag'); if (!slot) return;
         const inst = slot.dataset.inst || 'PROD';
         let cur;

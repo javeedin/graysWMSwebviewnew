@@ -2184,6 +2184,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // Page-specific initialization
         if (pageId === 'daily-history') {
             if (window.DailyHistory) DailyHistory.onShow();
+        } else if (pageId === 'mra-interface') {
+            if (window.MraInterface) MraInterface.onShow();
         } else if (pageId === 'vehicles' && currentFullData.length > 0) {
             initVehiclesPage();
         } else if (pageId === 'monitor-printing') {
