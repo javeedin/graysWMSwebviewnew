@@ -338,6 +338,9 @@
         <button onclick="openEmailSettings(false)" title="Email settings (Office 365 sender account)"
             style="background:rgba(255,255,255,0.15);border:none;border-radius:8px;color:white;padding:4px 11px;font-size:12px;cursor:pointer;">
             <i class="fas fa-envelope"></i></button>
+        <button onclick="openCliInstall()" id="cli-setup-btn" title="Install, repair, check or sign in to the Claude CLI on this PC"
+            style="background:rgba(255,255,255,0.95);border:none;border-radius:8px;color:#5b21b6;padding:4px 11px;font-size:12px;font-weight:700;cursor:pointer;">
+            <i class="fas fa-terminal"></i> Claude CLI setup</button>
         <div class="cli-chip" id="cli-chip"><span class="dot"></span><span id="cli-chip-text">Checking Claude CLI…</span></div>
     </div>
 
@@ -2062,6 +2065,7 @@ function openEngineSettings() {
                     <span>
                         <span style="font-size:12.5px;font-weight:700;color:#1e293b;">Claude CLI (subscription)</span>
                         <span style="display:block;font-size:10.5px;color:#64748b;margin-top:2px;">Uses the Claude Code CLI installed and logged in on this PC. Flat subscription billing. Best for the developer PC.</span>
+                        <button type="button" onclick="event.preventDefault();document.getElementById('eng-modal').remove();openCliInstall()" style="margin-top:6px;padding:3px 10px;border:1px solid #7c3aed;border-radius:6px;background:#fff;color:#7c3aed;font-size:11px;font-weight:700;cursor:pointer;"><i class="fas fa-terminal"></i> Install / repair / check Claude CLI…</button>
                     </span>
                 </label>
                 <label style="display:flex;gap:10px;align-items:flex-start;border:1.5px solid ${cur.mode === 'api' ? '#7c3aed' : '#e2e8f0'};border-radius:10px;padding:0.7rem 0.9rem;cursor:pointer;">
