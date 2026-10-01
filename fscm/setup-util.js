@@ -90,7 +90,7 @@ SU.seg = function (opts, on, attr) { return '<div class="seg">' + opts.map(funct
 
 // ── client-side paged table ───────────────────────────────────
 /** cfg: { columns:[{k, label, n, mono, w, get(r), html(r, v), title}], rows, pageSize (25), sizes, quick (bool), quickPh,
-           filter(r) (extra predicate), sort:{k, d}, rowCls(r), onRow(r), empty, foot(rows) → <tr> html, toolbar (html), onRender(t) } */
+           filter(r) (extra predicate), rowsFilter(rows) → rows, sort:{k, d}, rowCls(r), onRow(r), empty, foot(rows) → <tr> html, toolbar (html), onRender(t) } */
 SU.table = function (el, cfg) {
     var t = { cfg: cfg, rows: cfg.rows || [], page: 0, size: cfg.pageSize || 25, quick: '', sort: cfg.sort || null };
     var sizes = cfg.sizes || [25, 50, 100, 200, 500];
@@ -101,6 +101,7 @@ SU.table = function (el, cfg) {
     var get = function (c, r) { return c.get ? c.get(r) : r[c.k]; };
     t.view = function () {
         var rows = t.rows;
+        if (cfg.rowsFilter) rows = cfg.rowsFilter(rows);
         if (cfg.filter) rows = rows.filter(cfg.filter);
         if (t.quick) rows = rows.filter(function (r) { return cfg.columns.some(function (c) { var v = get(c, r); return v != null && String(v).toLowerCase().indexOf(t.quick) >= 0; }); });
         if (t.sort) {

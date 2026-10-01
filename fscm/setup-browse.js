@@ -233,7 +233,7 @@ SetBrowse.drawCoverage = function (body) {
     ].concat(c.withData.map(function (s) {
         var n = SetBrowse.res[s.key].bus.length;
         return { k: 'svc_' + s.key, label: s.label, title: s.label + ' (' + s.resource + ') — ' + n + ' BUs', th: '<span class="su-vh">' + esc(SU.trunc(s.label, 14)) + '</span><span class="su-cnt">✓ ' + n + '</span>', thCls: 'su-mx-h', cls: 'su-mx',
-            get: function (r) { return r.cells[s.key] ? 1 : 0; }, html: function (r) { return r.cells[s.key] ? '<i class="fa-solid fa-check su-yes"></i>' : '<span class="su-no">·</span>'; } };
+            get: function (r) { return r.cells[s.key] ? 1 : 0; }, html: function (r) { return r.cells[s.key] ? '<b class="su-yes">✓</b>' : '<span class="su-no">·</span>'; } };
     }));
     SU.table($('sb-matrix'), { rows: c.rows, columns: cols, pageSize: 50, quickPh: 'Search business unit…', sort: { k: 'serviceCount', d: -1 }, empty: 'No business units were found in the returned rows.',
         toolbar: '<span class="chip info">' + c.rows.length + ' BUs</span><span class="chip">' + nW + ' services with data</span>' });
@@ -287,7 +287,8 @@ SetBrowse.drawApiOut = function () {
     var j = r.json, txt = j ? JSON.stringify(j, null, 2) : r.body;
     var rowsInfo = j && Array.isArray(j.items) ? '<span class="chip info">' + j.items.length + ' rows' + (j.totalResults != null ? ' of ' + SU.num(j.totalResults) : j.hasMore ? ' (more available)' : '') + '</span>' : '';
     $('sb-out').innerHTML = '<div class="su-row" style="margin-top:10px"><span class="chip ' + (r.ok ? 'ok' : 'err') + '">' + (r.ok ? 'OK' : 'FAILED') + ' · HTTP ' + r.status + '</span>' + rowsInfo + '<span class="muted">' + r.ms + ' ms</span>' +
-        '<code class="su-code grow">' + esc(a.url) + '</code><button class="btn sm" id="sb-cu"><i class="fa-regular fa-copy"></i> URL</button>' + (j && Array.isArray(j.items) && j.items.length ? '<button class="btn sm" id="sb-csv"><i class="fa-solid fa-file-csv"></i> CSV</button>' : '') + '</div>' +
+        '<span class="grow"></span><button class="btn sm" id="sb-cu"><i class="fa-regular fa-copy"></i> URL</button>' + (j && Array.isArray(j.items) && j.items.length ? '<button class="btn sm" id="sb-csv"><i class="fa-solid fa-file-csv"></i> CSV</button>' : '') + '</div>' +
+        '<div class="su-url" style="margin-top:6px"><span>GET</span><code>' + esc(a.url) + '</code></div>' +
         '<pre class="json" style="margin-top:8px;max-height:46vh">' + esc(txt.length > 20000 ? txt.slice(0, 20000) + '\n… (truncated at 20,000 characters)' : txt) + '</pre>';
     $('sb-cu').onclick = function () { SU.copy(a.url); };
     if ($('sb-csv')) $('sb-csv').onclick = function () {
