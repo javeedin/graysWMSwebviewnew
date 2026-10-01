@@ -235,6 +235,11 @@ namespace WMSApp.MRA
         public string ErrorDetails { get; set; }
         /// <summary>True when the order was deliberately not sent (order type INTERFACE_FLAG = N / not in MRA_ORDER_TYPES).</summary>
         public bool Skipped { get; set; }
+        /// <summary>"TIMEOUT" (sent, no answer in time - MRA may have created it) or "UNREACHABLE" (never got through); null otherwise.
+        /// Batches stop sending after two gateway problems in a row.</summary>
+        public string GatewayProblem { get; set; }
+        /// <summary>Seconds per step, e.g. "fusion reports 4.2s, mra gateway 1.3s, fusion update 0.8s".</summary>
+        public string Timings { get; set; }
     }
 
     public enum MRAProcessingStep

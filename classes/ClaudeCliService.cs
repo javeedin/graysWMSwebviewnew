@@ -284,7 +284,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 8;          // research rounds (sql / fusion / ords) per turn
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-MODEL-V58";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-MODEL-V59";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string LOCAL_JOBS_CREATE_URL =
@@ -926,7 +926,8 @@ RUNNING IT FROM CHAT (action mra_interface) - when the user asks to interface / 
 2. Send ONE action with all of them (max 50):
    { "action": "mra_interface", "orders": ["418978","419001"], "tripId": "8121", "instance": "PROD|TEST", "reason": "one line" }
    The app ALWAYS shows an approval card listing every order - nothing is sent before the user approves. The app itself skips already-interfaced orders and order types with MRA_ORDER_TYPES.INTERFACE_FLAG = N; do not pre-filter.
-3. You receive MRA_RESULT: {success, instance, tripId, summary:{total, interfaced, alreadyDone, notRequired, failed}, results:[{order, status: INTERFACED|ALREADY_DONE|NOT_REQUIRED|FAILED, irn, headerId, step, message}]} or USER_REJECTED.
+3. You receive MRA_RESULT: {success, instance, tripId, summary:{total, interfaced, alreadyDone, notRequired, failed, notSent}, stoppedEarly, results:[{order, status: INTERFACED|ALREADY_DONE|NOT_REQUIRED|FAILED|NOT_SENT, irn, headerId, step, message, timings}]} or USER_REJECTED.
+   NOT_SENT = the batch stopped after the MRA gateway timed out / was unreachable for 2 orders in a row (stoppedEarly says why); nothing was sent for those orders, so they are safe to retry once the gateway answers. timings = seconds per step (e.g. "check report 3.1s, summary report 0.0s, order type check 0.4s, details report 0.0s, mra gateway 60.0s") - use it to say where the time went.
    Answer with a status table per order (Order | Status | IRN | Step | Reason), the totals, and for each FAILED order the fix in plain words (TROUBLESHOOTING below - e.g. lines not shipped). Never re-send failed orders on your own; offer to retry once the cause is fixed.
 Users can also run it from WMS: Trip Print / SO Trip Print "MRA Interface", Trip Details MRA button, or Shipping Agent "Print Trip" (MRA first, then prints).
 
@@ -954,6 +955,7 @@ THE STEPS (per order; any failure stops the order, currentStep tells where)
 TROUBLESHOOTING
 - "already done": step 1 found MRA_TRX_NO - nothing to do; show the value if asked.
 - Report failures ("Failed to check MRA status / fetch order summary / details: ...") come from the BIP SOAP call (FusionReportRunner, /xmlpserver/services/v2/ReportService runReport) - usually credentials, the report path, or the order number/org params; the Logs tab shows the XDO request and returned XML.
+- SLOW / TIMEOUTS: the three Fusion reports run at the same time (a few seconds per order); the MRA gateway call has a 60 s limit. "No reply from the MRA gateway within 60 s" = the request WAS sent and MRA may have created the invoice (check MRA_TRX_NO / the MRA logs before resending; step 1 skips orders MRA already has). "Could not reach the MRA gateway" = nothing was sent, safe to retry. Long runs come from a slow or down gateway (mra.busi.in), not from the app.
 - MRA rejection: step 5 succeeds only when MRA answers HTTP 2xx WITH a ResponseId (the IRN); otherwise the order fails with "Failed to create MRA invoice: MRA did not return an IRN (HTTP n): <MRA's reply>" and nothing is written to Fusion. Explain MRA's reply (e.g. a missing TAN/BRN, bad tax code) and what to correct.
 - Order amounts are sent as absolute values; a return order becomes a credit note only because ORDER_AMOUNT is negative.
 - Credentials: the app's Fusion service account (fetched by the page); instance PROD = efmh.fa.em3.oraclecloud.com, TEST = efmh-test.fa.em3.oraclecloud.com.

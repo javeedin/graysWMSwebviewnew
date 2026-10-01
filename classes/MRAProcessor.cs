@@ -4,6 +4,7 @@ using System.Data;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 
@@ -18,6 +19,11 @@ namespace WMSApp.MRA
         private readonly string _fusionPassword;
         private readonly string _instance;
         private readonly string _mraApiUrl;
+
+        // The MRA gateway answers in a few seconds when healthy. HttpClient's default (100 s) made every hung
+        // call cost 100 s; one shared client also reuses the connection between orders.
+        public const int MRA_GATEWAY_TIMEOUT_SECONDS = 60;
+        private static readonly HttpClient MraHttp = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
 
         // Report paths
         private const string MRA_CHECK_REPORT = "/Custom/DEXPRESS/ORDER MANAGEMENT/POS_RERPOTS/MRA_TRX_NO_CHECK_BIP.xdo";
@@ -60,14 +66,23 @@ namespace WMSApp.MRA
                 OrderNumber = orderNumber,
                 CurrentStep = MRAProcessingStep.Initial
             };
+            var timings = new List<string>();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            void Mark(string step) { timings.Add($"{step} {sw.Elapsed.TotalSeconds:0.0}s"); sw.Restart(); result.Timings = string.Join(", ", timings); }
+            Task<DataSet> summaryTask = null, detailsTask = null;
 
             try
             {
-                // Step 1: Check if already interfaced to MRA
+                // Step 1: Check if already interfaced to MRA. The three Fusion reports (check, summary, details) are
+                // independent, so they run at the same time instead of one after the other.
                 progressCallback?.Invoke("Checking if order is already interfaced to MRA...", MRAProcessingStep.CheckingMRAStatus);
                 result.CurrentStep = MRAProcessingStep.CheckingMRAStatus;
 
-                var mraCheck = await CheckMRAInterfaceStatusAsync(orderNumber, logCallback);
+                var checkTask = CheckMRAInterfaceStatusAsync(orderNumber, logCallback);
+                summaryTask = FetchOrderSummaryAsync(orderNumber, logCallback);
+                detailsTask = FetchOrderDetailsAsync(orderNumber, logCallback);
+                var mraCheck = await checkTask;
+                Mark("check report");
                 if (mraCheck.IsInterfaced)
                 {
                     result.Success = false;
@@ -80,7 +95,8 @@ namespace WMSApp.MRA
                 progressCallback?.Invoke("Fetching order summary from Fusion...", MRAProcessingStep.FetchingOrderSummary);
                 result.CurrentStep = MRAProcessingStep.FetchingOrderSummary;
 
-                var orderSummary = await FetchOrderSummaryAsync(orderNumber, logCallback);
+                var orderSummary = await summaryTask;
+                Mark("summary report");
                 if (orderSummary == null || orderSummary.Tables.Count < 2 || orderSummary.Tables[1].Rows.Count == 0)
                 {
                     logCallback?.Invoke(
@@ -100,6 +116,7 @@ namespace WMSApp.MRA
                     ? orderSummary.Tables[1].Rows[0]["ORDER_TYPE_CODE"]?.ToString()?.Trim() ?? ""
                     : "";
                 var typeCheck = await CheckOrderTypeAsync(orderTypeCode, logCallback);
+                Mark("order type check");
                 if (!typeCheck.Allowed)
                 {
                     result.Success = false;
@@ -113,7 +130,8 @@ namespace WMSApp.MRA
                 progressCallback?.Invoke("Fetching order line details from Fusion...", MRAProcessingStep.FetchingOrderDetails);
                 result.CurrentStep = MRAProcessingStep.FetchingOrderDetails;
 
-                var orderDetails = await FetchOrderDetailsAsync(orderNumber, logCallback);
+                var orderDetails = await detailsTask;
+                Mark("details report");
                 if (orderDetails == null || orderDetails.Tables.Count < 2 || orderDetails.Tables[1].Rows.Count == 0)
                 {
                     int tblCount = orderDetails?.Tables.Count ?? 0;
@@ -162,8 +180,10 @@ namespace WMSApp.MRA
                 result.CurrentStep = MRAProcessingStep.CreatingMRAInvoice;
 
                 var invoiceResult = await CreateMRAInvoiceAsync(orderSummary.Tables[1], orderDetails.Tables[1], mraRequestCallback, mraResponseCallback);
+                Mark("mra gateway");
                 if (!invoiceResult.Success)
                 {
+                    result.GatewayProblem = invoiceResult.GatewayProblem;
                     result.Success = false;
                     result.Message = $"Failed to create MRA invoice: {invoiceResult.ErrorMessage}";
                     result.CurrentStep = MRAProcessingStep.Failed;
@@ -179,6 +199,7 @@ namespace WMSApp.MRA
                 result.CurrentStep = MRAProcessingStep.UpdatingFusionOrder;
 
                 var updateResult = await UpdateFusionOrderAsync(result.HeaderId, result.IrnCode);
+                Mark("fusion update");
                 if (!updateResult.Success)
                 {
                     result.Success = false;
@@ -201,6 +222,14 @@ namespace WMSApp.MRA
                 result.ErrorDetails = ex.StackTrace;
                 result.CurrentStep = MRAProcessingStep.Failed;
                 return result;
+            }
+            finally
+            {
+                // A report started early but not awaited (order stopped before it) must not raise an unobserved exception
+                foreach (var t in new[] { summaryTask, detailsTask })
+                    if (t != null && !t.IsCompleted) _ = t.ContinueWith(x => { _ = x.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+                    else if (t != null && t.IsFaulted) _ = t.Exception;
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] {orderNumber} timings: {result.Timings}");
             }
         }
 
@@ -691,12 +720,38 @@ namespace WMSApp.MRA
                     System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Error sending MRA request data: {ex.Message}");
                 }
 
-                // Send to MRA API
-                using (HttpClient client = new HttpClient())
+                // Send to MRA API (shared client, own time limit)
                 {
                     var content = new StringContent(jsonData, Encoding.UTF8, "application/json");
-                    HttpResponseMessage response = await client.PostAsync(_mraApiUrl, content);
-                    string responseBody = await response.Content.ReadAsStringAsync();
+                    HttpResponseMessage response;
+                    string responseBody;
+                    using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(MRA_GATEWAY_TIMEOUT_SECONDS)))
+                    {
+                        try
+                        {
+                            response = await MraHttp.PostAsync(_mraApiUrl, content, cts.Token);
+                            responseBody = await response.Content.ReadAsStringAsync(cts.Token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return new MRAInvoiceCreationResult
+                            {
+                                Success = false,
+                                GatewayProblem = "TIMEOUT",
+                                ErrorMessage = $"No reply from the MRA gateway within {MRA_GATEWAY_TIMEOUT_SECONDS} s ({_mraApiUrl}). " +
+                                    "The request was sent, so MRA may still have created the invoice - check before resending."
+                            };
+                        }
+                        catch (HttpRequestException hex)
+                        {
+                            return new MRAInvoiceCreationResult
+                            {
+                                Success = false,
+                                GatewayProblem = "UNREACHABLE",
+                                ErrorMessage = $"Could not reach the MRA gateway ({_mraApiUrl}): {hex.Message}. Nothing was sent to MRA."
+                            };
+                        }
+                    }
 
                     System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA API Response: {responseBody}");
 
@@ -865,6 +920,7 @@ namespace WMSApp.MRA
     public class MRAInvoiceCreationResult
     {
         public bool Success { get; set; }
+        public string GatewayProblem { get; set; }
         public string IrnCode { get; set; }
         public string QrCodeBase64 { get; set; }
         public string RawResponse { get; set; }

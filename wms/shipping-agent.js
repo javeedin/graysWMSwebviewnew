@@ -2092,10 +2092,11 @@
                 if (!data || data.requestId !== requestId) return;
                 if (data.action === 'error') { done({ st: 'FAILED', msg: data.message || 'MRA processing error' }); return; }
                 if (data.action !== 'processMRAInterfaceResponse') return;
+                if (data.timings) console.log(`[ShippingAgent] MRA ${orderNumber} timings: ${data.timings}`);
                 if (data.success) done({ st: 'DONE', irn: data.irnCode || '', msg: data.message || '' });
                 else if (data.skipped) done({ st: 'SKIPPED', msg: data.message || 'Order type not interfaced to MRA' });
                 else if (/already done/i.test(data.message || '')) done({ st: 'ALREADY', msg: data.message });
-                else done({ st: 'FAILED', msg: data.message || 'MRA interface failed', step: data.currentStep });
+                else done({ st: 'FAILED', msg: data.message || 'MRA interface failed', step: data.currentStep, gw: data.gatewayProblem || null });
             };
             function done(r) { clearTimeout(timer); window.chrome.webview.removeEventListener('message', handler); resolve(r); }
             window.chrome.webview.addEventListener('message', handler);
@@ -2166,16 +2167,20 @@
         }
         const mra = { DONE: 0, ALREADY: 0, SKIPPED: 0, FAILED: 0 };
         const toPrint = mraOn ? [] : printable.slice();
+        let gwStreak = 0, gwStop = null;   // two MRA gateway timeouts / connection errors in a row = gateway down: stop sending
         for (let i = 0; mraOn && i < printable.length; i++) {
             const o = printable[i];
             const prev = ((window._saMra[tripId] || {})[o.orderNumber]) || null;
             let r;
             if (prev && (prev.st === 'DONE' || prev.st === 'ALREADY' || prev.st === 'SKIPPED')) r = prev;   // this session already settled it
+            else if (gwStop) { r = { st: 'FAILED', msg: 'Not sent: ' + gwStop }; saMraSet(tripId, o.orderNumber, r); }
             else {
                 setBtn(`<i class="fas fa-spinner fa-spin"></i> MRA ${i + 1}/${printable.length}`, true);
                 saMraSet(tripId, o.orderNumber, { st: 'RUNNING' });
                 r = await saMraInterfaceOrder(o.orderNumber, instanceName, creds);
                 saMraSet(tripId, o.orderNumber, r);
+                if (r.gw) gwStreak++; else if (r.st === 'DONE' || r.step === 'CreatingMRAInvoice') gwStreak = 0;
+                if (gwStreak >= 2) gwStop = `the MRA gateway did not answer for ${gwStreak} orders in a row — stopped sending; nothing was sent for this order. Print Trip again when MRA answers.`;
             }
             mra[r.st] = (mra[r.st] || 0) + 1;
             if (r.st !== 'FAILED') toPrint.push(o);

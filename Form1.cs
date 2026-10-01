@@ -4868,7 +4868,9 @@ navPanel.Controls.Add(wmsDevButton);
                         headerId = result.HeaderId,
                         currentStep = result.CurrentStep.ToString(),
                         errorDetails = result.ErrorDetails,
-                        skipped = result.Skipped
+                        skipped = result.Skipped,
+                        gatewayProblem = result.GatewayProblem,
+                        timings = result.Timings
                     };
 
                     string responseJson = JsonSerializer.Serialize(response);

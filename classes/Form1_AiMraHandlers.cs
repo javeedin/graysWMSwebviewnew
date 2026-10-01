@@ -70,11 +70,21 @@ namespace WMSApp
                     else
                     {
                         var results = new List<object>();
-                        int interfaced = 0, already = 0, notRequired = 0, failed = 0;
+                        int interfaced = 0, already = 0, notRequired = 0, failed = 0, notSent = 0, gatewayStreak = 0;
+                        string gatewayStop = null;
                         for (int i = 0; i < orders.Count; i++)
                         {
                             string order = orders[i];
                             string prefix = $"MRA {i + 1}/{orders.Count} · order {order}: ";
+                            // Two gateway problems in a row = MRA gateway is down: stop sending instead of waiting
+                            // the full time limit for every remaining order (nothing is sent for these, safe to retry).
+                            if (gatewayStop != null)
+                            {
+                                notSent++;
+                                results.Add(new { order, status = "NOT_SENT", irn = (string)null, headerId = (string)null, step = "CreatingMRAInvoice",
+                                    message = "Not sent: " + gatewayStop, details = (string)null, timings = (string)null });
+                                continue;
+                            }
                             await onEvent(new { action = "aiChatEvent", eventType = "status", text = prefix + "starting…" });
                             WMSApp.MRA.MRAProcessingResult r;
                             try
@@ -93,6 +103,11 @@ namespace WMSApp
                                 : (r.Message ?? "").IndexOf("already done", StringComparison.OrdinalIgnoreCase) >= 0 ? "ALREADY_DONE"
                                 : "FAILED";
                             if (status == "INTERFACED") interfaced++; else if (status == "ALREADY_DONE") already++; else if (status == "NOT_REQUIRED") notRequired++; else failed++;
+                            // the streak counts gateway problems; it resets only when the gateway really answered (IRN or a rejection)
+                            if (!string.IsNullOrEmpty(r.GatewayProblem)) gatewayStreak++;
+                            else if (r.Success || r.CurrentStep == WMSApp.MRA.MRAProcessingStep.CreatingMRAInvoice) gatewayStreak = 0;
+                            if (gatewayStreak >= 2)
+                                gatewayStop = $"the MRA gateway failed for {gatewayStreak} orders in a row (last: {r.GatewayProblem}) - the batch stopped sending to save time. Retry these when the gateway answers again.";
                             results.Add(new
                             {
                                 order,
@@ -101,7 +116,8 @@ namespace WMSApp
                                 headerId = r.HeaderId,
                                 step = r.CurrentStep.ToString(),
                                 message = r.Message,
-                                details = string.IsNullOrEmpty(r.ErrorDetails) ? null : (r.ErrorDetails.Length > 300 ? r.ErrorDetails.Substring(0, 300) : r.ErrorDetails)
+                                details = string.IsNullOrEmpty(r.ErrorDetails) ? null : (r.ErrorDetails.Length > 300 ? r.ErrorDetails.Substring(0, 300) : r.ErrorDetails),
+                                timings = r.Timings
                             });
                             await onEvent(new { action = "aiChatEvent", eventType = "status", text = prefix + status.Replace('_', ' ').ToLowerInvariant() });
                         }
@@ -110,7 +126,8 @@ namespace WMSApp
                             success = true,
                             instance,
                             tripId,
-                            summary = new { total = orders.Count, interfaced, alreadyDone = already, notRequired, failed },
+                            summary = new { total = orders.Count, interfaced, alreadyDone = already, notRequired, failed, notSent },
+                            stoppedEarly = gatewayStop,
                             results
                         });
                     }
