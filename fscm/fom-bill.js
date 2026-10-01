@@ -130,7 +130,7 @@ FOM.viewArInvoices = function (el) {
             { id: 'bu', label: 'Business unit', type: 'lov', lov: function () { return FOM.bus().then(function (l) { return l.map(function (b) { return { v: b.t, t: b.t }; }); }); }, q: function (v) { return 'BusinessUnit=' + FOM.qv(v); } }
         ],
         columns: [
-            { f: 'TransactionNumber', label: 'Transaction #', html: function (r) { return '<a class="fom-a">' + esc(r.TransactionNumber) + '</a>'; } }, { f: 'TransactionDate', label: 'Date', html: function (r) { return esc(FOM.d(r.TransactionDate)); } },
+            { f: 'TransactionNumber', label: 'Transaction #', html: function (r) { return '<span class="fom-a">' + esc(r.TransactionNumber) + '</span>'; } }, { f: 'TransactionDate', label: 'Date', html: function (r) { return esc(FOM.d(r.TransactionDate)); } },
             { f: 'TransactionType', label: 'Type' }, { f: 'TransactionSource', label: 'Source' }, { f: 'BillToCustomerName', label: 'Bill-to' }, { f: 'BusinessUnit', label: 'BU' },
             { label: 'Currency', get: function (r) { return FOM.pf(r, ['InvoiceCurrencyCode', 'CurrencyCode']); } }, { label: 'Amount', n: 1, get: function (r) { return FOM.num(FOM.pf(r, ['EnteredAmount', 'TransactionTotal', 'InvoiceAmount'])); }, html: function (r) { return FOM.amt(FOM.pf(r, ['EnteredAmount', 'TransactionTotal', 'InvoiceAmount'])); } },
             { label: 'Balance', n: 1, get: function (r) { return FOM.num(FOM.pf(r, ['InvoiceBalanceAmount', 'BalanceDue'])); }, html: function (r) { return FOM.amt(FOM.pf(r, ['InvoiceBalanceAmount', 'BalanceDue'])); } },

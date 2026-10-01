@@ -436,7 +436,7 @@ function purManagePOs(el) {
             { id: 'sup', label: 'Supplier', ph: 'Supplier name', value: p.supplier || '', q: function (v) { return 'Supplier like ' + PUR.dq(v + '*'); } },
             { id: 'st', label: 'Status', type: 'select', options: [{ v: '', t: 'All' }].concat(PUR.STATUSES.map(function (s) { return { v: s, t: s.charAt(0) + s.slice(1).toLowerCase() }; })), q: function (v) { return 'StatusCode=' + PUR.dq(v); } },
             { id: 'dop', label: 'Created', type: 'select', value: '>', options: [{ v: '>', t: 'after' }, { v: '>=', t: 'on or after' }, { v: '=', t: 'on' }, { v: '<=', t: 'on or before' }, { v: '<', t: 'before' }] },
-            { id: 'cd', label: 'Creation date', type: 'date', value: p.po ? '' : FX.daysAgo(2), q: function (v, g2) { return g2.val('num') ? null : 'CreationDate' + (g2.val('dop') || '>') + v; } }
+            { id: 'cd', label: 'Creation date', type: 'date', value: p.po || p.supplier ? '' : FX.daysAgo(2), q: function (v, g2) { return g2.val('num') ? null : 'CreationDate' + (g2.val('dop') || '>') + v; } }
         ],
         validate: function (g2) { return g2.val('bu') ? null : 'Procurement Business Unit is mandatory'; },
         columns: [

@@ -433,7 +433,7 @@ FOM.viewConfirmPicks = function (el) {
         emptyText: 'No pick slips matched.',
         onRow: function (r) { FOM.pickSlipDlg(r, function () { g.search(); }); },
         columns: [
-            { f: 'PickSlip', label: 'Pick Slip', html: function (r) { return '<a class="fom-a">' + esc(r.PickSlip) + '</a>'; } }, { f: 'PickWave', label: 'Pick Wave' }, { f: 'Organization', label: 'Org' }, { f: 'Order', label: 'Order' }, { f: 'Customer', label: 'Customer' },
+            { f: 'PickSlip', label: 'Pick Slip', html: function (r) { return '<span class="fom-a">' + esc(r.PickSlip) + '</span>'; } }, { f: 'PickWave', label: 'Pick Wave' }, { f: 'Organization', label: 'Org' }, { f: 'Order', label: 'Order' }, { f: 'Customer', label: 'Customer' },
             { f: 'NumberOfPicks', label: '# Picks', n: 1 }, { f: 'DueDate', label: 'Due', html: function (r) { return esc(FOM.d(r.DueDate)); } }, { f: 'CreationDate', label: 'Created', html: function (r) { return esc(FOM.dt(r.CreationDate)); } },
             { f: 'Shipment', label: 'Shipment' }, { f: 'MovementRequest', label: 'Movement Request' }, { f: 'ShippingMethod', label: 'Shipping Method' }, { f: 'ShipToLocation', label: 'Ship To', html: function (r) { return '<span class="fom-clamp">' + esc(r.ShipToLocation || '') + '</span>'; } }
         ],
