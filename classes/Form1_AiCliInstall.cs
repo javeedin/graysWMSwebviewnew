@@ -36,6 +36,13 @@ if (-not (Find-Claude) -and (Get-Command npm -ErrorAction SilentlyContinue)) {
     npm install -g @anthropic-ai/claude-code
 }
 if (Find-Claude) {
+    # the native installer does not always put %USERPROFILE%\.local\bin on the user PATH - add it so claude works everywhere
+    $bin = Join-Path $env:USERPROFILE '.local\bin'
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if ((Test-Path (Join-Path $bin 'claude.exe')) -and -not (($userPath -split ';') -contains $bin)) {
+        [Environment]::SetEnvironmentVariable('Path', ($userPath.TrimEnd(';') + ';' + $bin).TrimStart(';'), 'User')
+        Write-Host ('  Added ' + $bin + ' to your PATH.') -ForegroundColor DarkGray
+    }
     Write-Host ''
     claude --version
     Write-Host ''
