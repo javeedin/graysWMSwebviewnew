@@ -129,7 +129,7 @@ namespace WMSApp
             {
                 using var content = new StringContent(soap, Encoding.UTF8, "text/xml");
                 content.Headers.Add("SOAPAction", "\"runReport\"");
-                using var res = await OmHttp().PostAsync(instance == "TEST" ? FusionPdfDownloader.TEST_URL : FusionPdfDownloader.PROD_URL, content);
+                using var res = await OmHttp().PostAsync(instance == "TEST" ? WMSApp.PrintManagement.FusionPdfDownloader.TEST_URL : WMSApp.PrintManagement.FusionPdfDownloader.PROD_URL, content);
                 text = await res.Content.ReadAsStringAsync();
                 if (!res.IsSuccessStatusCode)
                 {
@@ -180,7 +180,7 @@ namespace WMSApp
 
         // ── Fusion REST: sales orders ───────────────────────────────
         private static string OmFusionBase(string instance) =>
-            new Uri(instance == "TEST" ? FusionPdfDownloader.TEST_URL : FusionPdfDownloader.PROD_URL).GetLeftPart(UriPartial.Authority);
+            new Uri(instance == "TEST" ? WMSApp.PrintManagement.FusionPdfDownloader.TEST_URL : WMSApp.PrintManagement.FusionPdfDownloader.PROD_URL).GetLeftPart(UriPartial.Authority);
 
         private async Task<object> OmRestAsync(string method, string resource, string key, string body, string version, string query, string instance)
         {
@@ -253,12 +253,12 @@ Reply with ONE JSON object and nothing else:
             if (text.Trim().Length == 0) return new { ok = false, error = "No text." };
             if (text.Length > 20000) text = text.Substring(0, 20000);
             if (!await AiControl.IsEnabledAsync(user)) return new { ok = false, error = "The AI is paused (AI Digital Employee › Control)." };
-            string key = FusionSqlStore.LoadAiKey();
+            string key = WMSApp.FusionSql.FusionSqlStore.LoadAiKey();
             if (string.IsNullOrEmpty(key)) return new { ok = false, error = "No Claude API key saved (Fusion SQL › Ask AI › gear)." };
             string catalog = root.TryGetProperty("catalog", out var c) && c.ValueKind == JsonValueKind.Array ? c.GetRawText() : "[]";
             if (catalog.Length > 60000) catalog = catalog.Substring(0, 60000);
             string mode = OmStr(root, "mode") ?? "ORD";
-            string model = FusionSqlStore.LoadConfig().AiModel;
+            string model = WMSApp.FusionSql.FusionSqlStore.LoadConfig().AiModel;
             if (string.IsNullOrWhiteSpace(model)) model = "claude-opus-5";
             var sw = Stopwatch.StartNew();
             var client = new AnthropicClient { ApiKey = key };
