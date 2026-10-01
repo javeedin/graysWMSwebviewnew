@@ -91,6 +91,8 @@ Source: "dataload\*";     DestDir: "{app}\dataload";     Flags: ignoreversion re
 Source: "dllexplorer\*";  DestDir: "{app}\dllexplorer";  Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "powerbi\*";      DestDir: "{app}\powerbi";      Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "formsdesigner\form-engine.js"; DestDir: "{app}\formsdesigner"; Flags: ignoreversion
+; Pipeline server sources only - Fusion SQL > Pipelines > This PC installs Python, the packages and the settings on the PC
+Source: "pipeline-server\*"; DestDir: "{app}\pipeline-server"; Excludes: ".venv,data,data-demo,runtime,tests,__pycache__,.pytest_cache,.nicegui,*.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "version.json";    DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

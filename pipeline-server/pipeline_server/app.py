@@ -29,6 +29,83 @@ def build(cfg: ServerConfig):
     return api, sup
 
 
+class _Tee:
+    """Writes to the console (when there is one) and to data\\logs\\server.log - so the WMS app shows the log whether
+    the server runs in a window, hidden, as a scheduled task or as a service."""
+
+    def __init__(self, stream, f):
+        self.stream, self.f = stream, f
+
+    def write(self, s):
+        try:
+            if self.stream:
+                self.stream.write(s)
+        except Exception:  # noqa: BLE001  (a closed / missing console must not stop the server)
+            pass
+        try:
+            self.f.write(s)
+            self.f.flush()
+        except Exception:  # noqa: BLE001
+            pass
+        return len(s)
+
+    def flush(self):
+        for x in (self.stream, self.f):
+            try:
+                x and x.flush()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def isatty(self):
+        return False
+
+    def __getattr__(self, name):
+        return getattr(self.stream or self.f, name)
+
+
+def start_log(max_bytes: int = 5 * 1024 * 1024) -> Path:
+    import sys
+    from .config import home
+    d = home() / "logs"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / "server.log"
+    try:
+        if p.exists() and p.stat().st_size > max_bytes:
+            old = d / "server.log.1"
+            if old.exists():
+                old.unlink()
+            p.rename(old)
+    except OSError:
+        pass
+    f = open(p, "a", encoding="utf-8", errors="replace")
+    f.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} pipeline server starting (pid {os.getpid()}) =====\n")
+    f.flush()
+    sys.stdout = _Tee(sys.stdout, f)
+    sys.stderr = _Tee(sys.stderr, f)
+    return p
+
+
+def console_code_file() -> Path:
+    from .config import home
+    return home() / "console.code"
+
+
+def take_console_code(code: str, max_age_s: int = 120) -> bool:
+    """One-time sign-in code for the console, written by the WMS app on this PC (only someone who can write the data
+    folder can make one). Used once, valid for 2 minutes."""
+    f = console_code_file()
+    try:
+        if not code or not f.exists() or time.time() - f.stat().st_mtime > max_age_s:
+            return False
+        import hmac
+        ok = hmac.compare_digest(f.read_text(encoding="ascii").strip(), code.strip())
+        if ok:
+            f.unlink()
+        return ok
+    except (OSError, ValueError):
+        return False
+
+
 def pid_file() -> Path:
     from .config import home
     return home() / "server.pid"

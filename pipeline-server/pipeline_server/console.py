@@ -69,7 +69,7 @@ def mount_console(fastapi_app, sup, cfg):
     app.timer(2.0, sample)
 
     @ui.page("/")
-    def index():
+    def index(code: str = ""):
         ui.colors(primary="#2563eb", accent=ACCENT)
         ui.add_head_html("""<style>
             body{background:#f4f2f0}
@@ -82,6 +82,10 @@ def mount_console(fastapi_app, sup, cfg):
             .feed div{font-size:.78rem;padding:3px 0;border-bottom:1px solid #f1edea}
             .lvl-ERROR{color:#b91c1c} .lvl-WARN{color:#b45309}
         </style>""")
+        if code and not app.storage.user.get("ok"):
+            from .app import take_console_code
+            if take_console_code(code):
+                app.storage.user["ok"] = True                         # opened from the WMS app on this PC
         if not app.storage.user.get("ok"):
             login()
             return

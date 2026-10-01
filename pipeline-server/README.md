@@ -32,13 +32,16 @@ live **console** in the browser. The WMS app shows the same status and can pause
    only this server can read them.
 5. Build pipelines in **Fusion SQL › Pipelines** (or "Add to pipeline" under any query result).
 
-**Easiest — from the WMS app on the same PC:** Fusion SQL › Pipelines › **This PC**. It finds this folder
-(next to the source repo, `C:\pipeline-server`, `C:\fusion\pipeline-server`, or pick it), and has
-**Set up** (opens setup.ps1), **Start** / **Stop** / **Restart** (the server runs in the background and keeps running
-when WMS closes; output in `data\logs\server.log`, shown live), **Try the demo**, **Connect this app** (makes a new
-API token, saves it on the server row and fetches the encryption key — no copy / paste), and **Starts with Windows**
-(install-service.ps1). Stop is graceful: it creates `data\stop.request`, running runs are cancelled at their next page
-(queued again at the next start) and the server exits; the skull button kills it.
+**Easiest — from the WMS app on the same PC:** Fusion SQL › Pipelines › **This PC** › **Install everything**.
+No PowerShell, no administrator: the app copies these files to `C:\fusion\pipeline-server`, installs a private
+Python 3.12 there (`runtime\`, not on PATH — or uses an installed 3.11+), creates `.venv`, installs the packages,
+writes the settings with its own APEX gateway and Fusion pod URLs, puts its Fusion login into the Windows Credential
+Manager (through stdin — the page never sees it), runs the check, starts the server and connects itself (API token on
+the server row + encryption key). After that: **Start** / **Stop** / **Restart** (tick *show the server window* to watch
+it in a console window of its own — closing that window stops it), **Console** (opens signed in, inside WMS), the live
+log (`data\logs\server.log`, written by the server itself), **Try the demo**, **Starts with Windows**
+(install-service.ps1). Stop is graceful: `data\stop.request` → running runs are cancelled at their next page (queued
+again at the next start) and the server exits; the skull button kills it.
 
 Or by hand: **start-server.bat** (runs in a window). Background, started with Windows:
 **install-service.ps1** as administrator (NSSM service if `tools\nssm.exe` exists, else a scheduled task

@@ -215,3 +215,38 @@ def test_local_stop_request_and_token_reload(tmp_path, monkeypatch):
     app_mod.stop_file().write_text("app")
     t.join(40)
     assert not t.is_alive() and not app_mod.pid_file().exists() and not app_mod.stop_file().exists()
+
+
+def test_unattended_install_commands(tmp_path, monkeypatch):
+    """What the WMS app's Install everything runs: init --yes --json, set-fusion-password --stdin, the log tee
+    and the one-time console code."""
+    monkeypatch.setenv("PIPELINE_HOME", str(tmp_path))
+    monkeypatch.setenv("PIPELINE_SECRETS", "file")
+    import contextlib, io, json as _json, os as _os, sys as _sys
+    from pipeline_server.__main__ import main
+    from pipeline_server import app as app_mod, secrets_store
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        assert main(["init", "--yes", "--json", "--name", "LAPTOP-X", "--port", "8123", "--timezone", "UTC", "--control", "ords",
+                     "--ords-url", "https://x/ords/ai", "--fusion-user", "SVC", "--pod-prod", "https://p.fa.em3.oraclecloud.com/"]) == 0
+    out = _json.loads(buf.getvalue().strip().splitlines()[-1])
+    assert out["server_name"] == "LAPTOP-X" and out["port"] == 8123 and out["api_token"]
+    cfg = ServerConfig.load()
+    assert cfg.fusion.pods["PROD"] == "https://p.fa.em3.oraclecloud.com" and cfg.control.ords_ai_base == "https://x/ords/ai"
+    assert cfg.check_token("pipeline", out["api_token"])
+    monkeypatch.setattr(_sys, "stdin", io.StringIO("s3cret\n"))
+    with contextlib.redirect_stdout(io.StringIO()):
+        assert main(["set-fusion-password", "--stdin"]) == 0
+    assert secrets_store.get_secret("fusion") == "s3cret"
+    # one-time console code
+    app_mod.console_code_file().write_text("abc123")
+    assert not app_mod.take_console_code("wrong") and app_mod.take_console_code("abc123") and not app_mod.take_console_code("abc123")
+    # log tee
+    o, e = _sys.stdout, _sys.stderr
+    try:
+        p = app_mod.start_log()
+        print("hello from the server")
+        _sys.stdout.flush()
+    finally:
+        _sys.stdout, _sys.stderr = o, e
+    assert "hello from the server" in p.read_text()

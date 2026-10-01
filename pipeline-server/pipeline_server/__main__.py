@@ -29,14 +29,18 @@ def main(argv=None):
     i.add_argument("--fusion-user")
     i.add_argument("--control", choices=["ords", "oracle", "memory"])
     i.add_argument("--ords-url")
+    i.add_argument("--pod-prod", help="Fusion PROD URL (https://xxx.fa.em3.oraclecloud.com)")
+    i.add_argument("--pod-test", help="Fusion TEST URL")
     i.add_argument("--yes", action="store_true", help="no questions: take the defaults / flags")
+    i.add_argument("--json", action="store_true", help="one JSON line at the end (the WMS app's Install)")
     d = sub.add_parser("demo")
     d.add_argument("--port", type=int, default=8000)
     sub.add_parser("run")
     sub.add_parser("test")
     nt = sub.add_parser("new-token")
     nt.add_argument("--json", action="store_true", help="one JSON line (the WMS app's Connect this app)")
-    sub.add_parser("set-fusion-password")
+    sf = sub.add_parser("set-fusion-password")
+    sf.add_argument("--stdin", action="store_true", help="read the password from standard input (the WMS app passes its Fusion login)")
     sub.add_parser("set-db-password")
     sub.add_parser("status")
     a = ap.parse_args(argv)
@@ -63,6 +67,10 @@ def main(argv=None):
             cfg.control.wallet_dir = ask("Wallet folder (Autonomous DB, blank if none)", cfg.control.wallet_dir)
             if not a.yes:
                 secrets_store.set_secret("control-db", getpass.getpass("Database password: "))
+        if a.pod_prod:
+            cfg.fusion.pods["PROD"] = a.pod_prod.rstrip("/")
+        if a.pod_test:
+            cfg.fusion.pods["TEST"] = a.pod_test.rstrip("/")
         cfg.fusion.username = a.fusion_user or ask("Fusion user (the BI Publisher runner runs as this user)", cfg.fusion.username)
         if cfg.fusion.username and not a.yes:
             pw = getpass.getpass("Fusion password (stored in the Windows Credential Manager; Enter = keep): ")
@@ -73,6 +81,10 @@ def main(argv=None):
             token = cfg.new_token()
         cfg.save()
         secrets_store.ensure_keys()
+        if a.json:
+            print(json.dumps({"saved": str(ServerConfig.path()), "api_user": cfg.api_user, "api_token": token, "server_name": cfg.server_name,
+                              "port": cfg.port, "timezone": cfg.timezone, "fingerprint": secrets_store.fingerprint()}))
+            return 0
         print(f"\nSaved {ServerConfig.path()}")
         print(f"Encryption key fingerprint: {secrets_store.fingerprint()}")
         if token:
@@ -95,7 +107,11 @@ def main(argv=None):
         if not cfg.fusion.username:
             cfg.fusion.username = input("Fusion user: ").strip()
             cfg.save()
-        secrets_store.set_secret("fusion", getpass.getpass(f"Fusion password for {cfg.fusion.username}: "))
+        pw = sys.stdin.readline().rstrip("\r\n") if a.stdin else getpass.getpass(f"Fusion password for {cfg.fusion.username}: ")
+        if not pw:
+            print("No password given - nothing saved.")
+            return 1
+        secrets_store.set_secret("fusion", pw)
         print("Saved in the Windows Credential Manager.")
         return 0
     if cmd == "set-db-password":
@@ -129,6 +145,9 @@ def main(argv=None):
             print(f"Fusion {cfg.fusion.default_pod}: FAILED -", e)
         return 0 if ok else 1
 
+    if cmd in ("run", "demo"):
+        from .app import start_log
+        start_log()
     if cmd == "demo":
         os.environ.setdefault("PIPELINE_SECRETS", os.environ.get("PIPELINE_SECRETS", ""))
         cfg.control.driver = "memory"

@@ -150,6 +150,21 @@ if not exist "%APP_DIR%\formsdesigner\form-engine.js" (
     echo   - formsdesigner\form-engine.js
 )
 
+REM --- Pipeline server sources (Fusion SQL > Pipelines > This PC installs them to C:\fusion\pipeline-server) ---
+REM     sources only: no .venv / data / runtime / tests - the app installs Python and the packages on the PC itself
+if exist "%SCRIPT_DIR%pipeline-server\pipeline_server\__main__.py" (
+    robocopy "%SCRIPT_DIR%pipeline-server" "%APP_DIR%\pipeline-server" /E /XD .venv data data-demo runtime tests __pycache__ .pytest_cache .nicegui /XF *.pyc /NFL /NDL /NJH /NJS /NP >nul
+    if errorlevel 8 (
+        echo ERROR: copying pipeline-server failed
+        goto :error
+    )
+    if not exist "%APP_DIR%\pipeline-server\pipeline_server\app.py" (
+        echo ERROR: pipeline-server\pipeline_server\app.py is missing from the package
+        goto :error
+    )
+    echo   - pipeline-server\ ^(sources^)
+)
+
 REM --- Admin page (Home shows its tile only on a PC where the source repo / release.bat is found) ---
 if exist "%SCRIPT_DIR%admin" (
     mkdir "%APP_DIR%\admin" 2>nul

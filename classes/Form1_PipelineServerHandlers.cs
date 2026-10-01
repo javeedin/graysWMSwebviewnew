@@ -19,6 +19,11 @@ namespace WMSApp
     /// gracefully (data\stop.request → runs cancelled at their next page, re-queued at the next start) or kills
     /// it, tails the log and makes a new API token for "Connect this app".
     /// Works with the Windows service (NSSM) / scheduled task that install-service.ps1 creates.
+    /// "Install everything" (pipeSrvInstall, a background job the page polls through pipeSrvStatus) needs no PowerShell:
+    /// copies the server files shipped with the app to C:\fusion\pipeline-server, installs a private Python 3.12 there
+    /// (python.org installer, per user, no admin) unless Python 3.11+ is already installed, creates .venv, installs
+    /// requirements.txt, writes the settings (init --yes --json) and hands over the app's Fusion login through stdin
+    /// (set-fusion-password --stdin — the password never reaches the page).
     /// Replies: { action: "pipeSrvResponse", requestId, data }.
     /// </summary>
     public partial class Form1
@@ -27,6 +32,42 @@ namespace WMSApp
         private Process _pipeSrvProc;
         private DateTime _pipeSrvAutoCheck;
         private string _pipeSrvAutoKind;
+        private PipeSrvJob _pipeSrvJob;
+
+        private const string PIPE_SRV_PY_VERSION = "3.12.10";
+        private const string PIPE_SRV_INSTALL_DIR = @"C:\fusion\pipeline-server";
+
+        private sealed class PipeSrvJob
+        {
+            public readonly object Lock = new object();
+            public bool Running = true, Ok;
+            public string Error, Step;
+            public DateTime Started = DateTime.Now;
+            public readonly List<string> Lines = new List<string>();
+            public readonly List<Dictionary<string, string>> Steps = new List<Dictionary<string, string>>();
+            public JsonElement? Result;
+            public void Add(string line)
+            {
+                if (line == null) return;
+                lock (Lock) { Lines.Add(line.TrimEnd()); if (Lines.Count > 600) Lines.RemoveRange(0, Lines.Count - 600); }
+            }
+            public void Set(string key, string state, string detail = null)
+            {
+                lock (Lock)
+                {
+                    var st = Steps.FirstOrDefault(x => x["key"] == key);
+                    if (st == null) return;
+                    st["state"] = state;
+                    if (detail != null) st["detail"] = detail;
+                    if (state == "run") Step = key;
+                }
+            }
+            public object Snapshot()
+            {
+                lock (Lock) return new { running = Running, ok = Ok, error = Error, step = Step, started = Started.ToString("HH:mm:ss"),
+                    steps = Steps.Select(x => new Dictionary<string, string>(x)).ToList(), lines = Lines.Skip(Math.Max(0, Lines.Count - 200)).ToList(), result = Result };
+            }
+        }
 
         private const string PIPE_SRV_NAME = "GraysPipelineServer";
 
@@ -76,7 +117,14 @@ namespace WMSApp
                         data = PipeSrvConsole(dir, "uninstall-service.ps1", "", true);
                         break;
                     case "pipeSrvStart":
-                        data = PipeSrvStart(dir, root.TryGetProperty("demo", out var demo) && demo.ValueKind == JsonValueKind.True);
+                        data = PipeSrvStart(dir, root.TryGetProperty("demo", out var demo) && demo.ValueKind == JsonValueKind.True,
+                                            root.TryGetProperty("visible", out var vis) && vis.ValueKind == JsonValueKind.True);
+                        break;
+                    case "pipeSrvInstall":
+                        data = PipeSrvInstallStart(dir, root);
+                        break;
+                    case "pipeSrvOpenConsole":
+                        data = await PipeSrvOpenConsoleAsync(dir, root.TryGetProperty("inApp", out var ia) && ia.ValueKind == JsonValueKind.True);
                         break;
                     case "pipeSrvStop":
                         data = await PipeSrvStopAsync(dir, root.TryGetProperty("force", out var f) && f.ValueKind == JsonValueKind.True);
@@ -127,13 +175,36 @@ namespace WMSApp
 
             var list = new List<string>();
             try { var repo = AdminRepoRoot(); if (repo != null) list.Add(Path.Combine(repo, "pipeline-server")); } catch { }
-            for (var d = Path.GetDirectoryName(Application.ExecutablePath); !string.IsNullOrEmpty(d); d = Path.GetDirectoryName(d))
-                list.Add(Path.Combine(d, "pipeline-server"));
+            list.Add(PIPE_SRV_INSTALL_DIR);
             list.Add(@"C:\pipeline-server");
-            list.Add(@"C:\fusion\pipeline-server");
             list.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "pipeline-server"));
             return list.FirstOrDefault(IsPipeSrvFolder);
         }
+
+        /// <summary>The copy shipped with the app (release ZIP: &lt;app&gt;\pipeline-server, sources only). It is copied to
+        /// C:\fusion\pipeline-server before use so .venv / data survive an app update.</summary>
+        private static string PipeSrvBundled()
+        {
+            for (var d = Path.GetDirectoryName(Application.ExecutablePath); !string.IsNullOrEmpty(d); d = Path.GetDirectoryName(d))
+            {
+                var c = Path.Combine(d, "pipeline-server");
+                if (IsPipeSrvFolder(c) && !string.Equals(Path.GetFullPath(c).TrimEnd('\\'), PIPE_SRV_INSTALL_DIR, StringComparison.OrdinalIgnoreCase)) return c;
+            }
+            return null;
+        }
+
+        private static string PipeSrvVersion(string dir)
+        {
+            try
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(File.ReadAllText(Path.Combine(dir, "pipeline_server", "__init__.py")), "VERSION\\s*=\\s*\"([^\"]+)\"");
+                return m.Success ? m.Groups[1].Value : null;
+            }
+            catch { return null; }
+        }
+
+        private static bool PipeSrvNewer(string a, string b) =>
+            Version.TryParse(a ?? "", out var va) && Version.TryParse(b ?? "", out var vb) && va > vb;
 
         private static string PipeSrvHome(string dir)
         {
@@ -148,8 +219,10 @@ namespace WMSApp
         // ── status ─────────────────────────────────────────────
         private object PipeSrvStatus(string dir, int lines)
         {
+            string bundled = PipeSrvBundled();
             if (dir == null)
-                return new { ok = true, found = false, searched = new[] { "next to the source repo", "up from the app folder", @"C:\pipeline-server", @"C:\fusion\pipeline-server", "%USERPROFILE%\\pipeline-server" } };
+                return new { ok = true, found = false, canInstall = bundled != null, bundled, installTo = PIPE_SRV_INSTALL_DIR, job = _pipeSrvJob?.Snapshot(),
+                    searched = new[] { "next to the source repo", PIPE_SRV_INSTALL_DIR, @"C:\pipeline-server", "%USERPROFILE%\\pipeline-server" } };
             string home = PipeSrvHome(dir);
             bool venv = File.Exists(PipeSrvPython(dir));
             string cfgPath = Path.Combine(home, "config.json");
@@ -172,6 +245,11 @@ namespace WMSApp
                 ok = true,
                 found = true,
                 folder = dir,
+                version = PipeSrvVersion(dir),
+                bundledVersion = bundled == null ? null : PipeSrvVersion(bundled),
+                update = bundled != null && PipeSrvNewer(PipeSrvVersion(bundled), PipeSrvVersion(dir)),
+                runtime = File.Exists(Path.Combine(dir, "runtime", "python.exe")),
+                job = _pipeSrvJob?.Snapshot(),
                 home,
                 venv,
                 configured = cfg.HasValue,
@@ -265,7 +343,7 @@ namespace WMSApp
         }
 
         // ── start / stop ───────────────────────────────────────
-        private object PipeSrvStart(string dir, bool demo)
+        private object PipeSrvStart(string dir, bool demo, bool visible)
         {
             if (dir == null) return new { ok = false, error = "The pipeline-server folder was not found on this PC." };
             string py = PipeSrvPython(dir);
@@ -291,35 +369,19 @@ namespace WMSApp
                 return new { ok = true, how = "service", message = "Asked Windows to start the service " + PIPE_SRV_NAME + " (administrator)." };
             }
 
-            string logDir = Path.Combine(home, "logs");
-            Directory.CreateDirectory(logDir);
-            string log = Path.Combine(logDir, "server.log");
-            try
-            {
-                if (File.Exists(log) && new FileInfo(log).Length > 5 * 1024 * 1024)
-                {
-                    string old = log + ".1";
-                    if (File.Exists(old)) File.Delete(old);
-                    File.Move(log, old);
-                }
-                File.AppendAllText(log, Environment.NewLine + "===== " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " started from the WMS app by " +
-                    Environment.UserName + (demo ? " (demo)" : "") + " =====" + Environment.NewLine);
-            }
-            catch (Exception ex) { Debug.WriteLine("[PipeSrv] log: " + ex.Message); }
-
-            // cmd keeps the redirect; the server outlives the app (no job object), so closing WMS does not stop it
+            // the server writes data\\logs\\server.log itself (start_log), so the window can show it too
             string args = demo ? "-m pipeline_server demo --port " + port : "-m pipeline_server run";
-            var psi = new ProcessStartInfo("cmd.exe", "/s /c \"\"" + py + "\" " + args + " >> \"" + log + "\" 2>&1\"")
+            var psi = new ProcessStartInfo(py, args)
             {
                 UseShellExecute = false,
-                CreateNoWindow = true,
+                CreateNoWindow = !visible,              // visible: a console window of its own (closing it stops the server)
                 WorkingDirectory = dir
             };
             psi.Environment["PYTHONUNBUFFERED"] = "1";
             psi.Environment["PYTHONIOENCODING"] = "utf-8";
             if (demo) psi.Environment["PIPELINE_SECRETS"] = "file";
-            _pipeSrvProc = Process.Start(psi);
-            return new { ok = true, how = "process", port, message = (demo ? "Demo" : "Server") + " starting on port " + port + " — the log follows below." };
+            _pipeSrvProc = Process.Start(psi);          // no job object: the server outlives WMS
+            return new { ok = true, how = "process", port, visible, message = (demo ? "Demo" : "Server") + " starting on port " + port + (visible ? " in its own window." : " in the background.") };
         }
 
         private static int PipeSrvConfigPort(string home)
@@ -363,6 +425,7 @@ namespace WMSApp
             bool killed = false;
             try { if (st.proc != null && !st.proc.HasExited) { st.proc.Kill(true); killed = true; } } catch (Exception ex) { Debug.WriteLine("[PipeSrv] kill: " + ex.Message); }
             try { if (_pipeSrvProc != null && !_pipeSrvProc.HasExited) { _pipeSrvProc.Kill(true); killed = true; } } catch { }
+            if (killed) try { File.Delete(Path.Combine(home, "server.pid")); } catch { }
             try { File.Delete(Path.Combine(home, "stop.request")); } catch { }
             if (!killed && st.proc == null)
                 return new { ok = false, error = "Something answers on the port but it was not started from here (no pid file) — stop it where it runs (the service / its window)." };
@@ -417,6 +480,318 @@ namespace WMSApp
             var e = p.StandardError.ReadToEndAsync();
             if (!p.WaitForExit(timeoutMs)) { try { p.Kill(true); } catch { } return (-1, "no answer within " + timeoutMs / 1000 + " s"); }
             return (p.ExitCode, o.Result + e.Result);
+        }
+
+        // ── Install everything (background job, polled through pipeSrvStatus) ─────
+        private object PipeSrvInstallStart(string dir, JsonElement root)
+        {
+            if (_pipeSrvJob != null && _pipeSrvJob.Running) return new { ok = false, error = "An install is already running." };
+            string bundled = PipeSrvBundled();
+            if (dir == null && bundled == null)
+                return new { ok = false, error = "This app has no copy of the pipeline server (older release) and none was found on this PC — copy the pipeline-server folder to " + PIPE_SRV_INSTALL_DIR + " or pick it." };
+            var job = new PipeSrvJob();
+            foreach (var (k, l) in new[] { ("files", "Server files"), ("python", "Python " + PIPE_SRV_PY_VERSION.Substring(0, 4)), ("venv", "Virtual environment"),
+                                             ("packages", "Packages"), ("settings", "Settings + API token"), ("fusion", "Fusion login"), ("test", "Check") })
+                job.Steps.Add(new Dictionary<string, string> { ["key"] = k, ["label"] = l, ["state"] = "wait", ["detail"] = "" });
+            _pipeSrvJob = job;
+            var opt = new PipeSrvInstallOptions
+            {
+                ServerName = PipeSrvStr(root, "serverName"),
+                Port = PipeSrvInt(root, "port", 8000),
+                Timezone = PipeSrvStr(root, "timezone"),
+                OrdsUrl = PipeSrvStr(root, "ordsUrl"),
+                PodProd = PipeSrvStr(root, "podProd"),
+                PodTest = PipeSrvStr(root, "podTest"),
+                UseAppLogin = !(root.TryGetProperty("useAppLogin", out var ua) && ua.ValueKind == JsonValueKind.False),
+                ForcePackages = root.TryGetProperty("forcePackages", out var fp) && fp.ValueKind == JsonValueKind.True
+            };
+            _ = Task.Run(() => PipeSrvInstallAsync(job, dir, bundled, opt));
+            return new { ok = true, message = "Installing — follow the steps below." };
+        }
+
+        private sealed class PipeSrvInstallOptions
+        {
+            public string ServerName, Timezone, OrdsUrl, PodProd, PodTest;
+            public int Port;
+            public bool UseAppLogin, ForcePackages;
+        }
+
+        private async Task PipeSrvInstallAsync(PipeSrvJob job, string dir, string bundled, PipeSrvInstallOptions opt)
+        {
+            string step = "files";
+            try
+            {
+                // 1. files: the shipped copy → C:\fusion\pipeline-server (new install or a newer version); a repo folder is used as is
+                job.Set(step, "run");
+                if (dir == null || (bundled != null && PipeSrvNewer(PipeSrvVersion(bundled), PipeSrvVersion(dir))
+                                    && string.Equals(Path.GetFullPath(dir).TrimEnd('\\'), PIPE_SRV_INSTALL_DIR, StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (dir != null && PipeSrvPid(PipeSrvHome(dir)).proc != null) throw new InvalidOperationException("Stop the server first — its files are being updated.");
+                    dir = PIPE_SRV_INSTALL_DIR;
+                    int n = PipeSrvCopy(bundled, dir);
+                    job.Add($"Copied {n} files from {bundled} to {dir}");
+                    Directory.CreateDirectory(Path.GetDirectoryName(PipeSrvSettingsFile));
+                    File.WriteAllText(PipeSrvSettingsFile, JsonSerializer.Serialize(new { folder = dir }));
+                    job.Set(step, "ok", dir + " · v" + PipeSrvVersion(dir));
+                }
+                else job.Set(step, "ok", dir + " · v" + PipeSrvVersion(dir));
+
+                // 2. python: .venv already there → skip; else private runtime, the py launcher, or download python.org's installer
+                step = "python";
+                job.Set(step, "run");
+                string venvPy = PipeSrvPython(dir), basePy = null;
+                bool venvOk = File.Exists(venvPy) && (await PipeSrvExecAsync(job, venvPy, "-c \"import sys; print(sys.version)\"", dir, 30000, quiet: true)).code == 0;
+                if (venvOk) job.Set(step, "ok", "using the existing .venv");
+                else
+                {
+                    basePy = await PipeSrvFindPythonAsync(job, dir);
+                    if (basePy == null)
+                    {
+                        basePy = await PipeSrvInstallPythonAsync(job, dir);
+                        job.Set(step, "ok", "installed in " + Path.GetDirectoryName(basePy));
+                    }
+                    else job.Set(step, "ok", basePy);
+                }
+
+                // 3. venv
+                step = "venv";
+                job.Set(step, "run");
+                if (venvOk) job.Set(step, "ok", "ready");
+                else
+                {
+                    string venvDir = Path.Combine(dir, ".venv");
+                    if (Directory.Exists(venvDir)) { job.Add("Removing a broken .venv"); Directory.Delete(venvDir, true); }
+                    var (c, _) = await PipeSrvExecAsync(job, basePy, "-m venv \"" + venvDir + "\"", dir, 300000);
+                    if (c != 0 || !File.Exists(venvPy)) throw new InvalidOperationException("python -m venv failed (exit " + c + ").");
+                    job.Set(step, "ok", ".venv created");
+                }
+
+                // 4. packages (skipped when requirements.txt did not change since the last install)
+                step = "packages";
+                job.Set(step, "run");
+                string req = Path.Combine(dir, "requirements.txt");
+                string reqHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(req)));
+                string mark = Path.Combine(dir, ".venv", "wms-requirements.sha256");
+                if (!opt.ForcePackages && File.Exists(mark) && File.ReadAllText(mark).Trim() == reqHash) job.Set(step, "ok", "up to date");
+                else
+                {
+                    await PipeSrvExecAsync(job, venvPy, "-m pip install --upgrade pip --disable-pip-version-check", dir, 600000);
+                    var (c, _) = await PipeSrvExecAsync(job, venvPy, "-m pip install -r requirements.txt --disable-pip-version-check", dir, 1800000);
+                    if (c != 0) throw new InvalidOperationException("pip install failed (exit " + c + ") — see the lines above (a proxy or no internet?).");
+                    File.WriteAllText(mark, reqHash);
+                    job.Set(step, "ok", "installed");
+                }
+
+                // 5. settings: init --yes --json (a token only on the first init; Connect makes a new one later)
+                step = "settings";
+                job.Set(step, "run");
+                (string user, string pw) fusion = (null, null);
+                if (opt.UseAppLogin)
+                {
+                    try
+                    {
+                        var cred = await GetFusionSqlService().GetCredentialsAsync(FusionSqlStore.LoadConfig());
+                        fusion = (cred.Username, cred.Password);
+                    }
+                    catch (Exception ex) { job.Add("Fusion login of the app not available: " + ex.Message); }
+                }
+                var args = new StringBuilder("-m pipeline_server init --yes --json --control ords");
+                void Arg(string name, string v) { if (!string.IsNullOrWhiteSpace(v)) args.Append(' ').Append(name).Append(" \"").Append(v.Replace("\"", "")).Append('"'); }
+                Arg("--name", string.IsNullOrWhiteSpace(opt.ServerName) ? Environment.MachineName.ToUpperInvariant() : opt.ServerName);
+                Arg("--port", (opt.Port is > 0 and < 65536 ? opt.Port : 8000).ToString());
+                Arg("--timezone", opt.Timezone);
+                Arg("--ords-url", opt.OrdsUrl);
+                Arg("--pod-prod", opt.PodProd ?? FusionSqlService.PROD_ORIGIN);
+                Arg("--pod-test", opt.PodTest ?? FusionSqlService.TEST_ORIGIN);
+                Arg("--fusion-user", fusion.user);
+                var (ic, iout) = await PipeSrvExecAsync(job, venvPy, args.ToString(), dir, 300000, hide: s => s.TrimStart().StartsWith("{"));
+                var line = iout.Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.StartsWith("{"));
+                if (ic != 0 || line == null) throw new InvalidOperationException("init failed (exit " + ic + ").");
+                using (var doc = JsonDocument.Parse(line)) job.Result = doc.RootElement.Clone();
+                job.Set(step, "ok", "port " + (opt.Port > 0 ? opt.Port : 8000) + (job.Result.Value.TryGetProperty("api_token", out var t) && t.ValueKind == JsonValueKind.String ? " · new API token" : " · token kept"));
+
+                // 6. Fusion password: from the app's login straight into the Windows Credential Manager (stdin, never the page)
+                step = "fusion";
+                job.Set(step, "run");
+                if (!string.IsNullOrEmpty(fusion.user) && !string.IsNullOrEmpty(fusion.pw))
+                {
+                    var (fc, _) = await PipeSrvExecAsync(job, venvPy, "-m pipeline_server set-fusion-password --stdin", dir, 120000, stdin: fusion.pw);
+                    if (fc != 0) throw new InvalidOperationException("Saving the Fusion password failed (exit " + fc + ").");
+                    job.Set(step, "ok", fusion.user + " · saved in the Windows Credential Manager");
+                }
+                else job.Set(step, "skip", opt.UseAppLogin ? "the app's Fusion login was not available — set it in the console › Settings" : "not changed");
+
+                // 7. check (control tables through the APEX gateway + Fusion) — a failure here is a warning
+                step = "test";
+                job.Set(step, "run");
+                var (tc, _) = await PipeSrvExecAsync(job, venvPy, "-m pipeline_server test", dir, 300000);
+                job.Set(step, tc == 0 ? "ok" : "warn", tc == 0 ? "control tables + Fusion reachable" : "see the lines above — the server still starts");
+                job.Ok = true;
+                job.Add("Done.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[PipeSrv] install: " + ex);
+                job.Error = ex.Message;
+                job.Set(step, "fail", ex.Message);
+                job.Add("FAILED: " + ex.Message);
+            }
+            finally
+            {
+                job.Running = false;
+                _pipeSrvAutoCheck = DateTime.MinValue;
+            }
+        }
+
+        private static int PipeSrvCopy(string from, string to)
+        {
+            int n = 0;
+            var skip = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".venv", "data", "data-demo", "runtime", "__pycache__", ".pytest_cache", ".nicegui", ".git" };
+            void Walk(string src, string dst)
+            {
+                Directory.CreateDirectory(dst);
+                foreach (var f in Directory.GetFiles(src)) { File.Copy(f, Path.Combine(dst, Path.GetFileName(f)), true); n++; }
+                foreach (var d in Directory.GetDirectories(src))
+                    if (!skip.Contains(Path.GetFileName(d))) Walk(d, Path.Combine(dst, Path.GetFileName(d)));
+            }
+            Walk(from, to);
+            return n;
+        }
+
+        /// <summary>A Python 3.11+ that is already there: the private runtime, else the py launcher (3.13 / 3.12 / 3.11).
+        /// The Microsoft Store "python.exe" alias is never used (it opens the Store).</summary>
+        private async Task<string> PipeSrvFindPythonAsync(PipeSrvJob job, string dir)
+        {
+            string rt = Path.Combine(dir, "runtime", "python.exe");
+            if (File.Exists(rt) && (await PipeSrvExecAsync(job, rt, "-c \"import sys; print(sys.version)\"", dir, 30000, quiet: true)).code == 0) return rt;
+            foreach (var v in new[] { "3.13", "3.12", "3.11" })
+            {
+                try
+                {
+                    var (c, o) = await PipeSrvExecAsync(job, "py", "-" + v + " -c \"import sys; print(sys.executable)\"", dir, 30000, quiet: true);
+                    var exe = o.Split('\n').Select(x => x.Trim()).LastOrDefault(x => x.EndsWith("python.exe", StringComparison.OrdinalIgnoreCase));
+                    if (c == 0 && exe != null && File.Exists(exe)) { job.Add("Found Python " + v + ": " + exe); return exe; }
+                }
+                catch { /* no py launcher */ }
+            }
+            return null;
+        }
+
+        /// <summary>Downloads python.org's installer and installs it per user into &lt;dir&gt;\runtime (no admin, not on PATH).</summary>
+        private async Task<string> PipeSrvInstallPythonAsync(PipeSrvJob job, string dir)
+        {
+            string url = $"https://www.python.org/ftp/python/{PIPE_SRV_PY_VERSION}/python-{PIPE_SRV_PY_VERSION}-amd64.exe";
+            string tmp = Path.Combine(Path.GetTempPath(), "GraysWMS");
+            Directory.CreateDirectory(tmp);
+            string exe = Path.Combine(tmp, $"python-{PIPE_SRV_PY_VERSION}-amd64.exe");
+            if (!File.Exists(exe) || new FileInfo(exe).Length < 10_000_000)
+            {
+                job.Add("Downloading " + url);
+                using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromMinutes(15) };
+                using var resp = await http.GetAsync(url, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
+                if (!resp.IsSuccessStatusCode) throw new InvalidOperationException("Python download failed: HTTP " + (int)resp.StatusCode + " — install Python 3.12 from python.org yourself, then press Install again.");
+                long total = resp.Content.Headers.ContentLength ?? 0, got = 0; int lastPct = -10;
+                string part = exe + ".part";
+                using (var src = await resp.Content.ReadAsStreamAsync())
+                using (var dst = File.Create(part))
+                {
+                    var buf = new byte[81920]; int r;
+                    while ((r = await src.ReadAsync(buf, 0, buf.Length)) > 0)
+                    {
+                        await dst.WriteAsync(buf, 0, r); got += r;
+                        int pct = total > 0 ? (int)(got * 100 / total) : 0;
+                        if (pct >= lastPct + 10) { lastPct = pct; job.Set("python", "run", $"downloading {got / 1048576} / {total / 1048576} MB"); }
+                    }
+                }
+                using (var fs = File.OpenRead(part)) if (fs.Length < 10_000_000 || fs.ReadByte() != 'M' || fs.ReadByte() != 'Z') throw new InvalidOperationException("The download is not the Python installer (a proxy page?).");
+                if (File.Exists(exe)) File.Delete(exe);
+                File.Move(part, exe);
+            }
+            string target = Path.Combine(dir, "runtime");
+            job.Set("python", "run", "installing into " + target);
+            job.Add("Installing Python " + PIPE_SRV_PY_VERSION + " into " + target + " (per user, no admin, not added to PATH)");
+            var (c, _) = await PipeSrvExecAsync(job, exe, $"/quiet InstallAllUsers=0 TargetDir=\"{target}\" PrependPath=0 Include_launcher=0 InstallLauncherAllUsers=0 " +
+                "Include_test=0 Include_doc=0 Include_tcltk=0 Shortcuts=0 AssociateFiles=0 Include_pip=1", dir, 900000);
+            string py = Path.Combine(target, "python.exe");
+            if (File.Exists(py)) return py;
+            // the same version already installed elsewhere for this user: the installer does not install it twice
+            var found = await PipeSrvFindPythonAsync(job, dir);
+            if (found != null) return found;
+            throw new InvalidOperationException("The Python installer ended with exit " + c + " and no python.exe was found — install Python 3.12 from python.org, then press Install again.");
+        }
+
+        /// <summary>Runs a process hidden, streaming its output into the job; returns exit code + all output.</summary>
+        private static async Task<(int code, string output)> PipeSrvExecAsync(PipeSrvJob job, string exe, string args, string cwd, int timeoutMs,
+            string stdin = null, bool quiet = false, Func<string, bool> hide = null)
+        {
+            var psi = new ProcessStartInfo(exe, args)
+            {
+                UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = cwd,
+                RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = stdin != null,
+                StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
+            };
+            psi.Environment["PYTHONIOENCODING"] = "utf-8";
+            psi.Environment["PYTHONUNBUFFERED"] = "1";
+            psi.Environment["PIP_NO_INPUT"] = "1";
+            if (!quiet) job.Add("> " + Path.GetFileName(exe) + " " + args);
+            var all = new StringBuilder();
+            using var p = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            DataReceivedEventHandler on = (s, e) =>
+            {
+                if (e.Data == null) return;
+                lock (all) all.AppendLine(e.Data);
+                if (!quiet && (hide == null || !hide(e.Data))) job.Add("  " + e.Data);
+            };
+            p.OutputDataReceived += on;
+            p.ErrorDataReceived += on;
+            p.Start();
+            p.BeginOutputReadLine();
+            p.BeginErrorReadLine();
+            if (stdin != null) { await p.StandardInput.WriteLineAsync(stdin); p.StandardInput.Close(); }
+            var done = p.WaitForExitAsync();
+            if (await Task.WhenAny(done, Task.Delay(timeoutMs)) != done)
+            {
+                try { p.Kill(true); } catch { }
+                job.Add("  (stopped: no end within " + timeoutMs / 1000 + " s)");
+                return (-1, all.ToString());
+            }
+            p.WaitForExit();                              // flushes the redirected output
+            lock (all) return (p.ExitCode, all.ToString());
+        }
+
+        // ── console: signed in through a one-time code (data\console.code, 2 minutes, used once) ─────
+        private async Task<object> PipeSrvOpenConsoleAsync(string dir, bool inApp)
+        {
+            if (dir == null) return new { ok = false, error = "The pipeline-server folder was not found on this PC." };
+            string home = PipeSrvHome(dir);
+            var st = PipeSrvPid(home);
+            int port = st.port ?? PipeSrvConfigPort(home);
+            if (!PipeSrvListening(port)) return new { ok = false, error = "The server is not running." };
+            string code = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+            File.WriteAllText(Path.Combine(home, "console.code"), code);
+            string url = "http://localhost:" + port + "/ui/?code=" + code;
+            if (!inApp)
+            {
+                Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+                return new { ok = true };
+            }
+            var f = new Form
+            {
+                Text = "Pipeline server console — localhost:" + port, Width = 1360, Height = 880,
+                StartPosition = FormStartPosition.CenterScreen, Icon = this.Icon
+            };
+            var wv = new WebView2 { Dock = DockStyle.Fill };
+            f.Controls.Add(wv);
+            f.Show();
+            await wv.EnsureCoreWebView2Async(await GetSharedEnvironmentAsync());
+            wv.CoreWebView2.NewWindowRequested += (s, e) =>
+            {
+                e.Handled = true;
+                if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var nu) && (nu.Scheme == Uri.UriSchemeHttps || nu.Scheme == Uri.UriSchemeHttp))
+                    try { Process.Start(new ProcessStartInfo(e.Uri) { UseShellExecute = true }); } catch { }
+            };
+            wv.CoreWebView2.Navigate(url);
+            return new { ok = true };
         }
 
         private static int PipeSrvInt(JsonElement root, string name, int def) =>
