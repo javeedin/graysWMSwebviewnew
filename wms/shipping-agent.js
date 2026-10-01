@@ -690,6 +690,7 @@
                             </div>
                         </div>
                         <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
+                            <span class="sa-mra-flag" data-inst="${esc((t.INSTANCE_NAME || 'PROD').toUpperCase())}">${saMraFlagChip(null)}</span>
                             <span style="background:${st.bg};color:${st.color};padding:2px 10px;border-radius:10px;font-size:10px;font-weight:700;">${t.STATUS}</span>
                             <button onclick="saShowTripOrdersApiInfo('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#1e293b;color:#94a3b8;border:none;padding:3px 7px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Show API calls for this trip"><i class="fas fa-code"></i></button>
                             <button onclick="saLoadTripOrders('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#0891b2;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Load order details">
@@ -725,6 +726,8 @@
                     <div id="sa-trip-orders-${esc(t.TRIP_ID)}" style="display:none;"></div>
                 </div>`;
             }).join('');
+
+            saMraPaintFlags(false);
 
             // Auto-load orders for ALL trips (silent) so DB status GET runs on agent open
             // Use all trips (not just visible) so data is ready if user unchecks then re-checks
@@ -1948,6 +1951,7 @@
             DONE:    ['<i class="fas fa-check"></i> Interfaced', '#dcfce7', '#15803d'],
             ALREADY: ['<i class="fas fa-check-double"></i> Done', '#dcfce7', '#15803d'],
             SKIPPED: ['<i class="fas fa-minus-circle"></i> Not req.', '#f1f5f9', '#475569'],
+            OFF:     ['<i class="fas fa-power-off"></i> MRA off', '#fef9c3', '#a16207'],
             FAILED:  ['<i class="fas fa-times-circle"></i> Failed', '#fef2f2', '#b91c1c']
         }[r.st] || ['—', '#f1f5f9', '#94a3b8'];
         return `<span onclick="saMraDetails(this)" data-tip="${tip}" title="${tip}" style="display:inline-flex;align-items:center;gap:3px;background:${b[1]};color:${b[2]};border-radius:10px;padding:2px 8px;font-size:9px;font-weight:700;cursor:${r.st === 'RUNNING' ? 'default' : 'pointer'};white-space:nowrap;">${b[0]}</span>`;
@@ -1963,6 +1967,107 @@
         const tip = el.getAttribute('data-tip') || '';
         if (tip) alert(tip);
     };
+    // ─── MRA interface switch (Yes / No) ──────────────────────
+    // WMS_MRA_INTERFACE_CONFIG holds one row per instance (PROD / TEST) with INTERFACE_FLAG Y or N
+    // (apex_sql/79_mra_interface_config.sql — created here on first use, both rows seeded with Y).
+    // Print Trip reads it fresh on every click: Y = interface to MRA before printing, N = print without MRA.
+    // The flag shows as a chip in every trip header; clicking it changes it (logged with user + time).
+    const SA_MRA_CFG = 'WMS_MRA_INTERFACE_CONFIG';
+    let _saMraCfgReady = null, _saMraFlags = {};
+    function saAppUser() { try { return localStorage.getItem('wms_user') || (typeof appUserName === 'function' ? appUserName() : 'WMS'); } catch (e) { return 'WMS'; } }
+    function saAi(op, payload) {
+        return new Promise((resolve, reject) => {
+            if (typeof sendMessageToCSharp !== 'function') return reject(new Error('C# bridge not available'));
+            sendMessageToCSharp({ action: 'executePost', fullUrl: `${WMS_BASE}/ai/${op}`, body: JSON.stringify(Object.assign({ appUser: saAppUser() }, payload)) }, (err, data) => {
+                if (err) return reject(new Error(String(err)));
+                let d = data;
+                if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { return reject(new Error('Unexpected database reply: ' + String(data).slice(0, 150))); } }
+                if (!d || d.success === false) return reject(new Error((d && (d.error || d.message)) || 'Database API error'));
+                resolve(d);
+            });
+        });
+    }
+    async function saAiRead(sql) {
+        const d = await saAi('executequery', { sql, maxRows: 50 });
+        const cols = (d.columns || []).map(c => String(c.name || c).toUpperCase());
+        return (d.rows || []).map(r => {
+            const o = {};
+            if (Array.isArray(r)) cols.forEach((c, i) => o[c] = r[i]); else Object.keys(r).forEach(k => o[k.toUpperCase()] = r[k]);
+            return o;
+        });
+    }
+    function saMraCfgEnsure() {
+        if (_saMraCfgReady) return _saMraCfgReady;
+        _saMraCfgReady = (async () => {
+            const have = await saAiRead(`SELECT table_name FROM user_tables WHERE table_name = '${SA_MRA_CFG}'`);
+            if (!have.length) {
+                await saAi('executewrite', { sql: `CREATE TABLE wms_mra_interface_config (instance_name VARCHAR2(20) PRIMARY KEY, ` +
+                    `interface_flag VARCHAR2(1) DEFAULT 'Y' NOT NULL CONSTRAINT wms_mra_cfg_flag_ck CHECK (interface_flag IN ('Y','N')), ` +
+                    `note VARCHAR2(400), changed_by VARCHAR2(120), changed_date DATE DEFAULT SYSDATE)` });
+            }
+            for (const inst of ['PROD', 'TEST']) {
+                await saAi('executewrite', { sql: `MERGE INTO wms_mra_interface_config t USING (SELECT '${inst}' AS inst FROM dual) s ON (t.instance_name = s.inst) ` +
+                    `WHEN NOT MATCHED THEN INSERT (instance_name, interface_flag, note, changed_by, changed_date) VALUES (s.inst, 'Y', 'Default', 'SYSTEM', SYSDATE)` });
+            }
+        })().catch(e => { _saMraCfgReady = null; throw e; });
+        return _saMraCfgReady;
+    }
+    /** Reads the flags of all instances → { PROD: {flag, by, at}, TEST: … } */
+    async function saMraLoadFlags() {
+        await saMraCfgEnsure();
+        const rows = await saAiRead(`SELECT instance_name, interface_flag, changed_by, TO_CHAR(changed_date, 'YYYY-MM-DD HH24:MI') AS changed_at FROM wms_mra_interface_config`);
+        const out = {};
+        rows.forEach(r => { out[String(r.INSTANCE_NAME).toUpperCase()] = { flag: String(r.INTERFACE_FLAG || 'Y').toUpperCase() === 'N' ? 'N' : 'Y', by: r.CHANGED_BY || '', at: r.CHANGED_AT || '' }; });
+        _saMraFlags = out;
+        return out;
+    }
+    /** The flag for one instance, read from the table now. A missing row counts as Y (the table is seeded with Y). */
+    async function saMraFlag(instance) {
+        const all = await saMraLoadFlags();
+        return all[(instance || 'PROD').toUpperCase()] || { flag: 'Y', by: '', at: '' };
+    }
+    function saMraFlagChip(f, err) {
+        const base = 'display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:10px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;';
+        if (err) return `<span onclick="saMraToggleFlag(this)" title="Could not read ${SA_MRA_CFG}: ${esc(err)} — click to retry" style="${base}background:#fee2e2;color:#b91c1c;"><i class="fas fa-exclamation-triangle"></i> MRA: ?</span>`;
+        if (!f) return `<span style="${base}background:#f1f5f9;color:#94a3b8;cursor:default;"><i class="fas fa-spinner fa-spin"></i> MRA</span>`;
+        const tip = `MRA interface on Print Trip: ${f.flag === 'Y' ? 'YES' : 'NO'}` + (f.by ? ` — set by ${f.by} ${f.at}` : '') + ' — click to change';
+        return f.flag === 'Y'
+            ? `<span onclick="saMraToggleFlag(this)" title="${esc(tip)}" style="${base}background:#dcfce7;color:#15803d;border:1px solid #86efac;"><i class="fas fa-flag"></i> MRA: Yes</span>`
+            : `<span onclick="saMraToggleFlag(this)" title="${esc(tip)}" style="${base}background:#fef08a;color:#dc2626;border:1px solid #facc15;"><i class="fas fa-flag"></i> MRA: No</span>`;
+    }
+    async function saMraPaintFlags(fresh) {
+        const slots = document.querySelectorAll('.sa-mra-flag');
+        if (!slots.length) return;
+        try {
+            const all = fresh || !Object.keys(_saMraFlags).length ? await saMraLoadFlags() : _saMraFlags;
+            slots.forEach(el => { el.innerHTML = saMraFlagChip(all[el.dataset.inst] || { flag: 'Y', by: '', at: '' }); });
+        } catch (e) {
+            console.warn('[ShippingAgent] MRA flag read failed:', e.message);
+            slots.forEach(el => { el.innerHTML = saMraFlagChip(null, e.message); });
+        }
+    }
+    window.saMraToggleFlag = async function(el) {
+        const slot = el.closest('.sa-mra-flag'); if (!slot) return;
+        const inst = slot.dataset.inst || 'PROD';
+        let cur;
+        try { cur = await saMraFlag(inst); } catch (e) { showNotification('Could not read the MRA setting: ' + e.message, 'error'); saMraPaintFlags(true); return; }
+        const next = cur.flag === 'Y' ? 'N' : 'Y';
+        const msg = next === 'N'
+            ? `Turn MRA interface OFF for ${inst}?\n\nPrint Trip will print orders WITHOUT interfacing them to MRA, for every agent and trip on ${inst}.`
+            : `Turn MRA interface ON for ${inst}?\n\nPrint Trip will interface every order to MRA first and print only the ones MRA accepts.`;
+        if (!confirm(msg)) return;
+        const who = saAppUser().replace(/'/g, "''").slice(0, 120);
+        try {
+            await saAi('executewrite', { sql: `MERGE INTO wms_mra_interface_config t USING (SELECT '${inst.replace(/'/g, "''")}' AS inst FROM dual) s ON (t.instance_name = s.inst) ` +
+                `WHEN MATCHED THEN UPDATE SET t.interface_flag = '${next}', t.changed_by = '${who}', t.changed_date = SYSDATE ` +
+                `WHEN NOT MATCHED THEN INSERT (instance_name, interface_flag, changed_by, changed_date) VALUES (s.inst, '${next}', '${who}', SYSDATE)` });
+            const agent = window._saCurrentAgent;
+            if (agent) saLogActivity(agent.ID, null, null, 'MRA', 'SUCCESS', 1, `MRA interface for ${inst} set to ${next === 'Y' ? 'YES' : 'NO'} by ${saAppUser()}`, null, null);
+            showNotification(`MRA interface for ${inst} is now ${next === 'Y' ? 'YES' : 'NO'}.`, 'success');
+        } catch (e) { showNotification('Could not save the MRA setting: ' + e.message, 'error'); }
+        saMraPaintFlags(true);
+    };
+
     async function saMraCredentials() {
         if (window.F_username && window.F_password) return { username: window.F_username, password: window.F_password };
         if (typeof fetchFusionCredentialsForBatchMRA === 'function') return await fetchFusionCredentialsForBatchMRA();
@@ -2024,18 +2129,37 @@
             return;
         }
 
-        // ── Phase 1: MRA ──────────────────────────────────────
+        // ── Phase 0: is MRA interface switched on? (read from WMS_MRA_INTERFACE_CONFIG now) ──
+        setBtn('<i class="fas fa-spinner fa-spin"></i> MRA flag...', true);
+        let mraOn = true;
+        try {
+            const f = await saMraFlag(instanceName);
+            mraOn = f.flag === 'Y';
+            console.log(`[ShippingAgent] MRA interface flag for ${instanceName || 'PROD'}: ${f.flag}`);
+        } catch (e) {
+            if (!confirm(`Could not read the MRA interface setting (${e.message}).\n\nOK = interface to MRA and print (the usual way)\nCancel = stop, nothing is printed`)) {
+                setBtn('<i class="fas fa-print"></i> Print Trip', false);
+                return;
+            }
+        }
+        saMraPaintFlags(true);
+        if (!mraOn) {
+            printable.forEach(o => saMraSet(tripId, o.orderNumber, { st: 'OFF', msg: 'MRA interface is switched off (MRA: No) for ' + (instanceName || 'PROD') }));
+            if (agent) saLogActivity(agent.ID, tripId, null, 'MRA', 'SUCCESS', 1, `MRA interface is OFF for ${instanceName || 'PROD'} — ${printable.length} orders printed without MRA`, null, null);
+        }
+
+        // ── Phase 1: MRA (only when the flag is Yes) ──────────
         setBtn('<i class="fas fa-spinner fa-spin"></i> MRA...', true);
         let creds;
-        try { creds = await saMraCredentials(); }
+        if (mraOn) try { creds = await saMraCredentials(); }
         catch (e) {
             setBtn('<i class="fas fa-print"></i> Print Trip', false);
             showNotification('MRA needs the Fusion credentials: ' + e.message + ' — nothing was printed.', 'error');
             return;
         }
         const mra = { DONE: 0, ALREADY: 0, SKIPPED: 0, FAILED: 0 };
-        const toPrint = [];
-        for (let i = 0; i < printable.length; i++) {
+        const toPrint = mraOn ? [] : printable.slice();
+        for (let i = 0; mraOn && i < printable.length; i++) {
             const o = printable[i];
             const prev = ((window._saMra[tripId] || {})[o.orderNumber]) || null;
             let r;
@@ -2050,7 +2174,7 @@
             if (r.st !== 'FAILED') toPrint.push(o);
             else console.warn(`[ShippingAgent] MRA failed for ${o.orderNumber}: ${r.msg}`);
         }
-        if (agent) {
+        if (agent && mraOn) {
             saLogActivity(agent.ID, tripId, null, 'MRA', mra.FAILED ? 'FAILED' : 'SUCCESS', 1,
                 `Trip MRA — ${mra.DONE} interfaced, ${mra.ALREADY} already done, ${mra.SKIPPED} not required, ${mra.FAILED} failed`, null, null);
         }
@@ -2077,7 +2201,7 @@
             saLogActivity(agent.ID, tripId, null, 'PRINT', 'SUCCESS', 1,
                 `Trip print done — ${printed} printed, ${mra.FAILED} held back (MRA failed), ${notReady} not fully interfaced`, null, null);
         }
-        const mraText = `MRA: ${mra.DONE} interfaced, ${mra.ALREADY} already done, ${mra.SKIPPED} not required` + (mra.FAILED ? `, ${mra.FAILED} FAILED (not printed — click the red badge for the reason)` : '');
+        const mraText = !mraOn ? `MRA interface is OFF for ${instanceName || 'PROD'} (MRA: No) — printed without MRA` : `MRA: ${mra.DONE} interfaced, ${mra.ALREADY} already done, ${mra.SKIPPED} not required` + (mra.FAILED ? `, ${mra.FAILED} FAILED (not printed — click the red badge for the reason)` : '');
         showNotification(`${mraText}. Printed ${printed}` + (notReady ? `, ${notReady} not ready` : '') + '.', mra.FAILED ? 'warning' : 'success');
     };
 
