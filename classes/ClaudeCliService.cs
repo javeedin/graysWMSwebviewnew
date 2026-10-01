@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -318,8 +319,36 @@ namespace WMSApp
         // ============================================================
         // CLI presence check
         // ============================================================
+        /// <summary>
+        /// The app's PATH is fixed when it starts, so a Claude CLI installed afterwards (Install Claude CLI button) is not
+        /// found by "cmd /c claude" until a restart. Before each CLI call, add the user's current PATH from the registry and
+        /// the folders the installers use (%USERPROFILE%\.local\bin = native installer, %APPDATA%\npm = npm).
+        /// </summary>
+        public static void RefreshCliPath()
+        {
+            try
+            {
+                string cur = Environment.GetEnvironmentVariable("PATH") ?? "";
+                var have = new HashSet<string>(cur.Split(';').Select(x => x.Trim().TrimEnd('\\')).Where(x => x.Length > 0), StringComparer.OrdinalIgnoreCase);
+                var add = new List<string>();
+                void Try(string dir)
+                {
+                    if (string.IsNullOrWhiteSpace(dir)) return;
+                    dir = Environment.ExpandEnvironmentVariables(dir.Trim()).TrimEnd('\\');
+                    if (dir.Length > 0 && !have.Contains(dir) && Directory.Exists(dir)) { have.Add(dir); add.Add(dir); }
+                }
+                Try(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin"));
+                Try(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm"));
+                foreach (var target in new[] { EnvironmentVariableTarget.User, EnvironmentVariableTarget.Machine })
+                    foreach (var d in (Environment.GetEnvironmentVariable("PATH", target) ?? "").Split(';')) Try(d);
+                if (add.Count > 0) Environment.SetEnvironmentVariable("PATH", string.Join(";", add) + ";" + cur);
+            }
+            catch (Exception ex) { Debug.WriteLine("[ClaudeCli] PATH refresh failed: " + ex.Message); }
+        }
+
         public async Task<(bool Installed, string Version)> CheckCliAsync()
         {
+            RefreshCliPath();
             try
             {
                 var psi = new ProcessStartInfo
@@ -2062,6 +2091,7 @@ TROUBLESHOOTING
             var outcome = new TurnOutcome();
             Directory.CreateDirectory(WorkspaceDir);
 
+            RefreshCliPath();
             string args = "/c claude -p --input-format stream-json --output-format stream-json --verbose";
             if (!string.IsNullOrEmpty(sessionId))
                 args += " --resume " + sessionId;
