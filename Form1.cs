@@ -279,7 +279,7 @@ try
                 }
 
                 // Folders to copy
-                string[] folders = { "wms", "Home", "ap", "ar", "ca", "fa", "gl", "om", "pos", "sync", "fusionsql", "dataload" };
+                string[] folders = { "wms", "Home", "ap", "ar", "ca", "fa", "gl", "om", "fscm", "pos", "sync", "fusionsql", "dataload" };
 
                 foreach (string folder in folders)
                 {

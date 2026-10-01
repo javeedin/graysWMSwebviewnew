@@ -199,6 +199,7 @@ var MODS = [
     { key: 'fusionsql', label: 'Fusion SQL', note: 'Live read-only SQL on Oracle Fusion', always: true },
     { key: 'Inventory', label: 'Inventory', note: 'Items, onhand, transactions, receiving' },
     { key: 'om', label: 'Order Management', note: 'Sales orders and fulfilment' },
+    { key: 'fscm', label: 'Fusion SCM', note: 'Fusion Order Management, Purchasing, Inventory, Costing, Setup' },
     { key: 'aianalysis', label: 'AI Digital Employee', note: 'AI chat, agents, approvals' },
     { key: 'dataload', label: 'Data Loading', note: 'FBDI templates, Fusion REST loads' },
     { key: 'fusionmodel', label: 'Fusion Model', note: 'DuckDB dataset, dashboards, Ask AI' },
@@ -212,7 +213,7 @@ var MOD_PRESETS = {
     all: null,
     default: ['Inventory', 'aianalysis', 'dataload', 'dllexplorer', 'powerbi', 'fusionmodel'],
     wms: ['Inventory'],
-    fusion: ['dataload', 'fusionmodel', 'powerbi', 'aianalysis']
+    fusion: ['fscm', 'dataload', 'fusionmodel', 'powerbi', 'aianalysis']
 };
 var MOD_ON = lsGet('admin.modules', null) || MOD_PRESETS.default.slice();
 var MOD_INFO = {};   // key -> { exists, sizeMb } from the host

@@ -170,7 +170,7 @@ namespace WMSApp
         // (rag is the separate "Include RAG service" option.) Built per call: no static initializers in Form1.
         private static string[] AdminModuleKeys() => new[]
         {
-            "Inventory", "om", "fusionsql", "dataload", "dllexplorer", "fusionmodel", "powerbi",
+            "Inventory", "om", "fscm", "fusionsql", "dataload", "dllexplorer", "fusionmodel", "powerbi",
             "aianalysis", "formsdesigner", "agentflow", "internetsearch"
         };
 

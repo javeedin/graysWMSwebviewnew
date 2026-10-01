@@ -85,6 +85,7 @@ Source: "sync\*";  DestDir: "{app}\sync"; Flags: ignoreversion recursesubdirs cr
 Source: "Inventory\*";    DestDir: "{app}\Inventory";    Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "aianalysis\*";   DestDir: "{app}\aianalysis";   Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "fusionsql\*";    DestDir: "{app}\fusionsql";    Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "fscm\*";         DestDir: "{app}\fscm";         Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "fusionmodel\*";  DestDir: "{app}\fusionmodel";  Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "dataload\*";     DestDir: "{app}\dataload";     Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "dllexplorer\*";  DestDir: "{app}\dllexplorer";  Flags: ignoreversion recursesubdirs createallsubdirs
