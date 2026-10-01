@@ -135,13 +135,13 @@ for %%F in (%MODULES%) do (
 )
 
 REM --- Fusion SQL must be complete: the page and every script it loads ---
-for %%F in (index.html fusionsql.js fusionsql.css report.js datasets.js flows.js flows-seed.js flows-catalog.js setups.js setups-seed.js pipelines.js pipeline-setup.js tomodel.js) do (
+for %%F in (index.html fusionsql.js fusionsql.css report.js datasets.js flows.js flows-seed.js flows-catalog.js setups.js setups-seed.js pipelines.js pipeline-setup.js tomodel.js knowledge.js knowledge-engine.js watchdogs.js watch-engine.js) do (
     if not exist "%APP_DIR%\fusionsql\%%F" (
         echo ERROR: fusionsql\%%F is missing from the package
         goto :error
     )
 )
-echo   - fusionsql\ verified (page + 12 scripts)
+echo   - fusionsql\ verified (page + 16 scripts)
 
 REM --- AI Digital Employee loads ..\formsdesigner\form-engine.js (engine only, not the designer) ---
 if not exist "%APP_DIR%\formsdesigner\form-engine.js" (

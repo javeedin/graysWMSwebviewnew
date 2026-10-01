@@ -143,6 +143,8 @@ function showTab(name) {
     if (name === 'setups' && typeof suLoad === 'function') { suLoad(); if (typeof suSeg === 'function') suSeg(lsGet('fusionSql.setupSeg', 'check')); }
     if (name === 'flows' && typeof flLoadList === 'function') flLoadList();
     if (name === 'pipelines' && typeof plLoadList === 'function') plLoadList();
+    if (name === 'knowledge' && typeof kbShow === 'function') kbShow();
+    if (name === 'watchdogs' && typeof wdShow === 'function') wdShow();
     if (typeof plAutoPoll === 'function') plAutoPoll();
 }
 function showSub(name) {
@@ -1020,6 +1022,7 @@ function renderQueryDetail() {
         '<button class="fs-btn primary q-run-btn" onclick="queryRun(' + i + ')"><i class="fa-solid fa-play"></i> Run query</button>' +
         '<button class="fs-btn rp-launch" onclick="queryRunFormat(' + i + ')" title="Run, then open the formatted dashboard"><i class="fa-solid fa-wand-magic-sparkles"></i> Run &amp; Format</button>' +
         '<button class="fs-btn" onclick="queryEdit(' + i + ')"><i class="fa-solid fa-pen"></i> Open in editor</button>' +
+        (typeof wdFromQuery === 'function' ? '<button class="fs-btn" onclick="wdFromQuery(' + i + ')" title="Run this query on a schedule and get an alert when the result is unusual"><i class="fa-solid fa-shield-dog"></i> Watch</button>' : '') +
         '<span style="flex:1"></span>' +
         '<button class="fs-icon-btn" title="Copy SQL" onclick="copyText(FS.queries[' + i + '].sql)"><i class="fa-regular fa-copy"></i></button>' +
         (ro ? '' : '<button class="fs-icon-btn" title="Duplicate" onclick="queryDup(' + i + ')"><i class="fa-regular fa-clone"></i></button>' +
@@ -1886,16 +1889,23 @@ function sendAi() {
     $('fs-ai-context').innerHTML = '<i class="fa-solid fa-magnifying-glass"></i> Finding relevant tables…';
     var editorSql = getSql().trim();
     buildAiSchema(q, editorSql).then(function (ctx) {
+        // Company knowledge: approved facts + verified examples that match this question
+        return (typeof kbForAsk === 'function' ? kbForAsk(q, ctx.names) : Promise.resolve({ text: '', count: 0 }))
+            .then(function (kb) { ctx.kb = kb; return ctx; });
+    }).then(function (ctx) {
         var pins = ctx.pinned.length ? ' · <b>📌 ' + esc(ctx.pinned.slice(0, 4).join(', ')) + (ctx.pinned.length > 4 ? '…' : '') + '</b>' : '';
         $('fs-ai-context').innerHTML = ctx.count
             ? '<i class="fa-solid fa-diagram-project"></i> Full schema access · starting hints' + (ctx.live ? ' (live lookup)' : '') + ': ' + ctx.count + ' tables' + pins + ' — ' + esc(ctx.names.filter(function (n) { return ctx.pinned.indexOf(n) < 0; }).slice(0, 5).join(', ')) + (ctx.count > 6 ? '…' : '')
             : '<i class="fa-solid fa-diagram-project"></i> Full schema access — Claude will search the Fusion dictionary itself.';
+        if (ctx.kb && ctx.kb.count)
+            $('fs-ai-context').innerHTML += ' · <b class="kb-ctx" title="Facts your team confirmed about this Fusion, sent with the question"><i class="fa-solid fa-brain"></i> ' +
+                ctx.kb.count + ' company fact' + (ctx.kb.count === 1 ? '' : 's') + (ctx.kb.examples ? ' (' + ctx.kb.examples + ' verified example' + (ctx.kb.examples === 1 ? '' : 's') + ')' : '') + '</b>';
         FS.ai.phase = 'Claude is working…';
         // The editor's SQL goes along so "add X to this" / "fix this" work on the real query
         var question = typeof flAiDecorate === 'function' ? flAiDecorate(q) : q;
         if (editorSql && editorSql.length <= 6000 && !FL_FLOW_Q.test(question))
             question += '\n\nCURRENT EDITOR SQL (for reference — modify or extend it only if the question refers to it):\n```sql\n' + editorSql + '\n```';
-        return fsCall('fusionSqlAiSql', { question: question, schema: ctx.text, history: FS.ai.history.slice(-8) });
+        return fsCall('fusionSqlAiSql', { question: question, schema: ctx.text + (ctx.kb && ctx.kb.text ? '\n' + ctx.kb.text : ''), history: FS.ai.history.slice(-8) });
     }).then(function (r) {
         clearInterval(timer);
         typing.remove();
@@ -1909,10 +1919,11 @@ function sendAi() {
         }
         FS.ai.history.push({ role: 'user', content: q }, { role: 'assistant', content: r.response });
         var steps = r.steps || [];
+        FS.ai.currentQ = q;
         appendMsg('bot', renderAiAnswer(r.response) + (steps.length
             ? '<details class="fs-ai-research"><summary><i class="fa-solid fa-flask"></i> Research: ' + steps.length + ' step' + (steps.length === 1 ? '' : 's') + ' in the Fusion dictionary</summary><ol>' +
               steps.map(function (st) { return '<li>' + esc(st) + '</li>'; }).join('') + '</ol></details>' : ''));
-        aiNotifyDone(Date.now() - t0, /```(?!flow)/.test(r.response.replace(/```flow[\s\S]*?```/gi, '')), /```flow/i.test(r.response));
+        aiNotifyDone(Date.now() - t0, /```(?!flow|knowledge)/.test(r.response.replace(/```(flow|knowledge)[\s\S]*?```/gi, '')), /```flow/i.test(r.response));
     }).catch(function (e) { clearInterval(timer); typing.remove(); appendMsg('bot err', esc(e)); })
         .then(function () { FS.ai.busy = false; $('fs-ai-send').disabled = false; $('fs-ai-q').focus(); });
 }
@@ -1978,14 +1989,22 @@ function renderAiAnswer(text) {
         flowCards.push(typeof flRenderAiFlow === 'function' ? flRenderAiFlow(json.trim()) : '<pre>' + esc(json) + '</pre>');
         return '\n\n@@FLOWCARD' + (flowCards.length - 1) + '@@\n\n';
     });
+    // ```knowledge blocks (facts Claude found about this company's Fusion) become a card with Approve buttons
+    var kbCards = [];
+    text = text.replace(/```knowledge\s*\n?([\s\S]*?)```/gi, function (_, json) {
+        kbCards.push(typeof kbRenderAiProposals === 'function' ? kbRenderAiProposals(json.trim()) : '');
+        return '\n\n@@KBCARD' + (kbCards.length - 1) + '@@\n\n';
+    });
     var parts = text.split(/```(?:sql)?\s*\n?([\s\S]*?)```/i), html = '';
     parts.forEach(function (p, i) {
         if (i % 2 === 1) {
             var idx = _aiBlocks.push(p.trim()) - 1;
+            (window._aiBlockQ = window._aiBlockQ || {})[idx] = FS.ai.currentQ || '';
             html += '<div class="fs-sqlblock"><pre>' + esc(p.trim()) + '</pre><div class="bar">' +
                 '<button class="fs-btn sm primary" onclick="aiUse(' + idx + ', true)"><i class="fa-solid fa-play"></i> Insert &amp; run</button>' +
                 '<button class="fs-btn sm" onclick="aiUse(' + idx + ')"><i class="fa-solid fa-arrow-left"></i> Insert</button>' +
                 (FL.fixTarget ? '<button class="fs-btn sm ai" onclick="flApplyFix(' + idx + ')"><i class="fa-solid fa-diagram-project"></i> Use in flow step</button>' : '') +
+                (typeof kbMarkCorrect === 'function' && FS.ai.currentQ ? '<button class="fs-btn sm ghost kb-correct" style="color:#f5e9e2" onclick="kbMarkCorrect(' + idx + ', this)" title="This answer is right: save it as a verified example so Ask AI reuses it"><i class="fa-regular fa-thumbs-up"></i> Correct</button>' : '') +
                 '<button class="fs-btn sm ghost" style="color:#f5e9e2" onclick="copyText(_aiBlocks[' + idx + '])"><i class="fa-solid fa-copy"></i></button></div></div>';
         } else if (p.trim()) {
             html += p.trim().split(/\n{2,}/).map(function (para) {
@@ -1994,7 +2013,8 @@ function renderAiAnswer(text) {
             }).join('');
         }
     });
-    return html.replace(/<p>@@FLOWCARD(\d+)@@<\/p>/g, function (_, i) { return flowCards[+i]; });
+    return html.replace(/<p>@@FLOWCARD(\d+)@@<\/p>/g, function (_, i) { return flowCards[+i]; })
+        .replace(/<p>@@KBCARD(\d+)@@<\/p>/g, function (_, i) { return kbCards[+i]; });
 }
 function mdInline(s) { return esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>'); }
 function aiUse(i, run) {
@@ -2051,6 +2071,8 @@ document.addEventListener('keydown', function (e) {
         loadQueries();
         if (typeof dsLoadList === 'function') dsLoadList();
         schemaInit();
+        if (typeof wdStart === 'function') wdStart();                                   // watchdog schedule (one PC at a time)
+        if (typeof kbLoad === 'function') setTimeout(function () { kbLoad(false); }, 4000); // knowledge for Ask AI + tab badge
         var tab = lsGet('fusionSql.tab', 'builder');
         if (tab !== 'builder') showTab(tab);
     });

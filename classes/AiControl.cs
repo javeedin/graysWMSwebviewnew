@@ -347,16 +347,37 @@ namespace WMSApp
 
         private static async Task NotifyAsync(string user, long id, string title, string summary, string instance)
         {
+            string text = "AI approval needed (" + (instance ?? "PROD") + "): " + title + "\n\n" + summary +
+                          "\n\nDecide in Gray's WMS > AI Digital Employee > Control > Inbox (request #" + id + ").";
+            await SendAlertAsync(user, "AI approval needed: " + title, text, null, null).ConfigureAwait(false);
+        }
+
+        /// <summary>Only Teams / Power Automate webhook hosts may receive alerts.</summary>
+        public static bool IsAlertWebhook(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url.Trim(), UriKind.Absolute, out var u) || u.Scheme != Uri.UriSchemeHttps) return false;
+            string h = u.Host.ToLowerInvariant();
+            return h.EndsWith(".webhook.office.com") || h == "outlook.office.com" || h.EndsWith(".logic.azure.com") || h.EndsWith(".powerplatform.com") || h.EndsWith(".environment.api.powerplatform.com");
+        }
+
+        /// <summary>
+        /// Sends one alert to Teams (incoming webhook / Workflows) and / or e-mail (the SMTP account of SmtpVault).
+        /// Blank hook / mail use the AI Control alert settings (INBOX_TEAMS_WEBHOOK / INBOX_EMAIL_TO).
+        /// Returns what was sent, e.g. "teams, email", or "" when nothing was configured.
+        /// </summary>
+        public static async Task<string> SendAlertAsync(string user, string subject, string text, string hookOverride, string mailOverride)
+        {
+            var sent = new List<string>();
             try
             {
                 var s = await SettingsAsync(user).ConfigureAwait(false);
-                string hook = Setting(s, "INBOX_TEAMS_WEBHOOK"), mailTo = Setting(s, "INBOX_EMAIL_TO");
-                string text = "AI approval needed (" + (instance ?? "PROD") + "): " + title + "\n\n" + summary +
-                              "\n\nDecide in Gray's WMS > AI Digital Employee > Control > Inbox (request #" + id + ").";
-                if (!string.IsNullOrWhiteSpace(hook) && hook.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                string hook = string.IsNullOrWhiteSpace(hookOverride) ? Setting(s, "INBOX_TEAMS_WEBHOOK") : hookOverride.Trim();
+                string mailTo = string.IsNullOrWhiteSpace(mailOverride) ? Setting(s, "INBOX_EMAIL_TO") : mailOverride.Trim();
+                if (!string.IsNullOrWhiteSpace(hook) && hook.StartsWith("https://", StringComparison.OrdinalIgnoreCase) && (string.IsNullOrWhiteSpace(hookOverride) || IsAlertWebhook(hook)))
                 {
                     var body = JsonSerializer.Serialize(new { text = text.Replace("\n", "<br>") });
-                    await _http.PostAsync(hook, new StringContent(body, Encoding.UTF8, "application/json")).ConfigureAwait(false);
+                    var resp = await _http.PostAsync(hook, new StringContent(body, Encoding.UTF8, "application/json")).ConfigureAwait(false);
+                    if (resp.IsSuccessStatusCode) sent.Add("teams");
                 }
                 if (!string.IsNullOrWhiteSpace(mailTo))
                 {
@@ -368,13 +389,15 @@ namespace WMSApp
                     if (!string.IsNullOrEmpty(from) && !string.IsNullOrEmpty(pw))
                     {
                         using var client = new System.Net.Mail.SmtpClient(server, port) { EnableSsl = true, Credentials = new System.Net.NetworkCredential(from, pw), Timeout = 30000 };
-                        using var msg = new System.Net.Mail.MailMessage { From = new System.Net.Mail.MailAddress(from), Subject = "AI approval needed: " + title, Body = text };
+                        using var msg = new System.Net.Mail.MailMessage { From = new System.Net.Mail.MailAddress(from), Subject = subject, Body = text };
                         foreach (var to in mailTo.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)) msg.To.Add(to.Trim());
                         await client.SendMailAsync(msg).ConfigureAwait(false);
+                        sent.Add("email");
                     }
                 }
             }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AiControl] inbox alert failed: " + ex.Message); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AiControl] alert failed: " + ex.Message); }
+            return string.Join(", ", sent);
         }
     }
 }

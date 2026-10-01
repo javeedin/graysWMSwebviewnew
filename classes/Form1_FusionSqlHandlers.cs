@@ -196,6 +196,21 @@ namespace WMSApp
                         data = FusionSqlStatus(svc, FusionSqlStore.LoadConfig());
                         break;
 
+                    case "fusionSqlWatchAlert":
+                        {
+                            // Watchdog alert (fusionsql/watchdogs.js): Teams / e-mail through the AI Control alert settings,
+                            // or the watchdog's own webhook (Teams / Power Automate hosts only) and e-mail list
+                            string hook = FsStr(root, "teamsWebhook");
+                            if (!string.IsNullOrWhiteSpace(hook) && !AiControl.IsAlertWebhook(hook)) { data = new { ok = false, error = "The Teams webhook must be an https Teams / Power Automate address." }; break; }
+                            string subject = (FsStr(root, "subject") ?? "Fusion SQL watchdog alert");
+                            string text = FsStr(root, "text") ?? "";
+                            if (subject.Length > 200) subject = subject.Substring(0, 200);
+                            if (text.Length > 4000) text = text.Substring(0, 4000);
+                            string sent = await AiControl.SendAlertAsync(GetClaudeCliService().PolicyUser, subject, text, hook, FsStr(root, "emailTo"));
+                            data = new { ok = true, sent };
+                            break;
+                        }
+
                     case "fusionSqlShareOutlook":
                         data = FusionSqlShareOutlook(root);
                         break;

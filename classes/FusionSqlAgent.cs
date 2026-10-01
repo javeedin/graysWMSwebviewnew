@@ -60,7 +60,16 @@ Research efficiently - you have a limited number of research rounds (the count l
 - When few rounds are left, stop researching and answer with what you verified; mark anything unverified as an assumption.
 
 After any SQL block add at most three short bullets on joins/assumptions. Be concise.
-If the question refers to the CURRENT EDITOR SQL, modify or extend that query.";
+If the question refers to the CURRENT EDITOR SQL, modify or extend that query.
+
+COMPANY KNOWLEDGE: the starting hints may include facts confirmed by this company (flexfield meanings, joins,
+codes, business terms) and VERIFIED EXAMPLES of earlier questions with their SQL. Use them - they describe THIS
+customer's Fusion and beat general Fusion knowledge. When your research reveals a NON-OBVIOUS fact about this
+company's data that would help next time (what a flexfield / ATTRIBUTEn / SEGMENTn column holds, a custom code
+value, a join that is not a plain foreign key, a business term), add at the very end ONE ```knowledge block with a
+JSON array of at most 3 facts: [{""kind"":""COLUMN|VALUE|JOIN|TABLE|TERM|RULE"",""object"":""TABLE_NAME"",
+""column"":""COLUMN_NAME"",""fact"":""one plain sentence"",""words"":""business words people use for it""}].
+Only facts you verified with the tools or sample data; never restate the hints; skip the block when there is nothing new.";
 
         /// <summary>Per-session cache of dictionary tool results (not run_query), keyed by the SQL.</summary>
         private static readonly ConcurrentDictionary<string, string> _dictCache = new ConcurrentDictionary<string, string>();

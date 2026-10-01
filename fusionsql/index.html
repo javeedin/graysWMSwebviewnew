@@ -53,6 +53,8 @@
     <button class="fs-tab" data-tab="tables"><i class="fa-solid fa-sitemap"></i> Tables List</button>
     <button class="fs-tab" data-tab="flows"><i class="fa-solid fa-diagram-project"></i> Flows <span class="fs-badge muted" id="fs-flows-count">0</span></button>
     <button class="fs-tab" data-tab="pipelines"><i class="fa-solid fa-diagram-successor"></i> Pipelines <span class="fs-badge muted" id="fs-pl-count">0</span></button>
+    <button class="fs-tab" data-tab="watchdogs"><i class="fa-solid fa-shield-dog"></i> Watchdogs <span class="fs-badge muted" id="fs-wd-count">0</span></button>
+    <button class="fs-tab" data-tab="knowledge"><i class="fa-solid fa-brain"></i> Knowledge <span class="fs-badge muted" id="fs-kb-count">0</span></button>
     <button class="fs-tab" data-tab="setups"><i class="fa-solid fa-list-check"></i> Fusion Setups</button>
     <button class="fs-tab" data-tab="datasets"><i class="fa-solid fa-database"></i> APEX Data <span class="fs-badge muted" id="fs-ds-count">0</span></button>
     <button class="fs-tab" data-tab="connection"><i class="fa-solid fa-plug"></i> Connection</button>
@@ -142,6 +144,7 @@
                         </div>
                         <div class="fs-grid-actions">
                             <button class="fs-btn sm rp-launch" onclick="openReport()" title="Show the results as a formatted dashboard with export and share options"><i class="fa-solid fa-wand-magic-sparkles"></i> Format Results</button>
+                            <button class="fs-btn sm wd-watch-btn" onclick="wdFromBuilder()" title="Run this query on a schedule: Fusion SQL learns what is normal and alerts you on Teams / e-mail when the result is unusual"><i class="fa-solid fa-shield-dog"></i> Watch this</button>
                             <button class="fs-btn sm" onclick="plAddFromBuilder()" title="Use this SQL as a task in a data pipeline (scheduled load to a target database)"><i class="fa-solid fa-diagram-successor"></i> Add to pipeline</button>
                             <button class="fs-btn sm ds-save-btn" onclick="openSaveToApex()" title="Save this result as a table in the APEX database (refreshable)"><i class="fa-solid fa-cloud-arrow-up"></i> Save to APEX</button>
                             <button class="fs-btn sm" onclick="openSendToModel()" title="Add this query as a table of the Fusion Model (the shared DuckDB dataset): measures, reports, dashboards, Ask AI"><i class="fa-solid fa-cubes-stacked"></i> Send to Fusion Model</button>
@@ -266,6 +269,42 @@ ORDER BY table_name, index_name</textarea>
 </section>
 
 <!-- ═══════════════ Fusion Setups (module-wise checklist) ═══════════════ -->
+<!-- ═══════════════ Watchdogs ═══════════════ -->
+<section class="fs-page" id="page-watchdogs">
+    <div class="fs-page-head">
+        <div>
+            <h2><i class="fa-solid fa-shield-dog"></i> Watchdogs</h2>
+            <p>Queries that run on a schedule, learn what is <b>normal</b> for each weekday and hour, and alert you on Teams / e-mail only when the result is <b>unusual</b>.</p>
+        </div>
+        <div class="fs-page-actions">
+            <span class="wd-runner" id="wd-runner"></span>
+            <button class="fs-btn primary" onclick="wdEdit()"><i class="fa-solid fa-plus"></i> New watchdog</button>
+            <button class="fs-btn" onclick="wdLoad().then(wdTick)" title="Reload and run what is due"><i class="fa-solid fa-rotate"></i></button>
+        </div>
+    </div>
+    <div id="wd-body"></div>
+</section>
+
+<!-- ═══════════════ Knowledge ═══════════════ -->
+<section class="fs-page" id="page-knowledge">
+    <div class="fs-page-head">
+        <div>
+            <h2><i class="fa-solid fa-brain"></i> Knowledge</h2>
+            <p>What Fusion SQL has learned about <b>your</b> Fusion — flexfield meanings, joins, codes, business terms and verified answers. Approved facts are sent with every Ask AI question.</p>
+        </div>
+        <div class="fs-page-actions">
+            <div class="fs-search wide">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input id="kb-search" placeholder="Search facts…" oninput="KB.q=this.value;kbRender()">
+            </div>
+            <button class="fs-btn primary" onclick="kbLearnFromQueries()" title="Read the saved queries and learn their joins, codes and flexfield names"><i class="fa-solid fa-brain"></i> Learn from saved queries</button>
+            <button class="fs-btn" onclick="kbEdit()"><i class="fa-solid fa-plus"></i> Add fact</button>
+            <button class="fs-btn" onclick="kbLoad(true)" title="Reload"><i class="fa-solid fa-rotate"></i></button>
+        </div>
+    </div>
+    <div id="kb-body"></div>
+</section>
+
 <section class="fs-page" id="page-setups">
     <div class="fs-page-head">
         <div>
@@ -595,6 +634,10 @@ ORDER BY table_name</textarea>
 <script src="pipelines.js"></script>
 <script src="setups-seed.js"></script>
 <script src="setups.js"></script>
+<script src="knowledge-engine.js"></script>
+<script src="knowledge.js"></script>
+<script src="watch-engine.js"></script>
+<script src="watchdogs.js"></script>
 <!-- Trial period gate: shared with AI Digital Employee (same WMS_AI_TRIAL row) -->
 <script src="../Home/trial-gate.js" data-module="Fusion SQL" data-badge="trial-badge" data-accent="#c74634"></script>
 </body>
