@@ -342,6 +342,12 @@ namespace WMSApp
                 foreach (var target in new[] { EnvironmentVariableTarget.User, EnvironmentVariableTarget.Machine })
                     foreach (var d in (Environment.GetEnvironmentVariable("PATH", target) ?? "").Split(';')) Try(d);
                 if (add.Count > 0) Environment.SetEnvironmentVariable("PATH", string.Join(";", add) + ";" + cur);
+                // set by ClaudeCliSetup.bat (user level) - this process started before it existed
+                if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CLAUDE_CODE_GIT_BASH_PATH")))
+                {
+                    string gb = Environment.GetEnvironmentVariable("CLAUDE_CODE_GIT_BASH_PATH", EnvironmentVariableTarget.User);
+                    if (!string.IsNullOrEmpty(gb) && File.Exists(gb)) Environment.SetEnvironmentVariable("CLAUDE_CODE_GIT_BASH_PATH", gb);
+                }
             }
             catch (Exception ex) { Debug.WriteLine("[ClaudeCli] PATH refresh failed: " + ex.Message); }
         }

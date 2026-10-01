@@ -2169,41 +2169,44 @@ function updateEngineChip() {
         if (err || !resp || !resp.installed) {
             // No CLI on this PC: the chip offers to install it (official installer, visible window, sign-in once)
             chip.classList.add('bad');
-            txt.textContent = 'Claude CLI not installed — click here to install it';
+            txt.textContent = 'Claude CLI not installed — click here to install / repair';
             chip.style.cursor = 'pointer';
-            chip.title = 'Install Claude Code (Claude CLI) on this PC';
+            chip.title = 'Install / repair Claude Code (Claude CLI) on this PC';
             chip.onclick = openCliInstall;
         } else {
             chip.classList.add('ok');
-            txt.textContent = 'Claude CLI ' + (resp.version || 'ready');
+            txt.textContent = 'Claude CLI ' + (resp.version || 'ready'); chip.style.cursor = 'pointer'; chip.title = 'Claude CLI checks / repair / sign in'; chip.onclick = openCliInstall;
         }
     });
 }
 
-// ── Install Claude CLI (when it is not found) ─────────────
+// ── Install / repair Claude CLI (when it is not found or not working) ─────────────
 let _cliPoll = null;
 function openCliInstall() {
     document.getElementById('cli-install-modal')?.remove();
+    const btn = (id, icon, label, primary) => '<button id="' + id + '" style="padding:7px 13px;border:' + (primary ? 'none;background:#7c3aed;color:#fff' : '1px solid #e2e8f0;background:#fff;color:#334155') + ';border-radius:8px;font-weight:700;cursor:pointer;font-size:12px;"><i class="fas ' + icon + '"></i> ' + label + '</button>';
     const dlg = document.createElement('div');
     dlg.id = 'cli-install-modal';
     dlg.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px;';
     dlg.innerHTML =
-        '<div style="background:#fff;width:100%;max-width:560px;border-radius:14px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.35);">' +
+        '<div style="background:#fff;width:100%;max-width:640px;max-height:90vh;display:flex;flex-direction:column;border-radius:14px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.35);">' +
           '<div style="padding:.85rem 1.1rem;background:linear-gradient(135deg,#7c3aed,#5b21b6);color:#fff;display:flex;align-items:center;gap:10px;font-weight:700;">' +
-            '<i class="fas fa-terminal"></i><span style="flex:1;">Install Claude CLI on this PC</span><i class="fas fa-times" id="ci-x" style="cursor:pointer;"></i></div>' +
-          '<div style="padding:1rem 1.1rem;font-size:13px;color:#334155;line-height:1.55;">' +
-            '<p>The AI Digital Employee runs on <b>Claude Code (Claude CLI)</b>, which is not installed on this PC yet.</p>' +
-            '<ol style="margin:.5rem 0 .5rem 1.2rem;">' +
-              '<li>Click <b>Install</b> — a PowerShell window opens and runs Anthropic\'s official installer (<code>claude.ai/install.ps1</code>).</li>' +
-              '<li>When it is installed, Claude starts in that window: <b>sign in</b> (your browser opens), then type <code>/exit</code>.</li>' +
-              '<li>Come back here — this page finds the CLI by itself, no restart needed.</li>' +
+            '<i class="fas fa-terminal"></i><span style="flex:1;">Claude CLI on this PC</span><i class="fas fa-times" id="ci-x" style="cursor:pointer;"></i></div>' +
+          '<div style="padding:1rem 1.1rem;font-size:13px;color:#334155;line-height:1.55;overflow:auto;">' +
+            '<p>The AI Digital Employee runs on <b>Claude Code (Claude CLI)</b>. <b>Install / repair</b> opens a window that does everything in order and shows each step:</p>' +
+            '<ol style="margin:.4rem 0 .6rem 1.2rem;font-size:12.5px;">' +
+              '<li>checks the Windows user and the internet access to claude.ai</li>' +
+              '<li>installs <b>Git for Windows</b> if missing (Claude Code needs Git Bash — Windows may ask for permission)</li>' +
+              '<li>installs Claude CLI with Anthropic\'s official installer</li>' +
+              '<li>puts it on the PATH, then <b>tests a real answer</b> — if you are not signed in, Claude opens: sign in (browser), then type <code>/exit</code></li>' +
             '</ol>' +
-            '<div style="font-size:11.5px;color:#64748b;">Needs internet access to claude.ai. Installed for the Windows user signed in on this PC only (no admin rights needed).</div>' +
-            '<div id="ci-status" style="margin-top:.8rem;font-size:12px;min-height:18px;"></div>' +
+            '<div style="font-size:11.5px;color:#64748b;">Run it as the Windows user who uses Gray\'s WMS. Or download <b>ClaudeCliSetup.bat</b> and run it on any PC — double-click, or right-click › Run as administrator.</div>' +
+            '<div style="display:flex;align-items:center;gap:8px;margin-top:.9rem;"><b style="font-size:12.5px;">Checks</b><label style="font-size:11.5px;color:#64748b;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="ci-test" checked> also ask Claude a test question</label></div>' +
+            '<div id="ci-checks" style="margin-top:.4rem;border:1px solid #e2e8f0;border-radius:10px;font-size:12px;"><div style="padding:10px;color:#94a3b8;">Click <b>Run checks</b> to see what is installed.</div></div>' +
+            '<div id="ci-status" style="margin-top:.6rem;font-size:12px;min-height:18px;"></div>' +
           '</div>' +
-          '<div style="padding:.7rem 1.1rem;border-top:1px solid #f1f5f9;display:flex;gap:8px;justify-content:flex-end;">' +
-            '<button id="ci-check" style="padding:7px 14px;border:1px solid #e2e8f0;background:#fff;border-radius:8px;font-weight:700;cursor:pointer;font-size:12px;"><i class="fas fa-rotate"></i> Check again</button>' +
-            '<button id="ci-go" style="padding:7px 16px;border:none;background:#7c3aed;color:#fff;border-radius:8px;font-weight:800;cursor:pointer;font-size:12px;"><i class="fas fa-download"></i> Install</button>' +
+          '<div style="padding:.7rem 1.1rem;border-top:1px solid #f1f5f9;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">' +
+            btn('ci-bat', 'fa-file-arrow-down', 'Download ClaudeCliSetup.bat') + btn('ci-login', 'fa-right-to-bracket', 'Sign in') + btn('ci-check', 'fa-stethoscope', 'Run checks') + btn('ci-go', 'fa-screwdriver-wrench', 'Install / repair', true) +
           '</div>' +
         '</div>';
     document.body.appendChild(dlg);
@@ -2211,35 +2214,68 @@ function openCliInstall() {
     const close = () => { dlg.remove(); };
     dlg.querySelector('#ci-x').onclick = close;
     dlg.addEventListener('click', e => { if (e.target === dlg) close(); });
-    function check(quiet) {
-        if (!quiet) st.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Looking for Claude CLI…';
-        sendMessageToCSharp({ action: 'aiCliStatus' }, function (err, resp) {
-            if (!err && resp && resp.installed) {
-                clearInterval(_cliPoll); _cliPoll = null;
-                st.innerHTML = '<span style="color:#16a34a;font-weight:700;"><i class="fas fa-check-circle"></i> Claude CLI found: ' + esc(resp.version || '') + '</span>' +
-                    '<div style="color:#64748b;margin-top:4px;">If you have not signed in yet, finish the login in the PowerShell window first.</div>';
+    const icon = { ok: '<i class="fas fa-check-circle" style="color:#16a34a;"></i>', warn: '<i class="fas fa-triangle-exclamation" style="color:#d97706;"></i>', bad: '<i class="fas fa-circle-xmark" style="color:#dc2626;"></i>' };
+    function runChecks(withTest) {
+        const box = dlg.querySelector('#ci-checks');
+        box.innerHTML = '<div style="padding:10px;color:#64748b;"><i class="fas fa-spinner fa-spin"></i> Checking' + (withTest ? ' (the test question can take up to a minute)' : '') + '…</div>';
+        sendMessageToCSharp({ action: 'aiCliDiagnose', test: !!withTest }, function (err, resp) {
+            if (err || !resp) { box.innerHTML = '<div style="padding:10px;color:#dc2626;">' + esc(err || 'No answer') + '</div>'; return; }
+            const list = resp.checks || [];
+            box.innerHTML = list.map(c => '<div style="display:flex;gap:9px;align-items:flex-start;padding:7px 10px;border-bottom:1px solid #f1f5f9;">' + (icon[c.state] || '') +
+                '<div style="flex:1;min-width:0;"><b>' + esc(c.name) + '</b><div style="color:#64748b;font-size:11.5px;word-break:break-all;">' + esc(c.detail || '') + '</div></div>' +
+                (c.fix === 'install' ? '<button data-fix="install" style="padding:3px 9px;border:1px solid #7c3aed;background:#fff;color:#7c3aed;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">Fix</button>' : '') +
+                (c.fix === 'login' ? '<button data-fix="login" style="padding:3px 9px;border:1px solid #7c3aed;background:#fff;color:#7c3aed;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">Sign in</button>' : '') +
+                '</div>').join('');
+            const good = list.length && list.every(c => c.state !== 'bad');
+            if (good && list.some(c => c.name === 'Claude CLI installed' && c.state === 'ok')) {
                 localStorage.setItem(ENGINE_LS_KEY, JSON.stringify({ mode: 'cli' }));
                 updateEngineChip();
-                setTimeout(close, 4000);
-            } else if (!quiet) st.innerHTML = '<span style="color:#b45309;">Not found yet.</span>';
+                st.innerHTML = '<span style="color:#16a34a;font-weight:700;"><i class="fas fa-check-circle"></i> Claude CLI is ready.</span>';
+            }
         });
     }
-    dlg.querySelector('#ci-check').onclick = () => check(false);
-    dlg.querySelector('#ci-go').onclick = function () {
-        const go = this; go.disabled = true; go.style.opacity = '.6';
-        st.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Opening the installer window…';
+    function poll() {
+        clearInterval(_cliPoll);
+        let n = 0;
+        _cliPoll = setInterval(function () {
+            if (++n > 180 || !document.getElementById('cli-install-modal')) { clearInterval(_cliPoll); _cliPoll = null; return; }
+            sendMessageToCSharp({ action: 'aiCliStatus' }, function (err, resp) {
+                if (!err && resp && resp.installed) {
+                    clearInterval(_cliPoll); _cliPoll = null;
+                    st.innerHTML = '<span style="color:#16a34a;font-weight:700;"><i class="fas fa-check-circle"></i> Claude CLI found: ' + esc(resp.version || '') + '</span> — finish the steps in the setup window, then click <b>Run checks</b>.';
+                    updateEngineChip();
+                }
+            });
+        }, 5000);
+    }
+    function install() {
+        st.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Opening the setup window…';
         sendMessageToCSharp({ action: 'aiCliInstall' }, function (err, resp) {
-            go.disabled = false; go.style.opacity = '1';
-            if (err || !resp || resp.ok === false) { st.innerHTML = '<span style="color:#dc2626;">Could not start the installer: ' + esc(err || (resp && resp.error) || 'unknown error') + '</span>'; return; }
-            st.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Installing in the PowerShell window… this page checks every 5 seconds.';
-            clearInterval(_cliPoll);
-            let n = 0;
-            _cliPoll = setInterval(function () {
-                if (++n > 180 || !document.getElementById('cli-install-modal')) { clearInterval(_cliPoll); _cliPoll = null; return; }
-                check(true);
-            }, 5000);
+            if (err || !resp || resp.ok === false) { st.innerHTML = '<span style="color:#dc2626;">Could not start the setup: ' + esc(err || (resp && resp.error) || 'unknown error') + '</span>'; return; }
+            st.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Setup is running in its own window — follow it there. This page checks every 5 seconds.';
+            poll();
+        });
+    }
+    function login() {
+        sendMessageToCSharp({ action: 'aiCliLogin' }, function (err, resp) {
+            st.innerHTML = (err || !resp || resp.ok === false) ? '<span style="color:#dc2626;">' + esc(err || (resp && resp.error) || 'Could not open Claude') + '</span>'
+                : 'A Claude window opened — sign in (your browser opens), type <code>/exit</code>, then click <b>Run checks</b>.';
+        });
+    }
+    dlg.querySelector('#ci-go').onclick = install;
+    dlg.querySelector('#ci-login').onclick = login;
+    dlg.querySelector('#ci-check').onclick = () => runChecks(dlg.querySelector('#ci-test').checked);
+    dlg.querySelector('#ci-bat').onclick = function () {
+        sendMessageToCSharp({ action: 'aiCliSaveBat' }, function (err, resp) {
+            st.innerHTML = (err || !resp || resp.ok === false) ? '<span style="color:#dc2626;">' + esc(err || (resp && resp.error) || 'Could not save the file') + '</span>'
+                : '<span style="color:#16a34a;"><i class="fas fa-check-circle"></i> Saved ' + esc(resp.path) + '</span> — copy it to any PC and run it there (double-click, or Run as administrator).';
         });
     };
+    dlg.querySelector('#ci-checks').onclick = function (e) {
+        const b = e.target.closest('[data-fix]'); if (!b) return;
+        if (b.getAttribute('data-fix') === 'login') login(); else install();
+    };
+    runChecks(false);
 }
 
 // last 12 chat turns as plain history for API mode (the API is stateless)

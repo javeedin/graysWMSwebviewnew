@@ -32,6 +32,8 @@
   <ItemGroup>
     <Compile Remove="engine\**" />
     <EmbeddedResource Remove="engine\**" />
+    <!-- Claude CLI setup file: AI Digital Employee runs it / saves it as ClaudeCliSetup.bat -->
+    <EmbeddedResource Include="tools\claude-cli-setup.bat" LogicalName="ClaudeCliSetup.bat" />
     <None Remove="engine\**" />
     <ProjectReference Include="engine\FusionModel\FusionModel.csproj" />
     <!-- The MCP server (engine\FusionModel.Mcp, FusionModel.Mcp.exe) is NOT referenced here: Visual Studio's restore of an

@@ -1892,6 +1892,18 @@ navPanel.Controls.Add(wmsDevButton);
                                     HandleAiCliInstall(wv, requestId);
                                     break;
 
+                                case "aiCliSaveBat":
+                                    HandleAiCliSaveBat(wv, requestId);
+                                    break;
+
+                                case "aiCliLogin":
+                                    HandleAiCliLogin(wv, requestId);
+                                    break;
+
+                                case "aiCliDiagnose":
+                                    await HandleAiCliDiagnose(wv, root, requestId);
+                                    break;
+
                                 case "aiChatPrepare":
                                     await HandleAiChatPrepare(wv, messageJson, requestId);
                                     break;
