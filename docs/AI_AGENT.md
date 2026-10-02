@@ -75,6 +75,7 @@ The agent can write and run code itself (`run_code`), but always shows you the f
 | Operation | What it does |
 |---|---|
 | Detect (YOLO) | Finds and names objects (people, trucks, bottles … 80 kinds) with counts; outlines (-seg), people skeletons (-pose), or your own trained model |
+| Count anything | Type what to count — people, chickens, cars, bottles … (YOLO) — or drag a box around ONE example (a remote key, a carton, a bottle top) and it counts everything like it. Click a mark to remove it, an empty spot to add one; save the marked picture, send the list to the results panel or the chat |
 | Scan document | Finds the page in a photo, flattens it, colour / gray / black-and-white |
 | Read barcodes | Every format — Code 128 / 39, EAN, UPC, QR, DataMatrix, PDF417 … |
 | Count objects | Cartons, bottles, tops (touching ones are split; *round things* for caps and coins) |

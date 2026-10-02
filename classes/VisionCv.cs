@@ -27,7 +27,7 @@ namespace WMSApp
         /// <summary>The YOLO add-on: Ultralytics (AGPL-3.0, see the docs) on PyTorch CPU (Windows wheels from PyPI are CPU builds).</summary>
         public static readonly string[] YOLO_PACKAGES = { "torch", "torchvision", "ultralytics" };
         public static string ModelsDir => Path.Combine(CodeRunner.Root, "models");
-        public static readonly string[] OPS = { "info", "document", "barcodes", "count", "compare", "find", "enhance", "edges", "resize", "detect" };
+        public static readonly string[] OPS = { "info", "document", "barcodes", "count", "compare", "find", "enhance", "edges", "resize", "detect", "similar" };
         private static object _status;
         private static DateTime _statusAt = DateTime.MinValue;
 
@@ -741,8 +741,128 @@ def op_detect(imgs):
     RESULT["table"] = {"columns": ["image", "n", "label", "conf %", "x", "y", "w", "h"], "rows": rows}
 
 
+def iou(a, b):
+    x1, y1 = max(a[0], b[0]), max(a[1], b[1])
+    x2, y2 = min(a[0] + a[2], b[0] + b[2]), min(a[1] + a[3], b[1] + b[3])
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
+    return inter / float(a[2] * a[3] + b[2] * b[3] - inter or 1)
+
+
+def op_similar(imgs):
+    # "Count like this": the user marks ONE example (params.box = x, y, w, h in the picture's pixels); every thing that looks
+    # like it is found two ways and merged — by colour + size + shape (keys, cartons, bottles of the same colour) and by
+    # appearance (template match at the example's size and turned 90°, for printed labels and logos)
+    name, img = imgs[0]
+    b = PRM.get("box") or {}
+    try:
+        bx, by, bw, bh = [float(b[k]) for k in ("x", "y", "w", "h")]
+    except (KeyError, TypeError, ValueError) as ex:
+        raise ValueError("mark one example first (drag a box around it)") from ex
+    H0, W0 = img.shape[:2]
+    bx, by = max(0.0, bx), max(0.0, by)
+    bw, bh = min(bw, W0 - bx), min(bh, H0 - by)
+    if bw < 6 or bh < 6:
+        raise ValueError("the example box is too small")
+    work, s = fit(img, 1600)
+    ex = [int(bx * s), int(by * s), max(4, int(bw * s)), max(4, int(bh * s))]
+    tol = num("tolerance", 50, 5, 100)            # 0 = only near-identical … 100 = loose
+    lab = cv2.cvtColor(cv2.GaussianBlur(work, (5, 5), 0), cv2.COLOR_BGR2LAB).astype(np.float32)
+    x, y, w, h = ex
+    core = lab[y + h // 4: y + h - h // 4, x + w // 4: x + w - w // 4].reshape(-1, 3)
+    ref = np.median(core, axis=0)
+    ex_area, ex_long, ex_short = w * h, max(w, h), min(w, h)
+    found = []
+    # 1) colour blobs of the example's size and shape
+    dist = np.linalg.norm(lab - ref, axis=2)
+    mask = (dist < 6 + tol * 0.5).astype(np.uint8) * 255
+    k = max(3, int(min(w, h) * 0.25)) | 1
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    lo, hi = 1 - 0.4 * tol / 50, 1 + 0.6 * tol / 50
+    contours = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
+
+    def shape_of(c):
+        (_, _), (rw, rh), _ = cv2.minAreaRect(c)
+        lng, sht = max(rw, rh), min(rw, rh)
+        return lng, sht, lng / max(sht, 1), cv2.contourArea(c) / max(rw * rh, 1)   # long, short, aspect, fill (rect ≈ 1, circle ≈ 0.79)
+
+    # the example's own shape: the colour blob at the centre of its box
+    ex_shape = None
+    for c in contours:
+        if cv2.pointPolygonTest(c, (x + w / 2, y + h / 2), False) >= 0:
+            ex_shape = shape_of(c)
+            break
+    ex_aspect = ex_shape[2] if ex_shape else ex_long / ex_short
+    ex_fill = ex_shape[3] if ex_shape else None
+    for c in contours:
+        lng, sht, aspect, fill = shape_of(c)
+        if not (lo <= lng / ex_long <= hi and lo <= sht / ex_short <= hi):
+            continue
+        if cv2.contourArea(c) < 0.35 * ex_area:
+            continue
+        if abs(aspect / ex_aspect - 1) > 0.25 * tol / 50 + 0.08:              # a round button is not a long key
+            continue
+        if ex_fill is not None and abs(fill - ex_fill) > 0.08 * tol / 50 + 0.04:
+            continue
+        rx, ry, rw2, rh2 = cv2.boundingRect(c)
+        inner = dist[ry + rh2 // 4: ry + rh2 - rh2 // 4, rx + rw2 // 4: rx + rw2 - rw2 // 4]
+        score = float(max(0.0, 1 - np.median(inner) / (6 + tol * 0.5))) if inner.size else 0.0
+        found.append([rx, ry, rw2, rh2, round(0.5 + score / 2, 3), "colour"])
+    # 2) appearance (grey template) at the example's size ±15 %, upright and turned 90°
+    gray = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
+    tpl0 = gray[y:y + h, x:x + w]
+    thr = 0.85 - 0.3 * tol / 100
+    hits = []
+    for tpl in (tpl0, cv2.rotate(tpl0, cv2.ROTATE_90_CLOCKWISE)):
+        for sc in (0.85, 1.0, 1.15):
+            t = cv2.resize(tpl, None, fx=sc, fy=sc, interpolation=cv2.INTER_AREA)
+            if t.shape[0] >= gray.shape[0] or t.shape[1] >= gray.shape[1] or min(t.shape) < 4:
+                continue
+            r = cv2.matchTemplate(gray, t, cv2.TM_CCOEFF_NORMED)
+            for yy, xx in zip(*np.where(r >= thr), strict=False):
+                hits.append([int(xx), int(yy), t.shape[1], t.shape[0], float(r[yy, xx])])
+    if hits:
+        keep = cv2.dnn.NMSBoxes([h_[:4] for h_ in hits], [h_[4] for h_ in hits], thr, 0.3)
+        cmax = (6 + tol * 0.5) * 1.3
+        for i in np.array(keep).flatten()[:500]:
+            hx, hy, hw, hh = hits[i][:4]
+            inner = dist[hy + hh // 4: hy + hh - hh // 4, hx + hw // 4: hx + hw - hw // 4]
+            if inner.size and float(np.median(inner)) > cmax:                   # same shape, other colour (a red key is not a blue key)
+                continue
+            found.append(hits[i][:4] + [round(hits[i][4], 3), "look"])
+    found.append([x, y, w, h, 1.0, "example"])
+    # merge: best score first, drop boxes overlapping a kept one
+    found.sort(key=lambda f: (f[5] != "example", -f[4]))
+    kept = []
+    for f in found:
+        if all(iou(f, g) < 0.3 and not (abs((f[0] + f[2] / 2) - (g[0] + g[2] / 2)) < g[2] / 2 and abs((f[1] + f[3] / 2) - (g[1] + g[3] / 2)) < g[3] / 2) for g in kept):
+            kept.append(f)
+    # reading order: rows (centres within half a box height of the row's first one), then left to right
+    kept.sort(key=lambda f: f[1] + f[3] / 2)
+    rows_, cur = [], []
+    for f in kept:
+        if cur and (f[1] + f[3] / 2) - (cur[0][1] + cur[0][3] / 2) > 0.6 * min(f[3], cur[0][3]):
+            rows_.append(cur)
+            cur = []
+        cur.append(f)
+    if cur:
+        rows_.append(cur)
+    kept = [f for r_ in rows_ for f in sorted(r_, key=lambda f: f[0])]
+    ann = work.copy()
+    cv2.rectangle(ann, (x, y), (x + w, y + h), YELLOW, 3)
+    objs = []
+    for n, f in enumerate(kept, 1):
+        cv2.rectangle(ann, (f[0], f[1]), (f[0] + f[2], f[1] + f[3]), GREEN if f[5] != "example" else YELLOW, 2)
+        label(ann, str(n), (f[0], f[1]), BLUE)
+        objs.append({"n": n, "x": round(f[0] / s, 1), "y": round(f[1] / s, 1), "w": round(f[2] / s, 1), "h": round(f[3] / s, 1), "score": f[4], "by": f[5]})
+    label(ann, "%d like the example" % len(objs), (10, 40), RED)
+    save("similar", ann, "%d like the example (yellow)" % len(objs))
+    RESULT["images"] = [{"name": name, "count": len(objs), "objects": objs, "width": W0, "height": H0}]
+    RESULT.update({"count": len(objs), "example": {"x": bx, "y": by, "w": bw, "h": bh}, "tolerance": tol})
+
+
 OPS = {"info": op_info, "document": op_document, "barcodes": op_barcodes, "count": op_count, "compare": op_compare,
-       "enhance": op_enhance, "edges": op_edges, "find": op_find, "resize": op_resize, "detect": op_detect}
+       "enhance": op_enhance, "edges": op_edges, "find": op_find, "resize": op_resize, "detect": op_detect, "similar": op_similar}
 
 
 def run_job(job_dir):

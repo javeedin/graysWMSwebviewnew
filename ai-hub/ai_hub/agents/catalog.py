@@ -221,13 +221,16 @@ TOOLS: list[Tool] = [
          "and YOLO on this PC: op document = find the page and flatten / clean it (then read it better); barcodes = read every "
          "barcode / QR (Code 128, EAN, DataMatrix …) exactly; count = count objects (boxes, bottles, tops; method circles for "
          "round things); detect = YOLO object detection with names (person, truck, bottle … or the team's own model, params.model) "
-         "with counts per class; compare = what changed between two photos (before / after: damage, missing items); find = "
+         "with counts per class (to count people use classes 'person', chickens / any birds 'bird', vehicles 'car, truck'); "
+         "similar = count everything like ONE example (params.box = x, y, w, h of it in the picture's pixels, "
+         "e.g. one key of a remote, one carton) by colour, size, shape and look; compare = what changed between two photos (before / after: damage, missing items); find = "
          "where a thing (2nd image) appears in a scene (1st); enhance / info (blurry? too dark?) / edges / resize. images = names "
          "of pictures, 'last' (default) or 'last2'. Prefer it over guessing for codes and counts; the annotated picture comes back.",
-         _obj({"op": {"type": "string", "enum": ["document", "barcodes", "count", "detect", "compare", "find", "enhance", "info", "edges", "resize"]},
+         _obj({"op": {"type": "string", "enum": ["document", "barcodes", "count", "similar", "detect", "compare", "find", "enhance", "info", "edges", "resize"]},
                "images": {"type": "array", "items": S, "description": "Picture names, 'last' or 'last2'"},
                "params": {"type": "object", "description": "document: mode color|gray|bw · count: method auto|contours|circles · detect: model "
-                          "(yolo11n, yolo11n-seg, yolo11n-pose, or a custom name), conf, classes 'person, truck' · compare: threshold · resize: max_side"}},
+                          "(yolo11n, yolo11n-seg, yolo11n-pose, or a custom name), conf, classes 'person, truck' · compare: threshold · "
+                          "resize: max_side · similar: box {x,y,w,h} + tolerance 0-100"}},
               ["op"])),
     Tool("phone_call", "Place a real phone call (Twilio) where you talk with the person yourself to reach a goal - e.g. confirm a delivery "
          "slot with a customer, ask a driver for an ETA, remind about an overdue payment. Give the number in international format "

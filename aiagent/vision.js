@@ -32,6 +32,8 @@ VISION.OPS = [
     { id: 'detect', icon: 'fa-crosshairs', label: 'Detect (YOLO)', hint: 'Finds and names objects: people, vehicles, bottles, boxes … or your own trained model', need: 1, yolo: true,
         params: [{ k: 'model', label: 'Model', type: 'select', opts: function () { return VISION.modelOpts(); }, def: 'yolo11n' },
             { k: 'conf', label: 'Confidence ≥', type: 'number', def: 0.25, step: 0.05 }, { k: 'classes', label: 'Only (e.g. person, truck)', type: 'text' }] },
+    { id: 'similar', icon: 'fa-clone', label: 'Count anything', hint: 'Type what to count (people, chickens, cars …) or drag a box around ONE example, then Run. Click a mark to remove it, an empty spot to add one.', need: 1,
+        params: [{ k: 'tolerance', label: 'Looseness (0 strict … 100 loose)', type: 'number', def: 50, step: 10 }] },
     { id: 'document', icon: 'fa-file-image', label: 'Scan document', hint: 'Finds the page, flattens the perspective, cleans it up', need: 1,
         params: [{ k: 'mode', label: 'Output', type: 'select', opts: [['color', 'Colour'], ['gray', 'Gray'], ['bw', 'Black & white']] }] },
     { id: 'barcodes', icon: 'fa-barcode', label: 'Read barcodes', hint: 'QR, Code 128 / 39, EAN, UPC, DataMatrix, PDF417 …', need: 1, params: [] },
@@ -140,6 +142,7 @@ VISION.select = function (id, only) {
     VISION.renderTray();
 };
 VISION.renderTray = function () {
+    if (VISION.op === 'similar' && VISION.started) setTimeout(function () { if (!VISION.sim || VISION.sim.id !== VISION.sel[0]) VISION.simPicker(); }, 0);
     VISION.sel = VISION.sel.filter(function (id) { return VISION.tray.some(function (t) { return t.id === id; }); });
     $('vz-list').innerHTML = VISION.tray.length ? VISION.tray.slice().reverse().map(function (t) {
         var k = VISION.sel.indexOf(t.id);
@@ -159,7 +162,7 @@ VISION.renderOps = function () {
     $('vz-ops').innerHTML = VISION.OPS.map(function (o) {
         return '<button class="vz-op' + (o.id === VISION.op ? ' on' : '') + '" data-op="' + o.id + '" title="' + esc(o.hint) + '"><i class="fa-solid ' + o.icon + '"></i><span>' + esc(o.label) + '</span></button>';
     }).join('');
-    $('vz-ops').querySelectorAll('.vz-op').forEach(function (b) { b.onclick = function () { VISION.op = b.dataset.op; VISION.renderOps(); }; });
+    $('vz-ops').querySelectorAll('.vz-op').forEach(function (b) { b.onclick = function () { VISION.op = b.dataset.op; VISION.renderOps(); if (VISION.op === 'similar') VISION.simPicker(); }; });
     var o = VISION.opDef(), p = VISION.params[o.id] = VISION.params[o.id] || {};
     var noYolo = o.yolo && !(VISION.status || {}).yolo;
     $('vz-params').innerHTML = '<span class="muted sm">' + esc(o.hint) + (o.need > 1 ? ' — select ' + o.need + ' images (Ctrl+click), in order.' : '') + '</span>' +
@@ -188,6 +191,7 @@ VISION.exec = function (op, imgs, params, via) {
         images: imgs.map(function (t) { return { name: t.name, data: t.url.split(',')[1] }; }) }, 300000);
 };
 VISION.run = function () {
+    if (VISION.op === 'similar') { VISION.simRun(); return; }
     var o = VISION.opDef(), imgs = VISION.sel.map(function (id) { return VISION.tray.filter(function (t) { return t.id === id; })[0]; }).filter(Boolean);
     if (!imgs.length && VISION.tray.length) imgs = [VISION.tray[VISION.tray.length - 1]];
     if (imgs.length < o.need) { toast(o.label + ' needs ' + o.need + ' images — Ctrl+click to select them in order', 'err'); return; }
@@ -196,6 +200,152 @@ VISION.run = function () {
     VISION.exec(o.id, imgs, VISION.paramsFor(o)).then(function (d) { VISION.last = d; VISION.renderResult(o, d); })
         .catch(function (e) { $('vz-result').innerHTML = '<div class="callout bad"><div class="co-t">Failed</div>' + esc(e) + '</div>'; })
         .then(function () { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-play"></i> Run'; });
+};
+
+// ── Count anything: type what (YOLO knows 80 kinds: people, birds = chickens, cars, bottles …) or drag a box around one
+//    example (anything else: keys, cartons, tops); then correct the marks by clicking ──
+VISION.COCO = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench',
+    'bird', 'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard',
+    'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl',
+    'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet',
+    'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear',
+    'hair drier', 'toothbrush'];
+VISION.SYN = { people: 'person', persons: 'person', man: 'person', men: 'person', woman: 'person', women: 'person', worker: 'person', workers: 'person', staff: 'person', child: 'person', children: 'person', kid: 'person', kids: 'person', face: 'person', faces: 'person',
+    chicken: 'bird', chickens: 'bird', hen: 'bird', hens: 'bird', duck: 'bird', ducks: 'bird', pigeon: 'bird', pigeons: 'bird', poultry: 'bird', birds: 'bird',
+    lorry: 'truck', lorries: 'truck', van: 'truck', vans: 'truck', cattle: 'cow', cows: 'cow', goat: 'sheep', goats: 'sheep', phone: 'cell phone', phones: 'cell phone', mobile: 'cell phone', mobiles: 'cell phone',
+    tv: 'tv', television: 'tv', monitor: 'tv', monitors: 'tv', screen: 'tv', screens: 'tv', table: 'dining table', tables: 'dining table', plant: 'potted plant', plants: 'potted plant', sofa: 'couch',
+    motorbike: 'motorcycle', motorbikes: 'motorcycle', bike: 'bicycle', bikes: 'bicycle', glass: 'wine glass', mug: 'cup', mugs: 'cup', bag: 'handbag', bags: 'handbag', ball: 'sports ball', balls: 'sports ball' };
+/** "chickens and people" → ['bird', 'person'] (COCO names YOLO knows), or [] */
+VISION.cocoOf = function (text) {
+    var out = [], t = ' ' + String(text || '').toLowerCase().replace(/[^a-z ]/g, ' ') + ' ';
+    VISION.COCO.forEach(function (c) { if (t.indexOf(' ' + c + ' ') >= 0 || t.indexOf(' ' + c + 's ') >= 0 || t.indexOf(' ' + c + 'es ') >= 0) out.push(c); });
+    t.split(/[ ,]+/).forEach(function (w) { if (VISION.SYN[w]) out.push(VISION.SYN[w]); });
+    return out.filter(function (c, i) { return out.indexOf(c) === i; });
+};
+VISION.simWhat = function () {
+    var S = VISION.sim, t = VISION.simImage(), what = ($('vz-what') || {}).value || '';
+    if (!S || !t) return;
+    var classes = VISION.cocoOf(what);
+    if (!classes.length) { toast('"' + what + '" is not one of the 80 things YOLO knows — drag a box around one of them on the picture instead', 'err'); return; }
+    if (!(VISION.status || {}).yolo) { toast('YOLO is not set up on this PC (Photo · OpenCV › YOLO + PyTorch) — drag a box around one example instead', 'err'); return; }
+    var have = ((VISION.status || {}).models || []).map(function (m) { return m.name; });
+    var btn = $('vz-whatbtn'); btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Counting…';
+    // bigger input size finds small things in a crowd (chickens in a shed, people far away)
+    VISION.exec('detect', [{ name: t.name, url: t.url }], { model: have.indexOf('yolo11s') >= 0 ? 'yolo11s' : 'yolo11n', classes: classes.join(', '), conf: 0.25, imgsz: 1280 }).then(function (d) {
+        if (!d.ok) { toast(d.error || ((d.result || {}).error) || 'Failed', 'err'); return; }
+        VISION.last = d;
+        var objs = (((d.result || {}).images || [])[0] || {}).objects || [];
+        S.box = null; S.what = classes.join(', '); S.removed = {}; S.added = [];
+        S.marks = objs.filter(function (o) { return o.w != null; }).map(function (o, i) { return { n: i + 1, x: o.x, y: o.y, w: o.w, h: o.h, by: o.label, score: o.conf }; });
+        if (!S.marks.length) toast('None found — try a sharper or closer photo, or drag a box around one', 'err');
+        VISION.simDraw();
+    }).catch(function (e) { toast(String(e), 'err'); })
+        .then(function () { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Count them'; });
+};
+VISION.simImage = function () {
+    var id = VISION.sel[0] || (VISION.tray.length ? VISION.tray[VISION.tray.length - 1].id : null);
+    return VISION.tray.filter(function (t) { return t.id === id; })[0];
+};
+VISION.simPicker = function () {
+    var t = VISION.simImage();
+    if (!t) { $('vz-result').innerHTML = '<p class="muted sm">Add a picture on the left first (file, paste, From chat or the camera).</p>'; VISION.sim = null; return; }
+    var img = new Image();
+    img.onload = function () {
+        VISION.sim = { id: t.id, name: t.name, img: img, box: null, marks: [], removed: {}, added: [] };
+        $('vz-result').innerHTML = '<div class="vz-rhead"><b><i class="fa-solid fa-clone"></i> Count anything</b></div>' +
+            '<div class="vz-what"><input type="text" id="vz-what" placeholder="What to count? people, chickens, cars, bottles … (YOLO)">' +
+            '<button class="btn sm primary" id="vz-whatbtn" onclick="VISION.simWhat()"><i class="fa-solid fa-wand-magic-sparkles"></i> Count them</button>' +
+            '<span class="muted sm">— or drag a box around ONE example on the picture (a key, a carton, a bottle top) and press Run.</span></div>' +
+            '<div class="vz-simwrap"><canvas id="vz-sim" class="vz-simcv"></canvas></div><div id="vz-simbar" class="vz-simbar"></div>';
+        VISION.simDraw(); VISION.simWire();
+        $('vz-what').onkeydown = function (e) { if (e.key === 'Enter') VISION.simWhat(); };
+    };
+    img.src = t.url;
+};
+VISION.simScale = function () { var S = VISION.sim, maxW = Math.min(980, ($('vz-result').clientWidth || 900) - 24); return Math.min(1, maxW / S.img.width, 620 / S.img.height); };
+VISION.simCount = function () { var S = VISION.sim; return S.marks.filter(function (m) { return !S.removed[m.n]; }).length + S.added.length; };
+VISION.simDraw = function () {
+    var S = VISION.sim, cv = $('vz-sim'); if (!S || !cv) return;
+    var k = VISION.simScale(); cv.width = Math.round(S.img.width * k); cv.height = Math.round(S.img.height * k);
+    var g = cv.getContext('2d'); g.drawImage(S.img, 0, 0, cv.width, cv.height);
+    var lw = Math.max(2, cv.width / 400);
+    g.font = '700 ' + Math.max(11, cv.width / 70) + 'px Segoe UI, sans-serif';
+    var tag = function (txt, x, y, col) { var w = g.measureText(txt).width + 8, h = Math.max(15, cv.width / 55); g.fillStyle = col; g.fillRect(x, y - h, w, h); g.fillStyle = '#fff'; g.fillText(txt, x + 4, y - 4); };
+    var n = 0;
+    S.marks.forEach(function (m) {
+        var x = m.x * k, y = m.y * k, w = m.w * k, h = m.h * k;
+        if (S.removed[m.n]) { g.strokeStyle = '#dc2626'; g.lineWidth = lw; g.setLineDash([5, 4]); g.strokeRect(x, y, w, h); g.setLineDash([]); g.beginPath(); g.moveTo(x, y); g.lineTo(x + w, y + h); g.moveTo(x + w, y); g.lineTo(x, y + h); g.stroke(); return; }
+        n++; g.strokeStyle = m.by === 'example' ? '#f59e0b' : '#16a34a'; g.lineWidth = lw; g.strokeRect(x, y, w, h); tag(String(n), x, y, '#2563eb');
+    });
+    S.added.forEach(function (m) { n++; var x = m.x * k, y = m.y * k; g.strokeStyle = '#7c3aed'; g.lineWidth = lw; g.strokeRect(x, y, m.w * k, m.h * k); tag(n + ' +', x, y, '#7c3aed'); });
+    if (S.box && !S.marks.length) { g.strokeStyle = '#f59e0b'; g.lineWidth = lw * 1.5; g.setLineDash([6, 4]); g.strokeRect(S.box.x * k, S.box.y * k, S.box.w * k, S.box.h * k); g.setLineDash([]); tag('example', S.box.x * k, S.box.y * k, '#f59e0b'); }
+    if (S.drag) { g.strokeStyle = '#f59e0b'; g.lineWidth = lw; g.strokeRect(S.drag.x0, S.drag.y0, S.drag.x1 - S.drag.x0, S.drag.y1 - S.drag.y0); }
+    var bar = $('vz-simbar');
+    if (bar) bar.innerHTML = S.marks.length
+        ? '<div class="vz-big">' + VISION.simCount() + '<span> ' + esc(S.what ? S.what.replace('bird', 'birds / chickens').replace('person', 'people') : 'like the example') + ' · found ' + S.marks.length + (Object.keys(S.removed).length ? ', removed ' + Object.keys(S.removed).length : '') + (S.added.length ? ', added ' + S.added.length : '') + '</span></div>' +
+          '<span class="muted sm">Click a mark to remove / restore it, an empty spot to add one.</span><div class="res-acts">' +
+          '<button class="btn sm" onclick="VISION.simSave()"><i class="fa-solid fa-download"></i> Save marked picture</button>' +
+          '<button class="btn sm" onclick="VISION.simTable()"><i class="fa-solid fa-table"></i> List to the results panel</button>' +
+          '<button class="btn sm" onclick="VISION.simChat()"><i class="fa-regular fa-comment"></i> Send to the chat</button>' +
+          '<button class="btn sm" onclick="VISION.sim.marks=[];VISION.sim.removed={};VISION.sim.added=[];VISION.simDraw()"><i class="fa-solid fa-rotate-left"></i> New example</button></div>'
+        : (S.box ? '<span class="tag b-ok">example marked</span> <span class="muted sm">press Run</span>' : '<span class="muted sm">No example yet — drag a box on the picture.</span>');
+};
+VISION.simWire = function () {
+    var cv = $('vz-sim');
+    var pt = function (e) { var r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
+    cv.onmousedown = function (e) { var p = pt(e); VISION.sim.drag = { x0: p[0], y0: p[1], x1: p[0], y1: p[1] }; };
+    cv.onmousemove = function (e) { var S = VISION.sim; if (!S.drag) return; var p = pt(e); S.drag.x1 = p[0]; S.drag.y1 = p[1]; VISION.simDraw(); };
+    cv.onmouseup = function (e) {
+        var S = VISION.sim, d = S.drag; S.drag = null; if (!d) return;
+        var k = VISION.simScale(), p = pt(e), x = Math.min(d.x0, p[0]) / k, y = Math.min(d.y0, p[1]) / k, w = Math.abs(p[0] - d.x0) / k, h = Math.abs(p[1] - d.y0) / k;
+        if (w > 8 && h > 8) { S.box = { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) }; S.marks = []; S.removed = {}; S.added = []; VISION.simDraw(); return; }
+        if (!S.marks.length) return;
+        // a click: toggle a found mark, remove an added one, or add a mark of the example's size here
+        var cx = p[0] / k, cy = p[1] / k;
+        var inBox = function (m) { return cx >= m.x && cx <= m.x + m.w && cy >= m.y && cy <= m.y + m.h; };
+        var ai = S.added.findIndex(inBox);
+        if (ai >= 0) S.added.splice(ai, 1);
+        else {
+            var m = S.marks.filter(inBox)[0];
+            if (m) { if (S.removed[m.n]) delete S.removed[m.n]; else S.removed[m.n] = 1; }
+            else {
+                var med = function (k2) { var v = S.marks.map(function (q) { return q[k2]; }).sort(function (a, b) { return a - b; }); return v[Math.floor(v.length / 2)]; };
+                var b = S.box || { w: med('w'), h: med('h') };
+                S.added.push({ x: cx - b.w / 2, y: cy - b.h / 2, w: b.w, h: b.h });
+            }
+        }
+        VISION.simDraw();
+    };
+};
+VISION.simRun = function () {
+    var S = VISION.sim, t = VISION.simImage();
+    if (S && !S.box && $('vz-what') && $('vz-what').value.trim()) { VISION.simWhat(); return; }
+    if (!S || !t || S.id !== t.id) { VISION.simPicker(); toast('Drag a box around one example first', 'err'); return; }
+    if (!S.box) { toast('Drag a box around ONE example on the picture first', 'err'); return; }
+    var btn = $('vz-run'); btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Counting…';
+    VISION.exec('similar', [{ name: t.name, url: t.url }], Object.assign(VISION.paramsFor(VISION.opDef()), { box: S.box })).then(function (d) {
+        if (!d.ok) { toast(d.error || ((d.result || {}).error) || 'Failed', 'err'); return; }
+        VISION.last = d;
+        S.marks = (((d.result || {}).images || [])[0] || {}).objects || []; S.removed = {}; S.added = []; S.what = null;
+        VISION.simDraw();
+    }).catch(function (e) { toast(String(e), 'err'); })
+        .then(function () { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-play"></i> Run'; });
+};
+VISION.simCanvasUrl = function () { var k0 = VISION.simScale; VISION.simScale = function () { return 1; }; VISION.simDraw(); var u = $('vz-sim').toDataURL('image/jpeg', 0.9); VISION.simScale = k0; VISION.simDraw(); return u; };
+VISION.simSave = function () { var a = document.createElement('a'); a.href = VISION.simCanvasUrl(); a.download = 'count-' + VISION.simCount() + '.jpg'; document.body.appendChild(a); a.click(); a.remove(); };
+VISION.simList = function () {
+    var S = VISION.sim, rows = [], n = 0;
+    S.marks.forEach(function (m) { if (!S.removed[m.n]) rows.push([++n, Math.round(m.x), Math.round(m.y), Math.round(m.w), Math.round(m.h), m.by === 'example' ? 'example' : 'found']); });
+    S.added.forEach(function (m) { rows.push([++n, Math.round(m.x), Math.round(m.y), Math.round(m.w), Math.round(m.h), 'added by hand']); });
+    return rows;
+};
+VISION.simTable = function () { if (!AG.pageResult) return; AG.pageResult('Count like this · ' + VISION.sim.name, ['n', 'x', 'y', 'w', 'h', 'how'], VISION.simList()); CODE.showTab('chat'); AG.toggleResults && AG.toggleResults(true, true); };
+VISION.simChat = function () {
+    var S = VISION.sim, url = VISION.simCanvasUrl();
+    AG.files.push({ name: 'count-like-this.jpg', media_type: 'image/jpeg', data: url.split(',')[1] }); AG.renderFiles();
+    CODE.showTab('chat');
+    $('input').value = 'Counted ' + VISION.simCount() + ' items like the marked example in ' + S.name + ' (found ' + S.marks.length + ', removed ' + Object.keys(S.removed).length + ', added ' + S.added.length + ' by hand). ';
+    $('input').focus();
 };
 
 // ── results ──
@@ -207,6 +357,7 @@ VISION.summary = function (r) {
         case 'count': return im.map(function (x) { return x.name + ': ' + x.count + ' object(s)'; }).join(', ');
         case 'compare': return 'similarity ' + r.similarity + ' %, ' + r.changed_pct + ' % changed, ' + (r.regions || []).length + ' area(s) — ' + r.verdict;
         case 'find': return r.count + ' match(es)';
+        case 'similar': return r.count + ' like the example';
         case 'detect': return Object.keys(r.counts || {}).length ? Object.keys(r.counts).map(function (k) { return r.counts[k] + ' × ' + k; }).join(', ') + ' (' + r.model + ')' : 'nothing found (' + r.model + ')';
         case 'document': return im.map(function (x) { return x.name + ': ' + (x.page_found ? 'page found' : 'no page edges, whole image'); }).join(', ');
         case 'info': return im.map(function (x) { return x.name + ': ' + x.width + '×' + x.height + ', ' + x.sharp_verdict + ', ' + x.exposure; }).join(', ');
@@ -258,6 +409,7 @@ VISION.download = function (i) {
 };
 VISION.tableOf = function (r) {
     if (r.op === 'barcodes') return { title: 'Barcodes', columns: r.table.columns, rows: r.table.rows };
+    if (r.op === 'similar') return { title: 'Count like this', columns: ['n', 'x', 'y', 'w', 'h', 'score', 'by'], rows: (((r.images || [])[0] || {}).objects || []).map(function (o) { return [o.n, o.x, o.y, o.w, o.h, o.score, o.by]; }) };
     if (r.op === 'detect' && r.table) return { title: 'Objects (' + r.model + ')', columns: r.table.columns, rows: r.table.rows };
     if (r.op === 'count') {
         var rows = [];

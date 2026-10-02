@@ -449,3 +449,9 @@ body.tech-on .tech-toggle { color: #7c3aed; font-weight: 700; }
 .vz-log { font-size: .72rem; max-height: 220px; overflow: auto; }
 .vz-log .ok { color: #15803d; } .vz-log .bad { color: #b91c1c; }
 @media (max-width: 900px) { .vz-photo, .vz-livewrap { grid-template-columns: 1fr; } }
+
+.vz-simwrap { overflow: auto; max-height: 640px; }
+.vz-simcv { display: block; max-width: 100%; cursor: crosshair; border-radius: 8px; box-shadow: 0 1px 6px rgba(0,0,0,.15); }
+.vz-simbar { margin-top: 8px; }
+.vz-what { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.vz-what input { min-width: 280px; flex: 0 1 380px; }
