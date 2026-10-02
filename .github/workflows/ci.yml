@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip, cache-dependency-path: ai-hub/requirements.txt }
-      - run: pip install -r requirements.txt pytest ruff mypy
+      - run: pip install -r requirements.txt pytest ruff mypy numpy   # numpy: the Whisper decoder test (faster-whisper brings it on a PC)
       - run: ruff check ai_hub tests
       - run: mypy
       - run: python -m pytest -q
