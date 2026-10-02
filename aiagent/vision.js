@@ -287,7 +287,7 @@ VISION.toChat = function () {
 // ═════════════════════ Live: MediaPipe in the page ═════════════════════
 VISION.GESTURES = [['Thumb_Up', '👍 Thumb up'], ['Victory', '✌️ Victory'], ['ILoveYou', '🤟 I love you'], ['Pointing_Up', '☝️ Pointing up'], ['Open_Palm', '🖐 Open palm'], ['Closed_Fist', '✊ Fist'], ['Thumb_Down', '👎 Thumb down']];
 VISION.ACTIONS = [['', '— nothing —'], ['snap', 'Take a photo (to the images)'], ['scan', 'Scan barcodes now'], ['yolo', 'Objects on / off (YOLO)'], ['chat', 'Send a photo to the chat'], ['pause', 'Pause / resume tracking'], ['voice', 'Voice mode on / off']];
-VISION.DEFAULT_MAP = { Thumb_Up: 'snap', Victory: 'scan', ILoveYou: 'chat', Closed_Fist: 'pause' };
+VISION.DEFAULT_MAP = { Thumb_Up: 'snap', Victory: 'scan', ILoveYou: 'chat', Thumb_Down: 'pause' };
 VISION.ls = function (k, d) { try { var v = localStorage.getItem('aiagent.vision.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
 VISION.lsSet = function (k, v) { try { localStorage.setItem('aiagent.vision.' + k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
 
@@ -305,6 +305,7 @@ VISION.liveUi = function () {
         '<button class="btn primary" onclick="VISION.liveStart()"><i class="fa-solid fa-video"></i> Start camera</button><div class="muted sm">The tracking runs in this window (Google MediaPipe); no picture leaves the PC unless you send one.</div></div></div>' +
         '<aside class="vz-lside"><div class="row"><button class="btn primary sm" id="vz-lbtn" onclick="VISION.liveToggle()"><i class="fa-solid fa-video"></i> Start</button>' +
         '<button class="btn sm" onclick="VISION.snap(\'snap\')" title="Photo to the images (Photo mode)"><i class="fa-solid fa-camera"></i> Snap</button>' +
+        '<button class="btn sm" id="vz-pbtn" onclick="VISION.setPaused(!VISION.live.paused)" title="Pause / resume the tracking"><i class="fa-solid fa-pause"></i> Pause</button>' +
         '<select id="vz-dev" class="grow" title="Camera"></select></div>' +
         '<div class="side-h">Track</div>' +
         [['hands', 'Hands + gestures'], ['pose', 'Body skeleton'], ['face', 'Face mesh'], ['yolo', 'Objects (YOLO)'], ['coach', 'Posture coach (safe lifting)'], ['mirror', 'Mirror']].map(function (x) {
@@ -352,7 +353,14 @@ VISION.mp = function () {
 VISION.create = function (cls, model, extra) {
     return VISION.mp().then(function (mp) {
         var opts = function (delegate) { return Object.assign({ baseOptions: { modelAssetPath: model, delegate: delegate }, runningMode: 'VIDEO' }, extra || {}); };
-        return mp.m[cls].createFromOptions(mp.fs, opts('GPU')).catch(function () { return mp.m[cls].createFromOptions(mp.fs, opts('CPU')); });
+        // GPU first; a GPU delegate can hang (no WebGL / blocked driver) instead of failing, so give it 15 s, then the CPU
+        if (VISION.cpuOnly) return mp.m[cls].createFromOptions(mp.fs, opts('CPU'));
+        var gpu = mp.m[cls].createFromOptions(mp.fs, opts('GPU'));
+        var limit = new Promise(function (_, rej) { setTimeout(function () { rej('GPU timeout'); }, 15000); });
+        return Promise.race([gpu, limit]).catch(function (e) {
+            VISION.cpuOnly = true; VISION.log('GPU not usable (' + (e && e.message ? e.message : e) + ') — tracking on the CPU');
+            return mp.m[cls].createFromOptions(mp.fs, opts('CPU'));
+        });
     });
 };
 VISION.loadModels = function () {
@@ -387,6 +395,7 @@ VISION.liveStart = function () {
         }).then(function () {
             if (!L.on) return;
             $('vz-idle').hidden = true;
+            if (L.paused) VISION.setPaused(false);
             L.fps = 0; L.frames = 0; L.t0 = performance.now(); L.gest = {}; L.coach = { state: 'up', lifts: 0, risky: 0 };
             cancelAnimationFrame(L.raf); L.raf = requestAnimationFrame(VISION.frame);
         }).catch(function (e) {
@@ -422,8 +431,8 @@ VISION.frame = function () {
     v.classList.toggle('mirror', !!L.opt.mirror);
     var ts = performance.now(); if (ts <= (L.lastTs || 0)) ts = L.lastTs + 1; L.lastTs = ts;
     var res = { hands: null, pose: null, face: null };
+    try { if (L.opt.hands && L.hands) res.hands = L.hands.recognizeForVideo(v, ts); } catch (e) { /* frame skipped */ }
     if (!L.paused) {
-        try { if (L.opt.hands && L.hands) res.hands = L.hands.recognizeForVideo(v, ts); } catch (e) { /* frame skipped */ }
         try { if ((L.opt.pose || L.opt.coach) && L.pose) res.pose = L.pose.detectForVideo(v, ts); } catch (e) { /* frame skipped */ }
         try { if (L.opt.face && L.face) res.face = L.face.detectForVideo(v, ts); } catch (e) { /* frame skipped */ }
     }
@@ -545,19 +554,30 @@ VISION.gestures = function (hr) {
     if (name !== G.name) { G.name = name; G.since = now; G.fired = false; }
     var act = name ? L.map[name] : '', held = name ? now - G.since : 0, el = $('vz-gest');
     var label = (VISION.GESTURES.filter(function (x) { return x[0] === name; })[0] || [null, name || ''])[1];
-    if (!name) { el.innerHTML = L.paused ? 'PAUSED — ✊ to resume' : ''; return; }
+    if (!name) { el.innerHTML = L.paused ? 'PAUSED — ' + esc(VISION.pauseHint()) : ''; return; }
     var pct = Math.min(1, held / VISION.HOLD);
     el.innerHTML = 'GESTURE: <b>' + esc(String(name).toUpperCase()) + '</b>' + (act ? ' → ' + esc((VISION.ACTIONS.filter(function (a) { return a[0] === act; })[0] || [])[1]) +
         ' <span class="vz-hold"><span style="width:' + Math.round(pct * 100) + '%"></span></span>' : '');
+    if (L.paused && act !== 'pause') act = '';         // while paused only the resume gesture works
     if (act && !G.fired && held >= VISION.HOLD && now - (L.lastFire || 0) > VISION.COOL) {
         G.fired = true; L.lastFire = now;
         VISION.log('Gesture ' + label + ' → ' + act, 'ok');
         VISION.doAction(act);
     }
 };
+VISION.pauseHint = function () {
+    var g = Object.keys(VISION.live.map || {}).filter(function (k) { return VISION.live.map[k] === 'pause'; })[0];
+    var lbl = g ? (VISION.GESTURES.filter(function (x) { return x[0] === g; })[0] || [g, g])[1] : null;
+    return (lbl ? lbl + ' or ' : '') + 'the Resume button to go on';
+};
+VISION.setPaused = function (p) {
+    var L = VISION.live; L.paused = p;
+    VISION.log(p ? 'Tracking paused' : 'Tracking resumed');
+    var b = $('vz-pbtn'); if (b) b.innerHTML = p ? '<i class="fa-solid fa-play"></i> Resume' : '<i class="fa-solid fa-pause"></i> Pause';
+};
 VISION.doAction = function (act) {
     var L = VISION.live;
-    if (act === 'pause') { L.paused = !L.paused; VISION.log(L.paused ? 'Tracking paused' : 'Tracking resumed'); return; }
+    if (act === 'pause') { VISION.setPaused(!L.paused); return; }
     if (act === 'yolo') { var cb = $('vz-live').querySelector('[data-o="yolo"]'); cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); VISION.log('Objects (YOLO) ' + (cb.checked ? 'on' : 'off')); return; }
     if (act === 'voice') { if (window.VOICE && VOICE.toggle) VOICE.toggle(); else toast('Voice mode is not available here', 'err'); return; }
     VISION.snap(act);

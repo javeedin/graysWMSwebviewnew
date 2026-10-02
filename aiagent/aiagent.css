@@ -383,11 +383,12 @@ body.tech-on .tech-toggle { color: #7c3aed; font-weight: 700; }
 /* Vision tab */
 .visionws { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; min-height: 0; overflow: hidden; }
 .visionws[hidden] { display: none; }
-.vz-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.vz-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-width: 0; }
+#vz-status { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
 .vz-head .seg { display: inline-flex; background: #eef2ff; border-radius: 10px; padding: 3px; gap: 3px; }
 .vz-head .seg button { border: 0; background: none; padding: 6px 12px; border-radius: 8px; font-weight: 700; cursor: pointer; color: #475569; }
 .vz-head .seg button.on { background: #fff; color: #4338ca; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-.vz-photo { flex: 1; display: grid; grid-template-columns: 250px 1fr; gap: 10px; min-height: 0; }
+.vz-photo { flex: 1; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 10px; min-height: 0; }
 .vz-photo[hidden], .vz-livewrap[hidden] { display: none; }
 .vz-tray { display: flex; flex-direction: column; gap: 6px; min-height: 0; border: 1px solid var(--line, #e2e8f0); border-radius: 10px; padding: 8px; background: #fff; }
 .vz-tray .row { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
@@ -420,8 +421,8 @@ body.tech-on .tech-toggle { color: #7c3aed; font-weight: 700; }
 .vz-gallery img { width: 100%; display: block; cursor: zoom-in; background: #0f172a; }
 .vz-gallery figcaption { display: flex; gap: 4px; align-items: center; padding: 4px 6px; font-size: .72rem; color: #475569; }
 .vz-gallery figcaption .grow { flex: 1; }
-.vz-livewrap { flex: 1; display: grid; grid-template-columns: 1fr 270px; gap: 10px; min-height: 0; }
-.vz-stage { position: relative; background: #020617; border-radius: 12px; overflow: hidden; display: grid; place-items: center; min-height: 300px; }
+.vz-livewrap { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 10px; min-height: 0; }
+.vz-stage { position: relative; min-width: 0; max-height: calc(100vh - 210px); background: #020617; border-radius: 12px; overflow: hidden; display: grid; place-items: center; min-height: 300px; }
 .vz-stage video, .vz-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .vz-stage video.mirror { transform: scaleX(-1); }
 .vz-stage.flash::after { content: ''; position: absolute; inset: 0; background: #fff; opacity: .7; }
