@@ -28,7 +28,25 @@ namespace WMSApp
     {
         public static readonly string[] READ_OPS = {
             "summary", "network", "wifi", "wifi_networks", "cpu_memory", "disks", "usb", "devices", "printers", "print_queue", "battery",
-            "displays", "bios", "os", "software", "processes", "services", "events", "ping", "port", "wmi" };
+            "displays", "bios", "os", "software", "processes", "services", "events", "ping", "port", "wmi", "bluetooth", "open_settings" };
+
+        /// <summary>Windows panels the agent may open for the user (fixed ms-settings URIs, nothing else). Pairing, connecting
+        /// and casting are finished by the user in Windows' own dialogs (PIN confirmation stays with Windows).</summary>
+        public static readonly Dictionary<string, string> SETTINGS_PAGES = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["add_device"] = "ms-settings-connectabledevices:devicediscovery",   // "Add a device" (Bluetooth, wireless display, other)
+            ["bluetooth"] = "ms-settings:bluetooth",
+            ["connected_devices"] = "ms-settings:connecteddevices",
+            ["project_display"] = "ms-settings-displays-topology:projection",    // Project / connect to a wireless display (like Win+P)
+            ["display"] = "ms-settings:display",
+            ["sound"] = "ms-settings:sound",
+            ["wifi"] = "ms-settings:network-wifi",
+            ["printers"] = "ms-settings:printers",
+            ["camera_privacy"] = "ms-settings:privacy-webcam",
+            ["microphone_privacy"] = "ms-settings:privacy-microphone",
+            ["location_privacy"] = "ms-settings:privacy-location",
+            ["mobile_devices"] = "ms-settings:mobile-devices",                 // Phone Link
+        };
         public static readonly string[] CONTROL_OPS = { "set_default_printer", "cancel_print_jobs" };
         private const int MAX_ROWS = 300;
 
@@ -75,6 +93,15 @@ namespace WMSApp
                     "ping" => await PingAsync(arg("host")),
                     "port" => await PortAsync(arg("host"), arg("port")),
                     "wmi" => WmiQuery(arg("query")),
+                    "bluetooth" => new
+                    {
+                        radio = Wmi("SELECT Name, Status, Manufacturer FROM Win32_PnPEntity WHERE PNPClass = 'Bluetooth' AND (Name LIKE '%Adapter%' OR Name LIKE '%Radio%' OR Name LIKE '%Wireless Bluetooth%')"),
+                        devices = Wmi("SELECT Name, Status, DeviceID FROM Win32_PnPEntity WHERE DeviceID LIKE 'BTHENUM%' OR DeviceID LIKE 'BTHLE%' OR DeviceID LIKE 'BTHLEDEVICE%'", 200)
+                            .Where(d => !Regex.IsMatch(d.GetValueOrDefault("Name") ?? "", "Service|Protocol|Profile|Enumerator|Transport|Attribute|Gatt|Generic", RegexOptions.IgnoreCase))
+                            .GroupBy(d => d.GetValueOrDefault("Name")).Select(g => new { name = g.Key, status = g.First().GetValueOrDefault("Status") }).ToList(),
+                        note = "These are PAIRED devices Windows knows. To pair a new one or connect, use op open_settings page=add_device / bluetooth - the user finishes in Windows' own dialog."
+                    },
+                    "open_settings" => OpenSettings(arg("page")),
                     _ => null
                 };
                 if (data == null)
@@ -119,6 +146,14 @@ namespace WMSApp
                 return new { ok = false, content = "Unknown control op " + op };
             }
             catch (Exception ex) { return new { ok = false, content = op + " failed: " + ex.Message }; }
+        }
+
+        private static object OpenSettings(string page)
+        {
+            if (string.IsNullOrWhiteSpace(page) || !SETTINGS_PAGES.TryGetValue(page.Trim(), out var uri))
+                throw new ArgumentException("page must be one of: " + string.Join(", ", SETTINGS_PAGES.Keys));
+            Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
+            return new { opened = page, uri, note = "The Windows panel is now open on the user's screen - tell them what to click there." };
         }
 
         // ── ops ──────────────────────────────────────────────

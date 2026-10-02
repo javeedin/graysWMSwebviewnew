@@ -245,14 +245,18 @@ TOOLS += [
          "devices with errors) | printers (status, port, driver, offline) | print_queue (stuck jobs) | battery | displays | bios "
          "(make, model, serial) | os | software (name=filter) | processes (name=filter) | services (name, state) | events "
          "(log=System|Application|PrintService: recent errors) | ping (host) | port (host, port - e.g. 9100 for a network printer) | "
-         "wmi (query = one WQL SELECT on Win32_/CIM_/MSFT_ classes, for anything else). Controls, the user confirms: "
-         "set_default_printer (printer), cancel_print_jobs (printer). Use it whenever a question is about this PC, its network, "
+         "wmi (query = one WQL SELECT on Win32_/CIM_/MSFT_ classes, for anything else) | bluetooth (paired devices + adapter) | "
+         "open_settings (page = add_device | bluetooth | connected_devices | project_display | display | sound | wifi | printers | "
+         "camera_privacy | microphone_privacy | location_privacy | mobile_devices: opens that Windows panel on the user's screen - use it "
+         "to PAIR / CONNECT a Bluetooth device, CAST / project to a TV or fix a privacy switch, then say exactly what to click; Windows "
+         "asks for the pairing PIN itself). Controls, the user confirms: "
+         "set_default_printer (printer), cancel_print_jobs (printer). Never just say you cannot connect a device - open the right panel. Use it whenever a question is about this PC, its network, "
          "devices or printers - never say you cannot see them before trying.",
          _obj({"op": {"type": "string", "enum": ["summary", "network", "wifi", "wifi_networks", "cpu_memory", "disks", "usb", "devices", "printers",
                                                  "print_queue", "battery", "displays", "bios", "os", "software", "processes", "services", "events",
-                                                 "ping", "port", "wmi", "set_default_printer", "cancel_print_jobs"]},
+                                                 "ping", "port", "wmi", "bluetooth", "open_settings", "set_default_printer", "cancel_print_jobs"]},
                "host": S, "port": I, "name": S, "state": S, "log": S, "count": I, "query": S, "printer": S, "problems": {"type": "boolean"},
-               "class": S, "reason": S}, ["op"]),
+               "class": S, "page": S, "reason": S}, ["op"]),
          runs="host", risk="act", policy="device_control", specialists=ALL),
     Tool("db_write", "DDL / DML on the WMS / APEX database (INSERT / UPDATE / DELETE / CREATE …) through ai/executewrite. The user confirms "
          "(policy db_write). = action db_write.", _obj({"sql": s("One statement"), "reason": S}, ["sql"]), runs="host", risk="act", policy="db_write", specialists=ALL),

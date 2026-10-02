@@ -34,7 +34,7 @@ TECH.TOOL = {
     wms_sql: 'C# ClaudeCliService → Oracle APEX ORDS ai/executequery (guarded SQL gateway, Oracle DB)',
     fusion_call: 'C# → Oracle Fusion REST (fscmRestApi), app credentials stay in C#', ords_read: 'C# → Oracle APEX ORDS (whitelisted GETs)',
     device: 'C# LocalDeviceService / FusionPdfDownloader (Fusion SOAP) / PrinterService (Windows printing)',
-    hardware: 'C# System.Management (WMI) · .NET NetworkInformation · netsh / wevtutil (fixed commands)',
+    hardware: 'C# System.Management (WMI) · .NET NetworkInformation · netsh / wevtutil (fixed commands) · ms-settings: Windows panels',
     db_write: 'C# → Oracle APEX ORDS ai/executewrite (Oracle DB) after your confirm', wms_job: 'C# → Oracle APEX job tables (DB / LOCAL lane)',
     email: 'C# SmtpVault → SMTP (password DPAPI-encrypted)', save_report: 'C# → Oracle APEX (report definitions)',
     dll: 'C# DllInspector (System.Reflection.Metadata, no code run)', model_tool: 'C# Fusion Model engine → DuckDB (semantic model)',

@@ -392,7 +392,8 @@ def test_rich_output_tools_for_everyone():
 def test_hardware_tool_for_everyone():
     t = C.BY_NAME["hardware"]
     assert t.runs == "host" and t.policy == "device_control"
-    assert {"wifi", "printers", "port", "wmi", "set_default_printer"} <= set(t.schema["properties"]["op"]["enum"])
+    assert {"wifi", "printers", "port", "wmi", "bluetooth", "open_settings", "set_default_printer"} <= set(t.schema["properties"]["op"]["enum"])
+    assert "page" in t.schema["properties"] and "add_device" in t.description
     for spec in C.SPECIALISTS:
         assert "hardware" in {x.name for x in C.tools_for(spec, ["hardware"])}
 
