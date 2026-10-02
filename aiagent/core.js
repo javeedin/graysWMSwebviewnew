@@ -246,12 +246,38 @@ AG.updateHub = function () {
 };
 AG.loadModels = function () {
     hub('GET', '/providers').then(function (ps) {
+        var real = ps.filter(function (p) { return p.enabled && p.configured && p.id !== 'demo'; });
+        AG.modelBanner(!real.length, ps);
         var sel = $('model-sel'), html = '<option value="">Model: Auto (router)</option>';
         ps.filter(function (p) { return p.enabled && p.configured; }).forEach(function (p) {
             (p.models || []).forEach(function (m) { var v = p.id + '|' + m; html += '<option value="' + esc(v) + '"' + (v === AG.model ? ' selected' : '') + '>' + esc(p.label + ' · ' + m) + '</option>'; });
         });
         sel.innerHTML = html;
     }).catch(function () { });
+};
+/** No real model connected: answers come from the offline demo planner. One click connects Claude with the
+    app's own Claude key (AI settings) — the key goes from the host to the hub's Credential Manager, never the page. */
+AG.modelBanner = function (show, ps) {
+    var el = $('model-banner'); el.hidden = !show; if (!show) return;
+    el.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i><span class="grow"><b>Demo mode</b> — no AI model is connected, so answers come from a scripted offline stand-in (marked demo/demo). ' +
+        'Connect Claude to get real answers.</span><button class="btn primary sm" id="mb-connect"><i class="fa-solid fa-plug"></i> Connect Claude</button>' +
+        '<a class="btn sm" href="../aihub/index.html" title="AWS Bedrock, NVIDIA and more">Other providers</a>';
+    $('mb-connect').onclick = AG.connectClaude;
+};
+AG.connectClaude = function () {
+    var b = $('mb-connect'); b.disabled = true; b.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Connecting…';
+    hostOk('hubSaveClaudeKey', {}, 70000).then(function () {
+        return hub('PUT', '/providers/anthropic', { enabled: true });
+    }).then(function () {
+        return hub('POST', '/providers/anthropic/test', {});
+    }).then(function (t) {
+        if (!t || !t.ok) throw (t && t.error) || 'the test call failed';
+        toast('Claude connected (' + t.model + ', ' + t.ms + ' ms)', 'ok');
+        AG.loadModels();
+    }).catch(function (e) {
+        b.disabled = false; b.innerHTML = '<i class="fa-solid fa-plug"></i> Connect Claude';
+        toast('Could not connect Claude: ' + e + (/no Claude API key/i.test(String(e)) ? ' — save a Claude API key in AI settings (AI Digital Employee or Fusion SQL › Ask AI), or add one in AI Hub › Providers.' : ''), 'err');
+    });
 };
 AG.modelBody = function () { if (!AG.model) return null; var p = AG.model.split('|'); return { provider: p[0], model: p.slice(1).join('|') }; };
 

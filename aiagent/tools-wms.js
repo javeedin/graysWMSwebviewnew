@@ -17,21 +17,45 @@ function agDmy(iso) { var p = String(iso).split('-'); return p[2] + '-' + p[1] +
 function agToday() { var d = new Date(), z = function (n) { return ('0' + n).slice(-2); }; return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()); }
 function agInst(i) { return String(i || AG.pod).toUpperCase() === 'TEST' ? 'TEST' : 'PROD'; }
 
+/** The trip id / order number fields, whatever case or name the endpoint uses. */
+function agKey(row, prefer, pattern) {
+    var keys = Object.keys(row || {});
+    for (var i = 0; i < prefer.length; i++) { var k = keys.filter(function (x) { return x.toUpperCase() === prefer[i]; })[0]; if (k) return k; }
+    return keys.filter(function (x) { return pattern.test(x); })[0] || null;
+}
+function agAddDays(iso, n) { var d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); var z = function (x) { return ('0' + x).slice(-2); }; return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()); }
+function agTripLines(from, to, inst) {
+    return AG.getJson(AG_ORDS + '/WAREHOUSEMANAGEMENT/GETTRIPDETAILS?P_DATE_FROM=' + agDmy(from) + '&P_DATE_TO=' + agDmy(to) + '&P_INSTANCE_NAME=' + inst).then(agItems);
+}
 AG.tool('trips_find', function (inp) {
-    var date = /^\d{4}-\d{2}-\d{2}$/.test(inp.date || '') ? inp.date : agToday(), inst = agInst(inp.instance);
-    var url = AG_ORDS + '/WAREHOUSEMANAGEMENT/GETTRIPDETAILS?P_DATE_FROM=' + agDmy(date) + '&P_DATE_TO=' + agDmy(date) + '&P_INSTANCE_NAME=' + inst;
-    return Promise.all([AG.getJson(url),
-        rows("SELECT trip_id, COUNT(DISTINCT order_number) AS jobs, COUNT(DISTINCT CASE WHEN print_completed IS NOT NULL THEN order_number END) AS printed, " +
-            "COUNT(DISTINCT CASE WHEN error_message IS NOT NULL AND print_completed IS NULL THEN order_number END) AS failed FROM wms_print_jobs WHERE trip_date = TO_DATE(" + lit(date) + ", 'YYYY-MM-DD') GROUP BY trip_id", 2000).catch(function () { return []; })
-    ]).then(function (r) {
-        var lines = agItems(r[0]), prints = {}, trips = {}, order = [];
-        r[1].forEach(function (p) { prints[String(p.TRIP_ID)] = p; });
-        lines.forEach(function (l) {
-            var id = String(agF(l, 'TRIP_ID') || agF(l, 'trip_id') || ''); if (!id) return;
-            var t = trips[id];
-            if (!t) { t = trips[id] = { TRIP_ID: id, TRIP_DATE: agF(l, 'TRIP_DATE') || date, LORRY: agF(l, 'TRIP_LORRY') || '', LOADING_BAY: agF(l, 'LOADING_BAY') || '', PICKER: agF(l, 'PICKER_NAME') || '', PRIORITY: agF(l, 'TRIP_PRIORITY') || '', _o: {} }; order.push(id); }
-            var on = agF(l, 'ORDER_NUMBER'); if (on) t._o[on] = 1;
+    var date = /^\d{4}-\d{2}-\d{2}$/.test(inp.date || '') ? inp.date : agToday(), inst = agInst(inp.instance), note = '';
+    return agTripLines(date, date, inst).then(function (lines) {
+        if (lines.length || inp.date) return lines;
+        // nothing today: look back a week so the answer is useful ("latest trips are on …")
+        return agTripLines(agAddDays(date, -7), date, inst).then(function (wk) {
+            if (!wk.length) return wk;
+            var dk = agKey(wk[0], ['TRIP_DATE'], /date/i), latest = null;
+            wk.forEach(function (l) { var d = String(l[dk] || '').slice(0, 10); if (d && (!latest || d > latest)) latest = d; });
+            note = 'No trips on ' + date + ' (' + inst + '). Showing the last 7 days' + (latest ? ' — latest trip date ' + latest : '') + '.\n';
+            return wk;
         });
+    }).then(function (lines) {
+        return rows("SELECT trip_id, COUNT(DISTINCT order_number) AS jobs, COUNT(DISTINCT CASE WHEN print_completed IS NOT NULL THEN order_number END) AS printed, " +
+            "COUNT(DISTINCT CASE WHEN error_message IS NOT NULL AND print_completed IS NULL THEN order_number END) AS failed FROM wms_print_jobs WHERE trip_date >= TO_DATE(" + lit(agAddDays(date, -7)) + ", 'YYYY-MM-DD') GROUP BY trip_id", 3000)
+            .catch(function () { return []; }).then(function (pr) { return [lines, pr]; });
+    }).then(function (r) {
+        var lines = r[0], prints = {}, trips = {}, order = [];
+        r[1].forEach(function (p) { prints[String(p.TRIP_ID)] = p; });
+        var first = lines[0] || {}, tk = agKey(first, ['TRIP_ID', 'TRIPID', 'TRIP_NUMBER', 'TRIP_NO'], /trip.?(id|num|no)/i),
+            ok = agKey(first, ['ORDER_NUMBER', 'ORDERNUMBER', 'ORDER_NO'], /order.?(num|no)/i), dk = agKey(first, ['TRIP_DATE'], /date/i);
+        lines.forEach(function (l) {
+            var id = tk ? String(l[tk] == null ? '' : l[tk]) : ''; if (!id) return;
+            var t = trips[id];
+            if (!t) { t = trips[id] = { TRIP_ID: id, TRIP_DATE: String((dk && l[dk]) || date).slice(0, 10), LORRY: agF(l, 'TRIP_LORRY') || '', LOADING_BAY: agF(l, 'LOADING_BAY') || '', PICKER: agF(l, 'PICKER_NAME') || '', PRIORITY: agF(l, 'TRIP_PRIORITY') || '', _o: {} }; order.push(id); }
+            var on = ok ? l[ok] : null; if (on) t._o[on] = 1;
+        });
+        if (lines.length && !order.length)
+            return { ok: true, content: note + lines.length + ' rows came back but no trip id field was recognised. Fields: ' + Object.keys(first).join(', ') };
         var out = order.map(function (id) {
             var t = trips[id], p = prints[id] || {}, n = Object.keys(t._o).length;
             delete t._o;
@@ -43,8 +67,9 @@ AG.tool('trips_find', function (inp) {
             if (/printed|done/i.test(inp.status || '')) return t.NOT_PRINTED === 0;
             return true;
         });
-        var res = AG.tableOut('Trips ' + date + ' · ' + inst, out, 'No trips on ' + date + ' (' + inst + ').');
-        if (out.length) res.content = out.length + ' trip(s), ' + out.reduce(function (s, t) { return s + t.NOT_PRINTED; }, 0) + ' order(s) not printed.\n' + res.content;
+        var res = AG.tableOut('Trips ' + (note ? 'last 7 days' : date) + ' · ' + inst, out, note || ('No trips on ' + date + ' (' + inst + ') — and none in the 7 days before.'));
+        if (out.length) res.content = note + out.length + ' trip(s), ' + out.reduce(function (s, t) { return s + t.NOT_PRINTED; }, 0) + ' order(s) not printed (print status from wms_print_jobs).\n' + res.content;
+        else if (order.length) res.content = note + order.length + ' trip(s) found, none match the filter "' + (inp.status || inp.words) + '".';
         return res;
     }, function (e) { return { ok: false, content: 'Trips: ' + e }; });
 });
