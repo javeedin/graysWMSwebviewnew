@@ -215,3 +215,33 @@ def test_agent_tech_endpoint(tmp_path):
     c = TestClient(create_api(cfg, Usage(), str(tmp_path / "d.db"), str(tmp_path / "ag")))
     t = c.get("/agent/tech", headers={"Authorization": "Bearer " + tok}).json()
     assert t["packages"]["langgraph"] and t["packages"]["langchain-core"] and t["packages"]["fastapi"] and "demo" in t["providers"]
+
+
+def test_whisper_gets_decoded_samples_not_a_file(monkeypatch):
+    """faster-whisper's own decoder (PyAV) broke with PyAV 15+ ('metadata_errors'): the hub decodes the WAV itself."""
+    import io
+    import sys
+    import types
+    import wave
+
+    import numpy as np
+    seen = {}
+
+    class FakeModel:
+        def __init__(self, *a, **k):
+            pass
+
+        def transcribe(self, audio, **k):
+            seen["audio"] = audio
+            return [types.SimpleNamespace(text=" hello there ")], None
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeModel))
+    monkeypatch.setattr(V, "_whisper", None)
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(b"\x00\x10" * 8000)
+    r = V.stt(HubConfig(), base64.b64encode(buf.getvalue()).decode(), provider="whisper")
+    assert r["text"] == "hello there"
+    assert isinstance(seen["audio"], np.ndarray) and seen["audio"].dtype == np.float32 and seen["audio"].shape == (8000,)

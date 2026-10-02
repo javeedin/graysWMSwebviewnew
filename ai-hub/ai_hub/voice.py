@@ -231,11 +231,39 @@ def _whisper_transcribe(audio: bytes, lang: str, size: str) -> str:
     except ImportError as e:
         raise VoiceError("Local Whisper is not installed on the hub: run  .venv\\Scripts\\pip install faster-whisper") from e
     import io
+    samples = wav_samples(audio)        # decode here: faster-whisper's own decoder (PyAV) breaks with PyAV 15+
     with _whisper_lock:
         if _whisper is None or _whisper[0] != size:
             _whisper = (size, WhisperModel(size, device="cpu", compute_type="int8"))
-        segs, _ = _whisper[1].transcribe(io.BytesIO(audio), language=lang, vad_filter=True, beam_size=1)
+        segs, _ = _whisper[1].transcribe(samples if samples is not None else io.BytesIO(audio), language=lang, vad_filter=True, beam_size=1)
         return " ".join(s.text.strip() for s in segs)
+
+
+def wav_samples(audio: bytes):
+    """PCM WAV → mono float32 samples at 16 kHz (what Whisper wants), or None when it is not a plain PCM WAV."""
+    import io
+    import wave
+    try:
+        import numpy as np
+        with wave.open(io.BytesIO(audio), "rb") as w:
+            rate, ch, width, n = w.getframerate(), w.getnchannels(), w.getsampwidth(), w.getnframes()
+            raw = w.readframes(n)
+    except Exception:  # noqa: BLE001 - not a PCM WAV (e.g. webm): let Whisper decode it
+        return None
+    if width == 2:
+        x = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+    elif width == 4:
+        x = np.frombuffer(raw, dtype="<i4").astype(np.float32) / 2147483648.0
+    elif width == 1:
+        x = (np.frombuffer(raw, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
+    else:
+        return None
+    if ch > 1:
+        x = x.reshape(-1, ch).mean(axis=1)
+    if rate != 16000 and len(x):
+        t = np.arange(0, len(x) / rate, 1 / 16000)
+        x = np.interp(t, np.arange(len(x)) / rate, x).astype(np.float32)
+    return np.ascontiguousarray(x, dtype=np.float32)
 
 
 # ── helpers ──────────────────────────────────────────────────────
@@ -349,8 +377,9 @@ def whisper_install(cfg: HubConfig) -> dict:
     def run():
         _wsetup.update(state="running", log="Installing faster-whisper…\n", error=None)
         try:
-            if not whisper_installed():
-                p = subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "faster-whisper"],
+            # install, or upgrade a half-matching pair (an old faster-whisper next to PyAV 15+ broke its decoder)
+            if True:
+                p = subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "--disable-pip-version-check", "faster-whisper"],
                                    capture_output=True, text=True, timeout=1800)
                 _wsetup["log"] += (p.stdout or "")[-3000:] + (p.stderr or "")[-2000:]
                 if p.returncode != 0:
