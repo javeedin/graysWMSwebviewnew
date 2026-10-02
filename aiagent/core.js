@@ -136,6 +136,9 @@ AG.init = function () {
     $('btn-memory').onclick = AG.showMemory;
     $('btn-jobs').onclick = AG.showJobs;
     $('btn-help').onclick = AG.showHelp;
+    $('btn-hub').onclick = AG.showHubPanel;
+    $('hubchip').style.cursor = 'pointer'; $('hubchip').title = 'AI Hub: start, stop, restart, update';
+    $('hubchip').onclick = AG.showHubPanel;
     $('btn-rollout').onclick = function () { AG.showRollout(); };
     $('res-collapse').onclick = function () { $('results').parentNode.classList.add('nores'); };
     $('th-filter').oninput = AG.renderThreads;
@@ -202,8 +205,55 @@ AG.offline = function (st) {
     $('timeline').innerHTML = '<div class="welcome"><div class="card" style="text-align:center;padding:26px"><i class="fa-solid fa-plug-circle-xmark" style="font-size:2rem;color:#94a3b8"></i>' +
         '<h2 style="margin-top:10px">The agent runs in the AI Hub on this PC</h2><p class="muted sm" style="margin:6px 0 14px">' +
         (can ? 'The AI Hub is installed but stopped.' : 'Install the AI Hub once (Python and the libraries, no administrator needed).') + '</p>' +
-        (can ? '<button class="btn primary" onclick="AG.startHub()"><i class="fa-solid fa-play"></i> Start the AI Hub</button> ' : '') +
+        (can ? '<button class="btn primary" onclick="AG.startHub()"><i class="fa-solid fa-play"></i> Start the AI Hub</button> <button class="btn" onclick="AG.showHubPanel()"><i class="fa-solid fa-server"></i> Status &amp; log</button> ' : '') +
         '<a class="btn" href="../aihub/index.html"><i class="fa-solid fa-diagram-project"></i> Open AI Hub</a></div></div>';
+};
+/** AI Hub control (the agent's brain runs there): state, versions, Start / Stop / Restart / Update, its log. */
+AG.showHubPanel = function () {
+    host('hubStatus', { lines: 60 }, 8000).then(function (st) {
+        AG.hub = st;
+        return (st.running ? hub('GET', '/health').catch(function () { return {}; }) : Promise.resolve({})).then(function (h) { return [st, h]; });
+    }).then(function (r) {
+        var st = r[0], h = r[1], running = !!st.running, installed = st.found && st.venv;
+        AG.hubRunning = h.version || (running ? AG.hubRunning : null);
+        var need = st.update ? 'update' : (AG.hubRunning && verCmp(st.version, AG.hubRunning) > 0) ? 'restart' : null;
+        var job = st.job && st.job.running;
+        var html = '<div class="row" style="gap:12px;margin-bottom:10px"><span class="chip ' + (running ? 'on' : 'off') + '" style="' + (running ? '' : 'background:#e2e8f0;color:#334155') + '"><span class="dot"></span>' +
+            (job ? 'Installing…' : running ? 'Running' : installed ? 'Stopped' : 'Not installed') + '</span>' +
+            (running ? '<span class="muted sm">127.0.0.1:' + esc(st.port) + (st.pid ? ' · pid ' + esc(st.pid) : '') + '</span>' : '') + '</div>' +
+            '<table class="t" style="margin-bottom:10px"><tbody>' +
+            '<tr><td>Running version</td><td><b>' + esc(AG.hubRunning || '—') + '</b></td></tr>' +
+            '<tr><td>Files on this PC</td><td>' + esc(st.version || '—') + ' <span class="muted sm">' + esc(st.folder || '') + '</span></td></tr>' +
+            '<tr><td>Shipped with this app</td><td>' + esc(st.bundledVersion || '—') + '</td></tr></tbody></table>' +
+            (need ? '<div class="model-banner"><i class="fa-solid fa-arrows-rotate"></i><span class="grow">' + (need === 'update' ? 'A newer AI Hub comes with this app — <b>Update</b> it.' : 'The files are newer than the running hub — <b>Restart</b> it.') + '</span></div>' : '') +
+            '<div class="row" style="margin-bottom:10px"><label class="sm row"><input type="checkbox" id="hp-vis"> show its window</label></div>' +
+            '<div class="sm muted" style="margin-bottom:4px">Log</div><div style="background:#0f172a;color:#cbd5e1;font-family:var(--mono);font-size:.7rem;border-radius:8px;padding:8px;max-height:220px;overflow:auto;white-space:pre-wrap" id="hp-log">' +
+            esc(((job ? st.job.lines : st.log) || []).slice(-60).join('\n') || '(nothing yet)') + '</div>';
+        var B = [];
+        if (!installed) B.push({ label: '<i class="fa-solid fa-download"></i> Install', cls: 'primary', onClick: function () { location.href = '../aihub/index.html'; } });
+        if (installed && !running) B.push({ label: '<i class="fa-solid fa-play"></i> Start', cls: 'primary', onClick: function () { AG.hubAction('start'); } });
+        if (running) B.push({ label: '<i class="fa-solid fa-stop"></i> Stop', cls: 'danger', onClick: function () { AG.hubAction('stop'); } });
+        if (running) B.push({ label: '<i class="fa-solid fa-power-off"></i> Restart', cls: need === 'restart' ? 'primary' : '', onClick: function () { AG.hubRefresh('restart'); } });
+        if (installed) B.push({ label: '<i class="fa-solid fa-download"></i> Update', cls: need === 'update' ? 'primary' : '', onClick: function () { AG.hubRefresh('update'); } });
+        B.push({ label: 'Open AI Hub', onClick: function () { location.href = '../aihub/index.html'; } });
+        B.push({ label: 'Close', onClick: closeModal });
+        openModal('AI Hub on this PC', html, B);
+        var lg = $('hp-log'); lg.scrollTop = lg.scrollHeight;
+    }).catch(function (e) { toast(String(e), 'err'); });
+};
+AG.hubAction = function (what) {
+    if (what === 'stop' && AG.busy) { toast('Wait until the current answer is finished.', 'err'); return; }
+    var vis = $('hp-vis') && $('hp-vis').checked;
+    closeModal();
+    if (what === 'stop') {
+        toast('Stopping the AI Hub…');
+        hostOk('hubStop', {}, 45000).then(function () { toast('AI Hub stopped', 'ok'); AG.checkHub(); }).catch(function (e) { toast(String(e), 'err'); });
+        return;
+    }
+    hostOk('hubStart', { visible: !!vis }, 20000).then(function () {
+        toast('Starting the AI Hub…');
+        var n = 0, t = setInterval(function () { AG.checkHub().then(function (ok) { if (ok || ++n > 40) { clearInterval(t); if (ok) { toast('AI Hub running', 'ok'); location.reload(); } else toast('The AI Hub did not start — open the panel to see its log.', 'err'); } }); }, 1000);
+    }).catch(function (e) { toast(String(e), 'err'); });
 };
 AG.startHub = function () {
     hostOk('hubStart', { visible: false }, 20000).then(function () {
