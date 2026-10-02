@@ -254,8 +254,8 @@ def test_gateway_error_keeps_thread(tmp_path):
 
 def test_migrations(tmp_path):
     s = svc(tmp_path)
-    assert s.store.version() == 5
-    assert s.store.migrate() == 5
+    assert s.store.version() == 6
+    assert s.store.migrate() == 6
 
 
 def test_agent_api(tmp_path):

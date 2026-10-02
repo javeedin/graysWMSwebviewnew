@@ -112,6 +112,7 @@ namespace WMSApp
             "watchdog_create" => "fusion_watchdog",
             "om_prepare_order" => "om_prepare",
             "schedule_job" => "agent_job",
+            "phone_call" => "phone_call",
             _ => null
         };
 

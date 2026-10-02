@@ -1,0 +1,208 @@
+"""Voice for the AI Agent: text-to-speech and speech-to-text behind one small interface.
+
+TTS  elevenlabs (most natural; eleven_flash_v2_5 = low latency), azure (neural voices, SSML), polly (Amazon Polly
+     generative / neural with the AWS credentials of a Bedrock provider), browser (the page speaks itself).
+STT  elevenlabs (Scribe), azure (short-audio REST, 16 kHz WAV), whisper (faster-whisper on this PC - free, offline once
+     the model is downloaded), browser (the page's own recogniser where the WebView has one).
+The page records 16 kHz mono WAV and sends it base64; audio comes back base64 (mp3). Keys: secrets.py
+(elevenlabs.api_key, azure_speech.key) - never in config.json, never returned.
+"""
+from __future__ import annotations
+
+import base64
+import html
+import re
+import threading
+import time
+
+import httpx
+
+from . import secrets
+from .config import HubConfig
+
+TTS_PROVIDERS = ["browser", "elevenlabs", "azure", "polly"]
+STT_PROVIDERS = ["browser", "elevenlabs", "azure", "whisper"]
+SECRET_NAMES = ["elevenlabs.api_key", "azure_speech.key", "twilio.auth_token"]
+MAX_TTS_CHARS = 2500
+MAX_AUDIO_BYTES = 6 * 1024 * 1024
+
+# what the model is told when its words are spoken (app voice mode) or it is on a phone call
+VOICE_STYLE = """VOICE MODE - your words are spoken aloud by a natural voice and the user talks back. Sound like a helpful
+colleague, not a report: short natural sentences, contractions, warm and direct, one idea at a time. No Markdown,
+tables, bullet lists, links, code or emoji in what you say. Say numbers the way people say them ("about twelve and a half
+thousand rupees", "three out of four orders"), round when exactness doesn't matter, dates like "Tuesday the 2nd". Never
+read IDs or SQL aloud unless asked. For long results give the headline and offer the rest ("want me to go through
+them?") - the full data still goes to the results panel on screen, so you can say "I've put the list on your screen".
+Before a tool that takes a moment say a short filler first ("Let me check that."). Ask one question at a time. If you
+did not catch something, say so and ask again. Keep each reply under about 60 words unless the user asks for more."""
+
+PHONE_STYLE = """PHONE CALL - you are on a real phone call for {company}. Speak exactly as in VOICE MODE, even shorter (1-3
+sentences per turn). You are an AI assistant and said so in the greeting; if asked, always confirm you are an AI.
+Nothing that changes data, sends, prints, orders or approves can be done on a call - if the caller wants that, say you
+will pass it to the team and use take_message. {access}
+{goal}When the goal is reached or the caller wants to finish, say a friendly goodbye and call end_call."""
+
+ACCESS_VERIFIED = "The caller is verified as app user {user}: you may look things up for them with your read-only tools."
+ACCESS_UNVERIFIED = ("The caller is NOT verified: share no company data at all (no orders, trips, customers, amounts, names). "
+                     "Take a message instead: their name, company, reason and a callback number - confirm it back, then take_message.")
+
+
+class VoiceError(Exception):
+    pass
+
+
+def _key(name: str) -> str:
+    v = secrets.get_secret(name)
+    if not v:
+        raise VoiceError(f"No key set for {name.split('.')[0]} - add it in AI Agent › Voice settings.")
+    return v
+
+
+def speakable(text: str) -> str:
+    """Markdown → words a voice can read (links → their text, tables / code dropped, badges → label)."""
+    t = re.sub(r"^\s*#{1,6}\s*(.+?)\s*$", r"\1.", text or "", flags=re.M)
+    t = re.sub(r"```.*?```", " ", t, flags=re.S)
+    t = re.sub(r"\[\[\w+:([^\]]+)\]\]", r"\1", t)
+    t = re.sub(r"!?\[([^\]]+)\]\([^)]+\)", r"\1", t)
+    t = re.sub(r"https?://\S+", "the link on your screen", t)
+    t = "\n".join(line for line in t.split("\n") if not re.match(r"^\s*\|", line) and not re.match(r"^\s*>\s*\[!", line))
+    t = re.sub(r"[*_`#>~=]+", "", t)
+    t = re.sub(r"^\s*[-•]\s+", "", t, flags=re.M)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+# ── TTS ──────────────────────────────────────────────────────────
+def tts(cfg: HubConfig, text: str, provider: str | None = None, voice: str | None = None) -> dict:
+    v = cfg.voice
+    p = (provider or v["tts"]["provider"] or "browser").lower()
+    text = speakable(text)[:MAX_TTS_CHARS]
+    if not text:
+        raise VoiceError("Nothing to say.")
+    if p == "browser":
+        return {"provider": "browser", "text": text}
+    t0 = time.time()
+    voice = voice or v["tts"].get("voice") or ""
+    if p == "elevenlabs":
+        vid = voice or "21m00Tcm4TlvDq8ikWAM"         # "Rachel", a stock ElevenLabs voice - pick another in settings
+        r = httpx.post(f"https://api.elevenlabs.io/v1/text-to-speech/{vid}", params={"output_format": "mp3_44100_128"},
+                       headers={"xi-api-key": _key("elevenlabs.api_key"), "accept": "audio/mpeg"},
+                       json={"text": text, "model_id": v["tts"].get("model") or "eleven_flash_v2_5",
+                             "voice_settings": {"stability": 0.45, "similarity_boost": 0.8, "style": 0.15, "speed": float(v["tts"].get("speed") or 1.0)}},
+                       timeout=60)
+        _ok(r, "ElevenLabs")
+        audio, mime = r.content, "audio/mpeg"
+    elif p == "azure":
+        name = voice or "en-US-AvaMultilingualNeural"
+        lang = "-".join(name.split("-")[:2])
+        rate = f"{int((float(v['tts'].get('speed') or 1.0) - 1) * 100):+d}%"
+        ssml = (f"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='{lang}'><voice name='{html.escape(name)}'>"
+                f"<prosody rate='{rate}'>{html.escape(text)}</prosody></voice></speak>")
+        r = httpx.post(f"https://{v.get('azure_region') or 'westeurope'}.tts.speech.microsoft.com/cognitiveservices/v1",
+                       headers={"Ocp-Apim-Subscription-Key": _key("azure_speech.key"), "Content-Type": "application/ssml+xml",
+                                "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3", "User-Agent": "GraysAiHub"},
+                       content=ssml.encode("utf-8"), timeout=60)
+        _ok(r, "Azure Speech")
+        audio, mime = r.content, "audio/mpeg"
+    elif p == "polly":
+        sess = _aws_session(cfg)
+        engine = v["tts"].get("engine") or "generative"
+        r = sess.client("polly").synthesize_speech(Text=text, OutputFormat="mp3", VoiceId=voice or "Ruth", Engine=engine)
+        audio, mime = r["AudioStream"].read(), "audio/mpeg"
+    else:
+        raise VoiceError(f"Unknown TTS provider {p} ({', '.join(TTS_PROVIDERS)}).")
+    return {"provider": p, "mime": mime, "audio_b64": base64.b64encode(audio).decode(), "chars": len(text), "ms": int((time.time() - t0) * 1000)}
+
+
+def voices(cfg: HubConfig, provider: str) -> list[dict]:
+    p = (provider or "").lower()
+    if p == "elevenlabs":
+        r = httpx.get("https://api.elevenlabs.io/v1/voices", headers={"xi-api-key": _key("elevenlabs.api_key")}, timeout=30)
+        _ok(r, "ElevenLabs")
+        return [{"id": x["voice_id"], "name": x.get("name"), "info": " · ".join(str(v) for v in (x.get("labels") or {}).values())}
+                for x in r.json().get("voices", [])]
+    if p == "azure":
+        r = httpx.get(f"https://{cfg.voice.get('azure_region') or 'westeurope'}.tts.speech.microsoft.com/cognitiveservices/voices/list",
+                      headers={"Ocp-Apim-Subscription-Key": _key("azure_speech.key")}, timeout=30)
+        _ok(r, "Azure Speech")
+        return [{"id": x["ShortName"], "name": x.get("DisplayName"), "info": f"{x.get('Locale')} · {x.get('Gender')}"}
+                for x in r.json() if str(x.get("Locale", "")).startswith(("en", "fr"))]
+    if p == "polly":
+        sess = _aws_session(cfg)
+        engine = cfg.voice["tts"].get("engine") or "generative"
+        vs = sess.client("polly").describe_voices(Engine=engine).get("Voices", [])
+        return [{"id": x["Id"], "name": x.get("Name"), "info": f"{x.get('LanguageName')} · {x.get('Gender')}"} for x in vs]
+    return []
+
+
+# ── STT ──────────────────────────────────────────────────────────
+_whisper = None
+_whisper_lock = threading.Lock()
+
+
+def stt(cfg: HubConfig, audio_b64: str, mime: str = "audio/wav", language: str | None = None, provider: str | None = None) -> dict:
+    v = cfg.voice["stt"]
+    p = (provider or v.get("provider") or "browser").lower()
+    if p == "browser":
+        raise VoiceError("Speech recognition is set to the browser - the page transcribes itself.")
+    audio = base64.b64decode(audio_b64 or "")
+    if not audio:
+        raise VoiceError("No audio.")
+    if len(audio) > MAX_AUDIO_BYTES:
+        raise VoiceError("Audio too long (max about 3 minutes).")
+    lang = (language or v.get("language") or "en").split("-")[0]
+    t0 = time.time()
+    if p == "elevenlabs":
+        r = httpx.post("https://api.elevenlabs.io/v1/speech-to-text", headers={"xi-api-key": _key("elevenlabs.api_key")},
+                       data={"model_id": v.get("model") or "scribe_v1", "language_code": lang, "tag_audio_events": "false"},
+                       files={"file": ("speech.wav", audio, mime)}, timeout=60)
+        _ok(r, "ElevenLabs")
+        text = r.json().get("text", "")
+    elif p == "azure":
+        loc = language if language and "-" in language else {"en": "en-US", "fr": "fr-FR"}.get(lang, lang)
+        r = httpx.post(f"https://{cfg.voice.get('azure_region') or 'westeurope'}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1",
+                       params={"language": loc, "format": "simple"},
+                       headers={"Ocp-Apim-Subscription-Key": _key("azure_speech.key"), "Content-Type": "audio/wav; codecs=audio/pcm; samplerate=16000"},
+                       content=audio, timeout=60)
+        _ok(r, "Azure Speech")
+        j = r.json()
+        text = j.get("DisplayText", "") if j.get("RecognitionStatus") == "Success" else ""
+    elif p == "whisper":
+        text = _whisper_transcribe(audio, lang, v.get("whisper_size") or "base")
+    else:
+        raise VoiceError(f"Unknown STT provider {p} ({', '.join(STT_PROVIDERS)}).")
+    return {"provider": p, "text": (text or "").strip(), "ms": int((time.time() - t0) * 1000)}
+
+
+def _whisper_transcribe(audio: bytes, lang: str, size: str) -> str:
+    global _whisper
+    try:
+        from faster_whisper import WhisperModel  # optional: pip install faster-whisper
+    except ImportError as e:
+        raise VoiceError("Local Whisper is not installed on the hub: run  .venv\\Scripts\\pip install faster-whisper") from e
+    import io
+    with _whisper_lock:
+        if _whisper is None or _whisper[0] != size:
+            _whisper = (size, WhisperModel(size, device="cpu", compute_type="int8"))
+        segs, _ = _whisper[1].transcribe(io.BytesIO(audio), language=lang, vad_filter=True, beam_size=1)
+        return " ".join(s.text.strip() for s in segs)
+
+
+# ── helpers ──────────────────────────────────────────────────────
+def _ok(r: httpx.Response, who: str) -> None:
+    if r.status_code >= 400:
+        detail = r.text[:300]
+        raise VoiceError(f"{who}: HTTP {r.status_code} {detail}")
+
+
+def _aws_session(cfg: HubConfig):
+    from .providers import BedrockConverseProvider
+    pid = cfg.voice.get("aws_provider") or "bedrock"
+    pc = cfg.providers.get(pid)
+    if not pc:
+        raise VoiceError(f"Amazon Polly uses the AWS credentials of provider '{pid}' - set that provider up first.")
+    return BedrockConverseProvider(pid, pc)._session()
+
+
+def status(cfg: HubConfig) -> dict:
+    return {"voice": cfg.voice, "tts_providers": TTS_PROVIDERS, "stt_providers": STT_PROVIDERS,
+            "keys": {n: secrets.has_secret(n) for n in SECRET_NAMES}}

@@ -36,6 +36,24 @@ HTML always goes through the allow-list sanitizer `AGF.clean` (no scripts, event
 
 The `grid` tool takes the same column formats (`formats`).
 
+## Voice mode and phone calls
+
+**Talk to it.** Press the microphone next to Send (or Ctrl+Shift+V). The agent listens, answers out loud in short natural sentences and listens again — talk over it to interrupt, say "stop" to silence it, "goodbye" to end. Lists and data still go to the results panel. Answer question cards by voice; anything that changes data still needs a click on its card.
+
+Voice settings (slider icon in the voice bar):
+
+| | Most natural | Also good | Free |
+|---|---|---|---|
+| Voice you hear | ElevenLabs (`eleven_flash_v2_5`) | Azure neural (e.g. `en-US-AvaMultilingualNeural`), Amazon Polly generative | browser (Windows voices) |
+| Listening | ElevenLabs Scribe | Azure Speech | local Whisper (`pip install faster-whisper` in the AI Hub's `.venv`) |
+
+**Phone calls (Twilio).** Header › phone icon › Settings:
+1. A Twilio account and number; paste the Account SID, auth token (kept in the hub's Credential Manager) and number.
+2. On the AI Hub PC run `cloudflared tunnel --url http://localhost:8101` and paste the https address; tick "Phone calls on", Save, restart the AI Hub, then "Point the Twilio number here".
+3. Known numbers: number → app user + PIN. Callers who type their PIN (then #) get read-only answers as that user (keep the AI Agent open on their PC); everybody else can leave a message.
+
+Ask the agent "call +230 5xxx xxxx and confirm tomorrow's 10:00 delivery for SO1234" — it shows a confirm card, then talks with the person itself. Live transcripts, messages and summaries are in the Calls dialog. On every call the agent says it is an AI and that the call is transcribed, and it cannot change anything during a call. Check the rules for recording / AI calls in the countries you call.
+
 ## Safety model
 
 * **Read first, act second.** Read tools run at once; anything that runs a big query, changes data or sends something

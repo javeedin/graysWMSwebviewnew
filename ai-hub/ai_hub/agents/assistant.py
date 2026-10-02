@@ -38,6 +38,7 @@ from langgraph.types import Command, interrupt
 
 from ..db import Store
 from ..lc import GatewayChatModel
+from ..voice import ACCESS_UNVERIFIED, ACCESS_VERIFIED, PHONE_STYLE, VOICE_STYLE
 from . import catalog as C
 
 RESULT_CHARS = 14000          # tool result text the model sees
@@ -61,6 +62,8 @@ class AgentState(TypedDict, total=False):
     turns: int
     results: list
     model: dict
+    voice: str          # "app" (spoken in the app) | "phone" (a live call) | ""
+    call: dict          # phone: {id, verified, user, goal, company}
 
 
 def sql_key(sql: str) -> str:
@@ -131,7 +134,7 @@ def build_graph(svc: "AgentService"):
         svc.check_cancel(tid)
         sp = C.SPECIALISTS[s.get("specialist") or C.FA]
         turns = (s.get("turns") or 0) + 1
-        tools = C.tools_for(sp.id, s.get("caps"))
+        tools = C.tools_for(sp.id, s.get("caps"), "phone" if s.get("voice") == "phone" else None)
         sysmsg = svc.system_prompt(sp, s)
         if turns > C.MAX_TURNS:
             sysmsg += "\n\nYou have used all tool turns for this request: answer now with what you have, no more tools."
@@ -164,7 +167,7 @@ def build_graph(svc: "AgentService"):
         ai: AIMessage = s["messages"][-1]
         caps = set(s.get("caps") or [])
         dry_ok = list(s.get("dry_ok") or [])
-        allowed = {t.name for t in C.tools_for(s.get("specialist") or C.FA, s.get("caps"))}
+        allowed = {t.name for t in C.tools_for(s.get("specialist") or C.FA, s.get("caps"), "phone" if s.get("voice") == "phone" else None)}
         immediate: dict[str, tuple[str, bool]] = {}
         outside: list[dict] = []
         for tc in ai.tool_calls:
@@ -244,6 +247,7 @@ class AgentService:
         self._busy: set[str] = set()
         self._usage: dict[str, dict] = {}
         self._lock = threading.Lock()
+        self.phone = None              # PhoneManager (ai_hub/phone.py) when the hub serves calls
 
     # ── events / usage ──
     def emit(self, tid: str, kind: str, data: dict) -> None:
@@ -283,6 +287,13 @@ class AgentService:
                  f"Other specialists you can hand off to: {others}."]
         if facts:
             parts.append("What you know about this user (from `remember`):\n" + "\n".join("- " + f["fact"] for f in reversed(facts)))
+        if s.get("voice") in ("app", "phone"):
+            parts.append(VOICE_STYLE)
+        if s.get("voice") == "phone":
+            call = s.get("call") or {}
+            access = ACCESS_VERIFIED.format(user=call.get("user")) if call.get("verified") else ACCESS_UNVERIFIED
+            goal = f"Goal of this call (you placed it): {call['goal']}\n" if call.get("goal") else "The caller phoned in - find out how you can help.\n"
+            parts.append(PHONE_STYLE.format(company=call.get("company") or "Gray's", access=access, goal=goal))
         if res:
             parts.append("Results available in this conversation (use their result_id):\n" +
                          "\n".join(f"- {r['result_id']}: {r.get('title')} ({r.get('rows')} rows)" for r in res[-10:]))
@@ -331,6 +342,10 @@ class AgentService:
         if name == "jobs_list":
             rows = self.jobs_list(user)
             return json.dumps(rows, default=str) if rows else "No scheduled jobs.", False, {}
+        if name in ("end_call", "take_message", "phone_call"):
+            if not self.phone:
+                return "Phone calls are not set up on this AI Hub (AI Agent › Calls › Settings).", True, {}
+            return self.phone.hub_tool(name, args, s, tid)
         return f"Unknown hub tool {name}", True, {}
 
     # ── threads ──
@@ -347,7 +362,7 @@ class AgentService:
 
     def start(self, text: str, app_user: str | None = None, specialist: str | None = None, pod: str = "PROD",
               caps: list | None = None, model: dict | None = None, job_id: str | None = None, thread_id: str | None = None,
-              attachments: list | None = None) -> dict:
+              attachments: list | None = None, voice: str | None = None, call: dict | None = None) -> dict:
         # the page may choose the id (ag_ + 16 hex) so it can follow the live events of the very first turn
         tid = thread_id if thread_id and re.fullmatch(r"ag_[0-9a-f]{16}", thread_id) else "ag_" + uuid.uuid4().hex[:16]
         if self.store.one("SELECT 1 AS x FROM threads WHERE id = ?", (tid,)):
@@ -357,7 +372,7 @@ class AgentService:
         self.store.run("INSERT INTO threads (id, app_user, title, specialist, status, pod, created, updated, job_id) VALUES (?,?,?,?,?,?,?,?,?)",
                        (tid, app_user, title, specialist, "running", pod, now, now, job_id))
         state = {"messages": [human(text, attachments)], "app_user": app_user or "", "pod": (pod or "PROD").upper(),
-                 "caps": caps, "dry_ok": [], "results": [], "model": model or {}}
+                 "caps": caps, "dry_ok": [], "results": [], "model": model or {}, "voice": voice or "", "call": call or {}}
         if specialist in C.SPECIALISTS:
             state.update(specialist=specialist, pinned=True)
         else:
@@ -366,9 +381,14 @@ class AgentService:
         return self._run(tid, state)
 
     def send(self, tid: str, text: str, app_user: str | None = None, specialist: str | None = None,
-             caps: list | None = None, pod: str | None = None, model: dict | None = None, attachments: list | None = None) -> dict:
+             caps: list | None = None, pod: str | None = None, model: dict | None = None, attachments: list | None = None,
+             voice: str | None = None, call: dict | None = None) -> dict:
         self._own(tid, app_user)
         upd: dict[str, Any] = {"messages": [human(text, attachments)]}
+        if voice is not None:
+            upd["voice"] = voice
+        if call is not None:
+            upd["call"] = call
         if caps is not None:
             upd["caps"] = caps
         if pod:

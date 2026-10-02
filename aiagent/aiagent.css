@@ -211,3 +211,49 @@ tr.row-b-ok td { background: #f0fdf4; } tr.row-b-warn td { background: #fffbeb; 
 .report.doc h2 { margin-bottom: 8px; }
 .report img { max-width: 100%; }
 .msg.user a.ag-link { color: #fff; border-bottom-color: rgba(255,255,255,.6); }
+
+/* ── voice mode (voice.js) ── */
+.voice-btn.on { background: #7c3aed; color: #fff; border-color: #7c3aed; box-shadow: 0 0 0 4px rgba(124, 58, 237, .18); }
+.voice-ov { display: flex; align-items: center; gap: 14px; padding: 10px 14px; margin-bottom: 8px; border-radius: 16px;
+    background: linear-gradient(135deg, #1e1b4b, #312e81 60%, #4c1d95); color: #e0e7ff; box-shadow: 0 6px 24px rgba(49, 46, 129, .25); }
+.vc-orb { --lvl: 0; position: relative; flex: none; width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; font-size: 1.1rem; color: #fff;
+    background: radial-gradient(circle at 35% 30%, #c4b5fd, #7c3aed 55%, #4c1d95); transform: scale(calc(1 + var(--lvl) * .35)); transition: transform .08s linear; }
+.vc-orb::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid rgba(196, 181, 253, .55); opacity: 0; }
+.vc-orb.listening::after { animation: vc-ring 1.8s ease-out infinite; }
+.vc-orb.hearing { background: radial-gradient(circle at 35% 30%, #a7f3d0, #10b981 55%, #065f46); }
+.vc-orb.thinking, .vc-orb.transcribing { animation: vc-breathe 1.2s ease-in-out infinite; background: radial-gradient(circle at 35% 30%, #fde68a, #f59e0b 55%, #92400e); }
+.vc-orb.speaking { background: radial-gradient(circle at 35% 30%, #bae6fd, #0ea5e9 55%, #075985); animation: vc-talk .5s ease-in-out infinite alternate; }
+.vc-orb.waiting { background: radial-gradient(circle at 35% 30%, #fecaca, #ef4444 55%, #7f1d1d); }
+@keyframes vc-ring { 0% { transform: scale(.9); opacity: .9; } 100% { transform: scale(1.5); opacity: 0; } }
+@keyframes vc-breathe { 50% { filter: brightness(1.25); transform: scale(1.06); } }
+@keyframes vc-talk { from { transform: scale(1); } to { transform: scale(1.12); } }
+.vc-mid { flex: 1; min-width: 0; }
+.vc-state { font-weight: 700; font-size: .9rem; }
+.vc-cap { font-size: .8rem; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vc-btns { display: flex; gap: 6px; align-items: center; }
+.vc-btns .icon { color: #e0e7ff; background: rgba(255, 255, 255, .1); border-radius: 8px; padding: 6px 8px; border: 0; cursor: pointer; }
+.vc-btns .icon.on { background: #ef4444; }
+.vgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.vgrid label { display: block; margin-bottom: 8px; }
+.vgrid h4 { margin: 0 0 6px; }
+.vlist { max-height: 180px; overflow: auto; margin-top: 6px; }
+.vrow { padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: .8rem; }
+.vrow:hover, .vrow.on { background: #ede9fe; }
+.chip.ok { background: #dcfce7; color: #166534; }
+
+/* ── phone calls (phone.js) ── */
+.pc-ok, .pc-warn { padding: 6px 10px; border-radius: 8px; font-size: .82rem; margin-bottom: 8px; }
+.pc-ok { background: #f0fdf4; color: #166534; } .pc-warn { background: #fffbeb; color: #92400e; }
+.pc-list { display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow: auto; }
+.pc-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line, #e2e8f0); border-radius: 10px; cursor: pointer; }
+.pc-row:hover { background: #f8fafc; }
+.pc-row > i { margin-top: 3px; color: #7c3aed; }
+.pc-tx { max-height: 320px; overflow: auto; display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
+.pc-tx .tx { padding: 5px 9px; border-radius: 10px; font-size: .82rem; max-width: 85%; }
+.pc-tx .tx.agent { background: #ede9fe; align-self: flex-start; }
+.pc-tx .tx.caller { background: #e0f2fe; align-self: flex-end; }
+.pc-tx .tx.note { font-size: .72rem; color: var(--muted); align-self: center; background: none; }
+@media (max-width: 700px) { .vgrid { grid-template-columns: 1fr; } .voice-ov { flex-wrap: wrap; } }
+#modal-b .seg { display: inline-flex; background: #eef2ff; padding: 3px; border-radius: 8px; }
+#modal-b .seg button { color: #3730a3; }
+#modal-b .seg button.on { background: #4f46e5; color: #fff; }

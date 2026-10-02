@@ -62,6 +62,21 @@ DEFAULT_ROUTES = {
     "cheap": [{"provider": "bedrock", "model": "anthropic.claude-haiku-4-5"}, {"provider": "nvidia", "model": ""},
               {"provider": "demo", "model": "demo"}],
 }
+# Voice (AI Agent voice mode) and phone (Twilio ConversationRelay). Keys live in secrets.py:
+#   elevenlabs.api_key, azure_speech.key, twilio.auth_token
+DEFAULT_VOICE = {
+    "tts": {"provider": "browser", "voice": "", "model": "eleven_flash_v2_5", "engine": "generative", "speed": 1.0},
+    "stt": {"provider": "browser", "language": "en", "model": "scribe_v1", "whisper_size": "base"},
+    "azure_region": "westeurope",
+    "aws_provider": "bedrock",          # Amazon Polly uses the AWS credentials of this provider
+}
+DEFAULT_PHONE = {
+    "enabled": False, "port": 8101, "public_url": "", "account_sid": "", "from_number": "",
+    "inbound": "known",                  # off | known (PIN-verified known numbers get data, others leave a message) | everyone (messages only)
+    "known": {},                         # "+2305xxxxxxx": {"user": "SHAIK", "pin_sha256": "..."}
+    "allowed_prefixes": ["+230"],        # outbound calls only to these
+    "max_minutes": 10, "language": "en-US", "tts_provider": "ElevenLabs", "voice": "", "company": "Gray's",
+}
 TASK_DATA_CLASS = {"default": "internal", "fusion_sql": "fusion-data", "pipeline_doctor": "fusion-data", "cheap": "internal"}
 
 
@@ -83,6 +98,14 @@ class HubConfig:
             self.routes.setdefault(k, copy.deepcopy(v))
         self.task_data_class = dict(TASK_DATA_CLASS, **(d.get("task_data_class") or {}))
         self.prices = dict(DEFAULT_PRICES, **(d.get("prices") or {}))
+        self.voice: dict = copy.deepcopy(DEFAULT_VOICE)
+        for k, v in (d.get("voice") or {}).items():
+            cur = self.voice.get(k)
+            if isinstance(v, dict) and isinstance(cur, dict):
+                cur.update(v)
+            else:
+                self.voice[k] = v
+        self.phone: dict = dict(copy.deepcopy(DEFAULT_PHONE), **(d.get("phone") or {}))
 
     @staticmethod
     def path() -> Path:
@@ -97,7 +120,8 @@ class HubConfig:
         with self._lock:
             return {"port": self.port, "host": self.host, "api_token_sha256": self.api_token_sha256,
                     "budget_month_usd": self.budget_month_usd, "providers": copy.deepcopy(self.providers),
-                    "routes": copy.deepcopy(self.routes), "task_data_class": dict(self.task_data_class), "prices": dict(self.prices)}
+                    "routes": copy.deepcopy(self.routes), "task_data_class": dict(self.task_data_class), "prices": dict(self.prices),
+                    "voice": copy.deepcopy(self.voice), "phone": copy.deepcopy(self.phone)}
 
     def public(self) -> dict:
         d = self.to_dict()

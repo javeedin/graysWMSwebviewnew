@@ -489,6 +489,7 @@ AG.send = function () {
     $('input').value = ''; $('input').style.height = '';
     var body = { text: text, pod: AG.pod, caps: AG.caps(), model: AG.modelBody(), specialist: AG.spec === 'auto' ? (AG.tid ? 'auto' : null) : AG.spec };
     if (AG.files.length) { body.attachments = AG.files; AG.files = []; AG.renderFiles(); }
+    if (window.VOICE) body.voice = VOICE.on ? 'app' : 'off';   // spoken answers: short, natural, no tables
     var call;
     if (!AG.tid) {
         AG.tid = 'ag_' + hex16(); AG.seq = 0; AG.stepEls = {}; lsSet('tid', AG.tid);

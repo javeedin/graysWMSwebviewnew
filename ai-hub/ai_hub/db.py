@@ -35,6 +35,12 @@ MIGRATIONS: list[tuple[int, str, str]] = [
     (5, "settings / knowledge store", """
         CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT, updated REAL);
     """),
+    (6, "phone calls", """
+        CREATE TABLE calls (id TEXT PRIMARY KEY, direction TEXT, number TEXT, name TEXT, app_user TEXT, status TEXT,
+            goal TEXT, thread_id TEXT, k TEXT, twilio_sid TEXT, verified INTEGER DEFAULT 0, started REAL, answered REAL,
+            ended REAL, transcript TEXT DEFAULT '[]', summary TEXT, message TEXT, error TEXT, origin_thread TEXT);
+        CREATE INDEX calls_started ON calls(started);
+    """),
 ]
 
 

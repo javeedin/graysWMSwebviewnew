@@ -9,12 +9,14 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from . import VERSION, secrets
+from . import voice as V
 from .agents import catalog as AC
 from .agents.assistant import AgentService
 from .agents.jobs import JobRunner
 from .agents.pipeline_doctor import Doctor
 from .config import DATA_CLASSES, HubConfig, home
 from .gateway import ChatRequest, Gateway, GatewayError
+from .phone import PhoneError, PhoneManager
 from .providers import ProviderError
 from .usage import Usage
 
@@ -47,6 +49,7 @@ class AgentIn(BaseModel):
     model: dict | None = None
     thread_id: str | None = None
     attachments: list[dict] | None = None
+    voice: str | None = None            # "app" = the answer is spoken (voice mode)
 
 
 def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None = None, agent_home: str | None = None,
@@ -59,7 +62,9 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
     if run_jobs:
         jobs.start()
     app = FastAPI(title="Gray's WMS AI Hub", version=VERSION)
+    phone = PhoneManager(cfg, agent)
     app.state.gateway, app.state.doctor, app.state.cfg, app.state.agent, app.state.jobs = gw, doctor, cfg, agent, jobs
+    app.state.phone = phone
 
     def auth(request: Request):
         h = request.headers.get("authorization", "")
@@ -219,7 +224,7 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
     def agent_start(body: AgentIn, request: Request):
         return guard(lambda: agent.start(body.text, app_user=who(request, body.app_user), specialist=body.specialist,
                                          pod=body.pod or "PROD", caps=body.caps, model=body.model, thread_id=body.thread_id,
-                                         attachments=body.attachments))
+                                         attachments=body.attachments, voice="app" if body.voice == "app" else None))
 
     @app.get("/agent/threads", dependencies=A)
     def agent_list(request: Request, limit: int = 50):
@@ -236,7 +241,7 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
     @app.post("/agent/threads/{tid}/send", dependencies=A)
     def agent_send(tid: str, body: AgentIn, request: Request):
         return guard(lambda: agent.send(tid, body.text, who(request, body.app_user), body.specialist, body.caps, body.pod, body.model,
-                                        body.attachments))
+                                        body.attachments, voice="app" if body.voice == "app" else "" if body.voice == "off" else None))
 
     @app.post("/agent/threads/{tid}/resume", dependencies=A)
     def agent_resume(tid: str, body: dict, request: Request):
@@ -318,5 +323,98 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
         rows = agent.store.all("SELECT id FROM threads WHERE status = 'waiting' AND job_id IS NOT NULL" +
                                (" AND app_user = ?" if u else "") + " ORDER BY updated LIMIT 20", (u,) if u else ())
         return [agent.snapshot(r["id"]) for r in rows]
+
+    # ── voice (AI Agent voice mode) ──
+    def vguard(fn):
+        try:
+            return fn()
+        except (V.VoiceError, PhoneError) as e:
+            raise HTTPException(400, str(e)) from e
+        except KeyError as e:
+            raise HTTPException(404, "Not found") from e
+        except Exception as e:  # noqa: BLE001 - provider SDK errors → readable message
+            raise HTTPException(502, f"{type(e).__name__}: {e}") from e
+
+    @app.get("/voice/config", dependencies=A)
+    def voice_config():
+        return V.status(cfg)
+
+    @app.put("/voice/config", dependencies=A)
+    def voice_put(body: dict):
+        v = body.get("voice") or {}
+        for part in ("tts", "stt"):
+            if isinstance(v.get(part), dict):
+                cfg.voice[part].update({k: x for k, x in v[part].items() if k in ("provider", "voice", "model", "engine", "speed", "language", "whisper_size")})
+        for k in ("azure_region", "aws_provider"):
+            if isinstance(v.get(k), str):
+                cfg.voice[k] = v[k]
+        cfg.save()
+        return V.status(cfg)
+
+    @app.put("/voice/secret", dependencies=A)
+    def voice_secret(body: dict):
+        name = body.get("name")
+        if name not in V.SECRET_NAMES:
+            raise HTTPException(400, "Unknown key name")
+        secrets.set_secret(name, body.get("value") or None)
+        return {"ok": True, "set": bool(body.get("value"))}
+
+    @app.get("/voice/voices", dependencies=A)
+    def voice_voices(provider: str):
+        return vguard(lambda: V.voices(cfg, provider))
+
+    @app.post("/voice/tts", dependencies=A)
+    def voice_tts(body: dict):
+        return vguard(lambda: V.tts(cfg, body.get("text") or "", body.get("provider"), body.get("voice")))
+
+    @app.post("/voice/stt", dependencies=A)
+    def voice_stt(body: dict):
+        return vguard(lambda: V.stt(cfg, body.get("audio_b64") or "", body.get("mime") or "audio/wav", body.get("language"), body.get("provider")))
+
+    # ── phone (Twilio) ──
+    @app.get("/voice/phone", dependencies=A)
+    def phone_status():
+        return phone.status()
+
+    @app.put("/voice/phone", dependencies=A)
+    def phone_put(body: dict):
+        p = body.get("phone") or {}
+        for k in ("enabled", "public_url", "account_sid", "from_number", "inbound", "allowed_prefixes", "max_minutes", "language",
+                  "tts_provider", "voice", "company", "port"):
+            if k in p:
+                cfg.phone[k] = p[k]
+        if cfg.phone.get("inbound") not in ("off", "known", "everyone"):
+            cfg.phone["inbound"] = "known"
+        cfg.save()
+        return phone.status()
+
+    @app.post("/voice/phone/known", dependencies=A)
+    def phone_known(body: dict):
+        return vguard(lambda: phone.set_known(body.get("number"), body.get("user"), body.get("pin")))
+
+    @app.post("/voice/phone/connect-number", dependencies=A)
+    def phone_connect():
+        return vguard(phone.connect_number)
+
+    @app.post("/voice/call", dependencies=A)
+    def phone_call(body: dict, request: Request):
+        return vguard(lambda: phone.place_call(body.get("to"), body.get("goal"), body.get("name"), who(request, body.get("app_user")),
+                                               body.get("language")))
+
+    @app.get("/voice/calls", dependencies=A)
+    def phone_calls(request: Request, limit: int = 50):
+        return phone.list(who(request), limit)
+
+    @app.get("/voice/calls/pending", dependencies=A)
+    def phone_pending(request: Request):
+        return phone.pending(who(request))
+
+    @app.get("/voice/calls/{cid}", dependencies=A)
+    def phone_call_get(cid: str):
+        return vguard(lambda: phone.get(cid) | {"k": None})
+
+    @app.post("/voice/calls/{cid}/hangup", dependencies=A)
+    def phone_hangup(cid: str):
+        return vguard(lambda: phone.hangup(cid))
 
     return app

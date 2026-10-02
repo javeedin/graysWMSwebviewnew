@@ -64,7 +64,15 @@ def stop_file() -> Path:
 
 def serve(cfg: HubConfig):
     import uvicorn
-    server = uvicorn.Server(uvicorn.Config(create_api(cfg, run_jobs=True), host=cfg.host, port=cfg.port, log_level="info"))
+    api = create_api(cfg, run_jobs=True)
+    server = uvicorn.Server(uvicorn.Config(api, host=cfg.host, port=cfg.port, log_level="info"))
+    if cfg.phone.get("enabled"):
+        # phone calls: a second server with ONLY the Twilio routes, on its own port - the tunnel points here
+        from .phone import create_phone_app
+        pport = int(cfg.phone.get("port") or 8101)
+        phone_srv = uvicorn.Server(uvicorn.Config(create_phone_app(api.state.phone), host="127.0.0.1", port=pport, log_level="info"))
+        threading.Thread(target=phone_srv.run, daemon=True, name="phone-server").start()
+        print(f"Phone server on 127.0.0.1:{pport} (public: {cfg.phone.get('public_url') or 'not set'})")
     try:
         stop_file().unlink()
     except OSError:

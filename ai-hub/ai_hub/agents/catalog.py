@@ -46,6 +46,7 @@ class Tool:
     risk: str = "read"            # read | auto | ask | act
     policy: str | None = None     # policy key for act tools
     specialists: list[str] = field(default_factory=list)   # empty = everyone
+    only: str | None = None       # "phone" = offered only on a phone call
 
     def spec(self) -> dict:
         return {"name": self.name, "description": self.description, "input_schema": self.schema}
@@ -198,6 +199,16 @@ TOOLS: list[Tool] = [
          "unattended; anything needing a confirm waits in the AI inbox. The user confirms.",
          _obj({"name": S, "prompt": s("What to do each time"), "every_min": i("Interval in minutes (≥ 15)"), "daily_at": s("HH:MM"),
                "specialist": S}, ["name", "prompt"]), runs="hub", risk="act", policy="agent_job", specialists=[RP, FA, WO]),
+    Tool("phone_call", "Place a real phone call (Twilio) where you talk with the person yourself to reach a goal - e.g. confirm a delivery "
+         "slot with a customer, ask a driver for an ETA, remind about an overdue payment. Give the number in international format "
+         "(+230…), who it is and the goal. You introduce yourself as an AI assistant; nothing is changed on the call; the "
+         "transcript and summary come back to this conversation (calls dialog). The user confirms.",
+         _obj({"to": s("+<country><number>"), "name": s("Who you are calling"), "goal": s("What the call must achieve, with the facts you may share"),
+               "language": s("e.g. en-US, fr-FR")}, ["to", "goal"]), runs="hub", risk="act", policy="phone_call"),
+    Tool("end_call", "Hang up this phone call after your goodbye.", _obj({"reason": S}), runs="hub", only="phone"),
+    Tool("take_message", "Record a message from the caller for the team (shown in the AI Agent calls list).",
+         _obj({"name": S, "company": S, "callback": s("Number to call back"), "message": s("What they want")}, ["message"]),
+         runs="hub", risk="auto", only="phone"),
     Tool("jobs_list", "The scheduled agent jobs of this user with their last run.", _obj({}), runs="hub", specialists=[RP, FA, WO]),
 ]
 
@@ -394,11 +405,16 @@ schedule_job (the user confirms)."""),
 MAX_TURNS = 20
 
 
-def tools_for(specialist: str, caps: list[str] | None) -> list[Tool]:
-    """The tools a specialist may use that this app can run (hub tools always)."""
+def tools_for(specialist: str, caps: list[str] | None, mode: str | None = None) -> list[Tool]:
+    """The tools a specialist may use that this app can run (hub tools always). mode "phone" (a live call): only
+    read / auto tools - nothing on a call needs a confirm card nobody can click - plus end_call / take_message."""
     capset = set(caps or [])
     out = []
     for t in TOOLS:
+        if t.only and t.only != mode:
+            continue
+        if mode == "phone" and (t.risk in ("act", "ask") or t.name in ("handoff", "schedule_job", "remember")):
+            continue
         if t.specialists and specialist not in t.specialists:
             continue
         if t.runs != "hub" and caps is not None and t.name not in capset:

@@ -23,6 +23,7 @@
             <select id="model-sel" title="Model: Auto = the AI Hub router (fallback, budget, data policy)"><option value="">Model: Auto (router)</option></select>
             <button class="hbtn" id="btn-rollout" title="Roll-out: evals and the switch from the AI Digital Employee"><i class="fa-solid fa-flag-checkered"></i></button>
             <button class="hbtn" id="btn-jobs" title="Scheduled jobs"><i class="fa-regular fa-clock"></i><span class="badge" id="jobs-badge" hidden></span></button>
+            <button class="hbtn" id="btn-calls" title="Phone calls: the agent calls and answers the phone" onclick="PHONE.show()"><i class="fa-solid fa-phone"></i><span class="badge" id="calls-badge" hidden></span></button>
             <button class="hbtn" id="btn-memory" title="What the agent remembers about you"><i class="fa-solid fa-brain"></i></button>
             <button class="hbtn" id="btn-hub" title="AI Hub on this PC: start, stop, restart, update"><i class="fa-solid fa-server"></i></button>
             <button class="hbtn" id="btn-help" title="How it works"><i class="fa-regular fa-circle-question"></i></button>
@@ -49,6 +50,7 @@
                     <button class="btn send" id="btn-attach" title="Attach files (PDF, images, CSV, text) - or drop / paste them"><i class="fa-solid fa-paperclip"></i></button>
                     <input type="file" id="file-in" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.csv,.txt,.json,.xml,.sql,.md,.log">
                     <textarea id="input" rows="2" placeholder="Ask about Fusion data, trips, orders, loads or reports…  (Enter to send, Shift+Enter for a new line, @wms / @orders / @fbdi / @report to pick a specialist)"></textarea>
+                    <button class="btn send voice-btn" id="btn-voice" title="Talk with the agent — hands-free voice mode (Ctrl+Shift+V)" onclick="VOICE.toggle()"><i class="fa-solid fa-microphone"></i></button>
                     <button class="btn primary send" id="btn-send" title="Send"><i class="fa-solid fa-paper-plane"></i></button>
                     <button class="btn danger send" id="btn-stop" title="Stop" hidden><i class="fa-solid fa-stop"></i></button>
                 </div>
@@ -76,6 +78,8 @@
     <script src="tools-aide.js"></script>
     <script src="results.js"></script>
     <script src="rollout.js"></script>
+    <script src="voice.js"></script>
+    <script src="phone.js"></script>
     <script>AG.init();</script>
 </body>
 </html>
