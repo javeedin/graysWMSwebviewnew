@@ -7805,6 +7805,7 @@ navPanel.Controls.Add(wmsDevButton);
                 return;
             }
 
+            try { VisionWatch.StopAll(); VisionCv.StopWorker(); } catch { }   // watches and the vision worker are child processes
             base.OnFormClosing(e);
         }
     }

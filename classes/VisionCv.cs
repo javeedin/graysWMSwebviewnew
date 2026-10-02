@@ -17,17 +17,24 @@ namespace WMSApp
     /// with opencv-contrib-python-headless + zxing-cpp (barcodes of every format). Operations: info, document (find the page,
     /// flatten the perspective, colour / gray / black-and-white), barcodes, count (contours + watershed or circles), compare
     /// (align with ORB, SSIM, changed areas, heat map), find (multi-scale template match), enhance (white balance, CLAHE,
-    /// denoise, sharpen, deskew, rotate), edges, resize. It only reads the images it is given and writes result.json + out\*;
+    /// denoise, sharpen, deskew, rotate), edges, resize, measure (ArUco marker → cm, volume from 2 photos), markers (printable
+    /// marker sheet), ocr (PP-OCR via rapidocr + lot / expiry / weight fields), color (CIEDE2000 shade check), stitch (shelf
+    /// panorama + empty spaces), generate (QR / barcode labels + A4 sheet), depth (stereo pair), level (fill level). It only reads the images it is given and writes result.json + out\*;
     /// the work folder is deleted afterwards (photos are not kept). No user code runs here, so any user may use it once an
     /// AI admin has set it up on the PC.
     /// </summary>
     public static class VisionCv
     {
-        public static readonly string[] PACKAGES = { "opencv-contrib-python-headless", "zxing-cpp" };
+        public static readonly string[] PACKAGES = { "opencv-contrib-python-headless", "zxing-cpp", "rapidocr_onnxruntime" };
         /// <summary>The YOLO add-on: Ultralytics (AGPL-3.0, see the docs) on PyTorch CPU (Windows wheels from PyPI are CPU builds).</summary>
         public static readonly string[] YOLO_PACKAGES = { "torch", "torchvision", "ultralytics" };
         public static string ModelsDir => Path.Combine(CodeRunner.Root, "models");
-        public static readonly string[] OPS = { "info", "document", "barcodes", "count", "compare", "find", "enhance", "edges", "resize", "detect", "similar" };
+        public static readonly string[] OPS = { "info", "document", "barcodes", "count", "compare", "find", "enhance", "edges", "resize", "detect", "similar",
+            "measure", "markers", "ocr", "color", "stitch", "generate", "depth", "level" };
+        /// <summary>Operations that make pictures instead of reading them (marker sheet, labels).</summary>
+        public static readonly string[] NO_IMAGE_OPS = { "markers", "generate" };
+        /// <summary>The Python script, also run by VisionWatch (--watch / --grab).</summary>
+        public static string Script => SCRIPT;
         private static object _status;
         private static DateTime _statusAt = DateTime.MinValue;
 
@@ -38,18 +45,18 @@ namespace WMSApp
             CodeRunner.Installs.TryGetValue("opencv", out var ins);
             object setup = ins == null ? null : new { ins.State, ins.Log, ins.Error };
             if (py == null) return new { python = false, opencv = (string)null, zxing = false, ready = false, setup, yolo = (string)null };
-            var r = await CodeRunner.ExecAsync(py, new[] { "-c", "import json\nfrom importlib.metadata import version as V\ndef g(n):\n try: return V(n)\n except Exception: return None\ntry:\n import cv2; v=cv2.__version__\nexcept Exception: v=None\nprint(json.dumps({'cv':v,'zx':g('zxing-cpp') is not None,'yolo':g('ultralytics'),'torch':g('torch')}))" }, null, null, 60);
-            string cv = null, yolo = null, torch = null; bool zx = false;
+            var r = await CodeRunner.ExecAsync(py, new[] { "-c", "import json\nfrom importlib.metadata import version as V\ndef g(n):\n try: return V(n)\n except Exception: return None\ntry:\n import cv2; v=cv2.__version__\nexcept Exception: v=None\nprint(json.dumps({'cv':v,'zx':g('zxing-cpp') is not None,'ocr':g('rapidocr_onnxruntime'),'yolo':g('ultralytics'),'torch':g('torch')}))" }, null, null, 60);
+            string cv = null, yolo = null, torch = null, ocr = null; bool zx = false;
             try
             {
                 using var d = JsonDocument.Parse(r.Out.Trim().Split('\n').Last());
                 string Str(string k) => d.RootElement.TryGetProperty(k, out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() : null;
-                cv = Str("cv"); yolo = Str("yolo"); torch = Str("torch"); zx = d.RootElement.GetProperty("zx").GetBoolean();
+                cv = Str("cv"); yolo = Str("yolo"); torch = Str("torch"); ocr = Str("ocr"); zx = d.RootElement.GetProperty("zx").GetBoolean();
             }
             catch { }
             CodeRunner.Installs.TryGetValue("yolo", out var yins);
             var models = Directory.Exists(ModelsDir) ? Directory.GetFiles(ModelsDir, "*.pt").Select(f => new { name = Path.GetFileNameWithoutExtension(f), mb = Math.Round(new FileInfo(f).Length / 1048576.0, 1) }).ToList<object>() : new List<object>();
-            var st = new { python = true, opencv = cv, zxing = zx, ready = cv != null, setup, path = py, yolo, torch,
+            var st = new { python = true, opencv = cv, zxing = zx, ocr, ready = cv != null, setup, path = py, yolo, torch,
                 yoloSetup = yins == null ? null : new { yins.State, yins.Log, yins.Error }, models, modelsDir = ModelsDir, worker = _worker != null && !_worker.HasExited };
             if (cv != null) { _status = st; _statusAt = DateTime.UtcNow; }
             return st;
@@ -77,7 +84,7 @@ namespace WMSApp
                         py = await CodeRunner.FindAsync("python");
                         if (py == null) throw new Exception("Python could not be installed — see Code tab › Languages.");
                     }
-                    Log(yolo ? "Installing PyTorch (CPU) and YOLO (~600 MB — this takes a few minutes)…" : "Installing OpenCV and the barcode reader (~70 MB)…");
+                    Log(yolo ? "Installing PyTorch (CPU) and YOLO (~600 MB — this takes a few minutes)…" : "Installing OpenCV, the barcode reader and the text reader (~120 MB)…");
                     var r = await CodeRunner.ExecAsync(py, new[] { "-m", "pip", "install", "--disable-pip-version-check", "-q", "--upgrade" }.Concat(pkgs).ToArray(), null, null, 3600);
                     if (r.Code != 0) throw new Exception("pip: " + (r.Err.Length > 800 ? r.Err[^800..] : r.Err));
                     if (yolo)
@@ -182,7 +189,8 @@ namespace WMSApp
             var res = new VisionResult();
             op = (op ?? "").Trim().ToLowerInvariant();
             if (!OPS.Contains(op)) { res.Error = "Operation must be one of: " + string.Join(", ", OPS); return res; }
-            if (images == null || images.Count == 0) { res.Error = "No image given."; return res; }
+            if ((images == null || images.Count == 0) && !NO_IMAGE_OPS.Contains(op)) { res.Error = "No image given."; return res; }
+            images ??= new List<(string Name, byte[] Bytes)>();
             string py = await CodeRunner.FindAsync("python");
             if (py == null) { res.Error = "OpenCV is not set up on this PC yet (AI Agent › Vision › Set up — an AI admin)."; return res; }
             string dir = Path.Combine(CodeRunner.Root, "coderun", "vision-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N")[..6]);
@@ -200,7 +208,7 @@ namespace WMSApp
                     File.WriteAllBytes(Path.Combine(dir, "in", f), bytes);
                     names[f] = string.IsNullOrWhiteSpace(name) ? f : Path.GetFileName(name);
                 }
-                if (n == 0) { res.Error = "The images are empty or larger than 20 MB."; return res; }
+                if (n == 0 && !NO_IMAGE_OPS.Contains(op)) { res.Error = "The images are empty or larger than 20 MB."; return res; }
                 JsonElement prm;
                 try { prm = JsonDocument.Parse(string.IsNullOrWhiteSpace(paramsJson) ? "{}" : paramsJson).RootElement; } catch { prm = JsonDocument.Parse("{}").RootElement; }
                 Directory.CreateDirectory(ModelsDir);
@@ -218,7 +226,7 @@ namespace WMSApp
                     res.Ok = d.RootElement.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True;
                     if (!res.Ok && d.RootElement.TryGetProperty("error", out var er)) res.Error = er.GetString();
                     if (d.RootElement.TryGetProperty("outputs", out var outs))
-                        foreach (var o in outs.EnumerateArray().Take(8))
+                        foreach (var o in outs.EnumerateArray().Take(10))
                         {
                             string f = Path.Combine(dir, "out", Path.GetFileName(o.GetProperty("file").GetString() ?? ""));
                             if (!File.Exists(f) || new FileInfo(f).Length > 8_000_000) continue;
@@ -508,6 +516,30 @@ def read_region(img, b):
     return [], blur
 
 
+def tough_codes(img):
+    small, s0 = fit(img, 1400)
+    g = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    adapt = cv2.adaptiveThreshold(cv2.GaussianBlur(g, (3, 3), 0), 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 7)
+    variants = [(255 - g, s0), (adapt, s0), (255 - adapt, s0), (cv2.morphologyEx(adapt, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8)), s0)]
+    if max(g.shape) < 800:
+        variants.append((cv2.resize(g, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC), s0 * 3))
+    out = []
+    for v, s in variants:
+        bgr = cv2.cvtColor(v, cv2.COLOR_GRAY2BGR)
+        got = read_codes(bgr)
+        if not got:
+            try:
+                ok, texts, pts, _ = cv2.QRCodeDetectorAruco().detectAndDecodeMulti(bgr)
+                if ok:
+                    got = [{"type": "QR Code", "data": t, "points": p.reshape(-1, 2).tolist()} for t, p in zip(texts, pts, strict=False) if t]
+            except Exception:
+                pass
+        out += [(c, s) for c in got]
+        if out:
+            break
+    return out
+
+
 def op_barcodes(imgs):
     live = bool(PRM.get("live"))
     for i, (name, img) in enumerate(imgs, 1):
@@ -531,6 +563,11 @@ def op_barcodes(imgs):
                 add(c, s)
             if codes and live:
                 break
+        # tough QR / DataMatrix: printed light-on-dark, faded, shiny or uneven light — inverted, adaptive threshold, ×3 and the ArUco-based QR finder
+        if not codes and (not live or PRM.get("tough")):
+            for c, s in tough_codes(img):
+                c["tough"] = True
+                add(c, s)
         # nothing read: find where a barcode is, zoom in there and try again; else say why
         hint, regions = "", []
         if not codes:
@@ -796,9 +833,7 @@ def yolo_models_dir():
     return d
 
 
-def op_detect(imgs):
-    # YOLO (Ultralytics, on PyTorch): detect / segment / pose with the official COCO models (80 classes: person, car, truck,
-    # bottle, chair …) or your own trained model (a .pt file in the models folder, e.g. pallets, cartons, forklifts)
+def yolo_model(name):
     os.environ.setdefault("YOLO_VERBOSE", "False")
     try:
         from ultralytics import YOLO, settings
@@ -808,7 +843,7 @@ def op_detect(imgs):
         settings.update({"sync": False})       # no usage analytics to Ultralytics
     except Exception:
         pass
-    name = str(PRM.get("model") or "yolo11n").strip()
+    name = str(name or "yolo11n").strip()
     if not name.endswith(".pt"):
         name += ".pt"
     if os.path.basename(name) != name:
@@ -816,12 +851,23 @@ def op_detect(imgs):
     path = os.path.join(yolo_models_dir(), name)
     if path not in _YOLO:                       # the official names (yolo11n.pt, yolo11n-seg.pt, yolo11n-pose.pt …) download once
         _YOLO[path] = YOLO(path)
-    model = _YOLO[path]
-    conf = num("conf", 0.25, 0.01, 0.99)
-    want = [c.strip().lower() for c in str(PRM.get("classes") or "").split(",") if c.strip()]
+    return name, _YOLO[path]
+
+
+def yolo_classes(model, classes):
+    want = [c.strip().lower() for c in (classes if isinstance(classes, list) else str(classes or "").split(",")) if str(c).strip()]
     ids = [k for k, v in model.names.items() if v.lower() in want] if want else None
     if want and not ids:
         raise ValueError("this model does not know " + ", ".join(want) + " — it knows: " + ", ".join(list(model.names.values())[:80]))
+    return ids
+
+
+def op_detect(imgs):
+    # YOLO (Ultralytics, on PyTorch): detect / segment / pose with the official COCO models (80 classes: person, car, truck,
+    # bottle, chair …) or your own trained model (a .pt file in the models folder, e.g. pallets, cartons, forklifts)
+    name, model = yolo_model(PRM.get("model"))
+    conf = num("conf", 0.25, 0.01, 0.99)
+    ids = yolo_classes(model, PRM.get("classes"))
     counts, rows = {}, []
     for i, (iname, img) in enumerate(imgs, 1):
         r = model.predict(img, conf=conf, classes=ids, verbose=False, imgsz=int(num("imgsz", 640, 160, 1920)))[0]
@@ -966,8 +1012,464 @@ def op_similar(imgs):
     RESULT.update({"count": len(objs), "example": {"x": bx, "y": by, "w": bw, "h": bh}, "tolerance": tol})
 
 
+# ── measure: ArUco marker of known size on the same surface → real size in cm ──
+ARUCO_DICT = "DICT_4X4_50"
+
+
+def aruco_detector():
+    d = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, ARUCO_DICT))
+    return cv2.aruco.ArucoDetector(d, cv2.aruco.DetectorParameters())
+
+
+def op_markers(imgs):
+    # a printable A4 sheet (300 dpi) of marker stickers, each exactly `marker_cm` wide, with a 10 cm check ruler
+    cm = num("marker_cm", 5.0, 2.0, 15.0)
+    dpi = 300
+    pxcm = dpi / 2.54
+    W, H = int(21.0 * pxcm), int(29.7 * pxcm)
+    sheet = np.full((H, W), 255, np.uint8)
+    d = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, ARUCO_DICT))
+    side = int(round(cm * pxcm))
+    m = int(1.5 * pxcm)
+    cols = max(1, int((W - m) // (side + m)))
+    n = 0
+    y = int(3.0 * pxcm)
+    while y + side + m < H - int(3 * pxcm) and n < 12:
+        for c in range(cols):
+            x = m + c * (side + m)
+            if x + side > W - m // 2:
+                break
+            sheet[y:y + side, x:x + side] = cv2.aruco.generateImageMarker(d, n, side)
+            cv2.putText(sheet, "#%d  %.1f cm" % (n, cm), (x, y + side + int(0.5 * pxcm)), FONT, 1.6, 0, 3, cv2.LINE_AA)
+            n += 1
+        y += side + m
+    cv2.putText(sheet, "Gray's WMS measuring markers - print at 100 %% (actual size). Each square = %.1f cm. Check: the bar below must be 10 cm." % cm,
+                (int(pxcm), int(1.2 * pxcm)), FONT, 1.4, 0, 3, cv2.LINE_AA)
+    x0, y0 = int(pxcm), H - int(2.2 * pxcm)
+    cv2.rectangle(sheet, (x0, y0), (x0 + int(10 * pxcm), y0 + int(0.3 * pxcm)), 0, -1)
+    for i in range(11):
+        cv2.line(sheet, (x0 + int(i * pxcm), y0 - 25), (x0 + int(i * pxcm), y0), 0, 3)
+    save("marker_sheet", cv2.cvtColor(sheet, cv2.COLOR_GRAY2BGR), "A4 at 300 dpi — print at 100 %%, markers %.1f cm" % cm)
+    RESULT.update({"marker_cm": cm, "markers": n, "dpi": dpi})
+
+
+def order_quad(p):
+    return order_pts(np.array(p, np.float32))
+
+
+def object_contour(img, marker_quads, box=None):
+    # the thing to measure: inside the user's box if given, else the biggest object that is not a marker
+    h, w = img.shape[:2]
+    g = cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (5, 5), 0)
+    e = cv2.dilate(cv2.Canny(g, 40, 120), np.ones((5, 5), np.uint8), iterations=2)
+    e = cv2.morphologyEx(e, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
+    for q in marker_quads:                    # hide the markers (and a margin) so they are not taken for the object
+        c = q.mean(0)
+        big = (q - c) * 1.35 + c
+        cv2.fillPoly(e, [big.astype(np.int32)], 0)
+    if box:
+        x, y, bw, bh = [int(box[k]) for k in ("x", "y", "w", "h")]
+        roi = np.zeros_like(e)
+        roi[max(0, y):y + bh, max(0, x):x + bw] = 255
+        e = cv2.bitwise_and(e, roi)
+    cs = [c for c in cv2.findContours(e, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0] if cv2.contourArea(c) > 0.003 * h * w]
+    if not cs:
+        return None
+    # the edges were thickened by about 4 px to close gaps: fill the outline and shrink it back to the real border
+    m = np.zeros_like(e)
+    cv2.drawContours(m, [max(cs, key=cv2.contourArea)], -1, 255, -1)
+    m = cv2.erode(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)))
+    cs = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)[0]
+    return max(cs, key=cv2.contourArea) if cs else None
+
+
+def op_measure(imgs):
+    cm = num("marker_cm", 5.0, 0.5, 100.0)
+    det = aruco_detector()
+    dims = []
+    for i, (name, img) in enumerate(imgs, 1):
+        corners, ids, _ = det.detectMarkers(img)
+        if ids is None or not len(ids):
+            raise ValueError(name + ": no measuring marker found — put a printed marker (Measure › Print marker sheet) flat next to the object, fully visible")
+        quads = [order_quad(c.reshape(4, 2)) for c in corners]
+        # the plane of the first marker in cm: a homography makes the photo top-down for everything on that surface
+        q = quads[0]
+        H = cv2.getPerspectiveTransform(q, np.array([[0, 0], [cm, 0], [cm, cm], [0, cm]], np.float32))
+        px_per_cm = float(np.mean([np.linalg.norm(qq[0] - qq[1]) + np.linalg.norm(qq[1] - qq[2]) for qq in quads]) / 2 / cm)
+        c = object_contour(img, quads, PRM.get("box") if i == 1 else None)
+        if c is None:
+            raise ValueError(name + ": the object could not be separated from the background — use a plain background or draw a box around it")
+        pts_cm = cv2.perspectiveTransform(c.reshape(-1, 1, 2).astype(np.float32), H).reshape(-1, 2)
+        (cx, cy), (a, b), ang = cv2.minAreaRect(pts_cm)
+        length, width = max(a, b), min(a, b)
+        area_cm2 = float(cv2.contourArea(pts_cm.astype(np.float32)))
+        ann = img.copy()
+        cv2.aruco.drawDetectedMarkers(ann, corners, ids)
+        rect_px = cv2.boxPoints(cv2.minAreaRect(c))
+        cv2.drawContours(ann, [rect_px.astype(np.int32)], -1, GREEN, max(2, img.shape[1] // 300))
+        label(ann, "%.1f x %.1f cm" % (length, width), rect_px.min(0), GREEN)
+        save("measure_%d" % i, ann, "%.1f × %.1f cm (marker %.1f cm)" % (length, width, cm))
+        dims.append((length, width))
+        RESULT["images"].append({"name": name, "length_cm": round(length, 1), "width_cm": round(width, 1), "area_cm2": round(area_cm2, 1),
+                                 "markers": int(len(ids)), "px_per_cm": round(px_per_cm, 2), "angle": round(float(ang), 1)})
+    if len(dims) >= 2:
+        # photo 1 = top (length × width), photo 2 = side: its dimension least like the top ones is the height
+        L, W = dims[0]
+        hgt = max(dims[1], key=lambda v: min(abs(v - L), abs(v - W)))
+        vol = L * W * hgt
+        RESULT.update({"box_cm": [round(L, 1), round(W, 1), round(hgt, 1)], "volume_cm3": round(vol), "volume_m3": round(vol / 1e6, 4)})
+    RESULT["note"] = "Accurate for objects lying on the marker's surface, photographed from above; a bigger marker and a straight-down photo give the best result."
+
+
+# ── OCR: text on labels (PaddleOCR models via rapidocr + OpenCV) and the fields a warehouse needs ──
+_OCR = {}
+MONTHS = "JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC"
+
+
+def ocr_engine():
+    if "e" not in _OCR:
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+        except ImportError as ex:
+            raise ValueError("Text reading is not set up on this PC yet (Vision › Set up again — it adds the OCR models)") from ex
+        _OCR["e"] = RapidOCR()
+    return _OCR["e"]
+
+
+def fix_digits(s):
+    return s.translate(str.maketrans({"O": "0", "o": "0", "I": "1", "l": "1", "S": "5", "B": "8"}))
+
+
+def parse_fields(lines):
+    import re
+    text = "\n".join(lines)
+    up = text.upper().replace("L0T", "LOT").replace("BATCH N0", "BATCH NO").replace("EXPlRY", "EXPIRY")
+    out = {}
+    date = (r"(\d{1,2}[./\- ]\d{1,2}[./\- ]\d{2,4}|\d{4}[./\-]\d{1,2}[./\-]\d{1,2}"
+            r"|\d{1,2}[./\- ]?(?:%s)[A-Z]*[./\- ]?\d{2,4}|(?:%s)[A-Z]*[./\- ]?\d{2,4}|\d{1,2}[./\-]\d{4})") % (MONTHS, MONTHS)
+    pats = {
+        "lot": r"(?:LOT|BATCH|BATCH NO|LOT NO|B\.?NO)\s*[:#.]?\s*([A-Z0-9][A-Z0-9\-/]{2,})",
+        "expiry": r"(?:EXP(?:IRY)?(?:\s*DATE)?|USE BY|BB|BEST BEFORE(?: END)?|BBE)\s*[:.]?\s*" + date,
+        "made": r"(?:MFG|MFD|MANUFACTURED|PROD(?:UCTION)?(?:\s*DATE)?|PKD|PACKED)(?:\s*ON)?\s*[:.]?\s*" + date,
+        "serial": r"(?:S/?N|SERIAL(?:\s*NO)?)\s*[:#.]?\s*([A-Z0-9\-]{4,})",
+        "weight": r"(?:NET\s*(?:WT|WEIGHT)|WT|WEIGHT)\s*[:.]?\s*(\d+(?:[.,]\d+)?\s*(?:KG|G|LB|L|ML))",
+        "gtin": r"(?:\(01\)\s*|GTIN\s*[:.]?\s*)(\d{14})",
+    }
+    for k, p in pats.items():
+        m = re.search(p, up)
+        if not m:
+            m = re.search(p, up.replace(" ", ""))
+        if m:
+            v = m.group(1).strip()
+            out[k] = fix_digits(v) if k in ("expiry", "made", "gtin") else v
+    return out
+
+
+def iso_date(v):
+    # 12/2026 → 2026-12-31 (end of month), 03JAN2026 / 30.11.26 / 2026-11-30 → ISO; None when unsure
+    import calendar
+    import re
+    v = v.upper().replace(" ", "")
+    mon = {m: i for i, m in enumerate(MONTHS.split("|"), 1)}
+    d = m = y = None
+    if re.fullmatch(r"\d{4}[./\-]\d{1,2}[./\-]\d{1,2}", v):
+        y, m, d = [int(x) for x in re.split(r"[./\-]", v)]
+    elif re.fullmatch(r"\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}", v):
+        d, m, y = [int(x) for x in re.split(r"[./\-]", v)]
+    elif re.fullmatch(r"\d{1,2}[./\-]\d{4}", v):
+        m, y = [int(x) for x in re.split(r"[./\-]", v)]
+    else:
+        g = re.fullmatch(r"(\d{1,2})?[./\-]?(%s)[A-Z]*[./\-]?(\d{2,4})" % MONTHS, v)
+        if not g:
+            return None
+        d, m, y = (int(g.group(1)) if g.group(1) else None), mon[g.group(2)], int(g.group(3))
+    if y < 100:
+        y += 2000
+    if not (1 <= m <= 12 and 2000 <= y <= 2100):
+        return None
+    last = calendar.monthrange(y, m)[1]
+    d = last if d is None else d
+    return "%04d-%02d-%02d" % (y, m, d) if 1 <= d <= last else None
+
+
+def op_ocr(imgs):
+    eng = ocr_engine()
+    all_rows = []
+    for i, (name, img) in enumerate(imgs, 1):
+        work, s = fit(img, 1800)
+        res, _ = eng(work)
+        lines = []
+        ann = work.copy()
+        for box, text, conf in (res or []):
+            p = np.array(box, np.float32)
+            cv2.polylines(ann, [p.astype(np.int32)], True, GREEN, 2)
+            lines.append({"text": text, "conf": round(float(conf), 3), "box": (p / s).round(1).tolist()})
+        lines.sort(key=lambda L: (round(min(q[1] for q in L["box"]) / 25), min(q[0] for q in L["box"])))
+        fields = parse_fields([L["text"] for L in lines])
+        for k in ("expiry", "made"):
+            if fields.get(k) and iso_date(fields[k]):
+                fields[k + "_date"] = iso_date(fields[k])
+        if fields.get("expiry_date"):
+            import datetime
+            left = (datetime.date.fromisoformat(fields["expiry_date"]) - datetime.date.today()).days
+            fields["days_left"] = left
+            fields["expired"] = left < 0
+        save("text_%d" % i, ann, "%d line(s) of text" % len(lines))
+        RESULT["images"].append({"name": name, "lines": len(lines), "text": "\n".join(L["text"] for L in lines), "fields": fields, "items": lines[:300]})
+        all_rows += [[name, n + 1, L["text"], L["conf"]] for n, L in enumerate(lines)]
+    RESULT["table"] = {"columns": ["image", "n", "text", "conf"], "rows": all_rows}
+
+
+# ── colour / shade check (CIEDE2000) ──
+def de2000(l1, l2):
+    L1, a1, b1 = l1
+    L2, a2, b2 = l2
+    C1, C2 = math.hypot(a1, b1), math.hypot(a2, b2)
+    Cb = (C1 + C2) / 2
+    G = 0.5 * (1 - math.sqrt(Cb ** 7 / (Cb ** 7 + 25 ** 7)))
+    a1p, a2p = a1 * (1 + G), a2 * (1 + G)
+    C1p, C2p = math.hypot(a1p, b1), math.hypot(a2p, b2)
+    h1p = math.degrees(math.atan2(b1, a1p)) % 360
+    h2p = math.degrees(math.atan2(b2, a2p)) % 360
+    dL, dC = L2 - L1, C2p - C1p
+    dh = 0 if C1p * C2p == 0 else (h2p - h1p if abs(h2p - h1p) <= 180 else h2p - h1p - 360 if h2p > h1p else h2p - h1p + 360)
+    dH = 2 * math.sqrt(C1p * C2p) * math.sin(math.radians(dh / 2))
+    Lb, Cbp = (L1 + L2) / 2, (C1p + C2p) / 2
+    hb = (h1p + h2p) / 2 if abs(h1p - h2p) <= 180 else (h1p + h2p + 360) / 2 if h1p + h2p < 360 else (h1p + h2p - 360) / 2
+    if C1p * C2p == 0:
+        hb = h1p + h2p
+    T = 1 - 0.17 * math.cos(math.radians(hb - 30)) + 0.24 * math.cos(math.radians(2 * hb)) + 0.32 * math.cos(math.radians(3 * hb + 6)) - 0.2 * math.cos(math.radians(4 * hb - 63))
+    Sl = 1 + 0.015 * (Lb - 50) ** 2 / math.sqrt(20 + (Lb - 50) ** 2)
+    Sc, Sh = 1 + 0.045 * Cbp, 1 + 0.015 * Cbp * T
+    Rt = -2 * math.sqrt(Cbp ** 7 / (Cbp ** 7 + 25 ** 7)) * math.sin(math.radians(60 * math.exp(-(((hb - 275) / 25) ** 2))))
+    return math.sqrt((dL / Sl) ** 2 + (dC / Sc) ** 2 + (dH / Sh) ** 2 + Rt * (dC / Sc) * (dH / Sh))
+
+
+def region_lab(img, box):
+    if box:
+        x, y, w, h = [int(box[k]) for k in ("x", "y", "w", "h")]
+        img = img[max(0, y):y + h, max(0, x):x + w]
+    if img.size == 0:
+        raise ValueError("the marked area is empty")
+    lab = cv2.cvtColor(img.astype(np.float32) / 255.0, cv2.COLOR_BGR2Lab).reshape(-1, 3)
+    med = np.median(lab, axis=0)
+    bgr = np.median(img.reshape(-1, 3), axis=0)
+    return [float(v) for v in med], hexc(bgr), float(np.std(lab[:, 0]))
+
+
+def op_color(imgs):
+    tol = num("tolerance", 5.0, 0.5, 50)
+    name1, img1 = imgs[0]
+    lab1, hex1, spread1 = region_lab(img1, PRM.get("box"))
+    out = {"name": name1, "lab": [round(v, 1) for v in lab1], "hex": hex1, "spread": round(spread1, 1)}
+    ref = None
+    if len(imgs) > 1:
+        lab2, hex2, _ = region_lab(imgs[1][1], PRM.get("box2"))
+        ref = {"name": imgs[1][0], "lab": [round(v, 1) for v in lab2], "hex": hex2}
+    elif PRM.get("reference"):
+        h = str(PRM["reference"]).lstrip("#")
+        if len(h) != 6:
+            raise ValueError("reference colour must be #RRGGBB")
+        px = np.uint8([[[int(h[4:6], 16), int(h[2:4], 16), int(h[0:2], 16)]]])
+        ref = {"name": "#" + h.lower(), "lab": [round(float(v), 1) for v in cv2.cvtColor(px.astype(np.float32) / 255.0, cv2.COLOR_BGR2Lab)[0, 0]], "hex": "#" + h.lower()}
+    RESULT["images"] = [out]
+    if ref:
+        d = de2000(lab1, ref["lab"])
+        dl = lab1[0] - ref["lab"][0]
+        RESULT.update({"reference": ref, "delta_e": round(d, 2), "tolerance": tol, "verdict": "match" if d <= tol else "different",
+                       "lighter_darker": "lighter" if dl > 1 else "darker" if dl < -1 else "same lightness",
+                       "meaning": "not visible" if d < 1 else "only an expert sees it" if d < 2 else "visible side by side" if d < 5 else "clearly different"})
+    sw = np.zeros((120, 480 if ref else 240, 3), np.uint8)
+    sw[:, :240] = [int(hex1[5:7], 16), int(hex1[3:5], 16), int(hex1[1:3], 16)]
+    if ref:
+        sw[:, 240:] = [int(ref["hex"][5:7], 16), int(ref["hex"][3:5], 16), int(ref["hex"][1:3], 16)]
+    save("colours", sw, "sample" + (" | reference" if ref else ""))
+
+
+# ── panorama of a long shelf / rack + possible empty spaces ──
+def join_sideways(parts):
+    # fallback for a camera moved along a shelf: each photo continues the previous one to the right (small up/down drift allowed)
+    h = min(p.shape[0] for p in parts)
+    parts = [cv2.resize(p, (int(p.shape[1] * h / p.shape[0]), h)) for p in parts]
+    x_at, y_at = 0, 0
+    offs = [(0, 0)]
+    for a, b in zip(parts, parts[1:], strict=False):
+        sw = max(40, a.shape[1] // 5)
+        strip = a[h // 10:h - h // 10, a.shape[1] - sw:]
+        res = cv2.matchTemplate(b[:, : int(b.shape[1] * 0.8)], strip, cv2.TM_CCOEFF_NORMED)
+        _, best, _, (bx, by) = cv2.minMaxLoc(res)
+        if best < 0.6:
+            return None
+        x_at += a.shape[1] - sw - bx
+        y_at += h // 10 - by
+        offs.append((x_at, y_at))
+    ys = [o[1] for o in offs]
+    top, bot = min(ys), max(ys)
+    W = offs[-1][0] + parts[-1].shape[1]
+    out = np.zeros((h + bot - top, W, 3), np.uint8)
+    for (ox, oy), p in zip(offs, parts, strict=False):
+        out[oy - top:oy - top + h, ox:ox + p.shape[1]] = p
+    return out
+
+
+def op_stitch(imgs):
+    if len(imgs) < 2:
+        raise ValueError("panorama needs 2 to 6 overlapping photos, left to right")
+    parts = [fit(im, 1400)[0] for _, im in imgs]
+    mode = cv2.Stitcher_SCANS if str(PRM.get("mode", "scans")) == "scans" else cv2.Stitcher_PANORAMA
+    st = cv2.Stitcher_create(mode)
+    status, pano = st.stitch(parts)
+    if status != cv2.Stitcher_OK:
+        if mode == cv2.Stitcher_SCANS:
+            status, pano = cv2.Stitcher_create(cv2.Stitcher_PANORAMA).stitch(parts)
+        if status != cv2.Stitcher_OK:
+            pano = join_sideways(parts)
+            if pano is None:
+                raise ValueError("the photos could not be joined (status %d) — overlap each photo by about a third and keep the same height" % status)
+            RESULT["method"] = "sideways"
+    # crop the black border
+    g = cv2.cvtColor(pano, cv2.COLOR_BGR2GRAY)
+    ys, xs = np.where(g > 0)
+    if len(xs):
+        pano = pano[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+    gaps = []
+    if PRM.get("gaps", True) not in (False, "false", 0):
+        g = cv2.cvtColor(pano, cv2.COLOR_BGR2GRAY)
+        e = cv2.Canny(cv2.GaussianBlur(g, (5, 5), 0), 40, 120).astype(np.float32) / 255
+        k = max(15, pano.shape[0] // 12) | 1
+        dens = cv2.blur(e, (k, k))
+        # an empty space = plain (few edges) AND the colour of the shelf back (the most common plain colour)
+        plain = dens < num("gap_edges", 0.025, 0.001, 0.2)
+        q = (pano[plain] // 32).astype(np.int32) if plain.any() else np.zeros((0, 3), np.int32)
+        if len(q):
+            keys = q[:, 0] * 64 + q[:, 1] * 8 + q[:, 2]
+            k0 = np.bincount(keys).argmax()
+            back = np.array([k0 // 64, (k0 // 8) % 8, k0 % 8]) * 32 + 16
+            lab = cv2.cvtColor(pano, cv2.COLOR_BGR2Lab).astype(np.float32)
+            blab = cv2.cvtColor(np.uint8([[back]]), cv2.COLOR_BGR2Lab).astype(np.float32)[0, 0]
+            near = np.linalg.norm(lab - blab, axis=2) < num("gap_colour", 28, 5, 80)
+            plain &= near
+            RESULT["shelf_back"] = hexc(back)
+        low = plain.astype(np.uint8) * 255
+        # keep only areas at least a product wide and a tenth of the height tall: slits between products and shelf edges go
+        kw, kh = max(9, int(pano.shape[1] * 0.035)), max(9, int(pano.shape[0] * 0.1))
+        low = cv2.morphologyEx(low, cv2.MORPH_OPEN, np.ones((kh, kw), np.uint8))
+        area = pano.shape[0] * pano.shape[1]
+        ann = pano.copy()
+        for c in cv2.findContours(low, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]:
+            x, y, w, h = cv2.boundingRect(c)
+            if cv2.contourArea(c) > 0.008 * area and h > 0.12 * pano.shape[0] and w > 0.04 * pano.shape[1]:
+                gaps.append({"x": x, "y": y, "w": w, "h": h})
+                cv2.rectangle(ann, (x, y), (x + w, y + h), RED, 3)
+                label(ann, "gap %d" % len(gaps), (x, y), RED)
+        save("panorama_gaps", ann, "%d possible empty space(s)" % len(gaps))
+    save("panorama", pano, "%d photos joined, %dx%d" % (len(parts), pano.shape[1], pano.shape[0]))
+    RESULT.update({"joined": len(parts), "width": int(pano.shape[1]), "height": int(pano.shape[0]), "gaps": gaps})
+
+
+# ── labels: QR / barcodes to print ──
+FORMATS = {"qr": "QRCode", "code128": "Code128", "ean13": "EAN13", "ean8": "EAN8", "upca": "UPCA", "code39": "Code39", "datamatrix": "DataMatrix", "pdf417": "PDF417", "itf": "ITF"}
+
+
+def op_generate(imgs):
+    import zxingcpp
+    items = PRM.get("items") or []
+    if isinstance(items, str):
+        items = [x.strip() for x in items.splitlines() if x.strip()]
+    items = [str(x)[:300] for x in items][:60]
+    if not items:
+        raise ValueError("give the text for each label (one per line)")
+    fmt = str(PRM.get("format", "qr")).lower()
+    if fmt not in FORMATS:
+        raise ValueError("format must be one of " + ", ".join(FORMATS))
+    caption = PRM.get("caption", True) not in (False, "false", 0)
+    tiles = []
+    for t in items:
+        try:
+            b = zxingcpp.create_barcode(t, getattr(zxingcpp.BarcodeFormat, FORMATS[fmt]))
+        except Exception as ex:  # noqa: BLE001 - shown per label
+            raise ValueError("%s cannot hold %r: %s" % (FORMATS[fmt], t, ex)) from ex
+        im = np.array(b.to_image(scale=6 if fmt in ("qr", "datamatrix") else 3, add_hrt=False))
+        im = cv2.cvtColor(im, cv2.COLOR_GRAY2BGR) if im.ndim == 2 else im
+        if caption:
+            pad = np.full((70, im.shape[1], 3), 255, np.uint8)
+            cv2.putText(pad, t[:40], (10, 48), FONT, 1.0, (0, 0, 0), 2, cv2.LINE_AA)
+            im = np.vstack([im, pad])
+        tiles.append(im)
+    for n, im in enumerate(tiles[:6], 1):
+        save("label_%d" % n, im, items[n - 1][:60])
+    # A4 sheet at 200 dpi with a grid of labels
+    W, H, m = 1654, 2339, 40
+    sheet = np.full((H, W, 3), 255, np.uint8)
+    cw = max(t.shape[1] for t in tiles)
+    ch = max(t.shape[0] for t in tiles)
+    cols = max(1, (W - m) // (cw + m))
+    sc = min(1.0, (W - m * (cols + 1)) / (cols * cw))
+    x, y = m, m
+    placed = 0
+    for t in tiles:
+        tt = cv2.resize(t, None, fx=sc, fy=sc, interpolation=cv2.INTER_NEAREST) if sc < 1 else t
+        if x + tt.shape[1] > W - m:
+            x, y = m, y + int(ch * sc) + m
+        if y + tt.shape[0] > H - m:
+            break
+        sheet[y:y + tt.shape[0], x:x + tt.shape[1]] = tt
+        x += tt.shape[1] + m
+        placed += 1
+    save("label_sheet", sheet, "A4 sheet with %d label(s)" % placed)
+    RESULT.update({"format": FORMATS[fmt], "labels": len(items), "on_sheet": placed})
+
+
+# ── depth from a stereo pair (two cameras side by side) ──
+def op_depth(imgs):
+    if len(imgs) < 2:
+        raise ValueError("depth needs a left and a right photo taken side by side (same height, a few cm apart)")
+    L = cv2.cvtColor(fit(imgs[0][1], 1000)[0], cv2.COLOR_BGR2GRAY)
+    R = cv2.cvtColor(cv2.resize(imgs[1][1], (L.shape[1], L.shape[0])), cv2.COLOR_BGR2GRAY)
+    nd = int(num("disparities", 96, 16, 256)) // 16 * 16
+    sg = cv2.StereoSGBM_create(minDisparity=0, numDisparities=nd, blockSize=7, P1=8 * 49, P2=32 * 49, uniquenessRatio=10, speckleWindowSize=100, speckleRange=2)
+    disp = sg.compute(L, R).astype(np.float32) / 16
+    valid = disp > 0
+    vis = cv2.applyColorMap(cv2.normalize(np.where(valid, disp, 0), None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8), cv2.COLORMAP_TURBO)
+    save("depth", vis, "near = red, far = blue (relative)")
+    f, base = PRM.get("focal_px"), PRM.get("baseline_cm")
+    res = {"valid_pct": round(float(valid.mean()) * 100, 1), "near_pct": round(float((disp > np.percentile(disp[valid], 80)).mean()) * 100, 1) if valid.any() else 0}
+    if f and base and valid.any():
+        z = float(f) * float(base) / np.median(disp[valid])
+        res["median_distance_cm"] = round(z, 1)
+    RESULT.update(res)
+    RESULT["note"] = "Relative depth. Real distances need a calibrated stereo pair (focal_px, baseline_cm) or a depth camera."
+
+
+# ── fill level of a bottle / tank / container ──
+def op_level(imgs):
+    for i, (name, img) in enumerate(imgs, 1):
+        b = PRM.get("box")
+        x, y, w, h = ([int(b[k]) for k in ("x", "y", "w", "h")] if b else (0, 0, img.shape[1], img.shape[0]))
+        roi = img[y:y + h, x:x + w]
+        if roi.size == 0 or h < 20:
+            raise ValueError("mark the container (drag a box around it)")
+        g = cv2.GaussianBlur(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY), (5, 5), 0).astype(np.float32)
+        mid = g[:, int(w * 0.25):max(int(w * 0.25) + 1, int(w * 0.75))]   # centre strip: away from the walls
+        prof = mid.mean(axis=1)
+        grad = np.abs(np.convolve(np.diff(prof), np.ones(5) / 5, mode="same"))
+        lo, hi = int(h * 0.06), int(h * 0.94)
+        row = lo + int(np.argmax(grad[lo:hi]))
+        strength = float(grad[row] / (grad[lo:hi].mean() + 1e-6))
+        fill = (h - row) / h * 100
+        ann = img.copy()
+        cv2.rectangle(ann, (x, y), (x + w, y + h), YELLOW, 2)
+        cv2.line(ann, (x, y + row), (x + w, y + row), RED, max(2, img.shape[1] // 300))
+        label(ann, "%.0f%% full" % fill, (x, y + row), RED)
+        save("level_%d" % i, ann, "level at %.0f %% of the marked height" % fill)
+        RESULT["images"].append({"name": name, "fill_pct": round(fill, 1), "line_y": y + row, "confidence": "clear" if strength > 4 else "weak" if strength > 2 else "unclear"})
+
+
 OPS = {"info": op_info, "document": op_document, "barcodes": op_barcodes, "count": op_count, "compare": op_compare,
-       "enhance": op_enhance, "edges": op_edges, "find": op_find, "resize": op_resize, "detect": op_detect, "similar": op_similar}
+       "enhance": op_enhance, "edges": op_edges, "find": op_find, "resize": op_resize, "detect": op_detect, "similar": op_similar,
+       "measure": op_measure, "markers": op_markers, "ocr": op_ocr, "color": op_color, "stitch": op_stitch, "generate": op_generate,
+       "depth": op_depth, "level": op_level}
+NO_IMAGE_OPS = {"markers", "generate"}
 
 
 def run_job(job_dir):
@@ -980,7 +1482,7 @@ def run_job(job_dir):
     os.makedirs("out", exist_ok=True)
     try:
         files = sorted(glob.glob(os.path.join("in", "*")))[:6]
-        if not files:
+        if not files and OP not in NO_IMAGE_OPS:
             raise ValueError("No image given")
         imgs = [(P.get("names", {}).get(os.path.basename(f), os.path.basename(f)), load(f)) for f in files]
         if OP not in OPS:
@@ -993,8 +1495,411 @@ def run_job(job_dir):
         json.dump(RESULT, f, default=lambda o: o.item() if hasattr(o, "item") else str(o))
 
 
+# ── watches: a camera, an RTSP / CCTV stream or a video file, watched frame by frame in its own process ──
+# vision.py --watch <folder>: reads <folder>/watch.json, writes status.json, events.jsonl, last.jpg and snaps/*.jpg
+# there; stops when <folder>/stop appears (or at the end of a video file). vision.py --grab <folder> writes one
+# frame (frame.jpg + frame.json) for drawing zones and lines.
+def open_source(src):
+    kind = str(src.get("kind", "camera"))
+    if kind == "camera":
+        idx = int(src.get("index", 0))
+        cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW) if os.name == "nt" else cv2.VideoCapture(idx)
+        if cap.isOpened():
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, int(src.get("width", 1280)))
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, int(src.get("height", 720)))
+    elif kind == "rtsp":
+        url = str(src.get("url") or os.environ.get("VISION_SOURCE_URL", ""))     # the host passes a saved address in the environment, never in a file
+        if not url.lower().startswith(("rtsp://", "rtsps://", "http://", "https://")):
+            raise ValueError("a camera stream address starts with rtsp:// or http(s)://")
+        os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+        cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+    elif kind == "file":
+        cap = cv2.VideoCapture(str(src.get("path", "")))
+    else:
+        raise ValueError("source kind must be camera, rtsp or file")
+    if not cap.isOpened():
+        raise ValueError({"camera": "the camera could not be opened (in use by another program?)", "rtsp": "the stream could not be opened — check the address, user and password",
+                          "file": "the video file could not be opened"}[kind])
+    return cap
+
+
+def safe_source(src):
+    # what may be shown or logged: never the password inside an rtsp://user:pass@host address
+    import re
+    if src.get("kind") == "rtsp":
+        return "stream " + re.sub(r"//[^@/]*@", "//***@", str(src.get("url") or os.environ.get("VISION_SOURCE_URL", "")))
+    if src.get("kind") == "file":
+        return "file " + os.path.basename(str(src.get("path", "")))
+    return "camera %s" % src.get("index", 0)
+
+
+def write_json(path, obj):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(obj, f, default=lambda o: o.item() if hasattr(o, "item") else str(o))
+    os.replace(tmp, path)
+
+
+def write_jpg(path, img, q=80):
+    ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, q])
+    if ok:
+        tmp = path + ".tmp"
+        buf.tofile(tmp)
+        os.replace(tmp, path)
+
+
+def in_schedule(sch, now):
+    # sch = {"days": [0..6] (Mon = 0), "from": "18:00", "to": "07:00"} — empty = always; a window may pass midnight
+    if not sch or not (sch.get("from") and sch.get("to")):
+        return not sch or not sch.get("days") or now.weekday() in sch["days"]
+    f = [int(x) for x in str(sch["from"]).split(":")[:2]]
+    t = [int(x) for x in str(sch["to"]).split(":")[:2]]
+    m, a, b = now.hour * 60 + now.minute, f[0] * 60 + f[1], t[0] * 60 + t[1]
+    days = sch.get("days") or list(range(7))
+    if a <= b:
+        return a <= m < b and now.weekday() in days
+    # over midnight: the evening part belongs to today, the morning part to the day before
+    return (m >= a and now.weekday() in days) or (m < b and (now.weekday() - 1) % 7 in days)
+
+
+def zone_masks(zones, w, h):
+    out = []
+    for n, z in enumerate(zones or [], 1):
+        pts = z.get("points") if isinstance(z, dict) else z
+        if not pts or len(pts) < 3:
+            continue
+        m = np.zeros((h, w), np.uint8)
+        cv2.fillPoly(m, [np.array([[p[0] * w, p[1] * h] for p in pts], np.int32)], 255)
+        out.append({"name": (z.get("name") if isinstance(z, dict) else None) or "Zone %d" % n, "mask": m, "area": max(1, int(cv2.countNonZero(m))),
+                    "pts": np.array([[p[0] * w, p[1] * h] for p in pts], np.int32)})
+    if not out:
+        out.append({"name": "Whole picture", "mask": np.full((h, w), 255, np.uint8), "area": w * h, "pts": None})
+    return out
+
+
+class Tracker:
+    # centroid tracker for line counting: nearest match within max_dist, a track lives max_gap frames without a match
+    def __init__(self, max_dist, max_gap=12):
+        self.tracks, self.next_id, self.max_dist, self.max_gap = {}, 1, max_dist, max_gap
+
+    def update(self, points, labels=None):
+        labels = labels or [""] * len(points)
+        free = set(range(len(points)))
+        pairs = sorted(((math.dist(t["p"], points[j]), tid, j) for tid, t in self.tracks.items() for j in range(len(points))), key=lambda x: x[0])
+        used = set()
+        for d, tid, j in pairs:
+            if d > self.max_dist or tid in used or j not in free:
+                continue
+            t = self.tracks[tid]
+            t["prev"], t["p"], t["gap"], t["age"] = t["p"], points[j], 0, t["age"] + 1
+            used.add(tid)
+            free.discard(j)
+        for tid in list(self.tracks):
+            if tid not in used:
+                self.tracks[tid]["gap"] += 1
+                self.tracks[tid]["prev"] = self.tracks[tid]["p"]
+                if self.tracks[tid]["gap"] > self.max_gap:
+                    del self.tracks[tid]
+        for j in free:
+            self.tracks[self.next_id] = {"p": points[j], "prev": points[j], "gap": 0, "age": 1, "label": labels[j], "crossed": 0}
+            self.next_id += 1
+        return self.tracks
+
+
+def side_of(a, b, p):
+    return (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+
+
+def crosses(a, b, p, q):
+    # does the move p → q cross the segment a–b? +1 = from the left side to the right side (as drawn from a to b), -1 = back
+    s1, s2 = side_of(a, b, p), side_of(a, b, q)
+    if s1 == 0 or s1 * s2 > 0:
+        return 0
+    s3, s4 = side_of(p, q, a), side_of(p, q, b)
+    if s3 * s4 > 0:
+        return 0
+    return 1 if s1 < 0 < s2 else -1 if s2 < 0 < s1 else 0
+
+
+def run_watch(folder):
+    import datetime
+    import time
+    global P, PRM, RESULT
+    os.chdir(folder)
+    cfg = json.load(open("watch.json", encoding="utf-8"))
+    P, PRM, RESULT = {"models_dir": cfg.get("models_dir")}, cfg.get("params") or {}, {"images": [], "outputs": []}
+    os.makedirs("snaps", exist_ok=True)
+    src, mode = cfg.get("source") or {}, str(cfg.get("mode", "motion"))
+    is_file = src.get("kind") == "file"
+    st = {"state": "starting", "mode": mode, "source": safe_source(src), "pid": os.getpid(), "started": datetime.datetime.now().isoformat(timespec="seconds"),
+          "frames": 0, "events": 0, "fps": 0.0, "counts": {}, "error": None}
+    ev_n = [0]
+    snaps_kept = []
+
+    def event(kind, frame=None, **kw):
+        ev_n[0] += 1
+        now = datetime.datetime.now()
+        e = {"n": ev_n[0], "type": kind, "at": now.isoformat(timespec="seconds")}
+        if is_file:
+            e["video_s"] = round(cap.get(cv2.CAP_PROP_POS_MSEC) / 1000, 2)
+        e.update(kw)
+        if frame is not None and cfg.get("snapshots", True):
+            fn = "ev_%06d.jpg" % ev_n[0]
+            write_jpg(os.path.join("snaps", fn), fit(frame, 960)[0], 78)
+            e["snap"] = fn
+            snaps_kept.append(fn)
+            if len(snaps_kept) > int(cfg.get("max_snaps", 400)):
+                try:
+                    os.remove(os.path.join("snaps", snaps_kept.pop(0)))
+                except OSError:
+                    pass
+        with open("events.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(e) + "\n")
+        st["events"], st["last_event"] = ev_n[0], e
+
+    try:
+        cap = open_source(src)
+    except Exception as ex:  # noqa: BLE001 - reported in status.json
+        st.update({"state": "error", "error": str(ex)})
+        write_json("status.json", st)
+        return
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0) if is_file else 0
+    vfps = float(cap.get(cv2.CAP_PROP_FPS) or 0) or 25.0
+    step = max(1, int(cfg.get("step", 1)))
+    every = max(1, int(cfg.get("every", 5 if mode in ("scan", "detect") else 1)))
+    sens = max(1, min(100, int(cfg.get("sensitivity", 50))))
+    cooldown = float(cfg.get("cooldown_s", 10))
+    sch = cfg.get("schedule") or {}
+    realtime = bool(cfg.get("realtime", False)) and is_file
+    end_at = time.time() + float(cfg["max_minutes"]) * 60 if cfg.get("max_minutes") else None
+    bg = cv2.createBackgroundSubtractorMOG2(history=int(cfg.get("history", 300)), varThreshold=8 + (100 - sens) * 0.6, detectShadows=True)
+    model, ids = None, None
+    if mode == "detect" or (mode == "line" and cfg.get("detector") == "yolo"):
+        try:
+            _, model = yolo_model(cfg.get("model"))
+            ids = yolo_classes(model, cfg.get("classes"))
+        except Exception as ex:  # noqa: BLE001
+            st.update({"state": "error", "error": str(ex)})
+            write_json("status.json", st)
+            return
+    zones, tracker, line = None, None, None
+    zstate = {}
+    counts = {"in": 0, "out": 0} if mode == "line" else {}
+    seen_codes = {}
+    prev_counts = {}
+    stable = [None, 0]
+    fail, n, t0, last_out, last_fps_t, fps_frames = 0, 0, time.time(), 0.0, time.time(), 0
+    st["state"] = "running"
+    write_json("status.json", st)
+    while True:
+        if os.path.exists("stop") or (end_at and time.time() > end_at):
+            st["state"] = "stopped"
+            break
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            if is_file:
+                st["state"] = "finished"
+                break
+            fail += 1
+            st["state"] = "reconnecting"
+            write_json("status.json", st)
+            time.sleep(min(30, 2 ** min(fail, 5)))
+            if os.path.exists("stop"):
+                st["state"] = "stopped"
+                break
+            cap.release()
+            try:
+                cap = open_source(src)
+                st["state"] = "running"
+            except Exception as ex:  # noqa: BLE001
+                st["error"] = str(ex)
+            continue
+        fail = 0
+        n += 1
+        if step > 1 and n % step:
+            continue
+        frame, s = fit(frame, int(cfg.get("max_side", 1280)))
+        h, w = frame.shape[:2]
+        if zones is None:
+            zones = zone_masks(cfg.get("zones"), w, h)
+            ln = cfg.get("line")
+            if mode == "line":
+                if not ln or len(ln) != 2:
+                    st.update({"state": "error", "error": "draw the counting line first"})
+                    break
+                line = ((ln[0][0] * w, ln[0][1] * h), (ln[1][0] * w, ln[1][1] * h))
+                tracker = Tracker(max_dist=float(cfg.get("max_move", 0.12)) * max(w, h), max_gap=int(cfg.get("max_gap", 12)))
+        now = datetime.datetime.now()
+        tf = n / vfps if is_file else time.time()               # the clock events are timed on: video time for a file
+        alert = in_schedule(sch, now)
+        ann = frame.copy()
+        fg = None
+        if mode in ("motion", "line"):
+            fg = bg.apply(frame, learningRate=-1)
+            fg = cv2.threshold(fg, 200, 255, cv2.THRESH_BINARY)[1]     # 127 = shadow, ignored
+            fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+            fg = cv2.dilate(fg, np.ones((7, 7), np.uint8), iterations=2)
+        warm = n / step > int(cfg.get("warmup", 30))          # the background model needs a few frames first
+        if mode == "motion" and warm:
+            min_pct = float(cfg.get("min_area_pct", 0.4 + (100 - sens) * 0.04))
+            for z in zones:
+                moving = cv2.countNonZero(cv2.bitwise_and(fg, z["mask"])) * 100.0 / z["area"]
+                zs = zstate.setdefault(z["name"], {"on": False, "quiet": 0.0, "since": None, "peak": 0.0})
+                if moving >= min_pct:
+                    zs["quiet"] = tf
+                    zs["peak"] = max(zs["peak"], moving)
+                    if not zs["on"]:
+                        zs["on"], zs["since"] = True, now.isoformat(timespec="seconds")
+                        cs = [c for c in cv2.findContours(cv2.bitwise_and(fg, z["mask"]), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0] if cv2.contourArea(c) > 0.001 * w * h]
+                        snap = frame.copy()
+                        for c in cs:
+                            x, y, bw, bh = cv2.boundingRect(c)
+                            cv2.rectangle(snap, (x, y), (x + bw, y + bh), RED, 2)
+                        if z["pts"] is not None:
+                            cv2.polylines(snap, [z["pts"]], True, YELLOW, 2)
+                        event("motion", snap, zone=z["name"], moving_pct=round(moving, 1), alert=alert, schedule="in" if alert else "outside")
+                        counts[z["name"]] = counts.get(z["name"], 0) + 1
+                elif zs["on"] and tf - zs["quiet"] > cooldown:
+                    zs["on"] = False
+                    event("motion_end", None, zone=z["name"], since=zs["since"], peak_pct=round(zs["peak"], 1))
+                    zs["peak"] = 0.0
+                col = RED if zs["on"] else GREEN
+                if z["pts"] is not None:
+                    cv2.polylines(ann, [z["pts"]], True, col, 2)
+            ov = np.zeros_like(ann)
+            ov[fg > 0] = RED
+            ann = cv2.addWeighted(ann, 1.0, ov, 0.35, 0)
+        elif mode == "line":
+            pts, labels = [], []
+            if model is not None:
+                r = model.predict(frame, conf=float(cfg.get("conf", 0.35)), classes=ids, verbose=False, imgsz=int(cfg.get("imgsz", 640)))[0]
+                for b, k in zip(r.boxes.xyxy.tolist(), r.boxes.cls.tolist(), strict=False):
+                    pts.append(((b[0] + b[2]) / 2, (b[1] + b[3]) / 2))
+                    labels.append(r.names[int(k)])
+                    cv2.rectangle(ann, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), BLUE, 2)
+            elif warm:
+                min_area = float(cfg.get("min_area_pct", 0.15 + (100 - sens) * 0.01)) / 100 * w * h
+                for c in cv2.findContours(fg, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]:
+                    if cv2.contourArea(c) >= min_area:
+                        x, y, bw, bh = cv2.boundingRect(c)
+                        pts.append((x + bw / 2, y + bh / 2))
+                        labels.append("object")
+                        cv2.rectangle(ann, (x, y), (x + bw, y + bh), BLUE, 2)
+            for tid, t in tracker.update(pts, labels).items():
+                if t["gap"] or t["prev"] == t["p"]:
+                    continue
+                d = crosses(line[0], line[1], t["prev"], t["p"])
+                if d and t["crossed"] != d:
+                    t["crossed"] = d
+                    k = "in" if d > 0 else "out"
+                    counts[k] += 1
+                    if t["label"] and t["label"] != "object":
+                        counts[t["label"] + " " + k] = counts.get(t["label"] + " " + k, 0) + 1
+                    snap = frame.copy()
+                    cv2.line(snap, tuple(int(v) for v in line[0]), tuple(int(v) for v in line[1]), YELLOW, 3)
+                    cv2.circle(snap, (int(t["p"][0]), int(t["p"][1])), 10, RED, -1)
+                    event("cross", snap, direction=k, track=tid, label=t["label"], total_in=counts["in"], total_out=counts["out"], alert=alert)
+                cv2.circle(ann, (int(t["p"][0]), int(t["p"][1])), 5, GREEN if not t["crossed"] else RED, -1)
+            cv2.line(ann, tuple(int(v) for v in line[0]), tuple(int(v) for v in line[1]), YELLOW, 3)
+            label(ann, "IN %d   OUT %d" % (counts["in"], counts["out"]), (10, 40), BLUE)
+        elif mode == "scan" and n % every == 0:
+            for c in read_codes(frame):
+                key = c["data"]
+                p = np.array(c["points"], np.int32)
+                cv2.polylines(ann, [p], True, GREEN, 3)
+                if tf - seen_codes.get(key, -1e9) > float(cfg.get("repeat_s", 5)):
+                    snap = frame.copy()
+                    cv2.polylines(snap, [p], True, GREEN, 3)
+                    counts[c["type"]] = counts.get(c["type"], 0) + 1
+                    event("code", snap, code_type=c["type"], data=key, alert=alert)
+                seen_codes[key] = tf
+        elif mode == "detect" and n % every == 0:
+            r = model.predict(frame, conf=float(cfg.get("conf", 0.35)), classes=ids, verbose=False, imgsz=int(cfg.get("imgsz", 640)))[0]
+            cur = {}
+            for b, k in zip(r.boxes.xyxy.tolist(), r.boxes.cls.tolist(), strict=False):
+                cx, cy = int((b[0] + b[2]) / 2), int((b[1] + b[3]) / 2)
+                zn = next((z["name"] for z in zones if z["mask"][min(h - 1, cy), min(w - 1, cx)]), None)
+                if zn is None:
+                    continue
+                lbl = r.names[int(k)]
+                cur[lbl] = cur.get(lbl, 0) + 1
+                cv2.rectangle(ann, (int(b[0]), int(b[1])), (int(b[2]), int(b[3])), BLUE, 2)
+                label(ann, lbl, (b[0], b[1]), BLUE)
+            # an event when what is in the zones changes and stays changed for two checks (no flicker)
+            if cur == stable[0]:
+                stable[1] += 1
+            else:
+                stable[0], stable[1] = cur, 1
+            if stable[1] == 2 and cur != prev_counts:
+                added = {k: v - prev_counts.get(k, 0) for k, v in cur.items() if v > prev_counts.get(k, 0)}
+                gone = {k: prev_counts[k] - cur.get(k, 0) for k in prev_counts if prev_counts[k] > cur.get(k, 0)}
+                event("objects", ann.copy() if added else None, now_in_zone=cur, appeared=added, left=gone, alert=alert and bool(added))
+                prev_counts = dict(cur)
+            counts = {"now " + k: v for k, v in cur.items()}
+            for z in zones:
+                if z["pts"] is not None:
+                    cv2.polylines(ann, [z["pts"]], True, YELLOW, 2)
+        if mode == "scan":
+            for z in zones:
+                if z["pts"] is not None:
+                    cv2.polylines(ann, [z["pts"]], True, YELLOW, 2)
+        fps_frames += 1
+        tnow = time.time()
+        if tnow - last_out >= float(cfg.get("status_every_s", 0.5)):
+            st["fps"] = round(fps_frames / max(1e-3, tnow - last_fps_t), 1)
+            fps_frames, last_fps_t = 0, tnow
+            st.update({"frames": n, "counts": counts, "alerting": alert, "size": [w, h], "updated": now.isoformat(timespec="seconds")})
+            if is_file:
+                st.update({"position": n, "total": total, "progress": round(n * 100.0 / total, 1) if total else None,
+                           "video_s": round(n / vfps, 1), "length_s": round(total / vfps, 1) if total else None})
+            if mode == "motion":
+                st["zones"] = {k: v["on"] for k, v in zstate.items()}
+            write_json("status.json", st)
+            write_jpg("last.jpg", ann)
+            last_out = tnow
+        if realtime:
+            time.sleep(max(0.0, step / vfps - (time.time() - tnow)))
+    cap.release()
+    st.update({"frames": n, "counts": counts, "ended": datetime.datetime.now().isoformat(timespec="seconds"), "seconds": round(time.time() - t0, 1)})
+    if is_file and total:
+        st.update({"position": n, "video_s": round(n / vfps, 1), "progress": 100.0 if st["state"] == "finished" else round(n * 100.0 / total, 1)})
+    write_json("status.json", st)
+
+
+def grab_frame(folder):
+    os.chdir(folder)
+    cfg = json.load(open("watch.json", encoding="utf-8"))
+    src = cfg.get("source") or {}
+    info = {"ok": False}
+    try:
+        cap = open_source(src)
+        if src.get("kind") == "file":
+            fps = cap.get(cv2.CAP_PROP_FPS) or 25
+            total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(float(cfg.get("at_s", 0)) * fps))
+            info.update({"fps": round(fps, 2), "frames": total, "length_s": round(total / fps, 1)})
+        frame = None
+        for _ in range(1 if src.get("kind") == "file" else 8):      # cameras need a few frames to set exposure
+            ok, f = cap.read()
+            if ok and f is not None:
+                frame = f
+        cap.release()
+        if frame is None:
+            raise ValueError("no picture came from " + safe_source(src))
+        frame = fit(frame, int(cfg.get("max_side", 1280)))[0]
+        write_jpg("frame.jpg", frame, 85)
+        info.update({"ok": True, "width": int(frame.shape[1]), "height": int(frame.shape[0])})
+    except Exception as ex:  # noqa: BLE001 - reported to the page
+        info["error"] = str(ex)
+    write_json("frame.json", info)
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--serve":
+    if len(sys.argv) > 2 and sys.argv[1] == "--watch":
+        run_watch(sys.argv[2])
+    elif len(sys.argv) > 2 and sys.argv[1] == "--grab":
+        grab_frame(sys.argv[2])
+    elif len(sys.argv) > 1 and sys.argv[1] == "--serve":
         print("READY", flush=True)
         for line in sys.stdin:
             job = line.strip()

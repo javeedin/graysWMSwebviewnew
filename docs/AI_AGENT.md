@@ -77,20 +77,38 @@ The agent can write and run code itself (`run_code`), but always shows you the f
 | Detect (YOLO) | Finds and names objects (people, trucks, bottles … 80 kinds) with counts; outlines (-seg), people skeletons (-pose), or your own trained model |
 | Count anything | Type what to count — people, chickens, cars, bottles … (YOLO) — or drag a box around ONE example (a remote key, a carton, a bottle top) and it counts everything like it. Click a mark to remove it, an empty spot to add one; save the marked picture, send the list to the results panel or the chat |
 | Scan document | Finds the page in a photo, flattens it, colour / gray / black-and-white |
-| Read barcodes | Every format — Code 128 / 39, EAN, UPC, QR, DataMatrix, PDF417 … |
+| Read barcodes | Every format — Code 128 / 39, EAN, UPC, QR, DataMatrix, PDF417 …; faded, inverted (white on black) or shiny QR codes get a second, tougher try |
+| Read text | All text on a label or document (PP-OCR models through rapidocr, on this PC) plus the warehouse fields: lot / batch, expiry (as a date, with days left and EXPIRED), made date, weight, serial, GTIN |
+| Measure | Print the **marker sheet** (Measure › *Print marker sheet*, A4 at 100 %), cut out a marker and lay it flat next to the object. A photo from above gives length × width in cm; add a side photo as the 2nd picture for the height and the volume (cm³ / m³). Drag a box around the object when the background is busy |
+| Colour check | Is the shade right? Compares a sample with a reference colour (#RRGGBB) or a photo of the approved sample (CIEDE2000 ΔE: under 1 invisible, under 2 only an expert sees it, over 5 clearly different); drag a box to check one area |
+| Shelf panorama | Joins 2–6 overlapping photos of a long shelf or rack (left to right) and marks possible empty spaces |
+| Fill level | How full a bottle, tank or container is — drag a box around it |
+| Make labels | QR / Code 128 / DataMatrix / EAN … labels from a list of texts (locations, pallets, assets), one picture each plus an A4 sheet to print — no picture needed |
+| Depth (stereo) | Two photos side by side → what is near and far (real distances with a calibrated pair) |
 | Count objects | Cartons, bottles, tops (touching ones are split; *round things* for caps and coins) |
 | Compare | Before / after: aligns the photos, % similar, marks what changed |
 | Find | Where a label or logo (2nd picture) appears in a scene (1st) |
 | Enhance · Photo check · Edges · Resize | Clean up, sharp or blurry / too dark, outline, smaller copy |
 
-Results show the annotated pictures, the numbers, and tables you can send to the results panel or ask the agent about. An AI admin sets it up once per PC (**Set up**, ~100 MB; **YOLO + PyTorch**, ~600 MB more). Your own YOLO models (`.pt` trained on pallets, cartons, forklifts …) go in the **Models** folder. Photos are deleted from the work folder after each run.
+Results show the annotated pictures, the numbers, and tables you can send to the results panel or ask the agent about. An AI admin sets it up once per PC (**Set up**, ~130 MB — PCs set up before *Read text* existed show a **Text reading** button; **YOLO + PyTorch**, ~600 MB more). Your own YOLO models (`.pt` trained on pallets, cartons, forklifts …) go in the **Models** folder. Photos are deleted from the work folder after each run.
 
 > [!WARNING]
 > Ultralytics YOLO is licensed **AGPL-3.0**. Using it inside a product you distribute commercially needs an Ultralytics Enterprise licence. OpenCV, zxing-cpp, PyTorch and MediaPipe are permissive (Apache / BSD).
 
 **Live · gestures & skeleton.** Start the camera: hands (21 points each) with gestures, body skeleton with elbow / knee angles, face mesh and — with YOLO set up — live object boxes, drawn as a sci-fi HUD. It runs in the app window with Google MediaPipe (the models download once); no picture leaves the PC unless you send one. Hold a gesture for about a second to trigger what you chose (pausing is only the **Pause** button): 👍 take a photo, ✌️ scan barcodes, 🤟 send a photo to the chat, or YOLO / voice on and off. **Barcode scanner (continuous)** reads codes straight from the camera about three times a second at full HD: each code is outlined, beeps once and goes into the *Scanned codes* list (copy it or send it to the results panel). If a barcode is in view but cannot be read yet, an amber box says why — usually *move closer*: each bar needs about 3 pixels, so hold it at roughly a third of the picture's width, steady and flat. **Posture coach** watches lifting: bending the back with straight knees shows *BEND YOUR KNEES* and is counted.
 
-**The agent** has a `vision` tool for the same operations on pictures in the conversation — "read the barcode on this label", "how many cartons are on this pallet?", "what changed between these two photos?" — and answers from the exact numbers.
+**Watch · video & CCTV.** A *watch* is a source — a camera on this PC, an IP / CCTV camera (RTSP address) or a video file — and what to look for:
+
+| Watch for | What happens |
+|---|---|
+| Motion in zones | Draw zones on a picture from the camera; movement in a zone is an event with a snapshot. *Alert hours* (e.g. Mon–Fri 18:00 → 07:00, over midnight) decide which events send alerts — the rest are kept as "quiet hours" |
+| Line counting | Draw a line across a door, dock or conveyor; everything that crosses it is counted **IN** (the arrow) or **OUT** (*Swap in/out* turns it round). Count anything that moves, or only YOLO objects such as `person, truck` |
+| Barcodes | Reads every code that passes the camera (each code once per few seconds) |
+| Objects (YOLO) | An event when what is in the zones changes — a truck arrives, a person enters |
+
+Each watch runs in its own process on the PC (up to 4 at once) and keeps running while you use other tabs; video files run as fast as the PC can (or at real speed) with a progress bar and video times on every event. The view shows the live picture, counters and events (click 🖼 for the snapshot); events go to APEX (`WMS_VISION_EVENTS`, *History*), the results panel or a CSV, and — with *send alerts* on — to Teams / e-mail (the AI Control alert settings, or the watch's own webhook / address, at most every N seconds). Only AI admins add or change watches: a camera address usually holds the camera's password, so the app keeps it encrypted on the PC and shows it masked; anyone can start, stop and look. Snapshots of the last 5 runs per watch stay on the PC.
+
+**The agent** has a `vision` tool for the same operations on pictures in the conversation — "read the barcode on this label", "what is the expiry date?", "how big is this box?", "how many cartons are on this pallet?", "make QR labels for A01-01 to A01-10", "what changed between these two photos?" — and answers from the exact numbers. Its `vision_watch` tool reads the watches: "how many pallets went through dock 3 today?", "any movement in the store last night?".
 
 ## Camera
 

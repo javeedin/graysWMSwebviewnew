@@ -432,3 +432,8 @@ def test_vision_tool_is_offered_with_the_page_cap():
     v = next(t for t in catalog.TOOLS if t.name == "vision")
     assert v.runs == "page" and v.risk == "read"
     assert "detect" in v.schema["properties"]["op"]["enum"]
+    for op in ("ocr", "measure", "color", "stitch", "level", "depth", "generate", "markers"):
+        assert op in v.schema["properties"]["op"]["enum"]
+    w = next(t for t in catalog.TOOLS if t.name == "vision_watch")
+    assert w.runs == "page" and w.risk == "read"
+    assert "vision_watch" in [t.name for t in catalog.tools_for("wms_operator", ["vision_watch"])]

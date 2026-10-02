@@ -1,11 +1,14 @@
 /* AI Agent — the Vision tab.
    Photo · OpenCV: images (files, paste, drop, chat photos, live snapshots) → fixed OpenCV operations run by the host
    (classes/VisionCv.cs, Python + opencv-contrib + zxing-cpp): scan a document, read barcodes / QR of every format, count
-   objects, compare before / after, find a label or logo, enhance, edges, info, resize. Results: annotated images, numbers,
+   objects, compare before / after, find a label or logo, enhance, edges, info, resize, read text (lot / expiry fields),
+   measure with a printed ArUco marker (volume from a top + side photo), colour / shade check (ΔE), shelf panorama with empty
+   spaces, fill level, stereo depth, and make QR / barcode labels (no picture needed). Results: annotated images, numbers,
    tables to the results panel, images to the chat.
+   Watch · video & CCTV (vision-watch.js): a webcam, RTSP camera or video file watched by its own process on the PC.
    Live · gestures & skeleton: the camera with Google MediaPipe Tasks Vision running IN the page (WASM; nothing leaves the
    PC): hand skeletons + gestures (GestureRecognizer), body pose (33 points) with joint angles, face mesh — drawn as a HUD.
-   Gestures held ~0.7 s trigger actions you choose (snap to the tray, scan barcodes, send to chat, pause); the posture coach
+   Gestures held ~0.7 s trigger actions you choose (snap to the tray, scan barcodes, send to chat); the posture coach
    watches lifting (back bend vs knee bend) and warns on a stooped lift.
    YOLO (Ultralytics on PyTorch, optional add-on): object detection with names (80 COCO classes), segmentation, pose, or your
    own trained .pt model (models folder) — on photos and live on the camera (frames go to the host's warm worker, ~50 ms).
@@ -36,7 +39,21 @@ VISION.OPS = [
         params: [{ k: 'tolerance', label: 'Looseness (0 strict … 100 loose)', type: 'number', def: 50, step: 10 }] },
     { id: 'document', icon: 'fa-file-image', label: 'Scan document', hint: 'Finds the page, flattens the perspective, cleans it up', need: 1,
         params: [{ k: 'mode', label: 'Output', type: 'select', opts: [['color', 'Colour'], ['gray', 'Gray'], ['bw', 'Black & white']] }] },
-    { id: 'barcodes', icon: 'fa-barcode', label: 'Read barcodes', hint: 'QR, Code 128 / 39, EAN, UPC, DataMatrix, PDF417 …', need: 1, params: [] },
+    { id: 'barcodes', icon: 'fa-barcode', label: 'Read barcodes', hint: 'QR, Code 128 / 39, EAN, UPC, DataMatrix, PDF417 … (faded, inverted or shiny QR codes get a second, tougher try)', need: 1, params: [] },
+    { id: 'ocr', icon: 'fa-font', label: 'Read text', hint: 'All text on a label or document, plus lot / batch, expiry (with days left), made date, weight, serial, GTIN', need: 1, params: [] },
+    { id: 'measure', icon: 'fa-ruler-combined', label: 'Measure', hint: 'Put a printed marker flat next to the object. Photo from above = length × width; add a side photo (2nd image) for height and volume.', need: 1, box: 'the object (optional)',
+        params: [{ k: 'marker_cm', label: 'Marker size (cm)', type: 'number', def: 5, step: 0.5 }], extra: '<button class="btn sm" onclick="VISION.markerSheet()"><i class="fa-solid fa-print"></i> Print marker sheet</button>' },
+    { id: 'color', icon: 'fa-palette', label: 'Colour check', hint: 'Is the shade right? Compare with a reference colour (#RRGGBB) or a 2nd photo of the approved sample (CIEDE2000 ΔE).', need: 1, box: 'the area to check (optional)',
+        params: [{ k: 'reference', label: 'Reference #RRGGBB', type: 'text' }, { k: 'tolerance', label: 'Accept ΔE ≤', type: 'number', def: 5, step: 0.5 }] },
+    { id: 'stitch', icon: 'fa-images', label: 'Shelf panorama', hint: 'Join 2–6 overlapping photos of a long shelf / rack (left to right) and mark possible empty spaces', need: 2,
+        params: [{ k: 'gaps', label: 'Find empty spaces', type: 'check', def: true }] },
+    { id: 'level', icon: 'fa-glass-water', label: 'Fill level', hint: 'How full is a bottle, tank or container — drag a box around the container', need: 1, box: 'the container',
+        params: [] },
+    { id: 'generate', icon: 'fa-qrcode', label: 'Make labels', hint: 'QR / barcode labels to print — one text per line (locations, pallets, assets). No picture needed.', need: 0,
+        params: [{ k: 'format', label: 'Type', type: 'select', opts: [['qr', 'QR code'], ['code128', 'Code 128'], ['datamatrix', 'DataMatrix'], ['ean13', 'EAN-13'], ['ean8', 'EAN-8'], ['upca', 'UPC-A'], ['code39', 'Code 39'], ['pdf417', 'PDF417'], ['itf', 'ITF']], def: 'qr' },
+            { k: 'caption', label: 'Text under the code', type: 'check', def: true }, { k: 'items', label: 'Texts (one per line)', type: 'area', def: 'LOC-A01-01\nLOC-A01-02\nLOC-A01-03' }] },
+    { id: 'depth', icon: 'fa-cubes', label: 'Depth (stereo)', hint: 'Two photos side by side (same height, a few cm apart, left first) → what is near / far', need: 2,
+        params: [{ k: 'focal_px', label: 'Focal length px (optional)', type: 'number', step: 10 }, { k: 'baseline_cm', label: 'Camera distance cm (optional)', type: 'number', step: 0.5 }] },
     { id: 'count', icon: 'fa-boxes-stacked', label: 'Count objects', hint: 'Boxes, bottles, coins, cartons … touching ones are split', need: 1,
         params: [{ k: 'method', label: 'Method', type: 'select', opts: [['auto', 'Auto (split touching)'], ['contours', 'Separate objects'], ['circles', 'Round things (tops, coins)']] },
             { k: 'min_area_pct', label: 'Ignore smaller than % of image', type: 'number', def: 0.05, step: 0.01 }] },
@@ -57,7 +74,8 @@ VISION.start = function () {
     VISION.started = true;
     $('visionws').innerHTML =
         '<div class="vz-head"><div class="seg" id="vz-mode"><button data-m="photo" class="on"><i class="fa-regular fa-image"></i> Photo · OpenCV</button>' +
-        '<button data-m="live"><i class="fa-solid fa-hand-sparkles"></i> Live · gestures &amp; skeleton</button></div><span class="grow"></span><span id="vz-status" class="sm"></span></div>' +
+        '<button data-m="live"><i class="fa-solid fa-hand-sparkles"></i> Live · gestures &amp; skeleton</button>' +
+        '<button data-m="watch"><i class="fa-solid fa-video"></i> Watch · video &amp; CCTV</button></div><span class="grow"></span><span id="vz-status" class="sm"></span></div>' +
         '<div id="vz-photo" class="vz-photo"><aside class="vz-tray"><div class="row"><b class="grow">Images</b>' +
         '<label class="btn sm" title="Add picture files"><i class="fa-solid fa-plus"></i> Files<input type="file" accept="image/*" multiple hidden id="vz-file"></label>' +
         '<button class="btn sm" onclick="VISION.fromChat()" title="Photos and pictures from this conversation"><i class="fa-regular fa-comments"></i> From chat</button>' +
@@ -65,7 +83,7 @@ VISION.start = function () {
         '<div class="vz-drop" id="vz-drop">Drop or paste (Ctrl+V) pictures here</div><div id="vz-list" class="vz-list"></div></aside>' +
         '<section class="vz-main"><div class="vz-ops" id="vz-ops"></div><div class="vz-params" id="vz-params"></div><div class="vz-result" id="vz-result">' +
         '<p class="muted sm">Pick images on the left (click to select, the order counts for Compare / Find), choose what to do, press Run.</p></div></section></div>' +
-        '<div id="vz-live" class="vz-livewrap" hidden></div>';
+        '<div id="vz-live" class="vz-livewrap" hidden></div><div id="vz-watch" class="vz-watchwrap" hidden></div>';
     $('vz-mode').querySelectorAll('button').forEach(function (b) { b.onclick = function () { VISION.setMode(b.dataset.m); }; });
     $('vz-file').onchange = function () { Array.prototype.forEach.call(this.files, VISION.addFile); this.value = ''; };
     var drop = $('vz-drop');
@@ -81,8 +99,9 @@ VISION.start = function () {
 VISION.setMode = function (m) {
     VISION.mode = m;
     $('vz-mode').querySelectorAll('button').forEach(function (b) { b.classList.toggle('on', b.dataset.m === m); });
-    $('vz-photo').hidden = m !== 'photo'; $('vz-live').hidden = m !== 'live';
+    $('vz-photo').hidden = m !== 'photo'; $('vz-live').hidden = m !== 'live'; $('vz-watch').hidden = m !== 'watch';
     if (m === 'live') VISION.liveUi(); else VISION.liveStop();
+    if (m === 'watch' && VISION.watchUi) VISION.watchUi();
 };
 
 // ── OpenCV status / setup ──
@@ -97,6 +116,7 @@ VISION.checkStatus = function (fresh) {
         } else if (s.ready) {
             var ys = s.yoloSetup || {};
             el.innerHTML = '<span class="tag b-ok">OpenCV ' + esc(s.opencv) + '</span>' + (s.zxing ? ' <span class="tag b-ok">all barcode types</span>' : ' <span class="tag b-warn" title="Only QR / EAN / UPC">basic barcodes</span>') +
+                (s.ocr ? ' <span class="tag b-ok">text reading</span>' : VISION.admin ? ' <button class="btn sm" onclick="VISION.setup()" title="Adds the text reader (Read text) and the newest barcode reader (~30 MB)"><i class="fa-solid fa-plus"></i> Text reading</button>' : '') +
                 (ys.State === 'running' ? ' <span class="tag b-warn"><i class="fa-solid fa-circle-notch fa-spin"></i> adding YOLO…</span> <span class="muted">' + esc(String(ys.Log || '').trim().split('\n').pop()) + '</span>'
                     : s.yolo ? ' <span class="tag b-ok" title="PyTorch ' + esc(s.torch || '') + '">YOLO ' + esc(s.yolo) + '</span>' + (VISION.admin ? ' <button class="btn sm" onclick="VISION.modelsFolder()" title="Drop your own trained .pt models here"><i class="fa-regular fa-folder-open"></i> Models</button>' : '')
                     : (ys.State === 'error' ? ' <span class="tag b-bad" title="' + esc(ys.Error || '') + '">YOLO setup failed</span>' : '') + (VISION.admin ? ' <button class="btn sm" onclick="VISION.setup(true)" title="Object detection with names, segmentation, pose, custom models (~600 MB)"><i class="fa-solid fa-plus"></i> YOLO + PyTorch</button>' : ''));
@@ -105,14 +125,14 @@ VISION.checkStatus = function (fresh) {
         } else {
             el.innerHTML = (setup.State === 'error' ? '<span class="tag b-bad" title="' + esc(setup.Error || '') + '">setup failed</span> ' : '') +
                 '<span class="tag b-warn">OpenCV not set up on this PC</span> ' +
-                (VISION.admin ? '<button class="btn sm primary" onclick="VISION.setup()"><i class="fa-solid fa-download"></i> Set up (~100 MB, once)</button>' : '<span class="muted">an AI admin sets it up once per PC</span>') +
+                (VISION.admin ? '<button class="btn sm primary" onclick="VISION.setup()"><i class="fa-solid fa-download"></i> Set up (~130 MB, once)</button>' : '<span class="muted">an AI admin sets it up once per PC</span>') +
                 ' <span class="muted">Live mode works without it.</span>';
         }
     }).catch(function (e) { $('vz-status').innerHTML = '<span class="tag b-bad">' + esc(e) + '</span>'; });
 };
 VISION.setup = function (yolo) {
     if (!confirm(yolo ? 'Add YOLO (Ultralytics) on PyTorch (CPU) to this PC\'s Python? About 600 MB from PyPI, a few minutes.\n\nLicence: Ultralytics YOLO is AGPL-3.0 — using it inside a commercial product you distribute needs an Ultralytics Enterprise licence (see docs/AI_AGENT.md).'
-        : 'Install Python (if missing), OpenCV and the zxing-cpp barcode reader for your Windows user on this PC? (~100 MB from python.org / PyPI)')) return;
+        : 'Install Python (if missing), OpenCV, the zxing-cpp barcode reader and the rapidocr text reader for your Windows user on this PC? (~130 MB from python.org / PyPI)')) return;
     VISION.cmd({ action: 'visionSetup', yolo: !!yolo }).then(function (d) { if (d.ok === false) throw d.error; setTimeout(function () { VISION.checkStatus(true); }, 800); }).catch(function (e) { toast(String(e), 'err'); });
 };
 
@@ -143,6 +163,7 @@ VISION.select = function (id, only) {
 };
 VISION.renderTray = function () {
     if (VISION.op === 'similar' && VISION.started) setTimeout(function () { if (!VISION.sim || VISION.sim.id !== VISION.sel[0]) VISION.simPicker(); }, 0);
+    else if (VISION.started && VISION.opDef().box) setTimeout(function () { if (!VISION.bp || VISION.bp.id !== (VISION.simImage() || {}).id) VISION.boxPicker(); }, 0);
     VISION.sel = VISION.sel.filter(function (id) { return VISION.tray.some(function (t) { return t.id === id; }); });
     $('vz-list').innerHTML = VISION.tray.length ? VISION.tray.slice().reverse().map(function (t) {
         var k = VISION.sel.indexOf(t.id);
@@ -162,7 +183,7 @@ VISION.renderOps = function () {
     $('vz-ops').innerHTML = VISION.OPS.map(function (o) {
         return '<button class="vz-op' + (o.id === VISION.op ? ' on' : '') + '" data-op="' + o.id + '" title="' + esc(o.hint) + '"><i class="fa-solid ' + o.icon + '"></i><span>' + esc(o.label) + '</span></button>';
     }).join('');
-    $('vz-ops').querySelectorAll('.vz-op').forEach(function (b) { b.onclick = function () { VISION.op = b.dataset.op; VISION.renderOps(); if (VISION.op === 'similar') VISION.simPicker(); }; });
+    $('vz-ops').querySelectorAll('.vz-op').forEach(function (b) { b.onclick = function () { VISION.op = b.dataset.op; VISION.renderOps(); if (VISION.op === 'similar') VISION.simPicker(); else if (VISION.opDef().box) VISION.boxPicker(); }; });
     var o = VISION.opDef(), p = VISION.params[o.id] = VISION.params[o.id] || {};
     var noYolo = o.yolo && !(VISION.status || {}).yolo;
     $('vz-params').innerHTML = '<span class="muted sm">' + esc(o.hint) + (o.need > 1 ? ' — select ' + o.need + ' images (Ctrl+click), in order.' : '') + '</span>' +
@@ -170,11 +191,13 @@ VISION.renderOps = function () {
         o.params.map(function (f) {
             var v = p[f.k] != null ? p[f.k] : f.def;
             if (f.type === 'text') return '<label class="sm">' + esc(f.label) + ' <input type="text" data-k="' + f.k + '" value="' + esc(v || '') + '" style="width:150px"></label>';
+            if (f.type === 'area') return '<label class="sm vz-area">' + esc(f.label) + '<textarea data-k="' + f.k + '" rows="4">' + esc(v || '') + '</textarea></label>';
             if (f.type === 'select') return '<label class="sm">' + esc(f.label) + ' <select data-k="' + f.k + '">' + (typeof f.opts === 'function' ? f.opts() : f.opts).map(function (x) { return '<option value="' + x[0] + '"' + (v === x[0] ? ' selected' : '') + '>' + esc(x[1]) + '</option>'; }).join('') + '</select></label>';
             if (f.type === 'number') return '<label class="sm">' + esc(f.label) + ' <input type="number" data-k="' + f.k + '" value="' + (v != null ? v : '') + '" step="' + (f.step || 1) + '" style="width:80px"></label>';
             if (f.type === 'check') return '<label class="sm"><input type="checkbox" data-k="' + f.k + '"' + (v ? ' checked' : '') + '> ' + esc(f.label) + '</label>';
             return '<span class="sm">' + f.opts.map(function (x) { return '<label><input type="checkbox" data-m="' + f.k + '" value="' + x[0] + '"' + ((v || []).indexOf(x[0]) >= 0 ? ' checked' : '') + '> ' + esc(x[1]) + '</label>'; }).join(' ') + '</span>';
-        }).join('') + '<span class="grow"></span><button class="btn primary" id="vz-run" onclick="VISION.run()"><i class="fa-solid fa-play"></i> Run</button>';
+        }).join('') + (o.extra || '') + (o.box ? '<span class="sm" id="vz-boxinfo">' + VISION.boxText(o) + '</span>' : '') +
+        '<span class="grow"></span><button class="btn primary" id="vz-run" onclick="VISION.run()"><i class="fa-solid fa-play"></i> Run</button>';
     $('vz-params').querySelectorAll('[data-k]').forEach(function (el) { el.onchange = function () { p[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? +el.value : el.value; }; });
     $('vz-params').querySelectorAll('[data-m]').forEach(function (el) {
         el.onchange = function () { p[el.dataset.m] = Array.prototype.map.call($('vz-params').querySelectorAll('[data-m="' + el.dataset.m + '"]:checked'), function (x) { return x.value; }); };
@@ -193,7 +216,8 @@ VISION.exec = function (op, imgs, params, via) {
 VISION.run = function () {
     if (VISION.op === 'similar') { VISION.simRun(); return; }
     var o = VISION.opDef(), imgs = VISION.sel.map(function (id) { return VISION.tray.filter(function (t) { return t.id === id; })[0]; }).filter(Boolean);
-    if (!imgs.length && VISION.tray.length) imgs = [VISION.tray[VISION.tray.length - 1]];
+    if (!imgs.length && VISION.tray.length && o.need) imgs = [VISION.tray[VISION.tray.length - 1]];
+    if (!o.need) imgs = [];
     if (imgs.length < o.need) { toast(o.label + ' needs ' + o.need + ' images — Ctrl+click to select them in order', 'err'); return; }
     var btn = $('vz-run'); btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Working…';
     $('vz-result').innerHTML = '<p class="muted sm"><i class="fa-solid fa-circle-notch fa-spin"></i> ' + esc(o.label) + ' on ' + imgs.length + ' image(s)…</p>';
@@ -348,6 +372,61 @@ VISION.simChat = function () {
     $('input').focus();
 };
 
+// ── area picker (Measure / Colour / Fill level): drag a box on the first selected picture; coordinates in image pixels ──
+VISION.boxText = function (o) {
+    var b = (VISION.params[o.id] || {}).box;
+    return b ? '<span class="tag b-ok">' + esc(o.box.replace(' (optional)', '')) + ' marked</span> <button class="icon" title="Clear" onclick="delete VISION.params[\'' + o.id + '\'].box;VISION.renderOps();VISION.boxPicker()">×</button>'
+        : '<span class="muted">Drag a box around ' + esc(o.box) + ' on the picture below</span>';
+};
+VISION.boxPicker = function () {
+    var o = VISION.opDef(), t = VISION.simImage();
+    if (!o.box) return;
+    if (!t) { $('vz-result').innerHTML = '<p class="muted sm">Add a picture on the left first.</p>'; VISION.bp = null; return; }
+    var img = new Image();
+    img.onload = function () {
+        VISION.bp = { id: t.id, img: img, op: o.id };
+        $('vz-result').innerHTML = '<div class="vz-rhead"><b><i class="fa-solid ' + o.icon + '"></i> ' + esc(o.label) + '</b> <span class="muted sm">drag a box around ' + esc(o.box) + ', then Run</span></div>' +
+            '<div class="vz-simwrap"><canvas id="vz-bp" class="vz-simcv"></canvas></div>';
+        VISION.bpDraw();
+        var cv = $('vz-bp'), pt = function (e) { var r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
+        cv.onmousedown = function (e) { var p = pt(e); VISION.bp.drag = { x0: p[0], y0: p[1], x1: p[0], y1: p[1] }; };
+        cv.onmousemove = function (e) { if (!VISION.bp.drag) return; var p = pt(e); VISION.bp.drag.x1 = p[0]; VISION.bp.drag.y1 = p[1]; VISION.bpDraw(); };
+        cv.onmouseup = function () {
+            var d = VISION.bp.drag; VISION.bp.drag = null; if (!d) return;
+            var k = VISION.bpScale(), w = Math.abs(d.x1 - d.x0) / k, h = Math.abs(d.y1 - d.y0) / k;
+            if (w > 6 && h > 6) {
+                var p = VISION.params[o.id] = VISION.params[o.id] || {};
+                p.box = { x: Math.round(Math.min(d.x0, d.x1) / k), y: Math.round(Math.min(d.y0, d.y1) / k), w: Math.round(w), h: Math.round(h) };
+                $('vz-boxinfo').innerHTML = VISION.boxText(o);
+            }
+            VISION.bpDraw();
+        };
+    };
+    img.src = t.url;
+};
+VISION.bpScale = function () { var B = VISION.bp, maxW = Math.min(980, ($('vz-result').clientWidth || 900) - 24); return Math.min(1, maxW / B.img.width, 560 / B.img.height); };
+VISION.bpDraw = function () {
+    var B = VISION.bp, cv = $('vz-bp'); if (!B || !cv) return;
+    var k = VISION.bpScale(); cv.width = Math.round(B.img.width * k); cv.height = Math.round(B.img.height * k);
+    var g = cv.getContext('2d'); g.drawImage(B.img, 0, 0, cv.width, cv.height);
+    var b = (VISION.params[B.op] || {}).box;
+    g.lineWidth = Math.max(2, cv.width / 400); g.strokeStyle = '#f59e0b'; g.setLineDash([6, 4]);
+    if (b) g.strokeRect(b.x * k, b.y * k, b.w * k, b.h * k);
+    if (B.drag) g.strokeRect(B.drag.x0, B.drag.y0, B.drag.x1 - B.drag.x0, B.drag.y1 - B.drag.y0);
+    g.setLineDash([]);
+};
+VISION.markerSheet = function () {
+    var cm = +((VISION.params.measure || {}).marker_cm || 5);
+    toast('Making the marker sheet…', 'ok');
+    VISION.exec('markers', [], { marker_cm: cm }).then(function (d) {
+        if (!d.ok) throw d.error || 'failed';
+        var im = d.images[0], w = window.open('', '_blank');
+        if (!w) { VISION.last = d; VISION.download(0); return; }
+        w.document.write('<!doctype html><title>Marker sheet</title><style>@page{size:A4;margin:0}body{margin:0}img{width:210mm;height:297mm;display:block}</style><img src="data:' + im.media_type + ';base64,' + im.data + '" onload="setTimeout(function(){print()},300)">');
+        w.document.close();
+    }).catch(function (e) { toast(String(e), 'err'); });
+};
+
 // ── results ──
 VISION.summary = function (r) {
     if (!r) return '';
@@ -361,6 +440,13 @@ VISION.summary = function (r) {
         case 'detect': return Object.keys(r.counts || {}).length ? Object.keys(r.counts).map(function (k) { return r.counts[k] + ' × ' + k; }).join(', ') + ' (' + r.model + ')' : 'nothing found (' + r.model + ')';
         case 'document': return im.map(function (x) { return x.name + ': ' + (x.page_found ? 'page found' : 'no page edges, whole image'); }).join(', ');
         case 'info': return im.map(function (x) { return x.name + ': ' + x.width + '×' + x.height + ', ' + x.sharp_verdict + ', ' + x.exposure; }).join(', ');
+        case 'measure': return im.map(function (x) { return x.name + ': ' + x.length_cm + ' × ' + x.width_cm + ' cm'; }).join(', ') + (r.box_cm ? ' → box ' + r.box_cm.join(' × ') + ' cm, ' + r.volume_m3 + ' m³' : '');
+        case 'ocr': return im.map(function (x) { var f = x.fields || {}; return x.name + ': ' + x.lines + ' line(s)' + Object.keys(f).map(function (k) { return ', ' + k + ' ' + f[k]; }).join(''); }).join(' | ');
+        case 'color': return r.delta_e != null ? 'ΔE ' + r.delta_e + ' — ' + r.verdict + ' (' + r.meaning + ', ' + r.lighter_darker + ')' : 'colour ' + ((im[0] || {}).hex || '');
+        case 'stitch': return r.joined + ' photos joined, ' + (r.gaps || []).length + ' possible empty space(s)';
+        case 'generate': return r.labels + ' ' + r.format + ' label(s)';
+        case 'level': return im.map(function (x) { return x.name + ': ' + x.fill_pct + ' % full (' + x.confidence + ')'; }).join(', ');
+        case 'depth': return r.valid_pct + ' % of the picture matched' + (r.median_distance_cm ? ', median distance ' + r.median_distance_cm + ' cm' : '');
         default: return (r.outputs || []).map(function (x) { return x.note; }).join(', ');
     }
 };
@@ -394,6 +480,32 @@ VISION.renderResult = function (o, d) {
             return '<div class="vz-info"><b>' + esc(x.name) + '</b> ' + x.width + '×' + x.height + ' <span class="tag ' + (x.sharp_verdict === 'blurry' ? 'b-bad' : 'b-ok') + '">' + esc(x.sharp_verdict) + ' (' + x.sharpness + ')</span> <span class="tag ' + (x.exposure === 'ok' ? 'b-ok' : 'b-warn') + '">light ' + esc(x.exposure) + '</span> ' +
                 (x.colors || []).map(function (c) { return '<span class="vz-sw" style="background:' + esc(c.hex) + '" title="' + esc(c.hex) + ' · ' + c.share + '%"></span>'; }).join('') + '</div>';
         }).join('');
+    } else if (r.op === 'measure') {
+        html += (r.images || []).map(function (x, i) { return '<div class="vz-big">' + x.length_cm + ' × ' + x.width_cm + '<span> cm · ' + (i ? 'side' : 'top') + ' · ' + esc(x.name) + ' · ' + x.area_cm2 + ' cm²</span></div>'; }).join('') +
+            (r.box_cm ? '<div class="vz-big">' + r.box_cm.join(' × ') + '<span> cm box · ' + r.volume_m3 + ' m³ (' + r.volume_cm3 + ' cm³)</span></div>' : '<span class="muted sm">Add a side photo (2nd image) for height and volume.</span>');
+    } else if (r.op === 'ocr') {
+        html += (r.images || []).map(function (x) {
+            var f = x.fields || {}, keys = Object.keys(f).filter(function (k) { return k !== 'expired' && k !== 'days_left'; });
+            return '<div class="vz-info"><b>' + esc(x.name) + '</b> · ' + x.lines + ' line(s)</div>' +
+                (keys.length ? '<div class="vz-fields">' + keys.map(function (k) { return '<span class="tag"><b>' + esc(k.replace('_', ' ')) + '</b> ' + esc(f[k]) + '</span>'; }).join(' ') +
+                    (f.days_left != null ? ' <span class="tag ' + (f.expired ? 'b-bad' : f.days_left < 30 ? 'b-warn' : 'b-ok') + '">' + (f.expired ? 'EXPIRED ' + (-f.days_left) + ' days ago' : f.days_left + ' days left') + '</span>' : '') + '</div>' : '') +
+                '<pre class="vz-text">' + esc(x.text || '(no text found)') + '</pre>';
+        }).join('') + '<div class="res-acts"><button class="btn sm" onclick="VISION.toResults()"><i class="fa-solid fa-table"></i> Lines to the results panel</button>' +
+            '<button class="btn sm" onclick="navigator.clipboard.writeText(((VISION.last.result.images||[])[0]||{}).text||\'\');toast(\'Copied\',\'ok\')"><i class="fa-regular fa-copy"></i> Copy text</button></div>';
+    } else if (r.op === 'color') {
+        var c1 = (r.images || [])[0] || {};
+        html += r.delta_e != null ? '<div class="vz-big">ΔE ' + r.delta_e + '<span> · accept ≤ ' + r.tolerance + ' · ' + esc(r.meaning) + ' · sample is ' + esc(r.lighter_darker) + '</span></div><span class="tag ' + (r.verdict === 'match' ? 'b-ok' : 'b-bad') + '">' + esc(r.verdict) + '</span> ' : '';
+        html += '<div class="vz-info"><span class="vz-sw" style="background:' + esc(c1.hex) + '"></span> sample ' + esc(c1.hex) + ' (Lab ' + (c1.lab || []).join(', ') + ')' +
+            (r.reference ? ' &nbsp; <span class="vz-sw" style="background:' + esc(r.reference.hex) + '"></span> reference ' + esc(r.reference.hex) : ' <span class="muted">— give a reference colour or a 2nd photo to compare</span>') + '</div>';
+    } else if (r.op === 'stitch') {
+        html += '<div class="vz-big">' + (r.gaps || []).length + '<span> possible empty space(s) · ' + r.joined + ' photos joined · ' + r.width + '×' + r.height + (r.method ? ' (side by side)' : '') + '</span></div>';
+    } else if (r.op === 'generate') {
+        html += '<div class="vz-big">' + r.labels + '<span> ' + esc(r.format) + ' label(s) · ' + r.on_sheet + ' on the A4 sheet</span></div>' +
+            '<div class="res-acts"><button class="btn sm primary" onclick="VISION.printSheet()"><i class="fa-solid fa-print"></i> Print the sheet</button></div>';
+    } else if (r.op === 'level') {
+        html += (r.images || []).map(function (x) { return '<div class="vz-big">' + x.fill_pct + '%<span> full · ' + esc(x.name) + ' · level line ' + esc(x.confidence) + '</span></div>'; }).join('');
+    } else if (r.op === 'depth') {
+        html += '<div class="vz-big">' + r.valid_pct + '%<span> matched · ' + r.near_pct + '% near' + (r.median_distance_cm ? ' · median ' + r.median_distance_cm + ' cm' : '') + '</span></div>';
     } else if (r.op === 'document') {
         html += (r.images || []).map(function (x) { return '<div class="vz-info"><b>' + esc(x.name) + '</b> ' + (x.page_found ? '<span class="tag b-ok">page found</span>' : '<span class="tag b-warn">no page edges — whole image used</span>') + ' ' + x.width + '×' + x.height + '</div>'; }).join('');
     }
@@ -404,6 +516,12 @@ VISION.renderResult = function (o, d) {
     }).join('') + '</div>';
     $('vz-result').innerHTML = html;
 };
+VISION.printSheet = function () {
+    var im = (VISION.last.images || []).filter(function (x) { return /sheet/.test(x.name); })[0]; if (!im) return;
+    var w = window.open('', '_blank'); if (!w) return;
+    w.document.write('<!doctype html><title>Labels</title><style>@page{size:A4;margin:0}body{margin:0}img{width:210mm;display:block}</style><img src="data:' + im.media_type + ';base64,' + im.data + '" onload="setTimeout(function(){print()},300)">');
+    w.document.close();
+};
 VISION.outToTray = function (i) { var im = VISION.last.images[i]; VISION.add(im.name, 'data:' + im.media_type + ';base64,' + im.data, 'result'); VISION.select(VISION.tray[VISION.tray.length - 1].id, true); };
 VISION.download = function (i) {
     var im = VISION.last.images[i], a = document.createElement('a');
@@ -413,6 +531,8 @@ VISION.tableOf = function (r) {
     if (r.op === 'barcodes') return { title: 'Barcodes', columns: r.table.columns, rows: r.table.rows };
     if (r.op === 'similar') return { title: 'Count like this', columns: ['n', 'x', 'y', 'w', 'h', 'score', 'by'], rows: (((r.images || [])[0] || {}).objects || []).map(function (o) { return [o.n, o.x, o.y, o.w, o.h, o.score, o.by]; }) };
     if (r.op === 'detect' && r.table) return { title: 'Objects (' + r.model + ')', columns: r.table.columns, rows: r.table.rows };
+    if (r.op === 'ocr' && r.table) return { title: 'Text read', columns: r.table.columns, rows: r.table.rows };
+    if (r.op === 'measure') return { title: 'Measured', columns: ['image', 'length_cm', 'width_cm', 'area_cm2', 'markers'], rows: (r.images || []).map(function (x) { return [x.name, x.length_cm, x.width_cm, x.area_cm2, x.markers]; }) };
     if (r.op === 'count') {
         var rows = [];
         (r.images || []).forEach(function (im) { (im.objects || []).forEach(function (o, i) { rows.push([im.name, i + 1, o.x, o.y, o.w, o.h, o.area]); }); });
@@ -872,8 +992,9 @@ VISION.agentImages = function (want) {
     return out;
 };
 AG.tool('vision', function (inp) {
-    var imgs = VISION.agentImages(inp.images);
-    if (!imgs.length) return Promise.resolve({ ok: false, content: 'No picture found. Ask the user to attach one or use the camera tool first. Known pictures: ' + (Object.keys(AG.imgCache || {}).join(', ') || 'none') });
+    var noImg = inp.op === 'generate' || inp.op === 'markers';
+    var imgs = noImg ? [] : VISION.agentImages(inp.images);
+    if (!imgs.length && !noImg) return Promise.resolve({ ok: false, content: 'No picture found. Ask the user to attach one or use the camera tool first. Known pictures: ' + (Object.keys(AG.imgCache || {}).join(', ') || 'none') });
     return VISION.exec(inp.op, imgs, inp.params || {}, 'agent').then(function (d) {
         if (!d.ok) return { ok: false, content: 'Vision ' + inp.op + ' failed: ' + (d.error || 'unknown') };
         var r = d.result || {}, slim = JSON.parse(JSON.stringify(r));
@@ -883,7 +1004,7 @@ AG.tool('vision', function (inp) {
         (d.images || []).forEach(function (im) { AG.imgCache[im.name] = 'data:' + im.media_type + ';base64,' + im.data; });
         var t = VISION.tableOf(r), ims = (d.images || []).map(function (im) { return { name: im.name, media_type: im.media_type, data: im.data }; });
         AG.pill('👁 ' + inp.op + ': ' + VISION.summary(r).slice(0, 80));
-        return { ok: true, content: 'OpenCV ' + inp.op + ' on ' + imgs.map(function (x) { return x.name; }).join(', ') + ': ' + VISION.summary(r) + '\nDetails: ' + JSON.stringify(slim).slice(0, 6000) +
+        return { ok: true, content: 'OpenCV ' + inp.op + (noImg ? '' : ' on ') + imgs.map(function (x) { return x.name; }).join(', ') + ': ' + VISION.summary(r) + '\nDetails: ' + JSON.stringify(slim).slice(0, 6000) +
                 (ims.length ? '\nOutput pictures (usable as images in the next vision call): ' + ims.map(function (x) { return x.name; }).join(', ') + '. The first one follows.' : ''),
             data: t && t.rows.length ? t : undefined, attachment: ims[0], attachments: ims.slice(1, 3) };
     });

@@ -224,14 +224,30 @@ TOOLS: list[Tool] = [
          "with counts per class (to count people use classes 'person', chickens / any birds 'bird', vehicles 'car, truck'); "
          "similar = count everything like ONE example (params.box = x, y, w, h of it in the picture's pixels, "
          "e.g. one key of a remote, one carton) by colour, size, shape and look; compare = what changed between two photos (before / after: damage, missing items); find = "
-         "where a thing (2nd image) appears in a scene (1st); enhance / info (blurry? too dark?) / edges / resize. images = names "
+         "where a thing (2nd image) appears in a scene (1st); enhance / info (blurry? too dark?) / edges / resize; "
+         "ocr = all text plus lot / batch, expiry (ISO date, days left, expired), made date, weight, serial, GTIN; "
+         "measure = length × width in cm from a printed ArUco marker in the photo (2 photos: top + side → height and volume); "
+         "color = shade check against params.reference #RRGGBB or a 2nd photo (CIEDE2000 ΔE, match / different); "
+         "stitch = join 2-6 overlapping shelf photos and find empty spaces; level = fill level of a container (params.box); "
+         "depth = near / far from a stereo pair; generate = QR / barcode labels from params.items (no picture needed, "
+         "comes back as images + an A4 sheet); markers = the printable marker sheet. images = names "
          "of pictures, 'last' (default) or 'last2'. Prefer it over guessing for codes and counts; the annotated picture comes back.",
-         _obj({"op": {"type": "string", "enum": ["document", "barcodes", "count", "similar", "detect", "compare", "find", "enhance", "info", "edges", "resize"]},
+         _obj({"op": {"type": "string", "enum": ["document", "barcodes", "count", "similar", "detect", "compare", "find", "enhance", "info", "edges", "resize",
+                                                  "ocr", "measure", "color", "stitch", "level", "depth", "generate", "markers"]},
                "images": {"type": "array", "items": S, "description": "Picture names, 'last' or 'last2'"},
                "params": {"type": "object", "description": "document: mode color|gray|bw · count: method auto|contours|circles · detect: model "
                           "(yolo11n, yolo11n-seg, yolo11n-pose, or a custom name), conf, classes 'person, truck' · compare: threshold · "
-                          "resize: max_side · similar: box {x,y,w,h} + tolerance 0-100"}},
+                          "resize: max_side · similar: box {x,y,w,h} + tolerance 0-100 · measure: marker_cm (default 5) · "
+                          "color: reference '#RRGGBB', tolerance (ΔE, default 5), box · level: box · depth: focal_px, baseline_cm · "
+                          "generate: items ['LOC-A01', …], format qr|code128|datamatrix|ean13|ean8|upca|code39|pdf417|itf, caption"}},
               ["op"])),
+    Tool("vision_watch", "Video watches on this PC (Vision › Watch: webcams, CCTV / RTSP cameras, video files): motion in zones with "
+         "after-hours alerts, IN / OUT counting across a line (doors, conveyors, docks), barcodes going past, YOLO objects arriving. "
+         "op list = the watches; status = live state, counts (e.g. in / out) and the last events of one watch (picture: true adds "
+         "the current frame); history = events saved in APEX (since = 'YYYY-MM-DD HH24:MI:SS'). Read only: people start / stop "
+         "watches in the Vision tab.",
+         _obj({"op": {"type": "string", "enum": ["list", "status", "history"]}, "id": s("Watch id from list"), "name": s("or the watch name"),
+               "since": S, "max": {"type": "integer"}, "picture": {"type": "boolean"}}, ["op"])),
     Tool("phone_call", "Place a real phone call (Twilio) where you talk with the person yourself to reach a goal - e.g. confirm a delivery "
          "slot with a customer, ask a driver for an ETA, remind about an overdue payment. Give the number in international format "
          "(+230…), who it is and the goal. You introduce yourself as an AI assistant; nothing is changed on the call; the "
@@ -389,8 +405,9 @@ re-running a query; render for a document the user will print, e-mail or keep; o
 This PC (network, Wi-Fi, devices, USB, printers, disks, software, events …): the hardware tool - try it before saying
 you cannot see something about the computer. To SEE something (a document, label, product): the camera tool - the
 user takes the photo in the chat and you read it (text, tables, codes). Never say you cannot use the camera.
-For exact barcodes, counts, object names, before / after changes or a skewed document photo, run the vision tool on the
-picture (OpenCV / YOLO on this PC) instead of guessing - then answer from its numbers.
+For exact barcodes, counts, object names, before / after changes, text on labels (lot / expiry), sizes (marker) or a
+skewed document photo, run the vision tool on the picture (OpenCV / YOLO on this PC) instead of guessing - then answer
+from its numbers. Door / dock / conveyor counts and CCTV motion come from vision_watch.
 Keep it tidy: one heading level, short tables (≤ 15 rows in chat - the results panel holds the rest)."""
 
 SPECIALISTS: dict[str, Specialist] = {s_.id: s_ for s_ in [

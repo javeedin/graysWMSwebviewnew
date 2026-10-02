@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 using Microsoft.Web.WebView2.WinForms;
 
 namespace WMSApp
@@ -45,7 +46,8 @@ namespace WMSApp
         }
 
         private static bool IsCodeAction(string action) => action == "codeRuntimes" || action == "codeInstall" || action == "codeRun" ||
-            action == "visionStatus" || action == "visionSetup" || action == "visionRun" || action == "visionModelsFolder";
+            action == "visionStatus" || action == "visionSetup" || action == "visionRun" || action == "visionModelsFolder" || action.StartsWith("visionWatch") ||
+            action == "visionPickVideo";
 
         private async Task HandleCodeAction(WebView2 wv, string action, JsonElement root, string requestId)
         {
@@ -109,6 +111,56 @@ namespace WMSApp
                                 images = vr.Images.Select(x => new { name = x.Name, media_type = x.Mime, data = x.Base64, note = x.Note }) };
                             break;
                         }
+                    // ── Vision watches (classes/VisionWatch.cs): camera / CCTV / video file watched by its own process ──
+                    case "visionWatchList":
+                        data = VisionWatch.List(admin);
+                        break;
+                    case "visionWatchSave":       // definitions hold camera addresses: AI admins only
+                        if (!admin) { data = new { ok = false, error = "Only an AI admin can add or change watches." }; break; }
+                        if (!root.TryGetProperty("watch", out var we) || we.ValueKind != JsonValueKind.Object) { data = new { ok = false, error = "watch missing" }; break; }
+                        data = VisionWatch.Save(we);
+                        AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "AIAGENT", Action = "vision_watch_save", Outcome = "OK", Target = PipeSrvStr(we, "name") + " · " + PipeSrvStr(we, "mode") });
+                        break;
+                    case "visionWatchDelete":
+                        if (!admin) { data = new { ok = false, error = "Only an AI admin can delete watches." }; break; }
+                        data = VisionWatch.Delete(PipeSrvStr(root, "id"));
+                        AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "AIAGENT", Action = "vision_watch_delete", Outcome = "OK", Target = PipeSrvStr(root, "id") });
+                        break;
+                    case "visionWatchStart":
+                        data = await VisionWatch.StartAsync(PipeSrvStr(root, "id"), user);
+                        AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "AIAGENT", Action = "vision_watch_start", Outcome = "OK", Target = PipeSrvStr(root, "id") });
+                        break;
+                    case "visionWatchStop":
+                        data = VisionWatch.Stop(PipeSrvStr(root, "id"));
+                        AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "AIAGENT", Action = "vision_watch_stop", Outcome = "OK", Target = PipeSrvStr(root, "id") });
+                        break;
+                    case "visionWatchStatus":
+                        data = VisionWatch.Status(PipeSrvStr(root, "id"), root.TryGetProperty("after", out var af) && af.TryGetInt32(out var ai) ? ai : 0,
+                            root.TryGetProperty("frame", out var fe) && fe.ValueKind == JsonValueKind.True, PipeSrvStr(root, "frameStamp"));
+                        break;
+                    case "visionWatchSnap":
+                        data = VisionWatch.Snap(PipeSrvStr(root, "id"), PipeSrvStr(root, "snap"), PipeSrvStr(root, "run"));
+                        break;
+                    case "visionWatchPreview":
+                        data = await VisionWatch.PreviewAsync(PipeSrvStr(root, "id"), root.TryGetProperty("source", out var se) && se.ValueKind == JsonValueKind.Object ? se : (JsonElement?)null,
+                            root.TryGetProperty("at_s", out var at) && at.TryGetDouble(out var ad) ? ad : 0);
+                        break;
+                    case "visionPickVideo":
+                        // WebView2 forbids modal dialogs inside its event handlers - defer to the message queue
+                        BeginInvoke(new Action(() =>
+                        {
+                            object res;
+                            try
+                            {
+                                using var dlg = new OpenFileDialog { Title = "Pick a video to watch", Filter = VisionWatch.VIDEO_FILTER };
+                                res = dlg.ShowDialog(this) == DialogResult.OK
+                                    ? new { ok = true, token = VisionWatch.RegisterVideo(dlg.FileName), file = Path.GetFileName(dlg.FileName), mb = Math.Round(new FileInfo(dlg.FileName).Length / 1048576.0, 1) }
+                                    : new { ok = false, cancelled = true };
+                            }
+                            catch (Exception ex) { res = new { ok = false, error = ex.Message }; }
+                            PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "codeResponse", requestId, data = res }));
+                        }));
+                        return;
                     default:
                         data = new { ok = false, error = "Unknown code action " + action };
                         break;
