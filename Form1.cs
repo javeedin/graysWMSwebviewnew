@@ -1671,6 +1671,11 @@ navPanel.Controls.Add(wmsDevButton);
                     {
                         if (permArgs.PermissionKind == CoreWebView2PermissionKind.Microphone)
                             permArgs.State = CoreWebView2PermissionState.Allow;
+                        // the AI Agent's camera card (aiagent/camera.js): only the app's own local pages, and the page
+                        // opens the camera only after a click / a card the user sees; the user presses the shutter
+                        else if (permArgs.PermissionKind == CoreWebView2PermissionKind.Camera &&
+                                 permArgs.Uri != null && permArgs.Uri.StartsWith("file:///", StringComparison.OrdinalIgnoreCase))
+                            permArgs.State = CoreWebView2PermissionState.Allow;
                     };
                 }
                 catch (Exception permEx)

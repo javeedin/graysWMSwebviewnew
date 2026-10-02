@@ -54,6 +54,10 @@ Voice settings (slider icon in the voice bar):
 
 Ask the agent "call +230 5xxx xxxx and confirm tomorrow's 10:00 delivery for SO1234" — it shows a confirm card, then talks with the person itself. Live transcripts, messages and summaries are in the Calls dialog. On every call the agent says it is an AI and that the call is transcribed, and it cannot change anything during a call. Check the rules for recording / AI calls in the countries you call.
 
+## Camera
+
+Press the camera next to the paperclip (or ask: "take a picture of this delivery note"). A live preview opens in the chat; you press **Take picture** (or Space), add more pages if needed, then **Use**. The photos go to the model, which reads text, tables, labels and handwriting — ask it to turn them into text, a table in the results panel, or to match a delivery note against an order. The agent never takes a picture by itself, and the camera is off as soon as the card closes. If Windows blocks it: Settings › Privacy & security › Camera, and check the laptop's camera shutter key.
+
 ## Safety model
 
 * **Read first, act second.** Read tools run at once; anything that runs a big query, changes data or sends something

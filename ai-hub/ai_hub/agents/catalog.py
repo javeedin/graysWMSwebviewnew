@@ -199,6 +199,12 @@ TOOLS: list[Tool] = [
          "unattended; anything needing a confirm waits in the AI inbox. The user confirms.",
          _obj({"name": S, "prompt": s("What to do each time"), "every_min": i("Interval in minutes (≥ 15)"), "daily_at": s("HH:MM"),
                "specialist": S}, ["name", "prompt"]), runs="hub", risk="act", policy="agent_job", specialists=[RP, FA, WO]),
+    Tool("camera", "Open the laptop / USB camera in the chat with a live preview; the USER takes the picture(s) (you never do) and "
+         "they come back to you as images. Use it when the user wants to show you something: a delivery note, invoice, label, "
+         "shelf, damaged goods, a handwritten list, a screen. Then read it and turn it into text, a table (render / format_result), "
+         "or match it to orders and trips. Ask for several pages with pages > 1.",
+         _obj({"title": s("Card title, e.g. 'Delivery note'"), "reason": s("What to photograph and why, shown to the user"),
+               "pages": i("How many photos you expect (1-6)")}, ["reason"]), risk="ask"),
     Tool("phone_call", "Place a real phone call (Twilio) where you talk with the person yourself to reach a goal - e.g. confirm a delivery "
          "slot with a customer, ask a driver for an ETA, remind about an overdue payment. Give the number in international format "
          "(+230…), who it is and the goal. You introduce yourself as an AI assistant; nothing is changed on the call; the "
@@ -349,7 +355,8 @@ FORMATTING - the chat renders rich Markdown, so make answers easy to scan:
 Results: format_result (links per row, money / % / dates, badges, data bars, coloured rows, hidden columns) instead of
 re-running a query; render for a document the user will print, e-mail or keep; open_url to open a page in the browser.
 This PC (network, Wi-Fi, devices, USB, printers, disks, software, events …): the hardware tool - try it before saying
-you cannot see something about the computer.
+you cannot see something about the computer. To SEE something (a document, label, product): the camera tool - the
+user takes the photo in the chat and you read it (text, tables, codes). Never say you cannot use the camera.
 Keep it tidy: one heading level, short tables (≤ 15 rows in chat - the results panel holds the rest)."""
 
 SPECIALISTS: dict[str, Specialist] = {s_.id: s_ for s_ in [

@@ -264,3 +264,23 @@ tr.row-b-ok td { background: #f0fdf4; } tr.row-b-warn td { background: #fffbeb; 
 .res-edge:hover { padding-right: 9px; }
 .res-edge i { transform: rotate(90deg); margin-bottom: 6px; }
 .res-edge[hidden] { display: none; }
+
+/* ── camera (camera.js) ── */
+.cam-card h4 { display: flex; align-items: center; gap: 6px; }
+.cam-card .cam-dev { max-width: 220px; font-size: .74rem; }
+.cam-stage { position: relative; background: #0f172a; border-radius: 10px; overflow: hidden; aspect-ratio: 16 / 9; max-height: 46vh; margin: 6px 0; }
+.cam-video { width: 100%; height: 100%; object-fit: contain; display: block; }
+.cam-video.mirror { transform: scaleX(-1); }
+.cam-guide { position: absolute; inset: 8%; border: 2px dashed rgba(255, 255, 255, .35); border-radius: 10px; pointer-events: none; }
+.cam-msg { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; font-size: .76rem; color: #e2e8f0; background: linear-gradient(transparent, rgba(15, 23, 42, .85)); }
+.cam-msg .btn { color: #0f172a; }
+.cam-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.cam-flash.go { animation: cam-flash .35s ease-out; }
+@keyframes cam-flash { from { opacity: .85; } to { opacity: 0; } }
+.cam-shots { display: flex; gap: 6px; flex-wrap: wrap; }
+.cam-shot { position: relative; }
+.cam-shot img { height: 64px; border-radius: 6px; border: 1px solid var(--line, #e2e8f0); display: block; }
+.cam-shot button { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; border: 0; background: #ef4444; color: #fff; cursor: pointer; font-size: .7rem; line-height: 1; }
+.cam-card .cam-file { cursor: pointer; }
+.cam-quick { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 6px 8px; background: #f5f3ff; border-radius: 10px; margin-bottom: 6px; }
+.fchip .fthumb { height: 22px; border-radius: 4px; vertical-align: middle; }

@@ -150,3 +150,27 @@ def test_voice_api(tmp_path, monkeypatch):
     r = c.post("/agent/threads", json={"text": "hello", "voice": "app", "caps": []}, headers=h).json()
     st = c.app.state.agent.graph.get_state(c.app.state.agent._cfg(r["thread_id"])).values
     assert st["voice"] == "app" and "VOICE MODE" in c.app.state.agent.system_prompt(C.SPECIALISTS[C.FA], st)
+
+
+def test_camera_photos_reach_the_model_as_images(tmp_path, monkeypatch):
+    script = tmp_path / "s.json"
+    script.write_text(json.dumps([{"text": "Let me see it.", "calls": [{"name": "camera", "input": {"reason": "the delivery note", "pages": 2}}]},
+                                  {"text": "Read it: 3 lines, total 1,200."}]))
+    monkeypatch.setenv("AIHUB_DEMO_SCRIPT", str(script))
+    import ai_hub.agents.demo_planner as dp
+    dp._SCRIPT.update(path=None)
+    svc = AgentService(Gateway(HubConfig(), Usage()), tmp_path / "ag")
+    assert C.BY_NAME["camera"].risk == "ask" and C.BY_NAME["camera"].runs == "page"
+    r = svc.start("read my delivery note", caps=["camera"])
+    call = r["waiting"]["calls"][0]
+    assert call["name"] == "camera"
+    jpg = base64.b64encode(b"\xff\xd8\xff\xe0fakejpeg").decode()
+    shot = lambda n: {"name": f"p{n}.jpg", "media_type": "image/jpeg", "data": jpg}  # noqa: E731
+    r = svc.resume(r["thread_id"], {"results": {call["id"]: {"ok": True, "content": "2 photos", "attachment": shot(1), "attachments": [shot(2)]}}})
+    assert r["status"] == "done"
+    msgs = svc.graph.get_state(svc._cfg(r["thread_id"])).values["messages"]
+    tool_msg = next(m for m in msgs if getattr(m, "tool_call_id", None) == call["id"])
+    assert [b["type"] for b in tool_msg.content if b["type"] == "image"] == ["image", "image"]
+    ev = svc.events(r["thread_id"])["events"]
+    assert any(e["kind"] == "result" and e["data"].get("attachment") == "p1.jpg, p2.jpg" for e in ev)
+    assert jpg not in json.dumps(ev)          # photos are never stored in the timeline

@@ -49,6 +49,7 @@
                 <div class="files" id="files"></div>
                 <div class="compose-row">
                     <button class="btn send" id="btn-attach" title="Attach files (PDF, images, CSV, text) - or drop / paste them"><i class="fa-solid fa-paperclip"></i></button>
+                    <button class="btn send" id="btn-camera" title="Camera — take a photo of a document, label or product and ask about it" onclick="CAM.forMessage()"><i class="fa-solid fa-camera"></i></button>
                     <input type="file" id="file-in" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.csv,.txt,.json,.xml,.sql,.md,.log">
                     <textarea id="input" rows="2" placeholder="Ask about Fusion data, trips, orders, loads or reports…  (Enter to send, Shift+Enter for a new line, @wms / @orders / @fbdi / @report to pick a specialist)"></textarea>
                     <button class="btn send voice-btn" id="btn-voice" title="Talk with the agent — hands-free voice mode (Ctrl+Shift+V)" onclick="VOICE.toggle()"><i class="fa-solid fa-microphone"></i></button>
@@ -82,6 +83,7 @@
     <script src="rollout.js"></script>
     <script src="voice.js"></script>
     <script src="phone.js"></script>
+    <script src="camera.js"></script>
     <script>AG.init();</script>
 </body>
 </html>

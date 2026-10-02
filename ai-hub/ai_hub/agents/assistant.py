@@ -214,11 +214,14 @@ def build_graph(svc: "AgentService"):
                                          "rows": data.get("row_count"), "tool": name})
             if len(content) > RESULT_CHARS:
                 content = content[:RESULT_CHARS] + f"\n… (cut, {len(content)} characters)"
-            blocks = attach_blocks([att]) if isinstance(att, dict) else []
+            # a tool may return files for the model to look at: attachment (one) + attachments (more pages, max 6)
+            more = (results.get(cid) or {}).get("attachments") if cid not in immediate else None
+            files = ([att] if isinstance(att, dict) else []) + [x for x in (more or [])[:5] if isinstance(x, dict)]
+            blocks = attach_blocks(files)
             msgs.append(ToolMessage(content=[{"type": "text", "text": content}] + blocks if blocks else content, tool_call_id=cid,
                                     status="error" if err else "success"))
             svc.emit(tid, "result", {"id": cid, "name": name, "ok": not err, "text": content[:2000], "data": data,
-                                     "attachment": att.get("name") if blocks else None})
+                                     "attachment": ", ".join(str(f.get("name")) for f in files) if blocks else None})
         return {"messages": msgs, "dry_ok": dry_ok[-40:], "results": res_list[-30:], **upd}
 
     def after_tools(s: AgentState):
