@@ -455,3 +455,6 @@ body.tech-on .tech-toggle { color: #7c3aed; font-weight: 700; }
 .vz-simbar { margin-top: 8px; }
 .vz-what { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
 .vz-what input { min-width: 280px; flex: 0 1 380px; }
+.vz-scans { max-height: 180px; overflow: auto; display: flex; flex-direction: column; gap: 3px; }
+.vz-scan { display: flex; flex-direction: column; font-size: .76rem; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 3px 6px; }
+.vz-scan b { font-family: Consolas, monospace; word-break: break-all; }

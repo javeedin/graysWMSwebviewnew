@@ -435,30 +435,135 @@ def read_codes(img):
     return found
 
 
+def barcode_regions(img):
+    # where barcodes probably are, even when they cannot be read yet: OpenCV's barcode detector, then the classic
+    # gradient method (bars = strong horizontal gradient, weak vertical) — boxes (x, y, w, h) in the image's pixels
+    boxes = []
+    bd = barcode_detector()
+    if bd is not None:
+        try:
+            ok, pts = bd.detectMulti(img)
+            if ok and pts is not None:
+                for p in pts:
+                    x, y, w, h = cv2.boundingRect(np.array(p, np.float32).reshape(-1, 2))
+                    boxes.append([x, y, w, h])
+        except Exception:
+            pass
+    small, s = fit(img, 1000)
+    g = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+    for gx, gy in ((1, 0), (0, 1)):          # vertical bars, and bars turned 90°
+        grad = cv2.convertScaleAbs(cv2.subtract(cv2.Sobel(g, cv2.CV_32F, gx, gy, ksize=-1), cv2.Sobel(g, cv2.CV_32F, gy, gx, ksize=-1)))
+        _, t = cv2.threshold(cv2.blur(grad, (9, 9)), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        k = cv2.getStructuringElement(cv2.MORPH_RECT, (21, 7) if gx else (7, 21))
+        t = cv2.dilate(cv2.erode(cv2.morphologyEx(t, cv2.MORPH_CLOSE, k), None, iterations=4), None, iterations=4)
+        for c in sorted(cv2.findContours(t, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0], key=cv2.contourArea, reverse=True)[:3]:
+            x, y, w, h = cv2.boundingRect(c)
+            if w * h > 0.001 * small.shape[0] * small.shape[1] and 1.2 < max(w, h) / max(1, min(w, h)) < 8:
+                boxes.append([int(x / s), int(y / s), int(w / s), int(h / s)])
+    out = []
+    for b in boxes:
+        if all(iou(b, o) < 0.3 for o in out):
+            out.append(b)
+    return out[:6]
+
+
+def bar_pitch(img, b):
+    # how many bars cross the middle of the region and how many pixels each one gets (EAN needs ~2 or more)
+    x, y, w, h = b
+    g = cv2.cvtColor(img[y:y + h, x:x + w], cv2.COLOR_BGR2GRAY)
+    if g.size == 0:
+        return 0, 0.0
+    best = (0, 0.0)
+    for line in (g[g.shape[0] // 2, :], g[:, g.shape[1] // 2]):
+        if line.size < 8:
+            continue
+        t = (line > (int(line.min()) + int(line.max())) / 2).astype(np.int8)
+        edges = np.flatnonzero(np.diff(t))
+        if edges.size > best[0]:
+            best = (int(edges.size), float(edges[-1] - edges[0]) / max(1, edges.size - 1))   # span of the bars only, not the margins
+    return best
+
+
+def read_region(img, b):
+    # zoom into one region: crop with a margin, enlarge until the bars are a few pixels wide, sharpen, read again
+    x, y, w, h = b
+    mx, my = int(w * 0.25) + 8, int(h * 0.35) + 8
+    x0, y0, x1, y1 = max(0, x - mx), max(0, y - my), min(img.shape[1], x + w + mx), min(img.shape[0], y + h + my)
+    crop = img[y0:y1, x0:x1]
+    if crop.size == 0:
+        return [], 0.0
+    f = min(6.0, max(1.0, 900.0 / max(crop.shape[:2])))
+    big = cv2.resize(crop, None, fx=f, fy=f, interpolation=cv2.INTER_CUBIC)
+    sharp = cv2.addWeighted(big, 1.7, cv2.GaussianBlur(big, (0, 0), 2.0), -0.7, 0)
+    g = cv2.cvtColor(sharp, cv2.COLOR_BGR2GRAY)
+    _, bw = cv2.threshold(g, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    blur = float(cv2.Laplacian(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var())
+    for v in (sharp, cv2.cvtColor(cv2.createCLAHE(3.0, (8, 8)).apply(g), cv2.COLOR_GRAY2BGR), cv2.cvtColor(bw, cv2.COLOR_GRAY2BGR)):
+        codes = read_codes(v)
+        if codes:
+            for c in codes:
+                c["points"] = [[x0 + px / f, y0 + py / f] for px, py in c["points"]]
+                c["zoomed"] = True
+            return codes, blur
+    return [], blur
+
+
 def op_barcodes(imgs):
+    live = bool(PRM.get("live"))
     for i, (name, img) in enumerate(imgs, 1):
         seen, codes = set(), []
         g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         tries = [(img, 1.0), (cv2.cvtColor(cv2.createCLAHE(3.0, (8, 8)).apply(g), cv2.COLOR_GRAY2BGR), 1.0)]
-        if max(img.shape[:2]) < 1600:
-            tries.append((cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC), 2.0))
-        else:
-            tries.append((fit(img, 1400)[0], fit(img, 1400)[1]))
+        if not live:
+            if max(img.shape[:2]) < 1600:
+                tries.append((cv2.resize(img, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC), 2.0))
+            else:
+                tries.append((fit(img, 1400)[0], fit(img, 1400)[1]))
+
+        def add(c, s=1.0, seen=seen, codes=codes):
+            if c["data"] in seen:
+                return
+            seen.add(c["data"])
+            c["points"] = (np.array(c["points"]) / s).round(1).tolist()
+            codes.append(c)
         for im, s in tries:
             for c in read_codes(im):
-                if c["data"] in seen:
-                    continue
-                seen.add(c["data"])
-                c["points"] = (np.array(c["points"]) / s).round(1).tolist()
-                codes.append(c)
-        ann = img.copy()
-        for n, c in enumerate(codes, 1):
-            p = np.array(c["points"], np.int32)
-            cv2.polylines(ann, [p], True, GREEN, max(2, img.shape[1] // 400))
-            label(ann, "%d %s" % (n, c["data"][:40]), p.min(0))
-        save("codes_%d" % i, ann, "%d code(s) found" % len(codes))
-        RESULT["images"].append({"name": name, "count": len(codes), "codes": [{"n": n, "type": c["type"], "data": c["data"]} for n, c in enumerate(codes, 1)]})
+                add(c, s)
+            if codes and live:
+                break
+        # nothing read: find where a barcode is, zoom in there and try again; else say why
+        hint, regions = "", []
+        if not codes:
+            for b in barcode_regions(img):
+                got, blur = read_region(img, b)
+                for c in got:
+                    add(c)
+                if not got:
+                    bars, px = bar_pitch(img, b)
+                    if bars < 30:
+                        continue                      # not barcode-like (text, a pattern) — no hint from it
+                    unit = px / 1.7                   # edges are ~1.7 bar units apart on EAN / Code 128; decoders want ≥ 3 px per unit
+                    why = "move closer — the thinnest bars are only ~%.1f px wide" % unit if unit < 3 else \
+                        "hold still / focus — the picture is blurred" if blur < 60 else "turn it flat to the camera, avoid shine"
+                    regions.append({"x": b[0], "y": b[1], "w": b[2], "h": b[3], "why": why, "bars": bars, "px_per_bar": round(px / 1.7, 1)})
+            regions.sort(key=lambda r: r["px_per_bar"])
+            if not codes:
+                hint = regions[0]["why"] if regions else "no barcode found — hold it closer (about a third of the picture wide), flat and still"
+        if not live:
+            ann = img.copy()
+            for n, c in enumerate(codes, 1):
+                p = np.array(c["points"], np.int32)
+                cv2.polylines(ann, [p], True, GREEN, max(2, img.shape[1] // 400))
+                label(ann, "%d %s" % (n, c["data"][:40]), p.min(0))
+            for r in regions:
+                cv2.rectangle(ann, (r["x"], r["y"]), (r["x"] + r["w"], r["y"] + r["h"]), YELLOW, max(2, img.shape[1] // 400))
+            save("codes_%d" % i, ann, "%d code(s) found" % len(codes) + (" — " + hint if hint else ""))
+        RESULT["images"].append({"name": name, "count": len(codes), "hint": hint, "regions": regions,
+                                 "codes": [{"n": n, "type": c["type"], "data": c["data"], "zoomed": bool(c.get("zoomed")), "points": c["points"]} for n, c in enumerate(codes, 1)]})
     RESULT["table"] = {"columns": ["image", "n", "type", "data"], "rows": [[im["name"], c["n"], c["type"], c["data"]] for im in RESULT["images"] for c in im["codes"]]}
+    hints = [im["hint"] for im in RESULT["images"] if im.get("hint")]
+    if hints and not RESULT["table"]["rows"]:
+        RESULT["note"] = "Barcode seen but not readable: " + hints[0]
 
 
 def op_count(imgs):

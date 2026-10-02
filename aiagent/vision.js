@@ -372,7 +372,9 @@ VISION.renderResult = function (o, d) {
     if (r.note) html += '<div class="callout warn">' + esc(r.note) + '</div>';
     if (r.op === 'barcodes') {
         var rows = (r.table || {}).rows || [];
-        html += '<div class="vz-big">' + rows.length + '<span> code' + (rows.length === 1 ? '' : 's') + '</span></div>' + (rows.length ? '<table class="t"><thead><tr><th>Image</th><th>#</th><th>Type</th><th>Data</th></tr></thead><tbody>' +
+        var hints = (r.images || []).filter(function (x) { return x.hint; }).map(function (x) { return esc(x.name) + ': ' + esc(x.hint); });
+        html += '<div class="vz-big">' + rows.length + '<span> code' + (rows.length === 1 ? '' : 's') + '</span></div>' +
+            (hints.length && !rows.length ? '<div class="callout warn"><div class="co-t">A barcode is there but cannot be read</div>' + hints.join('<br>') + '<br><span class="muted">Each bar needs about 2 pixels: hold it closer (the barcode about a third of the picture wide), steady, flat and without shine — or use Live › Barcode scanner.</span></div>' : '') + (rows.length ? '<table class="t"><thead><tr><th>Image</th><th>#</th><th>Type</th><th>Data</th></tr></thead><tbody>' +
             rows.map(function (x) { return '<tr><td>' + esc(x[0]) + '</td><td>' + x[1] + '</td><td><span class="tag">' + esc(x[2]) + '</span></td><td><b>' + esc(x[3]) + '</b></td></tr>'; }).join('') + '</tbody></table>' +
             '<div class="res-acts"><button class="btn sm" onclick="VISION.toResults()"><i class="fa-solid fa-table"></i> To the results panel</button><button class="btn sm" onclick="VISION.copyCodes()"><i class="fa-regular fa-copy"></i> Copy</button></div>' : '');
     } else if (r.op === 'count') {
@@ -447,7 +449,7 @@ VISION.liveUi = function () {
     var L = VISION.live;
     if (L.ui) return;
     L.ui = true;
-    L.opt = Object.assign({ hands: true, pose: true, face: false, hud: 'scifi', mirror: true, coach: false, yolo: false, yoloModel: 'yolo11n' }, VISION.ls('opt', {}));
+    L.opt = Object.assign({ hands: true, pose: true, face: false, hud: 'scifi', mirror: true, coach: false, yolo: false, yoloModel: 'yolo11n', scan: false }, VISION.ls('opt', {}));
     L.map = Object.assign({}, VISION.DEFAULT_MAP, VISION.ls('map', {}));
     Object.keys(L.map).forEach(function (k) { if (L.map[k] === 'pause') delete L.map[k]; });   // older saved maps
     var o = L.opt;
@@ -461,12 +463,14 @@ VISION.liveUi = function () {
         '<button class="btn sm" id="vz-pbtn" onclick="VISION.setPaused(!VISION.live.paused)" title="Pause / resume the tracking"><i class="fa-solid fa-pause"></i> Pause</button>' +
         '<select id="vz-dev" class="grow" title="Camera"></select></div>' +
         '<div class="side-h">Track</div>' +
-        [['hands', 'Hands + gestures'], ['pose', 'Body skeleton'], ['face', 'Face mesh'], ['yolo', 'Objects (YOLO)'], ['coach', 'Posture coach (safe lifting)'], ['mirror', 'Mirror']].map(function (x) {
+        [['scan', 'Barcode scanner (continuous)'], ['hands', 'Hands + gestures'], ['pose', 'Body skeleton'], ['face', 'Face mesh'], ['yolo', 'Objects (YOLO)'], ['coach', 'Posture coach (safe lifting)'], ['mirror', 'Mirror']].map(function (x) {
             return '<label class="vz-chk"><input type="checkbox" data-o="' + x[0] + '"' + (o[x[0]] ? ' checked' : '') + '> ' + x[1] + '</label>';
         }).join('') +
         '<label class="sm">YOLO model <select id="vz-ym">' + VISION.modelOpts().filter(function (x) { return !/-cls$/.test(x[0]); }).map(function (x) { return '<option value="' + x[0] + '"' + (o.yoloModel === x[0] ? ' selected' : '') + '>' + esc(x[1]) + '</option>'; }).join('') + '</select></label>' +
         '<label class="sm">Style <select id="vz-hud"><option value="scifi"' + (o.hud === 'scifi' ? ' selected' : '') + '>Sci-fi HUD</option><option value="clean"' + (o.hud === 'clean' ? ' selected' : '') + '>Clean</option></select></label>' +
         '<div class="side-h">Gesture → action <span class="muted">(hold ~0.7 s)</span></div><div id="vz-map"></div>' +
+        '<div class="side-h">Scanned codes <span class="muted" id="vz-scn"></span></div><div id="vz-scans" class="vz-scans"></div>' +
+        '<div class="row"><button class="btn sm" onclick="VISION.scansCopy()"><i class="fa-regular fa-copy"></i> Copy</button><button class="btn sm" onclick="VISION.scansResults()"><i class="fa-solid fa-table"></i> Results</button><button class="btn sm" onclick="VISION.scans=[];VISION.renderScans()">Clear</button></div>' +
         '<div class="side-h">Events</div><div id="vz-log" class="vz-log"></div></aside>';
     $('vz-live').querySelectorAll('[data-o]').forEach(function (el) {
         el.onchange = function () { o[el.dataset.o] = el.checked; VISION.lsSet('opt', o); if (L.on && (el.dataset.o === 'hands' || el.dataset.o === 'pose' || el.dataset.o === 'face' || el.dataset.o === 'coach')) VISION.loadModels(); };
@@ -528,13 +532,18 @@ VISION.loadModels = function () {
     need('hands', 'GestureRecognizer', VISION.MODELS.gesture, { numHands: 2 });
     need('pose', 'PoseLandmarker', VISION.MODELS.pose, { numPoses: 1 });
     need('face', 'FaceLandmarker', VISION.MODELS.face, { numFaces: 1 });
-    return Promise.all(jobs).then(function () { return VISION.mp(); }).then(function (mp) { L.C = { hand: mp.m.GestureRecognizer.HAND_CONNECTIONS || mp.m.HandLandmarker.HAND_CONNECTIONS, pose: mp.m.PoseLandmarker.POSE_CONNECTIONS, face: mp.m.FaceLandmarker.FACE_LANDMARKS_TESSELATION, oval: mp.m.FaceLandmarker.FACE_LANDMARKS_FACE_OVAL }; });
+    // the skeleton connection lists come from MediaPipe — only when one of its models is used (the barcode scanner and YOLO
+    // work without MediaPipe, e.g. when its CDN cannot be reached)
+    if (!(o.hands || o.pose || o.face || o.coach)) return Promise.all(jobs);
+    return Promise.all(jobs).then(function () { return VISION.mp(); }).then(function (mp) { L.C = { hand: mp.m.GestureRecognizer.HAND_CONNECTIONS || mp.m.HandLandmarker.HAND_CONNECTIONS, pose: mp.m.PoseLandmarker.POSE_CONNECTIONS, face: mp.m.FaceLandmarker.FACE_LANDMARKS_TESSELATION, oval: mp.m.FaceLandmarker.FACE_LANDMARKS_FACE_OVAL }; })
+        .catch(function (e) { L.mpFailed = true; VISION.log('Hand / body tracking not available: ' + e + ' — the barcode scanner and YOLO still work', 'bad'); });
 };
 VISION.liveStart = function () {
     var L = VISION.live;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('No camera access in this window', 'err'); return; }
     $('vz-idle').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i><div>Starting the camera and loading the tracking models (first time ~20 MB)…</div>';
-    navigator.mediaDevices.getUserMedia({ video: L.deviceId ? { deviceId: { exact: L.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } : { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+    // full HD when the camera has it: barcodes need pixels (≥ 2 per bar)
+    navigator.mediaDevices.getUserMedia({ video: L.deviceId ? { deviceId: { exact: L.deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 } } : { width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
         .then(function (stream) {
             L.stream = stream; L.on = true;
             var v = $('vz-video'); v.srcObject = stream; v.play();
@@ -592,6 +601,7 @@ VISION.frame = function () {
     L.frames++;
     if (ts - L.t0 > 1000) { L.fps = Math.round(L.frames * 1000 / (ts - L.t0)); L.frames = 0; L.t0 = ts; }
     if (L.opt.yolo && !L.paused) VISION.yoloTick(v);
+    if (L.opt.scan && !L.paused) VISION.scanTick(v);
     VISION.draw(cv, res);
     VISION.gestures(res.hands);
     if (L.opt.coach) VISION.coach(res.pose); else $('vz-alert').hidden = true;
@@ -654,6 +664,22 @@ VISION.draw = function (cv, res) {
             if (hand && sci) { var t8 = P(h[8]); text(hand.categoryName === 'Left' ? (mir ? 'R' : 'L') : (mir ? 'L' : 'R'), t8[0] + 10, t8[1] - 10, '#ffffff'); }
         });
     }
+    // barcode scanner: read codes (green, with the data), barcodes seen but not readable yet (amber, with the reason)
+    if (L.opt.scan && L.scanRes && performance.now() - L.scanRes.at < 1500) {
+        g.shadowBlur = 0; g.font = '700 ' + Math.max(14, W / 60) + 'px Consolas, monospace';
+        var poly = function (pts, col) { g.strokeStyle = col; g.lineWidth = lw * 1.5; g.beginPath(); pts.forEach(function (p, i) { var x = mir ? W - p[0] : p[0]; if (i) g.lineTo(x, p[1]); else g.moveTo(x, p[1]); }); g.closePath(); g.stroke(); };
+        var tagAt = function (t, x, y, col) { var tw = g.measureText(t).width + 10, th = Math.max(18, W / 50); g.fillStyle = col; g.fillRect(x, Math.max(0, y - th), tw, th); g.fillStyle = '#020617'; g.fillText(t, x + 5, Math.max(th - 5, y - 5)); };
+        L.scanRes.codes.forEach(function (cd) {
+            var pts = cd.points || []; if (!pts.length) return;
+            poly(pts, '#22c55e');
+            var xs = pts.map(function (p) { return mir ? W - p[0] : p[0]; }), ys = pts.map(function (p) { return p[1]; });
+            tagAt(cd.data, Math.min.apply(null, xs), Math.min.apply(null, ys), '#22c55e');
+        });
+        if (!L.scanRes.codes.length) L.scanRes.regions.forEach(function (r) {
+            var x = mir ? W - r.x - r.w : r.x; g.strokeStyle = '#f59e0b'; g.lineWidth = lw * 1.2; g.setLineDash([8, 6]); g.strokeRect(x, r.y, r.w, r.h); g.setLineDash([]);
+            tagAt(r.why.split(' — ')[0].toUpperCase(), x, r.y, '#f59e0b');
+        });
+    }
     // YOLO boxes (coordinates of the 640 px frame → video pixels)
     if (L.opt.yolo && L.yoloBoxes) {
         var yb = L.yoloBoxes, k2 = 1 / yb.s;
@@ -695,6 +721,52 @@ VISION.yoloTick = function (v) {
     }).catch(function (e) { if (!L.yoloErr) { VISION.log('YOLO: ' + e, 'bad'); L.yoloErr = true; } })
         .then(function () { L.yoloBusy = false; });
 };
+/** Continuous barcode scanner: full-resolution frames to the warm worker (one in flight, ~3 per second). The worker reads,
+    zooms into a barcode it sees but cannot read, and otherwise says why (move closer / hold still / turn it flat). */
+VISION.scans = [];
+VISION.scanTick = function (v) {
+    var L = VISION.live, now = performance.now();
+    if (L.scanBusy || now - (L.scanAt || 0) < 300) return;
+    L.scanBusy = true; L.scanAt = now;
+    var c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight; c.getContext('2d').drawImage(v, 0, 0);
+    VISION.exec('barcodes', [{ name: 'frame.jpg', url: c.toDataURL('image/jpeg', 0.92) }], { live: true }, 'live').then(function (d) {
+        if (!d.ok) { if (!L.scanErr) { VISION.log('Scanner: ' + (d.error || 'failed'), 'bad'); L.scanErr = true; } return; }
+        L.scanErr = false;
+        var im = ((d.result || {}).images || [])[0] || {};
+        L.scanRes = { at: performance.now(), codes: im.codes || [], regions: im.regions || [], hint: im.hint || '' };
+        (im.codes || []).forEach(function (code) { VISION.scanned(code.data, code.type); });
+    }).catch(function (e) { if (!L.scanErr) { VISION.log('Scanner: ' + e, 'bad'); L.scanErr = true; } })
+        .then(function () { L.scanBusy = false; });
+};
+VISION.beep = function () {
+    try {
+        var a = VISION._ac = VISION._ac || new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain();
+        o.frequency.value = 1760; g.gain.value = 0.15; o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + 0.09);
+    } catch (e) { /* no audio */ }
+};
+/** One read: new code → beep + list; the same code again within 3 s is the same scan (counted once). */
+VISION.scanned = function (data, type) {
+    var now = Date.now(), s = VISION.scans.filter(function (x) { return x.data === data; })[0];
+    if (s && now - s.last < 3000) { s.last = now; return; }
+    if (s) { s.count++; s.last = now; } else VISION.scans.unshift({ data: data, type: type, count: 1, first: now, last: now });
+    VISION.beep(); VISION.lastScan = [[null, null, type, data]];
+    VISION.log(type + ': ' + data, 'ok');
+    VISION.renderScans();
+};
+VISION.renderScans = function () {
+    var el = $('vz-scans'); if (!el) return;
+    $('vz-scn').textContent = VISION.scans.length ? '(' + VISION.scans.length + ')' : '';
+    el.innerHTML = VISION.scans.length ? VISION.scans.map(function (x) {
+        return '<div class="vz-scan"><b>' + esc(x.data) + '</b><span class="muted">' + esc(x.type) + (x.count > 1 ? ' · ×' + x.count : '') + ' · ' + new Date(x.last).toLocaleTimeString() + '</span></div>';
+    }).join('') : '<p class="muted sm">Tick "Barcode scanner" and hold a barcode up to the camera.</p>';
+};
+VISION.scansCopy = function () { navigator.clipboard.writeText(VISION.scans.map(function (x) { return x.data; }).join('\n')).then(function () { toast('Copied ' + VISION.scans.length + ' code(s)', 'ok'); }); };
+VISION.scansResults = function () {
+    if (!AG.pageResult || !VISION.scans.length) return;
+    AG.pageResult('Scanned barcodes', ['code', 'type', 'times', 'first', 'last'], VISION.scans.map(function (x) { return [x.data, x.type, x.count, new Date(x.first).toLocaleTimeString(), new Date(x.last).toLocaleTimeString()]; }));
+    CODE.showTab('chat'); AG.toggleResults && AG.toggleResults(true, true);
+};
+
 VISION.PALETTE = ['#22d3ee', '#f59e0b', '#a78bfa', '#34d399', '#f472b6', '#60a5fa', '#facc15', '#fb7185'];
 VISION.colorOf = function (label) { var h = 0; for (var i = 0; i < label.length; i++) h = (h * 31 + label.charCodeAt(i)) >>> 0; return VISION.PALETTE[h % VISION.PALETTE.length]; };
 
@@ -742,8 +814,8 @@ VISION.snap = function (act) {
     VISION.exec('barcodes', [{ name: name, url: url }], {}).then(function (d) {
         var rows = (((d.result || {}).table) || {}).rows || [];
         if (!d.ok) { VISION.log('Scan: ' + (d.error || 'failed'), 'bad'); return; }
-        if (!rows.length) { VISION.log('No barcode found — hold it closer / flatter', 'bad'); return; }
-        rows.forEach(function (r) { VISION.log(r[2] + ': ' + r[3], 'ok'); });
+        if (!rows.length) { VISION.log('No barcode read' + ((d.result || {}).note ? ' — ' + d.result.note.replace('Barcode seen but not readable: ', '') : ' — hold it closer / flatter'), 'bad'); return; }
+        rows.forEach(function (r) { VISION.scanned(r[3], r[2]); });
         toast(rows.map(function (r) { return r[3]; }).join(', '), 'ok');
         VISION.lastScan = rows;
     }).catch(function (e) { VISION.log('Scan: ' + e, 'bad'); });
@@ -772,15 +844,17 @@ VISION.coach = function (pr) {
 VISION.panel = function (res) {
     var L = VISION.live, rows = [];
     var hands = res.hands && res.hands.landmarks ? res.hands.landmarks.length : 0;
-    rows.push(['HAND TRACKING', L.opt.hands ? (L.hands ? (hands ? hands + ' HAND' + (hands > 1 ? 'S' : '') : 'SEARCHING') : 'LOADING') : 'OFF']);
-    rows.push(['SKELETON', L.opt.pose || L.opt.coach ? (L.pose ? (res.pose && res.pose.landmarks && res.pose.landmarks.length ? 'LOCKED' : 'SEARCHING') : 'LOADING') : 'OFF']);
-    rows.push(['FACE MESH', L.opt.face ? (L.face ? (res.face && res.face.faceLandmarks && res.face.faceLandmarks.length ? '478 PTS' : 'SEARCHING') : 'LOADING') : 'OFF']);
+    rows.push(['HAND TRACKING', L.opt.hands ? (L.mpFailed && !L.hands ? 'UNAVAILABLE' : L.hands ? (hands ? hands + ' HAND' + (hands > 1 ? 'S' : '') : 'SEARCHING') : 'LOADING') : 'OFF']);
+    rows.push(['SKELETON', L.opt.pose || L.opt.coach ? (L.mpFailed && !L.pose ? 'UNAVAILABLE' : L.pose ? (res.pose && res.pose.landmarks && res.pose.landmarks.length ? 'LOCKED' : 'SEARCHING') : 'LOADING') : 'OFF']);
+    rows.push(['FACE MESH', L.opt.face ? (L.mpFailed && !L.face ? 'UNAVAILABLE' : L.face ? (res.face && res.face.faceLandmarks && res.face.faceLandmarks.length ? '478 PTS' : 'SEARCHING') : 'LOADING') : 'OFF']);
     if (L.opt.coach) rows.push(['LIFTS', L.coach.lifts + ' (' + L.coach.risky + ' stooped)'], ['BACK / KNEE', (L.coach.back != null ? L.coach.back + '° / ' + L.coach.knee + '°' : '—')]);
     if (L.opt.yolo) {
         var yc = (L.yoloBoxes || {}).counts || {}, keys = Object.keys(yc);
         rows.push(['OBJECTS (YOLO)', L.yoloBoxes ? (keys.length ? keys.map(function (k) { return yc[k] + ' ' + k; }).join(', ').slice(0, 26) : 'NONE') + ' · ' + L.yoloBoxes.ms + 'MS' : 'WARMING UP']);
     }
+    if (L.opt.scan) rows.push(['SCANNER', L.scanRes ? (L.scanRes.codes.length ? 'READ ' + L.scanRes.codes.length : (L.scanRes.hint ? L.scanRes.hint.split(' — ')[0].toUpperCase() : 'LOOKING')) : 'STARTING']);
     if (VISION.lastScan) rows.push(['LAST SCAN', String(VISION.lastScan[0][3]).slice(0, 18)]);
+    var vv = $('vz-video'); if (vv && vv.videoWidth) rows.push(['CAMERA', vv.videoWidth + '×' + vv.videoHeight]);
     rows.push(['FPS', L.fps + (L.paused ? ' · PAUSED' : '')]);
     $('vz-panel').className = 'vz-panel ' + (L.opt.hud === 'scifi' ? 'scifi' : 'clean');
     $('vz-panel').innerHTML = '<div class="vz-ph">SYSTEM STATUS</div>' + rows.map(function (r) { return '<div><span>' + r[0] + '</span><b>' + esc(r[1]) + '</b></div>'; }).join('');
