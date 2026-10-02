@@ -162,114 +162,74 @@
         }
 
         /* ── Main Content ── */
-        .main {
-            padding: 40px 30px;
-            max-width: 1200px;
-            margin: 0 auto;
-        }
+        .main { padding: 22px 28px 10px; max-width: 1320px; margin: 0 auto; }
 
-        .welcome-section {
-            margin-bottom: 36px;
+        /* hero: greeting, search, quick facts */
+        .hero {
+            position: relative; overflow: hidden; border-radius: 18px; padding: 22px 26px; margin-bottom: 18px;
+            background: radial-gradient(1200px 200px at 0% 0%, rgba(255,255,255,.18), transparent 60%), linear-gradient(120deg, #1e1b4b 0%, #4338ca 55%, #7c3aed 100%);
+            color: #fff; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; box-shadow: 0 10px 30px rgba(67,56,202,.25);
         }
+        .hero::after { content: ''; position: absolute; right: -60px; top: -80px; width: 260px; height: 260px; border-radius: 50%; background: rgba(255,255,255,.07); }
+        .hero-text { flex: 1; min-width: 260px; position: relative; z-index: 1; }
+        .hero-text h2 { font-size: 1.45rem; font-weight: 700; }
+        .hero-text p { margin-top: 4px; font-size: .86rem; color: #c7d2fe; }
+        .hero-facts { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+        .fact { background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.2); border-radius: 999px; padding: 4px 11px; font-size: .74rem; font-weight: 600; }
+        .search { position: relative; flex: 0 1 380px; min-width: 240px; z-index: 1; }
+        .search i { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #6366f1; }
+        .search input { width: 100%; border: 0; border-radius: 12px; padding: 12px 40px 12px 38px; font: inherit; font-size: .92rem; color: #1e1b4b; box-shadow: 0 6px 20px rgba(0,0,0,.18); outline: none; }
+        .search kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font: 600 .68rem 'Segoe UI'; color: #64748b; border: 1px solid #cbd5e1; border-radius: 5px; padding: 1px 6px; background: #f8fafc; }
 
-        .welcome-section h2 {
-            font-size: 1.6rem;
-            color: #2d3748;
-            font-weight: 700;
-        }
+        /* quick rows: pinned + recent */
+        .quick { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 0 0 6px; }
+        .quick-label { font-size: .7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: .08em; margin-right: 4px; }
+        .qchip { display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid #e2e8f0; border-radius: 999px; padding: 5px 12px 5px 6px; font-size: .78rem; font-weight: 600; color: #334155; text-decoration: none; transition: .15s; }
+        .qchip:hover { border-color: var(--c, #6366f1); color: var(--c, #6366f1); box-shadow: 0 3px 10px rgba(0,0,0,.06); }
+        .qchip .qi { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; background: var(--b, #eef2ff); font-size: 12px; }
 
-        .welcome-section p {
-            color: #718096;
-            margin-top: 6px;
-            font-size: 0.95rem;
-        }
+        /* sections */
+        .section { margin-top: 18px; }
+        .section-h { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .section-h h3 { font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: #475569; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+        .section-h h3 i { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; color: #fff; font-size: .72rem; }
+        .section-h .count { font-size: .7rem; color: #94a3b8; font-weight: 700; }
+        .section-h .line { flex: 1; height: 1px; background: linear-gradient(90deg, #e2e8f0, transparent); }
 
-        /* ── Module Grid ── */
-        .modules-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-            gap: 22px;
-        }
-
+        /* ── Module Grid (compact tiles) ── */
+        .modules-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 10px; }
         .module-card {
-            background: white;
-            border-radius: 16px;
-            padding: 28px 24px;
-            cursor: pointer;
-            text-decoration: none;
-            display: block;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.07);
-            transition: transform 0.18s ease, box-shadow 0.18s ease;
-            border: 2px solid transparent;
-            position: relative;
-            overflow: hidden;
+            background: #fff; border-radius: 12px; padding: 11px 12px 11px 14px; text-decoration: none; position: relative; overflow: hidden;
+            display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; grid-template-areas: "icon title badge" "icon desc desc"; column-gap: 10px; row-gap: 2px; align-items: center;
+            border: 1px solid #e8ecf3; box-shadow: 0 1px 2px rgba(15,23,42,.04); transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+            min-height: 62px;
         }
-
-        .module-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: var(--card-color);
-        }
-
-        .module-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.12);
-            border-color: var(--card-color);
-        }
-
-        .module-card.disabled {
-            opacity: 0.55;
-            cursor: default;
-            pointer-events: none;
-        }
-
-        .card-icon {
-            width: 54px;
-            height: 54px;
-            border-radius: 14px;
-            background: var(--card-bg);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 26px;
-            margin-bottom: 16px;
-        }
-
-        .card-title {
-            font-size: 1.05rem;
-            font-weight: 700;
-            color: #2d3748;
-            margin-bottom: 6px;
-        }
-
-        .card-desc {
-            font-size: 0.82rem;
-            color: #718096;
-            line-height: 1.5;
-        }
-
-        .card-badge {
-            display: inline-block;
-            margin-top: 12px;
-            font-size: 0.7rem;
-            font-weight: 600;
-            padding: 3px 10px;
-            border-radius: 20px;
-            background: var(--card-bg);
-            color: var(--card-text);
-        }
+        .module-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--card-color); opacity: .85; }
+        .module-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(15,23,42,.10); border-color: var(--card-color); }
+        .module-card:focus-visible { outline: 2px solid var(--card-color); outline-offset: 2px; }
+        .module-card.disabled { opacity: .55; cursor: default; pointer-events: none; }
+        .card-icon { grid-area: icon; width: 38px; height: 38px; border-radius: 10px; background: var(--card-bg); display: flex; align-items: center; justify-content: center; font-size: 19px; transition: transform .2s; }
+        .module-card:hover .card-icon { transform: scale(1.08) rotate(-3deg); }
+        .card-title { grid-area: title; font-size: .88rem; font-weight: 700; color: #1e293b; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .card-desc { grid-area: desc; font-size: .74rem; color: #64748b; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 16px; }
+        .card-badge { grid-area: badge; justify-self: end; font-size: .58rem; font-weight: 800; letter-spacing: .04em; padding: 2px 6px; border-radius: 999px; background: var(--card-bg); color: var(--card-text); margin: 0; white-space: nowrap; }
+        .module-card .trial-tag { top: auto !important; bottom: 4px; right: 26px !important; font-size: 9px !important; }
+        .pin { position: absolute; right: 6px; bottom: 4px; border: 0; background: transparent; color: #cbd5e1; font-size: .85rem; cursor: pointer; opacity: 0; transition: .15s; padding: 2px; }
+        .module-card:hover .pin, .pin.on { opacity: 1; }
+        .pin.on { color: #f59e0b; }
+        .pin:hover { color: #f59e0b; transform: scale(1.15); }
+        .module-card.match-hide { display: none; }
+        .module-card.first-match { border-color: var(--card-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--card-color) 18%, transparent); }
+        .no-match { display: none; text-align: center; color: #94a3b8; padding: 30px; font-size: .9rem; }
 
         /* ── Footer ── */
-        .footer {
-            text-align: center;
-            padding: 30px;
-            color: #a0aec0;
-            font-size: 0.8rem;
-            margin-top: 20px;
+        .footer { text-align: center; padding: 24px; color: #a0aec0; font-size: .76rem; }
+
+        @media (max-width: 640px) {
+            .main { padding: 14px; }
+            .hero { padding: 18px; }
+            .header { padding: 0 14px; }
+            .fusion-logo-tagline, .user-details { display: none; }
         }
     </style>
 </head>
@@ -304,10 +264,22 @@
 
     <!-- Main -->
     <div class="main">
-        <div class="welcome-section">
-            <h2>Welcome back, <span id="welcomeName">User</span> 👋</h2>
-            <p>Select a module to get started.</p>
+        <div class="hero">
+            <div class="hero-text">
+                <h2><span id="greeting">Welcome back</span>, <span id="welcomeName">User</span> 👋</h2>
+                <p id="todayText">Select a module to get started.</p>
+                <div class="hero-facts">
+                    <span class="fact" id="factInstance"><i class="fa-solid fa-server"></i> —</span>
+                    <span class="fact" id="factModules"><i class="fa-solid fa-grip"></i> modules</span>
+                </div>
+            </div>
+            <div class="search">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="moduleSearch" placeholder="Find a module… (e.g. trips, SQL, orders, AI)" autocomplete="off">
+                <kbd>/</kbd>
+            </div>
         </div>
+        <div id="quickRows"></div>
 
         <div class="modules-grid">
 
@@ -509,6 +481,7 @@
             <!-- Sync (hidden) -->
 
         </div>
+        <div class="no-match" id="noMatch">No module matches. Try another word.</div>
     </div>
 
     <div class="footer">
@@ -601,6 +574,108 @@
                 if (r && r.requestId === id && r.data && r.data.repoRoot) card.style.display = '';
             });
             setTimeout(function () { window.chrome.webview.postMessage({ action: 'adminReleaseInfo', requestId: id }); }, 400);
+        })();
+    </script>
+    <script>
+        // Home layout: sections, search, pinned + recent. Runs after the release filter, so it only sees the tiles of
+        // this package; the tiles keep their hrefs (release filter / trial badges).
+        (function () {
+            var GROUPS = [
+                { id: 'wms', title: 'Warehouse & Orders', icon: 'fa-warehouse', color: '#667eea', folders: ['wms', 'om', 'inventory'] },
+                { id: 'fusion', title: 'Oracle Fusion', icon: 'fa-cloud', color: '#c74634', folders: ['fscm', 'fusionsql', 'dataload', 'fusionmodel', 'powerbi'] },
+                { id: 'ai', title: 'AI', icon: 'fa-wand-magic-sparkles', color: '#7c3aed', folders: ['aiagent', 'aihub', 'aianalysis', 'rag', 'agentflow', 'internetsearch'] },
+                { id: 'tools', title: 'Tools', icon: 'fa-screwdriver-wrench', color: '#0f766e', folders: [] }
+            ];
+            var grid = document.querySelector('.modules-grid'); if (!grid) return;
+            function ls(k, d) { try { var v = localStorage.getItem('home.' + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
+            function lsSet(k, v) { try { localStorage.setItem('home.' + k, JSON.stringify(v)); } catch (e) { } }
+            function folderOf(card) { var m = /\.\.\/([^\/]+)\//.exec(card.getAttribute('href') || ''); return m ? m[1].toLowerCase() : ''; }
+            function keyOf(card) { return card.getAttribute('href') || ''; }
+            var cards = Array.prototype.slice.call(grid.querySelectorAll('.module-card'));
+            var sections = {}, main = grid.parentNode, noMatch = document.getElementById('noMatch');
+            GROUPS.forEach(function (g) {
+                var sec = document.createElement('div'); sec.className = 'section'; sec.dataset.group = g.id;
+                sec.innerHTML = '<div class="section-h"><h3><i class="fa-solid ' + g.icon + '" style="background:' + g.color + '"></i>' + g.title + '</h3><span class="count"></span><span class="line"></span></div><div class="modules-grid"></div>';
+                main.insertBefore(sec, noMatch);
+                sections[g.id] = sec;
+            });
+            cards.forEach(function (card) {
+                var f = folderOf(card), g = GROUPS.filter(function (x) { return x.folders.indexOf(f) >= 0; })[0] || GROUPS[3];
+                sections[g.id].querySelector('.modules-grid').appendChild(card);
+                // badges that only repeat the name (WMS, FUSION OM …) take room from the title: keep status badges only
+                var bd = card.querySelector('.card-badge');
+                if (bd && !/^(NEW|BETA|PRIVATE|TRIAL)/i.test(bd.textContent.trim())) bd.style.display = 'none';
+                var d = card.querySelector('.card-desc'); if (d) card.title = card.querySelector('.card-title').textContent + ' — ' + d.textContent.trim();
+                card.addEventListener('click', function () {
+                    var r = ls('recent', []).filter(function (k) { return k !== keyOf(card); }); r.unshift(keyOf(card)); lsSet('recent', r.slice(0, 6));
+                });
+                var pin = document.createElement('button'); pin.className = 'pin'; pin.title = 'Pin to the top'; pin.innerHTML = '<i class="fa-solid fa-star"></i>';
+                pin.onclick = function (e) {
+                    e.preventDefault(); e.stopPropagation();
+                    var p = ls('pinned', []), k = keyOf(card), i = p.indexOf(k);
+                    if (i >= 0) p.splice(i, 1); else p.push(k);
+                    lsSet('pinned', p); refresh();
+                };
+                card.appendChild(pin);
+            });
+            grid.remove();
+            function visible(card) { return card.isConnected && card.style.display !== 'none'; }
+            function chip(card) {
+                var st = card.getAttribute('style') || '', c = (/--card-color:\s*([^;]+)/.exec(st) || [])[1] || '#6366f1', b = (/--card-bg:\s*([^;]+)/.exec(st) || [])[1] || '#eef2ff';
+                return '<a class="qchip" href="' + card.getAttribute('href') + '" style="--c:' + c + ';--b:' + b + '"><span class="qi">' + card.querySelector('.card-icon').textContent + '</span>' + card.querySelector('.card-title').textContent + '</a>';
+            }
+            function refresh() {
+                var byKey = {}; cards.forEach(function (c) { byKey[keyOf(c)] = c; });
+                var pinned = ls('pinned', []).map(function (k) { return byKey[k]; }).filter(function (c) { return c && visible(c); });
+                var recent = ls('recent', []).map(function (k) { return byKey[k]; }).filter(function (c) { return c && visible(c) && pinned.indexOf(c) < 0; }).slice(0, 5);
+                var html = '';
+                if (pinned.length) html += '<div class="quick"><span class="quick-label"><i class="fa-solid fa-star" style="color:#f59e0b"></i> Pinned</span>' + pinned.map(chip).join('') + '</div>';
+                if (recent.length) html += '<div class="quick"><span class="quick-label"><i class="fa-solid fa-clock-rotate-left"></i> Recent</span>' + recent.map(chip).join('') + '</div>';
+                document.getElementById('quickRows').innerHTML = html;
+                cards.forEach(function (c) { c.querySelector('.pin').classList.toggle('on', ls('pinned', []).indexOf(keyOf(c)) >= 0); });
+                var total = 0;
+                Object.keys(sections).forEach(function (id) {
+                    var n = Array.prototype.filter.call(sections[id].querySelectorAll('.module-card'), function (c) { return visible(c) && !c.classList.contains('match-hide'); }).length;
+                    total += n;
+                    sections[id].style.display = n ? '' : 'none';
+                    sections[id].querySelector('.count').textContent = n;
+                });
+                noMatch.style.display = total ? 'none' : 'block';
+                document.getElementById('factModules').innerHTML = '<i class="fa-solid fa-grip"></i> ' + cards.filter(visible).length + ' modules';
+            }
+            // search
+            var input = document.getElementById('moduleSearch');
+            function filter() {
+                var q = input.value.trim().toLowerCase(), first = null;
+                cards.forEach(function (c) {
+                    var hay = (c.textContent + ' ' + folderOf(c)).toLowerCase();
+                    var ok = !q || q.split(/\s+/).every(function (w) { return hay.indexOf(w) >= 0; });
+                    c.classList.toggle('match-hide', !ok);
+                    c.classList.remove('first-match');
+                    if (ok && q && !first && visible(c)) first = c;
+                });
+                if (first) first.classList.add('first-match');
+                refresh();
+                return first;
+            }
+            input.addEventListener('input', filter);
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { var f = filter(); if (f) f.click(); }
+                if (e.key === 'Escape') { input.value = ''; filter(); input.blur(); }
+            });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === '/' && document.activeElement !== input && !/INPUT|TEXTAREA/.test((document.activeElement || {}).tagName)) { e.preventDefault(); input.focus(); }
+            });
+            // greeting + facts
+            var h = new Date().getHours();
+            document.getElementById('greeting').textContent = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+            document.getElementById('todayText').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ' · pick a module or search for one.';
+            var inst = localStorage.getItem('instanceName') || localStorage.getItem('fusionInstance') || '';
+            document.getElementById('factInstance').innerHTML = '<i class="fa-solid fa-server"></i> ' + (inst ? 'Instance ' + inst : 'Not logged in');
+            refresh();
+            // the Admin tile appears later (host answer): recount when it does
+            var admin = document.getElementById('admin-card');
+            if (admin && window.MutationObserver) new MutationObserver(refresh).observe(admin, { attributes: true, attributeFilter: ['style'] });
         })();
     </script>
     <!-- Trial countdown on AI Digital Employee + Fusion SQL tiles (shared WMS_AI_TRIAL row) -->
