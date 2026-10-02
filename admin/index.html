@@ -205,6 +205,7 @@ var MODS = [
     { key: 'fusionmodel', label: 'Fusion Model', note: 'DuckDB dataset, dashboards, Ask AI' },
     { key: 'powerbi', label: 'Power BI', note: 'Datasets and embedded reports' },
     { key: 'aihub', label: 'AI Hub', note: 'Claude on AWS / NVIDIA NIM gateway, evals, LangGraph Pipeline Doctor' },
+    { key: 'finance', label: 'Finance Lens', note: 'CFO: statements from journal balances, KPIs, analytics, journal risk, board pack' },
     { key: 'aiagent', label: 'AI Agent (beta)', note: 'LangGraph specialists: Fusion SQL, WMS, orders, loads, reports — confirm before acting' },
     { key: 'dllexplorer', label: 'DLL Explorer', note: 'Read a .dll/.exe, AI feature map' },
     { key: 'formsdesigner', label: 'Forms Designer', note: 'Designer page (the AI form engine ships anyway)' },
@@ -213,9 +214,9 @@ var MODS = [
 ];
 var MOD_PRESETS = {
     all: null,
-    default: ['Inventory', 'aianalysis', 'dataload', 'dllexplorer', 'powerbi', 'fusionmodel', 'aihub', 'aiagent'],
+    default: ['Inventory', 'aianalysis', 'dataload', 'dllexplorer', 'powerbi', 'fusionmodel', 'aihub', 'aiagent', 'finance'],
     wms: ['Inventory'],
-    fusion: ['fscm', 'dataload', 'fusionmodel', 'powerbi', 'aianalysis', 'aihub', 'aiagent']
+    fusion: ['fscm', 'dataload', 'fusionmodel', 'powerbi', 'aianalysis', 'aihub', 'aiagent', 'finance']
 };
 var MOD_ON = lsGet('admin.modules', null) || MOD_PRESETS.default.slice();
 var MOD_INFO = {};   // key -> { exists, sizeMb } from the host

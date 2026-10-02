@@ -60,6 +60,8 @@ jobs:
           done
           exit $fail
       - run: npx -y eslint@9 -c aiagent/eslint.config.mjs aiagent
+      - name: Finance Lens engine tests
+        run: node finance/tests/engine.test.js
 
   engine:
     name: Fusion Model engine (xUnit)

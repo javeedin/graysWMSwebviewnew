@@ -2227,6 +2227,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleAiHubAction(wv, action, root, requestId);
                                     break;
 
+                                // Finance Lens (finance/index.html): journal balances, statements, analytics
+                                case var finAction when IsFinanceAction(finAction):
+                                    await HandleFinanceAction(wv, action, root, requestId);
+                                    break;
+
                                 case var codeAction when IsCodeAction(codeAction):
                                     await HandleCodeAction(wv, action, root, requestId);
                                     break;

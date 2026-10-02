@@ -400,6 +400,15 @@
                 <span class="card-badge">NEW</span>
             </a>
 
+            <!-- Finance Lens: statements from journal balances, KPIs, analytics, journal risk, board packs -->
+            <a href="../finance/index.html" class="module-card"
+               style="--card-color:#0d9488; --card-bg:rgba(13,148,136,0.1); --card-text:#0f766e;">
+                <div class="card-icon">💹</div>
+                <div class="card-title">Finance Lens</div>
+                <div class="card-desc">For the CFO: income statement, balance sheet and cash flow from your journal balances in templates you design, 40 KPIs with monitors, analytics, journal risk, close checks and a one-click board pack.</div>
+                <span class="card-badge">NEW</span>
+            </a>
+
             <!-- AI Agent (beta): LangGraph supervisor + specialists over Fusion SQL, WMS, orders, loads and reports; replaces the AI Digital Employee in stages -->
             <a href="../aiagent/index.html" class="module-card" id="aiagent-card"
                style="--card-color:#4338ca; --card-bg:rgba(67,56,202,0.1); --card-text:#4338ca;">
@@ -582,6 +591,7 @@
         (function () {
             var GROUPS = [
                 { id: 'wms', title: 'Warehouse & Orders', icon: 'fa-warehouse', color: '#667eea', folders: ['wms', 'om', 'inventory'] },
+                { id: 'finance', title: 'Finance', icon: 'fa-sack-dollar', color: '#0d9488', folders: ['finance'] },
                 { id: 'fusion', title: 'Oracle Fusion', icon: 'fa-cloud', color: '#c74634', folders: ['fscm', 'fusionsql', 'dataload', 'fusionmodel', 'powerbi'] },
                 { id: 'ai', title: 'AI', icon: 'fa-wand-magic-sparkles', color: '#7c3aed', folders: ['aiagent', 'aihub', 'aianalysis', 'rag', 'agentflow', 'internetsearch'] },
                 { id: 'tools', title: 'Tools', icon: 'fa-screwdriver-wrench', color: '#0f766e', folders: [] }
