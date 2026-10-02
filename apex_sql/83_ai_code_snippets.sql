@@ -4,10 +4,11 @@
 CREATE TABLE wms_ai_code_snippets (
     id            NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name          VARCHAR2(200)  NOT NULL,
-    language      VARCHAR2(20)   NOT NULL,      -- python | csharp | javascript | powershell
+    language      VARCHAR2(20)   NOT NULL,      -- python | csharp | javascript | powershell | html
     description   VARCHAR2(1000),
     code          CLOB,
     packages      VARCHAR2(1000),               -- pip / NuGet packages, comma separated
+    data_json     CLOB,                         -- Data sources: [{name, src FUSION|FUSION:PROD|FUSION:TEST|APEX, max, sql}]
     created_by    VARCHAR2(100),
     created_date  DATE DEFAULT SYSDATE,
     changed_by    VARCHAR2(100),
@@ -16,3 +17,6 @@ CREATE TABLE wms_ai_code_snippets (
     run_count     NUMBER DEFAULT 0,
     CONSTRAINT wms_ai_code_snippets_uk UNIQUE (name)
 );
+
+-- Tables created before Data sources: the page adds the column itself, or run
+-- ALTER TABLE wms_ai_code_snippets ADD (data_json CLOB);

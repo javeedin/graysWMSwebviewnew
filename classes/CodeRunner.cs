@@ -183,7 +183,8 @@ namespace WMSApp
 
         /// <summary>Runs one snippet. grid = rows written to input.csv first; packages = pip / NuGet packages to add.</summary>
         public static async Task<RunResult> RunAsync(string lang, string code, string stdin, int timeoutS, List<string> packages,
-            List<string> gridCols, List<List<string>> gridRows, CancellationToken ct = default)
+            List<string> gridCols, List<List<string>> gridRows, CancellationToken ct = default,
+            List<(string Name, List<string> Cols, List<List<string>> Rows)> extra = null)
         {
             lang = Norm(lang);
             var res = new RunResult();
@@ -197,6 +198,10 @@ namespace WMSApp
             Directory.CreateDirectory(dir);
             res.Folder = dir;
             if (gridCols != null && gridCols.Count > 0) WriteCsv(Path.Combine(dir, "input.csv"), gridCols, gridRows ?? new List<List<string>>());
+            // the Code tab's Data sources: one <name>.csv each (names checked: letters, digits, _; never input / output)
+            foreach (var x in (extra ?? new List<(string, List<string>, List<List<string>>)>()).Take(3))
+                if (Regex.IsMatch(x.Name ?? "", @"^[A-Za-z_][A-Za-z0-9_]{0,39}$") && !x.Name.Equals("input", StringComparison.OrdinalIgnoreCase) && !x.Name.Equals("output", StringComparison.OrdinalIgnoreCase) && x.Cols != null && x.Cols.Count > 0)
+                    WriteCsv(Path.Combine(dir, x.Name + ".csv"), x.Cols, x.Rows ?? new List<List<string>>());
             packages = (packages ?? new List<string>()).Where(p => Regex.IsMatch(p ?? "", @"^[A-Za-z0-9_.\-\[\]=<>~!,]{1,80}$")).Take(15).ToList();
 
             string[] args;

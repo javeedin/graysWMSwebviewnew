@@ -18,6 +18,31 @@ namespace WMSApp
     /// </summary>
     public partial class Form1
     {
+        /// <summary>
+        /// The Code tab's HTML preview holds Fusion / APEX rows when it has Data sources; its CSP blocks fetch, images and forms,
+        /// but a page can still navigate its own frame (location = "https://…?rows") and no page-side rule can stop that.
+        /// Such frames are created with name="cw-sealed…", so the host cancels every navigation of them except about: / data: / blob:.
+        /// </summary>
+        private void AttachSealedFrameGuard(WebView2 wv)
+        {
+            wv.CoreWebView2.FrameCreated += (s, e) =>
+            {
+                try
+                {
+                    var frame = e.Frame;
+                    if (frame == null || !(frame.Name ?? "").StartsWith("cw-sealed", StringComparison.Ordinal)) return;
+                    frame.NavigationStarting += (s2, a) =>
+                    {
+                        string u = a.Uri ?? "";
+                        if (u.StartsWith("about:", StringComparison.OrdinalIgnoreCase) || u.StartsWith("data:", StringComparison.OrdinalIgnoreCase) || u.StartsWith("blob:", StringComparison.OrdinalIgnoreCase)) return;
+                        a.Cancel = true;
+                        Debug.WriteLine("[CodeRunner] blocked a sealed HTML preview navigating to " + (u.Length > 80 ? u[..80] + "…" : u));
+                    };
+                }
+                catch (Exception ex) { Debug.WriteLine("[CodeRunner] frame guard: " + ex.Message); }
+            };
+        }
+
         private static bool IsCodeAction(string action) => action == "codeRuntimes" || action == "codeInstall" || action == "codeRun";
 
         private async Task HandleCodeAction(WebView2 wv, string action, JsonElement root, string requestId)
@@ -83,8 +108,18 @@ namespace WMSApp
                 rows = gr.EnumerateArray().Take(100000).Select(r => r.ValueKind == JsonValueKind.Array ? r.EnumerateArray().Select(c => c.ValueKind == JsonValueKind.Null ? "" : c.ToString()).ToList() : new List<string>()).ToList();
             }
 
+            // Data sources of the Code tab (dialog runs only): already fetched read-only by the page, written as <name>.csv
+            var extra = new List<(string Name, List<string> Cols, List<List<string>> Rows)>();
+            if (via == "dialog" && input.TryGetProperty("data", out var dsEl) && dsEl.ValueKind == JsonValueKind.Array)
+                foreach (var ds in dsEl.EnumerateArray().Take(3))
+                {
+                    if (ds.ValueKind != JsonValueKind.Object || !ds.TryGetProperty("name", out var dn) || !ds.TryGetProperty("columns", out var dc) || !ds.TryGetProperty("rows", out var dr)) continue;
+                    extra.Add((dn.ToString(), dc.EnumerateArray().Select(x => x.ToString()).ToList(),
+                        dr.EnumerateArray().Take(100000).Select(row => row.ValueKind == JsonValueKind.Array ? row.EnumerateArray().Select(c => c.ValueKind == JsonValueKind.Null ? "" : c.ToString()).ToList() : new List<string>()).ToList()));
+                }
+
             string hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code)))[..16];
-            var r = await CodeRunner.RunAsync(lang, code, S("stdin"), timeout, packages, cols, rows);
+            var r = await CodeRunner.RunAsync(lang, code, S("stdin"), timeout, packages, cols, rows, default, extra);
             AiControl.Audit(new AiControl.AuditEvent
             {
                 User = user, Source = "AIAGENT", Action = "run_code", Outcome = r.Error != null ? "FAILED" : r.Ok ? "OK" : "EXIT_" + r.ExitCode, Approval = via == "agent" ? (approved ? "CARD" : "AUTO") : "USER",

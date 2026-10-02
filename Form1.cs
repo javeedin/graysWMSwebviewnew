@@ -1683,6 +1683,9 @@ navPanel.Controls.Add(wmsDevButton);
                     System.Diagnostics.Debug.WriteLine("[PERM] Could not attach permission handler: " + permEx.Message);
                 }
 
+                try { AttachSealedFrameGuard(wv); }   // Code tab: HTML previews holding data may not navigate away
+                catch (Exception frEx) { System.Diagnostics.Debug.WriteLine("[CodeRunner] frame guard not attached: " + frEx.Message); }
+
                 wv.CoreWebView2.WebMessageReceived += async (sender, args) =>
                 {
                     try
