@@ -10,7 +10,15 @@ TECH.setOn = function (on) {
     TECH.on = !!on;
     try { localStorage.setItem('ag.trackTech', on ? '1' : '0'); } catch (e) { /* private mode */ }
     document.body.classList.toggle('tech-on', TECH.on);
+    var hb = document.getElementById('btn-tech'); if (hb) hb.classList.toggle('on', TECH.on);
     toast(on ? 'Tracking tech — every answer gets a layers icon' : 'Tech tracking off', 'ok');
+};
+/** Top-bar button: turns tracking on, and opens the trace of the latest answer. */
+TECH.headerClick = function () {
+    if (!TECH.on) { TECH.setOn(true); var cb = document.getElementById('tech-on'); if (cb) cb.checked = true; }
+    var last = Array.prototype.slice.call(document.querySelectorAll('.msg[data-seq] .fb')).pop();
+    if (!last || !AG.tid) { toast('Tracking is on — ask something, then click the layers icon on the answer (or this button)', 'ok'); return; }
+    TECH.show(+last.closest('.msg').dataset.seq);
 };
 TECH.beginTurn = function () { TECH.turnStart = Date.now(); };
 
@@ -160,5 +168,5 @@ TECH.html = function (ev, stack) {
             Object.keys(pk).filter(function (k) { return pk[k]; }).map(function (k) { return esc(k) + ' ' + esc(pk[k]); }).join(' · ') + '</div></details>' : '');
 };
 
-document.addEventListener('DOMContentLoaded', function () { document.body.classList.toggle('tech-on', TECH.on); });
+document.addEventListener('DOMContentLoaded', function () { document.body.classList.toggle('tech-on', TECH.on); var hb = document.getElementById('btn-tech'); if (hb) hb.classList.toggle('on', TECH.on); });
 document.body && document.body.classList.toggle('tech-on', TECH.on);
