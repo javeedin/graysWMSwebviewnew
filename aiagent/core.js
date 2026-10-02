@@ -377,6 +377,8 @@ AG.syncKnowledge = function (force) {
 
 // ── attachments (button, paste, drag & drop): text as text, PDF / images as documents for the model ──
 AG.files = [];
+AG.imgCache = {};
+AG.zoomImg = function (src) { openModal('Photo', '<img src="' + src + '" style="max-width:100%;border-radius:8px">'); };
 AG.addFiles = function (list) {
     Array.prototype.forEach.call(list || [], function (f) {
         if (f.size > 5 * 1024 * 1024) { toast(f.name + ' is larger than 5 MB', 'err'); return; }
@@ -501,7 +503,11 @@ AG.send = function () {
     if (AG.pendingCards) { toast('Answer the open card first — or press Decline.', 'err'); return; }
     $('input').value = ''; $('input').style.height = '';
     var body = { text: text, pod: AG.pod, caps: AG.caps(), model: AG.modelBody(), specialist: AG.spec === 'auto' ? (AG.tid ? 'auto' : null) : AG.spec };
-    if (AG.files.length) { body.attachments = AG.files; AG.files = []; AG.renderFiles(); }
+    if (AG.files.length) {
+        // photos stay visible in your message bubble (this session only - the hub never stores the image data)
+        AG.files.forEach(function (f) { if (/^image\//.test(f.media_type || '') && f.data) AG.imgCache[f.name] = 'data:' + f.media_type + ';base64,' + f.data; });
+        body.attachments = AG.files; AG.files = []; AG.renderFiles();
+    }
     if (window.VOICE) body.voice = VOICE.on ? 'app' : 'off';   // spoken answers: short, natural, no tables
     var call;
     if (!AG.tid) {
@@ -659,7 +665,7 @@ AG.renderEvent = function (e) {
     switch (e.kind) {
         case 'user':
             html = '<div class="msg user"><div class="av"><i class="fa-solid fa-user"></i></div><div class="bub">' + esc(d.text).replace(/\n/g, '<br>') +
-                (d.files && d.files.length ? '<div style="margin-top:4px;font-size:.72rem;opacity:.85">' + d.files.map(function (f) { return '<i class="fa-solid fa-paperclip"></i> ' + esc(f); }).join(' &nbsp; ') + '</div>' : '') + '</div></div>';
+                (d.files && d.files.length ? '<div class="ufiles">' + d.files.map(function (f) { return AG.imgCache[f] ? '<img class="uphoto" src="' + AG.imgCache[f] + '" alt="' + esc(f) + '" title="' + esc(f) + '" onclick="AG.zoomImg(this.src)">' : '<span><i class="fa-solid fa-paperclip"></i> ' + esc(f) + '</span>'; }).join('') + '</div>' : '') + '</div></div>';
             break;
         case 'route':
             var s = AG.specOf(d.specialist);

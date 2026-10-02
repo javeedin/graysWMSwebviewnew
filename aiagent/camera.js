@@ -20,18 +20,18 @@ CAM.open = function (opts) {
     el.innerHTML = '<h4><i class="fa-solid fa-camera"></i> ' + esc(opts.title || 'Camera') + (opts.reason ? ' <span class="muted sm">— ' + esc(opts.reason) + '</span>' : '') +
         '<span class="grow"></span><select class="cam-dev" title="Camera"></select></h4>' +
         '<div class="cam-stage"><video class="cam-video" autoplay playsinline muted></video><div class="cam-flash"></div>' +
-        '<div class="cam-guide"></div><div class="cam-msg">Starting the camera…</div></div>' +
-        '<div class="cam-shots"></div>' +
-        '<div class="acts"><button class="btn primary cam-snap" title="Take the picture (Space)"><i class="fa-solid fa-circle-dot"></i> Take picture</button>' +
-        '<button class="btn cam-mirror" title="Mirror the preview"><i class="fa-solid fa-left-right"></i></button>' +
-        '<label class="btn cam-file" title="Use a picture file instead"><i class="fa-regular fa-image"></i> File<input type="file" accept="image/*" multiple hidden></label>' +
-        '<span class="grow"></span>' +
-        '<button class="btn go cam-use" disabled><i class="fa-solid fa-check"></i> Use <span class="cam-n">0</span> photo(s)</button>' +
-        '<button class="btn danger cam-cancel"><i class="fa-solid fa-xmark"></i> Close</button></div>';
+        '<div class="cam-guide"></div><div class="cam-msg">Starting the camera…</div>' +
+        // controls sit ON the preview so they are always visible
+        '<div class="cam-bar"><span class="cam-left"><button class="cam-ib cam-mirror" title="Mirror the preview"><i class="fa-solid fa-left-right"></i></button>' +
+        '<label class="cam-ib cam-file" title="Use a picture file instead"><i class="fa-regular fa-image"></i><input type="file" accept="image/*" multiple hidden></label></span>' +
+        '<button class="cam-snap" title="' + (opts.fromTool ? 'Take the picture (Space)' : 'Take the picture and paste it into your message (Space)') + '"><span></span></button>' +
+        '<span class="cam-right">' + (opts.fromTool ? '<button class="cam-ib cam-use" disabled title="Send the photos to the agent"><i class="fa-solid fa-check"></i> <span class="cam-n">0</span></button>' : '') +
+        '<button class="cam-ib cam-cancel" title="Close the camera"><i class="fa-solid fa-xmark"></i></button></span></div></div>' +
+        '<div class="cam-shots"></div>';
     $('cards').appendChild(el);
     if (opts.fromTool) AG.pendingCards++;
     el.querySelector('.cam-snap').onclick = CAM.snap;
-    el.querySelector('.cam-use').onclick = function () { CAM.close(true); };
+    if (el.querySelector('.cam-use')) el.querySelector('.cam-use').onclick = function () { CAM.close(true); };
     el.querySelector('.cam-cancel').onclick = function () { CAM.close(false); };
     el.querySelector('.cam-mirror').onclick = function () { CAM.mirror = !CAM.mirror; el.querySelector('.cam-video').classList.toggle('mirror', CAM.mirror); };
     el.querySelector('.cam-dev').onchange = function () { CAM.deviceId = this.value; CAM.start(); };
@@ -51,7 +51,7 @@ CAM.start = function () {
         CAM.stream = stream;
         var vid = CAM.card.querySelector('.cam-video'); vid.srcObject = stream;
         var s = stream.getVideoTracks()[0].getSettings();
-        CAM.card.querySelector('.cam-msg').textContent = (s.width ? s.width + '×' + s.height + ' · ' : '') + 'Hold the page flat and fill the frame, then press Take picture (or Space).';
+        CAM.card.querySelector('.cam-msg').textContent = (s.width ? s.width + '×' + s.height + ' · ' : '') + 'Hold the page flat and fill the frame, then press the round button (or Space).';
         return navigator.mediaDevices.enumerateDevices().then(function (ds) {
             var cams = ds.filter(function (d) { return d.kind === 'videoinput'; }), sel = CAM.card.querySelector('.cam-dev');
             sel.innerHTML = cams.map(function (d, i) { return '<option value="' + esc(d.deviceId) + '"' + (d.deviceId === s.deviceId ? ' selected' : '') + '>' + esc(d.label || 'Camera ' + (i + 1)) + '</option>'; }).join('');
@@ -80,6 +80,7 @@ CAM.snap = function () {
     g.drawImage(vid, 0, 0, cv.width, cv.height);
     CAM.push(cv.toDataURL('image/jpeg', 0.9));
     var fl = CAM.card.querySelector('.cam-flash'); fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go');
+    if (!CAM.opts.fromTool) setTimeout(function () { CAM.close(true); }, 250);   // camera button: paste into the message at once
 };
 CAM.addFile = function (file) {
     if (!/^image\//.test(file.type)) return;
@@ -89,6 +90,7 @@ CAM.addFile = function (file) {
         cv.width = Math.round(img.width * f); cv.height = Math.round(img.height * f);
         cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
         CAM.push(cv.toDataURL('image/jpeg', 0.9)); URL.revokeObjectURL(url);
+        if (!CAM.opts.fromTool) CAM.close(true);
     };
     img.src = url;
 };
@@ -100,9 +102,8 @@ CAM.renderShots = function () {
     var box = CAM.card.querySelector('.cam-shots');
     box.innerHTML = CAM.shots.map(function (s, i) { return '<span class="cam-shot"><img src="' + s.url + '" alt=""><button title="Remove" data-i="' + i + '">×</button></span>'; }).join('');
     box.querySelectorAll('button').forEach(function (b) { b.onclick = function () { CAM.shots.splice(+b.dataset.i, 1); CAM.renderShots(); }; });
-    CAM.card.querySelector('.cam-n').textContent = CAM.shots.length;
-    CAM.card.querySelector('.cam-use').disabled = !CAM.shots.length;
-    CAM.card.querySelector('.cam-snap').innerHTML = CAM.shots.length ? '<i class="fa-solid fa-circle-dot"></i> Add page' : '<i class="fa-solid fa-circle-dot"></i> Take picture';
+    var n = CAM.card.querySelector('.cam-n'); if (n) n.textContent = CAM.shots.length;
+    var u = CAM.card.querySelector('.cam-use'); if (u) u.disabled = !CAM.shots.length;
 };
 
 /** Closes the card and turns the camera OFF. use = hand the photos over. */
@@ -118,7 +119,7 @@ CAM.close = function (use) {
 
 // ── the camera button: photos become attachments of your next message, with quick actions ──
 CAM.forMessage = function () {
-    CAM.open({ title: 'Camera', reason: 'photos are attached to your next message', onDone: function (shots) {
+    CAM.open({ title: 'Camera', reason: 'press the round button — the photo goes into your message', onDone: function (shots) {
         if (!shots) return;
         shots.forEach(function (s) { AG.files.push(s); });
         AG.renderFiles();

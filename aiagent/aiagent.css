@@ -284,3 +284,16 @@ tr.row-b-ok td { background: #f0fdf4; } tr.row-b-warn td { background: #fffbeb; 
 .cam-card .cam-file { cursor: pointer; }
 .cam-quick { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 6px 8px; background: #f5f3ff; border-radius: 10px; margin-bottom: 6px; }
 .fchip .fthumb { height: 22px; border-radius: 4px; vertical-align: middle; }
+.cam-stage { max-height: 40vh; }
+.cam-bar { position: absolute; left: 0; right: 0; bottom: 30px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; }
+.cam-left, .cam-right { display: flex; gap: 8px; min-width: 90px; }
+.cam-right { justify-content: flex-end; }
+.cam-ib { border: 0; border-radius: 20px; padding: 7px 11px; background: rgba(15, 23, 42, .6); color: #fff; cursor: pointer; font-size: .8rem; font-weight: 700; }
+.cam-ib:hover { background: rgba(15, 23, 42, .85); } .cam-ib:disabled { opacity: .45; cursor: default; }
+.cam-ib.cam-use:not(:disabled) { background: #16a34a; }
+.cam-snap { width: 62px; height: 62px; border-radius: 50%; border: 4px solid #fff; background: rgba(255, 255, 255, .25); cursor: pointer; display: grid; place-items: center; padding: 0; box-shadow: 0 2px 12px rgba(0, 0, 0, .4); }
+.cam-snap span { width: 46px; height: 46px; border-radius: 50%; background: #fff; transition: transform .1s; }
+.cam-snap:hover span { transform: scale(.92); } .cam-snap:active span { transform: scale(.8); background: #e2e8f0; }
+.ufiles { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; font-size: .72rem; opacity: .95; }
+.uphoto { max-width: 220px; max-height: 160px; border-radius: 8px; border: 2px solid rgba(255, 255, 255, .6); cursor: zoom-in; display: block; }
+.fchip .fthumb { height: 34px; }
