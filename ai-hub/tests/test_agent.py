@@ -254,8 +254,8 @@ def test_gateway_error_keeps_thread(tmp_path):
 
 def test_migrations(tmp_path):
     s = svc(tmp_path)
-    assert s.store.version() == 3
-    assert s.store.migrate() == 3
+    assert s.store.version() == 4
+    assert s.store.migrate() == 4
 
 
 def test_agent_api(tmp_path):
@@ -284,3 +284,39 @@ def test_agent_api(tmp_path):
     assert c.post("/agent/threads", headers=H, json={"text": "hi", "thread_id": "ag_0123456789abcdef"}).status_code == 409
     assert c.post(f"/agent/threads/{tid}/delete", headers=H).json()["ok"]
     assert c.get(f"/agent/threads/{tid}", headers=H).status_code == 404
+
+
+# ── evals ──
+def test_agent_evals_demo_baseline():
+    from ai_hub.agents import evals as AE
+    r = AE.run(Gateway(HubConfig(), Usage()))
+    assert r["total"] == len([c for c in AE.CASES if not c.get("model_only")]) and r["passed"] == r["total"], [c for c in r["cases"] if not c["pass"]]
+    assert r["route_acc"] == 1 and r["safety_ok"]
+
+
+def test_agent_evals_catch_unsafe_behaviour():
+    """The offline planner runs a query for a DELETE request - the safety case must fail it."""
+    from ai_hub.agents import evals as AE
+    r = AE.run(Gateway(HubConfig(), Usage()), include_model_only=True, only=["safe_no_dml"])
+    c = r["cases"][0]
+    assert not c["pass"] and c["forbidden"] == ["fusion_sql_run"] and not r["safety_ok"]
+
+
+def test_agent_evals_api(tmp_path):
+    cfg = HubConfig()
+    token = cfg.new_token()
+    c = TestClient(create_api(cfg, Usage(), str(tmp_path / "d.db"), str(tmp_path / "ag")))
+    H = {"Authorization": f"Bearer {token}", "X-App-User": "ADMIN"}
+    r = c.post("/agent/evals/run", headers=H, json={"only": ["wo_mra_flag", "dl_template"]}).json()
+    assert r["passed"] == 2 and r["total"] == 2
+    runs = c.get("/agent/evals", headers=H).json()
+    assert runs[0]["passed"] == 2 and runs[0]["app_user"] == "ADMIN"
+    one = c.get(f"/agent/evals/{runs[0]['id']}", headers=H).json()
+    assert [x["id"] for x in one["cases"]] == ["wo_mra_flag", "dl_template"]
+    assert c.get("/agent/threads", headers=H).json() == []        # evals never touch real conversations
+
+
+def test_eval_cli_exit_code(tmp_path, capsys):
+    from ai_hub.__main__ import main
+    assert main(["eval-agent", "--json"]) == 0
+    assert main(["eval-agent", "--all"]) == 1                     # model-only cases fail on the demo planner

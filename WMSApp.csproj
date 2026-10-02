@@ -31,6 +31,7 @@
   <!-- engine/ is its own project (net8.0, no Windows APIs): keep its files out of this project's default globs -->
   <ItemGroup>
     <Compile Remove="engine\**" />
+    <Compile Remove="tools\**" />
     <EmbeddedResource Remove="engine\**" />
     <!-- Claude CLI setup file: AI Digital Employee runs it / saves it as ClaudeCliSetup.bat -->
     <EmbeddedResource Include="tools\claude-cli-setup.bat" LogicalName="ClaudeCliSetup.bat" />

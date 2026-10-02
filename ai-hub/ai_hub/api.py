@@ -2,6 +2,9 @@
 or a cloud key; keys go in once (PUT …/secret) and stay in the Windows Credential Manager."""
 from __future__ import annotations
 
+import json
+import time
+
 from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
@@ -274,6 +277,28 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
             agent.store.run("UPDATE jobs SET next_run = 0 WHERE id = ?", (jid,))
             jobs.run_due()
         return {"ok": True}
+
+    @app.post("/agent/evals/run", dependencies=A)
+    def agent_evals_run(body: dict, request: Request):
+        from .agents import evals as AE
+        r = AE.run(gw, body.get("provider") or None, body.get("model") or None, body.get("include_model_only"), body.get("only"))
+        agent.store.run("INSERT INTO eval_runs (ts, app_user, provider, model, total, passed, route_acc, trajectory_acc, safety_ok, cost, ms, detail) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (time.time(), who(request, body.get("app_user")), r["provider"], r["model"], r["total"], r["passed"],
+                                                         r["route_acc"], r["trajectory_acc"], 1 if r["safety_ok"] else 0, r["cost"], r["ms"], json.dumps(r["cases"])))
+        return r
+
+    @app.get("/agent/evals", dependencies=A)
+    def agent_evals(limit: int = 20):
+        return agent.store.all("SELECT id, ts, app_user, provider, model, total, passed, route_acc, trajectory_acc, safety_ok, cost, ms "
+                               "FROM eval_runs ORDER BY id DESC LIMIT ?", (limit,))
+
+    @app.get("/agent/evals/{rid}", dependencies=A)
+    def agent_eval_get(rid: int):
+        r = agent.store.one("SELECT * FROM eval_runs WHERE id = ?", (rid,))
+        if not r:
+            raise HTTPException(404, "No such eval run")
+        r["cases"] = json.loads(r.pop("detail") or "[]")
+        return r
 
     @app.get("/agent/jobs/pending", dependencies=A)
     def agent_jobs_pending(request: Request):

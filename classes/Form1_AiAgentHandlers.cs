@@ -26,6 +26,8 @@ namespace WMSApp
     ///                problems in a row stop the batch), inbox_list / inbox_request (AI inbox, Teams / e-mail alerts)
     ///   agentConfirm the page's own "act" tools (save query, watchdog, order pad, job) consume their card here first
     ///   agentResult  rows of a cached result for the grid / chart / export
+    ///   agentMode    roll-out switch WMS_AI_CONTROL.AI_AGENT_MODE: OFF / BETA (default, both modules) / PRIMARY (the AI
+    ///                Digital Employee page points to the AI Agent); only AI admins change it, with a reason, audited
     /// "act" tools check the AI kill switch and write WMS_AI_AUDIT (source AIAGENT). The Fusion password never leaves C#.
     /// </summary>
     public partial class Form1
@@ -73,6 +75,9 @@ namespace WMSApp
                     case "agentTool":
                         data = await AgentToolAsync(tool, inEl, input, pod, user,
                             root.TryGetProperty("approved", out var ap) && ap.ValueKind == JsonValueKind.True);
+                        break;
+                    case "agentMode":
+                        data = await AgentModeAsync(PipeSrvStr(root, "set"), PipeSrvStr(root, "reason"), user);
                         break;
                     case "agentResult":
                         data = AgentResultRows(PipeSrvStr(root, "resultId"), PipeSrvInt(root, "offset", 0), PipeSrvInt(root, "limit", 5000), user);
@@ -225,6 +230,24 @@ namespace WMSApp
                 default:
                     return new { ok = false, content = "The app has no host tool " + tool + "." };
             }
+        }
+
+        private async Task<object> AgentModeAsync(string set, string reason, string user)
+        {
+            bool admin = await AiControl.IsAdminAsync(user);
+            if (!string.IsNullOrEmpty(set))
+            {
+                set = set.ToUpperInvariant();
+                if (set != "OFF" && set != "BETA" && set != "PRIMARY") return new { ok = false, error = "Mode must be OFF, BETA or PRIMARY." };
+                if (!admin) return new { ok = false, error = "Only an AI admin can change the roll-out mode." };
+                if (string.IsNullOrWhiteSpace(reason)) return new { ok = false, error = "Give a reason (it goes into the audit)." };
+                await AiControl.SetSettingAsync("AI_AGENT_MODE", set, user);
+                AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "CONTROL", Action = "ai_agent_mode", Outcome = set, Detail = reason });
+            }
+            var s = await AiControl.SettingsAsync(user, fresh: !string.IsNullOrEmpty(set));
+            s.TryGetValue("AI_AGENT_MODE", out var m);
+            string mode = string.IsNullOrWhiteSpace(m.Value) ? "BETA" : m.Value.ToUpperInvariant();
+            return new { ok = true, mode, admin, by = m.By, at = m.At };
         }
 
         private static string AgentCleanSql(string sql) => Regex.Replace((sql ?? "").Trim(), @";\s*$", "");

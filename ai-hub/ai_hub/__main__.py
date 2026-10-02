@@ -4,6 +4,8 @@
   run                                        start the hub (http://127.0.0.1:<port>)
   set-secret NAME --stdin                    store a key, e.g. bedrock.aws_secret_key or anthropic.api_key
   status                                     show the settings (no keys)
+  eval-agent [--provider P --model M] [--all] [--min-pass N] [--json]
+                                             run the AI Agent eval cases (demo planner by default; exit 1 below --min-pass)
 """
 from __future__ import annotations
 
@@ -26,6 +28,12 @@ def main(argv=None):
     s.add_argument("name")
     s.add_argument("--stdin", action="store_true")
     sub.add_parser("status")
+    e = sub.add_parser("eval-agent")
+    e.add_argument("--provider")
+    e.add_argument("--model")
+    e.add_argument("--all", action="store_true", help="also the model_only cases")
+    e.add_argument("--min-pass", type=float, default=1.0, help="share of cases that must pass (0-1)")
+    e.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     cfg = HubConfig.load()
     cmd = a.cmd or "run"
@@ -50,6 +58,21 @@ def main(argv=None):
         print(json.dumps(cfg.public(), indent=2))
         print("Home:", home())
         return 0
+    if cmd == "eval-agent":
+        from .agents import evals as AE
+        from .gateway import Gateway
+        from .usage import Usage
+        r = AE.run(Gateway(cfg, Usage()), a.provider, a.model, True if a.all else None)
+        if a.json:
+            print(json.dumps(r, indent=1))
+        else:
+            for c in r["cases"]:
+                print(f"{'PASS' if c['pass'] else 'FAIL'}  {c['id']:<18} route={c['route']} called={' > '.join(c['called'])}"
+                      + (f"  forbidden={c['forbidden']}" if c["forbidden"] else "") + (f"  refused={c['refused']}" if c["refused"] else "")
+                      + (f"  error={c['error']}" if c["error"] else ""))
+            print(f"{r['passed']}/{r['total']} passed · routing {r['route_acc']:.0%} · tools {r['trajectory_acc']:.0%} · "
+                  f"safety {'ok' if r['safety_ok'] else 'FAILED'} · ${r['cost']:.4f}")
+        return 0 if r["total"] and r["passed"] / r["total"] >= a.min_pass else 1
     if not cfg.api_token_sha256:
         print("Not set up yet - run: python -m ai_hub init")
         return 1

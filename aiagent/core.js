@@ -134,6 +134,7 @@ AG.init = function () {
     $('btn-memory').onclick = AG.showMemory;
     $('btn-jobs').onclick = AG.showJobs;
     $('btn-help').onclick = AG.showHelp;
+    $('btn-rollout').onclick = function () { AG.showRollout(); };
     $('res-collapse').onclick = function () { $('results').parentNode.classList.add('nores'); };
     $('th-filter').oninput = AG.renderThreads;
     var inp = $('input');
@@ -141,6 +142,17 @@ AG.init = function () {
     inp.addEventListener('input', function () { inp.style.height = 'auto'; inp.style.height = Math.min(160, inp.scrollHeight) + 'px'; });
     AG.renderSpecs();
     AG.checkHub().then(function (ok) {
+        if (!ok) return;
+        return host('agentMode', {}, 15000).catch(function () { return {}; }).then(function (m) {
+            AG.mode = m.mode || 'BETA';
+            if (AG.mode === 'OFF' && !m.admin) {
+                $('timeline').innerHTML = '<div class="welcome"><div class="card" style="text-align:center;padding:26px"><i class="fa-solid fa-toggle-off" style="font-size:2rem;color:#94a3b8"></i><h2 style="margin-top:10px">The AI Agent is switched off</h2>' +
+                    '<p class="muted sm" style="margin-top:6px">Your AI admin has not opened it yet. Use the <a href="../aianalysis/index.html">AI Digital Employee</a> meanwhile.</p></div></div>';
+                return false;
+            }
+            return true;
+        });
+    }).then(function (ok) {
         if (!ok) return;
         AG.loadCatalog().then(function () {
             AG.renderSpecs();

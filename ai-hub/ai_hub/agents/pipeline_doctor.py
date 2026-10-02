@@ -19,7 +19,6 @@ restart of the hub; every step is in `timeline`.
 from __future__ import annotations
 
 import json
-import operator
 import re
 import sqlite3
 import threading
@@ -158,7 +157,8 @@ def build_graph(gateway, app_user_of=lambda s: None):
     def propose(s: DoctorState):
         d, v = s.get("diagnosis") or {}, s.get("verify") or {}
         tested = " (tested ✓)" if v.get("ok") else " (test failed)" if v else ""
-        txt = (d.get("fix_summary") or d.get("cause") or "")[:300] + (f" — changes {', '.join(d.get('patch', {}).keys())}" if d.get("patch") else " — nothing to change in the task") + tested
+        change = f" — changes {', '.join(d.get('patch', {}).keys())}" if d.get("patch") else " — nothing to change in the task"
+        txt = (d.get("fix_summary") or d.get("cause") or "")[:300] + change + tested
         return {"status": "waiting_approval", "timeline": _step("propose", txt)}
 
     def approval(s: DoctorState):
@@ -265,9 +265,10 @@ class Doctor:
         return {"thread_id": tid, "status": status, "waiting": waiting, "next": list(st.next or []), "state": v}
 
     def list(self, limit: int = 50) -> list[dict]:
-        cur = self.conn.execute("SELECT thread_id, run_id, pipeline, task, app_user, created, updated, status, category, cost FROM doctor_threads ORDER BY created DESC LIMIT ?", (limit,))
+        cur = self.conn.execute("SELECT thread_id, run_id, pipeline, task, app_user, created, updated, status, category, cost "
+                                "FROM doctor_threads ORDER BY created DESC LIMIT ?", (limit,))
         cols = [c[0] for c in cur.description]
-        return [dict(zip(cols, r)) for r in cur.fetchall()]
+        return [dict(zip(cols, r, strict=True)) for r in cur.fetchall()]
 
     def graph_shape(self) -> dict:
         g = self.graph.get_graph()

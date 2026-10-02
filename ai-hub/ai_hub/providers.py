@@ -398,7 +398,7 @@ class DemoProvider(Provider):
         m = re.search(r"ERROR:\s*(.+)", ctx)
         if m:
             err = m.group(1)
-        for pat, cat, why, kind in _DOCTOR_RULES:
+        for pat, cat, why, kind in _DOCTOR_RULES:  # noqa: B007 - the matching rule's values are used after the loop
             if re.search(pat, err or ctx, re.I):
                 break
         else:

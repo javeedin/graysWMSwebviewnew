@@ -206,6 +206,7 @@ def test_cli_init_with_token_from_app(monkeypatch, capsys):
     import io
     import json
     import sys
+
     from ai_hub.__main__ import main
     monkeypatch.setattr(sys, "stdin", io.StringIO("tok-from-app\n"))
     assert main(["init", "--port", "8123", "--token-stdin", "--json"]) == 0

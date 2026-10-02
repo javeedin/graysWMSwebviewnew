@@ -4769,5 +4769,24 @@ function saveProcess(isNew) {
     });
 }
 </script>
+<!-- AI Agent roll-out: when an AI admin sets AI_AGENT_MODE = PRIMARY (AI Agent › Roll-out), this page points to the new module -->
+<script>
+(function () {
+    if (!(window.chrome && window.chrome.webview)) return;
+    var id = 'agentMode_' + Date.now();
+    window.chrome.webview.addEventListener('message', function (ev) {
+        var r = ev.data; if (typeof r === 'string') { try { r = JSON.parse(r); } catch (e) { return; } }
+        if (!r || r.requestId !== id || !r.data || r.data.mode !== 'PRIMARY') return;
+        try { if (sessionStorage.getItem('agentBannerClosed')) return; } catch (e) { }
+        var b = document.createElement('div');
+        b.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:9999;background:#312e81;color:#fff;padding:10px 16px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.25);font:600 13px Segoe UI,sans-serif;display:flex;gap:12px;align-items:center';
+        b.innerHTML = '🤖 The new <b>AI Agent</b> now replaces this page — same skills, checked SQL, confirm before acting. <a href="../aiagent/index.html" style="background:#a5b4fc;color:#1e1b4b;padding:5px 10px;border-radius:8px;text-decoration:none">Open AI Agent</a><span style="cursor:pointer;opacity:.7" title="Later">✕</span>';
+        b.lastChild.onclick = function () { b.remove(); try { sessionStorage.setItem('agentBannerClosed', '1'); } catch (e) { } };
+        document.body.appendChild(b);
+    });
+    var u = ''; try { u = sessionStorage.getItem('loggedInUser') || localStorage.getItem('loggedInUser') || ''; } catch (e) { }
+    window.chrome.webview.postMessage({ action: 'agentMode', requestId: id, appUser: u });
+})();
+</script>
 </body>
 </html>

@@ -362,7 +362,7 @@ namespace WMSApp
             bool runsModel = method == "POST" && (path == "/v1/chat" || path == "/v1/compare" || path == "/agents/doctor/start" ||
                                                   Regex.IsMatch(path, @"^/agents/doctor/[^/]+/resume$") || Regex.IsMatch(path, @"^/providers/[^/]+/test$") ||
                                                   path == "/agent/threads" || Regex.IsMatch(path, @"^/agent/threads/[^/]+/(send|resume)$") ||
-                                                  Regex.IsMatch(path, @"^/agent/jobs/[^/]+$"));
+                                                  Regex.IsMatch(path, @"^/agent/jobs/[^/]+$") || path == "/agent/evals/run");
             if (runsModel && !await AiControl.IsEnabledAsync(user))
                 return new { ok = false, paused = true, error = "AI is paused (AI Digital Employee › Control). Resume it there first." };
 
@@ -404,7 +404,7 @@ namespace WMSApp
                 long? L(string k) => long.TryParse(S(k), out var x) ? x : null;
                 double? D(string k) => double.TryParse(S(k), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var x) ? x : null;
                 string act = path == "/v1/chat" ? "chat" : path == "/v1/compare" ? "compare" : path.StartsWith("/providers/") ? "provider_test" :
-                             path.StartsWith("/agent/") ? "agent_" + (S("status") ?? "call") : "doctor_" + (S("status") ?? "call");
+                             path == "/agent/evals/run" ? "agent_eval" : path.StartsWith("/agent/") ? "agent_" + (S("status") ?? "call") : "doctor_" + (S("status") ?? "call");
                 bool ok = status < 400 && S("ok") != "False";
                 AiControl.Audit(new AiControl.AuditEvent
                 {

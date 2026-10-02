@@ -28,6 +28,10 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE TABLE feedback (thread_id TEXT, seq INTEGER, app_user TEXT, rating INTEGER, note TEXT, ts REAL,
             PRIMARY KEY (thread_id, seq));
     """),
+    (4, "agent eval runs", """
+        CREATE TABLE eval_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, app_user TEXT, provider TEXT, model TEXT,
+            total INTEGER, passed INTEGER, route_acc REAL, trajectory_acc REAL, safety_ok INTEGER, cost REAL, ms INTEGER, detail TEXT);
+    """),
 ]
 
 
