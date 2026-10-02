@@ -127,7 +127,10 @@ AG.init = function () {
     $('hubchip').style.cursor = 'pointer'; $('hubchip').title = 'AI Hub: start, stop, restart, update';
     $('hubchip').onclick = AG.showHubPanel;
     $('btn-rollout').onclick = function () { AG.showRollout(); };
-    $('res-collapse').onclick = function () { $('results').parentNode.classList.add('nores'); };
+    $('res-collapse').onclick = function () { AG.toggleResults(false); };
+    $('btn-results').onclick = function () { AG.toggleResults(); };
+    $('res-tab-edge').onclick = function () { AG.toggleResults(true); };
+    if (ls('resHidden', '') === '1') AG.toggleResults(false, true);
     $('th-filter').oninput = AG.renderThreads;
     var inp = $('input');
     $('btn-attach').onclick = function () { $('file-in').click(); };
@@ -470,6 +473,16 @@ AG.open = function (tid) {
         AG.renderResults();
         if (snap.waiting && !AG.busy) AG.handleWait(snap);
     }).catch(function (e) { toast(String(e), 'err'); AG.newChat(); });
+};
+/** Show / hide the results panel (remembered); a new result always shows it again. */
+AG.toggleResults = function (show, quiet) {
+    var shell = $('results').parentNode;
+    if (show === undefined) show = shell.classList.contains('nores');
+    shell.classList.toggle('nores', !show);
+    $('btn-results').classList.toggle('on', show);
+    $('res-tab-edge').hidden = show;
+    if (!quiet) lsSet('resHidden', show ? '' : '1');
+    if (show && AG.results.length) AG.renderResults();
 };
 AG.header = function (snap) {
     if (!snap) return;

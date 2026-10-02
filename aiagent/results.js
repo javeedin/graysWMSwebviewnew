@@ -9,7 +9,7 @@ AG.addResult = function (data, quiet) {
     var r = AG.resById(id);
     if (!r) { r = { id: id, title: data.title || 'Result', rows: data.row_count, report: data.report || null, doc: data.doc || null, data: data.page_data || null }; AG.results.push(r); }
     else { if (data.report) r.report = data.report; if (data.doc) r.doc = data.doc; if (data.row_count != null) r.rows = data.row_count; }
-    $('results').parentNode.classList.remove('nores');
+    if (!quiet) AG.toggleResults(true, true); else AG.resBadge();
     if (!quiet || !AG.resSel) AG.selectResult(id); else AG.renderResults();
     return r;
 };
@@ -22,8 +22,15 @@ AG.fetchResult = function (id) {
         return d;
     });
 };
+/** Count on the Results buttons while the panel is hidden. */
+AG.resBadge = function () {
+    var n = AG.results.length, b = $('res-badge'), e = $('res-edge-n');
+    if (b) { b.hidden = !n; b.textContent = n; }
+    if (e) e.textContent = n ? ' · ' + n : '';
+};
 AG.selectResult = function (id) { AG.resSel = id; AG.renderResults(); };
 AG.renderResults = function () {
+    AG.resBadge();
     var tabs = $('res-tabs'), body = $('res-body');
     tabs.innerHTML = AG.results.map(function (r) { return '<div class="res-tab' + (r.id === AG.resSel ? ' on' : '') + '" data-id="' + r.id + '" title="' + esc(r.title) + '">' + esc(r.title) + (r.rows != null ? ' · ' + r.rows : '') + '</div>'; }).join('');
     tabs.querySelectorAll('.res-tab').forEach(function (t) { t.onclick = function () { AG.selectResult(t.dataset.id); }; });

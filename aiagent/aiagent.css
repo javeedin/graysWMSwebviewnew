@@ -257,3 +257,10 @@ tr.row-b-ok td { background: #f0fdf4; } tr.row-b-warn td { background: #fffbeb; 
 #modal-b .seg { display: inline-flex; background: #eef2ff; padding: 3px; border-radius: 8px; }
 #modal-b .seg button { color: #3730a3; }
 #modal-b .seg button.on { background: #4f46e5; color: #fff; }
+.hbtn.on { background: rgba(165, 180, 252, .35); }
+/* the way back when the results panel is hidden (fixed, so it never takes a grid column) */
+.res-edge { position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 15; writing-mode: vertical-rl; border: 0; cursor: pointer;
+    background: #4f46e5; color: #fff; font-weight: 700; font-size: .78rem; padding: 12px 6px; border-radius: 10px 0 0 10px; box-shadow: -4px 0 14px rgba(79, 70, 229, .3); }
+.res-edge:hover { padding-right: 9px; }
+.res-edge i { transform: rotate(90deg); margin-bottom: 6px; }
+.res-edge[hidden] { display: none; }
