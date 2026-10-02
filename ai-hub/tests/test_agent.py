@@ -422,3 +422,13 @@ def test_run_code_tool_is_an_act_tool_for_everyone():
     for spec in C.SPECIALISTS:
         assert "run_code" in {x.name for x in C.tools_for(spec, ["run_code", "saved_code"])}
     assert "run_code" not in {x.name for x in C.tools_for(C.WO, ["run_code"], "phone")}   # never on a phone call
+
+
+
+def test_vision_tool_is_offered_with_the_page_cap():
+    from ai_hub.agents import catalog
+    names = [t.name for t in catalog.tools_for("fusion_analyst", ["vision"])]
+    assert "vision" in names
+    v = next(t for t in catalog.TOOLS if t.name == "vision")
+    assert v.runs == "page" and v.risk == "read"
+    assert "detect" in v.schema["properties"]["op"]["enum"]

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -43,7 +44,8 @@ namespace WMSApp
             };
         }
 
-        private static bool IsCodeAction(string action) => action == "codeRuntimes" || action == "codeInstall" || action == "codeRun";
+        private static bool IsCodeAction(string action) => action == "codeRuntimes" || action == "codeInstall" || action == "codeRun" ||
+            action == "visionStatus" || action == "visionSetup" || action == "visionRun" || action == "visionModelsFolder";
 
         private async Task HandleCodeAction(WebView2 wv, string action, JsonElement root, string requestId)
         {
@@ -70,6 +72,43 @@ namespace WMSApp
                     case "codeRun":
                         data = await CodeRunAsync(root, user, admin, "dialog", false);
                         break;
+                    // ── Vision (OpenCV, classes/VisionCv.cs): fixed operations on the given images, any user ──
+                    case "visionStatus":
+                        data = new { ok = true, admin, status = await VisionCv.StatusAsync(root.TryGetProperty("fresh", out var fr) && fr.ValueKind == JsonValueKind.True), ops = VisionCv.OPS };
+                        break;
+                    case "visionSetup":
+                        {
+                            if (!admin) { data = new { ok = false, error = "Only an AI admin can set up OpenCV / YOLO on this PC." }; break; }
+                            bool yolo = root.TryGetProperty("yolo", out var yl) && yl.ValueKind == JsonValueKind.True;
+                            _ = VisionCv.SetupAsync(yolo);
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "AIAGENT", Action = "vision_setup", Outcome = "STARTED", Target = string.Join(" ", yolo ? VisionCv.PACKAGES.Concat(VisionCv.YOLO_PACKAGES) : VisionCv.PACKAGES) });
+                            data = new { ok = true, started = true };
+                            break;
+                        }
+                    case "visionModelsFolder":     // custom YOLO models (.pt): opens the fixed folder in Explorer, an admin drops files there
+                        if (!admin) { data = new { ok = false, error = "Only an AI admin can add models." }; break; }
+                        Directory.CreateDirectory(VisionCv.ModelsDir);
+                        Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { VisionCv.ModelsDir }, UseShellExecute = false });
+                        data = new { ok = true, folder = VisionCv.ModelsDir };
+                        break;
+                    case "visionRun":
+                        {
+                            var imgs = new List<(string, byte[])>();
+                            if (root.TryGetProperty("images", out var ie) && ie.ValueKind == JsonValueKind.Array)
+                                foreach (var im in ie.EnumerateArray().Take(6))
+                                {
+                                    string b64 = im.TryGetProperty("data", out var dd) ? dd.GetString() ?? "" : "";
+                                    int comma = b64.IndexOf(','); if (b64.StartsWith("data:") && comma > 0) b64 = b64[(comma + 1)..];
+                                    try { imgs.Add((im.TryGetProperty("name", out var nm) ? nm.GetString() : null, Convert.FromBase64String(b64))); } catch { }
+                                }
+                            string prm = root.TryGetProperty("params", out var pe) && pe.ValueKind == JsonValueKind.Object ? pe.GetRawText() : "{}";
+                            var vr = await VisionCv.RunAsync(PipeSrvStr(root, "op"), prm, imgs);
+                            if (PipeSrvStr(root, "via") == "agent")
+                                AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "AIAGENT", Action = "vision", Outcome = vr.Ok ? "OK" : "FAILED", Target = PipeSrvStr(root, "op") + " · " + imgs.Count + " image(s)", DurationMs = vr.Ms });
+                            data = new { ok = vr.Ok, error = vr.Error, ms = vr.Ms, result = vr.Json == null ? (JsonElement?)null : JsonDocument.Parse(vr.Json).RootElement,
+                                images = vr.Images.Select(x => new { name = x.Name, media_type = x.Mime, data = x.Base64, note = x.Note }) };
+                            break;
+                        }
                     default:
                         data = new { ok = false, error = "Unknown code action " + action };
                         break;

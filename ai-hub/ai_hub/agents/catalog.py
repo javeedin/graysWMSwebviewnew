@@ -217,6 +217,18 @@ TOOLS: list[Tool] = [
          "or match it to orders and trips. Ask for several pages with pages > 1.",
          _obj({"title": s("Card title, e.g. 'Delivery note'"), "reason": s("What to photograph and why, shown to the user"),
                "pages": i("How many photos you expect (1-6)")}, ["reason"]), risk="ask"),
+    Tool("vision", "Computer vision on pictures of THIS conversation (attachments, camera photos, earlier vision outputs) with OpenCV "
+         "and YOLO on this PC: op document = find the page and flatten / clean it (then read it better); barcodes = read every "
+         "barcode / QR (Code 128, EAN, DataMatrix …) exactly; count = count objects (boxes, bottles, tops; method circles for "
+         "round things); detect = YOLO object detection with names (person, truck, bottle … or the team's own model, params.model) "
+         "with counts per class; compare = what changed between two photos (before / after: damage, missing items); find = "
+         "where a thing (2nd image) appears in a scene (1st); enhance / info (blurry? too dark?) / edges / resize. images = names "
+         "of pictures, 'last' (default) or 'last2'. Prefer it over guessing for codes and counts; the annotated picture comes back.",
+         _obj({"op": {"type": "string", "enum": ["document", "barcodes", "count", "detect", "compare", "find", "enhance", "info", "edges", "resize"]},
+               "images": {"type": "array", "items": S, "description": "Picture names, 'last' or 'last2'"},
+               "params": {"type": "object", "description": "document: mode color|gray|bw · count: method auto|contours|circles · detect: model "
+                          "(yolo11n, yolo11n-seg, yolo11n-pose, or a custom name), conf, classes 'person, truck' · compare: threshold · resize: max_side"}},
+              ["op"])),
     Tool("phone_call", "Place a real phone call (Twilio) where you talk with the person yourself to reach a goal - e.g. confirm a delivery "
          "slot with a customer, ask a driver for an ETA, remind about an overdue payment. Give the number in international format "
          "(+230…), who it is and the goal. You introduce yourself as an AI assistant; nothing is changed on the call; the "
@@ -374,6 +386,8 @@ re-running a query; render for a document the user will print, e-mail or keep; o
 This PC (network, Wi-Fi, devices, USB, printers, disks, software, events …): the hardware tool - try it before saying
 you cannot see something about the computer. To SEE something (a document, label, product): the camera tool - the
 user takes the photo in the chat and you read it (text, tables, codes). Never say you cannot use the camera.
+For exact barcodes, counts, object names, before / after changes or a skewed document photo, run the vision tool on the
+picture (OpenCV / YOLO on this PC) instead of guessing - then answer from its numbers.
 Keep it tidy: one heading level, short tables (≤ 15 rows in chat - the results panel holds the rest)."""
 
 SPECIALISTS: dict[str, Specialist] = {s_.id: s_ for s_ in [

@@ -150,6 +150,8 @@ AG.tool('camera', function (inp) {
         CAM.open({ title: inp.title || 'Take a picture', reason: inp.reason, fromTool: true, onDone: function (shots) {
             if (!shots) { AG.pill('You closed the camera'); resolve({ ok: false, content: 'The user closed the camera without taking a picture.' }); return; }
             AG.pill('📷 ' + shots.length + ' photo(s) sent to the agent');
+            // keep them as pictures of the conversation (the vision tool / Vision tab can use them by name)
+            shots.forEach(function (sh) { AG.imgCache[sh.name] = 'data:' + sh.media_type + ';base64,' + sh.data; });
             // the first photo travels as the tool result's image; more pages are attached to the same result
             var first = shots[0];
             resolve({ ok: true, content: shots.length + ' photo(s) taken by the user' + (inp.reason ? ' for: ' + inp.reason : '') + '. The image' + (shots.length > 1 ? 's follow' : ' follows') + '.',

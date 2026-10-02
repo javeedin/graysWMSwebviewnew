@@ -131,8 +131,8 @@ namespace WMSApp
                         Log("Creating the code-runner environment…");
                         var v = await ExecAsync(py, new[] { "-m", "venv", Rt("pyenv") }, null, null, 300);
                         if (!File.Exists(Rt("pyenv", "Scripts", "python.exe"))) throw new Exception("venv failed: " + v.Err);
-                        Log("Adding pandas and matplotlib (charts, tables)…");
-                        await ExecAsync(Rt("pyenv", "Scripts", "python.exe"), new[] { "-m", "pip", "install", "--disable-pip-version-check", "-q", "pandas", "matplotlib", "openpyxl" }, null, null, 900);
+                        Log("Adding pandas, matplotlib, OpenCV and zxing-cpp (charts, tables, images, barcodes)…");
+                        await ExecAsync(Rt("pyenv", "Scripts", "python.exe"), new[] { "-m", "pip", "install", "--disable-pip-version-check", "-q", "pandas", "matplotlib", "openpyxl", "opencv-contrib-python-headless", "zxing-cpp" }, null, null, 900);
                     }
                     else if (lang == "csharp")
                     {

@@ -68,6 +68,29 @@ The agent can write and run code itself (`run_code`), but always shows you the f
 
 **Data** (button next to the time limit) adds up to three read-only queries — Fusion SQL on this page's pod, PROD or TEST, or APEX SQL — that run right before each run (one-click starters: Fusion customers, items, warehouses, WMS trips). **Test** shows rows and columns; results are kept 5 minutes while you edit (**Fresh data next run** reloads). HTML reads them as `DATA.customers.rows` / `DATA.customers.columns` (the first one is also `INPUT`); Python, C#, Node and PowerShell get `customers.csv` in their folder. The queries are saved with the code. While an HTML preview holds data it has no network: no fetch, no outside images or forms, no popups, and the app cancels any attempt to navigate the frame away — so a pasted page can show your Fusion data but cannot send it anywhere.
 
+## Vision tab — OpenCV, YOLO, gestures and skeletons
+
+**Photo · OpenCV.** Put pictures in the tray (files, drag & drop, Ctrl+V, *From chat*, camera snapshots), pick an operation, press **Run**:
+
+| Operation | What it does |
+|---|---|
+| Detect (YOLO) | Finds and names objects (people, trucks, bottles … 80 kinds) with counts; outlines (-seg), people skeletons (-pose), or your own trained model |
+| Scan document | Finds the page in a photo, flattens it, colour / gray / black-and-white |
+| Read barcodes | Every format — Code 128 / 39, EAN, UPC, QR, DataMatrix, PDF417 … |
+| Count objects | Cartons, bottles, tops (touching ones are split; *round things* for caps and coins) |
+| Compare | Before / after: aligns the photos, % similar, marks what changed |
+| Find | Where a label or logo (2nd picture) appears in a scene (1st) |
+| Enhance · Photo check · Edges · Resize | Clean up, sharp or blurry / too dark, outline, smaller copy |
+
+Results show the annotated pictures, the numbers, and tables you can send to the results panel or ask the agent about. An AI admin sets it up once per PC (**Set up**, ~100 MB; **YOLO + PyTorch**, ~600 MB more). Your own YOLO models (`.pt` trained on pallets, cartons, forklifts …) go in the **Models** folder. Photos are deleted from the work folder after each run.
+
+> [!WARNING]
+> Ultralytics YOLO is licensed **AGPL-3.0**. Using it inside a product you distribute commercially needs an Ultralytics Enterprise licence. OpenCV, zxing-cpp, PyTorch and MediaPipe are permissive (Apache / BSD).
+
+**Live · gestures & skeleton.** Start the camera: hands (21 points each) with gestures, body skeleton with elbow / knee angles, face mesh and — with YOLO set up — live object boxes, drawn as a sci-fi HUD. It runs in the app window with Google MediaPipe (the models download once); no picture leaves the PC unless you send one. Hold a gesture for about a second to trigger what you chose: 👍 take a photo, ✌️ scan barcodes, 🤟 send a photo to the chat, ✊ pause, or YOLO / voice on and off. **Posture coach** watches lifting: bending the back with straight knees shows *BEND YOUR KNEES* and is counted.
+
+**The agent** has a `vision` tool for the same operations on pictures in the conversation — "read the barcode on this label", "how many cartons are on this pallet?", "what changed between these two photos?" — and answers from the exact numbers.
+
 ## Camera
 
 Press the camera next to the paperclip (or ask: "take a picture of this delivery note"). A live preview opens in the chat; you press **Take picture** (or Space), add more pages if needed, then **Use**. The photos go to the model, which reads text, tables, labels and handwriting — ask it to turn them into text, a table in the results panel, or to match a delivery note against an order. The agent never takes a picture by itself, and the camera is off as soon as the card closes. If Windows blocks it: Settings › Privacy & security › Camera, and check the laptop's camera shutter key.
