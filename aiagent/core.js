@@ -155,12 +155,13 @@ AG.init = function () {
     }).then(function (ok) {
         if (!ok) return;
         AG.loadCatalog().then(function () {
+            if (!AG.catalog) return;
             AG.renderSpecs();
             AG.loadThreads().then(function () {
                 var last = ls('tid', null);
                 if (last && AG.threads.some(function (t) { return t.id === last; })) AG.open(last); else AG.welcome();
             });
-        });
+        }).catch(function () { });
         AG.loadModels();
         AG.jobTick();
         setInterval(AG.jobTick, 60000);
@@ -202,7 +203,46 @@ AG.loadCatalog = function () {
         AG.catalog = c;
         c.specialists.forEach(function (s) { AG.specs[s.id] = s; });
         c.tools.forEach(function (t) { AG.toolsMeta[t.name] = t; });
-    }).catch(function (e) { toast('AI Hub: ' + e + ' — update the AI Hub (AI Hub › Overview › Update)', 'err'); });
+    }).catch(function (e) {
+        // an AI Hub installed before the agent existed answers 404 on /agent/*: offer the update right here
+        if (/not found|404/i.test(String(e))) AG.hubOutdated(); else toast('AI Hub: ' + e, 'err');
+        throw e;
+    });
+};
+AG.hubOutdated = function () {
+    var st = AG.hub || {};
+    $('timeline').innerHTML = '<div class="welcome"><div class="card" style="text-align:center;padding:26px" id="upd-card"><i class="fa-solid fa-arrows-rotate" style="font-size:2rem;color:#6366f1"></i>' +
+        '<h2 style="margin-top:10px">The AI Hub on this PC needs an update</h2><p class="muted sm" style="margin:6px 0 14px">It is v' + esc(st.version || '?') + (st.bundledVersion ? '; this app brings v' + esc(st.bundledVersion) : '') +
+        ' — the AI Agent needs the newer one. The update stops the hub, copies the new files (your settings, keys and history stay), starts it again and reloads this page.</p>' +
+        '<button class="btn primary" id="upd-go"><i class="fa-solid fa-download"></i> Update the AI Hub</button><div id="upd-steps" style="margin-top:14px;text-align:left"></div></div></div>';
+    $('upd-go').onclick = AG.updateHub;
+};
+AG.updateHub = function () {
+    var btn = $('upd-go'), out = $('upd-steps'); btn.disabled = true;
+    var say = function (t) { out.innerHTML += '<div class="sm"><i class="fa-solid fa-angle-right muted"></i> ' + esc(t) + '</div>'; };
+    var fail = function (e) { say('Failed: ' + e); btn.disabled = false; toast(String(e), 'err'); };
+    say('Stopping the AI Hub…');
+    hostOk('hubStop', {}, 45000).then(function () {
+        say('Copying the new files and checking the packages…');
+        return hostOk('hubInstall', { useClaudeKey: false, port: (AG.hub && AG.hub.port) || 8100 }, 20000);
+    }).then(function () {
+        return new Promise(function (resolve, reject) {
+            var seen = {}, t = setInterval(function () {
+                host('hubStatus', { lines: 0 }, 8000).then(function (st) {
+                    var job = st.job || {};
+                    (job.steps || []).forEach(function (s) { if ((s.state === 'ok' || s.state === 'skip') && !seen[s.key]) { seen[s.key] = 1; say(s.label + (s.detail ? ' — ' + s.detail : '')); } });
+                    if (job && job.running === false && Object.keys(seen).length) { clearInterval(t); if (job.ok) resolve(); else reject(job.error || 'install failed'); }
+                }).catch(function () { });
+            }, 1500);
+        });
+    }).then(function () {
+        say('Starting the AI Hub…');
+        return hostOk('hubStart', { visible: false }, 20000);
+    }).then(function () {
+        var n = 0, t = setInterval(function () {
+            AG.checkHub().then(function (ok) { if (ok || ++n > 40) { clearInterval(t); if (ok) { say('Ready — reloading.'); setTimeout(function () { location.reload(); }, 800); } else fail('the AI Hub did not start — see AI Hub › Overview'); } });
+        }, 1000);
+    }).catch(fail);
 };
 AG.loadModels = function () {
     hub('GET', '/providers').then(function (ps) {
