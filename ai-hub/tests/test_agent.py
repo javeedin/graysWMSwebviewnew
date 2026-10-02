@@ -395,3 +395,19 @@ def test_hardware_tool_for_everyone():
     assert {"wifi", "printers", "port", "wmi", "set_default_printer"} <= set(t.schema["properties"]["op"]["enum"])
     for spec in C.SPECIALISTS:
         assert "hardware" in {x.name for x in C.tools_for(spec, ["hardware"])}
+
+
+def test_track_tech_trace_events(tmp_path):
+    s = svc(tmp_path)
+    r = s.start("Show me AP invoices of the last 30 days", caps=ALL_CAPS, trace=True)
+    while r["status"] == "waiting":
+        r = s.resume(r["thread_id"], answer(r, fake_page))
+    tr = [e["data"] for e in s.events(r["thread_id"])["events"] if e["kind"] == "trace"]
+    nodes = [t["node"] for t in tr]
+    assert nodes[0] == "route" and "agent" in nodes and "tools" in nodes
+    a = next(t for t in tr if t["node"] == "agent")
+    assert a["sdk"] == "Offline demo planner (no model)" and a["task"] == "fusion_sql" and a["tools_offered"] > 0 and "model_ms" in a
+    # off by default: no trace events
+    r2 = s.start("hello", caps=[])
+    assert not [e for e in s.events(r2["thread_id"])["events"] if e["kind"] == "trace"]
+    assert nodes.count("tools") == len([e for e in s.events(r["thread_id"])["events"] if e["kind"] == "wait"])

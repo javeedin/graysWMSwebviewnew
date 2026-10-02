@@ -50,6 +50,7 @@ class AgentIn(BaseModel):
     thread_id: str | None = None
     attachments: list[dict] | None = None
     voice: str | None = None            # "app" = the answer is spoken (voice mode)
+    trace: bool | None = None           # "Track tech": the hub reports what ran where
 
 
 def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None = None, agent_home: str | None = None,
@@ -72,6 +73,23 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
             raise HTTPException(401, "AI Hub token not accepted")
 
     A = [Depends(auth)]
+
+    @app.get("/agent/tech", dependencies=A)
+    def agent_tech():
+        """The stack behind the AI Agent, with versions, for the Track tech popup."""
+        import importlib.metadata as md
+        import platform
+
+        def ver(p):
+            try:
+                return md.version(p)
+            except md.PackageNotFoundError:
+                return None
+        pkgs = ["langgraph", "langgraph-checkpoint-sqlite", "langchain-core", "anthropic", "boto3", "httpx", "fastapi", "uvicorn", "pydantic",
+                "keyring", "faster-whisper", "piper-tts"]
+        return {"hub": VERSION, "python": platform.python_version(), "packages": {p: ver(p) for p in pkgs},
+                "providers": {k: {"type": v.get("type"), "enabled": v.get("enabled")} for k, v in cfg.providers.items()},
+                "routes": {k: [c.get("provider") + "/" + (c.get("model") or "") for c in v] for k, v in cfg.routes.items()}}
 
     @app.get("/health", dependencies=A)
     def health():
@@ -224,7 +242,8 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
     def agent_start(body: AgentIn, request: Request):
         return guard(lambda: agent.start(body.text, app_user=who(request, body.app_user), specialist=body.specialist,
                                          pod=body.pod or "PROD", caps=body.caps, model=body.model, thread_id=body.thread_id,
-                                         attachments=body.attachments, voice="app" if body.voice == "app" else None))
+                                         attachments=body.attachments, voice="app" if body.voice == "app" else None,
+                                         trace=bool(body.trace)))
 
     @app.get("/agent/threads", dependencies=A)
     def agent_list(request: Request, limit: int = 50):
@@ -241,7 +260,8 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
     @app.post("/agent/threads/{tid}/send", dependencies=A)
     def agent_send(tid: str, body: AgentIn, request: Request):
         return guard(lambda: agent.send(tid, body.text, who(request, body.app_user), body.specialist, body.caps, body.pod, body.model,
-                                        body.attachments, voice="app" if body.voice == "app" else "" if body.voice == "off" else None))
+                                        body.attachments, voice="app" if body.voice == "app" else "" if body.voice == "off" else None,
+                                        trace=body.trace))
 
     @app.post("/agent/threads/{tid}/resume", dependencies=A)
     def agent_resume(tid: str, body: dict, request: Request):

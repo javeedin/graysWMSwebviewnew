@@ -308,3 +308,22 @@ tr.row-b-ok td { background: #f0fdf4; } tr.row-b-warn td { background: #fffbeb; 
 .vsound input { margin-top: 4px; }
 .vmore { margin-top: 10px; } .vmore summary { cursor: pointer; font-size: .82rem; color: #4f46e5; margin-bottom: 8px; }
 .vc-natural { background: #fbbf24; color: #1e1b4b; border: 0; font-weight: 700; white-space: nowrap; }
+
+/* ── Track tech (tech.js) ── */
+.tech-toggle { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; color: var(--muted); }
+body.tech-on .tech-toggle { color: #7c3aed; font-weight: 700; }
+.fb .tech-ic { color: #7c3aed; }
+.tl { display: flex; flex-direction: column; gap: 0; margin: 6px 0 10px; }
+.tl-layer { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; position: relative; }
+.tl-layer:not(:last-child)::after { content: ''; position: absolute; left: 15px; top: 36px; bottom: -6px; border-left: 2px dashed #c4b5fd; }
+.tl-ic { width: 32px; height: 32px; flex: none; border-radius: 9px; background: #ede9fe; color: #6d28d9; display: grid; place-items: center; }
+.tl-tech { font-size: .8rem; color: #4c1d95; }
+.tl-h { margin: 12px 0 4px; font-size: .9rem; }
+.vc-meter { width: 46px; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .18); overflow: hidden; display: inline-block; }
+.vc-meter span { display: block; height: 100%; width: 0; background: #34d399; transition: width .08s linear; }
+.vc-btns .icon.on { background: #ef4444; color: #fff; }
+.vc-listen-ok { color: #34d399; }
+/* narrow chat column: buttons wrap under the text instead of squeezing it */
+.voice-ov { flex-wrap: wrap; row-gap: 8px; }
+.vc-mid { flex: 1 1 220px; }
+.vc-btns { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }

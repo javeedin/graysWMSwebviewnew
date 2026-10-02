@@ -62,8 +62,19 @@ class AgentState(TypedDict, total=False):
     turns: int
     results: list
     model: dict
+    trace: bool         # the page's "Track tech": emit `trace` events (what ran, where, how long)
     voice: str          # "app" (spoken in the app) | "phone" (a live call) | ""
     call: dict          # phone: {id, verified, user, goal, company}
+
+
+SDK_OF = {
+    "bedrock": "Anthropic Python SDK · AnthropicBedrockMantle (Claude in Amazon Bedrock)",
+    "claude_aws": "Anthropic Python SDK · AnthropicAWS (Claude Platform on AWS)",
+    "anthropic": "Anthropic Python SDK · Messages API (direct)",
+    "bedrock_converse": "boto3 · Amazon Bedrock Converse API",
+    "nvidia": "httpx · NVIDIA NIM (OpenAI-compatible REST)",
+    "demo": "Offline demo planner (no model)",
+}
 
 
 def sql_key(sql: str) -> str:
@@ -124,6 +135,9 @@ def build_graph(svc: "AgentService"):
             sid, scores = s["specialist"], {}
         else:
             sid, scores = C.route(text, s.get("specialist"))
+        if s.get("trace"):
+            svc.emit(tid, "trace", {"node": "route", "how": "pinned by the user" if s.get("pinned") and s.get("specialist") else "rules (routing words, no model call)",
+                                    "specialist": sid, "scores": scores})
         if sid != s.get("specialist"):
             svc.emit(tid, "route", {"specialist": sid, "title": C.SPECIALISTS[sid].title, "scores": scores})
             svc.store.run("UPDATE threads SET specialist = ? WHERE id = ?", (sid, tid))
@@ -145,8 +159,19 @@ def build_graph(svc: "AgentService"):
         if tools:
             llm = llm.bind_tools([t.spec() for t in tools])
         svc.emit(tid, "thinking", {"specialist": sp.id, "turn": turns})
+        t0 = time.time()
         ai: AIMessage = llm.invoke([SystemMessage(content=sysmsg)] + repair(s["messages"]))
         meta = ai.response_metadata or {}
+        if s.get("trace"):
+            pv = (svc.gateway.cfg.providers.get(meta.get("provider") or "") or {}).get("type") if getattr(svc.gateway, "cfg", None) else None
+            u = ai.usage_metadata or {}
+            svc.emit(tid, "trace", {"node": "agent", "turn": turns, "specialist": sp.id, "task": meta.get("task") or sp.task,
+                                    "provider": meta.get("provider"), "provider_type": pv, "sdk": SDK_OF.get(pv or "", pv), "model": meta.get("model"),
+                                    "model_ms": meta.get("ms"), "node_ms": int((time.time() - t0) * 1000), "tokens_in": u.get("input_tokens"),
+                                    "tokens_out": u.get("output_tokens"), "cost": meta.get("cost"), "stop": meta.get("stop_reason"),
+                                    "fallback": meta.get("fallback"), "attempts": meta.get("attempts"), "skipped": meta.get("skipped"),
+                                    "tools_offered": len(tools), "system_chars": len(sysmsg), "cached_prefix": CACHE_BREAK in sysmsg,
+                                    "messages": len(s["messages"]), "tool_calls": [tc["name"] for tc in ai.tool_calls or []]})
         svc.add_usage(tid, ai.usage_metadata or {}, meta)
         text = ai.content if isinstance(ai.content, str) else ""
         if text.strip():
@@ -185,6 +210,9 @@ def build_graph(svc: "AgentService"):
         if outside:
             value = interrupt({"type": "tools", "specialist": s.get("specialist"), "calls": outside})
             results = (value or {}).get("results") or {} if isinstance(value, dict) else {}
+            if s.get("trace"):   # after the resume: a node re-runs from its start when resumed, so this fires once
+                svc.emit(tid, "trace", {"node": "tools", "interrupt": True, "calls": [{"name": c["name"], "runs": c["runs"], "risk": c["risk"]} for c in outside],
+                                        "how": "LangGraph interrupt() - the graph paused at a checkpoint, the app ran the tools and resumed it with Command(resume=…)"})
         msgs, upd, res_list = [], {}, list(s.get("results") or [])
         for tc in ai.tool_calls:
             cid, name, args = tc["id"], tc["name"], tc.get("args") or {}
@@ -193,8 +221,11 @@ def build_graph(svc: "AgentService"):
             if cid in immediate:
                 content, err = immediate[cid]
             elif t and t.runs == "hub" and (t.risk != "act" or (results.get(cid) or {}).get("approved")):
+                th = time.time()
                 content, err, extra = svc.run_hub_tool(name, args, s, tid)
                 upd.update(extra)
+                if s.get("trace"):
+                    svc.emit(tid, "trace", {"node": "hub_tool", "name": name, "ms": int((time.time() - th) * 1000), "ok": not err})
             else:
                 r = results.get(cid)
                 if r is None:
@@ -371,7 +402,7 @@ class AgentService:
 
     def start(self, text: str, app_user: str | None = None, specialist: str | None = None, pod: str = "PROD",
               caps: list | None = None, model: dict | None = None, job_id: str | None = None, thread_id: str | None = None,
-              attachments: list | None = None, voice: str | None = None, call: dict | None = None) -> dict:
+              attachments: list | None = None, voice: str | None = None, call: dict | None = None, trace: bool = False) -> dict:
         # the page may choose the id (ag_ + 16 hex) so it can follow the live events of the very first turn
         tid = thread_id if thread_id and re.fullmatch(r"ag_[0-9a-f]{16}", thread_id) else "ag_" + uuid.uuid4().hex[:16]
         if self.store.one("SELECT 1 AS x FROM threads WHERE id = ?", (tid,)):
@@ -381,7 +412,7 @@ class AgentService:
         self.store.run("INSERT INTO threads (id, app_user, title, specialist, status, pod, created, updated, job_id) VALUES (?,?,?,?,?,?,?,?,?)",
                        (tid, app_user, title, specialist, "running", pod, now, now, job_id))
         state = {"messages": [human(text, attachments)], "app_user": app_user or "", "pod": (pod or "PROD").upper(),
-                 "caps": caps, "dry_ok": [], "results": [], "model": model or {}, "voice": voice or "", "call": call or {}}
+                 "caps": caps, "dry_ok": [], "results": [], "model": model or {}, "voice": voice or "", "call": call or {}, "trace": bool(trace)}
         if specialist in C.SPECIALISTS:
             state.update(specialist=specialist, pinned=True)
         else:
@@ -391,9 +422,11 @@ class AgentService:
 
     def send(self, tid: str, text: str, app_user: str | None = None, specialist: str | None = None,
              caps: list | None = None, pod: str | None = None, model: dict | None = None, attachments: list | None = None,
-             voice: str | None = None, call: dict | None = None) -> dict:
+             voice: str | None = None, call: dict | None = None, trace: bool | None = None) -> dict:
         self._own(tid, app_user)
         upd: dict[str, Any] = {"messages": [human(text, attachments)]}
+        if trace is not None:
+            upd["trace"] = bool(trace)
         if voice is not None:
             upd["voice"] = voice
         if call is not None:

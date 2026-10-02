@@ -207,3 +207,11 @@ def test_piper_not_installed_message(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", lambda n, *a, **k: (_ for _ in ()).throw(ImportError("x")) if n == "piper" else real(n, *a, **k))
     with pytest.raises(V.VoiceError, match="natural voice is not set up"):
         V.tts(HubConfig(), "Hello", provider="piper")
+
+
+def test_agent_tech_endpoint(tmp_path):
+    cfg = HubConfig()
+    tok = cfg.new_token()
+    c = TestClient(create_api(cfg, Usage(), str(tmp_path / "d.db"), str(tmp_path / "ag")))
+    t = c.get("/agent/tech", headers={"Authorization": "Bearer " + tok}).json()
+    assert t["packages"]["langgraph"] and t["packages"]["langchain-core"] and t["packages"]["fastapi"] and "demo" in t["providers"]

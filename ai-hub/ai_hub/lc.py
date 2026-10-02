@@ -76,6 +76,8 @@ class GatewayChatModel(BaseChatModel):
                                           max_tokens=kwargs.get("max_tokens", self.max_tokens), app_user=self.app_user,
                                           data_class=self.data_class, tools=kwargs.get("tools") or None))
         meta = {k: r[k] for k in ("provider", "model", "ms", "cost", "attempts", "fallback", "stop_reason")}
+        meta["skipped"] = r.get("skipped") or []
+        meta["task"] = self.task
         calls = [{"name": c["name"], "args": c.get("input") or {}, "id": c["id"], "type": "tool_call"} for c in r.get("tool_calls") or []]
         msg = AIMessage(content=r["text"], tool_calls=calls, response_metadata=meta,
                         usage_metadata={"input_tokens": r["tokens_in"], "output_tokens": r["tokens_out"],

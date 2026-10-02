@@ -416,7 +416,10 @@ AG.meta = function () {
     var el = $('compose-meta'); if (!el) return;
     var s = AG.specOf(AG.spec);
     el.innerHTML = '<span><i class="fa-solid ' + s.icon + '"></i> ' + esc(s.title) + '</span><span>Fusion pod <b>' + AG.pod + '</b></span>' +
-        '<span>Nothing changes without your confirm</span><span class="grow"></span><span>' + AG.caps().length + ' tools on this app</span>';
+        '<span>Nothing changes without your confirm</span><span class="grow"></span>' +
+        '<label class="tech-toggle" title="Record which technology answers each prompt — an icon on every answer opens the details"><input type="checkbox" id="tech-on"' + (window.TECH && TECH.on ? ' checked' : '') + '> <i class="fa-solid fa-layer-group"></i> Track tech</label>' +
+        '<span>' + AG.caps().length + ' tools on this app</span>';
+    var cb = $('tech-on'); if (cb && window.TECH) cb.onchange = function () { TECH.setOn(this.checked); };
 };
 
 // ── conversations ──────────────────────────────────────────────
@@ -509,6 +512,7 @@ AG.send = function () {
         body.attachments = AG.files; AG.files = []; AG.renderFiles();
     }
     if (window.VOICE) body.voice = VOICE.on ? 'app' : 'off';   // spoken answers: short, natural, no tables
+    if (window.TECH) { body.trace = TECH.on; TECH.beginTurn(); }   // Track tech: the hub reports what ran where
     var call;
     if (!AG.tid) {
         AG.tid = 'ag_' + hex16(); AG.seq = 0; AG.stepEls = {}; lsSet('tid', AG.tid);

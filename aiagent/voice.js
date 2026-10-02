@@ -38,7 +38,7 @@ VOICE.start = function () {
             VOICE.proc = VOICE.ctx.createScriptProcessor(2048, 1, 1);
             src.connect(VOICE.proc); VOICE.proc.connect(VOICE.ctx.destination);
             VOICE.proc.onaudioprocess = VOICE.onAudio;
-            VOICE.on = true; VOICE.since = Date.now() / 1000; VOICE.floor = 0.008; VOICE.frames = []; VOICE.pre = [];
+            VOICE.on = true; VOICE.since = Date.now() / 1000; VOICE.peak = 0; VOICE.silentChecked = false; VOICE.sticky = false; VOICE.floor = 0.008; VOICE.frames = []; VOICE.pre = [];
             VOICE.ui(true);
             VOICE.setState('listening');
             VOICE.tick = setInterval(VOICE.loop, 200);
@@ -77,6 +77,7 @@ VOICE.loop = function () {
 VOICE.setState = function (s) {
     VOICE.state = s;
     if (s === 'listening') VOICE.saidWait = false;
+    if (VOICE.refreshBar) VOICE.refreshBar();
     var lbl = $('vc-state'), orb = $('vc-orb');
     if (!lbl || !orb) return;
     lbl.textContent = VOICE.muted && (s === 'listening' || s === 'hearing') ? VOICE.LABEL.muted : s === 'listening' && VOICE.stt() === 'none' ? 'I can\'t hear you yet — set up speech recognition' : (VOICE.LABEL[s] || '');
@@ -93,6 +94,12 @@ VOICE.onAudio = function (ev) {
     var rms = Math.sqrt(sum / x.length);
     VOICE.level = VOICE.level * 0.6 + rms * 0.4;
     var orb = $('vc-orb'); if (orb) orb.style.setProperty('--lvl', Math.min(1, VOICE.level * 12).toFixed(3));
+    var lv = $('vc-lvl'); if (lv) lv.style.width = Math.min(100, Math.round(VOICE.level * 600)) + '%';
+    VOICE.peak = Math.max(VOICE.peak || 0, rms);
+    if (!VOICE.silentChecked && VOICE.since && Date.now() / 1000 - VOICE.since > 8) {
+        VOICE.silentChecked = true;
+        if (VOICE.peak < 0.002 && !VOICE.sticky) VOICE.status('Your microphone sends no sound. Check it is not muted (keyboard key or Windows sound settings) and that the right microphone is the default.');
+    }
     if (VOICE.muted || VOICE.stt() === 'none') return;
     if (VOICE.stt() === 'browser') { VOICE.watchSR(rms); return; }
     var st = VOICE.state, speaking = st === 'speaking';
@@ -187,29 +194,56 @@ VOICE.srFailed = function (why) {
     VOICE.sttOverride = 'none';
     VOICE.needStt('The built-in speech recognition does not work in this app window (' + why + ').');
 };
-/** No working recogniser: offer the free local one (one click) or a cloud key. */
+/** No working recogniser: a permanent "Set up listening" button in the bar (not in the caption, so nothing can hide it). */
 VOICE.needStt = function (why) {
+    VOICE.sttWhy = why;
     VOICE.setState('waiting');
+    VOICE.status(why + ' Press <b>Set up listening (free)</b> — it runs on this PC — or use an ElevenLabs / Azure key in settings.');
+    VOICE.refreshBar();
+};
+/** A sticky status line under the state (setup progress, errors) — captions do not overwrite it. */
+VOICE.status = function (html) {
     var c = $('vc-cap'); if (!c) return;
-    c.classList.add('help');
-    c.innerHTML = esc(why) + ' <button class="btn sm" id="vc-whisper"><i class="fa-solid fa-download"></i> Set up free speech recognition</button> <button class="btn sm" onclick="VOICE.settings()">Use ElevenLabs / Azure</button>';
-    $('vc-whisper').onclick = VOICE.installWhisper;
-    $('vc-state').textContent = 'I can\'t hear you yet';
+    VOICE.sticky = !!html;
+    c.classList.toggle('help', !!html);
+    if (html) c.innerHTML = html;
+};
+/** Buttons that depend on the state: Set up listening (until it works), Natural voice (while the voice is robotic). */
+VOICE.refreshBar = function () {
+    var box = document.querySelector('#voice-ov .vc-btns'); if (!box) return;
+    var need = VOICE.on && VOICE.stt() === 'none', btn = $('vc-listen');
+    if (need && !btn) {
+        btn = document.createElement('button'); btn.id = 'vc-listen'; btn.className = 'btn sm vc-natural';
+        btn.innerHTML = '<i class="fa-solid fa-ear-listen"></i> Set up listening (free)';
+        btn.title = 'Installs free speech recognition (Whisper) in the AI Hub on this PC';
+        btn.onclick = VOICE.installWhisper;
+        box.prepend(btn);
+    } else if (!need && btn) btn.remove();
+    var mute = $('vc-mute');
+    if (mute) { mute.classList.toggle('on', VOICE.muted); mute.innerHTML = '<i class="fa-solid ' + (VOICE.muted ? 'fa-microphone-slash' : 'fa-microphone') + '"></i>'; mute.title = VOICE.muted ? 'Microphone is MUTED — click to unmute' : 'Microphone is on — click to mute'; }
 };
 VOICE.installWhisper = function () {
-    var c = $('vc-cap');
+    var btn = $('vc-listen');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Setting up…'; }
+    var fail = function (msg, old) {
+        VOICE.status(esc(msg) + (old ? ' <button class="btn sm" onclick="AG.showHubPanel()"><i class="fa-solid fa-server"></i> Update the AI Hub</button>' : ''));
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Retry setup'; }
+    };
     hub('POST', '/voice/whisper/install', {}).then(function poll(st) {
         if (!VOICE.on) return;
-        if (st.state === 'done' || st.installed && st.state !== 'running') {
+        if (st.state === 'done' || (st.installed && st.state !== 'running')) {
             VOICE.cfg.whisper = st; VOICE.sttOverride = 'whisper'; VOICE.srBroken = true;
-            if (c) { c.classList.remove('help'); c.textContent = ''; }
+            VOICE.status(null); VOICE.refreshBar();
             VOICE.setState('listening'); VOICE.speakText('All set. I can hear you now.');
             return;
         }
-        if (st.state === 'error') { if (c) c.textContent = 'Setup failed: ' + st.error; return; }
-        if (c) c.textContent = 'Setting up local speech recognition (first time: a download of about 150 MB)… ' + String(st.log || '').trim().split('\n').pop().slice(0, 90);
+        if (st.state === 'error') { fail('Setup failed: ' + st.error + (st.log ? ' — ' + String(st.log).trim().split('\n').pop().slice(0, 120) : '')); return; }
+        VOICE.status('Setting up free speech recognition (first time: about 150 MB, a few minutes)… <span class="muted">' + esc(String(st.log || '').trim().split('\n').pop().slice(0, 90)) + '</span>');
         return new Promise(function (r) { setTimeout(r, 3000); }).then(function () { return hub('GET', '/voice/whisper'); }).then(poll);
-    }).catch(function (e) { if (c) c.textContent = 'Setup failed: ' + e + ' — is the AI Hub up to date? (server button › Update)'; });
+    }).catch(function (e) {
+        var old = /not found|404/i.test(String(e));
+        fail(old ? 'This AI Hub is too old for voice setup.' : 'Setup failed: ' + e, true);
+    });
 };
 
 // ── what the user said → a card answer, a voice command, or a message to the agent ──
@@ -325,15 +359,16 @@ VOICE.ui = function (show) {
     el = document.createElement('div'); el.id = 'voice-ov'; el.className = 'voice-ov';
     el.innerHTML = '<div class="vc-orb listening" id="vc-orb"><i class="fa-solid fa-ear-listen"></i></div>' +
         '<div class="vc-mid"><div class="vc-state" id="vc-state">Listening…</div><div class="vc-cap" id="vc-cap">Say something — e.g. “which trips are not printed yet?”</div></div>' +
-        '<div class="vc-btns"><button class="icon" id="vc-mute" title="Mute the microphone"><i class="fa-solid fa-microphone-slash"></i></button>' +
-        '<button class="icon" title="Stop talking" onclick="VOICE.hush()"><i class="fa-solid fa-volume-xmark"></i></button>' +
+        '<div class="vc-btns"><span class="vc-meter" title="Microphone level — it should move when you speak"><span id="vc-lvl"></span></span>' +
+        '<button class="icon" id="vc-mute" title="Microphone is on — click to mute"><i class="fa-solid fa-microphone"></i></button>' +
+        '<button class="icon" title="Stop the agent talking" onclick="VOICE.hush()"><i class="fa-solid fa-stop"></i></button>' +
         '<button class="icon" title="Voice settings" onclick="VOICE.settings()"><i class="fa-solid fa-sliders"></i></button>' +
         '<button class="btn danger sm" onclick="VOICE.stop()"><i class="fa-solid fa-phone-slash"></i> End</button></div>';
     document.querySelector('.composer').prepend(el);
-    $('vc-mute').onclick = function () { VOICE.muted = !VOICE.muted; this.classList.toggle('on', VOICE.muted); if (VOICE.muted && VOICE.sr) { try { VOICE.sr.abort(); } catch (e) { /* ok */ } } VOICE.setState(VOICE.state); };
+    $('vc-mute').onclick = function () { VOICE.muted = !VOICE.muted; if (VOICE.muted && VOICE.sr) { try { VOICE.sr.abort(); } catch (e) { /* ok */ } } VOICE.setState(VOICE.state); };
 };
 VOICE.caption = function (who, text) {
-    var c = $('vc-cap'); if (!c || $('vc-whisper')) return;
+    var c = $('vc-cap'); if (!c || VOICE.sticky) return;
     c.innerHTML = '<b>' + (who === 'you' ? 'You' : 'Agent') + ':</b> ' + esc(String(text).slice(0, 220));
 };
 
@@ -409,6 +444,7 @@ VOICE.installPiper = function (msg) {
     (inDialog ? VOICE.saveSettings() : Promise.resolve()).then(function () { return hub('POST', '/voice/piper/install', {}); }).then(function poll(st) {
         if (st.state === 'done' || (st.installed && st.state !== 'running')) {
             msg('The natural voice is ready.');
+            if (!inDialog) setTimeout(function () { VOICE.status(null); }, 4000);
             var vb = $('vc-piper'); if (vb) vb.remove();
             VOICE.loadCfg(true).then(function () { if (inDialog) VOICE.settings(); setTimeout(VOICE.testVoice, inDialog ? 400 : 0); });
             return;
@@ -424,7 +460,12 @@ VOICE.offerNatural = function () {
     var btn = document.createElement('button'); btn.id = 'vc-piper'; btn.className = 'btn sm vc-natural';
     btn.title = 'Sounds robotic? Install a free natural voice that runs on this PC';
     btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Natural voice (free)';
-    btn.onclick = function () { VOICE.installPiper(function (t) { var c = $('vc-cap'); if (c && !$('vc-whisper')) c.textContent = t; }); };
+    var have = VOICE.cfg && VOICE.cfg.piper && VOICE.cfg.piper.installed;
+    if (have) { btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Use the natural voice'; btn.title = 'The free natural voice is installed — switch to it'; }
+    btn.onclick = have ? function () {
+        hub('PUT', '/voice/config', { voice: { tts: { provider: 'piper' } } }).then(function (c) { VOICE.cfg = c; btn.remove(); VOICE.speakText('This is my natural voice.'); })
+            .catch(function (e) { VOICE.status(esc('Could not switch: ' + e)); });
+    } : function () { VOICE.installPiper(function (t) { VOICE.status(esc(t)); }); };
     document.querySelector('#voice-ov .vc-btns').prepend(btn);
 };
 VOICE.saveSettings = function () {
