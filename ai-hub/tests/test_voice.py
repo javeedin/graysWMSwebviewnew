@@ -179,3 +179,31 @@ def test_camera_photos_reach_the_model_as_images(tmp_path, monkeypatch):
 def test_whisper_status_in_voice_config():
     st = V.status(HubConfig())
     assert set(st["whisper"]) >= {"installed", "state"} and st["whisper"]["state"] in ("idle", "running", "done", "error")
+
+
+def test_language_and_gender_pick_the_voice(tmp_path):
+    cfg = HubConfig({"voice": {"language": "fr-FR", "gender": "male"}})
+    assert V.pick_voice(cfg, "piper") == "fr_FR-tom-medium" and V.pick_voice(cfg, "azure") == "fr-FR-HenriNeural"
+    assert V.pick_voice(cfg, "elevenlabs") == V.ELEVEN_STOCK["M"]
+    cfg.voice["gender"] = "female"
+    assert V.pick_voice(cfg, "polly") == "Lea"
+    cfg.voice["tts"].update(voice="fr-FR-EloiseNeural", voice_provider="azure")       # an explicit voice wins for its provider only
+    assert V.pick_voice(cfg, "azure") == "fr-FR-EloiseNeural" and V.pick_voice(cfg, "piper") == "fr_FR-siwis-medium"
+    assert {"fr_FR-tom-medium", "en_US-amy-medium"} <= {x["id"] for x in V.voices(cfg, "piper")}
+    st = V.status(cfg)
+    assert st["language"] == "fr-FR" and "piper" in st and "Français" == st["languages"]["fr-FR"]["name"]
+    # the agent answers in the voice language
+    svc = AgentService(Gateway(cfg, Usage()), tmp_path / "ag")
+    r = svc.start("bonjour", caps=[], voice="app")
+    st2 = svc.graph.get_state(svc._cfg(r["thread_id"])).values
+    assert "Speak Français" in svc.system_prompt(C.SPECIALISTS[C.FA], st2)
+    with pytest.raises(V.VoiceError):
+        V.piper_download("not-a-voice")
+
+
+def test_piper_not_installed_message(monkeypatch):
+    import builtins
+    real = builtins.__import__
+    monkeypatch.setattr(builtins, "__import__", lambda n, *a, **k: (_ for _ in ()).throw(ImportError("x")) if n == "piper" else real(n, *a, **k))
+    with pytest.raises(V.VoiceError, match="natural voice is not set up"):
+        V.tts(HubConfig(), "Hello", provider="piper")

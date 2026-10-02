@@ -298,3 +298,13 @@ tr.row-b-ok td { background: #f0fdf4; } tr.row-b-warn td { background: #fffbeb; 
 .uphoto { max-width: 220px; max-height: 160px; border-radius: 8px; border: 2px solid rgba(255, 255, 255, .6); cursor: zoom-in; display: block; }
 .fchip .fthumb { height: 34px; }
 .vc-cap.help { white-space: normal; overflow: visible; line-height: 1.9; } .vc-cap.help .btn { margin-left: 4px; }
+.vpick { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 10px; }
+.seg2 { display: inline-flex; background: #eef2ff; border-radius: 9px; padding: 3px; margin-top: 3px; }
+.seg2 button { border: 0; background: transparent; padding: 6px 12px; border-radius: 7px; cursor: pointer; font-weight: 700; color: #3730a3; }
+.seg2 button.on { background: #4f46e5; color: #fff; }
+.vsounds { display: flex; flex-direction: column; gap: 6px; }
+.vsound { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line, #e2e8f0); border-radius: 10px; cursor: pointer; }
+.vsound.on { border-color: #7c3aed; background: #faf5ff; }
+.vsound input { margin-top: 4px; }
+.vmore { margin-top: 10px; } .vmore summary { cursor: pointer; font-size: .82rem; color: #4f46e5; margin-bottom: 8px; }
+.vc-natural { background: #fbbf24; color: #1e1b4b; border: 0; font-weight: 700; white-space: nowrap; }

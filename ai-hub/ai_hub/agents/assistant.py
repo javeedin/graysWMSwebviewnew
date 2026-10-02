@@ -38,7 +38,7 @@ from langgraph.types import Command, interrupt
 
 from ..db import Store
 from ..lc import GatewayChatModel
-from ..voice import ACCESS_UNVERIFIED, ACCESS_VERIFIED, PHONE_STYLE, VOICE_STYLE
+from ..voice import ACCESS_UNVERIFIED, ACCESS_VERIFIED, LANGS, PHONE_STYLE, VOICE_STYLE
 from . import catalog as C
 
 RESULT_CHARS = 14000          # tool result text the model sees
@@ -292,6 +292,12 @@ class AgentService:
             parts.append("What you know about this user (from `remember`):\n" + "\n".join("- " + f["fact"] for f in reversed(facts)))
         if s.get("voice") in ("app", "phone"):
             parts.append(VOICE_STYLE)
+        if s.get("voice") == "app":
+            vcfg = getattr(getattr(self.gateway, "cfg", None), "voice", None) or {}
+            lang = LANGS.get(vcfg.get("language") or "en-US")
+            if lang and not str(vcfg.get("language")).startswith("en"):
+                parts.append(f"Speak {lang['name']} in this conversation (the user hears your words in that language), unless the user "
+                             "clearly switches language. Table names, codes and IDs stay as they are.")
         if s.get("voice") == "phone":
             call = s.get("call") or {}
             access = ACCESS_VERIFIED.format(user=call.get("user")) if call.get("verified") else ACCESS_UNVERIFIED

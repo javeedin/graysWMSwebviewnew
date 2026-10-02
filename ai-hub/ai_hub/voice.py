@@ -20,7 +20,49 @@ import httpx
 from . import secrets
 from .config import HubConfig
 
-TTS_PROVIDERS = ["browser", "elevenlabs", "azure", "polly"]
+TTS_PROVIDERS = ["browser", "piper", "elevenlabs", "azure", "polly"]
+
+# Language → a female (F) and male (M) voice per provider. "voice" in the settings overrides this; empty = pick from here.
+# piper: free neural voices that run on this PC (rhasspy/piper-voices, downloaded once, ~60 MB each)
+LANGS: dict[str, dict] = {
+    "en-US": {"name": "English (US)", "stt": "en", "piper": {"F": "en_US-amy-medium", "M": "en_US-ryan-high"},
+              "azure": {"F": "en-US-AvaMultilingualNeural", "M": "en-US-AndrewMultilingualNeural"}, "polly": {"F": "Ruth", "M": "Matthew"}},
+    "en-GB": {"name": "English (UK)", "stt": "en", "piper": {"F": "en_GB-alba-medium", "M": "en_GB-alan-medium"},
+              "azure": {"F": "en-GB-SoniaNeural", "M": "en-GB-RyanNeural"}, "polly": {"F": "Amy", "M": "Brian"}},
+    "fr-FR": {"name": "Français", "stt": "fr", "piper": {"F": "fr_FR-siwis-medium", "M": "fr_FR-tom-medium"},
+              "azure": {"F": "fr-FR-DeniseNeural", "M": "fr-FR-HenriNeural"}, "polly": {"F": "Lea", "M": "Remi"}},
+    "hi-IN": {"name": "हिन्दी (Hindi)", "stt": "hi", "piper": {"F": "hi_IN-priyamvada-medium", "M": "hi_IN-pratham-medium"},
+              "azure": {"F": "hi-IN-SwaraNeural", "M": "hi-IN-MadhurNeural"}, "polly": {"F": "Kajal", "M": "Kajal"}},
+    "ar-SA": {"name": "العربية (Arabic)", "stt": "ar", "piper": {"F": "ar_JO-kareem-medium", "M": "ar_JO-kareem-medium"},
+              "azure": {"F": "ar-SA-ZariyahNeural", "M": "ar-SA-HamedNeural"}, "polly": {"F": "Hala", "M": "Zayd"}},
+    "de-DE": {"name": "Deutsch", "stt": "de", "piper": {"F": "de_DE-kerstin-low", "M": "de_DE-thorsten-medium"},
+              "azure": {"F": "de-DE-KatjaNeural", "M": "de-DE-ConradNeural"}, "polly": {"F": "Vicki", "M": "Daniel"}},
+    "es-ES": {"name": "Español", "stt": "es", "piper": {"F": "es_ES-sharvard-medium", "M": "es_ES-davefx-medium"},
+              "azure": {"F": "es-ES-ElviraNeural", "M": "es-ES-AlvaroNeural"}, "polly": {"F": "Lucia", "M": "Sergio"}},
+    "zh-CN": {"name": "中文 (Chinese)", "stt": "zh", "piper": {"F": "zh_CN-huayan-medium", "M": "zh_CN-huayan-medium"},
+              "azure": {"F": "zh-CN-XiaoxiaoNeural", "M": "zh-CN-YunxiNeural"}, "polly": {"F": "Zhiyu", "M": "Zhiyu"}},
+}
+ELEVEN_STOCK = {"F": "21m00Tcm4TlvDq8ikWAM", "M": "pNInz6obpgDQGcFmaJgB"}   # Rachel / Adam - multilingual with flash v2.5
+
+
+def lang_of(cfg: HubConfig) -> str:
+    code = cfg.voice.get("language") or "en-US"
+    return code if code in LANGS else "en-US"
+
+
+def gender_of(cfg: HubConfig) -> str:
+    return "M" if str(cfg.voice.get("gender") or "female").lower().startswith("m") else "F"
+
+
+def pick_voice(cfg: HubConfig, provider: str) -> str:
+    """The voice for this provider: the explicit setting, else language + gender from LANGS."""
+    explicit = cfg.voice["tts"].get("voice") or ""
+    if explicit and cfg.voice["tts"].get("voice_provider", provider) == provider:
+        return explicit
+    g, lang = gender_of(cfg), LANGS[lang_of(cfg)]
+    if provider == "elevenlabs":
+        return ELEVEN_STOCK[g]
+    return (lang.get(provider) or {}).get(g, "")
 STT_PROVIDERS = ["browser", "elevenlabs", "azure", "whisper"]
 SECRET_NAMES = ["elevenlabs.api_key", "azure_speech.key", "twilio.auth_token"]
 MAX_TTS_CHARS = 2500
@@ -81,18 +123,20 @@ def tts(cfg: HubConfig, text: str, provider: str | None = None, voice: str | Non
     if p == "browser":
         return {"provider": "browser", "text": text}
     t0 = time.time()
-    voice = voice or v["tts"].get("voice") or ""
-    if p == "elevenlabs":
-        vid = voice or "21m00Tcm4TlvDq8ikWAM"         # "Rachel", a stock ElevenLabs voice - pick another in settings
+    voice = voice or pick_voice(cfg, p)
+    if p == "piper":
+        audio, mime = _piper_say(cfg, text, voice), "audio/wav"
+    elif p == "elevenlabs":
+        vid = voice or ELEVEN_STOCK["F"]
         r = httpx.post(f"https://api.elevenlabs.io/v1/text-to-speech/{vid}", params={"output_format": "mp3_44100_128"},
                        headers={"xi-api-key": _key("elevenlabs.api_key"), "accept": "audio/mpeg"},
-                       json={"text": text, "model_id": v["tts"].get("model") or "eleven_flash_v2_5",
+                       json={"text": text, "model_id": v["tts"].get("model") or "eleven_flash_v2_5", "language_code": LANGS[lang_of(cfg)]["stt"],
                              "voice_settings": {"stability": 0.45, "similarity_boost": 0.8, "style": 0.15, "speed": float(v["tts"].get("speed") or 1.0)}},
                        timeout=60)
         _ok(r, "ElevenLabs")
         audio, mime = r.content, "audio/mpeg"
     elif p == "azure":
-        name = voice or "en-US-AvaMultilingualNeural"
+        name = voice or LANGS["en-US"]["azure"]["F"]
         lang = "-".join(name.split("-")[:2])
         rate = f"{int((float(v['tts'].get('speed') or 1.0) - 1) * 100):+d}%"
         ssml = (f"<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='{lang}'><voice name='{html.escape(name)}'>"
@@ -106,7 +150,11 @@ def tts(cfg: HubConfig, text: str, provider: str | None = None, voice: str | Non
     elif p == "polly":
         sess = _aws_session(cfg)
         engine = v["tts"].get("engine") or "generative"
-        r = sess.client("polly").synthesize_speech(Text=text, OutputFormat="mp3", VoiceId=voice or "Ruth", Engine=engine)
+        polly = sess.client("polly")
+        try:
+            r = polly.synthesize_speech(Text=text, OutputFormat="mp3", VoiceId=voice or "Ruth", Engine=engine)
+        except Exception:  # noqa: BLE001 - not every voice has the generative engine: fall back to neural
+            r = polly.synthesize_speech(Text=text, OutputFormat="mp3", VoiceId=voice or "Ruth", Engine="neural")
         audio, mime = r["AudioStream"].read(), "audio/mpeg"
     else:
         raise VoiceError(f"Unknown TTS provider {p} ({', '.join(TTS_PROVIDERS)}).")
@@ -115,6 +163,9 @@ def tts(cfg: HubConfig, text: str, provider: str | None = None, voice: str | Non
 
 def voices(cfg: HubConfig, provider: str) -> list[dict]:
     p = (provider or "").lower()
+    if p == "piper":
+        return [{"id": v["piper"][g], "name": v["piper"][g], "info": f"{v['name']} · {'female' if g == 'F' else 'male'}"}
+                for v in LANGS.values() for g in ("F", "M") if g == "F" or v["piper"]["M"] != v["piper"]["F"]]
     if p == "elevenlabs":
         r = httpx.get("https://api.elevenlabs.io/v1/voices", headers={"xi-api-key": _key("elevenlabs.api_key")}, timeout=30)
         _ok(r, "ElevenLabs")
@@ -149,7 +200,7 @@ def stt(cfg: HubConfig, audio_b64: str, mime: str = "audio/wav", language: str |
         raise VoiceError("No audio.")
     if len(audio) > MAX_AUDIO_BYTES:
         raise VoiceError("Audio too long (max about 3 minutes).")
-    lang = (language or v.get("language") or "en").split("-")[0]
+    lang = (language or v.get("language") or LANGS[lang_of(cfg)]["stt"]).split("-")[0]
     t0 = time.time()
     if p == "elevenlabs":
         r = httpx.post("https://api.elevenlabs.io/v1/speech-to-text", headers={"xi-api-key": _key("elevenlabs.api_key")},
@@ -203,6 +254,78 @@ def _aws_session(cfg: HubConfig):
     return BedrockConverseProvider(pid, pc)._session()
 
 
+# ── Piper: free neural voices on this PC ──
+PIPER_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
+_piper: dict = {}
+_piper_lock = threading.Lock()
+
+
+def piper_dir():
+    from .config import home
+    d = home() / "voices" / "piper"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def piper_download(name: str) -> None:
+    """Downloads <name>.onnx + .onnx.json once (e.g. en_US-amy-medium)."""
+    m = re.fullmatch(r"([a-z]{2})_([A-Z]{2})-([a-z0-9_]+)-(x_low|low|medium|high)", name or "")
+    if not m:
+        raise VoiceError(f"Not a Piper voice name: {name}")
+    lang, locale, who, q = m.group(1), f"{m.group(1)}_{m.group(2)}", m.group(3), m.group(4)
+    for ext in (".onnx.json", ".onnx"):
+        f = piper_dir() / (name + ext)
+        if f.exists() and f.stat().st_size > 0:
+            continue
+        url = f"{PIPER_BASE}/{lang}/{locale}/{who}/{q}/{name}{ext}"
+        with httpx.stream("GET", url, follow_redirects=True, timeout=600) as r:
+            if r.status_code >= 400:
+                raise VoiceError(f"Voice {name} could not be downloaded (HTTP {r.status_code}).")
+            tmp = f.with_suffix(f.suffix + ".part")
+            with open(tmp, "wb") as out:
+                for chunk in r.iter_bytes(1 << 16):
+                    out.write(chunk)
+            tmp.replace(f)
+
+
+def _piper_say(cfg: HubConfig, text: str, name: str) -> bytes:
+    try:
+        from piper import PiperVoice  # optional: one click in Voice settings (pip install piper-tts)
+    except ImportError as e:
+        raise VoiceError("The free natural voice is not set up yet - Voice settings › Set up natural voice.") from e
+    import io
+    import wave
+    name = name or LANGS["en-US"]["piper"]["F"]
+    with _piper_lock:
+        if name not in _piper:
+            # a voice that cannot be downloaded falls back to the other gender of the language, then English
+            lang = LANGS[lang_of(cfg)]["piper"]
+            tried, err = [], None
+            for cand in dict.fromkeys([name, lang["F"], lang["M"], LANGS["en-US"]["piper"]["F"]]):
+                try:
+                    piper_download(cand)
+                    _piper[name] = PiperVoice.load(str(piper_dir() / (cand + ".onnx")))
+                    break
+                except Exception as e:  # noqa: BLE001
+                    tried.append(cand)
+                    err = e
+            else:
+                raise VoiceError(f"No natural voice could be loaded ({', '.join(tried)}): {err}")
+        vo = _piper[name]
+        speed = float(cfg.voice["tts"].get("speed") or 1.0)
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            if hasattr(vo, "synthesize_wav"):          # piper-tts 1.3+
+                try:
+                    from piper import SynthesisConfig
+                    vo.synthesize_wav(text, wf, syn_config=SynthesisConfig(length_scale=1.0 / speed))
+                except ImportError:
+                    vo.synthesize_wav(text, wf)
+            else:                                      # piper-tts 1.2
+                vo.synthesize(text, wf, length_scale=1.0 / speed)
+        return buf.getvalue()
+
+
 # ── free local recognition: install faster-whisper into the hub's own Python (one click from the page) ──
 _wsetup: dict = {"state": "idle", "log": "", "error": None}
 
@@ -251,6 +374,53 @@ def whisper_install(cfg: HubConfig) -> dict:
     return whisper_status()
 
 
+_psetup: dict = {"state": "idle", "log": "", "error": None}
+
+
+def piper_installed() -> bool:
+    import importlib.util
+    return importlib.util.find_spec("piper") is not None
+
+
+def piper_status(cfg: HubConfig | None = None) -> dict:
+    have = sorted(p.name[:-5] for p in piper_dir().glob("*.onnx")) if piper_installed() else []
+    return {"installed": piper_installed(), "voices": have, **_psetup}
+
+
+def piper_install(cfg: HubConfig) -> dict:
+    """pip install piper-tts into this hub's Python, download the voice for the chosen language + gender, use it."""
+    if _psetup["state"] == "running":
+        return piper_status(cfg)
+    import subprocess
+    import sys
+
+    def run():
+        _psetup.update(state="running", log="Installing the natural voice engine (piper-tts)…\n", error=None)
+        try:
+            if not piper_installed():
+                p = subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "piper-tts"],
+                                   capture_output=True, text=True, timeout=1800)
+                _psetup["log"] += (p.stdout or "")[-2000:] + (p.stderr or "")[-2000:]
+                if p.returncode != 0:
+                    raise VoiceError("pip install piper-tts failed (see log)")
+                import importlib
+                importlib.invalidate_caches()
+            name = pick_voice(cfg, "piper")
+            _psetup["log"] += f"\nDownloading the voice {name} (first time only)…\n"
+            piper_download(name)
+            cfg.voice["tts"]["provider"] = "piper"
+            cfg.save()
+            _psetup.update(state="done", log=_psetup["log"] + "Ready.\n")
+        except Exception as e:  # noqa: BLE001 - reported to the page
+            _psetup.update(state="error", error=f"{type(e).__name__}: {e}")
+
+    threading.Thread(target=run, daemon=True, name="piper-setup").start()
+    _psetup["state"] = "running"
+    return piper_status(cfg)
+
+
 def status(cfg: HubConfig) -> dict:
     return {"voice": cfg.voice, "tts_providers": TTS_PROVIDERS, "stt_providers": STT_PROVIDERS,
-            "keys": {n: secrets.has_secret(n) for n in SECRET_NAMES}, "whisper": whisper_status()}
+            "keys": {n: secrets.has_secret(n) for n in SECRET_NAMES}, "whisper": whisper_status(), "piper": piper_status(cfg),
+            "languages": {k: {"name": v["name"], "piper": v["piper"], "azure": v["azure"], "polly": v["polly"]} for k, v in LANGS.items()},
+            "language": lang_of(cfg), "gender": "male" if gender_of(cfg) == "M" else "female"}

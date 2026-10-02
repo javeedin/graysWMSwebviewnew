@@ -40,11 +40,11 @@ The `grid` tool takes the same column formats (`formats`).
 
 **Talk to it.** Press the microphone next to Send (or Ctrl+Shift+V). The agent listens, answers out loud in short natural sentences and listens again — talk over it to interrupt, say "stop" to silence it, "goodbye" to end. Lists and data still go to the results panel. Answer question cards by voice; anything that changes data still needs a click on its card.
 
-Voice settings (slider icon in the voice bar):
+Voice settings (slider icon in the voice bar): pick the **language** (English US / UK, French, Hindi, Arabic, German, Spanish, Chinese — the agent then answers in it) and **Female / Male**, then how natural it should sound. "Natural — free, runs on this PC" needs one click (also offered in the voice bar as **Natural voice (free)**); "Windows voices" are the old robotic ones.
 
 | | Most natural | Also good | Free |
 |---|---|---|---|
-| Voice you hear | ElevenLabs (`eleven_flash_v2_5`) | Azure neural (e.g. `en-US-AvaMultilingualNeural`), Amazon Polly generative | browser (Windows voices) |
+| Voice you hear | ElevenLabs (`eleven_flash_v2_5`) | Azure neural, Amazon Polly generative | Piper (natural, on this PC) · browser (Windows, robotic) |
 | Listening | ElevenLabs Scribe | Azure Speech | local Whisper (`pip install faster-whisper` in the AI Hub's `.venv`) |
 
 **Phone calls (Twilio).** Header › phone icon › Settings:

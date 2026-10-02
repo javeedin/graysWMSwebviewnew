@@ -12,6 +12,12 @@ VOICE.LABEL = { listening: 'Listening…', hearing: 'Hearing you…', transcribi
 
 /** Speech recognition actually used now: the setting, unless the WebView's recogniser failed and we fell back. */
 VOICE.stt = function () { return VOICE.sttOverride || (VOICE.cfg && VOICE.cfg.voice.stt.provider) || 'browser'; };
+/** The voice in use (Voice settings). */
+VOICE.tts = function () {
+    return (VOICE.cfg && VOICE.cfg.voice.tts.provider) || 'browser';   // installing the natural voice switches the setting to it
+};
+VOICE.lang = function () { return (VOICE.cfg && VOICE.cfg.language) || 'en-US'; };
+VOICE.male = function () { return VOICE.cfg && VOICE.cfg.gender === 'male'; };
 VOICE.toggle = function () { if (VOICE.on) VOICE.stop(); else VOICE.start(); };
 
 VOICE.loadCfg = function (force) {
@@ -39,6 +45,7 @@ VOICE.start = function () {
             // you hear at once that the voice side works
             if (VOICE.stt() === 'none') { VOICE.speakText("Hi! Before I can hear you, set up speech recognition with the button."); VOICE.needStt('This app window has no built-in speech recognition.'); }
             else { VOICE.speakText("Hi, I'm listening."); if (VOICE.stt() === 'browser') VOICE.srListen(); }
+            VOICE.offerNatural();
         });
     }).catch(function (e) { toast('Voice mode: ' + (e && e.message ? e.message : e), 'err'); VOICE.stop(); });
 };
@@ -115,7 +122,7 @@ VOICE.finishUtterance = function () {
     var frames = VOICE.frames; VOICE.frames = [];
     VOICE.setState('transcribing');
     var wav = VOICE.wav(frames, VOICE.ctx.sampleRate, 16000);
-    hub('POST', '/voice/stt', { audio_b64: wav, mime: 'audio/wav', language: VOICE.cfg.voice.stt.language, provider: VOICE.stt() }).then(function (r) {
+    hub('POST', '/voice/stt', { audio_b64: wav, mime: 'audio/wav', language: VOICE.lang().split('-')[0], provider: VOICE.stt() }).then(function (r) {
         VOICE.heardText((r.text || '').trim());
     }).catch(function (e) { toast('Speech recognition: ' + e, 'err'); VOICE.setState('listening'); });
 };
@@ -147,7 +154,7 @@ VOICE.browserSR = function () { return window.SpeechRecognition || window.webkit
 VOICE.srListen = function () {
     var SR = VOICE.browserSR(); if (!SR || VOICE.muted || VOICE.srActive) return;
     var sr = VOICE.sr = new SR();
-    sr.lang = VOICE.cfg.voice.stt.language && VOICE.cfg.voice.stt.language.indexOf('-') > 0 ? VOICE.cfg.voice.stt.language : 'en-US';
+    sr.lang = VOICE.lang();
     sr.interimResults = true; sr.continuous = false;
     sr.onstart = function () { VOICE.srActive = true; };
     sr.onresult = function (e) {
@@ -258,10 +265,10 @@ VOICE.chunks = function (text) {
 VOICE.speakText = function (text) {
     var parts = VOICE.chunks(text); if (!parts.length) return;
     VOICE.caption('agent', VOICE.plain(text));
-    var prov = VOICE.cfg && VOICE.cfg.voice.tts.provider || 'browser';
+    var prov = VOICE.tts();
     parts.forEach(function (p) {
         // cloud voices are fetched at once (in parallel with the playback of earlier chunks)
-        var item = { text: p, audio: prov === 'browser' ? null : hub('POST', '/voice/tts', { text: p }).catch(function (e) { return { error: String(e) }; }) };
+        var item = { text: p, audio: prov === 'browser' ? null : hub('POST', '/voice/tts', { text: p, provider: prov }).catch(function (e) { return { error: String(e) }; }) };
         VOICE.queue.push(item);
     });
     if (VOICE.state !== 'hearing' && VOICE.state !== 'transcribing') VOICE.setState('speaking');
@@ -281,14 +288,25 @@ VOICE.next = function () {
         a.play().catch(done);
     });
 };
+VOICE.FEMALE = /zira|hazel|susan|heera|kalpana|hortense|julie|katja|hedda|helena|laura|huihui|yaoyao|hoda|aria|jenny|sonia|denise|female/i;
+VOICE.MALE = /david|mark|george|ravi|hemant|paul|claude|stefan|pablo|kangkang|naayf|guy|ryan|henri|male/i;
 VOICE.browserSay = function (text, done) {
     if (!window.speechSynthesis) { done(); return; }
     var u = new SpeechSynthesisUtterance(text), vs = speechSynthesis.getVoices(), want = (VOICE.cfg && VOICE.cfg.voice.tts.voice) || '';
-    // prefer the voice chosen in settings, else Windows' natural / online neural voices
-    u.voice = vs.filter(function (v) { return want && v.name === want; })[0] || vs.filter(function (v) { return /natural|online/i.test(v.name) && /^en/i.test(v.lang); })[0] || null;
+    var lang = VOICE.lang(), pre = lang.split('-')[0], g = VOICE.male() ? VOICE.MALE : VOICE.FEMALE;
+    var inLang = vs.filter(function (v) { return v.lang && v.lang.replace('_', '-').toLowerCase().indexOf(pre) === 0; });
+    var exact = inLang.filter(function (v) { return v.lang.replace('_', '-').toLowerCase() === lang.toLowerCase(); });
+    var pool = exact.length ? exact : inLang;
+    // the chosen voice, else the most natural one in the language and gender (Windows "Natural" / "Online" voices first)
+    var pick = vs.filter(function (v) { return want && v.name === want; })[0] ||
+        pool.filter(function (v) { return /natural|online|neural/i.test(v.name) && g.test(v.name); })[0] ||
+        pool.filter(function (v) { return g.test(v.name); })[0] || pool[0] || null;
+    VOICE.lastVoice = pick && pick.name;
+    try { u.voice = pick; } catch (e) { /* not a real SpeechSynthesisVoice: keep the default voice */ }
+    u.lang = lang;
     u.rate = parseFloat(VOICE.cfg && VOICE.cfg.voice.tts.speed) || 1;
     u.onend = done; u.onerror = done;
-    speechSynthesis.speak(u);
+    try { speechSynthesis.speak(u); } catch (e) { done(); }
 };
 /** Stop talking now (barge-in, "stop", end of voice mode). */
 VOICE.hush = function () {
@@ -320,31 +338,48 @@ VOICE.caption = function (who, text) {
 };
 
 // ── settings ──
+VOICE.SOUNDS = [
+    ['piper', 'Natural — free, runs on this PC', 'Neural voice, no key, works offline (one-time download ~70 MB).'],
+    ['elevenlabs', 'Most natural — ElevenLabs', 'Studio-quality voices, needs an ElevenLabs key (paid per character).'],
+    ['azure', 'Natural — Microsoft Azure', 'Neural voices, needs an Azure Speech key.'],
+    ['polly', 'Natural — Amazon Polly', 'Generative voices, uses the AWS keys of your Bedrock provider.'],
+    ['browser', 'Windows voices — robotic', 'The old built-in voices. No setup.']
+];
 VOICE.settings = function () {
     VOICE.loadCfg(true).then(function (c) {
-        var v = c.voice, k = c.keys;
-        var sel = function (id, list, cur) { return '<select id="' + id + '">' + list.map(function (x) { return '<option' + (x === cur ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select>'; };
+        var v = c.voice, k = c.keys, cur = v.tts.provider;
+        var sel = function (id, list, val) { return '<select id="' + id + '">' + list.map(function (x) { return '<option' + (x === val ? ' selected' : '') + '>' + x + '</option>'; }).join('') + '</select>'; };
         var key = function (name, label) { return '<label class="sm">' + label + ' ' + (k[name] ? '<span class="chip ok">set</span>' : '<span class="chip">not set</span>') + '<br><input type="password" data-key="' + name + '" placeholder="' + (k[name] ? 'leave empty to keep' : 'paste the key') + '" style="width:100%"></label>'; };
+        var langs = c.languages || { 'en-US': { name: 'English (US)' } };
         openModal('Voice settings',
-            '<div class="vgrid">' +
-            '<div><h4>Voice (what you hear)</h4><label class="sm">Provider<br>' + sel('vs-tts', c.tts_providers, v.tts.provider) + '</label>' +
-            '<label class="sm">Voice<br><span class="row"><input type="text" id="vs-voice" value="' + esc(v.tts.voice || '') + '" placeholder="default" class="grow"><button class="btn sm" id="vs-list">Choose…</button></span></label>' +
-            '<label class="sm">Speed <span id="vs-spd-v">' + (v.tts.speed || 1) + '</span><br><input type="range" id="vs-speed" min="0.7" max="1.3" step="0.05" value="' + (v.tts.speed || 1) + '"></label>' +
+            '<div class="vpick">' +
+            '<label class="sm">Language (what you say and hear)<br><select id="vs-language">' + Object.keys(langs).map(function (l) { return '<option value="' + l + '"' + (l === c.language ? ' selected' : '') + '>' + esc(langs[l].name) + '</option>'; }).join('') + '</select></label>' +
+            '<div class="sm">Voice<div class="seg2" id="vs-gender"><button data-g="female" class="' + (c.gender !== 'male' ? 'on' : '') + '"><i class="fa-solid fa-person-dress"></i> Female</button><button data-g="male" class="' + (c.gender === 'male' ? 'on' : '') + '"><i class="fa-solid fa-person"></i> Male</button></div></div>' +
+            '<button class="btn primary" id="vs-test"><i class="fa-solid fa-play"></i> Hear it</button></div>' +
+            '<div class="vsounds">' + VOICE.SOUNDS.map(function (x) {
+                var extra = x[0] === 'piper' ? (c.piper && c.piper.installed ? ' <span class="chip ok">installed</span>' : ' <button class="btn sm" id="vs-piper"><i class="fa-solid fa-download"></i> Set up (free)</button>')
+                    : x[0] === 'elevenlabs' ? (k['elevenlabs.api_key'] ? ' <span class="chip ok">key set</span>' : '') : x[0] === 'azure' ? (k['azure_speech.key'] ? ' <span class="chip ok">key set</span>' : '') : '';
+                return '<label class="vsound' + (x[0] === cur ? ' on' : '') + '"><input type="radio" name="vs-sound" value="' + x[0] + '"' + (x[0] === cur ? ' checked' : '') + '><span><b>' + x[1] + '</b>' + extra + '<br><span class="muted sm">' + x[2] + '</span></span></label>';
+            }).join('') + '</div><div id="vs-msg" class="sm muted"></div>' +
+            '<details class="vmore"><summary>More settings — speed, a specific voice, listening, keys</summary><div class="vgrid">' +
+            '<div><label class="sm">Speed <span id="vs-spd-v">' + (v.tts.speed || 1) + '</span><br><input type="range" id="vs-speed" min="0.7" max="1.3" step="0.05" value="' + (v.tts.speed || 1) + '"></label>' +
+            '<label class="sm">A specific voice (empty = by language + female / male)<br><span class="row"><input type="text" id="vs-voice" value="' + esc(v.tts.voice || '') + '" placeholder="automatic" class="grow"><button class="btn sm" id="vs-list">Choose…</button></span></label><div id="vs-voices" class="vlist"></div>' +
             '<label class="sm">ElevenLabs model<br><input type="text" id="vs-model" value="' + esc(v.tts.model || '') + '"></label>' +
-            '<label class="sm">Polly engine<br>' + sel('vs-engine', ['generative', 'neural', 'long-form'], v.tts.engine) + '</label>' +
-            '<button class="btn sm" id="vs-test"><i class="fa-solid fa-play"></i> Test the voice</button><div id="vs-voices" class="vlist"></div></div>' +
-            '<div><h4>Listening (what you say)</h4><label class="sm">Speech recognition<br>' + sel('vs-stt', c.stt_providers, v.stt.provider) + '</label>' +
-            '<label class="sm">Language<br><input type="text" id="vs-lang" value="' + esc(v.stt.language || 'en') + '" placeholder="en, fr, en-GB"></label>' +
+            '<label class="sm">Polly engine<br>' + sel('vs-engine', ['generative', 'neural', 'long-form'], v.tts.engine) + '</label></div>' +
+            '<div><label class="sm">Speech recognition (listening)<br>' + sel('vs-stt', c.stt_providers, v.stt.provider) + '</label>' +
             '<label class="sm">Local Whisper size<br>' + sel('vs-wsize', ['tiny', 'base', 'small', 'medium'], v.stt.whisper_size) + '</label>' +
-            '<h4 style="margin-top:12px">Keys (kept in Windows Credential Manager on the AI Hub)</h4>' + key('elevenlabs.api_key', 'ElevenLabs API key') + key('azure_speech.key', 'Azure Speech key') +
+            key('elevenlabs.api_key', 'ElevenLabs API key') + key('azure_speech.key', 'Azure Speech key') +
             '<label class="sm">Azure region<br><input type="text" id="vs-region" value="' + esc(v.azure_region || '') + '"></label>' +
-            '<label class="sm">Amazon Polly uses the AWS keys of provider<br><input type="text" id="vs-aws" value="' + esc(v.aws_provider || 'bedrock') + '"></label></div></div>' +
-            '<p class="muted sm" style="margin-top:8px">Most natural: ElevenLabs (voice + Scribe). Azure neural and Polly generative are close. "browser" uses the voices installed in Windows — free, more robotic. Local Whisper needs <code>pip install faster-whisper</code> in the AI Hub and is free and offline.</p>',
+            '<label class="sm">Amazon Polly uses the AWS keys of provider<br><input type="text" id="vs-aws" value="' + esc(v.aws_provider || 'bedrock') + '"></label></div></div></details>',
             [{ label: '<i class="fa-solid fa-floppy-disk"></i> Save', cls: 'primary', onClick: function () { VOICE.saveSettings().then(function () { closeModal(); toast('Voice settings saved', 'ok'); }); } }, { label: 'Close', onClick: closeModal }]);
         $('vs-speed').oninput = function () { $('vs-spd-v').textContent = this.value; };
-        $('vs-test').onclick = function () { VOICE.saveSettings().then(function () { VOICE.since = 0; var was = VOICE.on; VOICE.on = true; VOICE.speakText('Hi! This is how I sound. Ask me about trips, orders or anything in Fusion.'); VOICE.on = was; }); };
+        document.querySelectorAll('#vs-gender button').forEach(function (b) { b.onclick = function () { document.querySelectorAll('#vs-gender button').forEach(function (x) { x.classList.toggle('on', x === b); }); $('vs-voice').value = ''; VOICE.testVoice(); }; });
+        document.querySelectorAll('input[name=vs-sound]').forEach(function (r) { r.onchange = function () { document.querySelectorAll('.vsound').forEach(function (l) { l.classList.toggle('on', l.contains(r)); }); $('vs-voice').value = ''; }; });
+        $('vs-language').onchange = function () { $('vs-voice').value = ''; VOICE.testVoice(); };
+        $('vs-test').onclick = VOICE.testVoice;
+        if ($('vs-piper')) $('vs-piper').onclick = function () { VOICE.installPiper(); };
         $('vs-list').onclick = function () {
-            var p = $('vs-tts').value, box = $('vs-voices');
+            var p = document.querySelector('input[name=vs-sound]:checked').value, box = $('vs-voices');
             if (p === 'browser') { var vs = (window.speechSynthesis ? speechSynthesis.getVoices() : []); box.innerHTML = vs.map(function (x) { return '<div class="vrow" data-id="' + esc(x.name) + '">' + esc(x.name) + ' <span class="muted">' + esc(x.lang) + '</span></div>'; }).join('') || '<p class="muted sm">No voices.</p>'; }
             else {
                 box.innerHTML = '<p class="muted sm">Loading…</p>';
@@ -354,14 +389,52 @@ VOICE.settings = function () {
             }
             box.onclick = function (ev) { var r = ev.target.closest('.vrow'); if (r) { $('vs-voice').value = r.dataset.id; box.querySelectorAll('.vrow').forEach(function (x) { x.classList.toggle('on', x === r); }); } };
         };
-    }).catch(function (e) { toast('Voice settings: ' + e + ' — is the AI Hub up to date? (Help › Update)', 'err'); });
+    }).catch(function (e) { toast('Voice settings: ' + e + ' — is the AI Hub up to date? (server button › Update)', 'err'); });
+};
+VOICE.SAMPLE = { en: "Hi! This is how I sound. Two trips aren't printed yet, want me to print them?", fr: "Bonjour ! Voici ma voix. Deux tournées ne sont pas encore imprimées, je les imprime ?",
+    hi: "नमस्ते! मेरी आवाज़ ऐसी है। दो ट्रिप अभी प्रिंट नहीं हुई हैं, क्या मैं उन्हें प्रिंट कर दूँ?", ar: "مرحبا! هذا صوتي. رحلتان لم تُطبعا بعد، هل أطبعهما؟",
+    de: "Hallo! So klinge ich. Zwei Touren sind noch nicht gedruckt, soll ich sie drucken?", es: "¡Hola! Así sueno. Dos viajes aún no están impresos, ¿los imprimo?", zh: "你好！这是我的声音。还有两趟行程没有打印，要我打印吗？" };
+VOICE.testVoice = function () {
+    ($('vs-language') ? VOICE.saveSettings() : Promise.resolve()).then(function () {
+        var was = VOICE.on; VOICE.since = 0; VOICE.hush();
+        VOICE.speakText(VOICE.SAMPLE[VOICE.lang().split('-')[0]] || VOICE.SAMPLE.en);
+        VOICE.on = was;
+    });
+};
+/** One-click free natural voice (Piper). From the settings dialog or the voice bar; msg(text) shows progress. */
+VOICE.installPiper = function (msg) {
+    var inDialog = !!$('vs-language');
+    msg = typeof msg === 'function' ? msg : function (t) { var m = $('vs-msg'); if (m) m.textContent = t; };
+    var b = $('vs-piper') || $('vc-piper'); if (b) b.disabled = true;
+    (inDialog ? VOICE.saveSettings() : Promise.resolve()).then(function () { return hub('POST', '/voice/piper/install', {}); }).then(function poll(st) {
+        if (st.state === 'done' || (st.installed && st.state !== 'running')) {
+            msg('The natural voice is ready.');
+            var vb = $('vc-piper'); if (vb) vb.remove();
+            VOICE.loadCfg(true).then(function () { if (inDialog) VOICE.settings(); setTimeout(VOICE.testVoice, inDialog ? 400 : 0); });
+            return;
+        }
+        if (st.state === 'error') { msg('Setup failed: ' + st.error); if (b) b.disabled = false; return; }
+        msg('Setting up the natural voice (first time ~70 MB)… ' + String(st.log || '').trim().split('\n').pop().slice(0, 90));
+        return new Promise(function (r) { setTimeout(r, 3000); }).then(function () { return hub('GET', '/voice/piper'); }).then(poll);
+    }).catch(function (e) { msg('Setup failed: ' + e + ' — update the AI Hub (server button › Update).'); if (b) b.disabled = false; });
+};
+/** Voice bar: offer the free natural voice when only the robotic Windows voices are in use. */
+VOICE.offerNatural = function () {
+    if (VOICE.tts() !== 'browser' || $('vc-piper') || !$('voice-ov')) return;
+    var btn = document.createElement('button'); btn.id = 'vc-piper'; btn.className = 'btn sm vc-natural';
+    btn.title = 'Sounds robotic? Install a free natural voice that runs on this PC';
+    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Natural voice (free)';
+    btn.onclick = function () { VOICE.installPiper(function (t) { var c = $('vc-cap'); if (c && !$('vc-whisper')) c.textContent = t; }); };
+    document.querySelector('#voice-ov .vc-btns').prepend(btn);
 };
 VOICE.saveSettings = function () {
     var keys = Array.prototype.filter.call(document.querySelectorAll('[data-key]'), function (i) { return i.value.trim(); });
+    var g = document.querySelector('#vs-gender button.on'), snd = document.querySelector('input[name=vs-sound]:checked');
     return Promise.all(keys.map(function (i) { return hub('PUT', '/voice/secret', { name: i.dataset.key, value: i.value.trim() }); })).then(function () {
         return hub('PUT', '/voice/config', { voice: {
-            tts: { provider: $('vs-tts').value, voice: $('vs-voice').value.trim(), speed: parseFloat($('vs-speed').value), model: $('vs-model').value.trim(), engine: $('vs-engine').value },
-            stt: { provider: $('vs-stt').value, language: $('vs-lang').value.trim(), whisper_size: $('vs-wsize').value },
+            language: $('vs-language').value, gender: g ? g.dataset.g : 'female',
+            tts: { provider: snd ? snd.value : 'browser', voice: $('vs-voice').value.trim(), speed: parseFloat($('vs-speed').value), model: $('vs-model').value.trim(), engine: $('vs-engine').value },
+            stt: { provider: $('vs-stt').value, language: $('vs-language').value.split('-')[0], whisper_size: $('vs-wsize').value },
             azure_region: $('vs-region').value.trim(), aws_provider: $('vs-aws').value.trim() } });
     }).then(function (c) { VOICE.cfg = c; return c; }).catch(function (e) { toast(String(e), 'err'); throw e; });
 };

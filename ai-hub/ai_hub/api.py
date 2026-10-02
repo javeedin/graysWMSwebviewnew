@@ -345,9 +345,11 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
         for part in ("tts", "stt"):
             if isinstance(v.get(part), dict):
                 cfg.voice[part].update({k: x for k, x in v[part].items() if k in ("provider", "voice", "model", "engine", "speed", "language", "whisper_size")})
-        for k in ("azure_region", "aws_provider"):
+        for k in ("azure_region", "aws_provider", "language", "gender"):
             if isinstance(v.get(k), str):
                 cfg.voice[k] = v[k]
+        if isinstance(v.get("tts"), dict) and "voice" in v["tts"]:
+            cfg.voice["tts"]["voice_provider"] = cfg.voice["tts"].get("provider")   # an explicit voice belongs to its provider
         cfg.save()
         return V.status(cfg)
 
@@ -366,6 +368,14 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
     @app.post("/voice/tts", dependencies=A)
     def voice_tts(body: dict):
         return vguard(lambda: V.tts(cfg, body.get("text") or "", body.get("provider"), body.get("voice")))
+
+    @app.post("/voice/piper/install", dependencies=A)
+    def voice_piper_install():
+        return V.piper_install(cfg)
+
+    @app.get("/voice/piper", dependencies=A)
+    def voice_piper():
+        return V.piper_status(cfg)
 
     @app.get("/voice/whisper", dependencies=A)
     def voice_whisper():
