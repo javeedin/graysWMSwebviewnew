@@ -513,3 +513,7 @@ body.tech-on .tech-toggle { color: #7c3aed; font-weight: 700; }
 .vw-cvwrap { position: relative; align-self: flex-start; border-radius: 10px; overflow: hidden; background: #0f172a; min-height: 200px; min-width: 320px; }
 .vw-cvwrap canvas { display: block; cursor: crosshair; max-width: 100%; }
 @media (max-width: 900px) { .vz-watchwrap, .vw-body { grid-template-columns: 1fr; } }
+/* Live: background modes (black = only the face mesh / skeleton, the camera picture is hidden) */
+.vz-stage.bg-black { background: #000; }
+.vz-stage.bg-black video { visibility: hidden; }
+.vz-stage.bg-dim video { opacity: .28; }

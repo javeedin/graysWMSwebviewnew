@@ -569,7 +569,7 @@ VISION.liveUi = function () {
     var L = VISION.live;
     if (L.ui) return;
     L.ui = true;
-    L.opt = Object.assign({ hands: true, pose: true, face: false, hud: 'scifi', mirror: true, coach: false, yolo: false, yoloModel: 'yolo11n', scan: false }, VISION.ls('opt', {}));
+    L.opt = Object.assign({ hands: true, pose: true, face: false, hud: 'scifi', bg: 'camera', mirror: true, coach: false, yolo: false, yoloModel: 'yolo11n', scan: false }, VISION.ls('opt', {}));
     L.map = Object.assign({}, VISION.DEFAULT_MAP, VISION.ls('map', {}));
     Object.keys(L.map).forEach(function (k) { if (L.map[k] === 'pause') delete L.map[k]; });   // older saved maps
     var o = L.opt;
@@ -587,6 +587,8 @@ VISION.liveUi = function () {
             return '<label class="vz-chk"><input type="checkbox" data-o="' + x[0] + '"' + (o[x[0]] ? ' checked' : '') + '> ' + x[1] + '</label>';
         }).join('') +
         '<label class="sm">YOLO model <select id="vz-ym">' + VISION.modelOpts().filter(function (x) { return !/-cls$/.test(x[0]); }).map(function (x) { return '<option value="' + x[0] + '"' + (o.yoloModel === x[0] ? ' selected' : '') + '>' + esc(x[1]) + '</option>'; }).join('') + '</select></label>' +
+        '<label class="sm" title="Black = only the face mesh and skeleton are shown — your picture is hidden (also in Snap / chat photos)">Background <select id="vz-bg">' +
+        [['camera', 'Camera picture'], ['dim', 'Dimmed camera'], ['black', 'Black — mesh & skeleton only']].map(function (x) { return '<option value="' + x[0] + '"' + (o.bg === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>' +
         '<label class="sm">Style <select id="vz-hud"><option value="scifi"' + (o.hud === 'scifi' ? ' selected' : '') + '>Sci-fi HUD</option><option value="clean"' + (o.hud === 'clean' ? ' selected' : '') + '>Clean</option></select></label>' +
         '<div class="side-h">Gesture → action <span class="muted">(hold ~0.7 s)</span></div><div id="vz-map"></div>' +
         '<div class="side-h">Scanned codes <span class="muted" id="vz-scn"></span></div><div id="vz-scans" class="vz-scans"></div>' +
@@ -596,6 +598,17 @@ VISION.liveUi = function () {
         el.onchange = function () { o[el.dataset.o] = el.checked; VISION.lsSet('opt', o); if (L.on && (el.dataset.o === 'hands' || el.dataset.o === 'pose' || el.dataset.o === 'face' || el.dataset.o === 'coach')) VISION.loadModels(); };
     });
     $('vz-hud').onchange = function () { o.hud = this.value; VISION.lsSet('opt', o); };
+    $('vz-bg').onchange = function () {
+        o.bg = this.value;
+        // black with nothing to draw would be an empty screen: switch the face mesh and the skeleton on
+        if (o.bg === 'black' && !o.face && !o.pose) {
+            o.face = o.pose = true;
+            ['face', 'pose'].forEach(function (k) { var cb = $('vz-live').querySelector('[data-o="' + k + '"]'); if (cb) cb.checked = true; });
+            if (L.on) VISION.loadModels();
+        }
+        VISION.lsSet('opt', o); VISION.applyBg();
+    };
+    VISION.applyBg();
     $('vz-ym').onchange = function () { o.yoloModel = this.value; VISION.lsSet('opt', o); L.yoloBoxes = null; };
     $('vz-live').querySelector('[data-o="yolo"]').addEventListener('change', function () {
         if (this.checked && !(VISION.status || {}).yolo) { this.checked = false; o.yolo = false; VISION.lsSet('opt', o); toast('YOLO is not set up on this PC — Photo mode › YOLO + PyTorch (AI admin)', 'err'); }
@@ -606,6 +619,10 @@ VISION.liveUi = function () {
         return '<div class="vz-maprow"><span>' + g[1] + '</span><select data-g="' + g[0] + '">' + VISION.ACTIONS.map(function (a) { return '<option value="' + a[0] + '"' + ((L.map[g[0]] || '') === a[0] ? ' selected' : '') + '>' + a[1] + '</option>'; }).join('') + '</select></div>';
     }).join('');
     $('vz-map').querySelectorAll('select').forEach(function (s) { s.onchange = function () { L.map[s.dataset.g] = s.value; VISION.lsSet('map', L.map); }; });
+};
+VISION.applyBg = function () {
+    var st = $('vz-stage'), bg = (VISION.live.opt || {}).bg || 'camera'; if (!st) return;
+    st.classList.toggle('bg-black', bg === 'black'); st.classList.toggle('bg-dim', bg === 'dim');
 };
 VISION.log = function (msg, kind) {
     var el = $('vz-log'); if (!el) return;
@@ -745,9 +762,11 @@ VISION.draw = function (cv, res) {
     if (res.face && res.face.faceLandmarks && res.face.faceLandmarks[0] && L.C) {
         var f = res.face.faceLandmarks[0], xs = f.map(function (p) { return P(p)[0]; }), ys = f.map(function (p) { return P(p)[1]; });
         var x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
-        g.globalAlpha = sci ? 0.35 : 0.5;
-        (L.C.face || []).forEach(function (c) { line(f[c.start], f[c.end], sci ? '#67e8f9' : '#94a3b8', 1); });
+        var black = L.opt.bg === 'black';
+        g.globalAlpha = black ? 0.75 : sci ? 0.35 : 0.5;
+        (L.C.face || []).forEach(function (c) { line(f[c.start], f[c.end], sci || black ? '#67e8f9' : '#94a3b8', black ? 1.2 : 1); });
         g.globalAlpha = 1;
+        if (black) { g.fillStyle = '#e0f7ff'; f.forEach(function (p, i) { if (i % 3 === 0) { var q = P(p); g.fillRect(q[0] - 1, q[1] - 1, 2, 2); } }); }
         (L.C.oval || []).forEach(function (c) { line(f[c.start], f[c.end], sci ? '#22d3ee' : '#64748b', lw * 0.6); });
         var k = (x1 - x0) * 0.18, red = sci ? '#f43f5e' : '#64748b';
         g.strokeStyle = red; g.lineWidth = lw;
@@ -924,8 +943,11 @@ VISION.doAction = function (act) {
 /** Takes the current frame (never mirrored) → images tray / barcode scan / chat attachment. */
 VISION.snap = function (act) {
     var v = $('vz-video'); if (!v || !v.videoWidth || !VISION.live.on) { toast('Start the camera first', 'err'); return; }
-    var c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight; c.getContext('2d').drawImage(v, 0, 0);
-    var url = c.toDataURL('image/jpeg', 0.92), name = 'live-' + new Date().toISOString().slice(11, 19).replace(/:/g, '') + '.jpg';
+    var c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+    var black = VISION.live.opt.bg === 'black' && act !== 'scan', cg = c.getContext('2d');
+    if (black) { cg.fillStyle = '#000'; cg.fillRect(0, 0, c.width, c.height); cg.drawImage($('vz-canvas'), 0, 0, c.width, c.height); }   // privacy: only the mesh / skeleton
+    else cg.drawImage(v, 0, 0);
+    var url = c.toDataURL('image/jpeg', 0.92), name = (black ? 'skeleton-' : 'live-') + new Date().toISOString().slice(11, 19).replace(/:/g, '') + '.jpg';
     var st = $('vz-stage'); st.classList.add('flash'); setTimeout(function () { st.classList.remove('flash'); }, 180);
     if (act === 'chat') { AG.files.push({ name: name, media_type: 'image/jpeg', data: url.split(',')[1] }); AG.renderFiles(); VISION.log('Photo attached to your next chat message', 'ok'); toast('Photo attached to the chat', 'ok'); return; }
     VISION.add(name, url, 'live');
