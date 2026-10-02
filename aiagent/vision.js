@@ -286,8 +286,8 @@ VISION.toChat = function () {
 
 // ═════════════════════ Live: MediaPipe in the page ═════════════════════
 VISION.GESTURES = [['Thumb_Up', '👍 Thumb up'], ['Victory', '✌️ Victory'], ['ILoveYou', '🤟 I love you'], ['Pointing_Up', '☝️ Pointing up'], ['Open_Palm', '🖐 Open palm'], ['Closed_Fist', '✊ Fist'], ['Thumb_Down', '👎 Thumb down']];
-VISION.ACTIONS = [['', '— nothing —'], ['snap', 'Take a photo (to the images)'], ['scan', 'Scan barcodes now'], ['yolo', 'Objects on / off (YOLO)'], ['chat', 'Send a photo to the chat'], ['pause', 'Pause / resume tracking'], ['voice', 'Voice mode on / off']];
-VISION.DEFAULT_MAP = { Thumb_Up: 'snap', Victory: 'scan', ILoveYou: 'chat', Thumb_Down: 'pause' };
+VISION.ACTIONS = [['', '— nothing —'], ['snap', 'Take a photo (to the images)'], ['scan', 'Scan barcodes now'], ['yolo', 'Objects on / off (YOLO)'], ['chat', 'Send a photo to the chat'], ['voice', 'Voice mode on / off']];
+VISION.DEFAULT_MAP = { Thumb_Up: 'snap', Victory: 'scan', ILoveYou: 'chat' };   // pausing is the Pause button only, never a gesture
 VISION.ls = function (k, d) { try { var v = localStorage.getItem('aiagent.vision.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
 VISION.lsSet = function (k, v) { try { localStorage.setItem('aiagent.vision.' + k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
 
@@ -297,6 +297,7 @@ VISION.liveUi = function () {
     L.ui = true;
     L.opt = Object.assign({ hands: true, pose: true, face: false, hud: 'scifi', mirror: true, coach: false, yolo: false, yoloModel: 'yolo11n' }, VISION.ls('opt', {}));
     L.map = Object.assign({}, VISION.DEFAULT_MAP, VISION.ls('map', {}));
+    Object.keys(L.map).forEach(function (k) { if (L.map[k] === 'pause') delete L.map[k]; });   // older saved maps
     var o = L.opt;
     $('vz-live').innerHTML =
         '<div class="vz-stage" id="vz-stage"><video id="vz-video" playsinline muted></video><canvas id="vz-canvas"></canvas>' +
@@ -558,26 +559,20 @@ VISION.gestures = function (hr) {
     var pct = Math.min(1, held / VISION.HOLD);
     el.innerHTML = 'GESTURE: <b>' + esc(String(name).toUpperCase()) + '</b>' + (act ? ' → ' + esc((VISION.ACTIONS.filter(function (a) { return a[0] === act; })[0] || [])[1]) +
         ' <span class="vz-hold"><span style="width:' + Math.round(pct * 100) + '%"></span></span>' : '');
-    if (L.paused && act !== 'pause') act = '';         // while paused only the resume gesture works
+    if (L.paused) act = '';                            // paused: gestures do nothing (the button resumes)
     if (act && !G.fired && held >= VISION.HOLD && now - (L.lastFire || 0) > VISION.COOL) {
         G.fired = true; L.lastFire = now;
         VISION.log('Gesture ' + label + ' → ' + act, 'ok');
         VISION.doAction(act);
     }
 };
-VISION.pauseHint = function () {
-    var g = Object.keys(VISION.live.map || {}).filter(function (k) { return VISION.live.map[k] === 'pause'; })[0];
-    var lbl = g ? (VISION.GESTURES.filter(function (x) { return x[0] === g; })[0] || [g, g])[1] : null;
-    return (lbl ? lbl + ' or ' : '') + 'the Resume button to go on';
-};
+VISION.pauseHint = function () { return 'press Resume to go on'; };
 VISION.setPaused = function (p) {
     var L = VISION.live; L.paused = p;
     VISION.log(p ? 'Tracking paused' : 'Tracking resumed');
     var b = $('vz-pbtn'); if (b) b.innerHTML = p ? '<i class="fa-solid fa-play"></i> Resume' : '<i class="fa-solid fa-pause"></i> Pause';
 };
 VISION.doAction = function (act) {
-    var L = VISION.live;
-    if (act === 'pause') { VISION.setPaused(!L.paused); return; }
     if (act === 'yolo') { var cb = $('vz-live').querySelector('[data-o="yolo"]'); cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); VISION.log('Objects (YOLO) ' + (cb.checked ? 'on' : 'off')); return; }
     if (act === 'voice') { if (window.VOICE && VOICE.toggle) VOICE.toggle(); else toast('Voice mode is not available here', 'err'); return; }
     VISION.snap(act);
