@@ -221,8 +221,8 @@
                 '<div class="row" style="margin-top:10px">' + (admin ? '<button class="btn" onclick="FL.loadSample()"><i class="fa-solid fa-flask"></i> Load sample data</button>' +
                     '<button class="btn" id="d-root"><i class="fa-regular fa-folder"></i> Folder…</button>' : '<span class="sm muted">An AI admin loads data and sets the folder.</span>') +
                 '<button class="btn" onclick="FL.refresh()"><i class="fa-solid fa-rotate"></i> Reload</button></div></div>' +
-                '<div class="card"><h3><i class="fa-solid fa-cloud-arrow-down"></i> From Oracle Fusion <span class="tag warn">next step</span></h3><p class="sm">The loader reads <code>GL_BALANCES</code> joined to <code>GL_CODE_COMBINATIONS</code> for your ledger, summed to the segments you map here (company, cost centre, account …), plus <code>GL_PERIODS</code> and the budget balances, through the read-only Fusion SQL runner — incrementally per period. Journal lines for drill-down come from <code>GL_JE_LINES</code> (or BICC extracts for large volumes).</p>' +
-                '<pre class="mono sm" style="background:#f8fafc;padding:8px;border-radius:8px;white-space:pre-wrap">SELECT cc.segment1 company, cc.segment2 cost_centre, cc.segment3 account,\n       b.period_name, b.actual_flag,\n       SUM(b.begin_balance_dr - b.begin_balance_cr) begin_bal,\n       SUM(b.period_net_dr) dr, SUM(b.period_net_cr) cr\n  FROM gl_balances b JOIN gl_code_combinations cc\n    ON cc.code_combination_id = b.code_combination_id\n WHERE b.ledger_id = :ledger AND b.currency_code = :ccy\n GROUP BY …</pre></div></div>' +
+                '<div class="card" id="fus-card"></div></div>' +
+                (st.loaded ? '<div class="card" id="map-card" style="margin-top:12px"></div>' : '') +
                 (st.loaded ? '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-terminal"></i> SQL explorer <small>read-only DuckDB SQL over fin_balances, fin_journals, fin_accounts, fin_periods, fin_companies, fin_cost_centres</small></h3>' +
                     '<div class="row" style="margin-bottom:6px">' + [['Trial balance', "SELECT b.account, a.name, a.account_type, ROUND(SUM(b.end_bal), 2) AS balance FROM fin_balances b JOIN fin_accounts a ON a.code = b.account WHERE b.scenario = 'ACTUAL' AND b.period_seq = " + FL.filter.period + ' GROUP BY ALL ORDER BY 1'],
                         ['Revenue by month', "SELECT period_name, period_seq, -SUM(period_net) AS revenue FROM fin_balances WHERE scenario = 'ACTUAL' AND account LIKE '4%' GROUP BY ALL ORDER BY period_seq"],
@@ -237,6 +237,8 @@
                 var r = prompt('Folder for the finance data (DuckDB file, templates.json, config.json):', st.root || 'C:\\fusion\\finance');
                 if (r) FL.call('finSetRoot', { root: r }).then(function () { FL.toast('Folder set', 'ok'); FL.refresh(); }).catch(function (e) { FL.toast(String(e), 'err'); });
             };
+            FL.fusion.render($('fus-card'));
+            if ($('map-card')) FL.mapping.render($('map-card'));
             if (!st.loaded) return;
             var QS = el.querySelectorAll('[data-q]');
             var samples = [["SELECT b.account, a.name, a.account_type, ROUND(SUM(b.end_bal), 2) AS balance FROM fin_balances b JOIN fin_accounts a ON a.code = b.account WHERE b.scenario = 'ACTUAL' AND b.period_seq = " + FL.filter.period + ' GROUP BY ALL ORDER BY 1'],

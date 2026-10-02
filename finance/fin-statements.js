@@ -33,7 +33,8 @@
             var lv = (r.level || 0) * 18;
             h += '<tr class="' + FL.rowClass(r) + '" data-row="' + esc(r.id || '') + '">';
             var expand = opts.detail && r.type === 'accounts' && r.accounts && r.accounts.length > 0;
-            h += '<td><span class="lv" style="padding-left:' + lv + 'px">' + (opts.links && expand ? '' : '') + esc(r.label || '') + (r.note && !opts.print ? ' <i class="fa-regular fa-note-sticky muted" title="' + esc(r.note) + '"></i>' : '') + '</span></td>';
+            var mapLink = opts.links && /^(accounts|group|formula|check)$/.test(r.type);
+            h += '<td' + (mapLink ? ' class="lbl" title="Accounts mapped to this line"' : '') + '><span class="lv" style="padding-left:' + lv + 'px">' + esc(r.label || '') + (r.note && !opts.print ? ' <i class="fa-regular fa-note-sticky muted" title="' + esc(r.note) + '"></i>' : '') + '</span></td>';
             st.columns.forEach(function (c, i) {
                 var v = r.values[i], cls = [];
                 if (c.kind === 'var' && v != null && Math.abs(v) > 1e-9) cls.push(v > 0 ? 'fav' : 'unf');
@@ -98,7 +99,7 @@
                     (FL.filter.cc && tpl.type === 'BS' ? ' · <b>balance sheet accounts carry no cost centre: pick All cost centres</b>' : '') + '</div></div>' +
                     (st.errors.length ? '<div class="stmt-err"><i class="fa-solid fa-triangle-exclamation"></i> ' + st.errors.map(esc).join(' · ') + '</div>' : '') +
                     FL.stmtTable(st, { links: true, hideZero: S.hideZero, detail: S.detail, sub: sub }) + '</div>' +
-                    '<p class="sm muted">Click an amount to see the accounts behind it, then companies, cost centres, months and journal lines. Variances are shown favourable (+) / unfavourable (−).</p>';
+                    '<p class="sm muted">Click a line name for the accounts mapped to it; click an amount to see the accounts behind it, then companies, cost centres, months and journal lines. Variances are shown favourable (+) / unfavourable (−).</p>';
                 el.querySelectorAll('#st-tpls button').forEach(function (b) { b.onclick = function () { S.tpl = b.dataset.t; FL.lsSet('stmt.tpl', S.tpl); FL.render(); }; });
                 $('st-zero').onchange = function () { S.hideZero = this.checked; FL.lsSet('stmt.hideZero', S.hideZero); FL.render(); };
                 $('st-det').onchange = function () { S.detail = this.checked; FL.render(); };
@@ -106,6 +107,7 @@
                 $('st-xla').onclick = function () { FL.excel(FL.templates.map(function (t) { return FINE.compute(t, data, opts); }), 'Financial statements'); };
                 $('st-csv').onclick = function () { FL.csv(tpl.id + '-' + st.periodName + '.csv', ['line'].concat(st.columns.map(function (c) { return c.label; })), st.rows.filter(function (r) { return r.type !== 'blank'; }).map(function (r) { return [r.label].concat(r.values.map(function (v) { return v == null ? '' : Math.round(v * 100) / 100; })); })); };
                 $('st-edit').onclick = function () { FL.designer.open(tpl.id); };
+                el.querySelectorAll('td.lbl').forEach(function (td) { td.onclick = function () { FL.rowMap(tpl, td.parentNode.dataset.row); }; });
                 el.querySelectorAll('td.v').forEach(function (td) {
                     td.onclick = function () { FL.drillCell(tpl, opts, td.parentNode.dataset.row, td.dataset.col); };
                 });

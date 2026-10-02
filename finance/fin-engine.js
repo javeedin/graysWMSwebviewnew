@@ -562,5 +562,174 @@
         return v < 0 ? (opts.paren === false ? '-' + s : '(' + s + ')') : s;
     };
 
+    // ── chart of accounts from Fusion: a class per account, and statement templates built on those classes ──
+    /** The classes the auto templates use, by account type (the first one is the fallback). */
+    FINE.CLASSES = {
+        A: ['Other current assets', 'Cash', 'Receivables', 'Inventory', 'Fixed assets', 'Accumulated depreciation', 'Intangibles', 'Intercompany', 'Suspense'],
+        L: ['Other liabilities', 'Payables', 'Accruals', 'Tax liabilities', 'Borrowings', 'Long-term borrowings', 'Leases', 'Intercompany'],
+        O: ['Share capital', 'Retained earnings'],
+        R: ['Revenue', 'Other income'],
+        E: ['Administration', 'Cost of sales', 'Staff costs', 'Premises', 'Distribution', 'Selling', 'Depreciation & amortisation', 'Finance costs', 'Tax']
+    };
+    var RULES = {
+        A: [[/suspense|clearing|unallocated|unidentified|holding acc/i, 'Suspense'], [/inter.?co|due from (related|group)|related part/i, 'Intercompany'],
+            [/accum|provision for dep|depreciation|amorti[sz]ation|impairment/i, 'Accumulated depreciation'],
+            [/\bcash\b|bank|petty|deposit acc|call acc|cash equiv/i, 'Cash'], [/receivable|debtor|allowance|doubtful|unbilled|customer/i, 'Receivables'],
+            [/inventor|stock|\bwip\b|work in progress|raw material|finished goods|goods in transit|consign/i, 'Inventory'],
+            [/goodwill|intangib|software|licen[cs]e|patent|trademark|development cost/i, 'Intangibles'],
+            [/property|plant|equipment|\bppe\b|building|land|vehicle|motor|furniture|fixture|machiner|computer|leasehold|right.of.use|\brou\b|capital work|construction in progress|\bcwip\b|asset/i, 'Fixed assets']],
+        L: [[/inter.?co|due to (related|group)|related part/i, 'Intercompany'], [/lease liab|lease oblig|finance lease/i, 'Leases'],
+            [/(long.term|non.current).*(loan|borrow|debt|note)|(loan|borrow|debt).*(long.term|non.current)|term loan|debenture|bond/i, 'Long-term borrowings'],
+            [/loan|borrow|overdraft|credit facility|revolv|short.term debt/i, 'Borrowings'],
+            [/\bvat\b|\bgst\b|sales tax|withholding|income tax|tax payable|tax liab|deferred tax|\btax\b/i, 'Tax liabilities'],
+            [/accru|payroll|salar|wage|deferred (income|revenue)|unearned|provision|bonus|pension|employee|social sec/i, 'Accruals'],
+            [/payable|creditor|supplier|vendor|\bgrni\b|received not invoiced|uninvoiced/i, 'Payables']],
+        O: [[/retained|accumulated (profit|earning|loss)|reserve|profit and loss|p&l|current year (profit|earning)|dividend/i, 'Retained earnings']],
+        R: [[/other income|interest income|investment income|dividend income|gain|sundry income|misc|rental income|exchange gain/i, 'Other income']],
+        E: [[/depreci|amorti[sz]/i, 'Depreciation & amortisation'],
+            [/salar|wage|payroll|staff|employee|bonus|pension|benefit|social sec|overtime|recruit|training|medical|gratuit|commission to staff/i, 'Staff costs'],
+            [/income tax|tax expense|deferred tax|corporate tax|\bcit\b/i, 'Tax'],
+            [/interest|bank charge|finance (cost|charge)|exchange|forex|\bfx\b|loan fee/i, 'Finance costs'],
+            [/cost of (goods|sales|revenue)|\bcogs\b|purchases?\b|material|freight in|import dut|landed|inventory (adj|write|loss|variance)|shrink|cost variance|production/i, 'Cost of sales'],
+            [/\brent|lease expense|utilit|electric|water|repair|maint|premis|building|cleaning|security|property tax|rates/i, 'Premises'],
+            [/freight|deliver|transport|vehicle|fuel|distribution|logistic|shipping|courier|warehous/i, 'Distribution'],
+            [/market|advert|promot|commission|selling|sponsor|bad debt|doubtful|discount allowed|merchand/i, 'Selling']]
+    };
+    /** The class of an account from its type and name: {code, name, account_type} → 'Staff costs' … */
+    FINE.classify = function (a) {
+        var t = a.account_type, name = String(a.name || '');
+        var list = RULES[t];
+        if (!list) return t === 'L' ? 'Other liabilities' : 'Other current assets';
+        for (var i = 0; i < list.length; i++) if (list[i][0].test(name)) return list[i][1];
+        return FINE.CLASSES[t][0];
+    };
+
+    /** PL, PLS, BS and CF on account classes (works on any chart of accounts) — same row ids as the starters, so KPIs keep working. */
+    FINE.autoTemplates = function () {
+        var B = { bold: true }, T = { bold: true, topBorder: true }, TT = { bold: true, topBorder: true, doubleBottom: true }, I = { italic: true, muted: true }, H = { italic: true, bold: true };
+        var cls = function (c, type) { var o = { class: [].concat(c) }; if (type) o.type = type; return o; };
+        var MG = [
+            { id: 'm_act', scenario: 'ACTUAL', range: 'MTD' }, { id: 'm_bud', scenario: 'BUDGET', range: 'MTD' }, { id: 'm_var', kind: 'var', a: 'm_act', b: 'm_bud', label: 'Var F/(U)' },
+            { id: 'y_act', scenario: 'ACTUAL', range: 'YTD' }, { id: 'y_bud', scenario: 'BUDGET', range: 'YTD' }, { id: 'y_var', kind: 'var', a: 'y_act', b: 'y_bud', label: 'Var F/(U)' },
+            { id: 'y_varp', kind: 'var', a: 'y_act', b: 'y_bud', mode: 'pct', label: 'Var %' }, { id: 'y_py', scenario: 'ACTUAL', range: 'YTD', at: 'PY' }, { id: 'y_pyp', kind: 'var', a: 'y_act', b: 'y_py', mode: 'pct', label: 'vs PY %' }];
+        var PL = { id: 'PL', name: 'Income statement — management', type: 'PL', scale: 1000, columns: MG, auto: true,
+            description: 'Built from your chart of accounts by account class (Data › Account mapping).',
+            rows: [
+                { id: 'REV', type: 'accounts', label: 'Net revenue', accounts: cls('Revenue', 'R'), sign: 'credit', style: T },
+                { id: 'COGS', type: 'accounts', label: 'Cost of sales', accounts: cls('Cost of sales', 'E'), favourable: 'down' },
+                { id: 'GP', type: 'formula', label: 'Gross profit', formula: 'REV - COGS', style: TT },
+                { id: 'GM', type: 'formula', label: 'Gross margin', formula: 'PCT(GP, REV)', format: 'pct', style: I },
+                { id: 'B1', type: 'blank' }, { id: 'H_OPEX', type: 'header', label: 'Operating expenses', style: B },
+                { id: 'STAFF', type: 'accounts', label: 'Staff costs', accounts: cls('Staff costs', 'E'), parent: 'OPEX', level: 1, favourable: 'down' },
+                { id: 'PREM', type: 'accounts', label: 'Premises & maintenance', accounts: cls('Premises', 'E'), parent: 'OPEX', level: 1, favourable: 'down' },
+                { id: 'DIST', type: 'accounts', label: 'Distribution', accounts: cls('Distribution', 'E'), parent: 'OPEX', level: 1, favourable: 'down' },
+                { id: 'SELL', type: 'accounts', label: 'Selling & marketing', accounts: cls('Selling', 'E'), parent: 'OPEX', level: 1, favourable: 'down' },
+                { id: 'ADMIN', type: 'accounts', label: 'Administration & other', accounts: cls(['Administration', 'Other expenses'], 'E'), parent: 'OPEX', level: 1, favourable: 'down' },
+                { id: 'OPEX', type: 'group', label: 'Total operating expenses', style: T, favourable: 'down' },
+                { id: 'OI', type: 'accounts', label: 'Other income', accounts: cls('Other income', 'R'), sign: 'credit' },
+                { id: 'EBITDA', type: 'formula', label: 'EBITDA', formula: 'GP - OPEX + OI', style: TT },
+                { id: 'EBITDAM', type: 'formula', label: 'EBITDA margin', formula: 'PCT(EBITDA, REV)', format: 'pct', style: I },
+                { id: 'DA', type: 'accounts', label: 'Depreciation & amortisation', accounts: cls('Depreciation & amortisation', 'E'), favourable: 'down' },
+                { id: 'EBIT', type: 'formula', label: 'Operating profit (EBIT)', formula: 'EBITDA - DA', style: T },
+                { id: 'FIN', type: 'accounts', label: 'Finance costs', accounts: cls('Finance costs', 'E'), favourable: 'down' },
+                { id: 'PBT', type: 'formula', label: 'Profit before tax', formula: 'EBIT - FIN', style: T },
+                { id: 'TAX', type: 'accounts', label: 'Income tax', accounts: cls('Tax', 'E'), favourable: 'down' },
+                { id: 'NP', type: 'formula', label: 'Net profit', formula: 'PBT - TAX', style: TT },
+                { id: 'NPM', type: 'formula', label: 'Net margin', formula: 'PCT(NP, REV)', format: 'pct', style: I }] };
+        var PLS = { id: 'PLS', name: 'Income statement — statutory (by function)', type: 'PL', scale: 1000, auto: true,
+            description: 'This year to date against last year, by function.',
+            columns: [{ id: 'cy', scenario: 'ACTUAL', range: 'YTD' }, { id: 'py', scenario: 'ACTUAL', range: 'YTD', at: 'PY' }, { id: 'ch', kind: 'var', a: 'cy', b: 'py', label: 'Change' }, { id: 'chp', kind: 'var', a: 'cy', b: 'py', mode: 'pct', label: 'Change %' }],
+            rows: [
+                { id: 'REV', type: 'accounts', label: 'Revenue', accounts: cls('Revenue', 'R'), sign: 'credit', style: B },
+                { id: 'COS', type: 'accounts', label: 'Cost of sales', accounts: cls('Cost of sales', 'E'), favourable: 'down' },
+                { id: 'GP', type: 'formula', label: 'Gross profit', formula: 'REV - COS', style: T },
+                { id: 'OI', type: 'accounts', label: 'Other income', accounts: cls('Other income', 'R'), sign: 'credit' },
+                { id: 'DIST', type: 'accounts', label: 'Distribution and selling costs', accounts: cls(['Distribution', 'Selling'], 'E'), favourable: 'down' },
+                { id: 'ADM', type: 'accounts', label: 'Administrative expenses', accounts: cls(['Staff costs', 'Premises', 'Administration', 'Other expenses', 'Depreciation & amortisation'], 'E'), favourable: 'down' },
+                { id: 'OP', type: 'formula', label: 'Operating profit', formula: 'GP + OI - DIST - ADM', style: T },
+                { id: 'FIN', type: 'accounts', label: 'Finance costs', accounts: cls('Finance costs', 'E'), favourable: 'down' },
+                { id: 'PBT', type: 'formula', label: 'Profit before tax', formula: 'OP - FIN', style: T },
+                { id: 'TAX', type: 'accounts', label: 'Income tax expense', accounts: cls('Tax', 'E'), favourable: 'down' },
+                { id: 'NP', type: 'formula', label: 'Profit for the period', formula: 'PBT - TAX', style: TT }] };
+        var BS = { id: 'BS', name: 'Statement of financial position', type: 'BS', scale: 1000, auto: true,
+            description: 'Balance sheet at the period end against last month and the last year end, with a balance check.',
+            columns: [{ id: 'cur', scenario: 'ACTUAL', range: 'BAL' }, { id: 'pm', scenario: 'ACTUAL', range: 'BAL', at: 'PM' }, { id: 'pye', scenario: 'ACTUAL', range: 'BAL', at: 'PYE' }, { id: 'ch', kind: 'var', a: 'cur', b: 'pye', label: 'Change vs YE' }],
+            rows: [
+                { id: 'H_A', type: 'header', label: 'ASSETS', style: B }, { id: 'H_NCA', type: 'header', label: 'Non-current assets', style: H },
+                { id: 'PPE', type: 'accounts', label: 'Property, plant & equipment (net)', accounts: cls(['Fixed assets', 'Accumulated depreciation'], 'A'), parent: 'NCA', level: 1 },
+                { id: 'INT', type: 'accounts', label: 'Intangible assets', accounts: cls('Intangibles', 'A'), parent: 'NCA', level: 1 },
+                { id: 'NCA', type: 'group', label: 'Total non-current assets', parent: 'TA', style: T },
+                { id: 'H_CA', type: 'header', label: 'Current assets', style: H },
+                { id: 'INV', type: 'accounts', label: 'Inventories', accounts: cls('Inventory', 'A'), parent: 'CA', level: 1 },
+                { id: 'AR', type: 'accounts', label: 'Trade receivables (net)', accounts: cls('Receivables', 'A'), parent: 'CA', level: 1 },
+                { id: 'OCA', type: 'accounts', label: 'Prepayments, intercompany & other receivables', accounts: cls(['Other current assets', 'Intercompany'], 'A'), parent: 'CA', level: 1 },
+                { id: 'SUSP', type: 'accounts', label: 'Suspense / unallocated', accounts: cls('Suspense', 'A'), parent: 'CA', level: 1, note: 'Should be nil at month end' },
+                { id: 'CASH', type: 'accounts', label: 'Cash and cash equivalents', accounts: cls('Cash', 'A'), parent: 'CA', level: 1 },
+                { id: 'CA', type: 'group', label: 'Total current assets', parent: 'TA', style: T },
+                { id: 'TA', type: 'group', label: 'TOTAL ASSETS', style: TT }, { id: 'B1', type: 'blank' },
+                { id: 'H_EL', type: 'header', label: 'EQUITY AND LIABILITIES', style: B },
+                { id: 'SC', type: 'accounts', label: 'Share capital & reserves', accounts: cls('Share capital', 'O'), parent: 'EQ', level: 1 },
+                { id: 'RE', type: 'accounts', label: 'Retained earnings', accounts: cls('Retained earnings', 'O'), parent: 'EQ', level: 1 },
+                { id: 'CYE', type: 'accounts', label: 'Profit for the year to date', accounts: { type: 'RE' }, basis: 'balance', sign: 'credit', parent: 'EQ', level: 1 },
+                { id: 'EQ', type: 'group', label: 'Total equity', parent: 'TEL', style: T },
+                { id: 'H_NCL', type: 'header', label: 'Non-current liabilities', style: H },
+                { id: 'LOANS', type: 'accounts', label: 'Long-term borrowings', accounts: cls('Long-term borrowings', 'L'), parent: 'NCL', level: 1 },
+                { id: 'LEASE', type: 'accounts', label: 'Lease liabilities', accounts: cls('Leases', 'L'), parent: 'NCL', level: 1 },
+                { id: 'NCL', type: 'group', label: 'Total non-current liabilities', parent: 'TL', style: T },
+                { id: 'H_CL', type: 'header', label: 'Current liabilities', style: H },
+                { id: 'AP', type: 'accounts', label: 'Trade payables', accounts: cls('Payables', 'L'), parent: 'CL', level: 1 },
+                { id: 'ACCR', type: 'accounts', label: 'Accruals & other payables', accounts: cls(['Accruals', 'Other liabilities'], 'L'), parent: 'CL', level: 1 },
+                { id: 'TAXL', type: 'accounts', label: 'Tax liabilities', accounts: cls('Tax liabilities', 'L'), parent: 'CL', level: 1 },
+                { id: 'ICP', type: 'accounts', label: 'Intercompany payables', accounts: cls('Intercompany', 'L'), parent: 'CL', level: 1 },
+                { id: 'STB', type: 'accounts', label: 'Short-term borrowings', accounts: cls('Borrowings', 'L'), parent: 'CL', level: 1 },
+                { id: 'CL', type: 'group', label: 'Total current liabilities', parent: 'TL', style: T },
+                { id: 'TL', type: 'group', label: 'Total liabilities', parent: 'TEL', style: T },
+                { id: 'TEL', type: 'group', label: 'TOTAL EQUITY AND LIABILITIES', style: TT },
+                { id: 'CHK', type: 'check', label: 'Check: assets − equity and liabilities', formula: 'TA - TEL', style: I }] };
+        var ch = function (id, label, c, type, parent) { return { id: id, type: 'accounts', label: label, accounts: cls(c, type), basis: 'change', sign: 'credit', parent: parent, level: 1 }; };
+        var CF = { id: 'CF', name: 'Statement of cash flows — indirect', type: 'CF', scale: 1000, auto: true,
+            description: 'Built from the balance sheet movements by account class — ties to the cash balance.',
+            columns: [{ id: 'm', scenario: 'ACTUAL', range: 'MTD' }, { id: 'q', scenario: 'ACTUAL', range: 'QTD' }, { id: 'y', scenario: 'ACTUAL', range: 'YTD' }, { id: 'l', scenario: 'ACTUAL', range: 'LTM' }],
+            rows: [
+                { id: 'H_OP', type: 'header', label: 'Cash flows from operating activities', style: B },
+                { id: 'NP', type: 'accounts', label: 'Profit for the period', accounts: { type: 'RE' }, basis: 'activity', sign: 'credit', parent: 'OPC', level: 1 },
+                ch('DA', 'Depreciation & amortisation (non-cash)', 'Accumulated depreciation', 'A', 'OPC'),
+                ch('WC_AR', '(Increase) / decrease in receivables', 'Receivables', 'A', 'OPC'),
+                ch('WC_INV', '(Increase) / decrease in inventories', 'Inventory', 'A', 'OPC'),
+                ch('WC_OTH', '(Increase) / decrease in other receivables', ['Other current assets', 'Intercompany', 'Suspense'], 'A', 'OPC'),
+                ch('WC_AP', 'Increase / (decrease) in trade payables', 'Payables', 'L', 'OPC'),
+                ch('WC_ACC', 'Increase / (decrease) in accruals, taxes & other payables', ['Accruals', 'Other liabilities', 'Tax liabilities', 'Intercompany'], 'L', 'OPC'),
+                { id: 'OPC', type: 'group', label: 'Net cash from operating activities', style: T }, { id: 'B1', type: 'blank' },
+                { id: 'H_INV', type: 'header', label: 'Cash flows from investing activities', style: B },
+                ch('CAPEX', 'Purchase of fixed and intangible assets', ['Fixed assets', 'Intangibles'], 'A', 'INVC'),
+                { id: 'INVC', type: 'group', label: 'Net cash used in investing activities', style: T }, { id: 'B2', type: 'blank' },
+                { id: 'H_FIN', type: 'header', label: 'Cash flows from financing activities', style: B },
+                ch('BORR', 'Borrowings drawn / (repaid)', ['Borrowings', 'Long-term borrowings'], 'L', 'FINC'),
+                ch('LEASEP', 'Lease payments', 'Leases', 'L', 'FINC'),
+                ch('EQT', 'Share capital issued', 'Share capital', 'O', 'FINC'),
+                { id: 'FINC', type: 'group', label: 'Net cash from financing activities', style: T }, { id: 'B3', type: 'blank' },
+                { id: 'NET', type: 'formula', label: 'Net increase / (decrease) in cash', formula: 'OPC + INVC + FINC', style: T },
+                { id: 'OPEN', type: 'accounts', label: 'Cash at the beginning of the period', accounts: cls('Cash', 'A'), basis: 'opening', sign: 'debit' },
+                { id: 'CLOSE', type: 'formula', label: 'Cash at the end of the period', formula: 'OPEN + NET', style: TT },
+                { id: 'BOOK', type: 'accounts', label: 'Cash per balance sheet', accounts: cls('Cash', 'A'), basis: 'balance', sign: 'debit', style: I },
+                { id: 'CHK', type: 'check', label: 'Check: cash flow ties to the bank balance', formula: 'CLOSE - BOOK', style: I },
+                { id: 'B4', type: 'blank' },
+                { id: 'FCF', type: 'formula', label: 'Free cash flow (operating + investing)', formula: 'OPC + INVC', style: B }] };
+        return [PL, PLS, BS, CF];
+    };
+
+    /** Where every account lands: {code: [{tpl, row, label}]} for the accounts rows of the templates (to find unmapped / double-counted). */
+    FINE.accountLines = function (templates, accounts) {
+        var out = {};
+        accounts.forEach(function (a) { out[a.code] = []; });
+        templates.forEach(function (t) {
+            (t.rows || []).forEach(function (r) {
+                if (r.type !== 'accounts') return;
+                FINE.matchAccounts(r.accounts, accounts).forEach(function (c) { if (out[c]) out[c].push({ tpl: t.id, row: r.id, label: r.label, basis: r.basis }); });
+            });
+        });
+        return out;
+    };
+
     if (typeof module !== 'undefined' && module.exports) module.exports = FINE; else root.FINE = FINE;
 })(typeof window !== 'undefined' ? window : this);

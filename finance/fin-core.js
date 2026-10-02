@@ -2,8 +2,8 @@
    UI helpers, charts and the drill path statement cell → accounts → company / cost centre / period → journal lines. */
 var FL = window.FL = {
     TABS: {}, tab: 'overview', who: { admin: false }, status: null,
-    dims: { companies: [], ccs: [], accounts: [], periods: [] },
-    templates: [], config: null, filter: { company: '', cc: '', period: null, scale: 1000 },
+    dims: { companies: [], ccs: [], accounts: [], periods: [], ledgers: [], ledgerCompanies: [] },
+    templates: [], config: null, filter: { company: '', cc: '', ledger: '', period: null, scale: 1000 },
     cache: {}, charts: {}
 };
 FL.PAL = { act: '#1d4ed8', bud: '#94a3b8', py: '#f59e0b', good: '#16a34a', bad: '#dc2626', series: ['#1d4ed8', '#0d9488', '#f59e0b', '#7c3aed', '#dc2626', '#0891b2', '#65a30d', '#db2777'] };
@@ -41,11 +41,12 @@ FL.scaleLabel = function () { return { 1: 'units', 1000: 'thousands', 1000000: '
 
 // ── host bridge ──
 var _pending = {};
-FL.host = function (action, payload, ms) {
+/** onProgress(message) receives the host's finProgress lines for this request (Fusion sync, Copilot). */
+FL.host = function (action, payload, ms, onProgress) {
     return new Promise(function (resolve, reject) {
         if (!hasHost()) { reject('Open Finance Lens inside the Gray\'s WMS app.'); return; }
         var id = 'fl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-        _pending[id] = { resolve: resolve, reject: reject };
+        _pending[id] = { resolve: resolve, reject: reject, progress: onProgress };
         setTimeout(function () { if (_pending[id]) { delete _pending[id]; reject('The app did not answer (' + action + ').'); } }, ms || 120000);
         window.chrome.webview.postMessage(Object.assign({ action: action, requestId: id, appUser: appUser() }, payload || {}));
     });
@@ -53,10 +54,11 @@ FL.host = function (action, payload, ms) {
 if (hasHost()) window.chrome.webview.addEventListener('message', function (ev) {
     var r = ev.data; if (typeof r === 'string') { try { r = JSON.parse(r); } catch (e) { return; } }
     if (!r || !r.requestId || !_pending[r.requestId]) return;
+    if (r.action === 'finProgress') { var p = _pending[r.requestId].progress; if (p) { try { p(r.message); } catch (e) { /* view gone */ } } return; }
     var cb = _pending[r.requestId]; delete _pending[r.requestId];
     if (r.action === 'error') cb.reject(r.message || 'Host error'); else cb.resolve(r.data == null ? {} : r.data);
 });
-FL.call = function (action, payload, ms) { return FL.host(action, payload, ms).then(function (d) { if (d && d.ok === false) throw d.error || 'failed'; return d; }); };
+FL.call = function (action, payload, ms, onProgress) { return FL.host(action, payload, ms, onProgress).then(function (d) { if (d && d.ok === false) throw d.error || 'failed'; return d; }); };
 /** One read-only query → {columns, rows} */
 FL.sql = function (sql, max) { return FL.call('finQuery', { sql: sql, maxRows: max || 50000 }); };
 /** Rows as objects keyed by column name */
@@ -66,12 +68,15 @@ FL.rows = function (sql, max) { return FL.sql(sql, max).then(function (d) { retu
 FL.where = function (alias, opts) {
     opts = opts || {};
     var p = alias ? alias + '.' : '', w = [];
+    if (FL.filter.ledger && !opts.noLedger) w.push(p + 'ledger = ' + FL.q(FL.filter.ledger));
     if (FL.filter.company && !opts.noCompany) w.push(p + 'company = ' + FL.q(FL.filter.company));
     if (FL.filter.cc && !opts.noCc) w.push(p + 'cost_centre = ' + FL.q(FL.filter.cc));
     return w;
 };
 FL.filterText = function () {
-    var co = FL.filter.company ? (FL.dims.companies.filter(function (c) { return c.code === FL.filter.company; })[0] || {}).name || FL.filter.company : 'All companies (consolidated)';
+    var led = FL.filter.ledger ? (FL.dims.ledgers.filter(function (l) { return l.code === FL.filter.ledger; })[0] || {}) : null;
+    var co = FL.filter.company ? (FL.dims.companies.filter(function (c) { return c.code === FL.filter.company; })[0] || {}).name || FL.filter.company
+        : (led ? led.name + ' (' + led.currency + ')' : FL.dims.ledgers.length > 1 ? 'All ledgers' : 'All companies (consolidated)');
     var cc = FL.filter.cc ? ' · cost centre ' + FL.filter.cc + ' ' + ((FL.dims.ccs.filter(function (c) { return c.code === FL.filter.cc; })[0] || {}).name || '') : '';
     return co + cc;
 };
@@ -97,11 +102,24 @@ FL.loadDocs = function () {
         var t = null, c = null;
         try { t = r[0].json ? JSON.parse(r[0].json) : null; } catch (e) { FL.toast('templates.json is not valid JSON — using the starters', 'err'); }
         try { c = r[1].json ? JSON.parse(r[1].json) : null; } catch (e) { FL.toast('config.json is not valid JSON — using the starters', 'err'); }
-        FL.templates = (t && t.templates && t.templates.length ? t.templates : JSON.parse(JSON.stringify(FIN_SEED.templates)));
+        FL.templatesSaved = !!(t && t.templates && t.templates.length);
+        FL.templates = (FL.templatesSaved ? t.templates : JSON.parse(JSON.stringify(FIN_SEED.templates)));
         FL.config = Object.assign(JSON.parse(JSON.stringify(FIN_SEED.config)), c || {});
     });
 };
 FL.saveTemplates = function () { return FL.call('finDocSave', { name: 'templates', json: JSON.stringify({ version: 1, templates: FL.templates }, null, 1) }); };
+/** Accounts without a class (Fusion loads) get one from their type and name; your choices (config.accountClass) win.
+    The classes are written back to fin_accounts so SQL, the journal tests and the Copilot see them too. */
+FL.classifyAccounts = function () {
+    var over = (FL.config && FL.config.accountClass) || {}, changed = {}, n = 0;
+    FL.dims.accounts.forEach(function (a) {
+        var want = over[a.code] || a.class || FINE.classify(a);
+        if (over[a.code] && a.class !== over[a.code]) want = over[a.code];
+        if (want !== a.class) { a.class = want; changed[a.code] = want; n++; }
+    });
+    if (n) FL.call('finSetClasses', { classes: changed }, 120000).then(function () { FL.cache = {}; }).catch(function (e) { console.warn('[Finance] classes not saved', e); });
+    return n;
+};
 FL.saveConfig = function () { return FL.call('finDocSave', { name: 'config', json: JSON.stringify(FL.config, null, 1) }); };
 
 // ── start ──
@@ -109,6 +127,7 @@ FL.init = function () {
     document.querySelectorAll('#tabs button[data-tab]').forEach(function (b) { b.onclick = function () { FL.show(b.dataset.tab); }; });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') FL.closeModal(); });
     $('b-pack').onclick = function () { FL.packDialog(); };
+    $('b-ask').onclick = function () { FL.copilot.toggle(); };
     if (!hasHost()) { $('main').innerHTML = '<div class="empty"><i class="fa-solid fa-plug-circle-xmark"></i>Open Finance Lens inside the Gray\'s WMS app.</div>'; return; }
     FL.call('finWho').then(function (w) { FL.who = w; }).catch(function () { /* older host */ });
     FL.refresh();
@@ -117,15 +136,22 @@ FL.refresh = function () {
     FL.cache = {};
     return FL.call('finStatus').then(function (st) {
         FL.status = st;
-        if (!st.loaded) { FL.dataChip(); FL.welcome(); return; }
+        if (!st.loaded) { FL.dataChip(); return FL.loadDocs().catch(function () { /* first run */ }).then(function () { if (FL.tab === 'data') FL.render(); else FL.welcome(); }); }
         return Promise.all([
             FL.rows('SELECT code, name, currency FROM fin_companies ORDER BY code'),
             FL.rows('SELECT code, name FROM fin_cost_centres ORDER BY code'),
             FL.rows('SELECT code, name, account_type, class FROM fin_accounts ORDER BY code', 100000),
             FL.rows('SELECT period_name, period_seq, fiscal_year, period_num, quarter FROM fin_periods ORDER BY period_seq'),
-            FL.loadDocs()
+            FL.loadDocs(),
+            st.hasLedgers ? FL.rows('SELECT code, name, currency, coa_id, company_segment, cost_centre_segment, account_segment, category FROM fin_ledgers ORDER BY code') : Promise.resolve([]),
+            st.hasLedgers ? FL.rows('SELECT DISTINCT ledger, company FROM fin_balances') : Promise.resolve([])
         ]).then(function (r) {
-            FL.dims = { companies: r[0], ccs: r[1], accounts: r[2], periods: r[3] };
+            FL.dims = { companies: r[0], ccs: r[1], accounts: r[2], periods: r[3], ledgers: r[5], ledgerCompanies: r[6] };
+            FL.classifyAccounts();
+            if (!FL.templatesSaved && (st.meta || {}).source === 'FUSION') {
+                FL.templates = FINE.autoTemplates();
+                FL.toast('Statements built from your chart of accounts by account class — adjust in Data › Account mapping or the Template designer.', 'ok');
+            }
             FL.fillFilters();
             FL.dataChip();
             FL.show(FL.ls('tab', 'overview'));
@@ -142,17 +168,33 @@ FL.fillFilters = function () {
     var per = FL.dims.periods.slice().reverse();
     $('f-period').innerHTML = per.map(function (p) { return '<option value="' + p.period_seq + '">' + esc(p.period_name) + '</option>'; }).join('');
     $('f-company').innerHTML = '<option value="">All (consolidated)</option>' + FL.dims.companies.map(function (c) { return '<option value="' + esc(c.code) + '">' + esc(c.code + ' ' + c.name) + '</option>'; }).join('');
+    var leds = FL.dims.ledgers || [];
+    $('l-ledger').style.display = leds.length > 1 ? '' : 'none';
+    $('f-ledger').innerHTML = '<option value="">All ledgers</option>' + leds.map(function (l) { return '<option value="' + esc(l.code) + '">' + esc(l.name + ' · ' + l.currency) + '</option>'; }).join('');
     $('f-cc').innerHTML = '<option value="">All cost centres</option>' + FL.dims.ccs.map(function (c) { return '<option value="' + esc(c.code) + '">' + esc(c.code + ' ' + c.name) + '</option>'; }).join('');
     f.period = per.some(function (p) { return p.period_seq === saved.period; }) ? saved.period : (per[0] || {}).period_seq;
     f.company = FL.dims.companies.some(function (c) { return c.code === saved.company; }) ? saved.company : '';
     f.cc = FL.dims.ccs.some(function (c) { return c.code === saved.cc; }) ? saved.cc : '';
     f.scale = saved.scale || 1000;
-    $('f-period').value = f.period; $('f-company').value = f.company; $('f-cc').value = f.cc; $('f-scale').value = f.scale;
-    var on = function () {
-        f.period = +$('f-period').value; f.company = $('f-company').value; f.cc = $('f-cc').value; f.scale = +$('f-scale').value;
-        FL.lsSet('filter', f); FL.render();
+    var ccys = {}; leds.forEach(function (l) { ccys[l.currency] = 1; });
+    FL.mixedCurrency = Object.keys(ccys).length > 1;
+    f.ledger = leds.some(function (l) { return l.code === saved.ledger; }) ? saved.ledger : (FL.mixedCurrency ? leds[0].code : '');   // never add up different currencies by default
+    var coOptions = function () {
+        var allow = null;
+        if (f.ledger) { allow = {}; (FL.dims.ledgerCompanies || []).forEach(function (x) { if (x.ledger === f.ledger) allow[x.company] = 1; }); }
+        $('f-company').innerHTML = '<option value="">' + (f.ledger ? 'All companies of the ledger' : 'All (consolidated)') + '</option>' +
+            FL.dims.companies.filter(function (c) { return !allow || allow[c.code]; }).map(function (c) { return '<option value="' + esc(c.code) + '">' + esc(c.code + ' ' + c.name) + '</option>'; }).join('');
+        if (allow && f.company && !allow[f.company]) f.company = '';
+        $('f-company').value = f.company;
     };
-    ['f-period', 'f-company', 'f-cc', 'f-scale'].forEach(function (id) { $(id).onchange = on; });
+    coOptions();
+    $('f-period').value = f.period; $('f-ledger').value = f.ledger; $('f-cc').value = f.cc; $('f-scale').value = f.scale;
+    var on = function (e) {
+        f.period = +$('f-period').value; f.ledger = $('f-ledger').value; f.company = $('f-company').value; f.cc = $('f-cc').value; f.scale = +$('f-scale').value;
+        if (e && e.target && e.target.id === 'f-ledger') coOptions();
+        FL.lsSet('filter', f); FL.cache = {}; FL.render();
+    };
+    ['f-period', 'f-ledger', 'f-company', 'f-cc', 'f-scale'].forEach(function (id) { $(id).onchange = on; });
 };
 FL.show = function (tab) {
     if (!FL.TABS[tab]) tab = 'overview';
@@ -166,7 +208,10 @@ FL.render = function () {
     FL.charts = {};
     var t = FL.TABS[FL.tab], el = $('main');
     el.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i>Working…</div>';
-    Promise.resolve().then(function () { return t.render(el); }).catch(function (e) { console.error(e); el.innerHTML = '<div class="callout bad"><b>Could not show this view.</b><br>' + esc(e && e.message || e) + '</div>'; });
+    Promise.resolve().then(function () { return t.render(el); }).then(function () {
+        if (FL.mixedCurrency && !FL.filter.ledger && !FL.filter.company && FL.tab !== 'data')
+            el.insertAdjacentHTML('afterbegin', '<div class="callout warn"><i class="fa-solid fa-coins"></i> The ledgers have different currencies — these totals add them up as if they were one. Pick a ledger in the header.</div>');
+    }).catch(function (e) { console.error(e); el.innerHTML = '<div class="callout bad"><b>Could not show this view.</b><br>' + esc(e && e.message || e) + '</div>'; });
 };
 FL.welcome = function () {
     var admin = FL.who && FL.who.admin;
@@ -175,7 +220,7 @@ FL.welcome = function () {
         '<li>40 KPIs and ratios with trends, covenant monitors, anomaly detection, Benford and journal-risk tests, close checks</li><li>One-click board pack with commentary, printable or saved as PDF</li></ul></div>' +
         '<div class="card" style="color:var(--ink)"><h3><i class="fa-solid fa-flask"></i> Start with the sample</h3><p class="sm">Two companies, six cost centres and about 50 accounts — 24 months of balanced journals with a budget, and a few surprises to find (a freight spike, a one-off fee, a bad debt, a suspense balance, a duplicate invoice, weekend manual journals).</p>' +
         (admin ? '<button class="btn primary" onclick="FL.loadSample()"><i class="fa-solid fa-wand-magic-sparkles"></i> Load the sample data</button>' : '<div class="callout warn">An AI admin loads the data on this PC.</div>') +
-        '<p class="sm muted" style="margin-top:12px">Next: load real journal balances from Fusion (GL_BALANCES by your COA segments) — see the Data tab.</p></div></div>';
+        (admin ? '<p class="sm" style="margin-top:12px"><b>Or connect your Oracle Fusion general ledger:</b> ledgers, balancing / account / cost centre segments and account types are found for you.</p><button class="btn" onclick="FL.show(\'data\')"><i class="fa-solid fa-cloud-arrow-down"></i> Connect to Fusion</button>' : '') + '</div></div>';
 };
 FL.loadSample = function () {
     var y = new Date().getFullYear() - 1;

@@ -148,5 +148,38 @@ test('templates: errors are reported, not thrown (unknown row, cycle)', function
     assert.ok(st.errors.some(function (e) { return /^D:/.test(e); }));
 });
 
+test('Fusion charts: accounts classified by name, auto templates balance, tie and keep every KPI working', function () {
+    // the sample chart as it would arrive from Fusion: no classes
+    var accs = data.accounts.map(function (a) { return { code: a.code, name: a.name, account_type: a.account_type }; });
+    accs.forEach(function (a) { a.class = FINE.classify(a); });
+    var by = {}; accs.forEach(function (a) { by[a.code] = a.class; });
+    assert.strictEqual(by['1000'], 'Cash'); assert.strictEqual(by['1150'], 'Receivables'); assert.strictEqual(by['1650'], 'Accumulated depreciation');
+    assert.strictEqual(by['1800'], 'Intangibles'); assert.strictEqual(by['2400'], 'Tax liabilities'); assert.strictEqual(by['2700'], 'Long-term borrowings');
+    assert.strictEqual(by['2600'], 'Borrowings'); assert.strictEqual(by['2800'], 'Leases'); assert.strictEqual(by['3100'], 'Retained earnings');
+    assert.strictEqual(by['4200'], 'Other income'); assert.strictEqual(by['5100'], 'Cost of sales'); assert.strictEqual(by['6200'], 'Distribution');
+    assert.strictEqual(by['6010'], 'Staff costs'); assert.strictEqual(by['6900'], 'Depreciation & amortisation'); assert.strictEqual(by['7200'], 'Finance costs');
+    assert.strictEqual(by['8000'], 'Tax'); assert.strictEqual(by['9999'], 'Suspense'); assert.strictEqual(by['6800'], 'Selling');
+    var tpls = FINE.autoTemplates(), AT = {}; tpls.forEach(function (t) { AT[t.id] = t; });
+    var d2 = { accounts: accs, periods: data.periods, facts: data.facts };
+    // every account is in exactly one line of the income statement or the balance sheet
+    var lines = FINE.accountLines([AT.PL, AT.BS], accs);
+    accs.forEach(function (a) {
+        var own = lines[a.code].filter(function (l) { return !(l.tpl === 'BS' && l.row === 'CYE'); });
+        assert.strictEqual(own.length, 1, a.code + ' ' + a.name + ' is in ' + own.length + ' lines');
+    });
+    d2.periods.forEach(function (p) {
+        var bs = FINE.compute(AT.BS, d2, { period: p.period_seq, scale: 1 }), cf = FINE.compute(AT.CF, d2, { period: p.period_seq, scale: 1 });
+        assert.ok(bs.rows.filter(function (r) { return r.id === 'CHK'; })[0].ok, p.period_name + ' BS');
+        assert.ok(cf.rows.filter(function (r) { return r.id === 'CHK'; })[0].ok, p.period_name + ' CF ' + cf.rows.filter(function (r) { return r.id === 'CHK'; })[0].raw);
+        assert.strictEqual(bs.errors.length + cf.errors.length, 0);
+    });
+    // same net profit as the hand-made starter, and the starter KPIs evaluate on the auto templates
+    var np = function (t) { return FINE.compute(t, d2, { period: last, scale: 1, columns: [{ id: 'y', range: 'YTD' }] }).rows.filter(function (r) { return r.id === 'NP'; })[0].values[0]; };
+    near(np(AT.PL), np(T.PL), 0.5, 'net profit');
+    var k = FINE.kpis(SEED.config.kpis, AT, d2, last), k0 = FINE.kpis(SEED.config.kpis, T, data, last);
+    Object.keys(k).forEach(function (id) { assert.ok(!k[id].error, id + ': ' + k[id].error); });
+    near(k.gm.value, k0.gm.value, 0.3, 'gross margin'); near(k.np.value, k0.np.value, 1, 'np'); near(k.cash.value, k0.cash.value, 1, 'cash');
+});
+
 console.log('\n' + (n - fail) + '/' + n + ' passed');
 process.exit(fail ? 1 : 0);

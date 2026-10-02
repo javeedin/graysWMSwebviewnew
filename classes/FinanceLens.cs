@@ -121,7 +121,9 @@ namespace WMSApp
             foreach (var r in meta.Rows) m[Convert.ToString(r[0])] = r[1];
             var c = new Dictionary<string, object>();
             if (counts.Error == null && counts.Rows.Count > 0) for (int i = 0; i < counts.Columns.Count; i++) c[counts.Columns[i]] = counts.Rows[0][i];
-            return new { ok = true, loaded = true, root = Root, meta = m, counts = c, sizeMb = Math.Round(new FileInfo(DbPath).Length / 1048576.0, 2), error = meta.Error ?? counts.Error };
+            bool led = HasLedgers();
+            if (led) { var lc = Query("SELECT COUNT(*) FROM fin_ledgers", 1); if (lc.Error == null && lc.Rows.Count > 0) c["ledgers"] = lc.Rows[0][0]; }
+            return new { ok = true, loaded = true, root = Root, meta = m, counts = c, hasLedgers = led, sizeMb = Math.Round(new FileInfo(DbPath).Length / 1048576.0, 2), error = meta.Error ?? counts.Error };
         }
 
         // ── documents (templates, KPIs, monitors, settings) ──
@@ -145,18 +147,19 @@ namespace WMSApp
         }
 
         // ── write side ──
-        private const string SCHEMA = @"
+        internal const string SCHEMA = @"
 CREATE TABLE fin_meta (key VARCHAR, value VARCHAR);
+CREATE TABLE fin_ledgers (code VARCHAR, name VARCHAR, currency VARCHAR, coa_id VARCHAR, company_segment VARCHAR, cost_centre_segment VARCHAR, account_segment VARCHAR, category VARCHAR);
 CREATE TABLE fin_segments (seg_no INTEGER, role VARCHAR, label VARCHAR, column_name VARCHAR);
 CREATE TABLE fin_companies (code VARCHAR, name VARCHAR, currency VARCHAR);
 CREATE TABLE fin_cost_centres (code VARCHAR, name VARCHAR, parent VARCHAR);
 CREATE TABLE fin_accounts (code VARCHAR, name VARCHAR, account_type VARCHAR, class VARCHAR, parent VARCHAR);
 CREATE TABLE fin_periods (period_name VARCHAR, period_seq INTEGER, fiscal_year INTEGER, period_num INTEGER, quarter INTEGER, start_date DATE, end_date DATE);
 CREATE TABLE fin_balances (scenario VARCHAR, company VARCHAR, cost_centre VARCHAR, account VARCHAR, period_name VARCHAR, period_seq INTEGER,
-    begin_bal DOUBLE, period_dr DOUBLE, period_cr DOUBLE, period_net DOUBLE, end_bal DOUBLE);
-CREATE TABLE fin_journals (je_id INTEGER, je_line INTEGER, batch_name VARCHAR, je_name VARCHAR, je_source VARCHAR, je_category VARCHAR,
+    begin_bal DOUBLE, period_dr DOUBLE, period_cr DOUBLE, period_net DOUBLE, end_bal DOUBLE, ledger VARCHAR);
+CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je_name VARCHAR, je_source VARCHAR, je_category VARCHAR,
     period_name VARCHAR, period_seq INTEGER, accounting_date DATE, posted_at TIMESTAMP, created_by VARCHAR,
-    company VARCHAR, cost_centre VARCHAR, account VARCHAR, dr DOUBLE, cr DOUBLE, description VARCHAR);";
+    company VARCHAR, cost_centre VARCHAR, account VARCHAR, dr DOUBLE, cr DOUBLE, description VARCHAR, ledger VARCHAR);";
 
         /// <summary>Builds the sample: 2 companies, 6 cost centres, ~50 accounts, actuals + budget for <paramref name="months"/> months
         /// from <paramref name="startYear"/>-01, with the journals behind every actual balance.</summary>
@@ -175,28 +178,72 @@ CREATE TABLE fin_journals (je_id INTEGER, je_line INTEGER, batch_name VARCHAR, j
                 Append(conn, "fin_meta", new List<object[]> {
                     new object[] { "source", "SAMPLE" }, new object[] { "loaded_at", DateTime.Now.ToString("s") }, new object[] { "currency", "MUR" },
                     new object[] { "description", "Sample journal balances: Grays Mauritius Ltd + Grays Distribution Ltd" } });
+                Append(conn, "fin_ledgers", new List<object[]> { new object[] { "SAMPLE", "Sample ledger (MUR)", "MUR", "1", "company", "cost_centre", "account", "PRIMARY" } });
                 Append(conn, "fin_segments", new List<object[]> {
                     new object[] { 1, "COMPANY", "Company", "company" }, new object[] { 2, "COST_CENTRE", "Cost centre", "cost_centre" }, new object[] { 3, "ACCOUNT", "Account", "account" } });
                 Append(conn, "fin_companies", SampleGenerator.Companies.Select(c => new object[] { c.Code, c.Name, "MUR" }).ToList());
                 Append(conn, "fin_cost_centres", SampleGenerator.CostCentres.Select(c => new object[] { c.Code, c.Name, c.Code == "000" ? null : "ALL" }).ToList());
                 Append(conn, "fin_accounts", SampleGenerator.Accounts.Select(a => new object[] { a.Code, a.Name, a.Type, a.Class, a.Parent }).ToList());
                 Append(conn, "fin_periods", g.Periods.Select(p => new object[] { p.Name, p.Seq, p.Year, p.Num, (p.Num - 1) / 3 + 1, DateOnly.FromDateTime(p.Start), DateOnly.FromDateTime(p.End) }).ToList());
-                Append(conn, "fin_balances", g.Balances);
-                Append(conn, "fin_journals", g.Journals);
+                Append(conn, "fin_balances", g.Balances.Select(r => r.Append("SAMPLE").ToArray()).ToList());
+                Append(conn, "fin_journals", g.Journals.Select(r => r.Append("SAMPLE").ToArray()).ToList());
                 Exec(conn, "CHECKPOINT");
             }
+            SwapIn(tmp);
+            return new { ok = true, balances = g.Balances.Count, journals = g.Journals.Count, periods = g.Periods.Count, ms = sw.ElapsedMilliseconds };
+        }
+
+        private static void ResetSessionNoLock() { try { _session?.Dispose(); } catch { } _session = null; }
+
+        /// <summary>Replaces finance.duckdb with a file built next to it (readers never see half a load).</summary>
+        internal static void SwapIn(string tmp)
+        {
             lock (_lock)
             {
                 ResetSessionNoLock();
                 File.Move(tmp, DbPath, true);
                 if (File.Exists(tmp + ".wal")) File.Delete(tmp + ".wal");
             }
-            return new { ok = true, balances = g.Balances.Count, journals = g.Journals.Count, periods = g.Periods.Count, ms = sw.ElapsedMilliseconds };
         }
 
-        private static void ResetSessionNoLock() { try { _session?.Dispose(); } catch { } _session = null; }
+        /// <summary>Copies the current file for an incremental load (under the lock so no reader holds it half-way).</summary>
+        internal static bool CopyCurrent(string to)
+        {
+            lock (_lock)
+            {
+                if (!File.Exists(DbPath)) return false;
+                ResetSessionNoLock();
+                File.Copy(DbPath, to, true);
+                return true;
+            }
+        }
 
-        private static void Append(DuckDBConnection conn, string table, List<object[]> rows)
+        /// <summary>Writes account classes (the page classifies Fusion accounts by type and name; the user's mapping wins).</summary>
+        public static int SetClasses(Dictionary<string, string> classes)
+        {
+            if (classes == null || classes.Count == 0 || !File.Exists(DbPath)) return 0;
+            if (classes.Count > 200000) throw new ArgumentException("too many accounts");
+            lock (_lock)
+            {
+                ResetSessionNoLock();
+                using var conn = new DuckDBConnection("Data Source=" + DbPath);
+                conn.Open();
+                Exec(conn, "CREATE TEMP TABLE cls (code VARCHAR, class VARCHAR)");
+                Append(conn, "cls", classes.Where(kv => kv.Key != null).Select(kv => new object[] { kv.Key, string.IsNullOrWhiteSpace(kv.Value) ? null : kv.Value.Trim() }).ToList());
+                Exec(conn, "UPDATE fin_accounts SET class = cls.class FROM cls WHERE fin_accounts.code = cls.code");
+                Exec(conn, "CHECKPOINT");
+            }
+            return classes.Count;
+        }
+
+        /// <summary>True when the file has the ledger dimension (files built before it are rebuilt by the next load).</summary>
+        public static bool HasLedgers()
+        {
+            var r = Query("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'fin_balances' AND column_name = 'ledger'", 1);
+            return r.Error == null && r.Rows.Count > 0 && Convert.ToInt64(r.Rows[0][0]) > 0;
+        }
+
+        internal static void Append(DuckDBConnection conn, string table, List<object[]> rows)
         {
             using var app = conn.CreateAppender(table);
             foreach (var r in rows)
@@ -209,6 +256,7 @@ CREATE TABLE fin_journals (je_id INTEGER, je_line INTEGER, batch_name VARCHAR, j
                         case null: row.AppendNullValue(); break;
                         case string s: row.AppendValue(s); break;
                         case int i: row.AppendValue(i); break;
+                        case long l: row.AppendValue(l); break;
                         case double d: row.AppendValue(d); break;
                         case DateOnly dt: row.AppendValue(dt); break;
                         case DateTime ts: row.AppendValue(ts); break;
@@ -219,13 +267,13 @@ CREATE TABLE fin_journals (je_id INTEGER, je_line INTEGER, batch_name VARCHAR, j
             }
         }
 
-        private static void Exec(DuckDBConnection conn, string sql)
+        internal static void Exec(DuckDBConnection conn, string sql)
         {
             using var cmd = conn.CreateCommand();
             cmd.CommandText = sql;
             cmd.ExecuteNonQuery();
         }
-        private static string Lit(string s) => "'" + (s ?? "").Replace("'", "''") + "'";
+        internal static string Lit(string s) => "'" + (s ?? "").Replace("'", "''") + "'";
 
         // ═════════════ the sample: two Mauritian distributors, balanced journals behind every number ═════════════
         private sealed class SampleGenerator
@@ -306,7 +354,7 @@ CREATE TABLE fin_journals (je_id INTEGER, je_line INTEGER, batch_name VARCHAR, j
                     _net[k] = (_net.TryGetValue(k, out var n) ? n : 0) + l.Dr - l.Cr;
                     _dr[k] = (_dr.TryGetValue(k, out var d) ? d : 0) + l.Dr;
                     _cr[k] = (_cr.TryGetValue(k, out var c) ? c : 0) + l.Cr;
-                    Journals.Add(new object[] { _je, ++ln, j.Source + " " + p.Name, j.Name, j.Source, j.Category, p.Name, p.Seq, DateOnly.FromDateTime(j.Date), j.Posted, j.By,
+                    Journals.Add(new object[] { (long)_je, ++ln, j.Source + " " + p.Name, j.Name, j.Source, j.Category, p.Name, p.Seq, DateOnly.FromDateTime(j.Date), j.Posted, j.By,
                                                 co, l.Cc, l.Acct, R2(l.Dr), R2(l.Cr), l.Desc });
                 }
             }
