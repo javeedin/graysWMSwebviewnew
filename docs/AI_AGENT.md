@@ -58,11 +58,13 @@ Ask the agent "call +230 5xxx xxxx and confirm tomorrow's 10:00 delivery for SO1
 
 Tick **Track tech** (bottom line of the chat). Every answer then gets a layers icon; it opens the path of that answer: your page (WebView2) → the C# host (kill switch, audit) → the AI Hub (FastAPI) → **LangGraph** (which nodes ran, how often it paused for tools or your confirm) → **LangChain** (`GatewayChatModel`, tools offered) → the AI Hub router → the provider SDK (Anthropic SDK for Claude on Bedrock / AWS / direct, boto3 for other Bedrock models, httpx for NVIDIA) → the model, with times, tokens and cost per model call, every tool with the technology behind it, and the installed versions.
 
-## Code tab — run Python, C#, JavaScript or PowerShell
+## Code tab — run Python, C#, JavaScript, PowerShell or HTML
 
 The **Code** tab (next to **Chat**) is a small workspace: write or paste code, pick the language, press **Run** (Ctrl+Enter). Give it a result as `input.csv`, print what you need, write `output.csv` for a table (one click puts it in the results panel) and save a `.png` for a chart. **Save** (Ctrl+S) keeps it in APEX with a name and description so you — or the agent — can run it again later. A missing language is one **Install** click (Python from python.org, the .NET SDK from Microsoft, Node.js), installed for your Windows user only.
 
 The agent can write and run code itself (`run_code`), but always shows you the full code on a confirm card first. Only AI admins can run code; every run is audited. Code runs with your Windows rights in its own process and folder — read it before you approve.
+
+**HTML / CSS / JS** is different: it is not run on Windows but shown live under the editor in a sealed frame (no access to the app, your files, other pages or Windows), so anyone can preview pages, forms and mock-ups. `console.log` and script errors appear in the **Console** tab, `localStorage` works for the life of the preview, the picked result is `window.INPUT = { columns, rows }`, and **Full screen** / **Save .html** take it further.
 
 ## Camera
 

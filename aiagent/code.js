@@ -12,7 +12,8 @@ CODE.LANGS = {
     python: { label: 'Python', ext: 'py', icon: 'fa-brands fa-python', sample: '# input.csv = the result you picked (if any); write output.csv for a table, *.png for charts\nimport pandas as pd, os\n\nif os.path.exists("input.csv"):\n    df = pd.read_csv("input.csv")\n    print(df.describe(include="all"))\n    df.head(20).to_csv("output.csv", index=False)\nelse:\n    print("Hello from Python")\n' },
     csharp: { label: 'C#', ext: 'cs', icon: 'fa-solid fa-hashtag', sample: '// top-level statements (.NET 8). input.csv / output.csv work the same way.\nusing System.IO;\n\nif (File.Exists("input.csv"))\n{\n    var lines = File.ReadAllLines("input.csv");\n    Console.WriteLine($"{lines.Length - 1} rows, columns: {lines[0]}");\n}\nelse Console.WriteLine("Hello from C#");\n' },
     javascript: { label: 'JavaScript', ext: 'js', icon: 'fa-brands fa-node-js', sample: '// Node.js. input.csv / output.csv work the same way.\nconst fs = require("fs");\nif (fs.existsSync("input.csv")) {\n  const rows = fs.readFileSync("input.csv", "utf8").trim().split(/\\r?\\n/);\n  console.log(rows.length - 1, "rows");\n} else console.log("Hello from Node.js");\n' },
-    powershell: { label: 'PowerShell', ext: 'ps1', icon: 'fa-solid fa-terminal', sample: '# Windows PowerShell. input.csv / output.csv work the same way.\nif (Test-Path input.csv) { $d = Import-Csv input.csv; "{0} rows" -f $d.Count }\nelse { "Hello from PowerShell on $env:COMPUTERNAME" }\n' }
+    powershell: { label: 'PowerShell', ext: 'ps1', icon: 'fa-solid fa-terminal', sample: '# Windows PowerShell. input.csv / output.csv work the same way.\nif (Test-Path input.csv) { $d = Import-Csv input.csv; "{0} rows" -f $d.Count }\nelse { "Hello from PowerShell on $env:COMPUTERNAME" }\n' },
+    html: { label: 'HTML / CSS / JS', ext: 'html', icon: 'fa-brands fa-html5', page: true, sample: '<!-- HTML + CSS + JavaScript: shown live below in a sealed frame (no access to the app, your files or Windows).\n     The picked result is available as window.INPUT = { columns, rows }. console.log goes to the Console tab. -->\n<style>\n  body { font-family: Segoe UI, sans-serif; padding: 24px; }\n  .card { padding: 16px 20px; border-radius: 12px; background: #eef2ff; display: inline-block; }\n</style>\n<div class="card"><h2>Hello from HTML</h2><button onclick="go()">Click me</button> <span id="out"></span></div>\n<script>\n  function go() { document.getElementById("out").textContent = new Date().toLocaleTimeString(); console.log("clicked"); }\n  if (window.INPUT) console.log("input:", INPUT.rows.length, "rows");\n</script>\n' }
 };
 
 // ── tabs ──
@@ -76,7 +77,8 @@ CODE.loadRuntimes = function () {
                     : '<button class="btn sm" ' + (CODE.admin ? '' : 'disabled ') + 'onclick="CODE.install(\'' + r.lang + '\')" title="' + esc(r.download) + '"><i class="fa-solid fa-download"></i> Install</button>';
                 return '<div class="cw-rtrow"><i class="' + L.icon + '"></i> <span class="grow">' + esc(L.label) + '</span>' + state + '</div>' +
                     (ins.State === 'running' || ins.State === 'error' ? '<div class="sm muted cw-rtlog">' + esc(ins.Error || String(ins.Log || '').trim().split('\n').pop()) + '</div>' : '');
-            }).join('');
+            }).join('') +
+            '<div class="cw-rtrow"><i class="fa-brands fa-html5"></i> <span class="grow">HTML / CSS / JS</span><span class="tag b-ok" title="Runs in the page in a sealed frame — anyone can preview">built in</span></div>';
         if (CODE.runtimes.some(function (r) { return r.install && r.install.State === 'running'; })) { clearTimeout(CODE._rt); CODE._rt = setTimeout(CODE.loadRuntimes, 3000); }
     }).catch(function (e) { $('cw-rt').innerHTML = '<p class="sm" style="color:#b91c1c">' + esc(e) + '</p>'; });
 };
@@ -89,6 +91,7 @@ CODE.install = function (lang) {
 CODE.run = function () {
     var lang = $('cw-lang').value, code = $('cw-code').value;
     if (!code.trim()) { toast('Write or paste some code first', 'err'); return; }
+    if (lang === 'html') { CODE.runHtml(code); return; }
     if (!CODE.admin) { toast('Only AI admins can run code', 'err'); return; }
     var rt = CODE.runtimes.filter(function (r) { return r.lang === lang; })[0];
     var install = rt && !rt.installed;
@@ -127,6 +130,82 @@ CODE.showOutput = function (d) {
         $('cw-obody').innerHTML = tabs.filter(function (t) { return t[0] === k; })[0][2];
     };
     draw(pick);
+};
+// ── HTML: runs in the page, in a sandboxed frame (scripts yes; same origin NO → no app IPC, no cookies, no parent DOM) ──
+CODE.htmlShim = function (input) {
+    // in-memory storage (a sealed frame has none), console + errors posted to the Code tab, the picked result as INPUT
+    return '<script>(function(){var mem=function(){var d={};return{getItem:function(k){return k in d?d[k]:null},setItem:function(k,v){d[k]=String(v)},removeItem:function(k){delete d[k]},clear:function(){d={}},key:function(i){return Object.keys(d)[i]||null},get length(){return Object.keys(d).length}}};' +
+        '["localStorage","sessionStorage"].forEach(function(n){try{window[n].length}catch(e){try{Object.defineProperty(window,n,{value:mem(),configurable:true})}catch(x){}}});' +
+        'var send=function(k,a){try{parent.postMessage({cwHtml:1,k:k,m:[].map.call(a,function(x){try{return typeof x==="object"?JSON.stringify(x,null,1):String(x)}catch(e){return String(x)}}).join(" ")},"*")}catch(e){}};' +
+        '["log","info","warn","error","table"].forEach(function(k){var o=console[k];console[k]=function(){send(k,arguments);o&&o.apply(console,arguments)}});' +
+        'window.addEventListener("error",function(e){send("error",[e.message+(e.lineno?" (line "+e.lineno+")":"")])});' +
+        'window.addEventListener("unhandledrejection",function(e){send("error",["Unhandled promise: "+(e.reason&&e.reason.message||e.reason)])});' +
+        'window.INPUT=' + JSON.stringify(input || null).replace(/</g, '\\u003c') + ';})();<\/script>';
+};
+CODE.htmlDoc = function (code, input) {
+    var shim = CODE.htmlShim(input);
+    if (/<head[^>]*>/i.test(code)) return code.replace(/<head[^>]*>/i, function (m) { return m + shim; });
+    if (/<html[^>]*>/i.test(code)) return code.replace(/<html[^>]*>/i, function (m) { return m + '<head>' + shim + '</head>'; });
+    return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' + shim + '</head><body>' + code + '</body></html>';
+};
+CODE.runHtml = function (code) {
+    var inputId = $('cw-input').value, t0 = Date.now();
+    (inputId ? AG.fetchResult(inputId).then(function (d) { return { columns: d.columns.map(function (c) { return c.name; }), rows: d.rows }; }) : Promise.resolve(null)).then(function (input) {
+        CODE.htmlLog = []; CODE.htmlSrc = CODE.htmlDoc(code, input);
+        CODE.lastRun = { ok: true, Stdout: '', Stderr: '' };
+        CODE.drawHtml('view');
+        if (CODE.cur && CODE.cur.id) dbWrite('UPDATE wms_ai_code_snippets SET run_count = NVL(run_count, 0) + 1, last_run = SYSDATE WHERE id = ' + (+CODE.cur.id)).catch(function () { });
+        CODE._htmlT0 = t0;
+    }).catch(function (e) { $('cw-obody').innerHTML = '<p class="sm" style="color:#b91c1c">' + esc(e) + '</p>'; });
+};
+CODE.drawHtml = function (k) {
+    var errs = CODE.htmlLog.filter(function (l) { return l.k === 'error'; }).length;
+    $('cw-otabs').innerHTML = '<div class="cw-status ' + (errs ? 'bad' : 'ok') + '"><i class="fa-brands fa-html5"></i> Live preview' + (errs ? ' · ' + errs + ' error' + (errs > 1 ? 's' : '') : '') + '</div>' +
+        [['view', 'Preview'], ['log', 'Console (' + CODE.htmlLog.length + ')']].map(function (t) { return '<button class="' + (t[0] === k ? 'on' : '') + '" data-k="' + t[0] + '">' + t[1] + '</button>'; }).join('') +
+        '<span class="grow"></span><button data-a="full" title="Full screen"><i class="fa-solid fa-expand"></i> Full screen</button><button data-a="save" title="Save as an .html file"><i class="fa-solid fa-download"></i> Save .html</button>';
+    $('cw-otabs').querySelectorAll('button').forEach(function (b) {
+        b.onclick = function () { if (b.dataset.a === 'full') CODE.htmlFull(); else if (b.dataset.a === 'save') CODE.htmlSave(); else CODE.drawHtml(b.dataset.k); };
+    });
+    if (k === 'log') {
+        CODE._htmlTab = 'log';
+        $('cw-obody').innerHTML = CODE.htmlLog.length ? '<pre class="cw-pre">' + CODE.htmlLog.map(function (l) { return '<span class="' + (l.k === 'error' ? 'cw-lerr' : l.k === 'warn' ? 'cw-lwarn' : '') + '">' + esc(l.m) + '</span>'; }).join('\n') + '</pre>' : '<p class="muted sm">Nothing logged yet. console.log(…) in your script shows up here.</p>';
+        return;
+    }
+    if (CODE._htmlTab === 'view' && $('cw-frame') && $('cw-frame')._src === CODE.htmlSrc) return;   // keep the running page
+    CODE._htmlTab = 'view';
+    $('cw-obody').innerHTML = '<iframe id="cw-frame" class="cw-frame" sandbox="allow-scripts allow-forms allow-modals allow-popups" referrerpolicy="no-referrer"></iframe>';
+    var f = $('cw-frame'); f._src = CODE.htmlSrc; f.srcdoc = CODE.htmlSrc;
+};
+window.addEventListener('message', function (e) {
+    var d = e.data; if (!d || d.cwHtml !== 1) return;
+    var ok = [$('cw-frame'), $('cw-fframe')].some(function (f) { return f && f.contentWindow === e.source; }); if (!ok) return;
+    CODE.htmlLog.push({ k: d.k, m: String(d.m || '').slice(0, 4000) }); if (CODE.htmlLog.length > 500) CODE.htmlLog.shift();
+    var st = document.querySelector('#cw-otabs .cw-status'), btn = document.querySelector('#cw-otabs button[data-k="log"]');
+    if (btn) btn.textContent = 'Console (' + CODE.htmlLog.length + ')';
+    var errs = CODE.htmlLog.filter(function (l) { return l.k === 'error'; }).length;
+    if (st && errs) { st.className = 'cw-status bad'; st.innerHTML = '<i class="fa-brands fa-html5"></i> Live preview · ' + errs + ' error' + (errs > 1 ? 's' : ''); }
+    if (CODE._htmlTab === 'log') CODE.drawHtml('log');
+    if (d.k === 'error') CODE.lastRun = { ok: false, Stdout: '', Stderr: CODE.htmlLog.filter(function (l) { return l.k === 'error'; }).map(function (l) { return l.m; }).join('\n') };
+});
+CODE.htmlFull = function () {
+    if (!CODE.htmlSrc) return;
+    var ov = document.createElement('div'); ov.className = 'cw-full';
+    ov.innerHTML = '<div class="cw-full-bar"><b class="grow"><i class="fa-brands fa-html5"></i> ' + esc($('cw-name').value || 'Preview') + '</b><button class="btn sm" data-a="re"><i class="fa-solid fa-rotate-right"></i> Reload</button> <button class="btn sm" data-a="x"><i class="fa-solid fa-xmark"></i> Close (Esc)</button></div>' +
+        '<iframe id="cw-fframe" class="cw-frame" sandbox="allow-scripts allow-forms allow-modals allow-popups" referrerpolicy="no-referrer"></iframe>';
+    document.body.appendChild(ov);
+    var f = ov.querySelector('iframe'); f.srcdoc = CODE.htmlSrc;
+    var close = function () { ov.remove(); document.removeEventListener('keydown', esck); };
+    var esck = function (e) { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', esck);
+    ov.querySelector('[data-a="x"]').onclick = close;
+    ov.querySelector('[data-a="re"]').onclick = function () { f.srcdoc = CODE.htmlSrc + ' '; };
+};
+CODE.htmlSave = function () {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([$('cw-code').value], { type: 'text/html' }));
+    a.download = (($('cw-name').value || 'page').replace(/[^\w\- ]+/g, '').trim() || 'page') + '.html';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
 };
 CODE.toResults = function () {
     var r = CODE.lastRun; if (!r || !r.Columns) return;
@@ -233,7 +312,7 @@ AG.preview.run_code = function (i) {
         '<div class="muted sm">Runs as your Windows user in its own process' + (i.packages && i.packages.length ? ' · installs ' + esc(i.packages.join(', ')) : '') + ' · time limit ' + (i.timeout_s || 60) + ' s' +
         (i.install ? ' · downloads ' + esc(L.label) + ' first if it is missing' : '') + '. Read it before you approve.</div>';
 };
-CODE.normLang = function (l) { l = String(l || '').toLowerCase(); return { py: 'python', 'c#': 'csharp', cs: 'csharp', js: 'javascript', node: 'javascript', ps1: 'powershell', pwsh: 'powershell' }[l] || l; };
+CODE.normLang = function (l) { l = String(l || '').toLowerCase(); return { py: 'python', 'c#': 'csharp', cs: 'csharp', js: 'javascript', node: 'javascript', ps1: 'powershell', pwsh: 'powershell', htm: 'html', web: 'html' }[l] || l; };
 
 // tab state + keep the input picker fresh
 (function () {

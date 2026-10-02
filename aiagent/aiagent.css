@@ -357,3 +357,12 @@ body.tech-on .tech-toggle { color: #7c3aed; font-weight: 700; }
 .cw-pre { margin: 0; white-space: pre-wrap; font: .78rem/1.45 var(--mono, Consolas, monospace); background: #f8fafc; padding: 8px; border-radius: 8px; }
 .cw-pre.err { background: #fef2f2; color: #991b1b; }
 @media (max-width: 900px) { .codews { grid-template-columns: 1fr; } .cw-side { max-height: 220px; } }
+
+/* Code tab — HTML preview */
+.cw-frame { width: 100%; height: 100%; min-height: 260px; border: 0; background: #fff; display: block; }
+.cw-out-body:has(> .cw-frame) { padding: 0; }
+.cw-out-tabs .grow { flex: 1; }
+.cw-lerr { color: #b91c1c; } .cw-lwarn { color: #b45309; }
+.cw-full { position: fixed; inset: 0; z-index: 2000; background: rgba(15, 23, 42, .55); display: flex; flex-direction: column; padding: 18px; }
+.cw-full-bar { display: flex; align-items: center; gap: 6px; background: #fff; padding: 8px 12px; border-radius: 10px 10px 0 0; }
+.cw-full .cw-frame { flex: 1; border-radius: 0 0 10px 10px; }
