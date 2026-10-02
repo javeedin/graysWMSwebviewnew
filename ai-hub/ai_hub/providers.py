@@ -19,6 +19,12 @@ from dataclasses import dataclass, field
 
 from . import secrets
 
+CACHE_BREAK = "\n\n<<<CACHE_BREAK>>>\n\n"
+
+
+def _plain(system: str | None) -> str:
+    return (system or "").replace(CACHE_BREAK, "\n\n")
+
 
 class ProviderError(Exception):
     pass
@@ -131,7 +137,11 @@ class _ClaudeBase(Provider):
         t0 = time.time()
         try:
             kw = {"model": model, "max_tokens": max_tokens, "messages": _messages(messages)}
-            if system:
+            if system and CACHE_BREAK in system:
+                # the large, stable part (company knowledge) is cached; the per-specialist rest is not
+                head, tail = system.split(CACHE_BREAK, 1)
+                kw["system"] = [{"type": "text", "text": head, "cache_control": {"type": "ephemeral"}}, {"type": "text", "text": tail or "."}]
+            elif system:
                 kw["system"] = system
             if tools:
                 kw["tools"] = [{"name": t["name"], "description": t.get("description", ""), "input_schema": t["input_schema"]} for t in tools]
@@ -253,7 +263,7 @@ class BedrockConverseProvider(Provider):
         try:
             kw = {"modelId": model, "messages": msgs, "inferenceConfig": {"maxTokens": max_tokens}}
             if system:
-                kw["system"] = [{"text": system}]
+                kw["system"] = [{"text": _plain(system)}]
             if tools:
                 kw["toolConfig"] = {"tools": [{"toolSpec": {"name": t["name"], "description": t.get("description", ""),
                                                             "inputSchema": {"json": t["input_schema"]}}} for t in tools]}
@@ -295,7 +305,7 @@ class NvidiaProvider(Provider):
 
     @staticmethod
     def _openai_messages(system: str, messages: list[dict]) -> list[dict]:
-        out = [{"role": "system", "content": system}] if system else []
+        out = [{"role": "system", "content": _plain(system)}] if system else []
         for m in _messages(messages):
             c = m["content"]
             if isinstance(c, str):

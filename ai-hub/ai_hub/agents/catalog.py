@@ -201,6 +201,63 @@ TOOLS: list[Tool] = [
     Tool("jobs_list", "The scheduled agent jobs of this user with their last run.", _obj({}), runs="hub", specialists=[RP, FA, WO]),
 ]
 
+
+# ── AI Digital Employee parity: its chat actions as tools, same fields (see its knowledge in the system prompt) ──
+ALL = [FA, WO, OD, DL, RP]
+OBJ = {"type": "object"}
+TOOLS += [
+    Tool("wms_sql", "Read SQL (Oracle SELECT / WITH) on the WMS / APEX schema described in the knowledge (schema catalog) through the guarded "
+         "gateway: trips, orders, print jobs, agents, tasks, processes … Max 200 rows. = the AI Digital Employee's action sql.",
+         _obj({"sql": s("One SELECT / WITH"), "reason": s("One line")}, ["sql"]), runs="host", specialists=ALL),
+    Tool("fusion_call", "Oracle Fusion REST call (path starts /fscmRestApi/…, see the Fusion REST catalog in the knowledge). GET runs at once; "
+         "POST / PATCH / DELETE change Fusion: the user confirms (policy fusion_write). = action fusion.",
+         _obj({"method": {"type": "string", "enum": ["GET", "POST", "PATCH", "DELETE"]}, "path": S, "body": OBJ, "instance": s("PROD / TEST"),
+               "reason": S}, ["method", "path"]), runs="host", risk="act", policy="fusion_write", specialists=[FA, WO, OD, DL]),
+    Tool("ords_read", "GET a whitelisted helper endpoint of the app's ORDS (e.g. /ARMODULE/BOGO, /WAREHOUSEMANAGEMENT/ai/apicatalog). = action ords.",
+         _obj({"path": S, "params": OBJ, "reason": S}, ["path"]), runs="host", specialists=[WO, OD]),
+    Tool("device", "This PC: op list_printers | system_info | list_files (intake / download folder) | import_file (read a file from it - "
+         "PDFs and images come back as content) | move_file (to a subfolder, e.g. processed) | download_orders (order PDFs from Fusion) | "
+         "print_orders (download + print order PDFs, the user confirms) | print (print a result grid: give result_id, printer, title; "
+         "the user confirms). = action device.",
+         _obj({"op": {"type": "string", "enum": ["list_printers", "system_info", "list_files", "import_file", "move_file", "download_orders", "print_orders", "print"]},
+               "orders": SA, "printer": S, "instance": S, "file": S, "dest": S, "title": S, "result_id": S, "reason": S}, ["op"]),
+         runs="host", risk="act", policy="print", specialists=[WO, OD, RP]),
+    Tool("db_write", "DDL / DML on the WMS / APEX database (INSERT / UPDATE / DELETE / CREATE …) through ai/executewrite. The user confirms "
+         "(policy db_write). = action db_write.", _obj({"sql": s("One statement"), "reason": S}, ["sql"]), runs="host", risk="act", policy="db_write", specialists=ALL),
+    Tool("wms_job", "Schedule a background job exactly as described in the knowledge (lane DB = DBMS_SCHEDULER, lane LOCAL = this app runs "
+         "its steps: query / rest / print / download_pdf / forEach / ipc). The user confirms (policy schedule_job). = action schedule_job.",
+         {"type": "object", "properties": {"lane": {"type": "string", "enum": ["DB", "LOCAL"]}, "name": S, "description": S}, "required": ["lane", "name"],
+          "additionalProperties": True}, runs="host", risk="act", policy="schedule_job", specialists=[WO, RP, FA]),
+    Tool("email", "Send an e-mail from the app's mail account (HTML body). The user confirms (policy email). = action email.",
+         _obj({"to": s("a@x.com;b@y.com"), "cc": S, "subject": S, "bodyHtml": S, "reason": S}, ["to", "subject", "bodyHtml"]), runs="host", risk="act",
+         policy="email", specialists=ALL),
+    Tool("save_report", "Save a report definition (title, SQL, chart …) as described in the knowledge. = action save_report.",
+         {"type": "object", "properties": {"title": S, "sql": S}, "required": ["title"], "additionalProperties": True}, runs="host", risk="auto",
+         specialists=[RP, FA, WO]),
+    Tool("dll", "Read a .dll / .exe without running it: op list | inspect | find | decompile (path, query, target 'Ns.Type::Member'). = action dll.",
+         _obj({"op": {"type": "string", "enum": ["list", "inspect", "find", "decompile"]}, "path": S, "query": S, "target": S, "namespace": S,
+               "internal": {"type": "boolean"}}, ["op"]),
+         runs="host", specialists=[FA, DL]),
+    Tool("model_tool", "Fusion Model tools: op overview | search | describe | evaluate | values | sql | checks (query, name, column, search, sql, names). = action model.",
+         _obj({"op": {"type": "string", "enum": ["overview", "search", "describe", "evaluate", "values", "sql", "checks"]}, "query": S, "name": S, "column": S,
+               "search": S, "sql": S, "names": SA}, ["op"]), runs="host", specialists=[FA, RP]),
+    Tool("grid", "Show rows as an interactive list the user can select from, with action buttons (e.g. 'Cancel selected', 'Print selected'); "
+         "the user's choice comes back as their next message. Use for 'pick which ones' moments. = action grid.",
+         _obj({"title": S, "markdown": s("Short text above the list"), "columns": SA, "rows": {"type": "array", "items": {"type": "array"}},
+               "key": s("Column whose values identify a row"),
+               "actions": {"type": "array", "items": _obj({"label": S, "prompt": s("What to do with the selected rows")}, ["label", "prompt"])}},
+              ["columns", "rows"]), risk="ask", specialists=ALL),
+    Tool("api_form", "Run a WMS write API from the app's API catalog through a form the user reviews, edits and submits (apiId + values, or a raw "
+         "request {method, url, body}). = action api_form.",
+         _obj({"apiId": S, "values": OBJ, "name": S, "note": S, "request": OBJ}), risk="act", policy="wms_api", specialists=[WO, OD]),
+    Tool("tasks_today", "The Daily Tasks board (wms_ai_tasks): tasks for a day with status, priority, steps and the last events.",
+         _obj({"date": s("YYYY-MM-DD, default today"), "status": S, "task_id": I}), specialists=ALL),
+    Tool("task_log", "Record your work on a Daily Task for traceability: an event (PROGRESS / ISSUE / RESULT / NOTE) and optionally the new status "
+         "(IN_PROGRESS / DONE / BLOCKED) with the result or issue text.",
+         _obj({"task_id": I, "kind": {"type": "string", "enum": ["PROGRESS", "ISSUE", "RESULT", "NOTE"]}, "message": S,
+               "status": {"type": "string", "enum": ["IN_PROGRESS", "DONE", "BLOCKED"]}}, ["task_id", "kind", "message"]), risk="auto", specialists=ALL),
+]
+
 BY_NAME = {t.name: t for t in TOOLS}
 
 
@@ -213,6 +270,14 @@ class Specialist:
     words: list[str]     # routing words
     prompt: str
 
+
+AIDE_HEADER = """# Company knowledge (shared with the AI Digital Employee)
+The text below was written for the AI Digital Employee, which replies with JSON actions. You have the same abilities as
+tools with the same fields - do NOT reply with JSON objects, call the tools: action sql -> wms_sql, fusion -> fusion_call,
+ords -> ords_read, device -> device, db_write -> db_write, schedule_job -> wms_job, email -> email, api_form -> api_form,
+grid -> grid, save_report -> save_report, dll -> dll, model -> model_tool, mra_interface -> mra_interface. Its rules
+(trained processes first, SQL rules, trip dates, cancelling lines with child lines, policies, formatting) apply to you.
+Answers are normal Markdown text."""
 
 COMMON = """You are part of Gray's WMS AI Agent - a team of specialists inside a warehouse / Oracle Fusion app used by
 a distribution company (Mauritius and the region). Be brief and concrete. Use tools to find facts; never invent table
@@ -267,7 +332,7 @@ Build with make_report (title, 2-5 sentence summary, KPIs, chart, table). For "e
 schedule_job (the user confirms)."""),
 ]}
 
-MAX_TURNS = 14
+MAX_TURNS = 20
 
 
 def tools_for(specialist: str, caps: list[str] | None) -> list[Tool]:

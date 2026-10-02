@@ -74,8 +74,15 @@ namespace WMSApp
                         break;
                     case "agentTool":
                         data = await AgentToolAsync(tool, inEl, input, pod, user,
-                            root.TryGetProperty("approved", out var ap) && ap.ValueKind == JsonValueKind.True);
+                            root.TryGetProperty("approved", out var ap) && ap.ValueKind == JsonValueKind.True, root);
                         break;
+                    case "agentKnowledge":
+                        {
+                            // the AI Digital Employee's knowledge (schema catalog, Fusion REST catalog, processes …) for the agent
+                            string text = await cli.AgentKnowledgeAsync(root.TryGetProperty("refresh", out var rf) && rf.ValueKind == JsonValueKind.True);
+                            data = new { ok = !string.IsNullOrEmpty(text), text, marker = ClaudeCliService.AgentPromptMarker, chars = text?.Length ?? 0 };
+                            break;
+                        }
                     case "agentMode":
                         data = await AgentModeAsync(PipeSrvStr(root, "set"), PipeSrvStr(root, "reason"), user);
                         break;
@@ -95,7 +102,7 @@ namespace WMSApp
             PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "agentResponse", requestId, data }));
         }
 
-        private static string AgentPolicyKey(string tool) => tool switch
+        private static string AgentPolicyKey(string tool, string input = null) => AGENT_AIDE_TOOLS.Contains(tool) || tool == "api_form" ? AgentAidePolicyKey(tool, input) : tool switch
         {
             "fusion_sql_run" => "fusion_query",
             "mra_interface" => "mra_interface",
@@ -110,7 +117,7 @@ namespace WMSApp
         // ── confirm cards ──────────────────────────────────────
         private async Task<object> AgentIssueAsync(string tool, string input, string pod, string user)
         {
-            string key = AgentPolicyKey(tool);
+            string key = AgentPolicyKey(tool, input);
             if (key == null) return new { ok = true, mode = "AUTO" };
             if (!await AiControl.IsEnabledAsync(user)) return new { ok = false, paused = true, error = "AI is paused (AI Digital Employee › Control)." };
             var (mode, maxBatch) = await GetClaudeCliService().PolicyAsync(key, pod);
@@ -122,6 +129,7 @@ namespace WMSApp
             // AUTO is honoured only for small runs: a big Fusion query or MRA batch still gets a card
             if (mode == "AUTO" && tool == "fusion_sql_run" && pod == "PROD" && AgentInt(input, "row_limit", 5000) > (maxBatch ?? 5000)) mode = "ASK";
             if (mode == "AUTO" && tool == "mra_interface" && AgentArrayLen(input, "orders") > (maxBatch ?? 5)) mode = "ASK";
+            if (mode == "AUTO" && (tool == "mra_interface" || AgentAideOverBatch(tool, input, maxBatch))) mode = "ASK";   // MRA is always a card, like the chat
             if (mode != "AUTO") GetClaudeCliService().IssueApproval("agent_tool", tool, input, pod);
             return new { ok = true, mode, maxBatch, policy = key };
         }
@@ -129,14 +137,14 @@ namespace WMSApp
         /// <summary>Card decision for an act tool: policy re-checked (DENY since the card wins), approval consumed.</summary>
         private async Task<(bool Ok, string Error)> AgentGateAsync(string tool, string input, string pod, string user, bool approved)
         {
-            string key = AgentPolicyKey(tool);
+            string key = AgentPolicyKey(tool, input);
             if (key == null) return (true, null);
             if (!await AiControl.IsEnabledAsync(user)) return (false, "AI is paused (AI Digital Employee › Control).");
             var (mode, maxBatch) = await GetClaudeCliService().PolicyAsync(key, pod);
             if (mode == "DENY") return (false, "Your policy does not allow " + key + " on " + pod + ".");
             bool needCard = mode != "AUTO" ||
                             (tool == "fusion_sql_run" && pod == "PROD" && AgentInt(input, "row_limit", 5000) > (maxBatch ?? 5000)) ||
-                            (tool == "mra_interface" && AgentArrayLen(input, "orders") > (maxBatch ?? 5));
+                            tool == "mra_interface" || AgentAideOverBatch(tool, input, maxBatch);
             if (needCard && !(approved && GetClaudeCliService().ConsumeApproval("agent_tool", tool, input, pod)))
                 return (false, "Not confirmed: this needs the confirm card the app showed for exactly this input.");
             return (true, null);
@@ -144,21 +152,21 @@ namespace WMSApp
 
         private async Task<object> AgentConfirmAsync(string tool, string input, string pod, string user)
         {
-            if (!AGENT_ACT_TOOLS.Contains(tool)) return new { ok = false, error = "Not an action tool." };
+            if (!AGENT_ACT_TOOLS.Contains(tool) && AgentPolicyKey(tool, input) == null) return new { ok = false, error = "Not an action tool." };
             var (ok, err) = await AgentGateAsync(tool, input, pod, user, true);
             AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "AIAGENT", Action = tool, Outcome = ok ? "APPROVED" : "REFUSED", Approval = "CARD", Instance = pod, Detail = ok ? AgentShort(input) : err });
             return ok ? new { ok = true } : (object)new { ok = false, error = err };
         }
 
         // ── tools ──────────────────────────────────────────────
-        private async Task<object> AgentToolAsync(string tool, JsonElement inEl, string input, string pod, string user, bool approved)
+        private async Task<object> AgentToolAsync(string tool, JsonElement inEl, string input, string pod, string user, bool approved, JsonElement root)
         {
             var args = inEl.ValueKind == JsonValueKind.Object
                 ? inEl.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone())
                 : new Dictionary<string, JsonElement>();
             string S(string k) => args.TryGetValue(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : v.ValueKind == JsonValueKind.Number ? v.GetRawText() : null;
 
-            if (AGENT_ACT_TOOLS.Contains(tool))
+            if (AGENT_ACT_TOOLS.Contains(tool) || AgentPolicyKey(tool, input) != null)
             {
                 var (ok, err) = await AgentGateAsync(tool, input, pod, user, approved);
                 if (!ok)
@@ -228,6 +236,7 @@ namespace WMSApp
                         return new { ok = true, content = "Request #" + id + " is " + status + " in the AI inbox; approvers were alerted.", data = new { inbox_id = id, status } };
                     }
                 default:
+                    if (AGENT_AIDE_TOOLS.Contains(tool)) return await AgentAideAsync(tool, inEl, root, pod, user);
                     return new { ok = false, content = "The app has no host tool " + tool + "." };
             }
         }

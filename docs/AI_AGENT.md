@@ -10,6 +10,12 @@ The **AI Agent** (Home › AI Agent, beta) is a team of AI specialists that work
 | Data Loader | FBDI and REST loads | FBDI templates, loads, REST fields / records |
 | Reporter | reports and schedules | Fusion Model measures and reports, report builder, scheduled jobs (confirm) |
 
+Everything the **AI Digital Employee** can do is available too, with the same knowledge (schema catalog, Fusion REST
+catalog, trained processes) and the same policies: WMS database reads and writes, Fusion REST, ORDS helpers, printers and
+order PDFs, the intake folder (it can read PDFs and images), e-mail, background jobs (DB and LOCAL lane — LOCAL jobs also
+run while the AI Agent page is open), WMS API forms, interactive lists, saved reports, DLLs, the Fusion Model, MRA and the
+Daily Tasks board (left side: *Today's tasks* → ▶ works one and logs every step). Attach files with the paperclip.
+
 A supervisor picks the specialist (or pin one on the left, or start with `@wms`, `@orders`, `@fbdi`, `@report`).
 
 ## Safety model

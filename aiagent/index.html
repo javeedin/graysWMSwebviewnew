@@ -32,6 +32,8 @@
             <button class="btn primary wide" id="btn-new"><i class="fa-solid fa-plus"></i> New conversation</button>
             <div class="side-h">Specialist</div>
             <div class="specs" id="specs"></div>
+            <div class="side-h row"><span class="grow">Today's tasks</span><button class="icon" title="Refresh" onclick="AG.loadTasks()"><i class="fa-solid fa-rotate"></i></button></div>
+            <div class="tasks" id="tasks"></div>
             <div class="side-h row"><span class="grow">Conversations</span><input type="text" id="th-filter" placeholder="Filter…"></div>
             <div class="threads" id="threads"></div>
         </aside>
@@ -41,7 +43,10 @@
             <div class="composer">
                 <div class="model-banner" id="model-banner" hidden></div>
                 <div class="cards" id="cards"></div>
+                <div class="files" id="files"></div>
                 <div class="compose-row">
+                    <button class="btn send" id="btn-attach" title="Attach files (PDF, images, CSV, text) - or drop / paste them"><i class="fa-solid fa-paperclip"></i></button>
+                    <input type="file" id="file-in" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.csv,.txt,.json,.xml,.sql,.md,.log">
                     <textarea id="input" rows="2" placeholder="Ask about Fusion data, trips, orders, loads or reports…  (Enter to send, Shift+Enter for a new line, @wms / @orders / @fbdi / @report to pick a specialist)"></textarea>
                     <button class="btn primary send" id="btn-send" title="Send"><i class="fa-solid fa-paper-plane"></i></button>
                     <button class="btn danger send" id="btn-stop" title="Stop" hidden><i class="fa-solid fa-stop"></i></button>
@@ -64,6 +69,9 @@
     <script src="tools-fusion.js"></script>
     <script src="tools-wms.js"></script>
     <script src="tools-business.js"></script>
+    <script src="../aianalysis/api-catalog.js"></script>
+    <script src="../aianalysis/local-jobs.js"></script>
+    <script src="tools-aide.js"></script>
     <script src="results.js"></script>
     <script src="rollout.js"></script>
     <script>AG.init();</script>

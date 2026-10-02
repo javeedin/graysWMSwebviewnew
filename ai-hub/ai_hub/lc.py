@@ -45,7 +45,7 @@ def to_hub_messages(messages: list[BaseMessage]) -> tuple[str, list[dict]]:
             out.append({"role": "assistant", "content": blocks if m.tool_calls else (text or "(no text)")})
         elif isinstance(m, ToolMessage):
             out.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": m.tool_call_id,
-                                                     "content": m.content if isinstance(m.content, str) else str(m.content),
+                                                     "content": m.content if isinstance(m.content, (str, list)) else str(m.content),
                                                      "is_error": getattr(m, "status", "success") == "error"}]})
         else:
             out.append({"role": "user", "content": m.content if isinstance(m.content, (str, list)) else str(m.content)})

@@ -32,6 +32,9 @@ MIGRATIONS: list[tuple[int, str, str]] = [
         CREATE TABLE eval_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL, app_user TEXT, provider TEXT, model TEXT,
             total INTEGER, passed INTEGER, route_acc REAL, trajectory_acc REAL, safety_ok INTEGER, cost REAL, ms INTEGER, detail TEXT);
     """),
+    (5, "settings / knowledge store", """
+        CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT, updated REAL);
+    """),
 ]
 
 

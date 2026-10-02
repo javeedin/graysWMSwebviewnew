@@ -118,7 +118,9 @@ AG.icon = function (n) { return AG.ICONS[n] || (/^fusion_/.test(n) ? 'fa-magnify
 AG.tool = function (name, fn, preview) { AG.exec[name] = fn; if (preview) AG.preview[name] = preview; };
 AG.caps = function () {
     var host = ['fusion_search_objects', 'fusion_search_columns', 'fusion_describe', 'fusion_source', 'fusion_dependencies', 'fusion_sql_dry_run',
-        'fusion_sql_run', 'result_analyze', 'mra_interface', 'inbox_list', 'inbox_request'];
+        'fusion_sql_run', 'result_analyze', 'mra_interface', 'inbox_list', 'inbox_request',
+        // the AI Digital Employee's actions (Form1_AiAgentAide.cs)
+        'wms_sql', 'fusion_call', 'ords_read', 'device', 'db_write', 'wms_job', 'email', 'save_report', 'dll', 'model_tool'];
     return host.concat(Object.keys(AG.exec));
 };
 
@@ -138,6 +140,13 @@ AG.init = function () {
     $('res-collapse').onclick = function () { $('results').parentNode.classList.add('nores'); };
     $('th-filter').oninput = AG.renderThreads;
     var inp = $('input');
+    $('btn-attach').onclick = function () { $('file-in').click(); };
+    $('file-in').onchange = function () { AG.addFiles(this.files); this.value = ''; };
+    var comp = document.querySelector('.composer');
+    comp.addEventListener('dragover', function (e) { e.preventDefault(); comp.classList.add('drop'); });
+    comp.addEventListener('dragleave', function () { comp.classList.remove('drop'); });
+    comp.addEventListener('drop', function (e) { e.preventDefault(); comp.classList.remove('drop'); AG.addFiles(e.dataTransfer.files); });
+    inp.addEventListener('paste', function (e) { if (e.clipboardData && e.clipboardData.files && e.clipboardData.files.length) AG.addFiles(e.clipboardData.files); });
     inp.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); AG.send(); } });
     inp.addEventListener('input', function () { inp.style.height = 'auto'; inp.style.height = Math.min(160, inp.scrollHeight) + 'px'; });
     AG.renderSpecs();
@@ -163,6 +172,9 @@ AG.init = function () {
             });
         }).catch(function () { });
         AG.loadModels();
+        AG.syncKnowledge();
+        if (AG.loadTasks) { AG.loadTasks(); setInterval(AG.loadTasks, 120000); }
+        try { if (window.LocalJobs) LocalJobs.init(); } catch (e) { }          // the AI Digital Employee's LOCAL-lane jobs run here too
         AG.jobTick();
         setInterval(AG.jobTick, 60000);
     });
@@ -279,6 +291,36 @@ AG.connectClaude = function () {
         toast('Could not connect Claude: ' + e + (/no Claude API key/i.test(String(e)) ? ' — save a Claude API key in AI settings (AI Digital Employee or Fusion SQL › Ask AI), or add one in AI Hub › Providers.' : ''), 'err');
     });
 };
+/** The AI Digital Employee's knowledge (schema catalog, Fusion REST catalog, trained processes, rules) → the hub,
+    when the hub has none or an older template; refreshed at most once a day. */
+AG.syncKnowledge = function (force) {
+    return Promise.all([hub('GET', '/agent/knowledge').catch(function () { return {}; }), host('agentKnowledge', { refresh: !!force }, 180000).catch(function () { return {}; })]).then(function (r) {
+        var have = r[0] || {}, k = r[1] || {};
+        if (!k.ok || !k.text) return;
+        var stale = !have.chars || have.marker !== k.marker || !have.updated || (Date.now() / 1000 - have.updated) > 86400 || force;
+        if (stale) return hub('POST', '/agent/knowledge', { text: k.text, marker: k.marker }).then(function () { if (force) toast('Knowledge refreshed (' + Math.round(k.chars / 1000) + ' k characters)', 'ok'); });
+    }).catch(function () { });
+};
+
+// ── attachments (button, paste, drag & drop): text as text, PDF / images as documents for the model ──
+AG.files = [];
+AG.addFiles = function (list) {
+    Array.prototype.forEach.call(list || [], function (f) {
+        if (f.size > 5 * 1024 * 1024) { toast(f.name + ' is larger than 5 MB', 'err'); return; }
+        var binary = /^(application\/pdf|image\/(png|jpeg|gif|webp))$/.test(f.type);
+        var rd = new FileReader();
+        rd.onload = function () {
+            if (binary) AG.files.push({ name: f.name, media_type: f.type, data: String(rd.result).split(',')[1] });
+            else AG.files.push({ name: f.name, text: String(rd.result).slice(0, 60000) });
+            AG.renderFiles();
+        };
+        if (binary) rd.readAsDataURL(f); else rd.readAsText(f);
+    });
+};
+AG.renderFiles = function () {
+    var el = $('files'); if (!el) return;
+    el.innerHTML = AG.files.map(function (f, i) { return '<span class="fchip"><i class="fa-solid ' + (f.media_type ? (f.media_type === 'application/pdf' ? 'fa-file-pdf' : 'fa-image') : 'fa-file-lines') + '"></i> ' + esc(f.name) + '<button onclick="AG.files.splice(' + i + ',1);AG.renderFiles()">×</button></span>'; }).join('');
+};
 AG.modelBody = function () { if (!AG.model) return null; var p = AG.model.split('|'); return { provider: p[0], model: p.slice(1).join('|') }; };
 
 // ── specialists ────────────────────────────────────────────────
@@ -376,6 +418,7 @@ AG.send = function () {
     if (AG.pendingCards) { toast('Answer the open card first — or press Decline.', 'err'); return; }
     $('input').value = ''; $('input').style.height = '';
     var body = { text: text, pod: AG.pod, caps: AG.caps(), model: AG.modelBody(), specialist: AG.spec === 'auto' ? (AG.tid ? 'auto' : null) : AG.spec };
+    if (AG.files.length) { body.attachments = AG.files; AG.files = []; AG.renderFiles(); }
     var call;
     if (!AG.tid) {
         AG.tid = 'ag_' + hex16(); AG.seq = 0; AG.stepEls = {}; lsSet('tid', AG.tid);
@@ -443,9 +486,10 @@ AG.handleWait = function (snap) {
 AG.runCall = function (c) {
     AG.stepState(c.id, 'run');
     var p;
-    if (c.risk === 'ask') p = AG.askCard(c);
+    if (c.risk === 'ask') p = c.name === 'ask_user' || !AG.exec[c.name] ? AG.askCard(c) : AG.execute(c, false);
     else if (c.risk === 'act') p = host('agentIssue', { tool: c.name, input: c.input, pod: c.pod }, 30000).then(function (pol) {
         if (!pol || pol.ok === false) return { ok: false, content: (pol && pol.error) || 'Refused by the app.' };
+        if (c.name === 'api_form') return AG.apiForm(c, pol);          // the form is the card
         if (pol.mode === 'AUTO') return AG.execute(c, false);
         return AG.confirmCard(c, pol).then(function (d) {
             if (!d.approve) return { ok: false, content: 'The user declined' + (d.reason ? ': ' + d.reason : '.') + ' Do not retry the same thing; ask what to change.' };
@@ -455,6 +499,12 @@ AG.runCall = function (c) {
     else p = AG.execute(c, false);
     return p.then(function (r) {
         AG.stepState(c.id, r && r.ok ? 'ok' : 'err');
+        // rows from the WMS database / Fusion REST go to the results panel (chartable, CSV …)
+        if (r && r.ok && r.data && r.data.columns && r.data.rows && !r.data.result_id && AG.pageResult) {
+            var cols = r.data.columns.map(function (x) { return typeof x === 'string' ? x : (x.name || x.NAME || String(x)); });
+            var pr = AG.pageResult(r.data.title || AG.label(c.name), cols, r.data.rows, { sql: r.data.sql });
+            r.content = (r.content || '') + '\n(The rows are in the results panel as result_id ' + pr.result_id + ' - use show_chart / make_report / device print with it.)';
+        }
         if (c.name === 'fusion_sql_dry_run' && r && r.ok && r.data) AG.lastDry[String(c.input.sql || '').replace(/\s+/g, ' ').trim().toLowerCase()] = r.data.count;
         if (r && r.data && r.data.result_id) AG.addResult(r.data);
         return r;
@@ -462,6 +512,11 @@ AG.runCall = function (c) {
 };
 AG.execute = function (c, approved) {
     if (c.name === 'result_analyze' && /^pg_/.test((c.input || {}).result_id || '')) return Promise.resolve(AG.analyzeLocal(c.input));
+    if (c.runs === 'host' && c.name === 'device' && (c.input || {}).op === 'print' && (c.input || {}).result_id)
+        // printing a result: the rows the page shows go along (not part of the confirmed input)
+        return AG.fetchResult(c.input.result_id).then(function (d) {
+            return host('agentTool', { tool: c.name, input: c.input, pod: c.pod, approved: !!approved, grid: { columns: d.columns.map(function (x) { return x.name; }), rows: d.rows } }, 420000);
+        }, function (e) { return { ok: false, content: 'No result ' + c.input.result_id + ': ' + e }; });
     if (c.runs === 'host') return host('agentTool', { tool: c.name, input: c.input, pod: c.pod, approved: !!approved }, 420000);
     if (c.runs === 'hub') return hostOk('agentConfirm', { tool: c.name, input: c.input, pod: c.pod }, 30000).then(function () { return { ok: true, approved: true, content: 'Confirmed by the user.' }; },
         function (e) { return { ok: false, content: String(e) }; });
@@ -519,7 +574,8 @@ AG.renderEvent = function (e) {
     var html = null;
     switch (e.kind) {
         case 'user':
-            html = '<div class="msg user"><div class="av"><i class="fa-solid fa-user"></i></div><div class="bub">' + esc(d.text).replace(/\n/g, '<br>') + '</div></div>';
+            html = '<div class="msg user"><div class="av"><i class="fa-solid fa-user"></i></div><div class="bub">' + esc(d.text).replace(/\n/g, '<br>') +
+                (d.files && d.files.length ? '<div style="margin-top:4px;font-size:.72rem;opacity:.85">' + d.files.map(function (f) { return '<i class="fa-solid fa-paperclip"></i> ' + esc(f); }).join(' &nbsp; ') + '</div>' : '') + '</div></div>';
             break;
         case 'route':
             var s = AG.specOf(d.specialist);
@@ -624,8 +680,10 @@ AG.showHelp = function () {
         '<b>Dry run first.</b> A Fusion query is always checked (row count + 5 rows) before you are asked to run it — the agent cannot skip this; the AI Hub refuses it.',
         '<b>You confirm actions.</b> Running on Fusion, MRA, saving, schedules: the app registers the card it shows you and refuses anything that does not match it exactly. Policies (AI Digital Employee › Policies) can make an action AUTO or DENY it. The AI kill switch stops everything.',
         '<b>Where it runs.</b> The brain is the AI Hub on this PC (LangGraph); models go through the hub router (Claude on AWS / direct, NVIDIA …, budget and data rules). Fusion and database calls run in this app with its own credentials — the AI Hub never sees them.',
+        '<b>Everything the AI Digital Employee does.</b> Same knowledge (schema catalog, Fusion REST catalog, trained processes) and the same actions with the same policies: WMS database reads and writes, Fusion REST, devices and printing, order PDFs, e-mail, jobs (DB and LOCAL lane — LOCAL jobs run on this page too), API forms, interactive lists, reports, DLLs, the Fusion Model, MRA and Daily Tasks (left).',
         '<b>Conversations wait.</b> Close the app while a card is open — the conversation is saved and the card comes back when you open it.'
-    ].map(function (p) { return '<p style="margin-bottom:8px">' + p + '</p>'; }).join('') + '</div>');
+    ].map(function (p) { return '<p style="margin-bottom:8px">' + p + '</p>'; }).join('') + '</div>',
+        [{ label: '<i class="fa-solid fa-rotate"></i> Refresh knowledge', onClick: function () { AG.syncKnowledge(true); closeModal(); } }, { label: 'Close', cls: 'primary', onClick: closeModal }]);
 };
 AG.showJobs = function () {
     Promise.all([hub('GET', '/agent/jobs'), hub('GET', '/agent/jobs/pending')]).then(function (r) {

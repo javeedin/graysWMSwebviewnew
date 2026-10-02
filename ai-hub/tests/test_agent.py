@@ -254,8 +254,8 @@ def test_gateway_error_keeps_thread(tmp_path):
 
 def test_migrations(tmp_path):
     s = svc(tmp_path)
-    assert s.store.version() == 4
-    assert s.store.migrate() == 4
+    assert s.store.version() == 5
+    assert s.store.migrate() == 5
 
 
 def test_agent_api(tmp_path):
@@ -320,3 +320,59 @@ def test_eval_cli_exit_code(tmp_path, capsys):
     from ai_hub.__main__ import main
     assert main(["eval-agent", "--json"]) == 0
     assert main(["eval-agent", "--all"]) == 1                     # model-only cases fail on the demo planner
+
+
+# ── AI Digital Employee parity ──
+def test_knowledge_in_system_prompt_with_cache_break(tmp_path, monkeypatch):
+    from ai_hub.agents import demo_planner
+    from ai_hub.agents.assistant import CACHE_BREAK
+    seen = []
+    monkeypatch.setattr(demo_planner, "plan", lambda system, *a: (seen.append(system), ("ok", []))[1])
+    s = svc(tmp_path)
+    s.knowledge_set("## Schema catalog\nWMS_TRIPS(trip_id, trip_date)", "FUSION-MODEL-V59")
+    s.start("how many trips today", caps=ALL_CAPS)
+    head, tail = seen[0].split(CACHE_BREAK)
+    assert "WMS_TRIPS" in head and "action sql -> wms_sql" in head and "SPECIALIST:" in tail
+    assert s.knowledge_info()["marker"] == "FUSION-MODEL-V59"
+
+
+def test_claude_provider_caches_knowledge(monkeypatch):
+    cfg = HubConfig()
+    cfg.providers["anthropic"]["enabled"] = True
+    secrets.set_secret("anthropic.api_key", "sk-test")
+    seen = []
+
+    class FakeClient:
+        class messages:  # noqa: N801
+            @staticmethod
+            def create(**kw):
+                seen.append(kw)
+                return types.SimpleNamespace(content=[types.SimpleNamespace(type="text", text="hi")], stop_reason="end_turn",
+                                             usage=types.SimpleNamespace(input_tokens=1, output_tokens=1))
+    monkeypatch.setattr(P.AnthropicProvider, "client", lambda self: FakeClient())
+    Gateway(cfg, Usage()).chat(ChatRequest(messages=[{"role": "user", "content": "x"}], provider="anthropic", system="BIG" + P.CACHE_BREAK + "small"))
+    assert seen[0]["system"][0] == {"type": "text", "text": "BIG", "cache_control": {"type": "ephemeral"}} and seen[0]["system"][1]["text"] == "small"
+
+
+def test_aide_tools_assigned_and_attachments(tmp_path, monkeypatch):
+    from ai_hub.agents import demo_planner
+    from ai_hub.agents.assistant import attach_blocks
+    names = {t.name for t in C.tools_for(C.WO, None)}
+    assert {"wms_sql", "fusion_call", "device", "db_write", "email", "grid", "api_form", "tasks_today", "task_log", "wms_job"} <= names
+    assert attach_blocks([{"name": "a.pdf", "media_type": "application/pdf", "data": "QUJD"}])[0]["type"] == "document"
+    assert attach_blocks([{"name": "a.csv", "text": "x,y"}])[0]["text"].startswith("Attached file a.csv")
+    seq = iter([("", [{"id": "d1", "name": "device", "input": {"op": "import_file", "file": "po.pdf"}}]), ("Read it.", [])])
+    seen = []
+    monkeypatch.setattr(demo_planner, "plan", lambda system, messages, tools: (seen.append(messages), next(seq))[1])
+    s = svc(tmp_path)
+    r = s.start("read po.pdf", specialist=C.WO, caps=ALL_CAPS, attachments=[{"name": "note.txt", "text": "hello"}])
+    assert r["waiting"]["calls"][0]["risk"] == "act"            # the page asks the host; reads come back AUTO (no card)
+    pdf = {"name": "po.pdf", "media_type": "application/pdf", "data": "QUJD"}
+    r = s.resume(r["thread_id"], {"results": {"d1": {"ok": True, "content": "File po.pdf attached.", "attachment": pdf}}})
+    assert r["status"] == "done"
+    first_user = seen[0][0]["content"]
+    assert isinstance(first_user, list) and "hello" in first_user[1]["text"]
+    tool_result = seen[1][-1]["content"][0]
+    assert tool_result["type"] == "tool_result" and tool_result["content"][1]["type"] == "document"
+    ev = [e for e in s.events(r["thread_id"])["events"] if e["kind"] == "result"][0]
+    assert ev["data"]["attachment"] == "po.pdf" and "QUJD" not in json.dumps(ev)

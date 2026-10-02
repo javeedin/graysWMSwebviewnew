@@ -217,6 +217,47 @@ namespace WMSApp
         public async Task<bool> IsDeniedAsync(string actionKey, string instance = null) =>
             (await GetPolicyAsync(actionKey, instance)).Mode == "DENY";
 
+        // ------------------------------------------------------------
+        // AI Agent (aiagent/) reuses the AI Digital Employee's executors and knowledge through these wrappers -
+        // same gateway, same whitelist, same endpoints, same prompt. Nothing here changes the chat's behaviour.
+        // ------------------------------------------------------------
+        /// <summary>Read SQL on the APEX schema through the guarded ai/executequery gateway (max 200 rows).</summary>
+        public Task<AiSqlRound> AgentQueryAsync(string sql, string reason) => ExecuteGatewayAsync(sql, reason);
+        /// <summary>Fusion REST call (path /fscmRestApi/…) with the app's Fusion credentials.</summary>
+        public Task<AiSqlRound> AgentFusionAsync(string method, string path, string body, string instance, string reason) =>
+            ExecuteFusionAsync(method, path, body, instance, reason);
+        /// <summary>GET on a whitelisted helper ORDS endpoint (same list as the chat's action ords).</summary>
+        public async Task<(bool Ok, string Body)> AgentOrdsAsync(string path, string query)
+        {
+            if (!ORDS_READ_WHITELIST.Any(w => string.Equals(path, w, StringComparison.OrdinalIgnoreCase)))
+                return (false, "{\"success\":false,\"error\":\"Path not in the read whitelist: " + JsonEncodedText.Encode(path ?? "") + "\"}");
+            var resp = await _http.GetAsync(ORDS_ROOT_URL + path + (query ?? ""));
+            return (resp.IsSuccessStatusCode, await resp.Content.ReadAsStringAsync());
+        }
+        /// <summary>Saves a report definition (the chat's action save_report).</summary>
+        public async Task<string> AgentSaveReportAsync(string reportJson, string user)
+        {
+            try
+            {
+                var node = System.Text.Json.Nodes.JsonNode.Parse(reportJson)?.AsObject() ?? new System.Text.Json.Nodes.JsonObject();
+                node.Remove("action");
+                node["appUser"] = string.IsNullOrWhiteSpace(user) ? Environment.UserName : user;
+                var resp = await _http.PostAsync(REPORT_SAVE_URL, new StringContent(node.ToJsonString(), Encoding.UTF8, "application/json"));
+                return await resp.Content.ReadAsStringAsync();
+            }
+            catch (Exception ex) { return JsonSerializer.Serialize(new { success = false, error = ex.Message }); }
+        }
+        /// <summary>The AI Digital Employee's knowledge (workspace CLAUDE.md: schema catalog, Fusion REST catalog,
+        /// trained processes, MRA / DLL / model knowledge, job and task formats).</summary>
+        public async Task<string> AgentKnowledgeAsync(bool refresh)
+        {
+            if (refresh) { await PrepareWorkspaceAsync(true); _systemPromptCache = null; }
+            return await GetSystemPromptAsync();
+        }
+        public static List<object> AgentListFolder(string folder) => ListFolderFiles(folder);
+        public static string AgentWorkspaceDir => WorkspaceDir;
+        public static string AgentPromptMarker => PROMPT_TEMPLATE_MARKER;
+
         /// <summary>The policy (AUTO / ASK / DENY + max batch) for an action - used by the AI Agent's host tools.</summary>
         public Task<(string Mode, int? MaxBatch)> PolicyAsync(string actionKey, string instance = null) =>
             GetPolicyAsync(actionKey, instance);

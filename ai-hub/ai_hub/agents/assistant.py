@@ -40,7 +40,9 @@ from ..db import Store
 from ..lc import GatewayChatModel
 from . import catalog as C
 
-RESULT_CHARS = 12000          # tool result text the model sees
+RESULT_CHARS = 14000          # tool result text the model sees
+CACHE_BREAK = "\n\n<<<CACHE_BREAK>>>\n\n"   # Claude providers cache the system prompt up to here (the big, stable knowledge)
+ATTACH_TYPES = {"application/pdf": "document", "image/png": "image", "image/jpeg": "image", "image/gif": "image", "image/webp": "image"}
 EVENT_BYTES = 400_000         # largest event payload kept for the timeline
 
 
@@ -85,8 +87,30 @@ def repair(messages: list[BaseMessage]) -> list[BaseMessage]:
 def _last_human(messages: list[BaseMessage]) -> str:
     for m in reversed(messages):
         if isinstance(m, HumanMessage):
-            return m.content if isinstance(m.content, str) else json.dumps(m.content)
+            if isinstance(m.content, str):
+                return m.content
+            return " ".join(b.get("text", "") for b in m.content if isinstance(b, dict) and b.get("type") == "text")
     return ""
+
+
+def attach_blocks(attachments: list | None) -> list[dict]:
+    """[{name, media_type, data(base64) | text}] → content blocks (PDF = document, image = image, text inline)."""
+    out = []
+    for a in attachments or []:
+        if not isinstance(a, dict):
+            continue
+        name, mt = str(a.get("name") or "file")[:120], str(a.get("media_type") or a.get("type") or "")
+        if a.get("text") is not None:
+            out.append({"type": "text", "text": f"Attached file {name}:\n" + str(a["text"])[:60000]})
+        elif mt in ATTACH_TYPES and a.get("data"):
+            out.append({"type": ATTACH_TYPES[mt], "source": {"type": "base64", "media_type": mt, "data": a["data"]}})
+            out.append({"type": "text", "text": f"(above: {name})"})
+    return out
+
+
+def human(text: str, attachments: list | None) -> HumanMessage:
+    blocks = attach_blocks(attachments)
+    return HumanMessage(content=[{"type": "text", "text": text}] + blocks if blocks else text)
 
 
 def build_graph(svc: "AgentService"):
@@ -162,7 +186,7 @@ def build_graph(svc: "AgentService"):
         for tc in ai.tool_calls:
             cid, name, args = tc["id"], tc["name"], tc.get("args") or {}
             t = C.BY_NAME.get(name)
-            data = None
+            data, att = None, None
             if cid in immediate:
                 content, err = immediate[cid]
             elif t and t.runs == "hub" and (t.risk != "act" or (results.get(cid) or {}).get("approved")):
@@ -179,6 +203,7 @@ def build_graph(svc: "AgentService"):
                         content = json.dumps(r.get("data"), default=str) if r.get("data") is not None else ("OK" if not err else "Failed")
                     content = str(content)
                     data = r.get("data")
+                    att = r.get("attachment")
                     if name == "fusion_sql_dry_run" and not err:
                         dry_ok.append(sql_key(args.get("sql", "")))
                     if isinstance(data, dict) and data.get("result_id"):
@@ -186,8 +211,11 @@ def build_graph(svc: "AgentService"):
                                          "rows": data.get("row_count"), "tool": name})
             if len(content) > RESULT_CHARS:
                 content = content[:RESULT_CHARS] + f"\n… (cut, {len(content)} characters)"
-            msgs.append(ToolMessage(content=content, tool_call_id=cid, status="error" if err else "success"))
-            svc.emit(tid, "result", {"id": cid, "name": name, "ok": not err, "text": content[:2000], "data": data})
+            blocks = attach_blocks([att]) if isinstance(att, dict) else []
+            msgs.append(ToolMessage(content=[{"type": "text", "text": content}] + blocks if blocks else content, tool_call_id=cid,
+                                    status="error" if err else "success"))
+            svc.emit(tid, "result", {"id": cid, "name": name, "ok": not err, "text": content[:2000], "data": data,
+                                     "attachment": att.get("name") if blocks else None})
         return {"messages": msgs, "dry_ok": dry_ok[-40:], "results": res_list[-30:], **upd}
 
     def after_tools(s: AgentState):
@@ -248,6 +276,8 @@ class AgentService:
         facts = self.store.all("SELECT fact FROM memory WHERE app_user = ? ORDER BY id DESC LIMIT 25", (user,)) if user else []
         others = ", ".join(f"{x.id} ({x.title})" for x in C.SPECIALISTS.values() if x.id != sp.id)
         res = s.get("results") or []
+        knowledge = self.knowledge_get()
+        head = (C.AIDE_HEADER + "\n\n" + knowledge + CACHE_BREAK) if knowledge else ""
         parts = [C.COMMON, sp.prompt,
                  f"Context: today is {datetime.now():%A %d %B %Y %H:%M}; Fusion pod {s.get('pod') or 'PROD'}; app user {user or 'unknown'}.",
                  f"Other specialists you can hand off to: {others}."]
@@ -256,7 +286,25 @@ class AgentService:
         if res:
             parts.append("Results available in this conversation (use their result_id):\n" +
                          "\n".join(f"- {r['result_id']}: {r.get('title')} ({r.get('rows')} rows)" for r in res[-10:]))
-        return "\n\n".join(parts)
+        return head + "\n\n".join(parts)
+
+    # ── knowledge (the AI Digital Employee's prompt, sent by the page) ──
+    def knowledge_set(self, text: str, marker: str | None = None) -> dict:
+        text = (text or "")[:400000]
+        self.store.run("INSERT OR REPLACE INTO kv VALUES ('knowledge', ?, ?)", (text, time.time()))
+        self.store.run("INSERT OR REPLACE INTO kv VALUES ('knowledge_marker', ?, ?)", (marker or "", time.time()))
+        self._knowledge = text
+        return {"ok": True, "chars": len(text), "marker": marker}
+
+    def knowledge_get(self) -> str:
+        if getattr(self, "_knowledge", None) is None:
+            r = self.store.one("SELECT v FROM kv WHERE k = 'knowledge'")
+            self._knowledge = r["v"] if r else ""
+        return self._knowledge
+
+    def knowledge_info(self) -> dict:
+        r = self.store.one("SELECT v, updated FROM kv WHERE k = 'knowledge_marker'")
+        return {"chars": len(self.knowledge_get()), "marker": r["v"] if r else None, "updated": r["updated"] if r else None}
 
     # ── hub tools ──
     def run_hub_tool(self, name: str, args: dict, s: AgentState, tid: str) -> tuple[str, bool, dict]:
@@ -298,7 +346,8 @@ class AgentService:
         return t
 
     def start(self, text: str, app_user: str | None = None, specialist: str | None = None, pod: str = "PROD",
-              caps: list | None = None, model: dict | None = None, job_id: str | None = None, thread_id: str | None = None) -> dict:
+              caps: list | None = None, model: dict | None = None, job_id: str | None = None, thread_id: str | None = None,
+              attachments: list | None = None) -> dict:
         # the page may choose the id (ag_ + 16 hex) so it can follow the live events of the very first turn
         tid = thread_id if thread_id and re.fullmatch(r"ag_[0-9a-f]{16}", thread_id) else "ag_" + uuid.uuid4().hex[:16]
         if self.store.one("SELECT 1 AS x FROM threads WHERE id = ?", (tid,)):
@@ -307,19 +356,19 @@ class AgentService:
         title = re.sub(r"\s+", " ", text or "").strip()[:90] or "New conversation"
         self.store.run("INSERT INTO threads (id, app_user, title, specialist, status, pod, created, updated, job_id) VALUES (?,?,?,?,?,?,?,?,?)",
                        (tid, app_user, title, specialist, "running", pod, now, now, job_id))
-        state = {"messages": [HumanMessage(content=text)], "app_user": app_user or "", "pod": (pod or "PROD").upper(),
+        state = {"messages": [human(text, attachments)], "app_user": app_user or "", "pod": (pod or "PROD").upper(),
                  "caps": caps, "dry_ok": [], "results": [], "model": model or {}}
         if specialist in C.SPECIALISTS:
             state.update(specialist=specialist, pinned=True)
         else:
             state.update(pinned=False)
-        self.emit(tid, "user", {"text": text})
+        self.emit(tid, "user", {"text": text, "files": [str(a.get("name")) for a in attachments or [] if isinstance(a, dict)]})
         return self._run(tid, state)
 
     def send(self, tid: str, text: str, app_user: str | None = None, specialist: str | None = None,
-             caps: list | None = None, pod: str | None = None, model: dict | None = None) -> dict:
+             caps: list | None = None, pod: str | None = None, model: dict | None = None, attachments: list | None = None) -> dict:
         self._own(tid, app_user)
-        upd: dict[str, Any] = {"messages": [HumanMessage(content=text)]}
+        upd: dict[str, Any] = {"messages": [human(text, attachments)]}
         if caps is not None:
             upd["caps"] = caps
         if pod:
@@ -330,7 +379,7 @@ class AgentService:
             upd.update(specialist=specialist, pinned=True)
         elif specialist == "auto":
             upd["pinned"] = False
-        self.emit(tid, "user", {"text": text})
+        self.emit(tid, "user", {"text": text, "files": [str(a.get("name")) for a in attachments or [] if isinstance(a, dict)]})
         return self._run(tid, upd)
 
     def resume(self, tid: str, value: Any, app_user: str | None = None) -> dict:

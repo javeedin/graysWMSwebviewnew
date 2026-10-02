@@ -46,6 +46,7 @@ class AgentIn(BaseModel):
     caps: list[str] | None = None
     model: dict | None = None
     thread_id: str | None = None
+    attachments: list[dict] | None = None
 
 
 def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None = None, agent_home: str | None = None,
@@ -217,7 +218,8 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
     @app.post("/agent/threads", dependencies=A)
     def agent_start(body: AgentIn, request: Request):
         return guard(lambda: agent.start(body.text, app_user=who(request, body.app_user), specialist=body.specialist,
-                                         pod=body.pod or "PROD", caps=body.caps, model=body.model, thread_id=body.thread_id))
+                                         pod=body.pod or "PROD", caps=body.caps, model=body.model, thread_id=body.thread_id,
+                                         attachments=body.attachments))
 
     @app.get("/agent/threads", dependencies=A)
     def agent_list(request: Request, limit: int = 50):
@@ -233,7 +235,8 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
 
     @app.post("/agent/threads/{tid}/send", dependencies=A)
     def agent_send(tid: str, body: AgentIn, request: Request):
-        return guard(lambda: agent.send(tid, body.text, who(request, body.app_user), body.specialist, body.caps, body.pod, body.model))
+        return guard(lambda: agent.send(tid, body.text, who(request, body.app_user), body.specialist, body.caps, body.pod, body.model,
+                                        body.attachments))
 
     @app.post("/agent/threads/{tid}/resume", dependencies=A)
     def agent_resume(tid: str, body: dict, request: Request):
@@ -250,6 +253,14 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
     @app.post("/agent/threads/{tid}/feedback", dependencies=A)
     def agent_feedback(tid: str, body: dict, request: Request):
         return guard(lambda: agent.feedback(tid, int(body.get("seq") or 0), int(body.get("rating") or 0), body.get("note"), who(request)))
+
+    @app.post("/agent/knowledge", dependencies=A)
+    def agent_knowledge_set(body: dict):
+        return agent.knowledge_set(body.get("text") or "", body.get("marker"))
+
+    @app.get("/agent/knowledge", dependencies=A)
+    def agent_knowledge_info():
+        return agent.knowledge_info()
 
     @app.get("/agent/memory", dependencies=A)
     def agent_memory(request: Request):

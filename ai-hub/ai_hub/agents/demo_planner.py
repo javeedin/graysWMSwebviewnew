@@ -66,7 +66,29 @@ def _call(name: str, inp: dict, n: int) -> dict:
     return {"id": f"demo_{name}_{n}", "name": name, "input": inp}
 
 
+_SCRIPT: dict = {"path": None, "steps": [], "i": 0}
+
+
+def _scripted() -> tuple[str, list[dict]] | None:
+    """UI tests: AIHUB_DEMO_SCRIPT = a JSON file [{"text": "...", "calls": [{"name", "input"}]}, ...] played in order."""
+    import os
+    p = os.environ.get("AIHUB_DEMO_SCRIPT")
+    if not p:
+        return None
+    if _SCRIPT["path"] != p:
+        with open(p, encoding="utf-8") as f:
+            _SCRIPT.update(path=p, steps=json.load(f), i=0)
+    if _SCRIPT["i"] >= len(_SCRIPT["steps"]):
+        return "(end of the demo script)", []
+    st = _SCRIPT["steps"][_SCRIPT["i"]]
+    _SCRIPT["i"] += 1
+    return st.get("text", ""), [{"id": f"scr_{_SCRIPT['i']}_{k}", "name": c["name"], "input": c.get("input") or {}} for k, c in enumerate(st.get("calls") or [])]
+
+
 def plan(system: str, messages: list[dict], tools: list[dict]) -> tuple[str, list[dict]]:
+    scripted = _scripted()
+    if scripted is not None:
+        return scripted
     names = {t["name"] for t in tools}
     q, done = _trail(messages)
     called = [d[0] for d in done]
