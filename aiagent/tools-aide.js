@@ -40,10 +40,14 @@ AG.tool('grid', function (inp) {
         AG.pendingCards++;
         var cols = inp.columns || [], rws = (inp.rows || []).slice(0, 500), key = inp.key ? cols.indexOf(inp.key) : 0;
         var acts = (inp.actions && inp.actions.length) ? inp.actions : [{ label: 'Use selected', prompt: 'Continue with the selected rows.' }];
+        var fmts = {}; Object.keys(inp.formats || {}).forEach(function (k) { fmts[k.toUpperCase()] = inp.formats[k]; });
         var el = document.createElement('div'); el.className = 'card confirm ask';
         el.innerHTML = '<h4><i class="fa-solid fa-list-check"></i> ' + esc(inp.title || 'Choose rows') + '</h4>' + (inp.markdown ? '<div class="why">' + md(inp.markdown) + '</div>' : '') +
             '<div class="grid-wrap" style="max-height:260px"><table class="t"><thead><tr><th><input type="checkbox" class="all" checked></th>' + cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-            rws.map(function (r, i) { return '<tr><td><input type="checkbox" class="pick" data-i="' + i + '" checked></td>' + (Array.isArray(r) ? r : cols.map(function (c) { return r[c]; })).map(function (v) { return '<td>' + esc(v) + '</td>'; }).join('') + '</tr>'; }).join('') +
+            rws.map(function (r, i) {
+                var vals = Array.isArray(r) ? r : cols.map(function (c) { return r[c]; }), obj = {}; cols.forEach(function (c, k) { obj[String(c).toUpperCase()] = vals[k]; });
+                return '<tr><td><input type="checkbox" class="pick" data-i="' + i + '" checked></td>' + vals.map(function (v, k) { var f = fmts[String(cols[k]).toUpperCase()]; return '<td' + (f && AGF.isNumFormat(f) ? ' class="n"' : '') + '>' + AGF.cell(v, f, { row: obj }) + '</td>'; }).join('') + '</tr>';
+            }).join('') +
             '</tbody></table></div><div class="acts">' + acts.map(function (a, i) { return '<button class="btn ' + (i === 0 ? 'primary' : '') + '" data-a="' + i + '">' + esc(a.label) + '</button>'; }).join('') +
             '<button class="btn danger" data-a="-1">None of these</button><span class="muted sm sel"></span></div>';
         var count = function () { el.querySelector('.sel').textContent = el.querySelectorAll('.pick:checked').length + ' selected'; };

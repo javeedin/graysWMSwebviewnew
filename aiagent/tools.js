@@ -49,6 +49,46 @@ AG.tool('make_report', function (inp) {
     return { ok: true, content: 'The report "' + (inp.title || 'Report') + '" is shown in the results panel; the user can print it, save it as PDF or copy it into an e-mail.', data: { report_id: rid } };
 });
 
+// ── rich output: open a web page, format a result, render a document ──
+AG.tool('open_url', function (inp) {
+    var url = String(inp.url || '').trim();
+    if (!/^https?:\/\/[^\s]+$/i.test(url)) return { ok: false, content: 'Only http(s) addresses can be opened.' };
+    var label = inp.label || url.replace(/^https?:\/\//, '');
+    if (inp.open !== false) AGF.openExternal(url);
+    $('timeline').insertAdjacentHTML('beforeend', '<div class="pill">' + (inp.open !== false ? 'Opened in your browser: ' : 'Link: ') + AGF.link(url, esc(label)) + '</div>');
+    $('timeline').scrollTop = 1e9;
+    return { ok: true, content: (inp.open !== false ? 'Opened ' : 'Shown a link to ') + url + ' in the user\'s browser (a clickable link is in the chat too).' };
+});
+
+AG.tool('format_result', function (inp) {
+    return AG.fetchResult(inp.result_id).then(function (d) {
+        var names = d.columns.map(function (c) { return String(c.name).toUpperCase(); }), cols = {}, errs = [];
+        Object.keys(inp.columns || {}).forEach(function (k) {
+            var u = k.toUpperCase(), f = inp.columns[k];
+            if (names.indexOf(u) < 0) { errs.push('unknown column ' + k); return; }
+            var e = AGF.checkFormat(k, f); if (e) errs.push(e); else cols[u] = f;
+        });
+        (inp.hide || []).concat(inp.order || []).forEach(function (k) { if (names.indexOf(String(k).toUpperCase()) < 0) errs.push('unknown column ' + k); });
+        (inp.row_rules || []).forEach(function (x) { if (names.indexOf(String(x.column || '').toUpperCase()) < 0) errs.push('row rule: unknown column ' + x.column); });
+        if (errs.length) return { ok: false, content: 'Not applied: ' + errs.join('; ') + '. Columns: ' + names.join(', ') };
+        var r = AG.resById(inp.result_id) || AG.addResult({ result_id: inp.result_id, title: d.title, row_count: d.row_count }, true);
+        var f = { title: inp.title || null, note: inp.note || null, columns: inp.merge && r.fmt ? Object.assign({}, r.fmt.columns, cols) : cols, hide: inp.hide || [], order: inp.order || [], row_rules: inp.row_rules || [] };
+        r.fmt = f;
+        if (inp.sort) { var si = names.indexOf(String(inp.sort.column || '').toUpperCase()); if (si >= 0) r.sort = { i: si, dir: inp.sort.desc ? -1 : 1 }; }
+        AG.selectResult(inp.result_id);
+        return { ok: true, content: 'Formatted ' + Object.keys(cols).length + ' column(s) of ' + inp.result_id + ' in the results panel (links open in the browser; Copy formatted keeps the look for Outlook / Teams / Excel).',
+            data: { result_id: inp.result_id, title: d.title, fmt: f } };
+    }, function (e) { return { ok: false, content: String(e) }; });
+});
+
+AG.tool('render', function (inp) {
+    if (!inp.markdown && !inp.html) return { ok: false, content: 'Give markdown and/or html.' };
+    var id = 'doc_' + hex16().slice(0, 8), doc = { title: inp.title || '', markdown: inp.markdown || '', html: inp.html || '' };
+    AG.addResult({ result_id: id, title: '📝 ' + (inp.title || 'Document'), doc: doc });
+    return { ok: true, content: 'The document "' + (inp.title || 'Document') + '" is shown in the results panel (Print / PDF, Copy formatted for e-mail, Save .html). Do not repeat it in the chat.',
+        data: { result_id: id, title: '📝 ' + (inp.title || 'Document'), doc: doc } };
+});
+
 // ── confirm-card previews (what exactly will happen) ──
 function sqlPreview(sql) { return '<pre>' + esc(sql || '') + '</pre>'; }
 AG.preview.fusion_sql_run = function (i) {

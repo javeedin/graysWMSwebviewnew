@@ -168,3 +168,46 @@ table.t td.n, table.t th.n { text-align: right; font-variant-numeric: tabular-nu
 .toast.ok { background: #15803d; } .toast.err { background: #b91c1c; }
 @media (max-width: 1100px) { .shell { grid-template-columns: 200px 1fr; } .results { position: fixed; right: 0; top: 60px; bottom: 0; width: min(560px, 92vw); box-shadow: -10px 0 30px rgba(0,0,0,.15); z-index: 20; } .shell.nores .results { display: none; } }
 @media (max-width: 700px) { .shell { grid-template-columns: 1fr; } .side { display: none; } }
+
+/* ── rich formatting (format.js) ── */
+.bub .md-h, .report .md-h { margin: 10px 0 4px; line-height: 1.25; color: var(--ink); }
+.bub h2.md-h { font-size: 1.05rem; } .bub h3.md-h { font-size: .96rem; } .bub h4.md-h, .bub h5.md-h, .bub h6.md-h { font-size: .88rem; }
+.bub ol, .bub ul, .report ol, .report ul { margin: 4px 0 6px 20px; } .bub li { margin: 2px 0; }
+.bub li.task, .report li.task { list-style: none; margin-left: -18px; } li.task i { color: var(--ink2); width: 14px; }
+.bub hr, .report hr { border: 0; border-top: 1px solid var(--line, #e2e8f0); margin: 10px 0; }
+.bub mark, .report mark { background: #fef08a; padding: 0 2px; border-radius: 3px; }
+.bub blockquote, .report blockquote { border-left: 3px solid #cbd5e1; margin: 6px 0; padding: 2px 12px; color: var(--ink2); }
+a.ag-link { color: #2563eb; text-decoration: none; border-bottom: 1px solid #93c5fd; cursor: pointer; }
+a.ag-link:hover { color: #1d4ed8; border-bottom-color: #1d4ed8; }
+a.ag-link .lk-i { font-size: .62em; margin-left: 2px; opacity: .7; }
+a.ag-link.ask { color: #7c3aed; border-bottom-style: dashed; border-bottom-color: #c4b5fd; }
+.md-table { overflow: auto; margin: 6px 0; max-width: 100%; }
+.md-table table.t { font-size: .78rem; }
+.md-table th { white-space: nowrap; }
+.md-code { position: relative; }
+.md-code pre code, .report pre code { background: none; color: inherit; padding: 0; border: 0; font-size: inherit; }
+.md-code .copy { position: absolute; top: 6px; right: 6px; border: 0; background: #334155; color: #e2e8f0; border-radius: 6px; padding: 2px 7px; cursor: pointer; font-size: .7rem; opacity: .7; }
+.md-code .copy:hover { opacity: 1; }
+.md-chart { position: relative; height: 220px; margin: 8px 0; max-width: 640px; }
+.md-html { margin: 6px 0; }
+.callout { border-left: 4px solid #2563eb; background: #eff6ff; padding: 6px 12px; margin: 8px 0; border-radius: 6px; }
+.callout .co-t { font-weight: 700; margin-bottom: 2px; }
+.callout.tip { border-color: #16a34a; background: #f0fdf4; } .callout.tip .co-t { color: #15803d; }
+.callout.warn { border-color: #d97706; background: #fffbeb; } .callout.warn .co-t { color: #b45309; }
+.callout.bad { border-color: #dc2626; background: #fef2f2; } .callout.bad .co-t { color: #b91c1c; }
+.callout.note .co-t { color: #1d4ed8; }
+.callout p:last-child { margin-bottom: 0; }
+.tag { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: .74em; font-weight: 600; white-space: nowrap; line-height: 1.5; }
+.b-ok { background: #dcfce7; color: #166534; } .b-warn { background: #fef3c7; color: #92400e; } .b-bad { background: #fee2e2; color: #991b1b; }
+.b-info { background: #e0e7ff; color: #3730a3; } .b-muted { background: #f1f5f9; color: #475569; }
+tr.row-b-ok td { background: #f0fdf4; } tr.row-b-warn td { background: #fffbeb; } tr.row-b-bad td { background: #fef2f2; } tr.row-b-info td { background: #eef2ff; }
+.cbar { display: inline-flex; align-items: center; gap: 6px; min-width: 120px; width: 100%; }
+.cbar > span { display: inline-block; height: 8px; border-radius: 4px; background: #2a78d6; flex: none; max-width: 70%; }
+.cbar > span.b-ok { background: #1baf7a; } .cbar > span.b-warn { background: #eda100; } .cbar > span.b-bad { background: #dc2626; }
+.cbar em { font-style: normal; margin-left: auto; }
+.neg { color: #b91c1c; }
+.res-note { font-size: .8rem; color: var(--ink2); margin: 4px 0 8px; }
+.report.doc { line-height: 1.55; }
+.report.doc h2 { margin-bottom: 8px; }
+.report img { max-width: 100%; }
+.msg.user a.ag-link { color: #fff; border-bottom-color: rgba(255,255,255,.6); }

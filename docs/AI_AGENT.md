@@ -18,6 +18,24 @@ Daily Tasks board (left side: *Today's tasks* → ▶ works one and logs every s
 
 A supervisor picks the specialist (or pin one on the left, or start with `@wms`, `@orders`, `@fbdi`, `@report`).
 
+## Rich answers and formatting
+
+Answers are rendered by `aiagent/format.js` (`AGF.md`), so the agent can write real Markdown:
+
+- headings, **bold** / *italic* / ==highlight== / ~~strike~~, nested, numbered and task lists, quotes, rules and tables (`|---:|` = right-aligned);
+- links that work: `[text](https://…)` and bare URLs open in the user's browser (host `openExternalUrl`, http/https only), `[text](ask:question)` sends a follow-up question, `[text](page:fusionsql)` opens an app page, `[text](result:<id>)` shows a result, `mailto:` opens the mail app;
+- status badges `[[ok:Printed]]` `[[warn:Pending]]` `[[bad:Failed]]` `[[info:PROD]]`, callouts (`> [!NOTE]`, `[!TIP]`, `[!WARNING]`, `[!DANGER]`), code with a Copy button, inline charts (a ```chart JSON block, drawn with Chart.js — a table when it cannot load) and ```html blocks.
+
+HTML always goes through the allow-list sanitizer `AGF.clean` (no scripts, event handlers, iframes, forms, `javascript:` links, `url()` styles or fixed positioning). Three tools build on it:
+
+| Tool | What it does |
+|---|---|
+| `format_result` | formats any result in the panel without a new query: per column `link` (URL template with `{VALUE}` / `{OTHER_COLUMN}`), `email`, `number`, `money` (currency), `percent`, `date`, `datetime`, `badge`, `bar` (in-cell data bar), `bool`, `bytes`, `duration`, value rules and colours, coloured rows, hidden / ordered columns, sort, a title and a note. **Copy formatted** pastes the same look into Outlook, Teams, Word or Excel. |
+| `render` | a formatted document (letter, e-mail draft, checklist, comparison …) in the results panel with Print / PDF, Copy formatted and Save .html |
+| `open_url` | opens a web page in the user's browser and leaves a clickable link in the chat |
+
+The `grid` tool takes the same column formats (`formats`).
+
 ## Safety model
 
 * **Read first, act second.** Read tools run at once; anything that runs a big query, changes data or sends something

@@ -75,23 +75,8 @@ function rows(sql, max) {
 }
 function dbWrite(sql) { return apex('/executewrite', { sql: sql }); }
 
-// ── markdown-lite ──────────────────────────────────────────────
-function md(text) {
-    var parts = String(text || '').split(/```(\w*)\n?([\s\S]*?)```/g), out = '';
-    for (var i = 0; i < parts.length; i += 3) {
-        var t = esc(parts[i]).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
-        var lines = t.split('\n'), html = '', inList = false;
-        lines.forEach(function (l) {
-            var m = l.match(/^\s*(?:[-*•]|\d+\.)\s+(.*)/);
-            if (m) { if (!inList) { html += '<ul>'; inList = true; } html += '<li>' + m[1] + '</li>'; }
-            else { if (inList) { html += '</ul>'; inList = false; } if (l.trim()) html += '<p>' + l + '</p>'; }
-        });
-        if (inList) html += '</ul>';
-        out += html;
-        if (i + 2 < parts.length) out += '<pre data-lang="' + esc(parts[i + 1]) + '">' + esc(parts[i + 2].trim()) + '</pre>';
-    }
-    return out;
-}
+// ── Markdown: the full renderer lives in format.js (AGF.md: tables, links, callouts, charts …) ──
+function md(text) { return window.AGF ? AGF.md(text) : '<p>' + esc(text).replace(/\n/g, '<br>') + '</p>'; }
 
 // ── catalog / labels ───────────────────────────────────────────
 AG.SPEC_COLOR = { fusion_analyst: 'var(--fa)', wms_operator: 'var(--wo)', order_desk: 'var(--od)', data_loader: 'var(--dl)', reporter: 'var(--rp)' };
@@ -105,12 +90,12 @@ AG.LABELS = {
     trips_find: 'Find trips', trip_orders: 'Orders on trip', print_jobs: 'Print jobs', printers_status: 'Printers', mra_status: 'MRA status', mra_interface: 'Send to MRA',
     inbox_list: 'AI inbox', inbox_request: 'Ask an approver', om_orders_find: 'Find orders', om_order_detail: 'Order detail', fusion_order_status: 'Fusion order status',
     om_prepare_order: 'Prepare order', fbdi_templates_find: 'FBDI templates', fbdi_loads: 'FBDI loads', fusion_rest_describe: 'REST fields', fusion_rest_get: 'REST read',
-    model_reports: 'Reports & dashboards', make_report: 'Build report', schedule_job: 'Schedule job', jobs_list: 'Scheduled jobs'
+    model_reports: 'Reports & dashboards', make_report: 'Build report', open_url: 'Open in browser', format_result: 'Format result', render: 'Formatted document', schedule_job: 'Schedule job', jobs_list: 'Scheduled jobs'
 };
 AG.ICONS = {
     ask_user: 'fa-circle-question', remember: 'fa-brain', handoff: 'fa-people-arrows', open_page: 'fa-up-right-from-square', fusion_sql_dry_run: 'fa-vial',
     fusion_sql_run: 'fa-play', result_analyze: 'fa-calculator', show_chart: 'fa-chart-column', knowledge_lookup: 'fa-book', mra_interface: 'fa-receipt',
-    make_report: 'fa-file-lines', schedule_job: 'fa-clock', save_query: 'fa-floppy-disk', watchdog_create: 'fa-shield-dog'
+    make_report: 'fa-file-lines', open_url: 'fa-globe', format_result: 'fa-wand-magic-sparkles', render: 'fa-file-signature', schedule_job: 'fa-clock', save_query: 'fa-floppy-disk', watchdog_create: 'fa-shield-dog'
 };
 AG.label = function (n) { return AG.LABELS[n] || n.replace(/_/g, ' '); };
 AG.icon = function (n) { return AG.ICONS[n] || (/^fusion_/.test(n) ? 'fa-magnifying-glass' : 'fa-wrench'); };
@@ -700,7 +685,8 @@ AG.renderEvent = function (e) {
                     el.appendChild(chip);
                     AG.addResult(d.data, true);
                 }
-                if (d.name === 'show_chart' || d.name === 'make_report') AG.applyView(d.name, d.data);
+                if (d.data && d.data.result_id && (d.data.doc || d.data.fmt)) { var rr = AG.addResult(d.data, true); if (rr && d.data.fmt) rr.fmt = d.data.fmt; }
+                if (d.name === 'show_chart' || d.name === 'make_report' || d.name === 'render' || d.name === 'format_result') AG.applyView(d.name, d.data);
             }
             break;
         case 'memory':

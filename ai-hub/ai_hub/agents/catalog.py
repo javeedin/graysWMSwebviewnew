@@ -245,8 +245,32 @@ TOOLS += [
          "the user's choice comes back as their next message. Use for 'pick which ones' moments. = action grid.",
          _obj({"title": S, "markdown": s("Short text above the list"), "columns": SA, "rows": {"type": "array", "items": {"type": "array"}},
                "key": s("Column whose values identify a row"),
+               "formats": {"type": "object", "description": "Optional column → format spec (same as format_result.columns), e.g. links to Fusion or badges"},
                "actions": {"type": "array", "items": _obj({"label": S, "prompt": s("What to do with the selected rows")}, ["label", "prompt"])}},
               ["columns", "rows"]), risk="ask", specialists=ALL),
+    # ── rich output (everyone): links, formatted results, documents ──
+    Tool("open_url", "Open a web page (http/https) in the user's own browser now - e.g. an Oracle doc, a Fusion page, a tracking "
+         "link the user asked for. A clickable link is also shown in the chat. For links inside an answer just write Markdown "
+         "links; use this only when the user wants the page opened.",
+         _obj({"url": s("http(s) address"), "label": s("Short text for the link"), "open": {"type": "boolean", "description": "false = only show the link"}}, ["url"]),
+         risk="auto", specialists=ALL),
+    Tool("format_result", "Format a result in the results panel (any result_id: Fusion runs, WMS rows, analyses): per column a "
+         "format - link (url template with {VALUE} or {OTHER_COLUMN}, label), email, number (decimals), money (currency e.g. MUR, "
+         "decimals), percent (ratio=true when 0.25 means 25 %), date, datetime, badge (status colours, auto for OK/FAILED/PENDING… "
+         "or colors {value: green|amber|red|blue|grey}), bar (in-cell data bar, of=number|money), bool, bytes, duration (unit "
+         "s|ms|min), title (header text) and rules [{op: > >= < <= = != contains, value, color}]; row_rules colour whole rows; "
+         "hide / order columns; sort {column, desc}; title and note (Markdown) above the grid. Copy formatted keeps the look "
+         "for Outlook / Teams / Excel. Use it whenever a result would read better formatted - no new query is run.",
+         _obj({"result_id": S, "columns": {"type": "object", "description": "COLUMN → {format, decimals, currency, url, label, colors, rules, title, ratio, of, max, unit}"},
+               "hide": SA, "order": SA, "row_rules": {"type": "array", "items": _obj({"column": S, "op": S, "value": S, "color": S}, ["column", "op", "value"])},
+               "sort": _obj({"column": S, "desc": {"type": "boolean"}}, ["column"]), "title": S, "note": s("Markdown above the grid"),
+               "merge": {"type": "boolean", "description": "Keep earlier column formats"}}, ["result_id"]),
+         specialists=ALL),
+    Tool("render", "Show a nicely formatted document in the results panel (letter, e-mail draft, summary, checklist, comparison, "
+         "procedure, KPI sheet) that the user can print / save as PDF / copy formatted into Outlook or Teams / save as .html. "
+         "markdown supports everything the chat does (headings, tables, links, callouts, badges, ```chart); html (sanitized: "
+         "no scripts, forms or external styles; inline style allowed) for custom layouts.",
+         _obj({"title": S, "markdown": S, "html": S}, ["title"]), specialists=ALL),
     Tool("api_form", "Run a WMS write API from the app's API catalog through a form the user reviews, edits and submits (apiId + values, or a raw "
          "request {method, url, body}). = action api_form.",
          _obj({"apiId": S, "values": OBJ, "name": S, "note": S, "request": OBJ}), risk="act", policy="wms_api", specialists=[WO, OD]),
@@ -277,14 +301,28 @@ tools with the same fields - do NOT reply with JSON objects, call the tools: act
 ords -> ords_read, device -> device, db_write -> db_write, schedule_job -> wms_job, email -> email, api_form -> api_form,
 grid -> grid, save_report -> save_report, dll -> dll, model -> model_tool, mra_interface -> mra_interface. Its rules
 (trained processes first, SQL rules, trip dates, cancelling lines with child lines, policies, formatting) apply to you.
-Answers are normal Markdown text."""
+Answers are rich Markdown (see FORMATTING) - never say you cannot format, link or open a page."""
 
 COMMON = """You are part of Gray's WMS AI Agent - a team of specialists inside a warehouse / Oracle Fusion app used by
 a distribution company (Mauritius and the region). Be brief and concrete. Use tools to find facts; never invent table
 names, columns, codes, order numbers or results. Anything that changes data or runs a big query goes through a tool
 the user confirms - say what you are about to do in one line before calling it. Answer in the user's language.
 When a result is shown in the results panel, do not repeat the whole table: summarise what matters (totals, outliers,
-what to check next) in a few lines."""
+what to check next) in a few lines.
+
+FORMATTING - the chat renders rich Markdown, so make answers easy to scan:
+- Headings (##), **bold**, *italic*, ==highlight==, ~~strike~~, numbered / bullet / task lists (- [ ] / - [x]), > quotes,
+  tables (| a | b | with |---:| for right-aligned numbers), code fences with a Copy button, --- rules.
+- Links are clickable: [text](https://…) and bare https:// addresses open in the user's browser; [text](ask:question)
+  sends that question as the user's next message (offer follow-ups this way); [text](page:fusionsql|wms|om|dataload|
+  fusionmodel|powerbi|aihub|fscm) opens an app page; [text](result:<result_id>) shows a result; mailto: works.
+- Status badges inline: [[ok:Printed]] [[warn:Pending]] [[bad:Failed]] [[info:PROD]] [[muted:n/a]].
+- Callouts: a quote starting with [!NOTE], [!TIP], [!WARNING] or [!DANGER].
+- A small chart inside the answer: ```chart {"type":"bar|column|line|area|pie|donut","labels":[…],"datasets":[{"label":"…","data":[…]}],"title":"…"}```
+- ```html blocks render sanitized HTML (inline styles ok; no scripts / forms).
+Results: format_result (links per row, money / % / dates, badges, data bars, coloured rows, hidden columns) instead of
+re-running a query; render for a document the user will print, e-mail or keep; open_url to open a page in the browser.
+Keep it tidy: one heading level, short tables (≤ 15 rows in chat - the results panel holds the rest)."""
 
 SPECIALISTS: dict[str, Specialist] = {s_.id: s_ for s_ in [
     Specialist(FA, "Fusion Analyst", "fa-database", "fusion_sql",

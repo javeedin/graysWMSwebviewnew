@@ -376,3 +376,14 @@ def test_aide_tools_assigned_and_attachments(tmp_path, monkeypatch):
     assert tool_result["type"] == "tool_result" and tool_result["content"][1]["type"] == "document"
     ev = [e for e in s.events(r["thread_id"])["events"] if e["kind"] == "result"][0]
     assert ev["data"]["attachment"] == "po.pdf" and "QUJD" not in json.dumps(ev)
+
+
+def test_rich_output_tools_for_everyone():
+    caps = [t.name for t in C.TOOLS if t.runs != "hub"]
+    for spec in C.SPECIALISTS:
+        names = {t.name for t in C.tools_for(spec, caps)}
+        assert {"open_url", "format_result", "render"} <= names, spec
+    by = {t.name: t for t in C.TOOLS}
+    assert by["open_url"].risk == "auto" and by["format_result"].risk == "read"
+    assert "formats" in by["grid"].schema["properties"]
+    assert "FORMATTING" in C.COMMON and "ask:" in C.COMMON and "never say you cannot format" in C.AIDE_HEADER
