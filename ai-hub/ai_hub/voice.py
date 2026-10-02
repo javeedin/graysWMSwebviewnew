@@ -203,6 +203,54 @@ def _aws_session(cfg: HubConfig):
     return BedrockConverseProvider(pid, pc)._session()
 
 
+# ── free local recognition: install faster-whisper into the hub's own Python (one click from the page) ──
+_wsetup: dict = {"state": "idle", "log": "", "error": None}
+
+
+def whisper_installed() -> bool:
+    import importlib.util
+    return importlib.util.find_spec("faster_whisper") is not None
+
+
+def whisper_status() -> dict:
+    return {"installed": whisper_installed(), **_wsetup}
+
+
+def whisper_install(cfg: HubConfig) -> dict:
+    """pip install faster-whisper into this hub's Python, then load the model once (downloads it, ~150 MB for 'base')."""
+    if _wsetup["state"] == "running":
+        return whisper_status()
+    import subprocess
+    import sys
+
+    def run():
+        _wsetup.update(state="running", log="Installing faster-whisper…\n", error=None)
+        try:
+            if not whisper_installed():
+                p = subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "faster-whisper"],
+                                   capture_output=True, text=True, timeout=1800)
+                _wsetup["log"] += (p.stdout or "")[-3000:] + (p.stderr or "")[-2000:]
+                if p.returncode != 0:
+                    raise VoiceError("pip install faster-whisper failed (see log)")
+                import importlib
+                importlib.invalidate_caches()
+            size = cfg.voice["stt"].get("whisper_size") or "base"
+            _wsetup["log"] += f"\nDownloading the '{size}' speech model (first time only)…\n"
+            from faster_whisper import WhisperModel
+            global _whisper
+            with _whisper_lock:
+                _whisper = (size, WhisperModel(size, device="cpu", compute_type="int8"))
+            cfg.voice["stt"]["provider"] = "whisper"
+            cfg.save()
+            _wsetup.update(state="done", log=_wsetup["log"] + "Ready - speech recognition now runs on this PC.\n")
+        except Exception as e:  # noqa: BLE001 - reported to the page
+            _wsetup.update(state="error", error=f"{type(e).__name__}: {e}")
+
+    threading.Thread(target=run, daemon=True, name="whisper-setup").start()
+    _wsetup["state"] = "running"
+    return whisper_status()
+
+
 def status(cfg: HubConfig) -> dict:
     return {"voice": cfg.voice, "tts_providers": TTS_PROVIDERS, "stt_providers": STT_PROVIDERS,
-            "keys": {n: secrets.has_secret(n) for n in SECRET_NAMES}}
+            "keys": {n: secrets.has_secret(n) for n in SECRET_NAMES}, "whisper": whisper_status()}

@@ -174,3 +174,8 @@ def test_camera_photos_reach_the_model_as_images(tmp_path, monkeypatch):
     ev = svc.events(r["thread_id"])["events"]
     assert any(e["kind"] == "result" and e["data"].get("attachment") == "p1.jpg, p2.jpg" for e in ev)
     assert jpg not in json.dumps(ev)          # photos are never stored in the timeline
+
+
+def test_whisper_status_in_voice_config():
+    st = V.status(HubConfig())
+    assert set(st["whisper"]) >= {"installed", "state"} and st["whisper"]["state"] in ("idle", "running", "done", "error")

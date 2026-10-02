@@ -367,6 +367,14 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
     def voice_tts(body: dict):
         return vguard(lambda: V.tts(cfg, body.get("text") or "", body.get("provider"), body.get("voice")))
 
+    @app.get("/voice/whisper", dependencies=A)
+    def voice_whisper():
+        return V.whisper_status()
+
+    @app.post("/voice/whisper/install", dependencies=A)
+    def voice_whisper_install():
+        return V.whisper_install(cfg)
+
     @app.post("/voice/stt", dependencies=A)
     def voice_stt(body: dict):
         return vguard(lambda: V.stt(cfg, body.get("audio_b64") or "", body.get("mime") or "audio/wav", body.get("language"), body.get("provider")))

@@ -10,6 +10,8 @@ var VOICE = window.VOICE = { on: false, state: 'off', cfg: null, since: 0, muted
 VOICE.ICON = { off: 'fa-microphone', listening: 'fa-ear-listen', hearing: 'fa-wave-square', transcribing: 'fa-pen', thinking: 'fa-brain', speaking: 'fa-volume-high', waiting: 'fa-hand-pointer' };
 VOICE.LABEL = { listening: 'Listening…', hearing: 'Hearing you…', transcribing: 'Got it…', thinking: 'Thinking…', speaking: 'Speaking — talk to interrupt', waiting: 'Waiting for your click on the card', muted: 'Microphone muted' };
 
+/** Speech recognition actually used now: the setting, unless the WebView's recogniser failed and we fell back. */
+VOICE.stt = function () { return VOICE.sttOverride || (VOICE.cfg && VOICE.cfg.voice.stt.provider) || 'browser'; };
 VOICE.toggle = function () { if (VOICE.on) VOICE.stop(); else VOICE.start(); };
 
 VOICE.loadCfg = function (force) {
@@ -19,11 +21,9 @@ VOICE.loadCfg = function (force) {
 
 VOICE.start = function () {
     VOICE.loadCfg(true).then(function () {
-        var useBrowserStt = VOICE.cfg.voice.stt.provider === 'browser';
-        if (useBrowserStt && !VOICE.browserSR()) {
-            toast('This window has no built-in speech recognition — choose ElevenLabs, Azure or local Whisper in Voice settings.', 'err');
-            VOICE.settings(); return;
-        }
+        VOICE.sttOverride = null; VOICE.srBroken = false;
+        // the WebView's own recogniser rarely works inside the app: use local Whisper when it is installed
+        if (VOICE.cfg.voice.stt.provider === 'browser' && (!VOICE.browserSR() || (VOICE.cfg.whisper && VOICE.cfg.whisper.installed))) VOICE.sttOverride = VOICE.cfg.whisper && VOICE.cfg.whisper.installed ? 'whisper' : 'none';
         return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }).then(function (stream) {
             VOICE.stream = stream;
             var Ctx = window.AudioContext || window.webkitAudioContext;
@@ -35,8 +35,10 @@ VOICE.start = function () {
             VOICE.on = true; VOICE.since = Date.now() / 1000; VOICE.floor = 0.008; VOICE.frames = []; VOICE.pre = [];
             VOICE.ui(true);
             VOICE.setState('listening');
-            if (useBrowserStt) VOICE.srListen();
             VOICE.tick = setInterval(VOICE.loop, 200);
+            // you hear at once that the voice side works
+            if (VOICE.stt() === 'none') { VOICE.speakText("Hi! Before I can hear you, set up speech recognition with the button."); VOICE.needStt('This app window has no built-in speech recognition.'); }
+            else { VOICE.speakText("Hi, I'm listening."); if (VOICE.stt() === 'browser') VOICE.srListen(); }
         });
     }).catch(function (e) { toast('Voice mode: ' + (e && e.message ? e.message : e), 'err'); VOICE.stop(); });
 };
@@ -62,7 +64,7 @@ VOICE.loop = function () {
     }
     if (st === 'waiting' && !AG.pendingCards) VOICE.setState(AG.busy ? 'thinking' : 'listening');
     if (st === 'speaking' && !VOICE.queue.length && !VOICE.playing) VOICE.setState(AG.busy ? 'thinking' : AG.pendingCards ? 'waiting' : 'listening');
-    if (VOICE.state === 'listening' && VOICE.cfg.voice.stt.provider === 'browser' && !VOICE.srActive) VOICE.srListen();
+    if (VOICE.state === 'listening' && VOICE.stt() === 'browser' && !VOICE.srActive && !VOICE.srBroken) VOICE.srListen();
 };
 
 VOICE.setState = function (s) {
@@ -70,7 +72,7 @@ VOICE.setState = function (s) {
     if (s === 'listening') VOICE.saidWait = false;
     var lbl = $('vc-state'), orb = $('vc-orb');
     if (!lbl || !orb) return;
-    lbl.textContent = VOICE.muted && (s === 'listening' || s === 'hearing') ? VOICE.LABEL.muted : (VOICE.LABEL[s] || '');
+    lbl.textContent = VOICE.muted && (s === 'listening' || s === 'hearing') ? VOICE.LABEL.muted : s === 'listening' && VOICE.stt() === 'none' ? 'I can\'t hear you yet — set up speech recognition' : (VOICE.LABEL[s] || '');
     // the icon is re-created (Font Awesome's script may have swapped the <i> for an <svg>)
     if (orb.dataset.s !== s) { orb.innerHTML = '<i class="fa-solid ' + (VOICE.ICON[s] || 'fa-microphone') + '"></i>'; orb.dataset.s = s; }
     orb.className = 'vc-orb ' + s;
@@ -84,7 +86,8 @@ VOICE.onAudio = function (ev) {
     var rms = Math.sqrt(sum / x.length);
     VOICE.level = VOICE.level * 0.6 + rms * 0.4;
     var orb = $('vc-orb'); if (orb) orb.style.setProperty('--lvl', Math.min(1, VOICE.level * 12).toFixed(3));
-    if (VOICE.muted || VOICE.cfg.voice.stt.provider === 'browser') return;
+    if (VOICE.muted || VOICE.stt() === 'none') return;
+    if (VOICE.stt() === 'browser') { VOICE.watchSR(rms); return; }
     var st = VOICE.state, speaking = st === 'speaking';
     var thr = Math.max(0.012, VOICE.floor * 3), barge = Math.max(0.05, VOICE.floor * 7);
     var frame = new Float32Array(x);
@@ -112,7 +115,7 @@ VOICE.finishUtterance = function () {
     var frames = VOICE.frames; VOICE.frames = [];
     VOICE.setState('transcribing');
     var wav = VOICE.wav(frames, VOICE.ctx.sampleRate, 16000);
-    hub('POST', '/voice/stt', { audio_b64: wav, mime: 'audio/wav', language: VOICE.cfg.voice.stt.language }).then(function (r) {
+    hub('POST', '/voice/stt', { audio_b64: wav, mime: 'audio/wav', language: VOICE.cfg.voice.stt.language, provider: VOICE.stt() }).then(function (r) {
         VOICE.heardText((r.text || '').trim());
     }).catch(function (e) { toast('Speech recognition: ' + e, 'err'); VOICE.setState('listening'); });
 };
@@ -150,11 +153,56 @@ VOICE.srListen = function () {
     sr.onresult = function (e) {
         var r = e.results[e.results.length - 1], t = r[0].transcript;
         if (VOICE.state === 'speaking' && t.trim().length > 3) VOICE.hush();
+        VOICE.srHeard = Date.now();
         if (r.isFinal) VOICE.heardText(t.trim()); else { VOICE.caption('you', t); if (VOICE.state === 'listening') VOICE.setState('hearing'); }
     };
     sr.onend = function () { VOICE.srActive = false; };
-    sr.onerror = function () { VOICE.srActive = false; };
+    sr.onerror = function (e) {
+        VOICE.srActive = false;
+        // "network" / "service-not-allowed": WebView2 has the API but not the online service behind it
+        if (e && /network|service-not-allowed|not-allowed|language-not-supported|audio-capture/.test(e.error || '')) VOICE.srFailed(e.error);
+    };
     try { sr.start(); } catch (e) { VOICE.srActive = false; }
+};
+
+/** You talk but the recogniser returns nothing for 5 s → it is not working in this window. */
+VOICE.watchSR = function (rms) {
+    if (VOICE.srBroken || VOICE.state !== 'listening') return;
+    if (rms > Math.max(0.03, VOICE.floor * 4)) { if (!VOICE.loudSince) VOICE.loudSince = Date.now(); }
+    else if (rms < 0.01) VOICE.floor = VOICE.floor * 0.95 + rms * 0.05;
+    if (VOICE.loudSince && Date.now() - VOICE.loudSince > 5000 && (!VOICE.srHeard || VOICE.srHeard < VOICE.loudSince)) VOICE.srFailed('no-result');
+};
+VOICE.srFailed = function (why) {
+    if (VOICE.srBroken) return;
+    VOICE.srBroken = true; VOICE.loudSince = 0;
+    try { if (VOICE.sr) VOICE.sr.abort(); } catch (e) { /* ended */ }
+    if (VOICE.cfg.whisper && VOICE.cfg.whisper.installed) { VOICE.sttOverride = 'whisper'; VOICE.caption('agent', 'Switched to local speech recognition (Whisper) — go ahead.'); return; }
+    VOICE.sttOverride = 'none';
+    VOICE.needStt('The built-in speech recognition does not work in this app window (' + why + ').');
+};
+/** No working recogniser: offer the free local one (one click) or a cloud key. */
+VOICE.needStt = function (why) {
+    VOICE.setState('waiting');
+    var c = $('vc-cap'); if (!c) return;
+    c.classList.add('help');
+    c.innerHTML = esc(why) + ' <button class="btn sm" id="vc-whisper"><i class="fa-solid fa-download"></i> Set up free speech recognition</button> <button class="btn sm" onclick="VOICE.settings()">Use ElevenLabs / Azure</button>';
+    $('vc-whisper').onclick = VOICE.installWhisper;
+    $('vc-state').textContent = 'I can\'t hear you yet';
+};
+VOICE.installWhisper = function () {
+    var c = $('vc-cap');
+    hub('POST', '/voice/whisper/install', {}).then(function poll(st) {
+        if (!VOICE.on) return;
+        if (st.state === 'done' || st.installed && st.state !== 'running') {
+            VOICE.cfg.whisper = st; VOICE.sttOverride = 'whisper'; VOICE.srBroken = true;
+            if (c) { c.classList.remove('help'); c.textContent = ''; }
+            VOICE.setState('listening'); VOICE.speakText('All set. I can hear you now.');
+            return;
+        }
+        if (st.state === 'error') { if (c) c.textContent = 'Setup failed: ' + st.error; return; }
+        if (c) c.textContent = 'Setting up local speech recognition (first time: a download of about 150 MB)… ' + String(st.log || '').trim().split('\n').pop().slice(0, 90);
+        return new Promise(function (r) { setTimeout(r, 3000); }).then(function () { return hub('GET', '/voice/whisper'); }).then(poll);
+    }).catch(function (e) { if (c) c.textContent = 'Setup failed: ' + e + ' — is the AI Hub up to date? (server button › Update)'; });
 };
 
 // ── what the user said → a card answer, a voice command, or a message to the agent ──
@@ -267,7 +315,7 @@ VOICE.ui = function (show) {
     $('vc-mute').onclick = function () { VOICE.muted = !VOICE.muted; this.classList.toggle('on', VOICE.muted); if (VOICE.muted && VOICE.sr) { try { VOICE.sr.abort(); } catch (e) { /* ok */ } } VOICE.setState(VOICE.state); };
 };
 VOICE.caption = function (who, text) {
-    var c = $('vc-cap'); if (!c) return;
+    var c = $('vc-cap'); if (!c || $('vc-whisper')) return;
     c.innerHTML = '<b>' + (who === 'you' ? 'You' : 'Agent') + ':</b> ' + esc(String(text).slice(0, 220));
 };
 

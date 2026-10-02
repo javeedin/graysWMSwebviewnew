@@ -297,3 +297,4 @@ tr.row-b-ok td { background: #f0fdf4; } tr.row-b-warn td { background: #fffbeb; 
 .ufiles { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; font-size: .72rem; opacity: .95; }
 .uphoto { max-width: 220px; max-height: 160px; border-radius: 8px; border: 2px solid rgba(255, 255, 255, .6); cursor: zoom-in; display: block; }
 .fchip .fthumb { height: 34px; }
+.vc-cap.help { white-space: normal; overflow: visible; line-height: 1.9; } .vc-cap.help .btn { margin-left: 4px; }
