@@ -172,6 +172,7 @@ AG.init = function () {
             });
         }).catch(function () { });
         AG.loadModels();
+        AG.hubVersionCheck();
         AG.syncKnowledge();
         if (AG.loadTasks) { AG.loadTasks(); setInterval(AG.loadTasks, 120000); }
         try { if (window.LocalJobs) LocalJobs.init(); } catch (e) { }          // the AI Digital Employee's LOCAL-lane jobs run here too
@@ -220,6 +221,21 @@ AG.loadCatalog = function () {
         if (/not found|404/i.test(String(e))) AG.hubOutdated(); else toast('AI Hub: ' + e, 'err');
         throw e;
     });
+};
+/** An older AI Hub still answers but lacks newer tools (printing, downloads, e-mail …): offer the update in a bar. */
+AG.hubVersionCheck = function () {
+    var st = AG.hub || {};
+    if (!st.update) return;
+    var el = $('model-banner');
+    var bar = document.createElement('div'); bar.className = 'model-banner'; bar.id = 'hub-banner';
+    bar.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i><span class="grow"><b>Update the AI Hub</b> — it is v' + esc(st.version || '?') + ', this app brings v' + esc(st.bundledVersion) +
+        '. Until then some abilities are missing (e.g. downloading and printing order PDFs, e-mail, WMS forms).</span><button class="btn primary sm" id="hb-go"><i class="fa-solid fa-download"></i> Update now</button>';
+    el.parentNode.insertBefore(bar, el);
+    $('hb-go').onclick = function () {
+        if (AG.busy) { toast('Wait until the current answer is finished.', 'err'); return; }
+        $('timeline').innerHTML = '';
+        AG.hubOutdated(); bar.remove(); AG.updateHub();
+    };
 };
 AG.hubOutdated = function () {
     var st = AG.hub || {};

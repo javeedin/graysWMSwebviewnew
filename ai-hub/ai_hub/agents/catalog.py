@@ -308,7 +308,11 @@ If you learnt a non-obvious fact that was verified by data, knowledge_propose it
 You run the warehouse side: trips, orders on trips, print jobs and printers, MRA fiscal interfacing. Read first
 (trips_find, trip_orders, print_jobs, mra_status), then propose the action. MRA: only orders not yet accepted, list
 them, the user confirms; after two gateway problems in a row stop and report (orders marked NOT_SENT are safe to
-retry). When something must be approved by a person other than the user, use inbox_request."""),
+retry). When something must be approved by a person other than the user, use inbox_request.
+Documents: order PDFs come from Fusion with the device tool - op download_orders (to the PC's download folder, no card)
+or op print_orders (download + print, the user confirms; list_printers first for the exact printer name; at most 20
+orders per call - split bigger trips). For a trip: trip_orders gives the order numbers. Never say you cannot download
+or print - you can."""),
     Specialist(OD, "Order Desk", "fa-cart-shopping", "default",
                ["order", "!sales order", "quote", "backorder", "discount", "price", "pricing", "credit", "return",
                 "customer po", "draft", "order pad"],

@@ -23,6 +23,13 @@ function agKey(row, prefer, pattern) {
     for (var i = 0; i < prefer.length; i++) { var k = keys.filter(function (x) { return x.toUpperCase() === prefer[i]; })[0]; if (k) return k; }
     return keys.filter(function (x) { return pattern.test(x); })[0] || null;
 }
+/** Runs fn over items, at most n at a time. */
+function agPool(items, n, fn) {
+    var i = 0;
+    function next() { if (i >= items.length) return Promise.resolve(); var it = items[i++]; return Promise.resolve(fn(it)).then(next, next); }
+    var w = []; for (var k = 0; k < Math.min(n, items.length); k++) w.push(next());
+    return Promise.all(w);
+}
 function agAddDays(iso, n) { var d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); var z = function (x) { return ('0' + x).slice(-2); }; return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()); }
 function agTripLines(from, to, inst) {
     return AG.getJson(AG_ORDS + '/WAREHOUSEMANAGEMENT/GETTRIPDETAILS?P_DATE_FROM=' + agDmy(from) + '&P_DATE_TO=' + agDmy(to) + '&P_INSTANCE_NAME=' + inst).then(agItems);
@@ -56,21 +63,36 @@ AG.tool('trips_find', function (inp) {
         });
         if (lines.length && !order.length)
             return { ok: true, content: note + lines.length + ' rows came back but no trip id field was recognised. Fields: ' + Object.keys(first).join(', ') };
+        // the date-range list has one row per TRIP (no order numbers): take an order-count field, else read each trip's orders
+        var ck = ok ? null : agKey(first, ['ORDER_COUNT', 'TOTAL_ORDERS', 'NO_OF_ORDERS', 'ORDERS'], /order.?(count|cnt)|total.?orders|no.?of.?orders/i);
+        var counts = {};
+        var countsP = ok ? Promise.resolve() : ck ? Promise.resolve(lines.forEach(function (l) { var id = String(l[tk]); counts[id] = (counts[id] || 0) + (+l[ck] || 0); })) :
+            agPool(order.slice(0, 30), 4, function (id) {
+                return AG.getJson(AG_ORDS + '/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/' + encodeURIComponent(id) + '?P_INSTANCE_NAME=' + inst).then(function (j) {
+                    var seen = {}, it = agItems(j), okk = it.length ? agKey(it[0], ['ORDER_NUMBER'], /order.?(num|no)/i) : null;
+                    it.forEach(function (x) { if (okk && x[okk]) seen[x[okk]] = 1; });
+                    counts[id] = Object.keys(seen).length;
+                }).catch(function () { counts[id] = null; });
+            });
+        return countsP.then(function () { return finish(); });
+        function finish() {
         var out = order.map(function (id) {
-            var t = trips[id], p = prints[id] || {}, n = Object.keys(t._o).length;
+            var t = trips[id], p = prints[id] || {}, n = ok ? Object.keys(t._o).length : counts[id];
             delete t._o;
+            if (n == null) { t.ORDERS = '?'; t.PRINTED = +p.PRINTED || 0; t.PRINT_FAILED = +p.FAILED || 0; t.NOT_PRINTED = '?'; return t; }
             t.ORDERS = n; t.PRINTED = +p.PRINTED || 0; t.PRINT_FAILED = +p.FAILED || 0; t.NOT_PRINTED = Math.max(0, n - t.PRINTED);
             return t;
         }).filter(function (t) {
             if (inp.words && (t.TRIP_ID + ' ' + t.LORRY + ' ' + t.PICKER).toLowerCase().indexOf(String(inp.words).toLowerCase()) < 0) return false;
-            if (/not.?printed|unprinted|pending/i.test(inp.status || '')) return t.NOT_PRINTED > 0;
+            if (/not.?printed|unprinted|pending/i.test(inp.status || '')) return t.NOT_PRINTED === '?' || t.NOT_PRINTED > 0;
             if (/printed|done/i.test(inp.status || '')) return t.NOT_PRINTED === 0;
             return true;
         });
         var res = AG.tableOut('Trips ' + (note ? 'last 7 days' : date) + ' · ' + inst, out, note || ('No trips on ' + date + ' (' + inst + ') — and none in the 7 days before.'));
-        if (out.length) res.content = note + out.length + ' trip(s), ' + out.reduce(function (s, t) { return s + t.NOT_PRINTED; }, 0) + ' order(s) not printed (print status from wms_print_jobs).\n' + res.content;
+        if (out.length) res.content = note + out.length + ' trip(s), ' + out.reduce(function (s, t) { return s + (+t.NOT_PRINTED || 0); }, 0) + ' order(s) not printed (orders per trip from each trip\'s details, print status from wms_print_jobs; ? = could not be read).\n' + res.content;
         else if (order.length) res.content = note + order.length + ' trip(s) found, none match the filter "' + (inp.status || inp.words) + '".';
         return res;
+        }
     }, function (e) { return { ok: false, content: 'Trips: ' + e }; });
 });
 

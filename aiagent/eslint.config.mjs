@@ -2,7 +2,7 @@
 // Plain <script> files share globals (no modules), so the cross-file names are declared here; no-undef then catches typos.
 const shared = ['AG', 'AG_APEX', 'AG_ORDS', 'AG_MRA_CHECK', 'AG_FUSION', '$', 'esc', 'hasHost', 'appUser', 'ls', 'lsSet', 'lit', 'vlit', 'clob', 'money', 'ago', 'hex16', 'sleep',
     'toast', 'openModal', 'closeModal', 'host', 'hostOk', 'hub', 'apex', 'rows', 'dbWrite', 'md', 'isNum', 'numv', 'fmt', 'curData', 'sqlPreview',
-    'agItems', 'agF', 'agKey', 'agAddDays', 'agTripLines', 'sendMessageToCSharp', 'FileReader', 'LocalJobs', 'agDmy', 'agToday', 'agInst'];
+    'agItems', 'agF', 'agKey', 'agAddDays', 'agTripLines', 'agPool', 'sendMessageToCSharp', 'FileReader', 'LocalJobs', 'agDmy', 'agToday', 'agInst'];
 const globals = Object.fromEntries(shared.map((g) => [g, 'writable']));
 Object.assign(globals, {
     window: 'readonly', document: 'readonly', localStorage: 'readonly', sessionStorage: 'readonly', navigator: 'readonly', location: 'readonly', console: 'readonly',
