@@ -222,20 +222,37 @@ AG.loadCatalog = function () {
         throw e;
     });
 };
-/** An older AI Hub still answers but lacks newer tools (printing, downloads, e-mail …): offer the update in a bar. */
+function verCmp(a, b) { a = String(a || '0').split('.').map(Number); b = String(b || '0').split('.').map(Number); for (var i = 0; i < 3; i++) { if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) - (b[i] || 0); } return 0; }
+/** Three versions matter: the RUNNING hub (/health), its files on this PC (hubStatus.version) and the copy shipped with the
+    app (bundledVersion). Shipped newer → Update (copy + restart). Files newer than the running process (e.g. Development
+    Mode runs the hub from the source folder, so a pull changes the files only) → Restart. Both lack newer tools until done. */
 AG.hubVersionCheck = function () {
     var st = AG.hub || {};
-    if (!st.update) return;
-    var el = $('model-banner');
-    var bar = document.createElement('div'); bar.className = 'model-banner'; bar.id = 'hub-banner';
-    bar.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i><span class="grow"><b>Update the AI Hub</b> — it is v' + esc(st.version || '?') + ', this app brings v' + esc(st.bundledVersion) +
-        '. Until then some abilities are missing (e.g. downloading and printing order PDFs, e-mail, WMS forms).</span><button class="btn primary sm" id="hb-go"><i class="fa-solid fa-download"></i> Update now</button>';
-    el.parentNode.insertBefore(bar, el);
-    $('hb-go').onclick = function () {
-        if (AG.busy) { toast('Wait until the current answer is finished.', 'err'); return; }
-        $('timeline').innerHTML = '';
-        AG.hubOutdated(); bar.remove(); AG.updateHub();
-    };
+    return hub('GET', '/health').catch(function () { return {}; }).then(function (h) {
+        AG.hubRunning = h.version || null;
+        var target = verCmp(st.bundledVersion, st.version) > 0 ? st.bundledVersion : st.version;
+        var need = st.update ? 'update' : (AG.hubRunning && verCmp(st.version, AG.hubRunning) > 0) ? 'restart' : null;
+        var old = $('hub-banner'); if (old) old.remove();
+        if (!need) return null;
+        var bar = document.createElement('div'); bar.className = 'model-banner'; bar.id = 'hub-banner';
+        bar.innerHTML = '<i class="fa-solid fa-arrows-rotate"></i><span class="grow"><b>' + (need === 'update' ? 'Update the AI Hub' : 'Restart the AI Hub') + '</b> — it runs v' + esc(AG.hubRunning || st.version || '?') +
+            ', v' + esc(target) + ' is ' + (need === 'update' ? 'in this app' : 'already on this PC') + '. Until then newer abilities are missing (e.g. downloading and printing order PDFs, e-mail, WMS forms).</span>' +
+            '<button class="btn primary sm" id="hb-go"><i class="fa-solid ' + (need === 'update' ? 'fa-download' : 'fa-power-off') + '"></i> ' + (need === 'update' ? 'Update now' : 'Restart now') + '</button>';
+        var el = $('model-banner'); el.parentNode.insertBefore(bar, el);
+        $('hb-go').onclick = function () { AG.hubRefresh(need); };
+        return need;
+    });
+};
+/** Update (copy + restart) or just restart the AI Hub, then reload this page. */
+AG.hubRefresh = function (mode) {
+    if (AG.busy) { toast('Wait until the current answer is finished.', 'err'); return; }
+    closeModal();
+    var b = $('hub-banner'); if (b) b.remove();
+    if (mode === 'update') { AG.hubOutdated(); AG.updateHub(); return; }
+    $('timeline').innerHTML = '<div class="welcome"><div class="card" style="text-align:center;padding:26px"><i class="fa-solid fa-circle-notch fa-spin" style="font-size:1.6rem;color:#6366f1"></i><p style="margin-top:10px" id="rs-msg">Restarting the AI Hub…</p></div></div>';
+    hostOk('hubStop', {}, 45000).then(function () { return hostOk('hubStart', { visible: false }, 20000); }).then(function () {
+        var n = 0, t = setInterval(function () { AG.checkHub().then(function (ok) { if (ok || ++n > 40) { clearInterval(t); if (ok) location.reload(); else $('rs-msg').textContent = 'The AI Hub did not start — see AI Hub › Overview.'; } }); }, 1000);
+    }).catch(function (e) { $('rs-msg').textContent = 'Restart failed: ' + e; });
 };
 AG.hubOutdated = function () {
     var st = AG.hub || {};
@@ -699,7 +716,12 @@ AG.showHelp = function () {
         '<b>Everything the AI Digital Employee does.</b> Same knowledge (schema catalog, Fusion REST catalog, trained processes) and the same actions with the same policies: WMS database reads and writes, Fusion REST, devices and printing, order PDFs, e-mail, jobs (DB and LOCAL lane — LOCAL jobs run on this page too), API forms, interactive lists, reports, DLLs, the Fusion Model, MRA and Daily Tasks (left).',
         '<b>Conversations wait.</b> Close the app while a card is open — the conversation is saved and the card comes back when you open it.'
     ].map(function (p) { return '<p style="margin-bottom:8px">' + p + '</p>'; }).join('') + '</div>',
-        [{ label: '<i class="fa-solid fa-rotate"></i> Refresh knowledge', onClick: function () { AG.syncKnowledge(true); closeModal(); } }, { label: 'Close', cls: 'primary', onClick: closeModal }]);
+        [{ label: '<i class="fa-solid fa-power-off"></i> Restart AI Hub', onClick: function () { AG.hubRefresh('restart'); } },
+         { label: '<i class="fa-solid fa-download"></i> Update AI Hub', onClick: function () { AG.hubRefresh('update'); } },
+         { label: '<i class="fa-solid fa-rotate"></i> Refresh knowledge', onClick: function () { AG.syncKnowledge(true); closeModal(); } }, { label: 'Close', cls: 'primary', onClick: closeModal }]);
+    var st = AG.hub || {};
+    $('modal-b').insertAdjacentHTML('beforeend', '<p class="muted sm" style="margin-top:6px;border-top:1px solid var(--line);padding-top:8px">AI Hub running v' + esc(AG.hubRunning || '?') + ' · files on this PC v' + esc(st.version || '?') +
+        ' · shipped with this app v' + esc(st.bundledVersion || '—') + ' · ' + esc(st.folder || '') + '</p>');
 };
 AG.showJobs = function () {
     Promise.all([hub('GET', '/agent/jobs'), hub('GET', '/agent/jobs/pending')]).then(function (r) {
