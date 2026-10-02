@@ -7,7 +7,10 @@ AG.resById = function (id) { return AG.results.filter(function (r) { return r.id
 AG.addResult = function (data, quiet) {
     var id = data.result_id || data.report_id; if (!id) return null;
     var r = AG.resById(id);
-    if (!r) { r = { id: id, title: data.title || 'Result', rows: data.row_count, report: data.report || null, doc: data.doc || null, data: data.page_data || null }; AG.results.push(r); }
+    if (!r) {
+        r = { id: id, title: data.title || 'Result', rows: data.row_count, report: data.report || null, doc: data.doc || null, data: data.page_data || null }; AG.results.push(r);
+        var cl = AG.tid ? AG.closedResults(AG.tid) : []; if (cl.indexOf(id) >= 0) { try { localStorage.setItem('aiagent.closedRes.' + AG.tid, JSON.stringify(cl.filter(function (x) { return x !== id; }))); } catch (e) { /* private mode */ } }
+    }
     else { if (data.report) r.report = data.report; if (data.doc) r.doc = data.doc; if (data.row_count != null) r.rows = data.row_count; }
     if (!quiet) AG.toggleResults(true, true); else AG.resBadge();
     if (!quiet || !AG.resSel) AG.selectResult(id); else AG.renderResults();
@@ -32,8 +35,15 @@ AG.selectResult = function (id) { AG.resSel = id; AG.renderResults(); };
 AG.renderResults = function () {
     AG.resBadge();
     var tabs = $('res-tabs'), body = $('res-body');
-    tabs.innerHTML = AG.results.map(function (r) { return '<div class="res-tab' + (r.id === AG.resSel ? ' on' : '') + '" data-id="' + r.id + '" title="' + esc(r.title) + '">' + esc(r.title) + (r.rows != null ? ' · ' + r.rows : '') + '</div>'; }).join('');
-    tabs.querySelectorAll('.res-tab').forEach(function (t) { t.onclick = function () { AG.selectResult(t.dataset.id); }; });
+    tabs.innerHTML = AG.results.map(function (r) {
+        return '<div class="res-tab' + (r.id === AG.resSel ? ' on' : '') + '" data-id="' + esc(r.id) + '" title="' + esc(r.title) + ' (middle-click to close)"><span class="res-tt">' + esc(r.title) + (r.rows != null ? ' · ' + r.rows : '') + '</span>' +
+            '<button class="res-x" data-x="' + esc(r.id) + '" title="Close this result">×</button></div>';
+    }).join('') + (AG.results.length > 1 ? '<button class="res-clear" title="Close every result tab"><i class="fa-regular fa-trash-can"></i> Clear all</button>' : '');
+    tabs.querySelectorAll('.res-tab').forEach(function (t) {
+        t.onclick = function (e) { if (e.target.closest('.res-x')) { e.stopPropagation(); AG.removeResult(t.dataset.id); return; } AG.selectResult(t.dataset.id); };
+        t.onauxclick = function (e) { if (e.button === 1) { e.preventDefault(); AG.removeResult(t.dataset.id); } };
+    });
+    var clr = tabs.querySelector('.res-clear'); if (clr) clr.onclick = AG.clearResults;
     var r = AG.resById(AG.resSel);
     if (!r) { body.innerHTML = '<div class="empty"><i class="fa-regular fa-chart-bar big"></i><p>Query results, charts and reports appear here.</p></div>'; return; }
     if (r.report) { AG.renderReport(r); return; }
@@ -42,6 +52,28 @@ AG.renderResults = function () {
     AG.fetchResult(r.id).then(function (d) { if (AG.resSel === r.id) AG.renderGrid(r, d); }, function (e) {
         body.innerHTML = '<div class="card"><b>' + esc(r.title) + '</b><p class="muted sm" style="margin-top:6px">' + esc(e) + '</p></div>';
     });
+};
+/** Result ids the user closed in a conversation (this PC), so reopening it does not bring them back. */
+AG.closedResults = function (tid) { try { return JSON.parse(localStorage.getItem('aiagent.closedRes.' + tid) || '[]'); } catch (e) { return []; } };
+AG.rememberClosed = function (ids) {
+    if (!AG.tid || !ids.length) return;
+    try { localStorage.setItem('aiagent.closedRes.' + AG.tid, JSON.stringify(AG.closedResults(AG.tid).concat(ids).slice(-300))); } catch (e) { /* private mode */ }
+};
+/** Closes one result tab (the agent can still re-open a host result by its id later); the neighbour becomes active. */
+AG.removeResult = function (id) {
+    var i = AG.results.findIndex(function (r) { return r.id === id; }); if (i < 0) return;
+    AG.results.splice(i, 1); AG.rememberClosed([id]);
+    if (AG.resSel === id) AG.resSel = AG.results.length ? AG.results[Math.min(i, AG.results.length - 1)].id : null;
+    AG.renderResults();
+    if (window.CODE && CODE.started) CODE.fillInputs();
+};
+AG.clearResults = function () {
+    if (!AG.results.length) return;
+    if (AG.results.length > 1 && !confirm('Close all ' + AG.results.length + ' result tabs?')) return;
+    AG.rememberClosed(AG.results.map(function (r) { return r.id; }));
+    AG.results.length = 0; AG.resSel = null;
+    AG.renderResults();
+    if (window.CODE && CODE.started) CODE.fillInputs();
 };
 AG.applyView = function (tool, data) { if (data && (data.result_id || data.report_id)) AG.selectResult(data.result_id || data.report_id); };
 

@@ -474,7 +474,8 @@ AG.open = function (tid) {
         var snap = r[0];
         r[1].events.forEach(AG.renderEvent);
         AG.header(snap);
-        AG.results = (snap.results || []).map(function (x) { return { id: x.result_id, title: x.title, rows: x.rows }; });
+        var closed = AG.closedResults(tid);    // tabs the user closed stay closed when the conversation is reopened
+        AG.results = (snap.results || []).filter(function (x) { return closed.indexOf(x.result_id) < 0; }).map(function (x) { return { id: x.result_id, title: x.title, rows: x.rows }; });
         AG.renderResults();
         if (snap.waiting && !AG.busy) AG.handleWait(snap);
     }).catch(function (e) { toast(String(e), 'err'); AG.newChat(); });

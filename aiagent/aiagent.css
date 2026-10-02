@@ -458,3 +458,11 @@ body.tech-on .tech-toggle { color: #7c3aed; font-weight: 700; }
 .vz-scans { max-height: 180px; overflow: auto; display: flex; flex-direction: column; gap: 3px; }
 .vz-scan { display: flex; flex-direction: column; font-size: .76rem; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 3px 6px; }
 .vz-scan b { font-family: Consolas, monospace; word-break: break-all; }
+
+/* result tabs: close × and Clear all */
+.res-tab { display: inline-flex; align-items: center; gap: 4px; }
+.res-tt { overflow: hidden; text-overflow: ellipsis; }
+.res-x { border: 0; background: none; color: var(--ink2, #64748b); cursor: pointer; font-size: .95rem; line-height: 1; padding: 0 2px; border-radius: 4px; flex-shrink: 0; }
+.res-x:hover { background: #fee2e2; color: #b91c1c; }
+.res-clear { margin-left: auto; border: 1px solid var(--line); background: #fff; border-radius: 8px 8px 0 0; padding: 4px 10px; font-size: .72rem; cursor: pointer; white-space: nowrap; color: #b91c1c; flex-shrink: 0; }
+.res-clear:hover { background: #fef2f2; }
