@@ -33,6 +33,7 @@ class ChatRequest:
     data_class: str | None = None
     app_user: str | None = None
     fallback: bool = True
+    tools: list | None = None          # [{name, description, input_schema}] → native tool calling
 
 
 class Gateway:
@@ -76,9 +77,12 @@ class Gateway:
             elif not c.get("model"):
                 why = "no model chosen"
             else:
-                ok, missing = self.provider(c["provider"]).configured()
+                prov = self.provider(c["provider"])
+                ok, missing = prov.configured()
                 if not ok:
                     why = missing
+                elif req.tools and not prov.supports_tools:
+                    why = "no tool calling"
             (skipped if why else use).append(dict(c, reason=why) if why else c)
         return use, skipped
 
@@ -99,7 +103,7 @@ class Gateway:
         for i, c in enumerate(use, 1):
             t0 = time.time()
             try:
-                r = self.provider(c["provider"]).chat(c["model"], req.system, req.messages, req.max_tokens)
+                r = self.provider(c["provider"]).chat(c["model"], req.system, req.messages, req.max_tokens, tools=req.tools)
             except P.ProviderError as e:
                 ms = int((time.time() - t0) * 1000)
                 attempts.append({"provider": c["provider"], "model": c["model"], "ok": False, "error": str(e), "ms": ms})
@@ -113,7 +117,7 @@ class Gateway:
             attempts.append({"provider": c["provider"], "model": r.model, "ok": True, "ms": r.ms})
             return {"text": r.text, "provider": c["provider"], "model": r.model, "ms": r.ms, "tokens_in": r.input_tokens,
                     "tokens_out": r.output_tokens, "cost": cost, "stop_reason": r.stop_reason, "attempts": attempts, "skipped": skipped,
-                    "fallback": i > 1}
+                    "fallback": i > 1, "tool_calls": r.tool_calls}
         raise GatewayError("Every provider failed: " + "; ".join(a["error"] for a in attempts), attempts + skipped)
 
     def compare(self, req: ChatRequest, targets: list[dict]) -> list[dict]:

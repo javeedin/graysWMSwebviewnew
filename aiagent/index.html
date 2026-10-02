@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent — Fusion Client</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="aiagent.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+    <header class="top">
+        <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
+        <div class="logo"><i class="fa-solid fa-robot"></i></div>
+        <div class="ttl">
+            <h1>AI Agent <span class="ver">v12.0.0</span> <span class="beta">BETA</span> <span id="hubchip"></span></h1>
+            <p>A team of specialists that finds the data, checks it, asks before acting — and shows its work</p>
+        </div>
+        <div class="tools-top">
+            <div class="seg" id="pod-seg" title="Fusion pod the agent works on">
+                <button data-pod="PROD">PROD</button><button data-pod="TEST">TEST</button>
+            </div>
+            <select id="model-sel" title="Model: Auto = the AI Hub router (fallback, budget, data policy)"><option value="">Model: Auto (router)</option></select>
+            <button class="hbtn" id="btn-jobs" title="Scheduled jobs"><i class="fa-regular fa-clock"></i><span class="badge" id="jobs-badge" hidden></span></button>
+            <button class="hbtn" id="btn-memory" title="What the agent remembers about you"><i class="fa-solid fa-brain"></i></button>
+            <button class="hbtn" id="btn-help" title="How it works"><i class="fa-regular fa-circle-question"></i></button>
+        </div>
+    </header>
+    <div class="shell">
+        <aside class="side">
+            <button class="btn primary wide" id="btn-new"><i class="fa-solid fa-plus"></i> New conversation</button>
+            <div class="side-h">Specialist</div>
+            <div class="specs" id="specs"></div>
+            <div class="side-h row"><span class="grow">Conversations</span><input type="text" id="th-filter" placeholder="Filter…"></div>
+            <div class="threads" id="threads"></div>
+        </aside>
+        <section class="chat">
+            <div class="chat-h" id="chat-h"></div>
+            <div class="timeline" id="timeline"></div>
+            <div class="composer">
+                <div class="cards" id="cards"></div>
+                <div class="compose-row">
+                    <textarea id="input" rows="2" placeholder="Ask about Fusion data, trips, orders, loads or reports…  (Enter to send, Shift+Enter for a new line, @wms / @orders / @fbdi / @report to pick a specialist)"></textarea>
+                    <button class="btn primary send" id="btn-send" title="Send"><i class="fa-solid fa-paper-plane"></i></button>
+                    <button class="btn danger send" id="btn-stop" title="Stop" hidden><i class="fa-solid fa-stop"></i></button>
+                </div>
+                <div class="compose-meta" id="compose-meta"></div>
+            </div>
+        </section>
+        <section class="results" id="results">
+            <div class="res-h"><b><i class="fa-solid fa-table"></i> Results</b><span class="grow"></span><button class="icon" id="res-collapse" title="Hide results"><i class="fa-solid fa-angles-right"></i></button></div>
+            <div class="res-tabs" id="res-tabs"></div>
+            <div class="res-body" id="res-body"><div class="empty"><i class="fa-regular fa-chart-bar big"></i><p>Query results, charts and reports appear here.</p></div></div>
+        </section>
+    </div>
+    <div class="modal" id="modal"><div class="modal-box"><div class="modal-h"><b id="modal-t"></b><button class="icon" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div><div class="modal-b" id="modal-b"></div><div class="modal-f" id="modal-f"></div></div></div>
+    <div class="toasts" id="toasts"></div>
+    <script src="../dataload/fbdi-catalog.js"></script>
+    <script src="../fusionsql/knowledge-engine.js"></script>
+    <script src="core.js"></script>
+    <script src="tools.js"></script>
+    <script src="tools-fusion.js"></script>
+    <script src="tools-wms.js"></script>
+    <script src="tools-business.js"></script>
+    <script src="results.js"></script>
+    <script>AG.init();</script>
+</body>
+</html>

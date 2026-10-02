@@ -37,21 +37,56 @@ class ChatResult:
     stop_reason: str = ""
     ms: int = 0
     extra: dict = field(default_factory=dict)
+    tool_calls: list = field(default_factory=list)        # [{id, name, input}] when the model asked for tools
+
+
+# Messages inside the hub use the Anthropic shape: {role, content} where content is text or a list of blocks
+# ({type:text}, {type:tool_use, id, name, input} from the assistant, {type:tool_result, tool_use_id, content, is_error}
+# from the user). Tools are {name, description, input_schema}. Each provider converts to its own wire format.
+def _blocks(content) -> list[dict]:
+    if isinstance(content, list):
+        return [b for b in content if isinstance(b, dict)]
+    return [{"type": "text", "text": content if isinstance(content, str) else json.dumps(content)}]
 
 
 def _messages(messages: list[dict]) -> list[dict]:
-    """[{role, content:str}] → Anthropic message list (alternating, user first)."""
+    """→ Anthropic message list (alternating, user first). Text-only turns stay strings; block turns stay blocks."""
     out = []
     for m in messages or []:
         role = "assistant" if m.get("role") == "assistant" else "user"
-        text = m.get("content") if isinstance(m.get("content"), str) else json.dumps(m.get("content"))
+        c = m.get("content")
+        if not isinstance(c, (str, list)):
+            c = json.dumps(c)
         if out and out[-1]["role"] == role:
-            out[-1]["content"] += "\n\n" + text
+            prev = out[-1]["content"]
+            if isinstance(prev, str) and isinstance(c, str):
+                out[-1]["content"] = prev + "\n\n" + c
+            else:
+                out[-1]["content"] = _blocks(prev) + _blocks(c)
         else:
-            out.append({"role": role, "content": text})
+            out.append({"role": role, "content": c})
     if not out or out[0]["role"] != "user":
         out.insert(0, {"role": "user", "content": "(start)"})
     return out
+
+
+def _text_of(content) -> str:
+    if isinstance(content, str):
+        return content
+    parts = []
+    for b in _blocks(content):
+        if b.get("type") == "text":
+            parts.append(b.get("text", ""))
+        elif b.get("type") == "tool_result":
+            parts.append(_result_text(b))
+    return "\n".join(parts)
+
+
+def _result_text(b: dict) -> str:
+    c = b.get("content")
+    if isinstance(c, list):
+        return "\n".join(x.get("text", "") for x in c if isinstance(x, dict))
+    return c if isinstance(c, str) else json.dumps(c)
 
 
 class Provider:
@@ -66,7 +101,9 @@ class Provider:
     def configured(self) -> tuple[bool, str]:
         return True, ""
 
-    def chat(self, model: str, system: str, messages: list[dict], max_tokens: int = 2000) -> ChatResult:
+    supports_tools = False
+
+    def chat(self, model: str, system: str, messages: list[dict], max_tokens: int = 2000, tools: list | None = None) -> ChatResult:
         raise NotImplementedError
 
     def list_models(self) -> list[dict]:
@@ -87,13 +124,17 @@ class _ClaudeBase(Provider):
     def client(self):
         raise NotImplementedError
 
-    def chat(self, model, system, messages, max_tokens=2000):
+    supports_tools = True
+
+    def chat(self, model, system, messages, max_tokens=2000, tools=None):
         import anthropic
         t0 = time.time()
         try:
             kw = {"model": model, "max_tokens": max_tokens, "messages": _messages(messages)}
             if system:
                 kw["system"] = system
+            if tools:
+                kw["tools"] = [{"name": t["name"], "description": t.get("description", ""), "input_schema": t["input_schema"]} for t in tools]
             msg = self.client().messages.create(**kw)
         except anthropic.APIStatusError as e:
             raise ProviderError(f"{self.id}: HTTP {e.status_code} {getattr(e, 'message', e)}") from e
@@ -101,9 +142,12 @@ class _ClaudeBase(Provider):
             raise ProviderError(f"{self.id}: {e}") from e
         if msg.stop_reason == "refusal":
             raise ProviderRefusal(f"{self.id}: the model declined this request")
+        if msg.stop_reason == "max_tokens" and any(getattr(b, "type", "") == "tool_use" for b in msg.content):
+            raise ProviderError(f"{self.id}: the answer was cut off in the middle of a tool call (max_tokens)")
         text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+        calls = [{"id": b.id, "name": b.name, "input": dict(b.input or {})} for b in msg.content if getattr(b, "type", "") == "tool_use"]
         return ChatResult(text=text, model=model, input_tokens=msg.usage.input_tokens, output_tokens=msg.usage.output_tokens,
-                          stop_reason=msg.stop_reason or "", ms=int((time.time() - t0) * 1000))
+                          stop_reason=msg.stop_reason or "", ms=int((time.time() - t0) * 1000), tool_calls=calls)
 
 
 class AnthropicProvider(_ClaudeBase):
@@ -186,21 +230,43 @@ class BedrockConverseProvider(Provider):
         return boto3.Session(aws_access_key_id=self.secret("aws_access_key"), aws_secret_access_key=self.secret("aws_secret_key"),
                              region_name=self.cfg.get("region"))
 
-    def chat(self, model, system, messages, max_tokens=2000):
+    supports_tools = True
+
+    @staticmethod
+    def _converse_content(content) -> list[dict]:
+        out = []
+        for b in _blocks(content):
+            t = b.get("type")
+            if t == "text" and b.get("text"):
+                out.append({"text": b["text"]})
+            elif t == "tool_use":
+                out.append({"toolUse": {"toolUseId": b["id"], "name": b["name"], "input": b.get("input") or {}}})
+            elif t == "tool_result":
+                out.append({"toolResult": {"toolUseId": b["tool_use_id"], "content": [{"text": _result_text(b) or "(empty)"}],
+                                           "status": "error" if b.get("is_error") else "success"}})
+        return out or [{"text": "(empty)"}]
+
+    def chat(self, model, system, messages, max_tokens=2000, tools=None):
         from botocore.exceptions import BotoCoreError, ClientError
         t0 = time.time()
-        msgs = [{"role": m["role"], "content": [{"text": m["content"]}]} for m in _messages(messages)]
+        msgs = [{"role": m["role"], "content": self._converse_content(m["content"])} for m in _messages(messages)]
         try:
             kw = {"modelId": model, "messages": msgs, "inferenceConfig": {"maxTokens": max_tokens}}
             if system:
                 kw["system"] = [{"text": system}]
+            if tools:
+                kw["toolConfig"] = {"tools": [{"toolSpec": {"name": t["name"], "description": t.get("description", ""),
+                                                            "inputSchema": {"json": t["input_schema"]}}} for t in tools]}
             r = self._session().client("bedrock-runtime").converse(**kw)
         except (ClientError, BotoCoreError) as e:
             raise ProviderError(f"{self.id}: {e}") from e
-        text = "".join(c.get("text", "") for c in r["output"]["message"]["content"])
+        content = r["output"]["message"]["content"]
+        text = "".join(c.get("text", "") for c in content)
+        calls = [{"id": c["toolUse"]["toolUseId"], "name": c["toolUse"]["name"], "input": c["toolUse"].get("input") or {}}
+                 for c in content if "toolUse" in c]
         u = r.get("usage") or {}
         return ChatResult(text=text, model=model, input_tokens=u.get("inputTokens", 0), output_tokens=u.get("outputTokens", 0),
-                          stop_reason=r.get("stopReason", ""), ms=int((time.time() - t0) * 1000))
+                          stop_reason=r.get("stopReason", ""), ms=int((time.time() - t0) * 1000), tool_calls=calls)
 
     def list_models(self):
         r = self._session().client("bedrock").list_foundation_models(byOutputModality="TEXT")
@@ -225,13 +291,43 @@ class NvidiaProvider(Provider):
         return httpx.Client(base_url=(self.cfg.get("base_url") or "https://integrate.api.nvidia.com/v1").rstrip("/"),
                             headers={"Authorization": f"Bearer {self.secret('api_key')}", "Accept": "application/json"}, timeout=120)
 
-    def chat(self, model, system, messages, max_tokens=2000):
+    supports_tools = True
+
+    @staticmethod
+    def _openai_messages(system: str, messages: list[dict]) -> list[dict]:
+        out = [{"role": "system", "content": system}] if system else []
+        for m in _messages(messages):
+            c = m["content"]
+            if isinstance(c, str):
+                out.append({"role": m["role"], "content": c})
+                continue
+            if m["role"] == "assistant":
+                calls = [{"id": b["id"], "type": "function", "function": {"name": b["name"], "arguments": json.dumps(b.get("input") or {})}}
+                         for b in c if b.get("type") == "tool_use"]
+                msg = {"role": "assistant", "content": "".join(b.get("text", "") for b in c if b.get("type") == "text") or None}
+                if calls:
+                    msg["tool_calls"] = calls
+                out.append(msg)
+            else:
+                for b in c:
+                    if b.get("type") == "tool_result":
+                        out.append({"role": "tool", "tool_call_id": b["tool_use_id"], "content": _result_text(b)})
+                text = "".join(b.get("text", "") for b in c if b.get("type") == "text")
+                if text:
+                    out.append({"role": "user", "content": text})
+        return out
+
+    def chat(self, model, system, messages, max_tokens=2000, tools=None):
         import httpx
         t0 = time.time()
-        msgs = ([{"role": "system", "content": system}] if system else []) + _messages(messages)
+        msgs = self._openai_messages(system, messages)
+        body = {"model": model, "messages": msgs, "max_tokens": max_tokens, "stream": False}
+        if tools:
+            body["tools"] = [{"type": "function", "function": {"name": t["name"], "description": t.get("description", ""),
+                                                               "parameters": t["input_schema"]}} for t in tools]
         try:
             with self._http() as h:
-                r = h.post("/chat/completions", json={"model": model, "messages": msgs, "max_tokens": max_tokens, "stream": False})
+                r = h.post("/chat/completions", json=body)
         except httpx.HTTPError as e:
             raise ProviderError(f"{self.id}: {e}") from e
         if r.status_code >= 400:
@@ -239,8 +335,18 @@ class NvidiaProvider(Provider):
         d = r.json()
         ch = (d.get("choices") or [{}])[0]
         u = d.get("usage") or {}
-        return ChatResult(text=(ch.get("message") or {}).get("content") or "", model=model, input_tokens=u.get("prompt_tokens", 0),
-                          output_tokens=u.get("completion_tokens", 0), stop_reason=ch.get("finish_reason") or "", ms=int((time.time() - t0) * 1000))
+        msg = ch.get("message") or {}
+        calls = []
+        for tc in msg.get("tool_calls") or []:
+            fn = tc.get("function") or {}
+            try:
+                args = json.loads(fn.get("arguments") or "{}")
+            except ValueError as e:
+                raise ProviderError(f"{self.id}: the model sent tool arguments that are not JSON") from e
+            calls.append({"id": tc.get("id") or f"call_{len(calls)}", "name": fn.get("name"), "input": args if isinstance(args, dict) else {}})
+        return ChatResult(text=msg.get("content") or "", model=model, input_tokens=u.get("prompt_tokens", 0),
+                          output_tokens=u.get("completion_tokens", 0), stop_reason=ch.get("finish_reason") or "", ms=int((time.time() - t0) * 1000),
+                          tool_calls=calls)
 
     def list_models(self):
         with self._http() as h:
@@ -264,11 +370,18 @@ _DOCTOR_RULES = [
 
 class DemoProvider(Provider):
     type = "demo"
+    supports_tools = True
 
-    def chat(self, model, system, messages, max_tokens=2000):
+    def chat(self, model, system, messages, max_tokens=2000, tools=None):
         t0 = time.time()
-        user = "\n".join(m.get("content", "") for m in messages if m.get("role") != "assistant")
         sysl = system or ""
+        if tools:
+            from .agents.demo_planner import plan
+            text, calls = plan(sysl, messages, tools)
+            n_in = max(1, len((sysl + json.dumps(messages, default=str)).split()) * 4 // 3)
+            return ChatResult(text=text, model="demo", input_tokens=n_in, output_tokens=max(1, len(text.split()) + 20 * len(calls)),
+                              stop_reason="tool_use" if calls else "end_turn", ms=int((time.time() - t0) * 1000) + 5, tool_calls=calls)
+        user = "\n".join(_text_of(m.get("content", "")) for m in messages if m.get("role") != "assistant")
         if "PIPELINE_DOCTOR" in sysl:
             text = self._doctor(user)
         elif "FUSION_SQL" in sysl:

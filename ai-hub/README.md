@@ -26,6 +26,15 @@ Keys: Windows Credential Manager (`keyring`, service `GraysAiHub`, names `<provi
 They are sent once from the page (or, for the Claude key, copied by the app through stdin) and never returned by the API.
 The API token is made by the WMS app and kept DPAPI-encrypted in `%APPDATA%\GraysWMS\AiHub\hub.json`; the hub stores only its SHA-256.
 
+## AI Agent (the brain of the WMS "AI Agent" page)
+
+`ai_hub/agents/assistant.py` is a LangGraph supervisor with five specialists (Fusion Analyst, WMS Operator, Order
+Desk, Data Loader, Reporter) that call tools natively through the gateway (`GatewayChatModel.bind_tools`). Tools that
+need company data run in the WMS app: the graph interrupts with the calls, the page / C# host runs them (act tools only
+after a confirm card the host registered) and resumes. Conversations, events, memory and scheduled jobs live in
+`data\agent.db` (versioned migrations, `ai_hub/db.py`), graph state in `data\agent_state.db`. Without a cloud key the
+offline demo planner (`agents/demo_planner.py`) plays the model so everything can be tried and tested.
+
 ## Run
 
 From the app: **AI Hub › Overview › Install** (copies the files to `C:\fusion\ai-hub`, private Python 3.12 unless 3.11+ exists,

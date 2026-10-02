@@ -217,6 +217,10 @@ namespace WMSApp
         public async Task<bool> IsDeniedAsync(string actionKey, string instance = null) =>
             (await GetPolicyAsync(actionKey, instance)).Mode == "DENY";
 
+        /// <summary>The policy (AUTO / ASK / DENY + max batch) for an action - used by the AI Agent's host tools.</summary>
+        public Task<(string Mode, int? MaxBatch)> PolicyAsync(string actionKey, string instance = null) =>
+            GetPolicyAsync(actionKey, instance);
+
         // ------------------------------------------------------------
         // Action policies (WMS_AI_POLICIES): AUTO / ASK / DENY per
         // user + action + instance. Cached 5 minutes; missing = ASK.

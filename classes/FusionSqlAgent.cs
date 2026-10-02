@@ -348,6 +348,12 @@ Only facts you verified with the tools or sample data; never restate the hints; 
                         .ThenBy(x => Convert.ToString(x["OBJECT_TYPE"]).EndsWith("BODY") ? 1 : 0).First();
         }
 
+        /// <summary>The read-only dictionary tools for other agents (the AI Agent): search_objects, search_columns,
+        /// describe_object, get_source, get_dependencies. run_query is not offered here - the AI Agent runs SQL through
+        /// its own dry run + confirm.</summary>
+        public static Task<string> RunDictionaryToolAsync(FusionSqlService svc, string name, IReadOnlyDictionary<string, JsonElement> input, CancellationToken ct) =>
+            name == "run_query" ? Task.FromResult("Not available here.") : RunToolAsync(svc, name, input, ct);
+
         private static async Task<string> RunToolAsync(FusionSqlService svc, string name, IReadOnlyDictionary<string, JsonElement> input, CancellationToken ct)
         {
             switch (name)

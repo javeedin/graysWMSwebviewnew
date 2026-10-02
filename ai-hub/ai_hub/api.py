@@ -6,6 +6,9 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from . import VERSION, secrets
+from .agents import catalog as AC
+from .agents.assistant import AgentService
+from .agents.jobs import JobRunner
 from .agents.pipeline_doctor import Doctor
 from .config import DATA_CLASSES, HubConfig, home
 from .gateway import ChatRequest, Gateway, GatewayError
@@ -32,12 +35,27 @@ class CompareIn(ChatIn):
     targets: list[dict]
 
 
-def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None = None) -> FastAPI:
+class AgentIn(BaseModel):
+    text: str
+    app_user: str | None = None
+    specialist: str | None = None
+    pod: str | None = None
+    caps: list[str] | None = None
+    model: dict | None = None
+    thread_id: str | None = None
+
+
+def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None = None, agent_home: str | None = None,
+               run_jobs: bool = False) -> FastAPI:
     usage = usage or Usage()
     gw = Gateway(cfg, usage)
     doctor = Doctor(gw, doctor_db or str(home() / "agents.db"))
+    agent = AgentService(gw, agent_home or str(home()))
+    jobs = JobRunner(agent)
+    if run_jobs:
+        jobs.start()
     app = FastAPI(title="Gray's WMS AI Hub", version=VERSION)
-    app.state.gateway, app.state.doctor, app.state.cfg = gw, doctor, cfg
+    app.state.gateway, app.state.doctor, app.state.cfg, app.state.agent, app.state.jobs = gw, doctor, cfg, agent, jobs
 
     def auth(request: Request):
         h = request.headers.get("authorization", "")
@@ -167,5 +185,102 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
             raise HTTPException(409, str(e)) from e
         except GatewayError as e:
             raise HTTPException(502, str(e)) from e
+
+    # ── AI Agent (LangGraph supervisor + specialists) ──
+    # The relay sends the app login as X-App-User; a conversation is only visible to the user who started it.
+    def who(request: Request, body_user: str | None = None) -> str | None:
+        return request.headers.get("x-app-user") or body_user or None
+
+    def guard(fn):
+        try:
+            return fn()
+        except KeyError as e:
+            raise HTTPException(404, "No such conversation") from e
+        except PermissionError as e:
+            raise HTTPException(403, str(e)) from e
+        except ValueError as e:
+            raise HTTPException(409, str(e)) from e
+
+    @app.get("/agent/catalog", dependencies=A)
+    def agent_catalog():
+        return {"specialists": [{"id": x.id, "title": x.title, "icon": x.icon, "task": x.task} for x in AC.SPECIALISTS.values()],
+                "tools": [t.public() for t in AC.TOOLS], "max_turns": AC.MAX_TURNS}
+
+    @app.post("/agent/route-preview", dependencies=A)
+    def agent_route(body: dict):
+        sid, scores = AC.route(body.get("text") or "", body.get("current"))
+        return {"specialist": sid, "scores": scores}
+
+    @app.post("/agent/threads", dependencies=A)
+    def agent_start(body: AgentIn, request: Request):
+        return guard(lambda: agent.start(body.text, app_user=who(request, body.app_user), specialist=body.specialist,
+                                         pod=body.pod or "PROD", caps=body.caps, model=body.model, thread_id=body.thread_id))
+
+    @app.get("/agent/threads", dependencies=A)
+    def agent_list(request: Request, limit: int = 50):
+        return agent.list(who(request), limit)
+
+    @app.get("/agent/threads/{tid}", dependencies=A)
+    def agent_get(tid: str, request: Request):
+        return guard(lambda: agent.snapshot(tid, who(request)))
+
+    @app.get("/agent/threads/{tid}/events", dependencies=A)
+    def agent_events(tid: str, request: Request, after: int = 0):
+        return guard(lambda: agent.events(tid, after, who(request)))
+
+    @app.post("/agent/threads/{tid}/send", dependencies=A)
+    def agent_send(tid: str, body: AgentIn, request: Request):
+        return guard(lambda: agent.send(tid, body.text, who(request, body.app_user), body.specialist, body.caps, body.pod, body.model))
+
+    @app.post("/agent/threads/{tid}/resume", dependencies=A)
+    def agent_resume(tid: str, body: dict, request: Request):
+        return guard(lambda: agent.resume(tid, body.get("value"), who(request, body.get("app_user"))))
+
+    @app.post("/agent/threads/{tid}/cancel", dependencies=A)
+    def agent_cancel(tid: str, request: Request):
+        return guard(lambda: agent.cancel(tid, who(request)))
+
+    @app.post("/agent/threads/{tid}/delete", dependencies=A)
+    def agent_delete(tid: str, request: Request):
+        return guard(lambda: agent.delete(tid, who(request)))
+
+    @app.post("/agent/threads/{tid}/feedback", dependencies=A)
+    def agent_feedback(tid: str, body: dict, request: Request):
+        return guard(lambda: agent.feedback(tid, int(body.get("seq") or 0), int(body.get("rating") or 0), body.get("note"), who(request)))
+
+    @app.get("/agent/memory", dependencies=A)
+    def agent_memory(request: Request):
+        return agent.memory_list(who(request) or "")
+
+    @app.post("/agent/memory/delete", dependencies=A)
+    def agent_memory_delete(body: dict, request: Request):
+        return agent.memory_delete(who(request) or "", int(body.get("id") or 0))
+
+    @app.get("/agent/jobs", dependencies=A)
+    def agent_jobs(request: Request):
+        return agent.jobs_list(who(request))
+
+    @app.put("/agent/jobs/{jid}", dependencies=A)
+    def agent_job_put(jid: str, body: dict, request: Request):
+        u = who(request)
+        j = agent.store.one("SELECT * FROM jobs WHERE id = ?", (jid,))
+        if not j or (u and j["app_user"] != u):
+            raise HTTPException(404, "No such job")
+        if "enabled" in body:
+            agent.store.run("UPDATE jobs SET enabled = ? WHERE id = ?", (1 if body["enabled"] else 0, jid))
+        if body.get("delete"):
+            agent.store.run("DELETE FROM jobs WHERE id = ?", (jid,))
+        if body.get("run_now"):
+            agent.store.run("UPDATE jobs SET next_run = 0 WHERE id = ?", (jid,))
+            jobs.run_due()
+        return {"ok": True}
+
+    @app.get("/agent/jobs/pending", dependencies=A)
+    def agent_jobs_pending(request: Request):
+        """Job conversations waiting for the app (read tools the page can run unattended, or a person)."""
+        u = who(request)
+        rows = agent.store.all("SELECT id FROM threads WHERE status = 'waiting' AND job_id IS NOT NULL" +
+                               (" AND app_user = ?" if u else "") + " ORDER BY updated LIMIT 20", (u,) if u else ())
+        return [agent.snapshot(r["id"]) for r in rows]
 
     return app

@@ -360,7 +360,9 @@ namespace WMSApp
             if (token == null) return new { ok = false, error = "Not set up yet — press Install." };
             int port = PipeSrvConfigPort(HubHome(dir));
             bool runsModel = method == "POST" && (path == "/v1/chat" || path == "/v1/compare" || path == "/agents/doctor/start" ||
-                                                  Regex.IsMatch(path, @"^/agents/doctor/[^/]+/resume$") || Regex.IsMatch(path, @"^/providers/[^/]+/test$"));
+                                                  Regex.IsMatch(path, @"^/agents/doctor/[^/]+/resume$") || Regex.IsMatch(path, @"^/providers/[^/]+/test$") ||
+                                                  path == "/agent/threads" || Regex.IsMatch(path, @"^/agent/threads/[^/]+/(send|resume)$") ||
+                                                  Regex.IsMatch(path, @"^/agent/jobs/[^/]+$"));
             if (runsModel && !await AiControl.IsEnabledAsync(user))
                 return new { ok = false, paused = true, error = "AI is paused (AI Digital Employee › Control). Resume it there first." };
 
@@ -369,13 +371,15 @@ namespace WMSApp
             {
                 // the hub records who asked: app_user goes into chat / doctor requests
                 var dict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(b.GetRawText());
-                if (path == "/v1/chat" || path == "/v1/compare" || path == "/agents/doctor/start")
+                if (path == "/v1/chat" || path == "/v1/compare" || path == "/agents/doctor/start" || path.StartsWith("/agent/", StringComparison.Ordinal))
                     dict["app_user"] = JsonSerializer.SerializeToElement(user);
                 body = JsonSerializer.Serialize(dict);
             }
             _hubHttp ??= new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
             using var req = new HttpRequestMessage(new HttpMethod(method), "http://127.0.0.1:" + port + path);
             req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            // AI Agent conversations belong to the app login that started them; the hub filters by this header
+            if (!string.IsNullOrWhiteSpace(user)) req.Headers.TryAddWithoutValidation("X-App-User", user);
             if (body != null) req.Content = new StringContent(body, Encoding.UTF8, "application/json");
             var sw = Stopwatch.StartNew();
             HttpResponseMessage resp;
@@ -399,11 +403,12 @@ namespace WMSApp
                 string S(string k) => j.ValueKind == JsonValueKind.Object && j.TryGetProperty(k, out var v) && v.ValueKind != JsonValueKind.Null ? v.ToString() : null;
                 long? L(string k) => long.TryParse(S(k), out var x) ? x : null;
                 double? D(string k) => double.TryParse(S(k), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var x) ? x : null;
-                string act = path == "/v1/chat" ? "chat" : path == "/v1/compare" ? "compare" : path.StartsWith("/providers/") ? "provider_test" : "doctor_" + (S("status") ?? "call");
+                string act = path == "/v1/chat" ? "chat" : path == "/v1/compare" ? "compare" : path.StartsWith("/providers/") ? "provider_test" :
+                             path.StartsWith("/agent/") ? "agent_" + (S("status") ?? "call") : "doctor_" + (S("status") ?? "call");
                 bool ok = status < 400 && S("ok") != "False";
                 AiControl.Audit(new AiControl.AuditEvent
                 {
-                    User = user, Source = "AIHUB", Action = act, Outcome = ok ? "OK" : "FAILED",
+                    User = user, Source = path.StartsWith("/agent/") ? "AIAGENT" : "AIHUB", Action = act, Outcome = ok ? "OK" : "FAILED",
                     Model = S("provider") != null ? S("provider") + "/" + S("model") : null, TokensIn = L("tokens_in"), TokensOut = L("tokens_out"), CostUsd = D("cost"),
                     DurationMs = ms, Ref = S("thread_id"), Detail = ok ? null : (S("error") ?? S("detail") ?? ("HTTP " + status))
                 });

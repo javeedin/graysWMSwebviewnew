@@ -2219,6 +2219,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleAiHubAction(wv, action, root, requestId);
                                     break;
 
+                                case var agentAction when IsAiAgentAction(agentAction):
+                                    await HandleAiAgentAction(wv, action, root, requestId);
+                                    break;
+
                                 // Pipeline server on this PC (Fusion SQL › Pipelines › This PC)
                                 case var pipeSrvAction when IsPipeSrvAction(pipeSrvAction):
                                     await HandlePipeSrvAction(wv, action, root, requestId);

@@ -64,7 +64,7 @@ def stop_file() -> Path:
 
 def serve(cfg: HubConfig):
     import uvicorn
-    server = uvicorn.Server(uvicorn.Config(create_api(cfg), host=cfg.host, port=cfg.port, log_level="info"))
+    server = uvicorn.Server(uvicorn.Config(create_api(cfg, run_jobs=True), host=cfg.host, port=cfg.port, log_level="info"))
     try:
         stop_file().unlink()
     except OSError:

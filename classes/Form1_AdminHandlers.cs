@@ -171,7 +171,7 @@ namespace WMSApp
         private static string[] AdminModuleKeys() => new[]
         {
             "Inventory", "om", "fscm", "fusionsql", "dataload", "dllexplorer", "fusionmodel", "powerbi",
-            "aihub", "aianalysis", "formsdesigner", "agentflow", "internetsearch"
+            "aihub", "aiagent", "aianalysis", "formsdesigner", "agentflow", "internetsearch"
         };
 
         private static object AdminModuleFolders(string repo) =>
