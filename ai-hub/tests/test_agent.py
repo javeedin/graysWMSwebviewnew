@@ -387,3 +387,11 @@ def test_rich_output_tools_for_everyone():
     assert by["open_url"].risk == "auto" and by["format_result"].risk == "read"
     assert "formats" in by["grid"].schema["properties"]
     assert "FORMATTING" in C.COMMON and "ask:" in C.COMMON and "never say you cannot format" in C.AIDE_HEADER
+
+
+def test_hardware_tool_for_everyone():
+    t = C.BY_NAME["hardware"]
+    assert t.runs == "host" and t.policy == "device_control"
+    assert {"wifi", "printers", "port", "wmi", "set_default_printer"} <= set(t.schema["properties"]["op"]["enum"])
+    for spec in C.SPECIALISTS:
+        assert "hardware" in {x.name for x in C.tools_for(spec, ["hardware"])}

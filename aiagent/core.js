@@ -90,12 +90,12 @@ AG.LABELS = {
     trips_find: 'Find trips', trip_orders: 'Orders on trip', print_jobs: 'Print jobs', printers_status: 'Printers', mra_status: 'MRA status', mra_interface: 'Send to MRA',
     inbox_list: 'AI inbox', inbox_request: 'Ask an approver', om_orders_find: 'Find orders', om_order_detail: 'Order detail', fusion_order_status: 'Fusion order status',
     om_prepare_order: 'Prepare order', fbdi_templates_find: 'FBDI templates', fbdi_loads: 'FBDI loads', fusion_rest_describe: 'REST fields', fusion_rest_get: 'REST read',
-    model_reports: 'Reports & dashboards', make_report: 'Build report', open_url: 'Open in browser', format_result: 'Format result', render: 'Formatted document', schedule_job: 'Schedule job', jobs_list: 'Scheduled jobs'
+    model_reports: 'Reports & dashboards', make_report: 'Build report', open_url: 'Open in browser', hardware: 'This PC', format_result: 'Format result', render: 'Formatted document', schedule_job: 'Schedule job', jobs_list: 'Scheduled jobs'
 };
 AG.ICONS = {
     ask_user: 'fa-circle-question', remember: 'fa-brain', handoff: 'fa-people-arrows', open_page: 'fa-up-right-from-square', fusion_sql_dry_run: 'fa-vial',
     fusion_sql_run: 'fa-play', result_analyze: 'fa-calculator', show_chart: 'fa-chart-column', knowledge_lookup: 'fa-book', mra_interface: 'fa-receipt',
-    make_report: 'fa-file-lines', open_url: 'fa-globe', format_result: 'fa-wand-magic-sparkles', render: 'fa-file-signature', schedule_job: 'fa-clock', save_query: 'fa-floppy-disk', watchdog_create: 'fa-shield-dog'
+    make_report: 'fa-file-lines', open_url: 'fa-globe', hardware: 'fa-microchip', format_result: 'fa-wand-magic-sparkles', render: 'fa-file-signature', schedule_job: 'fa-clock', save_query: 'fa-floppy-disk', watchdog_create: 'fa-shield-dog'
 };
 AG.label = function (n) { return AG.LABELS[n] || n.replace(/_/g, ' '); };
 AG.icon = function (n) { return AG.ICONS[n] || (/^fusion_/.test(n) ? 'fa-magnifying-glass' : 'fa-wrench'); };
@@ -105,7 +105,9 @@ AG.caps = function () {
     var host = ['fusion_search_objects', 'fusion_search_columns', 'fusion_describe', 'fusion_source', 'fusion_dependencies', 'fusion_sql_dry_run',
         'fusion_sql_run', 'result_analyze', 'mra_interface', 'inbox_list', 'inbox_request',
         // the AI Digital Employee's actions (Form1_AiAgentAide.cs)
-        'wms_sql', 'fusion_call', 'ords_read', 'device', 'db_write', 'wms_job', 'email', 'save_report', 'dll', 'model_tool'];
+        'wms_sql', 'fusion_call', 'ords_read', 'device', 'db_write', 'wms_job', 'email', 'save_report', 'dll', 'model_tool',
+        // this PC's hardware (HardwareInfo.cs)
+        'hardware'];
     return host.concat(Object.keys(AG.exec));
 };
 

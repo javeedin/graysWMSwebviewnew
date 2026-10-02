@@ -162,6 +162,12 @@ AG.preview.device = function (i) {
     return '<pre>' + esc(JSON.stringify(i, null, 2)) + '</pre>';
 };
 
+AG.preview.hardware = function (i) {
+    if (i.op === 'set_default_printer') return '<div class="why">Make <b>' + esc(i.printer) + '</b> the default printer of this PC.</div>';
+    if (i.op === 'cancel_print_jobs') return '<div class="why">Cancel <b>all queued print jobs</b> on <b>' + esc(i.printer) + '</b> (this PC).</div>' + (i.reason ? '<div class="muted sm">' + esc(i.reason) + '</div>' : '');
+    return '<pre>' + esc(JSON.stringify(i, null, 2)) + '</pre>';
+};
+
 // ── today's tasks in the sidebar (work one with a click) ──
 AG.loadTasks = function () {
     var box = $('tasks'); if (!box) return;

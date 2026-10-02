@@ -222,6 +222,21 @@ TOOLS += [
          _obj({"op": {"type": "string", "enum": ["list_printers", "system_info", "list_files", "import_file", "move_file", "download_orders", "print_orders", "print"]},
                "orders": SA, "printer": S, "instance": S, "file": S, "dest": S, "title": S, "result_id": S, "reason": S}, ["op"]),
          runs="host", risk="act", policy="print", specialists=[WO, OD, RP]),
+    Tool("hardware", "Everything about this PC's hardware and connections, read-only: op summary | network (adapters, IP, gateway, "
+         "DNS, MAC) | wifi (connected Wi-Fi: SSID, signal, speed) | wifi_networks (visible networks) | cpu_memory (CPU, RAM, GPU, top "
+         "processes) | disks | usb | devices (class=Printer|Camera|Image|Ports|Bluetooth|Monitor|HIDClass…, or problems=true for "
+         "devices with errors) | printers (status, port, driver, offline) | print_queue (stuck jobs) | battery | displays | bios "
+         "(make, model, serial) | os | software (name=filter) | processes (name=filter) | services (name, state) | events "
+         "(log=System|Application|PrintService: recent errors) | ping (host) | port (host, port - e.g. 9100 for a network printer) | "
+         "wmi (query = one WQL SELECT on Win32_/CIM_/MSFT_ classes, for anything else). Controls, the user confirms: "
+         "set_default_printer (printer), cancel_print_jobs (printer). Use it whenever a question is about this PC, its network, "
+         "devices or printers - never say you cannot see them before trying.",
+         _obj({"op": {"type": "string", "enum": ["summary", "network", "wifi", "wifi_networks", "cpu_memory", "disks", "usb", "devices", "printers",
+                                                 "print_queue", "battery", "displays", "bios", "os", "software", "processes", "services", "events",
+                                                 "ping", "port", "wmi", "set_default_printer", "cancel_print_jobs"]},
+               "host": S, "port": I, "name": S, "state": S, "log": S, "count": I, "query": S, "printer": S, "problems": {"type": "boolean"},
+               "class": S, "reason": S}, ["op"]),
+         runs="host", risk="act", policy="device_control", specialists=ALL),
     Tool("db_write", "DDL / DML on the WMS / APEX database (INSERT / UPDATE / DELETE / CREATE …) through ai/executewrite. The user confirms "
          "(policy db_write). = action db_write.", _obj({"sql": s("One statement"), "reason": S}, ["sql"]), runs="host", risk="act", policy="db_write", specialists=ALL),
     Tool("wms_job", "Schedule a background job exactly as described in the knowledge (lane DB = DBMS_SCHEDULER, lane LOCAL = this app runs "
@@ -322,6 +337,8 @@ FORMATTING - the chat renders rich Markdown, so make answers easy to scan:
 - ```html blocks render sanitized HTML (inline styles ok; no scripts / forms).
 Results: format_result (links per row, money / % / dates, badges, data bars, coloured rows, hidden columns) instead of
 re-running a query; render for a document the user will print, e-mail or keep; open_url to open a page in the browser.
+This PC (network, Wi-Fi, devices, USB, printers, disks, software, events …): the hardware tool - try it before saying
+you cannot see something about the computer.
 Keep it tidy: one heading level, short tables (≤ 15 rows in chat - the results panel holds the rest)."""
 
 SPECIALISTS: dict[str, Specialist] = {s_.id: s_ for s_ in [

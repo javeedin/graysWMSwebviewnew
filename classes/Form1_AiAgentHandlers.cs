@@ -104,6 +104,7 @@ namespace WMSApp
 
         private static string AgentPolicyKey(string tool, string input = null) => AGENT_AIDE_TOOLS.Contains(tool) || tool == "api_form" ? AgentAidePolicyKey(tool, input) : tool switch
         {
+            "hardware" => HardwareInfo.IsControl(AgentJsonStr(input, "op")) ? "device_control" : null,
             "fusion_sql_run" => "fusion_query",
             "mra_interface" => "mra_interface",
             "inbox_request" => "inbox_request",
@@ -113,6 +114,12 @@ namespace WMSApp
             "schedule_job" => "agent_job",
             _ => null
         };
+
+        private static string AgentJsonStr(string json, string name)
+        {
+            try { using var d = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json); return d.RootElement.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null; }
+            catch { return null; }
+        }
 
         // ── confirm cards ──────────────────────────────────────
         private async Task<object> AgentIssueAsync(string tool, string input, string pod, string user)
@@ -234,6 +241,16 @@ namespace WMSApp
                         string sig = "AIAGENT:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(user + "|" + title + "|" + detail))).Substring(0, 32);
                         var (id, status, _) = await AiControl.InboxCreateAsync(user, "AIAGENT", "agent_" + kind, pod, "agent", sig, title, detail, input);
                         return new { ok = true, content = "Request #" + id + " is " + status + " in the AI inbox; approvers were alerted.", data = new { inbox_id = id, status } };
+                    }
+                case "hardware":
+                    {
+                        string op = S("op") ?? "summary";
+                        string Arg(string k) => args.TryGetValue(k, out var v) ? (v.ValueKind == JsonValueKind.String ? v.GetString() : v.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined ? null : v.GetRawText()) : null;
+                        var sw = Stopwatch.StartNew();
+                        object r = HardwareInfo.IsControl(op) ? HardwareInfo.Control(op, Arg) : await HardwareInfo.RunAsync(op, Arg);
+                        if (HardwareInfo.IsControl(op))
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "AIAGENT", Action = "hardware_" + op, Outcome = "OK", Approval = approved ? "CARD" : "AUTO", Target = Arg("printer"), DurationMs = sw.ElapsedMilliseconds, Detail = AgentShort(input) });
+                        return r;
                     }
                 default:
                     if (AGENT_AIDE_TOOLS.Contains(tool)) return await AgentAideAsync(tool, inEl, root, pod, user);
