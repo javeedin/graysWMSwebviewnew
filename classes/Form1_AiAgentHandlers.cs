@@ -113,6 +113,7 @@ namespace WMSApp
             "om_prepare_order" => "om_prepare",
             "schedule_job" => "agent_job",
             "phone_call" => "phone_call",
+            "run_code" => "run_code",
             _ => null
         };
 
@@ -137,7 +138,8 @@ namespace WMSApp
             // AUTO is honoured only for small runs: a big Fusion query or MRA batch still gets a card
             if (mode == "AUTO" && tool == "fusion_sql_run" && pod == "PROD" && AgentInt(input, "row_limit", 5000) > (maxBatch ?? 5000)) mode = "ASK";
             if (mode == "AUTO" && tool == "mra_interface" && AgentArrayLen(input, "orders") > (maxBatch ?? 5)) mode = "ASK";
-            if (mode == "AUTO" && (tool == "mra_interface" || AgentAideOverBatch(tool, input, maxBatch))) mode = "ASK";   // MRA is always a card, like the chat
+            if (mode == "AUTO" && (tool == "mra_interface" || AgentAideOverBatch(tool, input, maxBatch))) mode = "ASK";
+            if (tool == "run_code") mode = "ASK";   // code always shows its card with the full code   // MRA is always a card, like the chat
             if (mode != "AUTO") GetClaudeCliService().IssueApproval("agent_tool", tool, input, pod);
             return new { ok = true, mode, maxBatch, policy = key };
         }
@@ -152,7 +154,7 @@ namespace WMSApp
             if (mode == "DENY") return (false, "Your policy does not allow " + key + " on " + pod + ".");
             bool needCard = mode != "AUTO" ||
                             (tool == "fusion_sql_run" && pod == "PROD" && AgentInt(input, "row_limit", 5000) > (maxBatch ?? 5000)) ||
-                            tool == "mra_interface" || AgentAideOverBatch(tool, input, maxBatch);
+                            tool == "mra_interface" || tool == "run_code" || AgentAideOverBatch(tool, input, maxBatch);
             if (needCard && !(approved && GetClaudeCliService().ConsumeApproval("agent_tool", tool, input, pod)))
                 return (false, "Not confirmed: this needs the confirm card the app showed for exactly this input.");
             return (true, null);
@@ -242,6 +244,11 @@ namespace WMSApp
                         string sig = "AIAGENT:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(user + "|" + title + "|" + detail))).Substring(0, 32);
                         var (id, status, _) = await AiControl.InboxCreateAsync(user, "AIAGENT", "agent_" + kind, pod, "agent", sig, title, detail, input);
                         return new { ok = true, content = "Request #" + id + " is " + status + " in the AI inbox; approvers were alerted.", data = new { inbox_id = id, status } };
+                    }
+                case "run_code":
+                    {
+                        JsonElement? grid = root.TryGetProperty("grid", out var gEl) ? gEl : (JsonElement?)null;
+                        return await CodeRunAsync(inEl, user, await AiControl.IsAdminAsync(user), "agent", approved, grid);
                     }
                 case "hardware":
                     {

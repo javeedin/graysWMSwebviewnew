@@ -199,6 +199,18 @@ TOOLS: list[Tool] = [
          "unattended; anything needing a confirm waits in the AI inbox. The user confirms.",
          _obj({"name": S, "prompt": s("What to do each time"), "every_min": i("Interval in minutes (≥ 15)"), "daily_at": s("HH:MM"),
                "specialist": S}, ["name", "prompt"]), runs="hub", risk="act", policy="agent_job", specialists=[RP, FA, WO]),
+    Tool("run_code", "Run code on this PC: python (pandas, matplotlib; add pip packages), csharp (.NET 8 top-level statements; NuGet "
+         "packages), javascript (Node.js) or powershell. Use it for calculations, data conversion, reconciliation, file work or anything "
+         "no other tool does. The code runs in its own folder: result_id gives it that result as input.csv; print what matters (you get "
+         "the output), write output.csv for a table (it appears in the results panel) and *.png for a chart (you see it). The user always "
+         "sees the full code on a confirm card first; keep it short and readable, explain in one line what it does. install=true downloads "
+         "a missing language first. Only AI admins can run code. For saved code: saved_code op get, then run its code.",
+         _obj({"language": {"type": "string", "enum": ["python", "csharp", "javascript", "powershell"]}, "code": S,
+               "purpose": s("One line for the confirm card"), "result_id": s("A result to give the code as input.csv"),
+               "packages": SA, "stdin": S, "timeout_s": i("5-600, default 60"), "install": {"type": "boolean"}}, ["language", "code"]),
+         runs="host", risk="act", policy="run_code"),
+    Tool("saved_code", "The team's saved code (AI Agent › Code tab): op list = names, languages, descriptions; op get (name) = the code.",
+         _obj({"op": {"type": "string", "enum": ["list", "get"]}, "name": S})),
     Tool("camera", "Open the laptop / USB camera in the chat with a live preview; the USER takes the picture(s) (you never do) and "
          "they come back to you as images. Use it when the user wants to show you something: a delivery note, invoice, label, "
          "shelf, damaged goods, a handwritten list, a screen. Then read it and turn it into text, a table (render / format_result), "

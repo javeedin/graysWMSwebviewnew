@@ -1,0 +1,110 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Microsoft.Web.WebView2.WinForms;
+
+namespace WMSApp
+{
+    /// <summary>
+    /// Code runner IPC (classes/CodeRunner.cs): codeRuntimes (what is installed), codeInstall (download a runtime),
+    /// codeRun (the AI Agent's Code runner dialog: the user pasted the code and pressed Run). The agent's own run_code tool
+    /// goes through AgentToolAsync with an ALWAYS-on confirm card. Both: AI admins only, kill switch, audited with the code's
+    /// SHA-256 and its first lines. Reply action: codeResponse.
+    /// </summary>
+    public partial class Form1
+    {
+        private static bool IsCodeAction(string action) => action == "codeRuntimes" || action == "codeInstall" || action == "codeRun";
+
+        private async Task HandleCodeAction(WebView2 wv, string action, JsonElement root, string requestId)
+        {
+            object data;
+            var cli = GetClaudeCliService();
+            string u = PipeSrvStr(root, "appUser");
+            if (!string.IsNullOrWhiteSpace(u) && u != "UNKNOWN") cli.AppUser = u;
+            string user = cli.PolicyUser;
+            try
+            {
+                bool admin = await AiControl.IsAdminAsync(user);
+                switch (action)
+                {
+                    case "codeRuntimes":
+                        data = new { ok = true, admin, runtimes = await CodeRunner.StatusAsync() };
+                        break;
+                    case "codeInstall":
+                        if (!admin) { data = new { ok = false, error = "Only an AI admin can install code runtimes." }; break; }
+                        string lang = CodeRunner.Norm(PipeSrvStr(root, "lang"));
+                        _ = CodeRunner.InstallAsync(lang);
+                        AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "AIAGENT", Action = "code_install", Outcome = "STARTED", Target = lang });
+                        data = new { ok = true, started = lang };
+                        break;
+                    case "codeRun":
+                        data = await CodeRunAsync(root, user, admin, "dialog", false);
+                        break;
+                    default:
+                        data = new { ok = false, error = "Unknown code action " + action };
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[CodeRunner] " + action + " failed: " + ex);
+                data = new { ok = false, error = ex.Message };
+            }
+            PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "codeResponse", requestId, data }));
+        }
+
+        /// <summary>One run (dialog or agent). input: {language, code, stdin, timeout_s, packages[], install}; root.grid = input.csv.</summary>
+        private async Task<object> CodeRunAsync(JsonElement input, string user, bool admin, string via, bool approved, JsonElement? gridRoot = null)
+        {
+            if (!admin) return new { ok = false, content = "Only an AI admin can run code (AI Digital Employee › Control › admins)." };
+            if (!await AiControl.IsEnabledAsync(user)) return new { ok = false, content = "AI is paused (AI Digital Employee › Control)." };
+            string S(string k) => input.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+            string lang = CodeRunner.Norm(S("language") ?? S("lang")), code = S("code") ?? "";
+            int timeout = input.TryGetProperty("timeout_s", out var t) && t.TryGetInt32(out var ti) ? ti : 60;
+            var packages = input.TryGetProperty("packages", out var pk) && pk.ValueKind == JsonValueKind.Array ? pk.EnumerateArray().Select(x => x.ToString()).ToList() : new List<string>();
+
+            // a missing runtime is downloaded first when the run was confirmed (card / Run button) with install = true
+            if (await CodeRunner.FindAsync(lang) == null && input.TryGetProperty("install", out var ins) && ins.ValueKind == JsonValueKind.True)
+            {
+                await CodeRunner.InstallAsync(lang);
+                for (int i = 0; i < 360 && CodeRunner.Installs.TryGetValue(lang, out var st) && st.State == "running"; i++) await Task.Delay(1000);
+            }
+
+            List<string> cols = null; List<List<string>> rows = null;
+            var g = gridRoot ?? (input.TryGetProperty("grid", out var gi) ? gi : (JsonElement?)null);
+            if (g.HasValue && g.Value.ValueKind == JsonValueKind.Object && g.Value.TryGetProperty("columns", out var gc) && g.Value.TryGetProperty("rows", out var gr))
+            {
+                cols = gc.EnumerateArray().Select(x => x.ToString()).ToList();
+                rows = gr.EnumerateArray().Take(100000).Select(r => r.ValueKind == JsonValueKind.Array ? r.EnumerateArray().Select(c => c.ValueKind == JsonValueKind.Null ? "" : c.ToString()).ToList() : new List<string>()).ToList();
+            }
+
+            string hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code)))[..16];
+            var r = await CodeRunner.RunAsync(lang, code, S("stdin"), timeout, packages, cols, rows);
+            AiControl.Audit(new AiControl.AuditEvent
+            {
+                User = user, Source = "AIAGENT", Action = "run_code", Outcome = r.Error != null ? "FAILED" : r.Ok ? "OK" : "EXIT_" + r.ExitCode, Approval = via == "agent" ? (approved ? "CARD" : "AUTO") : "USER",
+                Target = lang + " sha256:" + hash, DurationMs = r.Ms, Detail = via + " | " + (code.Length > 300 ? code[..300] + "…" : code)
+            });
+            if (r.Error != null && r.ExitCode == 0 && string.IsNullOrEmpty(r.Stdout)) return new { ok = false, content = r.Error };
+
+            var sb = new StringBuilder();
+            sb.Append(lang).Append(" · exit ").Append(r.ExitCode).Append(" · ").Append(r.Ms).Append(" ms").Append(r.Error != null ? " · " + r.Error : "").Append('\n');
+            if (r.Stdout.Length > 0) sb.Append("── output ──\n").Append(r.Stdout.Length > 12000 ? r.Stdout[..12000] + "\n… (cut)" : r.Stdout).Append('\n');
+            if (r.Stderr.Length > 0) sb.Append("── errors ──\n").Append(r.Stderr.Length > 4000 ? r.Stderr[^4000..] : r.Stderr).Append('\n');
+            if (r.Files.Count > 0) sb.Append("── files in ").Append(r.Folder).Append(" ──\n").Append(string.Join("\n", r.Files.Select(f => JsonSerializer.Serialize(f))));
+            if (r.Columns != null) sb.Append("\n(output.csv: ").Append(r.Rows.Count).Append(" rows → shown in the results panel)");
+            return new
+            {
+                ok = r.Ok, content = sb.ToString(),
+                data = r.Columns != null ? new { title = "Code result (" + lang + ")", columns = r.Columns, rows = r.Rows } : null,
+                attachment = r.ImageBase64 != null ? new { name = r.ImageName, media_type = "image/png", data = r.ImageBase64 } : null,
+                run = new { lang, r.ExitCode, r.Ms, r.Stdout, r.Stderr, r.Error, r.Folder, r.Files, image = r.ImageBase64 != null ? "data:image/png;base64," + r.ImageBase64 : null, r.Columns, r.Rows }
+            };
+        }
+    }
+}

@@ -53,6 +53,8 @@ TECH.TOOL = {
     format_result: 'Page format.js (formats, sanitizer)', render: 'Page format.js (Markdown → sanitized HTML)', open_url: 'C# Process.Start → your default browser',
     open_page: 'Page navigation (WebView2)', grid: 'Page card (your selection goes back to the model)', api_form: 'Page form → C# → APEX ORDS (WMS API catalog)',
     tasks_today: 'Page → APEX ORDS (wms_ai_tasks)', task_log: 'Page → APEX ORDS', ask_user: 'Page question card (you answer)',
+    run_code: 'C# CodeRunner → its own process (python.exe / dotnet / node / powershell) in a fresh work folder',
+    saved_code: 'Page → APEX ORDS (WMS_AI_CODE_SNIPPETS)',
     camera: 'WebView2 getUserMedia → canvas JPEG → image block for the model', remember: 'AI Hub (Python) → SQLite agent.db memory',
     handoff: 'AI Hub (Python) → LangGraph state (specialist)', schedule_job: 'AI Hub (Python) → SQLite agent.db jobs + JobRunner thread',
     jobs_list: 'AI Hub (Python) → SQLite agent.db', phone_call: 'AI Hub → Twilio REST (Calls) + ConversationRelay WebSocket',

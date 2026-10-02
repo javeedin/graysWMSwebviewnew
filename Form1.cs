@@ -2224,6 +2224,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleAiHubAction(wv, action, root, requestId);
                                     break;
 
+                                case var codeAction when IsCodeAction(codeAction):
+                                    await HandleCodeAction(wv, action, root, requestId);
+                                    break;
+
                                 case var agentAction when IsAiAgentAction(agentAction):
                                     await HandleAiAgentAction(wv, action, root, requestId);
                                     break;

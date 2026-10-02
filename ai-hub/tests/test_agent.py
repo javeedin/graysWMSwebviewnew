@@ -412,3 +412,13 @@ def test_track_tech_trace_events(tmp_path):
     r2 = s.start("hello", caps=[])
     assert not [e for e in s.events(r2["thread_id"])["events"] if e["kind"] == "trace"]
     assert nodes.count("tools") == len([e for e in s.events(r["thread_id"])["events"] if e["kind"] == "wait"])
+
+
+def test_run_code_tool_is_an_act_tool_for_everyone():
+    t = C.BY_NAME["run_code"]
+    assert t.runs == "host" and t.risk == "act" and t.policy == "run_code"
+    assert set(t.schema["properties"]["language"]["enum"]) == {"python", "csharp", "javascript", "powershell"}
+    assert C.BY_NAME["saved_code"].risk == "read"
+    for spec in C.SPECIALISTS:
+        assert "run_code" in {x.name for x in C.tools_for(spec, ["run_code", "saved_code"])}
+    assert "run_code" not in {x.name for x in C.tools_for(C.WO, ["run_code"], "phone")}   # never on a phone call

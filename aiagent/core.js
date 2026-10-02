@@ -90,12 +90,12 @@ AG.LABELS = {
     trips_find: 'Find trips', trip_orders: 'Orders on trip', print_jobs: 'Print jobs', printers_status: 'Printers', mra_status: 'MRA status', mra_interface: 'Send to MRA',
     inbox_list: 'AI inbox', inbox_request: 'Ask an approver', om_orders_find: 'Find orders', om_order_detail: 'Order detail', fusion_order_status: 'Fusion order status',
     om_prepare_order: 'Prepare order', fbdi_templates_find: 'FBDI templates', fbdi_loads: 'FBDI loads', fusion_rest_describe: 'REST fields', fusion_rest_get: 'REST read',
-    model_reports: 'Reports & dashboards', make_report: 'Build report', open_url: 'Open in browser', hardware: 'This PC', camera: 'Camera', format_result: 'Format result', render: 'Formatted document', schedule_job: 'Schedule job', jobs_list: 'Scheduled jobs'
+    model_reports: 'Reports & dashboards', make_report: 'Build report', open_url: 'Open in browser', hardware: 'This PC', camera: 'Camera', run_code: 'Run code', saved_code: 'Saved code', format_result: 'Format result', render: 'Formatted document', schedule_job: 'Schedule job', jobs_list: 'Scheduled jobs'
 };
 AG.ICONS = {
     ask_user: 'fa-circle-question', remember: 'fa-brain', handoff: 'fa-people-arrows', open_page: 'fa-up-right-from-square', fusion_sql_dry_run: 'fa-vial',
     fusion_sql_run: 'fa-play', result_analyze: 'fa-calculator', show_chart: 'fa-chart-column', knowledge_lookup: 'fa-book', mra_interface: 'fa-receipt',
-    make_report: 'fa-file-lines', open_url: 'fa-globe', hardware: 'fa-microchip', camera: 'fa-camera', format_result: 'fa-wand-magic-sparkles', render: 'fa-file-signature', schedule_job: 'fa-clock', save_query: 'fa-floppy-disk', watchdog_create: 'fa-shield-dog'
+    make_report: 'fa-file-lines', open_url: 'fa-globe', hardware: 'fa-microchip', camera: 'fa-camera', run_code: 'fa-code', saved_code: 'fa-file-code', format_result: 'fa-wand-magic-sparkles', render: 'fa-file-signature', schedule_job: 'fa-clock', save_query: 'fa-floppy-disk', watchdog_create: 'fa-shield-dog'
 };
 AG.label = function (n) { return AG.LABELS[n] || n.replace(/_/g, ' '); };
 AG.icon = function (n) { return AG.ICONS[n] || (/^fusion_/.test(n) ? 'fa-magnifying-glass' : 'fa-wrench'); };
@@ -106,8 +106,8 @@ AG.caps = function () {
         'fusion_sql_run', 'result_analyze', 'mra_interface', 'inbox_list', 'inbox_request',
         // the AI Digital Employee's actions (Form1_AiAgentAide.cs)
         'wms_sql', 'fusion_call', 'ords_read', 'device', 'db_write', 'wms_job', 'email', 'save_report', 'dll', 'model_tool',
-        // this PC's hardware (HardwareInfo.cs)
-        'hardware'];
+        // this PC's hardware (HardwareInfo.cs), the code runner (CodeRunner.cs)
+        'hardware', 'run_code'];
     return host.concat(Object.keys(AG.exec));
 };
 
@@ -606,6 +606,11 @@ AG.runCall = function (c) {
 };
 AG.execute = function (c, approved) {
     if (c.name === 'result_analyze' && /^pg_/.test((c.input || {}).result_id || '')) return Promise.resolve(AG.analyzeLocal(c.input));
+    if (c.runs === 'host' && c.name === 'run_code' && (c.input || {}).result_id)
+        // the code gets the result as input.csv (the rows the page holds go along)
+        return AG.fetchResult(c.input.result_id).then(function (d) {
+            return host('agentTool', { tool: c.name, input: c.input, pod: c.pod, approved: !!approved, grid: { columns: d.columns.map(function (x) { return x.name; }), rows: d.rows } }, 900000);
+        }, function (e) { return { ok: false, content: 'No result ' + c.input.result_id + ': ' + e }; });
     if (c.runs === 'host' && c.name === 'device' && (c.input || {}).op === 'print' && (c.input || {}).result_id)
         // printing a result: the rows the page shows go along (not part of the confirmed input)
         return AG.fetchResult(c.input.result_id).then(function (d) {

@@ -58,6 +58,12 @@ Ask the agent "call +230 5xxx xxxx and confirm tomorrow's 10:00 delivery for SO1
 
 Tick **Track tech** (bottom line of the chat). Every answer then gets a layers icon; it opens the path of that answer: your page (WebView2) → the C# host (kill switch, audit) → the AI Hub (FastAPI) → **LangGraph** (which nodes ran, how often it paused for tools or your confirm) → **LangChain** (`GatewayChatModel`, tools offered) → the AI Hub router → the provider SDK (Anthropic SDK for Claude on Bedrock / AWS / direct, boto3 for other Bedrock models, httpx for NVIDIA) → the model, with times, tokens and cost per model call, every tool with the technology behind it, and the installed versions.
 
+## Code tab — run Python, C#, JavaScript or PowerShell
+
+The **Code** tab (next to **Chat**) is a small workspace: write or paste code, pick the language, press **Run** (Ctrl+Enter). Give it a result as `input.csv`, print what you need, write `output.csv` for a table (one click puts it in the results panel) and save a `.png` for a chart. **Save** (Ctrl+S) keeps it in APEX with a name and description so you — or the agent — can run it again later. A missing language is one **Install** click (Python from python.org, the .NET SDK from Microsoft, Node.js), installed for your Windows user only.
+
+The agent can write and run code itself (`run_code`), but always shows you the full code on a confirm card first. Only AI admins can run code; every run is audited. Code runs with your Windows rights in its own process and folder — read it before you approve.
+
 ## Camera
 
 Press the camera next to the paperclip (or ask: "take a picture of this delivery note"). A live preview opens in the chat; you press **Take picture** (or Space), add more pages if needed, then **Use**. The photos go to the model, which reads text, tables, labels and handwriting — ask it to turn them into text, a table in the results panel, or to match a delivery note against an order. The agent never takes a picture by itself, and the camera is off as soon as the card closes. If Windows blocks it: Settings › Privacy & security › Camera, and check the laptop's camera shutter key.
