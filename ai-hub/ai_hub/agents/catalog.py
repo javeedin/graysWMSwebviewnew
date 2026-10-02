@@ -250,7 +250,8 @@ TOOLS += [
          "camera_privacy | microphone_privacy | location_privacy | mobile_devices: opens that Windows panel on the user's screen - use it "
          "to PAIR / CONNECT a Bluetooth device, CAST / project to a TV or fix a privacy switch, then say exactly what to click; Windows "
          "asks for the pairing PIN itself). Controls, the user confirms: "
-         "set_default_printer (printer), cancel_print_jobs (printer). Never just say you cannot connect a device - open the right panel. Use it whenever a question is about this PC, its network, "
+         "set_default_printer (printer), cancel_print_jobs (printer). Never just say you cannot connect a device - open the right panel. "
+         "Use it whenever a question is about this PC, its network, "
          "devices or printers - never say you cannot see them before trying.",
          _obj({"op": {"type": "string", "enum": ["summary", "network", "wifi", "wifi_networks", "cpu_memory", "disks", "usb", "devices", "printers",
                                                  "print_queue", "battery", "displays", "bios", "os", "software", "processes", "services", "events",
