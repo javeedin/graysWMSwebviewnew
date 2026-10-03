@@ -540,3 +540,14 @@ table.t.fg thead th[data-c] { cursor: pointer; }
 .sp-cols tr.sp-h td { font-weight: 700; background: #f8fafc; } .sp-cols tr.sp-b td { font-weight: 700; }
 td.sp-tc, th.sp-tc { background: #f1f5f9; font-weight: 700; }
 .sp-pctl { padding: 8px 10px; margin-bottom: 8px; } .sp-pctl select { width: auto; }
+
+/* TB sync: table view */
+.ts-board.ts-board-tbl { display: block; }
+.ts-vt { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.ts-table td { vertical-align: middle; padding: 5px 8px; }
+.ts-table tr.ts-tr { cursor: pointer; } .ts-table tr.ts-tr:hover td { background: #f8fafc; }
+.ts-table tr.ts-tr.sel td { background: #eff6ff; } .ts-table tr.future td { opacity: .55; }
+.ts-table th.ts-xc, .ts-table td.ts-xc { border-left: 2px solid var(--line); }
+.ts-st { display: inline-flex; gap: 5px; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: .78rem; white-space: nowrap; }
+.ts-st.ok { background: #dcfce7; color: #166534; } .ts-st.no { background: #fee2e2; color: #991b1b; } .ts-st.part { background: #fef3c7; color: #92400e; }
+.ts-st.run { background: #fef9c3; color: #854d0e; } .ts-st.bad { background: #fee2e2; color: #7f1d1d; font-weight: 700; } .ts-st.off { background: #f1f5f9; color: #64748b; }

@@ -136,6 +136,19 @@ mapped to receivables / inventory / payables / cash / finance costs / cost of sa
 lines. The master data checklist (Data › Trial balance sync and SQL explorer) has the same items — *12 months in a row* and *Last year* with a
 Sync button for exactly the missing periods, and *Budget*.
 
+### Trial balance sync — table view
+
+Data › Trial balance sync opens as a table (switch to Tiles at the top right). Each period is one row:
+
+| Period | Trial balance | | Extended segments | |
+|---|---|---|---|---|
+| Jan-26 | ✓ Yes · 46 rows · read time | Overwrite | ✗ No | Sync |
+
+- **Trial balance** and **Extended segments** are synced separately; each has its own Sync (or Overwrite once read) on the row.
+- While a sync runs the row shows its live state (waiting, syncing · company i of n, failed) and the yellow banner shows the run.
+- *Sync extended* syncs the extended segments for every ticked row.
+- Periods that are not open yet are marked *not open yet* and are never synced.
+
 ## Segment P&L (P&L, pivot and trial balance by extended segments)
 
 The **Segment P&L** tab works on the extended segments synced in Data › Trial balance sync (view `fin_gl_ext_v`).
