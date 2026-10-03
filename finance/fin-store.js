@@ -159,6 +159,13 @@
         }
         return p;
     };
+    /** Segment values kept in APEX for a pod: one row per chart of accounts × column (values, used, named, last read) */
+    A.segValuesStatus = function (pod) {
+        return A.ensure().then(function () {
+            return A.read("SELECT coa_id, column_name, COUNT(*) n, SUM(CASE WHEN combinations > 0 THEN 1 ELSE 0 END) used, SUM(CASE WHEN description IS NOT NULL AND description <> value THEN 1 ELSE 0 END) named, " +
+                "TO_CHAR(MAX(fetched_at), 'YYYY-MM-DD HH24:MI') fetched_on FROM wms_fin_segment_values WHERE pod = " + lit(podKey(pod)) + ' GROUP BY coa_id, column_name', 5000);
+        }).then(function (rows) { return rows.map(function (r) { return { coaId: String(r.COA_ID), column: r.COLUMN_NAME, values: +r.N || 0, used: +r.USED || 0, named: +r.NAMED || 0, fetchedAt: r.FETCHED_ON, source: 'apex' }; }); });
+    };
     A.loadSegValues = function (pod, coa, col) {
         return A.ensure().then(function () {
             return A.read("SELECT value, description, combinations, account_type, TO_CHAR(fetched_at, 'YYYY-MM-DD HH24:MI') fetched_on FROM wms_fin_segment_values WHERE pod = " + lit(podKey(pod)) +

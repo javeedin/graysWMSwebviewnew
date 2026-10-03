@@ -136,6 +136,14 @@ mapped to receivables / inventory / payables / cash / finance costs / cost of sa
 lines. The master data checklist (Data › Trial balance sync and SQL explorer) has the same items — *12 months in a row* and *Last year* with a
 Sync button for exactly the missing periods, and *Budget*.
 
+## Chart of accounts — which segments are synced
+
+Data › Chart of accounts marks every segment card: a solid green tick when its values (codes, names, account types) are
+on this PC, an outlined tick when they are only in APEX, a grey circle when they have not been read. The card shows the
+number of values, how many are used in account combinations, the share with a name and the read date (hover for where
+they are kept). Above the cards a pill says how many segments are synced, and AI admins get **Read the n missing from
+Fusion**, which reads the remaining segments one after the other and saves each in APEX.
+
 ## Working capital (debtors, creditors, inventory)
 
 The **Working capital** tab shows what the CFO needs beside the statements: who owes us, whom we owe and what sits in

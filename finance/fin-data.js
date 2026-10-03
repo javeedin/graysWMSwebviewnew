@@ -234,7 +234,8 @@
         var s = sv();
         el.innerHTML = '<div class="card"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i>Loading the saved chart of accounts…</div></div>';
         var disc = FL.fusion.disc ? Promise.resolve({ disc: FL.fusion.disc, where: 'this session' }) : FL.apexStore.loadDiscovery(s ? s.pod : '');
-        return disc.then(function (r) {
+        return Promise.all([disc, D.segStatus()]).then(function (rr) {
+            var r = rr[0];
             if (!r) { el.innerHTML = '<div class="card"><h3><i class="fa-solid fa-sitemap"></i> Chart of accounts</h3><p>Nothing discovered yet — run Discover in <a onclick="FL.dataTab.go(\'setup\')">Fusion setup</a> once; the result is kept in APEX and DuckDB.</p></div>'; return; }
             D.disc = r.disc;
             var d = r.disc, coas = Object.keys(d.coas || {});
@@ -244,20 +245,25 @@
             coas.forEach(function (id) {
                 var c = d.coas[id], roles = chosen[id] || { company: c.company, costCentre: c.costCentre, account: c.account };
                 var leds = (d.ledgers || []).filter(function (l) { return String(l.coaId) === id; });
+                var nSync = c.segments.filter(function (sg) { return D.stat[id + '|' + sg.col]; }).length;
                 h += '<div class="card" style="margin-bottom:12px"><div class="row"><h3 style="margin:0"><i class="fa-solid fa-sitemap"></i> Chart of accounts ' + esc(id) + '</h3><span class="sm muted">' + (c.combinations || 0).toLocaleString() + ' account combinations · ' + c.segments.length + ' segments</span><span class="grow"></span>' +
                     Object.keys(c.accountTypes || {}).map(function (t) { return '<span class="tag">' + esc({ A: 'Asset', L: 'Liability', O: 'Equity', R: 'Revenue', E: 'Expense' }[t] || t) + ' ' + c.accountTypes[t].toLocaleString() + '</span>'; }).join(' ') + '</div>' +
                     '<p class="sm">Ledgers: ' + leds.map(function (l) { return '<span class="tag">' + esc(l.name + ' · ' + l.currency) + '</span>'; }).join(' ') + '</p>' +
+                    '<div class="row sm seg-sum" data-coa="' + esc(id) + '"><span class="segpill ' + (nSync === c.segments.length ? 'all' : nSync ? 'some' : 'none') + '"><i class="fa-solid ' + (nSync === c.segments.length ? 'fa-circle-check' : 'fa-circle-half-stroke') + '"></i> values synced for <b>' + nSync + ' of ' + c.segments.length + '</b> segments</span>' +
+                    '<span class="muted"><i class="fa-solid fa-circle-check" style="color:#16a34a"></i> on this PC · <i class="fa-regular fa-circle-check" style="color:#0891b2"></i> in APEX only · <i class="fa-regular fa-circle" style="color:#94a3b8"></i> not read yet</span><span class="grow"></span>' +
+                    (FL.who && FL.who.admin && nSync < c.segments.length ? '<button class="btn sm" data-readmiss="' + esc(id) + '"><i class="fa-solid fa-cloud-arrow-down"></i> Read the ' + (c.segments.length - nSync) + ' missing from Fusion</button>' : '') + '</div>' +
                     '<div class="segflow">' + c.segments.map(function (sg) {
                         var role = Object.keys(ROLE).filter(function (k) { return roles[k] === sg.col || (k === 'intercompany' && c.intercompany === sg.col); })[0];
-                        return '<div class="segbox' + (role ? ' r-' + ROLE[role][0].toLowerCase() : '') + (D.seg && D.seg.coa === id && D.seg.col === sg.col ? ' on' : '') + '" data-coa="' + esc(id) + '" data-col="' + esc(sg.col) + '" data-vs="' + esc(sg.valueSetId || '') + '">' +
+                        return '<div class="segbox' + (role ? ' r-' + ROLE[role][0].toLowerCase() : '') + (D.seg && D.seg.coa === id && D.seg.col === sg.col ? ' on' : '') + (D.stat[id + '|' + sg.col] ? ' synced' : '') + '" data-coa="' + esc(id) + '" data-col="' + esc(sg.col) + '" data-vs="' + esc(sg.valueSetId || '') + '" data-distinct="' + (sg.distinct || 0) + '">' +
                             '<div class="sn">' + esc(sg.name) + '</div><div class="sc">' + esc(sg.col) + '</div>' + (role ? '<div class="sr">' + ROLE[role][1] + '</div>' : '<div class="sr muted">—</div>') +
-                            '<div class="sv">' + (sg.distinct || 0).toLocaleString() + ' values · ' + Math.round((sg.purity || 0) * 100) + '% one type</div>' +
+                            '<div class="segst">' + D.segTick(id, sg) + '</div>' +
                             ((sg.qualifiers || []).length ? '<div class="sq">' + sg.qualifiers.map(esc).join(' ') + '</div>' : '') + '</div>';
                     }).join('<i class="fa-solid fa-minus sep"></i>') + '</div>' +
                     '<p class="sm muted">' + Object.keys(c.why || {}).map(function (k) { return '<b>' + esc((ROLE[k] || [k, k])[1]) + ':</b> ' + esc(c.why[k]); }).join(' · ') + '</p>' +
                     (D.seg && D.seg.coa === id ? '<div id="sv-box"></div>' : '<p class="sm">Click a segment to see its values.</p>') + '</div>';
             });
             el.innerHTML = h;
+            el.querySelectorAll('[data-readmiss]').forEach(function (b) { b.onclick = function () { D.readMissing(el, b.dataset.readmiss); }; });
             el.querySelectorAll('.segbox').forEach(function (b) {
                 b.onclick = function () { D.seg = { coa: b.dataset.coa, col: b.dataset.col, name: b.querySelector('.sn').textContent }; D.segVals = null; D.coa(el); };
             });
@@ -298,10 +304,62 @@
                 p('Saving ' + D.segVals.length.toLocaleString() + ' values in APEX…');
                 return FL.apexStore.saveSegValues(s ? s.pod : '', sg.coa, sg.col, D.segVals, function (i, n) { p('APEX ' + i + ' / ' + n); }).then(function () {
                     $('sv-src').textContent += ' · saved in APEX'; FL.fusion.finish();
+                    return D.segStatus().then(D.repaintTicks);
                 });
             }).catch(function (e) { FL.fusion.finish(e && e.message || e); });
         };
         return (D.segVals ? Promise.resolve() : load()).then(show);
+    };
+
+    /** Which segments already have their values: this PC (DuckDB / pending file) and APEX → D.stat['coa|col'] = {pc, apex} */
+    D.segStatus = function () {
+        var s = sv();
+        return Promise.all([
+            FL.call('finSegValuesStatus').then(function (r) { return r.segments || []; }).catch(function () { return []; }),
+            FL.apexStore.segValuesStatus(s ? s.pod : '').catch(function () { return []; })
+        ]).then(function (r) {
+            var m = {};
+            r[0].forEach(function (x) { if (x.values > 0) (m[x.coaId + '|' + x.column] = m[x.coaId + '|' + x.column] || {}).pc = x; });
+            r[1].forEach(function (x) { if (x.values > 0) (m[x.coaId + '|' + x.column] = m[x.coaId + '|' + x.column] || {}).apex = x; });
+            D.stat = m; return m;
+        });
+    };
+    /** The tick + counts on a segment card */
+    D.segTick = function (coa, sg) {
+        var st = (D.stat || {})[coa + '|' + sg.col], x = st && (st.pc || st.apex);
+        if (!x) return '<i class="fa-regular fa-circle sok none" title="Values not read yet"></i><div class="sv">' + (sg.distinct ? sg.distinct.toLocaleString() + ' values in Fusion · ' : '') + 'not read yet</div>';
+        var tip = (st.pc ? 'On this PC (' + (st.pc.source === 'pending' ? 'kept until the first load' : 'DuckDB') + '), read ' + String(st.pc.fetchedAt || '').slice(0, 16) : 'Not on this PC') + (st.apex ? ' · in APEX, read ' + st.apex.fetchedAt : ' · not in APEX');
+        return '<i class="' + (st.pc ? 'fa-solid' : 'fa-regular') + ' fa-circle-check sok ' + (st.pc ? 'pc' : 'apex') + '" title="' + esc(tip) + '"></i>' +
+            '<div class="sv" title="' + esc(tip) + '"><b>' + x.values.toLocaleString() + '</b> values · ' + x.used.toLocaleString() + ' used' + (x.named ? ' · ' + Math.round(x.named / x.values * 100) + '% named' : '') + '</div>' +
+            '<div class="sv sm">' + (st.pc ? 'synced ' : 'APEX ') + esc(String(x.fetchedAt || '').slice(0, 10)) + '</div>';
+    };
+    D.repaintTicks = function () {
+        document.querySelectorAll('.segbox[data-coa]').forEach(function (b) {
+            var st = b.querySelector('.segst'); if (st) st.innerHTML = D.segTick(b.dataset.coa, { col: b.dataset.col, distinct: +b.dataset.distinct || 0 });
+            b.classList.toggle('synced', !!(D.stat || {})[b.dataset.coa + '|' + b.dataset.col]);
+        });
+    };
+    /** Reads, one after the other, the values of every segment of a chart that has none yet (this PC and APEX) */
+    D.readMissing = function (el, coa) {
+        var s = sv(), c = (D.disc.coas || {})[coa]; if (!c) return;
+        var todo = c.segments.filter(function (sg) { return !D.stat[coa + '|' + sg.col]; });
+        if (!todo.length) return;
+        if (!$('fu-prog')) { var dv = document.createElement('div'); dv.id = 'fu-prog'; el.querySelector('.seg-sum[data-coa="' + coa + '"]').after(dv); }
+        var p = FL.fusion.progress('Reading the values of ' + todo.length + ' segment(s) from Fusion…', true), done = 0, failed = [];
+        var chain = Promise.resolve();
+        todo.forEach(function (sg) {
+            chain = chain.then(function () {
+                p('▶ ' + sg.name + ' (' + sg.col + ') — ' + (done + 1) + ' of ' + todo.length);
+                var b = el.querySelector('.segbox[data-coa="' + coa + '"][data-col="' + sg.col + '"] .segst'); if (b) b.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin sok"></i><div class="sv">reading…</div>';
+                return FL.call('finFusionSegValues', { pod: s ? s.pod : '', coaId: coa, column: sg.col }, 20 * 60000, p).then(function (r) {
+                    var vals = r.values.map(function (v) { return { value: v.value, description: v.description, combinations: v.combinations, accountType: v.accountType }; });
+                    p('✔ ' + sg.col + ': ' + vals.length.toLocaleString() + ' values — saving in APEX');
+                    return FL.apexStore.saveSegValues(s ? s.pod : '', coa, sg.col, vals);
+                }).catch(function (e) { failed.push(sg.col + ': ' + (e && e.message || e)); p('⚠ ' + sg.col + ': ' + (e && e.message || e)); })
+                    .then(function () { done++; return D.segStatus().then(D.repaintTicks); });
+            });
+        });
+        chain.then(function () { FL.fusion.finish(failed.length ? failed.join(' · ') : null); FL.toast(failed.length ? failed.length + ' segment(s) failed' : 'Values read for ' + done + ' segment(s)', failed.length ? 'err' : 'ok'); D.coa(el); });
     };
 
     // ═════════ Fusion setup (SQL) ═════════

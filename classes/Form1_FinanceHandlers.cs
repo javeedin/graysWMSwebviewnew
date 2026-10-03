@@ -261,6 +261,9 @@ namespace WMSApp
                             await Task.Run(() => FinanceLens.RebuildTbIfActive());   // names / types into the statements built from synced trial balances
                             break;
                         }
+                    case "finSegValuesStatus":  // which segments already have their values on this PC (ticks on Chart of accounts)
+                        data = await Task.Run(() => (object)new { ok = true, segments = FinanceLens.SegValuesStatus() });
+                        break;
                     case "finSegValues":        // the values saved in the finance file
                         data = await Task.Run(() =>
                         {

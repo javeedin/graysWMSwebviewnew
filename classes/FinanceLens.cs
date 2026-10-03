@@ -842,6 +842,42 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
         {
             try { return JsonSerializer.Deserialize<PendingSeg>(File.ReadAllText(file)); } catch { return null; }
         }
+        /// <summary>Which segments already have their values on this PC: one row per chart of accounts × column with the
+        /// number of values, how many are used in account combinations, how many have a name, when they were read and
+        /// where they are kept (duckdb = fin_segment_values, pending = read before the first load).</summary>
+        public static List<object> SegValuesStatus()
+        {
+            var list = new List<object>(); var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                var t = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_segment_values'", 1);
+                if (t.Error == null && t.Rows.Count > 0 && Convert.ToInt64(t.Rows[0][0]) > 0)
+                {
+                    var r = Query("SELECT coa_id, column_name, COUNT(*), COUNT(*) FILTER (WHERE combinations > 0), COUNT(*) FILTER (WHERE description IS NOT NULL AND description <> value), " +
+                                  "CAST(MAX(fetched_at) AS VARCHAR) FROM fin_segment_values GROUP BY 1, 2", 5000);
+                    foreach (var z in r.Rows)
+                    {
+                        seen.Add(z[0] + "|" + z[1]);
+                        list.Add(new { coaId = Convert.ToString(z[0]), column = Convert.ToString(z[1]), values = Convert.ToInt64(z[2]), used = Convert.ToInt64(z[3]), named = Convert.ToInt64(z[4]), fetchedAt = Convert.ToString(z[5]), source = "duckdb" });
+                    }
+                }
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[Finance] segment status: " + ex.Message); }
+            try
+            {
+                if (Directory.Exists(PendingSegDir))
+                    foreach (var f in Directory.GetFiles(PendingSegDir, "*.json"))
+                    {
+                        var pend = ReadPending(f);
+                        if (pend?.Values == null || seen.Contains(pend.CoaId + "|" + pend.Column)) continue;
+                        list.Add(new { coaId = pend.CoaId, column = pend.Column, values = (long)pend.Values.Count, used = (long)pend.Values.Count(v => v.Combinations > 0),
+                                       named = (long)pend.Values.Count(v => !string.IsNullOrEmpty(v.Description) && v.Description != v.Value), fetchedAt = pend.FetchedAt.ToString("yyyy-MM-dd HH:mm"), source = "pending" });
+                    }
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[Finance] pending segment status: " + ex.Message); }
+            return list;
+        }
+
         /// <summary>The pending values of one segment (null when there are none).</summary>
         public static PendingSeg PendingSegValues(string coaId, string column)
         {

@@ -474,3 +474,13 @@ details.lf-card[open] > summary::before { content: '▾'; }
 .wc-spark { height: 38px; margin-top: 8px; }
 .wc-agebar { display: flex; height: 22px; border-radius: 6px; overflow: hidden; background: var(--line, #e5e7eb); }
 .wc-agebar span { display: block; height: 100%; }
+
+/* Chart of accounts: values synced per segment */
+.segbox { position: relative; }
+.segbox .sok { position: absolute; top: 8px; right: 9px; font-size: 1.05rem; }
+.segbox .sok.pc { color: #16a34a; } .segbox .sok.apex { color: #0891b2; } .segbox .sok.none { color: #cbd5e1; }
+.segbox.synced { background: #f6fef9; }
+.segbox .sn { padding-right: 20px; }
+.seg-sum { gap: 12px; margin: 4px 0 10px; flex-wrap: wrap; align-items: center; }
+.segpill { padding: 3px 10px; border-radius: 999px; font-weight: 600; }
+.segpill.all { background: #dcfce7; color: #166534; } .segpill.some { background: #fef3c7; color: #92400e; } .segpill.none { background: #f1f5f9; color: #475569; }
