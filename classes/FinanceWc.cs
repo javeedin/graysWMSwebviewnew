@@ -125,6 +125,7 @@ GROUP BY q.ORGANIZATION_ID, i.INVENTORY_ITEM_ID, i.ORGANIZATION_ID, i.ITEM_NUMBE
             foreach (var kv in row) if (string.Equals(kv.Key, col, StringComparison.OrdinalIgnoreCase)) return kv.Value;
             return null;
         }
+        private static string Short(string e) => e == null ? "" : e.Length > 160 ? e.Substring(0, 160) + "…" : e;
         private static string S(object v) => v == null ? null : Convert.ToString(v, CultureInfo.InvariantCulture);
         private static double D(object v) => v == null ? 0 : double.TryParse(Convert.ToString(v, CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : 0;
         private static double? DN(object v) => v == null || Convert.ToString(v, CultureInfo.InvariantCulture) == "" ? null : D(v);
@@ -355,35 +356,45 @@ GROUP BY q.ORGANIZATION_ID, i.INVENTORY_ITEM_ID, i.ORGANIZATION_ID, i.ITEM_NUMBE
             int page = Math.Clamp(o.PageSize, 500, 20000);
             progress?.Invoke("📦 Item master: " + orgs.Count + " organisation(s) · " + cols.Count(IsDffCol) + " flexfield column(s) · pages of " + page.ToString("N0", CultureInfo.InvariantCulture));
             long total = 0; int reads = 0;
+            var failed = new List<object>(); var done = new List<string>();
             foreach (var org in orgs)
             {
                 ct.ThrowIfCancellationRequested();
                 var rows = new List<Dictionary<string, object>>();
                 long last = -1; var t0 = Stopwatch.StartNew();
+                int pg = page; bool withTl = tl; string orgErr = null;
                 while (true)
                 {
                     string inner = "SELECT " + string.Join(", ", cols.Select(c => "i." + c)) +
-                                   (tl ? ", (SELECT t.DESCRIPTION FROM EGP_SYSTEM_ITEMS_TL t WHERE t.INVENTORY_ITEM_ID = i.INVENTORY_ITEM_ID AND t.ORGANIZATION_ID = i.ORGANIZATION_ID AND t.LANGUAGE = USERENV('LANG')) AS DESCRIPTION" : "") +
+                                   (withTl ? ", (SELECT t.DESCRIPTION FROM EGP_SYSTEM_ITEMS_TL t WHERE t.INVENTORY_ITEM_ID = i.INVENTORY_ITEM_ID AND t.ORGANIZATION_ID = i.ORGANIZATION_ID AND t.LANGUAGE = USERENV('LANG')) AS DESCRIPTION" : "") +
                                    " FROM EGP_SYSTEM_ITEMS_B i WHERE i.ORGANIZATION_ID = " + org + " AND i.INVENTORY_ITEM_ID > " + last.ToString(CultureInfo.InvariantCulture) + " ORDER BY i.INVENTORY_ITEM_ID";
-                    string sql = "SELECT * FROM (" + inner + ") WHERE ROWNUM <= " + page;
+                    string sql = "SELECT * FROM (" + inner + ") WHERE ROWNUM <= " + pg;
                     string id = "it_" + Guid.NewGuid().ToString("N").Substring(0, 6);
-                    progress?.Invoke("\u0001" + JsonSerializer.Serialize(new { t = "sql", id, what = "Items · org " + org + " · page " + (rows.Count / page + 1), sql }));
+                    progress?.Invoke("\u0001" + JsonSerializer.Serialize(new { t = "sql", id, what = "Items · org " + org + " · from item " + (rows.Count + 1), sql }));
                     var ts = Stopwatch.StartNew();
-                    var r = await run(sql, page + 1, ct).ConfigureAwait(false);
+                    var r = await run(sql, pg + 1, ct).ConfigureAwait(false);
                     reads++;
                     progress?.Invoke("\u0001" + JsonSerializer.Serialize(new { t = "end", id, ok = r != null && r.Success, rows = r?.Rows?.Count ?? 0, ms = ts.ElapsedMilliseconds, error = r?.Success == true ? null : r?.Error }));
-                    if (r == null || !r.Success) return new { ok = false, error = "Items of organisation " + org + ": " + (r?.Error ?? "cancelled"), sql, reads, items = total };
+                    if (r == null) throw new OperationCanceledException();
+                    if (!r.Success)
+                    {   // a slow page: ask again smaller, then without the description lookup, else give up on this organisation only
+                        if (pg > 500) { pg = Math.Max(500, pg / 2); progress?.Invoke("   ⚠ org " + org + ": " + Short(r.Error) + " — again with " + pg + " rows per page"); continue; }
+                        if (withTl) { withTl = false; progress?.Invoke("   ⚠ org " + org + ": " + Short(r.Error) + " — again without the item descriptions"); continue; }
+                        orgErr = r.Error; break;
+                    }
                     rows.AddRange(r.Rows);
-                    if (r.Rows.Count < page) break;
+                    if (r.Rows.Count < pg) break;
                     var lastId = r.Rows.Select(z => long.TryParse(S(Get(z, "INVENTORY_ITEM_ID")), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : -1).Max();
                     if (lastId <= last) break;
                     last = lastId;
                 }
+                if (orgErr != null) { failed.Add(new { org, error = Short(orgErr) }); progress?.Invoke("✖ organisation " + org + ": " + Short(orgErr) + " — skipped, the others go on"); continue; }
                 FinanceLens.SaveItems(o.Pod, org, rows);
-                total += rows.Count;
+                total += rows.Count; done.Add(org);
                 progress?.Invoke("✔ organisation " + org + ": " + rows.Count.ToString("N0", CultureInfo.InvariantCulture) + " items in " + (t0.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s");
             }
-            return new { ok = true, orgs, items = total, reads, flexColumns = cols.Where(IsDffCol).ToList(), ms = sw.ElapsedMilliseconds };
+            return new { ok = done.Count > 0 || orgs.Count == 0, error = done.Count == 0 && failed.Count > 0 ? "No organisation could be read: " + JsonSerializer.Serialize(failed) : null,
+                         orgs = done, failed, items = total, reads, flexColumns = cols.Where(IsDffCol).ToList(), ms = sw.ElapsedMilliseconds };
         }
 
         /// <summary>

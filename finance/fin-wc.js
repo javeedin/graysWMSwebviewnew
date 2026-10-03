@@ -298,8 +298,13 @@
         return FL.call(action, Object.assign({ pod: W.cfg().pod || '' }, payload), ms || 60 * 60000, function (m) {
             if (!m || m.charAt(0) === '\u0001') return; lines.push(m); if ($('wc-log')) $('wc-log').innerHTML = lines.slice(-12).map(esc).join('<br>');
         }).then(function (r) {
-            FL.toast(label + (r.items != null ? ': ' + r.items.toLocaleString() + ' items' : r.labels ? ': ' + r.labels.length + ' labels' : r.named != null ? ': ' + r.named + ' names' : ' done'), 'ok');
-            return FL.render();
+            var bad = r.failed || [];
+            FL.toast(label + (r.items != null ? ': ' + r.items.toLocaleString() + ' items' + (bad.length ? ' · ' + bad.length + ' organisation(s) failed' : '') : r.labels ? ': ' + r.labels.length + ' labels' : r.named != null ? ': ' + r.named + ' names' : ' done'), bad.length ? 'err' : 'ok');
+            return FL.render().then(function () {
+                if (bad.length && $('wc-prog')) $('wc-prog').innerHTML = '<div class="callout warn sm"><b>' + bad.length + ' organisation(s) could not be read</b> — the others are saved; press the sync button again for the rest.' +
+                    bad.map(function (b) { return '<div class="muted">' + esc(W.orgName(b.org) + ': ' + b.error) + '</div>'; }).join('') + '</div>';
+                if (r.labels && !r.labels.length && $('wc-prog')) $('wc-prog').innerHTML = '<div class="callout warn sm">Fusion has no labels for the item flexfield (or the report user cannot see them) — open <b>Profile &amp; name</b> and name the columns that hold your categories.</div>';
+            });
         }).catch(function (e) { var m = String(e && e.message || e); if ($('wc-log')) $('wc-log').innerHTML = '<span class="neg">' + esc(m) + '</span>'; FL.toast(m, 'err'); });
     };
 
@@ -340,6 +345,20 @@
         };
     };
 
+    /** Finds the cost tables on the pod, takes the most likely one (perpetual average first, mapped to the inventory orgs), saves it and syncs the stock */
+    W.autoCost = function () {
+        var log = $('wc-prog'); if (log) log.innerHTML = '<div class="callout sm" id="wc-log"><i class="fa-solid fa-circle-notch fa-spin"></i> Looking for the item cost tables on the pod…</div>';
+        return FL.call('finWcCostTables', { pod: W.cfg().pod || '' }, 6 * 60000).then(function (r) {
+            var maps = r.maps || [], t = (r.tables || []).filter(function (x) { return x.invOrg || (x.orgCol === 'COST_ORG_ID' && maps.length) || !x.orgCol; })[0] || (r.tables || [])[0];
+            if (!t) { if ($('wc-log')) $('wc-log').innerHTML = '<span class="neg">No cost table with an item id and a cost column was found — the value stays the list price / GL. Settings › Cost source shows what the pod has.</span>'; return; }
+            var m = !t.invOrg && t.orgCol === 'COST_ORG_ID' && maps[0];
+            var cost = { table: t.table, itemCol: t.itemCol, orgCol: t.invOrg ? t.orgCol : null, costCol: t.costCol, costOrgCol: m ? 'COST_ORG_ID' : null, mapTable: m ? m.table : null, mapInvCol: m ? m.invCol : null, mapCostCol: m ? m.costCol : null };
+            FL.config.wc = Object.assign({}, FL.config.wc || {}, { cost: cost });
+            FL.toast('Using ' + t.table + '.' + t.costCol + (m ? ' through ' + m.table : '') + ' — syncing the stock', 'info');
+            return FL.saveConfig().then(function () { return W.sync(['INV']); });
+        }).catch(function (e) { if ($('wc-log')) $('wc-log').innerHTML = '<span class="neg">' + esc(String(e && e.message || e)) + '</span>'; });
+    };
+
     W.sync = function (kinds) {
         var c = W.cfg(), btn = $('wc-sync'); if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Syncing…'; }
         var log = $('wc-prog'); if (log) log.innerHTML = '<div class="callout sm" id="wc-log"></div>';
@@ -362,6 +381,8 @@
         var bNamed = nb.filter(function (b) { return (names.BU || {})[b]; }).length, oNamed = no.filter(function (o) { return (names.ORG || {})[o]; }).length;
         var inv = null; if (d.INV && d.INV.length) { var ko = W.org; W.org = ''; inv = W.stock(d.INV); W.org = ko; }
         var it = d.items || { n: 0 }, itemOrgs = d.itemOrgs || [], orgsIn = no.filter(function (o) { return itemOrgs.indexOf(o) >= 0; }).length;
+        var orgsMiss = no.filter(function (o) { return itemOrgs.indexOf(o) < 0; });
+        var cloud = '<i class="fa-solid fa-cloud-arrow-down"></i> ';
         var fusN = Object.keys(d.dff || {}).length, mineN = Object.keys(c.dffLabels || {}).length;
         var snap = function (k) { var s = last[k]; return s ? (s.rows || 0).toLocaleString() + ' rows · total ' + money(s.total) + ' · ' + String(s.at).slice(0, 16) + (s.capped ? ' · capped' : '') : 'not synced'; };
         var items = [
@@ -372,15 +393,18 @@
                 info: nb.length + no.length ? bNamed + ' of ' + nb.length + ' business units · ' + oNamed + ' of ' + no.length + ' inventory organisations named' : 'sync the subledgers first', act: '<button class="btn sm" data-w="names">Read names</button>' },
             { k: 'items', label: 'Item master (EGP_SYSTEM_ITEMS_B) — item type, list price, item flexfield', ok: it.n > 0 && no.length > 0 && orgsIn === no.length, part: it.n > 0,
                 info: it.n ? it.n.toLocaleString() + ' items · ' + orgsIn + ' of ' + no.length + ' stock organisations · ' + (it.priced || 0).toLocaleString() + ' with a list price · read ' + String(it.at || '').slice(0, 16) : 'not synced — needed to group the stock by item type or a DFF (e.g. the inventory category)',
-                act: '<button class="btn sm' + (it.n ? '' : ' primary') + '" data-w="items"><i class="fa-solid fa-cloud-arrow-down"></i> ' + (it.n ? 'Sync again' : 'Sync items') + '</button>' },
+                act: (orgsMiss.length ? '<button class="btn sm primary" data-w="itemsmiss" title="' + esc(orgsMiss.map(function (o) { return W.orgName(o); }).join(', ')) + '">' + cloud + (it.n ? 'Sync ' + orgsMiss.length + ' missing organisation(s)' : 'Sync items') + '</button>' : '') +
+                    (it.n ? '<button class="btn sm" data-w="items" title="Read every stock organisation again">Sync all again</button>' : '') },
             { k: 'dff', label: 'Item DFF — flexfield labels and your names', ok: fusN + mineN > 0, part: false,
                 info: fusN + mineN ? fusN + ' label(s) from Fusion · ' + mineN + ' named by you — the stock can be grouped and filtered by them' : 'no labels yet — read them from Fusion (FND_DF_SEGMENTS_VL), or open the profile and name the columns that hold your categories',
-                act: '<button class="btn sm" data-w="dff">Read labels</button><button class="btn sm" data-w="profile"' + (it.n ? '' : ' disabled title="Sync the item master first"') + '>Profile &amp; name</button>' },
+                act: '<button class="btn sm' + (fusN ? '' : ' primary') + '" data-w="dff">' + cloud + (fusN ? 'Sync labels again' : 'Sync labels from Fusion') + '</button><button class="btn sm" data-w="profile"' + (it.n ? '' : ' disabled title="Sync the item master first"') + '>Profile &amp; name</button>' },
             { k: 'val', label: 'Inventory valuation', ok: !!inv && inv.valued >= inv.lines * 0.9, part: !!inv && inv.valued > 0,
                 info: !inv ? 'sync the stock first' : inv.valued ? inv.valued.toLocaleString() + ' of ' + inv.lines.toLocaleString() + ' lines valued — ' + inv.basis + (c.cost ? ' (' + c.cost.table + '.' + c.cost.costCol + ')' : '') : 'no value — pick a cost table (Settings › Find cost tables) and sync the stock, or sync the item master for list prices',
-                act: '<button class="btn sm" data-w="settings">Cost source</button>' }
+                act: (inv && inv.valued < inv.lines * 0.9 ? (c.cost ? '<button class="btn sm primary" data-w="sync" data-k="INV" title="Read the stock again with the cost table ' + esc(c.cost.table) + '">' + cloud + 'Sync stock with costs</button>'
+                        : '<button class="btn sm primary" data-w="autocost" title="Finds the cost tables on the pod, uses the most likely one and syncs the stock with its costs">' + cloud + 'Find cost table & sync</button>') : '') +
+                    '<button class="btn sm" data-w="settings">Cost source</button>' }
         ];
-        var nOk = items.filter(function (x) { return x.ok; }).length, miss = items.filter(function (x) { return !x.ok && /^(AR|AP|INV|names|items)$/.test(x.k); });
+        var nOk = items.filter(function (x) { return x.ok; }).length, miss = items.filter(function (x) { return !x.ok && /^(AR|AP|INV|names|items|dff|val)$/.test(x.k); });
         if ($('wc-mdlink')) $('wc-mdlink').innerHTML = '<i class="fa-solid fa-list-check"></i> checklist ' + nOk + ' of ' + items.length;
         box.innerHTML = '<div class="row"><h3 style="margin:0"><i class="fa-solid fa-list-check"></i> Working capital checklist</h3><span class="sm ' + (nOk === items.length ? 'pos' : 'warn') + '">' + nOk + ' of ' + items.length + ' ready</span><span class="grow"></span>' +
             (admin && miss.length ? '<button class="btn sm primary" data-w="all"><i class="fa-solid fa-cloud-arrow-down"></i> Sync all missing (' + miss.length + ')</button>' : '') + '</div>' +
@@ -393,15 +417,19 @@
                 if (a === 'sync') return W.sync([b.dataset.k]);
                 if (a === 'names') return W.readNames();
                 if (a === 'items') return W.run('finWcItems', { options: { orgs: [] } }, 'Item master');
+                if (a === 'itemsmiss') return W.run('finWcItems', { options: { orgs: orgsMiss } }, 'Item master · ' + orgsMiss.length + ' organisation(s)');
+                if (a === 'autocost') return W.autoCost();
                 if (a === 'dff') return W.run('finWcItemDff', {}, 'Item DFF labels', 5 * 60000);
                 if (a === 'profile') return W.dffProfile();
                 if (a === 'settings') return W.settings();
                 if (a === 'all') {
                     var kinds = miss.filter(function (x) { return /^(AR|AP|INV)$/.test(x.k); }).map(function (x) { return x.k; });
+                    var has = function (k) { return miss.some(function (x) { return x.k === k; }); };
                     (kinds.length ? W.sync(kinds) : Promise.resolve())
-                        .then(function () { return W.run('finWcNames', {}, 'Business unit / organisation names', 5 * 60000); })
-                        .then(function () { if (miss.some(function (x) { return x.k === 'items'; })) return W.run('finWcItems', { options: { orgs: [] } }, 'Item master'); })
-                        .then(function () { if (!fusN) return W.run('finWcItemDff', {}, 'Item DFF labels', 5 * 60000); });
+                        .then(function () { if (has('names')) return W.run('finWcNames', {}, 'Business unit / organisation names', 5 * 60000); })
+                        .then(function () { if (has('items')) return W.run('finWcItems', { options: { orgs: it.n ? orgsMiss : [] } }, 'Item master'); })
+                        .then(function () { if (has('dff')) return W.run('finWcItemDff', {}, 'Item DFF labels', 5 * 60000); })
+                        .then(function () { if (has('val') && !c.cost) return W.autoCost(); });
                 }
             };
         });

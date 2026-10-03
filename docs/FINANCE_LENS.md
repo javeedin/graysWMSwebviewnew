@@ -211,7 +211,12 @@ the warehouse — straight from the Fusion subledgers, read-only.
   CST_COST_INV_ORGS), else quantity × the item list price (can be switched off), else the GL balance. The card and the item
   grid show the basis per line.
 - **Working capital checklist** (bottom of the tab, chip on top): debtors, creditors, stock, names, item master, item DFF,
-  valuation — each with its action, and *Sync all missing*.
+  valuation — each with its action, and *Sync all missing* (runs every missing one in turn). Item master: *Sync n missing
+  organisation(s)* reads only the stock organisations that have no items yet; a slow organisation is asked again with
+  smaller pages, then without the description lookup, and one that still fails is skipped and listed — the others are
+  saved. Item DFF: *Sync labels from Fusion*. Valuation: *Find cost table & sync* picks the most likely cost table
+  (perpetual average first, mapped to the inventory organisations) and syncs the stock with it; with a cost table set
+  it offers *Sync stock with costs*.
 - **Excel** exports the customers, suppliers and on-hand lines of the latest snapshots.
 - Settings: pod, buckets, business units / inventory orgs (ids), cost source and the three queries (placeholders
   `{BUCKET:due date column}`, `{AS_OF}`, `{ORG_FILTER:column}`, `{UNIT_COST}`; the column names must stay) — kept in
