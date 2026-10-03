@@ -151,6 +151,9 @@ namespace WMSApp
 CREATE TABLE fin_meta (key VARCHAR, value VARCHAR);
 CREATE TABLE fin_ledgers (code VARCHAR, name VARCHAR, currency VARCHAR, coa_id VARCHAR, company_segment VARCHAR, cost_centre_segment VARCHAR, account_segment VARCHAR, category VARCHAR);
 CREATE TABLE fin_segments (seg_no INTEGER, role VARCHAR, label VARCHAR, column_name VARCHAR);
+CREATE TABLE fin_coa_segments (pod VARCHAR, coa_id VARCHAR, column_name VARCHAR, segment_name VARCHAR, segment_num INTEGER, value_set_id VARCHAR, qualifiers VARCHAR,
+    distinct_values BIGINT, purity DOUBLE, role VARCHAR, evidence VARCHAR, discovered_at VARCHAR);
+CREATE TABLE fin_fusion_discovery (pod VARCHAR, discovered_at VARCHAR, discovered_by VARCHAR, json VARCHAR);
 CREATE TABLE fin_companies (code VARCHAR, name VARCHAR, currency VARCHAR);
 CREATE TABLE fin_cost_centres (code VARCHAR, name VARCHAR, parent VARCHAR);
 CREATE TABLE fin_accounts (code VARCHAR, name VARCHAR, account_type VARCHAR, class VARCHAR, parent VARCHAR);
@@ -234,6 +237,33 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 Exec(conn, "CHECKPOINT");
             }
             return classes.Count;
+        }
+
+        /// <summary>Saves a Fusion discovery (ledgers, COA segments and roles) into the current finance file, when there is one;
+        /// otherwise the first load writes it. Returns false when there is no file yet.</summary>
+        public static bool SaveDiscovery(string pod, string json, string user, Dictionary<string, Dictionary<string, string>> roles = null)
+        {
+            if (!File.Exists(DbPath)) return false;
+            lock (_lock)
+            {
+                ResetSessionNoLock();
+                using var conn = new DuckDBConnection("Data Source=" + DbPath);
+                conn.Open();
+                FinanceFusion.WriteDiscovery(conn, pod, json, user, roles);
+                Exec(conn, "CHECKPOINT");
+            }
+            return true;
+        }
+
+        /// <summary>The saved discovery of a pod ("" = logged-in pod) from the finance file: (json, discovered_at, by) or null.</summary>
+        public static (string Json, string At, string By)? LoadDiscovery(string pod)
+        {
+            if (!File.Exists(DbPath)) return null;
+            var t = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_fusion_discovery'", 1);
+            if (t.Error != null || t.Rows.Count == 0 || Convert.ToInt64(t.Rows[0][0]) == 0) return null;
+            var r = Query("SELECT json, discovered_at, discovered_by FROM fin_fusion_discovery WHERE pod = " + Lit(pod ?? "") + " ORDER BY discovered_at DESC LIMIT 1", 1);
+            if (r.Error != null || r.Rows.Count == 0) return null;
+            return (Convert.ToString(r.Rows[0][0]), Convert.ToString(r.Rows[0][1]), Convert.ToString(r.Rows[0][2]));
         }
 
         /// <summary>True when the file has the ledger dimension (files built before it are rebuilt by the next load).</summary>

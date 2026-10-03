@@ -238,3 +238,8 @@ body.cop-on main, body.cop-on .top, body.cop-on .tabs { margin-right: min(480px,
 .cop-sug { display: block; cursor: pointer; padding: 7px 10px; margin: 5px 0; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); text-decoration: none; }
 .cop-sug:hover { border-color: #6366f1; color: #4338ca; }
 @media print { .cop { display: none; } body.cop-on main, body.cop-on .top, body.cop-on .tabs { margin-right: 0; } }
+.fu-log { max-height: 320px; }
+.fu-log .ts { color: #94a3b8; margin-right: 8px; }
+.fu-log .warn { color: var(--warn); } .fu-log .pos { color: var(--good); font-weight: 600; } .fu-log .step { color: var(--accent); font-weight: 600; }
+.fu-log .chunk { color: var(--muted); } .fu-log .sql { color: #7c3aed; white-space: pre-wrap; word-break: break-all; }
+.fu-log.nochunks .chunk { display: none; }

@@ -56,7 +56,7 @@ if (hasHost()) window.chrome.webview.addEventListener('message', function (ev) {
     if (!r || !r.requestId || !_pending[r.requestId]) return;
     if (r.action === 'finProgress') { var p = _pending[r.requestId].progress; if (p) { try { p(r.message); } catch (e) { /* view gone */ } } return; }
     var cb = _pending[r.requestId]; delete _pending[r.requestId];
-    if (r.action === 'error') cb.reject(r.message || 'Host error'); else cb.resolve(r.data == null ? {} : r.data);
+    if (r.action === 'error') cb.reject(r.message || 'Host error'); else cb.resolve(r.data == null ? r : r.data);
 });
 FL.call = function (action, payload, ms, onProgress) { return FL.host(action, payload, ms, onProgress).then(function (d) { if (d && d.ok === false) throw d.error || 'failed'; return d; }); };
 /** One read-only query → {columns, rows} */

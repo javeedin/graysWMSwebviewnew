@@ -33,7 +33,9 @@ namespace WMSApp
     {
         public delegate Task<FusionQueryResult> Runner(string sql, int cap, CancellationToken ct);
 
-        private const int PAGE = 50000;
+        /// <summary>Rows per ranked chunk (the user can choose 500 - 10,000); a chunk that times out is read again at half the size.</summary>
+        public const int DEFAULT_CHUNK = 2000;
+        private const int MIN_CHUNK = 250;
 
         // ───────────────────────── small helpers ─────────────────────────
         private static string S(Dictionary<string, object> r, string k)
@@ -70,7 +72,8 @@ namespace WMSApp
             public Dictionary<string, HashSet<string>> Cols = new(StringComparer.OrdinalIgnoreCase);
             public bool Has(string table, string col) => Cols.TryGetValue(table, out var c) && c.Contains(col);
             public bool HasTable(string table) => Cols.ContainsKey(table) && Cols[table].Count > 0;
-            public void Note(string s) { Log.Add(s); Progress?.Invoke(s); }
+            public void Note(string s) { lock (Log) Log.Add(DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "  " + s); Progress?.Invoke(s); }
+            public bool LogSql;
         }
 
         private static async Task<FusionQueryResult> Try(Ctx x, string label, int cap, params string[] variants)
@@ -84,7 +87,7 @@ namespace WMSApp
                 last = r.Error;
                 Debug.WriteLine("[FinanceFusion] " + label + " variant failed: " + r.Error);
             }
-            x.Log.Add("⚠ " + label + ": " + (last ?? "no query applies on this pod"));
+            x.Note("⚠ " + label + ": " + (last ?? "no query applies on this pod"));
             return null;
         }
 
@@ -409,15 +412,41 @@ namespace WMSApp
             public bool FoldAdjustments { get; set; } = true;
             public bool Incremental { get; set; }
             public string Pod { get; set; }
-            public int Parallel { get; set; } = 3;
+            public int Parallel { get; set; } = 2;
+            /// <summary>Rows per ranked chunk (ROW_NUMBER over the key, next chunk after the last key).</summary>
+            public int ChunkSize { get; set; } = DEFAULT_CHUNK;
+            /// <summary>Also write the SQL of every step's first chunk to the log.</summary>
+            public bool LogSql { get; set; }
+            /// <summary>The discovery (JSON from finFusionDiscover) - saved with the data as fin_fusion_discovery / fin_coa_segments.</summary>
+            public JsonElement Discovery { get; set; }
+            public string User { get; set; }
         }
 
         private sealed class Acc { public double Begin, Dr, Cr; }
 
         public static async Task<object> SyncAsync(Runner run, SyncOptions o, Action<string> progress, CancellationToken ct)
         {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var x = new Ctx { Run = run, Ct = cts.Token, Progress = progress, LogSql = o.LogSql };
+            object res;
+            try { res = await SyncCoreAsync(x, o, cts).ConfigureAwait(false); }
+            catch (Exception ex) { res = new { ok = false, error = ex.Message, log = x.Log }; }
+            // the whole log next to the data, for support (the page shows it live and can save it too)
+            try
+            {
+                Directory.CreateDirectory(FinanceLens.Root);
+                bool ok = JsonSerializer.SerializeToElement(res).TryGetProperty("ok", out var okp) && okp.ValueKind == JsonValueKind.True;
+                File.WriteAllLines(Path.Combine(FinanceLens.Root, "fusion-sync.log"),
+                    new[] { "Fusion sync " + DateTime.Now.ToString("s") + " · " + (ok ? "OK" : "FAILED") + " · pod " + (o.Pod ?? "") }.Concat(x.Log.ToArray()));
+            }
+            catch { }
+            return res;
+        }
+
+        private static async Task<object> SyncCoreAsync(Ctx x, SyncOptions o, CancellationTokenSource cts)
+        {
+            var ct = cts.Token;
             var sw = Stopwatch.StartNew();
-            var x = new Ctx { Run = run, Ct = ct, Progress = progress };
             if (o.Ledgers.Count == 0) return new { ok = false, error = "Pick at least one ledger." };
             foreach (var l in o.Ledgers)
             {
@@ -464,6 +493,11 @@ namespace WMSApp
                 if (!incremental) x.Note("Full load: the ledgers or segments changed since the last load.");
             }
 
+            Exception firstError = null;
+            var allWork = new List<Task>();
+            x.Note("Sync " + string.Join(", ", o.Ledgers.Select(l => l.Name)) + " · " + periods.First().Name + " – " + periods.Last().Name + " · chunks of " + Math.Clamp(o.ChunkSize <= 0 ? DEFAULT_CHUNK : o.ChunkSize, MIN_CHUNK, 10000) +
+                   " rows · " + Math.Clamp(o.Parallel, 1, 4) + " in parallel" + (journalPeriods.Count > 0 ? " · journals " + journalPeriods.First().Name + " – " + journalPeriods.Last().Name : " · no journals") +
+                   (string.IsNullOrEmpty(o.BudgetSource) ? "" : " · budget " + o.BudgetId));
             var balances = new List<object[]>();
             var journals = new List<object[]>();
             var acctTypes = new Dictionary<string, Dictionary<string, long>>();          // account → type → combinations
@@ -519,19 +553,26 @@ namespace WMSApp
                                 where = "b.ledger_id = " + led.Id + " AND b.currency_code = " + Q(led.Currency) + " AND b." + nameCol + " = " + Q(o.BudgetId);
                             }
                             bool hasBegin = scenario == "ACTUAL" || o.BudgetSource == "GL_BALANCES";
-                            string amounts = "SUM(NVL(b.period_net_dr, 0)) dr, SUM(NVL(b.period_net_cr, 0)) cr";
-                            if (from.StartsWith("gl_budget_balances", StringComparison.Ordinal) && !x.Has("GL_BUDGET_BALANCES", "PERIOD_NET_DR"))
+                            bool grouped = from.StartsWith("gl_budget_balances", StringComparison.Ordinal);   // GL_BALANCES has one row per combination and period; budget balances are summed first
+                            string dr = "NVL(b.period_net_dr, 0)", cr = "NVL(b.period_net_cr, 0)";
+                            if (grouped && !x.Has("GL_BUDGET_BALANCES", "PERIOD_NET_DR"))
                             {
                                 string amt = new[] { "PERIOD_NET", "BUDGET_AMOUNT", "AMOUNT", "PERIOD_NET_AMOUNT" }.FirstOrDefault(c => x.Has("GL_BUDGET_BALANCES", c));
-                                if (amt == null) throw new InvalidOperationException("GL_BUDGET_BALANCES has no amount column this sync knows (PERIOD_NET_DR / _CR, PERIOD_NET, BUDGET_AMOUNT).");
-                                amounts = "SUM(GREATEST(NVL(b." + amt + ", 0), 0)) dr, SUM(GREATEST(-NVL(b." + amt + ", 0), 0)) cr";
+                                if (amt == null) { x.Note("⚠ budget " + p.Name + " left out: GL_BUDGET_BALANCES has no amount column this sync knows (PERIOD_NET_DR / _CR, PERIOD_NET, BUDGET_AMOUNT)."); return; }
+                                dr = "GREATEST(NVL(b." + amt + ", 0), 0)"; cr = "GREATEST(-NVL(b." + amt + ", 0), 0)";
                             }
-                            string sel = "SELECT c." + led.Company + " co, " + ccExpr + " cc, c." + led.Account + " ac, b.period_name pn, " +
-                                         (hasBegin ? "SUM(NVL(b.begin_balance_dr, 0) - NVL(b.begin_balance_cr, 0))" : "0") + " bb, " + amounts + " FROM " + from +
-                                         " JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id WHERE " + where + summ + " AND b.period_name IN (" + names + ")";
-                            string grp = " GROUP BY c." + led.Company + ", " + ccExpr + ", c." + led.Account + ", b.period_name";
-                            List<Dictionary<string, object>> rows;
-                            try { rows = await Split(x, sel, grp, "c." + led.Company, "c." + led.Account).ConfigureAwait(false); }
+                            string bb = hasBegin ? "NVL(b.begin_balance_dr, 0) - NVL(b.begin_balance_cr, 0)" : "0";
+                            string seg = "c." + led.Company + " co, " + ccExpr + " cc, c." + led.Account + " ac";
+                            string inner = grouped
+                                ? "SELECT b.code_combination_id ccid, b.period_name pn, " + seg + ", SUM(" + bb + ") bb, SUM(" + dr + ") dr, SUM(" + cr + ") cr FROM " + from +
+                                  " JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id WHERE " + where + summ + " AND b.period_name IN (" + names + ")" +
+                                  " GROUP BY b.code_combination_id, b.period_name, c." + led.Company + ", " + ccExpr + ", c." + led.Account
+                                : "SELECT b.code_combination_id ccid, b.period_name pn, " + seg + ", " + bb + " bb, " + dr + " dr, " + cr + " cr FROM " + from +
+                                  " JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id WHERE " + where + summ + " AND b.period_name IN (" + names + ")" +
+                                  " AND (" + bb + " <> 0 OR " + dr + " <> 0 OR " + cr + " <> 0)";
+                            string what = led.Name + " · " + (scenario == "ACTUAL" ? "balances " : "budget ") + p.Name;
+                            var rows = new List<Dictionary<string, object>>();
+                            try { await RankedAsync(x, what, inner, new[] { "CCID", "PN" }, new[] { true, false }, o.ChunkSize, rows.AddRange).ConfigureAwait(false); }
                             catch (Exception ex) when (scenario == "BUDGET" && ex is not OperationCanceledException)
                             {
                                 x.Note("⚠ budget " + p.Name + " left out: " + ex.Message);
@@ -558,7 +599,7 @@ namespace WMSApp
                                     ccs.Add(kv.Key.Item2);
                                 }
                             }
-                            Tick(led.Name + " · " + (scenario == "ACTUAL" ? "" : "budget ") + p.Name + " · " + acc.Count + " balances");
+                            Tick("✓ " + what + " · " + rows.Count.ToString("N0", CultureInfo.InvariantCulture) + " rows → " + acc.Count.ToString("N0", CultureInfo.InvariantCulture) + " balances");
                         }
                         finally { gate.Release(); }
                     }
@@ -571,43 +612,35 @@ namespace WMSApp
                             string names = NamesOf(p);
                             if (names.Length == 0) return;
                             bool batch = x.HasTable("GL_JE_BATCHES");
-                            long after = 0; int lines = 0;
-                            for (int page = 0; page < 200; page++)
+                            string eff = x.Has("GL_JE_LINES", "EFFECTIVE_DATE") ? "NVL(l.effective_date, h.default_effective_date)" : "h.default_effective_date";
+                            string inner = "SELECT h.je_header_id id, l.je_line_num ln, " + (batch ? "bt.name" : "NULL") + " bn, h.name jn, h.je_source js, h.je_category jc, l.period_name pn, " +
+                                "TO_CHAR(" + eff + ", 'YYYY-MM-DD') ad, TO_CHAR(NVL(h.posted_date, h.creation_date), 'YYYY-MM-DD HH24:MI:SS') pa, h.created_by cb, " +
+                                "c." + led.Company + " co, " + ccExpr + " cc, c." + led.Account + " ac, NVL(l.accounted_dr, 0) dr, NVL(l.accounted_cr, 0) cr, SUBSTR(NVL(l.description, h.description), 1, 200) ds " +
+                                "FROM gl_je_lines l JOIN gl_je_headers h ON h.je_header_id = l.je_header_id " + (batch ? "JOIN gl_je_batches bt ON bt.je_batch_id = h.je_batch_id " : "") +
+                                "JOIN gl_code_combinations c ON c.code_combination_id = l.code_combination_id WHERE h.ledger_id = " + led.Id + " AND h.status = 'P' AND h.actual_flag = 'A'" +
+                                " AND l.period_name IN (" + names + ")";
+                            string what = led.Name + " · journals " + p.Name;
+                            int lines = 0;
+                            try
                             {
-                                string sql = "SELECT h.je_header_id id, l.je_line_num ln, " + (batch ? "bt.name" : "NULL") + " bn, h.name jn, h.je_source js, h.je_category jc, l.period_name pn, " +
-                                    "TO_CHAR(NVL(l.effective_date, h.default_effective_date), 'YYYY-MM-DD') ad, TO_CHAR(NVL(h.posted_date, h.creation_date), 'YYYY-MM-DD HH24:MI:SS') pa, h.created_by cb, " +
-                                    "c." + led.Company + " co, " + ccExpr + " cc, c." + led.Account + " ac, NVL(l.accounted_dr, 0) dr, NVL(l.accounted_cr, 0) cr, SUBSTR(NVL(l.description, h.description), 1, 200) ds " +
-                                    "FROM gl_je_lines l JOIN gl_je_headers h ON h.je_header_id = l.je_header_id " + (batch ? "JOIN gl_je_batches bt ON bt.je_batch_id = h.je_batch_id " : "") +
-                                    "JOIN gl_code_combinations c ON c.code_combination_id = l.code_combination_id WHERE h.ledger_id = " + led.Id + " AND h.status = 'P' AND h.actual_flag = 'A' AND h.currency_code IS NOT NULL" +
-                                    " AND l.period_name IN (" + names + ") AND h.je_header_id > " + after + " ORDER BY h.je_header_id, l.je_line_num";
-                                var r = await x.Run(sql, PAGE, ct).ConfigureAwait(false);
-                                if (!r.Success && sql.Contains("l.effective_date"))
-                                    r = await x.Run(sql.Replace("NVL(l.effective_date, h.default_effective_date)", "h.default_effective_date"), PAGE, ct).ConfigureAwait(false);
-                                if (!r.Success) { x.Log.Add("⚠ journals " + p.Name + ": " + r.Error); break; }
-                                var rows = r.Rows;
-                                if (r.Capped && rows.Count > 0)
+                                lines = await RankedAsync(x, what, inner, new[] { "ID", "LN" }, new[] { true, true }, o.ChunkSize, rows =>
                                 {
-                                    long lastId = L(rows[^1], "ID");
-                                    var keep = rows.Where(z => L(z, "ID") != lastId).ToList();
-                                    if (keep.Count > 0) { rows = keep; after = L(keep[^1], "ID"); }   // the last journal may be cut: read it again on the next page
-                                    else after = lastId;                                               // one journal larger than a page: keep what came
-                                }
-                                lock (lockObj)
-                                {
-                                    foreach (var z in rows)
-                                    {
-                                        DateTime.TryParse(S(z, "AD"), CultureInfo.InvariantCulture, DateTimeStyles.None, out var ad);
-                                        DateTime.TryParse(S(z, "PA"), CultureInfo.InvariantCulture, DateTimeStyles.None, out var pa);
-                                        journals.Add(new object[] { L(z, "ID"), (int)L(z, "LN"), S(z, "BN"), S(z, "JN"), S(z, "JS"), S(z, "JC"), p.Name, p.Seq,
-                                            ad == default ? (object)null : DateOnly.FromDateTime(ad), pa == default ? (object)null : pa, S(z, "CB"),
-                                            S(z, "CO") ?? "", S(z, "CC") ?? "-", S(z, "AC") ?? "", Math.Round(D(z, "DR"), 2), Math.Round(D(z, "CR"), 2), S(z, "DS"), led.Code });
-                                    }
-                                }
-                                lines += rows.Count;
-                                if (!r.Capped) break;
-                                x.Progress?.Invoke(led.Name + " · journals " + p.Name + " · " + lines.ToString("N0", CultureInfo.InvariantCulture) + " lines…");
+                                    lock (lockObj)
+                                        foreach (var z in rows)
+                                        {
+                                            DateTime.TryParse(S(z, "AD"), CultureInfo.InvariantCulture, DateTimeStyles.None, out var ad);
+                                            DateTime.TryParse(S(z, "PA"), CultureInfo.InvariantCulture, DateTimeStyles.None, out var pa);
+                                            journals.Add(new object[] { L(z, "ID"), (int)L(z, "LN"), S(z, "BN"), S(z, "JN"), S(z, "JS"), S(z, "JC"), p.Name, p.Seq,
+                                                ad == default ? (object)null : DateOnly.FromDateTime(ad), pa == default ? (object)null : pa, S(z, "CB"),
+                                                S(z, "CO") ?? "", S(z, "CC") ?? "-", S(z, "AC") ?? "", Math.Round(D(z, "DR"), 2), Math.Round(D(z, "CR"), 2), S(z, "DS"), led.Code });
+                                        }
+                                }).ConfigureAwait(false);
                             }
-                            Tick(led.Name + " · journals " + p.Name + " · " + lines.ToString("N0", CultureInfo.InvariantCulture) + " lines");
+                            catch (Exception ex) when (ex is not OperationCanceledException)
+                            {
+                                throw new InvalidOperationException(what + ": " + ex.Message, ex);
+                            }
+                            Tick("✓ " + what + " · " + lines.ToString("N0", CultureInfo.InvariantCulture) + " lines");
                         }
                         finally { gate.Release(); }
                     }
@@ -616,11 +649,24 @@ namespace WMSApp
                     work.AddRange(periods.Select(p => Bal(p, "ACTUAL")));
                     if (!string.IsNullOrEmpty(o.BudgetSource)) work.AddRange(budgetPeriods.Select(p => Bal(p, "BUDGET")));
                     work.AddRange(journalPeriods.Select(Jnl));
+                    // the first real failure stops the other reads at once (and is the error shown)
+                    foreach (var t in work)
+                        _ = t.ContinueWith(tt =>
+                        {
+                            var e = tt.Exception?.GetBaseException();
+                            if (e != null && e is not OperationCanceledException) { Interlocked.CompareExchange(ref firstError, e, null); try { cts.Cancel(); } catch { } }
+                        }, TaskScheduler.Default);
+                    allWork.AddRange(work);
                     await Task.WhenAll(work).ConfigureAwait(false);
                 }
             }
-            catch (OperationCanceledException) { return new { ok = false, error = "Cancelled - nothing was changed.", log = x.Log }; }
-            catch (Exception ex) { return new { ok = false, error = ex.Message, log = x.Log }; }
+            catch (Exception ex)
+            {
+                var why = firstError ?? allWork.Where(t => t.IsFaulted).Select(t => t.Exception.GetBaseException()).FirstOrDefault(e => e is not OperationCanceledException)
+                          ?? (ex is OperationCanceledException ? null : ex);
+                x.Note(why == null ? "✖ Cancelled - nothing was changed." : "✖ Stopped: " + why.Message + " - nothing was changed.");
+                return new { ok = false, error = why == null ? "Cancelled - nothing was changed." : why.Message + " (nothing was changed - see the log)", log = x.Log };
+            }
 
             // budget amounts as running balances (income statement accounts restart each fiscal year)
             var budRows = balances.Where(b => (string)b[0] == "BUDGET").OrderBy(b => (int)b[5]).ToList();
@@ -656,6 +702,7 @@ namespace WMSApp
             int jMin = journalPeriods.Count > 0 ? journalPeriods.Min(p => p.Seq) : int.MaxValue;
             string ledIn = string.Join(",", o.Ledgers.Select(l => FinanceLens.Lit(l.Code)));
             int keptFrom = o.FromSeq;
+            var prevDiscovery = o.Discovery.ValueKind == JsonValueKind.Object ? null : FinanceLens.LoadDiscovery(o.Pod ?? "");
             using (var conn = new DuckDBConnection("Data Source=" + tmp))
             {
                 conn.Open();
@@ -694,6 +741,12 @@ namespace WMSApp
                 FinanceLens.Append(conn, "fin_segments", new List<object[]> {
                     new object[] { 1, "COMPANY", "Company (" + first.Company + ")", first.Company }, new object[] { 2, "COST_CENTRE", "Cost centre (" + (first.CostCentre ?? "none") + ")", first.CostCentre },
                     new object[] { 3, "ACCOUNT", "Account (" + first.Account + ")", first.Account } });
+                // the chart of accounts goes with the data: the discovery the page sent, else the one the previous file held
+                {
+                    var chosen = o.Ledgers.GroupBy(l => l.CoaId ?? "").ToDictionary(g => g.Key, g => new Dictionary<string, string> { ["company"] = g.First().Company, ["costCentre"] = g.First().CostCentre, ["account"] = g.First().Account });
+                    if (o.Discovery.ValueKind == JsonValueKind.Object) WriteDiscovery(conn, o.Pod ?? "", o.Discovery.GetRawText(), o.User, chosen);
+                    else if (prevDiscovery != null) WriteDiscovery(conn, o.Pod ?? "", prevDiscovery.Value.Json, prevDiscovery.Value.By, chosen);
+                }
                 FinanceLens.Append(conn, "fin_balances", balances);
                 FinanceLens.Append(conn, "fin_journals", journals);
                 var meta = new List<object[]>
@@ -728,29 +781,116 @@ namespace WMSApp
             t.TryGetValue(a, out var m) && m.Count > 0 ? m.OrderByDescending(kv => kv.Value).First().Key : "E";
         private static bool IsPlType(string t) => t == "R" || t == "E";
 
-        /// <summary>Runs a grouped query; when the row cap is reached it splits by company, then by company × first character of the account.</summary>
-        private static async Task<List<Dictionary<string, object>>> Split(Ctx x, string sel, string grp, string coExpr, string acExpr)
+        /// <summary>
+        /// Stores a discovery in the finance file: fin_fusion_discovery (the whole JSON for the page, per pod) and
+        /// fin_coa_segments (one row per segment: name, qualifiers, measured purity, role - the chosen roles win over the
+        /// discovered ones - and why). Creates the tables in files built before they existed.
+        /// </summary>
+        internal static void WriteDiscovery(DuckDBConnection conn, string pod, string json, string user, Dictionary<string, Dictionary<string, string>> roles)
         {
-            var r = await x.Run(sel + grp, 100000, x.Ct).ConfigureAwait(false);
-            if (!r.Success) throw new InvalidOperationException(r.Error);
-            if (!r.Capped) return r.Rows;
-            var cos = await x.Run("SELECT DISTINCT " + coExpr + " v" + sel.Substring(sel.IndexOf(" FROM ", StringComparison.Ordinal)), 10000, x.Ct).ConfigureAwait(false);
-            if (!cos.Success) throw new InvalidOperationException(cos.Error);
-            var all = new List<Dictionary<string, object>>();
-            foreach (var co in cos.Rows.Select(z => S(z, "V")).Where(v => v != null))
-            {
-                var p = await x.Run(sel + " AND " + coExpr + " = " + Q(co) + grp, 100000, x.Ct).ConfigureAwait(false);
-                if (!p.Success) throw new InvalidOperationException(p.Error);
-                if (!p.Capped) { all.AddRange(p.Rows); continue; }
-                foreach (var ch in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+            if (string.IsNullOrWhiteSpace(json)) return;
+            pod ??= "";
+            FinanceLens.Exec(conn, "CREATE TABLE IF NOT EXISTS fin_fusion_discovery (pod VARCHAR, discovered_at VARCHAR, discovered_by VARCHAR, json VARCHAR)");
+            FinanceLens.Exec(conn, "CREATE TABLE IF NOT EXISTS fin_coa_segments (pod VARCHAR, coa_id VARCHAR, column_name VARCHAR, segment_name VARCHAR, segment_num INTEGER, value_set_id VARCHAR, qualifiers VARCHAR, " +
+                                   "distinct_values BIGINT, purity DOUBLE, role VARCHAR, evidence VARCHAR, discovered_at VARCHAR)");
+            using var d = JsonDocument.Parse(json);
+            var root = d.RootElement;
+            string at = root.TryGetProperty("discoveredAt", out var da) && da.ValueKind == JsonValueKind.String ? da.GetString() : DateTime.Now.ToString("s");
+            FinanceLens.Exec(conn, "DELETE FROM fin_fusion_discovery WHERE pod = " + FinanceLens.Lit(pod));
+            FinanceLens.Exec(conn, "DELETE FROM fin_coa_segments WHERE pod = " + FinanceLens.Lit(pod));
+            FinanceLens.Append(conn, "fin_fusion_discovery", new List<object[]> { new object[] { pod, at, user, json } });
+            var rows = new List<object[]>();
+            if (root.TryGetProperty("coas", out var coas) && coas.ValueKind == JsonValueKind.Object)
+                foreach (var c in coas.EnumerateObject())
                 {
-                    var q = await x.Run(sel + " AND " + coExpr + " = " + Q(co) + " AND UPPER(SUBSTR(" + acExpr + ", 1, 1)) = '" + ch + "'" + grp, 100000, x.Ct).ConfigureAwait(false);
-                    if (!q.Success) throw new InvalidOperationException(q.Error);
-                    if (q.Capped) throw new InvalidOperationException("More than 100,000 balances for company " + co + " in one period - map fewer segments or ask for BICC extracts.");
-                    all.AddRange(q.Rows);
+                    var coa = c.Value;
+                    string g(JsonElement e, string k) => e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+                    var found = new Dictionary<string, string>();          // role → column
+                    foreach (var role in new[] { "company", "costCentre", "account", "intercompany" }) { var col = g(coa, role); if (col != null) found[role] = col; }
+                    if (roles != null && roles.TryGetValue(c.Name, out var chosen) && chosen != null)
+                        foreach (var role in new[] { "company", "costCentre", "account" }) { if (chosen.TryGetValue(role, out var col) && !string.IsNullOrEmpty(col)) found[role] = col; else found.Remove(role); }
+                    if (!coa.TryGetProperty("segments", out var segs) || segs.ValueKind != JsonValueKind.Array) continue;
+                    foreach (var sg in segs.EnumerateArray())
+                    {
+                        string col = g(sg, "col");
+                        string role = found.Where(kv => kv.Value == col).Select(kv => kv.Key).FirstOrDefault();
+                        string why = role != null && coa.TryGetProperty("why", out var w) && w.TryGetProperty(role, out var wr) && wr.ValueKind == JsonValueKind.String ? wr.GetString() : null;
+                        if (roles != null && roles.ContainsKey(c.Name) && role != null && (why == null || g(coa, role) != col)) why = "Chosen by the user";
+                        var q = sg.TryGetProperty("qualifiers", out var qs) && qs.ValueKind == JsonValueKind.Array ? string.Join(",", qs.EnumerateArray().Select(z => z.GetString())) : "";
+                        rows.Add(new object[] { pod, c.Name, col, g(sg, "name"), sg.TryGetProperty("num", out var n) && n.TryGetInt32(out var ni) ? ni : 0, g(sg, "valueSetId"), q,
+                            sg.TryGetProperty("distinct", out var di) && di.TryGetInt64(out var dl) ? dl : 0L, sg.TryGetProperty("purity", out var pu) && pu.TryGetDouble(out var pd) ? pd : 0.0,
+                            role == null ? null : role switch { "company" => "COMPANY", "costCentre" => "COST_CENTRE", "account" => "ACCOUNT", _ => "INTERCOMPANY" }, why, at });
+                    }
                 }
+            FinanceLens.Append(conn, "fin_coa_segments", rows);
+        }
+
+        /// <summary>
+        /// Reads a query in ranked chunks: ROW_NUMBER() over the key columns, at most <paramref name="chunk"/> rows per call,
+        /// each next chunk starting after the last key read (keyset, so every chunk costs the same however deep it is).
+        /// A chunk that fails with a time-out is read again at half the size (down to 250 rows). Every chunk is logged.
+        /// </summary>
+        private static async Task<int> RankedAsync(Ctx x, string what, string inner, string[] keys, bool[] numeric, int chunk, Action<List<Dictionary<string, object>>> onRows)
+        {
+            int size = Math.Clamp(chunk <= 0 ? DEFAULT_CHUNK : chunk, MIN_CHUNK, 10000), total = 0, n = 0, retries = 0;
+            string[] last = null;
+            var start = Stopwatch.StartNew();
+            string order = string.Join(", ", keys.Select(k => "q." + k));
+            x.Note("▶ " + what + " · ranked chunks of " + size.ToString("N0", CultureInfo.InvariantCulture) + " rows (ROW_NUMBER over " + string.Join(", ", keys) + ")");
+            while (true)
+            {
+                x.Ct.ThrowIfCancellationRequested();
+                string after = last == null ? "1 = 1" : Keyset(keys, numeric, last);
+                string sql = "SELECT * FROM (SELECT q.*, ROW_NUMBER() OVER (ORDER BY " + order + ") rn FROM (" + inner + ") q WHERE " + after + ") WHERE rn <= " + size + " ORDER BY rn";
+                if (x.LogSql && n == 0) x.Note("   SQL: " + sql);
+                var sw = Stopwatch.StartNew();
+                var r = await x.Run(sql, size, x.Ct).ConfigureAwait(false);
+                if (!r.Success)
+                {
+                    bool slow = (r.Error ?? "").IndexOf("Timed out", StringComparison.OrdinalIgnoreCase) >= 0 || (r.Error ?? "").IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (slow && size > MIN_CHUNK && retries < 4)
+                    {
+                        size = Math.Max(MIN_CHUNK, size / 2); retries++;
+                        x.Note("   ⚠ " + what + " · chunk " + (n + 1) + " timed out after " + (sw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s - reading it again in chunks of " + size.ToString("N0", CultureInfo.InvariantCulture));
+                        continue;
+                    }
+                    x.Note("   ✖ " + what + " · chunk " + (n + 1) + " failed: " + r.Error);
+                    throw new InvalidOperationException("chunk " + (n + 1) + " (rows " + (total + 1).ToString("N0", CultureInfo.InvariantCulture) + "…): " + r.Error);
+                }
+                n++;
+                var rows = r.Rows;
+                onRows(rows);
+                double secs = Math.Max(0.001, sw.ElapsedMilliseconds / 1000.0);
+                x.Note("   " + what + " · chunk " + n + " · rows " + (total + 1).ToString("N0", CultureInfo.InvariantCulture) + "–" + (total + rows.Count).ToString("N0", CultureInfo.InvariantCulture) +
+                       " · " + secs.ToString("0.0", CultureInfo.InvariantCulture) + " s · " + ((int)(rows.Count / secs)).ToString("N0", CultureInfo.InvariantCulture) + " rows/s");
+                total += rows.Count;
+                if (rows.Count < size) break;
+                var tail = rows[^1];
+                last = keys.Select(k => S(tail, k)).ToArray();
+                if (last.Any(v => v == null)) throw new InvalidOperationException("the key " + string.Join(", ", keys) + " came back empty - cannot page further");
+                if (n >= 5000) throw new InvalidOperationException("more than 5,000 chunks - stopped");
             }
-            return all;
+            x.Note("   " + what + " · " + total.ToString("N0", CultureInfo.InvariantCulture) + " rows in " + n + " chunk(s), " + (start.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s");
+            return total;
+        }
+
+        /// <summary>(k1, k2) after (v1, v2): k1 > v1 OR (k1 = v1 AND k2 > v2). Numbers are checked, text is quoted.</summary>
+        private static string Keyset(string[] keys, bool[] numeric, string[] vals)
+        {
+            string lit(int i)
+            {
+                if (!numeric[i]) return Q(vals[i]);
+                if (!decimal.TryParse(vals[i], NumberStyles.Float, CultureInfo.InvariantCulture, out var d)) throw new InvalidOperationException("key " + keys[i] + " is not a number: " + vals[i]);
+                return d.ToString(CultureInfo.InvariantCulture);
+            }
+            var parts = new List<string>();
+            for (int i = 0; i < keys.Length; i++)
+            {
+                var eq = Enumerable.Range(0, i).Select(j => "q." + keys[j] + " = " + lit(j)).ToList();
+                eq.Add("q." + keys[i] + " > " + lit(i));
+                parts.Add("(" + string.Join(" AND ", eq) + ")");
+            }
+            return "(" + string.Join(" OR ", parts) + ")";
         }
 
         /// <summary>Descriptions of segment values: FND_FLEX_VALUES_VL, FND_VS_VALUES_B/_TL, or GL_FLEXFIELDS_PKG.</summary>

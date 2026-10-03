@@ -19,12 +19,15 @@
         if (sv && sv.ledgers && sv.ledgers.length && !F.editing) {
             h += '<table class="t"><tbody>' + [['Pod', sv.pod || 'logged-in pod'], ['Ledgers', sv.ledgers.map(function (l) { return l.name + ' (' + l.currency + ')'; }).join(', ')],
                 ['Segments', sv.ledgers.map(function (l) { return 'company ' + l.company + ' · cost centre ' + (l.costCentre || '—') + ' · account ' + l.account; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(' / ')],
-                ['Periods', F.pname(sv.fromSeq) + ' – ' + F.pname(sv.toSeq)], ['Budget', sv.budgetSource ? sv.budgetName || sv.budgetId : 'none'], ['Journal lines', sv.journalMonths ? 'last ' + sv.journalMonths + ' month(s)' : 'not loaded']]
+                ['Periods', F.pname(sv.fromSeq) + ' – ' + F.pname(sv.toSeq)], ['Budget', sv.budgetSource ? sv.budgetName || sv.budgetId : 'none'], ['Journal lines', sv.journalMonths ? 'last ' + sv.journalMonths + ' month(s)' : 'not loaded'],
+                ['Reading', 'ranked chunks of ' + (sv.chunkSize || 2000).toLocaleString() + ' rows · ' + (sv.parallel || 2) + ' in parallel'],
+                ['Chart of accounts stored in', 'APEX (WMS_FIN_COA_SEGMENTS, WMS_FIN_LEDGERS, WMS_FIN_DISCOVERY) and DuckDB (fin_coa_segments, fin_ledgers)' + (sv.discoveredAt ? ' · discovered ' + String(sv.discoveredAt).replace('T', ' ').slice(0, 16) : '')]]
                 .map(function (r) { return '<tr><td class="muted">' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>'; }).join('') + '</tbody></table>' +
                 '<div class="row" style="margin-top:10px"><button class="btn primary" id="fu-again"><i class="fa-solid fa-rotate"></i> Sync again</button>' +
                 '<label class="sm"><input type="checkbox" id="fu-incr" checked> only the last <input type="number" id="fu-last" value="' + (sv.incrementalMonths || 3) + '" min="1" max="36" style="width:46px"> period(s)</label>' +
-                '<span class="grow"></span><button class="btn" id="fu-setup"><i class="fa-solid fa-sliders"></i> Change setup</button></div><div id="fu-prog"></div>';
+                '<span class="grow"></span><button class="btn" id="fu-setup"><i class="fa-solid fa-sliders"></i> Change setup</button></div>' + F.lastLogLink() + '<div id="fu-prog"></div>';
             el.innerHTML = h;
+            F.wireLastLog();
             $('fu-setup').onclick = function () { F.editing = true; F.render(el); };
             $('fu-again').onclick = function () {
                 var o = JSON.parse(JSON.stringify(sv)), incr = $('fu-incr').checked, n = Math.max(1, +$('fu-last').value || 3);
@@ -42,7 +45,20 @@
         el.innerHTML = h;
         if ($('fu-back')) $('fu-back').onclick = function () { F.editing = false; F.render(el); };
         $('fu-disc').onclick = function () { F.discover($('fu-pod').value); };
-        if (F.disc) F.showDiscovery();
+        $('fu-pod').onchange = function () { F.disc = null; F.restore(this.value); };
+        if (F.disc) F.showDiscovery(); else F.restore($('fu-pod').value);
+    };
+
+    /** Shows the chart of accounts saved for this pod (APEX, else this PC's DuckDB file) — no need to ask Fusion again. */
+    F.restore = function (pod) {
+        var box = $('fu-res'); if (!box) return;
+        box.innerHTML = '<p class="sm muted"><i class="fa-solid fa-circle-notch fa-spin"></i> Looking for the saved chart of accounts…</p>';
+        FL.apexStore.loadDiscovery(pod).then(function (r) {
+            if (!$('fu-res') || ($('fu-pod') && $('fu-pod').value !== (pod || ''))) return;
+            if (!r) { $('fu-res').innerHTML = '<p class="sm muted">Nothing saved for this pod yet — press Discover once; the result is kept in APEX and DuckDB.</p>'; return; }
+            F.disc = r.disc; F.discFrom = r;
+            F.showDiscovery();
+        });
     };
 
     F.pname = function (seq) {
@@ -56,20 +72,42 @@
         return c.length ? c[c.length - 1].seq : null;
     };
 
+    F.log = [];
     F.progress = function (title, cancel) {
         var box = $('fu-prog'); if (!box) return function () { };
-        box.innerHTML = '<div class="fu-prog"><div class="row"><b><i class="fa-solid fa-circle-notch fa-spin"></i> ' + esc(title) + '</b><span class="grow"></span>' +
+        F.log = [];
+        box.innerHTML = '<div class="fu-prog"><div class="row"><b id="fu-pt"><i class="fa-solid fa-circle-notch fa-spin"></i> ' + esc(title) + '</b><span class="sm muted" id="fu-pstat"></span><span class="grow"></span>' +
+            '<label class="sm"><input type="checkbox" id="fu-chunks" checked> chunk lines</label>' +
+            '<button class="btn sm" id="fu-logcopy" title="Copy the log"><i class="fa-regular fa-copy"></i></button><button class="btn sm" id="fu-logsave" title="Save the log as a text file"><i class="fa-solid fa-download"></i> Log</button>' +
             (cancel ? '<button class="btn sm" id="fu-cancel"><i class="fa-solid fa-stop"></i> Cancel</button>' : '') + '</div><div class="fu-bar"><i id="fu-barv" style="width:0"></i></div><div class="fu-log" id="fu-log"></div></div>';
         if ($('fu-cancel')) $('fu-cancel').onclick = function () { FL.call('finCancel'); this.disabled = true; };
+        $('fu-logcopy').onclick = function () { try { navigator.clipboard.writeText(F.log.join('\n')); FL.toast('Log copied', 'ok'); } catch (e) { FL.toast('Copy failed', 'err'); } };
+        $('fu-logsave').onclick = function () { F.saveLog(F.log); };
+        $('fu-chunks').onchange = function () { $('fu-log').classList.toggle('nochunks', !this.checked); };
+        var t0 = Date.now(), rows = 0, chunks = 0;
         return function (msg) {
+            msg = String(msg || '');
+            var stamp = new Date().toTimeString().slice(0, 8);
+            F.log.push(stamp + '  ' + msg);
+            if (F.log.length > 20000) F.log.shift();
             var log = $('fu-log'); if (!log) return;
-            var m = /^\[(\d+)\/(\d+)\]/.exec(msg || '');
+            var m = /^\[(\d+)\/(\d+)\]/.exec(msg);
             if (m && $('fu-barv')) $('fu-barv').style.width = Math.round(+m[1] / +m[2] * 100) + '%';
-            log.insertAdjacentHTML('beforeend', '<div class="' + (/^⚠/.test(msg) ? 'neg' : '') + '">' + esc(msg) + '</div>');
-            while (log.childNodes.length > 200) log.removeChild(log.firstChild);
-            log.scrollTop = log.scrollHeight;
+            var ch = /· chunk \d+ · rows ([\d,]+)–([\d,]+)/.exec(msg);
+            if (ch) { chunks++; rows += (+ch[2].replace(/,/g, '')) - (+ch[1].replace(/,/g, '')) + 1; }
+            if ($('fu-pstat')) $('fu-pstat').textContent = ' · ' + chunks.toLocaleString() + ' chunks · ' + rows.toLocaleString() + ' rows · ' + Math.round((Date.now() - t0) / 1000) + ' s';
+            var cls = /✖|failed/.test(msg) ? 'neg' : /⚠/.test(msg) ? 'warn' : /✓|^Done/.test(msg) ? 'pos' : /^\s*SQL:/.test(msg) ? 'sql' : ch ? 'chunk' : /^▶/.test(msg.trim()) ? 'step' : '';
+            var stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+            log.insertAdjacentHTML('beforeend', '<div class="' + cls + '"><span class="ts">' + stamp + '</span>' + esc(msg) + '</div>');
+            while (log.childNodes.length > 5000) log.removeChild(log.firstChild);
+            if (stick) log.scrollTop = log.scrollHeight;
         };
     };
+    F.saveLog = function (lines) { FL.download('fusion-sync-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.log', new Blob([lines.join('\r\n')], { type: 'text/plain' })); };
+    /** The log of the last sync stays available after the page reloads (this PC). */
+    F.lastLogLink = function () { var l = FL.ls('fusion.lastLog', null); return l && l.lines && l.lines.length ? '<p class="sm"><a id="fu-lastlog">Last sync log (' + esc(l.when) + ', ' + l.lines.length + ' lines)</a></p>' : ''; };
+    F.wireLastLog = function () { if ($('fu-lastlog')) $('fu-lastlog').onclick = function () { var l = FL.ls('fusion.lastLog', {}); FL.modal('<i class="fa-solid fa-list"></i> Last Fusion sync', '<pre class="fu-log" style="max-height:65vh">' + esc((l.lines || []).join('\n')) + '</pre>', '<button class="btn sm" onclick="FL.fusion.saveLog(FL.ls(\'fusion.lastLog\', {}).lines || [])"><i class="fa-solid fa-download"></i> Save</button>'); }; };
+    F.keepLog = function () { FL.lsSet('fusion.lastLog', { when: new Date().toLocaleString(), lines: F.log.slice(-4000) }); };
 
     F.discover = function (pod) {
         if (F.busy) return;
@@ -77,20 +115,28 @@
         var p = F.progress('Discovering ' + (pod || 'the logged-in pod') + '…', true);
         FL.call('finFusionDiscover', { pod: pod }, 30 * 60000, p).then(function (r) {
             F.busy = false;
-            F.disc = r.discovery; F.disc.pod = pod;
+            F.disc = r.discovery; F.disc.pod = pod; F.discFrom = { where: 'Fusion', at: new Date().toLocaleString() };
             if ($('fu-prog')) $('fu-prog').innerHTML = '';
             F.showDiscovery();
+            F.storeStatus('Saving the chart of accounts…');
+            FL.apexStore.saveDiscovery(F.disc, null, null).then(function () { F.storeStatus('✓ Saved in APEX' + (r.savedDuck ? ' and DuckDB' : ' (DuckDB: with the first load)')); })
+                .catch(function (e) { F.storeStatus('⚠ Not saved in APEX: ' + (e.message || e) + (r.savedDuck ? ' · saved in DuckDB' : ''), true); });
         }).catch(function (e) { F.busy = false; if ($('fu-prog')) $('fu-prog').innerHTML = '<div class="callout bad">' + esc(e) + '</div>'; });
     };
 
+    F.storeStatus = function (t, bad) { F.storeMsg = { t: t, bad: bad }; if ($('fu-store')) { $('fu-store').textContent = t; $('fu-store').className = 'sm ' + (bad ? 'neg' : 'muted'); } };
     F.showDiscovery = function () {
         var d = F.disc, box = $('fu-res'); if (!box || !d) return;
+        var from = F.discFrom || {};
         var sv = F.saved() || {}, chosen = {};
         (sv.ledgers || []).forEach(function (l) { chosen[l.id] = 1; });
         var leds = (d.ledgers || []).filter(function (l) { return l.coaId; });
         if (!Object.keys(chosen).length) leds.forEach(function (l) { if ((l.category || 'PRIMARY') === 'PRIMARY') chosen[l.id] = 1; });
         var warns = (d.log || []).filter(function (x) { return /^⚠/.test(x); });
-        var h = '<h4 style="margin:14px 0 6px">1 · Ledgers <small class="muted">a dashboard by company needs the ledger of each company — tick the primary ledgers (secondary and reporting ledgers repeat the same companies)</small></h4>' +
+        var h = '<div class="callout ' + (from.where === 'Fusion' ? 'good' : '') + ' sm"><i class="fa-solid fa-database"></i> ' +
+            (from.where === 'Fusion' ? 'Discovered just now' : 'Saved chart of accounts from <b>' + esc(from.where || '') + '</b> · discovered ' + esc(from.at || d.discoveredAt || '') + (from.by ? ' by ' + esc(from.by) : '') + ' — press Discover to read Fusion again') +
+            ' <span id="fu-store" class="sm muted"></span></div>' +
+            '<h4 style="margin:14px 0 6px">1 · Ledgers <small class="muted">a dashboard by company needs the ledger of each company — tick the primary ledgers (secondary and reporting ledgers repeat the same companies)</small></h4>' +
             '<div class="scroll"><table class="t"><thead><tr><th></th><th>Ledger</th><th>Currency</th><th>Category</th><th>Chart</th><th>Calendar</th><th>Companies (balancing values)</th><th>Open periods</th></tr></thead><tbody>' +
             leds.map(function (l) {
                 var open = Object.keys(l.periodStatus || {}).filter(function (k) { return l.periodStatus[k] === 'O'; });
@@ -125,6 +171,10 @@
             '<label class="sm">Budget <select id="fu-bud"><option value="">none</option>' + (d.budgets || []).map(function (b, i) { return '<option value="' + i + '"' + (sv.budgetId === b.id && sv.budgetSource === b.source ? ' selected' : '') + '>' + esc(b.name + ' (' + b.source + ', ' + (b.rows || 0).toLocaleString() + ' rows)') + '</option>'; }).join('') + '</select></label>' +
             '<label class="sm">Journal lines for drill-down <select id="fu-jm">' + [0, 1, 3, 6, 12, 24].map(function (n) { return '<option value="' + n + '"' + ((sv.journalMonths != null ? sv.journalMonths : 3) === n ? ' selected' : '') + '>' + (n ? 'last ' + n + ' month(s)' : 'none') + '</option>'; }).join('') + '</select></label>' +
             '<label class="sm"><input type="checkbox" id="fu-fold" checked> fold adjustment periods into the period they close</label></div>' +
+            '<div class="row" style="margin-top:6px"><label class="sm" title="Each read is ranked with ROW_NUMBER over its key and limited to this many rows; the next read starts after the last key. A read that times out is repeated at half the size.">Rows per chunk <select id="fu-chunk">' +
+            [500, 1000, 2000, 5000, 10000].map(function (n) { return '<option value="' + n + '"' + ((sv.chunkSize || 2000) === n ? ' selected' : '') + '>' + n.toLocaleString() + '</option>'; }).join('') + '</select></label>' +
+            '<label class="sm">Reads in parallel <select id="fu-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + ((sv.parallel || 2) === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>' +
+            '<label class="sm"><input type="checkbox" id="fu-sqllog"> show the SQL in the log</label></div>' +
             (warns.length ? '<details class="sm" style="margin-top:8px"><summary>' + warns.length + ' Fusion object(s) not available on this pod (other ways were used)</summary>' + warns.map(esc).join('<br>') + '</details>' : '') +
             '<div class="row" style="margin-top:12px"><button class="btn primary" id="fu-sync"><i class="fa-solid fa-cloud-arrow-down"></i> Load into Finance Lens</button><span class="sm muted">Replaces the finance data on this PC · discovered in ' + ((d.ms || 0) / 1000).toFixed(1) + ' s</span></div>';
         box.innerHTML = h;
@@ -149,22 +199,26 @@
             if (bad.length) { FL.toast('Choose the company and the natural account segment for ' + bad[0].name, 'err'); return; }
             var b = $('fu-bud').value === '' ? null : d.budgets[+$('fu-bud').value];
             var o = { pod: d.pod || '', ledgers: ledgers, fromSeq: +$('fu-from').value, toSeq: +$('fu-to').value, budgetSource: b ? b.source : '', budgetId: b ? b.id : '', budgetName: b ? b.name : '',
-                journalMonths: +$('fu-jm').value, foldAdjustments: $('fu-fold').checked, incremental: false };
+                journalMonths: +$('fu-jm').value, foldAdjustments: $('fu-fold').checked, incremental: false, chunkSize: +$('fu-chunk').value, parallel: +$('fu-par').value, logSql: $('fu-sqllog').checked,
+                discoveredAt: d.discoveredAt };
             if (o.toSeq < o.fromSeq) { FL.toast('"From" is after "To"', 'err'); return; }
             if (!confirm('Load ' + ledgers.length + ' ledger(s), ' + F.pname(o.fromSeq) + ' – ' + F.pname(o.toSeq) + ', from Fusion? This replaces the finance data on this PC.')) return;
             o.coa = roles; o.calendar = F.cal;
-            F.sync(o);
+            // keep the chosen roles and ledgers in APEX too (DuckDB gets them with the load)
+            FL.apexStore.saveDiscovery(d, roles, ids).catch(function (e) { console.warn('[Finance] roles not saved in APEX', e); });
+            F.sync(o, d);
         };
     };
 
-    F.sync = function (o) {
+    F.sync = function (o, disc) {
         if (F.busy) return;
         F.busy = true;
         var p = F.progress('Loading from Fusion…', true), t0 = Date.now();
         var opts = { pod: o.pod, ledgers: o.ledgers, fromSeq: o.fromSeq, toSeq: o.toSeq, budgetSource: o.budgetSource || '', budgetId: o.budgetId || '', journalMonths: o.journalMonths || 0,
-            foldAdjustments: o.foldAdjustments !== false, incremental: !!o.incremental };
-        FL.call('finFusionSync', { options: opts }, 4 * 3600000, p).then(function (r) {
-            F.busy = false;
+            foldAdjustments: o.foldAdjustments !== false, incremental: !!o.incremental, chunkSize: o.chunkSize || 2000, parallel: o.parallel || 2, logSql: !!o.logSql };
+        if (disc) opts.discovery = disc;
+        FL.call('finFusionSync', { options: opts }, 6 * 3600000, p).then(function (r) {
+            F.busy = false; F.keepLog();
             var base = F.saved() || {};
             FL.config.fusion = o.incremental ? Object.assign({}, base, { toSeq: Math.max(base.toSeq || 0, o.toSeq) }) : Object.assign({}, base, o);
             delete FL.config.fusion.incremental;
@@ -176,7 +230,11 @@
                 FL.lsSet('filter', {});
                 return FL.refresh();
             });
-        }).catch(function (e) { F.busy = false; if ($('fu-prog')) $('fu-prog').insertAdjacentHTML('beforeend', '<div class="callout bad">' + esc(e) + '</div>'); });
+        }).catch(function (e) {
+            F.busy = false; F.keepLog();
+            if ($('fu-pt')) $('fu-pt').innerHTML = '<i class="fa-solid fa-circle-xmark neg"></i> Load stopped';
+            if ($('fu-prog')) $('fu-prog').insertAdjacentHTML('beforeend', '<div class="callout bad">' + esc(e) + '<div class="sm">The log above shows every chunk; it is also saved next to the data as <code>fusion-sync.log</code>. Try fewer rows per chunk or fewer reads in parallel.</div></div>');
+        });
     };
 
     // ═════ account mapping: class per account → statement lines ═════

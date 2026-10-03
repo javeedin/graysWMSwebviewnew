@@ -48,7 +48,9 @@ DATA (DuckDB, read-only — use run_sql):
   posted_at TIMESTAMP, created_by, ledger, company, cost_centre, account, dr, cr, description) — may hold only recent months.
 - fin_accounts(code, name, account_type A/L/O/R/E, class, parent), fin_companies(code, name, currency),
   fin_cost_centres(code, name, parent), fin_periods(period_name, period_seq, fiscal_year, period_num, quarter, start_date, end_date),
-  fin_ledgers(code, name, currency, coa_id, company_segment, cost_centre_segment, account_segment), fin_meta(key, value).
+  fin_ledgers(code, name, currency, coa_id, company_segment, cost_centre_segment, account_segment), fin_meta(key, value),
+  fin_coa_segments(pod, coa_id, column_name, segment_name, qualifiers, distinct_values, purity, role COMPANY/COST_CENTRE/ACCOUNT/
+  INTERCOMPANY, evidence) — the Fusion chart of accounts structure (may be missing for the sample data).
 - The CONTEXT block holds what the user is looking at: filter (period, company, cost centre, ledger), statement lines and KPI
   values the page computed with the statement templates. Prefer those numbers for lines like revenue, gross profit, EBITDA,
   net profit, cash, so you agree with the screen; use template_rows to see which accounts a line is made of, then run_sql to

@@ -108,8 +108,27 @@ for the logged-in pod or PROD / TEST; the Fusion password stays in the app.
    period they close (Adj-25 → Dec-25), the chosen budget (as running balances, income statement restarting each year) and the
    **posted journal lines** of the last N months (`GL_JE_HEADERS` / `_LINES` / `_BATCHES`, paged by journal id). Big periods
    are split by company, then by account, when the runner's row cap is reached. The new file is swapped in when it is complete.
+   Every read is **ranked in small chunks**: `ROW_NUMBER()` over the read's key (balances: code combination + period;
+   journals: journal id + line number), at most *Rows per chunk* rows per call (default 2,000; 500 – 10,000), and the next
+   chunk starts after the last key read — so every chunk costs the same however deep it is, and no BI Publisher reply is
+   large enough to time out. A chunk that times out is read again at half the size (down to 250). *Reads in parallel*
+   (default 2) sets how many periods are read at once. The first real error stops the other reads and nothing is changed.
+
+   **Detailed log**: every step (▶), every chunk (rows from – to, seconds, rows/s), time-outs and retries (⚠), totals and
+   errors (✖), with a timestamp; *show the SQL in the log* adds each step's SQL. Copy or save it from the panel; the last
+   log is kept on this PC (*Last sync log*) and written next to the data as `fusion-sync.log`.
 3. **Sync again** — one click reloads only the last *n* periods (incremental: the file is copied and those periods replaced);
    it runs a full load when the ledgers or segments changed.
+
+**Where the chart of accounts is kept.** Discover runs once; its result is stored and reused:
+- **APEX** (shared by every PC, created by the page — `apex_sql/85_finance_lens_fusion.sql`): `WMS_FIN_DISCOVERY` (the whole
+  discovery per pod, so the Data tab restores it without asking Fusion), `WMS_FIN_COA_SEGMENTS` (one row per pod × chart ×
+  segment: name, qualifiers, values, purity, **role** COMPANY / COST_CENTRE / ACCOUNT / INTERCOMPANY and why — the roles you
+  chose for the load win) and `WMS_FIN_LEDGERS` (ledgers with currency, chart, calendar, companies, *selected*).
+- **DuckDB** (this PC, with the data): `fin_coa_segments`, `fin_fusion_discovery` (written by Discover when the file exists and
+  by every load) and `fin_ledgers` / `fin_segments` (the segments each loaded ledger uses).
+The Data tab shows the saved discovery (APEX first, then DuckDB) with its date and who ran it; press Discover only when the
+chart of accounts changed.
 
 Names: account, company and cost centre descriptions come from the value sets (`FND_FLEX_VALUES_VL` or `FND_VS_VALUES_B/_TL`);
 companies take the legal entity name when Fusion has one.

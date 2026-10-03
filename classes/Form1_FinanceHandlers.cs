@@ -100,13 +100,17 @@ namespace WMSApp
                             string pod = PipeSrvStr(root, "pod");
                             var d = await FinanceFusion.DiscoverAsync(FinRunner(pod), FinProgress(wv, requestId), cts.Token);
                             AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_fusion_discover", Outcome = d.Ok ? "OK" : "FAILED", Target = pod, Detail = d.Ok ? d.Ledgers.Count + " ledgers" : d.Error });
-                            data = new { ok = d.Ok, error = d.Error, discovery = JsonSerializer.SerializeToElement(d, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }), pod };
+                            var dj = JsonSerializer.SerializeToElement(d, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                            bool savedDuck = false;
+                            if (d.Ok) { try { savedDuck = await Task.Run(() => FinanceLens.SaveDiscovery(pod ?? "", dj.GetRawText(), user)); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[Finance] discovery not saved: " + ex.Message); } }
+                            data = new { ok = d.Ok, error = d.Error, discovery = dj, pod, savedDuck };
                             break;
                         }
                     case "finFusionSync":
                         if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can load finance data." }; break; }
                         {
                             var o = root.GetProperty("options").Deserialize<FinanceFusion.SyncOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            o.User = user;
                             var cts = FinNewCts(TimeSpan.FromHours(3));
                             var sw = System.Diagnostics.Stopwatch.StartNew();
                             data = await Task.Run(() => FinanceFusion.SyncAsync(FinRunner(o.Pod), o, FinProgress(wv, requestId), cts.Token));
@@ -121,6 +125,19 @@ namespace WMSApp
                             if (root.TryGetProperty("classes", out var cl) && cl.ValueKind == JsonValueKind.Object)
                                 foreach (var p in cl.EnumerateObject()) map[p.Name] = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : null;
                             data = new { ok = true, updated = await Task.Run(() => FinanceLens.SetClasses(map)) };
+                            break;
+                        }
+                    case "finDiscoveryGet":     // the discovery saved in the finance file (the page tries APEX first)
+                        {
+                            var sd = await Task.Run(() => FinanceLens.LoadDiscovery(PipeSrvStr(root, "pod") ?? ""));
+                            data = sd == null ? new { ok = true, found = false } : (object)new { ok = true, found = true, json = sd.Value.Json, at = sd.Value.At, by = sd.Value.By };
+                            break;
+                        }
+                    case "finDiscoverySave":    // the chosen roles after a change (no Fusion call)
+                        if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can change the Fusion setup." }; break; }
+                        {
+                            var roles = root.TryGetProperty("roles", out var rl) ? rl.Deserialize<System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, string>>>() : null;
+                            data = new { ok = true, savedDuck = await Task.Run(() => FinanceLens.SaveDiscovery(PipeSrvStr(root, "pod") ?? "", PipeSrvStr(root, "json"), user, roles)) };
                             break;
                         }
                     case "finCancel":
