@@ -1,0 +1,459 @@
+-- ============================================================================
+-- COMPLETE SETUP GUIDE: RR ENDPOINTS API
+-- ============================================================================
+--
+-- This guide provides step-by-step instructions for setting up ALL 5 endpoints
+-- for the RR (REST Resource) Endpoints API in Oracle APEX.
+--
+-- ENDPOINTS OVERVIEW:
+-- 1. GET /rr/endpoints         - Get all endpoints (with pagination)
+-- 2. GET /rr/endpoints/:id     - Get endpoint by ID
+-- 3. POST /rr/endpoints        - Create new endpoint
+-- 4. PUT /rr/endpoints/:id     - Update existing endpoint
+-- 5. DELETE /rr/endpoints/:id  - Delete endpoint
+--
+-- BASE URL:
+-- https://[your-apex-url]/ords/WKSP_GRAYSAPP/REERP/API/rr/endpoints
+--
+-- ============================================================================
+
+-- ============================================================================
+-- PREREQUISITES
+-- ============================================================================
+--
+-- 1. Ensure RR_ENDPOINTS table exists with all required columns
+-- 2. Ensure RR_GET_ALL_ENDPOINTS procedure exists
+-- 3. APEX RESTful Services module "REERP" should be created
+-- 4. Module alias should be "API"
+-- 5. User should have proper privileges
+--
+-- ============================================================================
+
+-- ============================================================================
+-- STEP 1: VERIFY TABLE STRUCTURE
+-- ============================================================================
+--
+-- The RR_ENDPOINTS table should have these columns:
+--
+-- ENDPOINT_ID          NUMBER (Primary Key, Auto-increment via sequence/trigger)
+-- MODULE_CODE          VARCHAR2(20)
+-- FEATURE_NAME         VARCHAR2(200)
+-- PAGE_NAME           VARCHAR2(200)
+-- WORKSPACE_ID        VARCHAR2(100)
+-- WORKSPACE_URL       VARCHAR2(500)
+-- ENDPOINT_PATH       VARCHAR2(500)
+-- HTTP_METHOD         VARCHAR2(20)
+-- REQUEST_PARAMS      CLOB
+-- SAMPLE_REQUEST_BODY CLOB
+-- SAMPLE_RESPONSE     CLOB
+-- RESPONSE_FORMAT     VARCHAR2(20)
+-- CONTENT_TYPE        VARCHAR2(100)
+-- REQUIRES_AUTH       VARCHAR2(1)
+-- AUTH_TYPE          VARCHAR2(50)
+-- TIMEOUT_SECONDS    NUMBER
+-- RETRY_COUNT        NUMBER
+-- SUCCESS_STATUS_CODES VARCHAR2(100)
+-- ERROR_HANDLING_RULES CLOB
+-- TRANSFORM_RULES     CLOB
+-- VALIDATION_RULES    CLOB
+-- DESCRIPTION         CLOB
+-- IS_ACTIVE          VARCHAR2(1)
+-- CREATED_DATE       TIMESTAMP(6)
+-- MODIFIED_DATE      TIMESTAMP(6)
+-- CREATED_BY         VARCHAR2(100)
+-- MODIFIED_BY        VARCHAR2(100)
+-- LAST_TEST_DATE     TIMESTAMP(6)
+-- LAST_TEST_STATUS   VARCHAR2(20)
+-- LAST_TEST_RESPONSE CLOB
+-- TEST_SUCCESS_COUNT NUMBER
+-- TEST_FAILURE_COUNT NUMBER
+-- AVG_RESPONSE_TIME_MS NUMBER
+-- LAST_ERROR_MESSAGE CLOB
+-- NOTES              CLOB
+-- TAGS               VARCHAR2(500)
+-- CATEGORY           VARCHAR2(100)
+-- PRIORITY           NUMBER
+-- ENVIRONMENT        VARCHAR2(50)
+-- VERSION            VARCHAR2(20)
+-- DEPRECATED         VARCHAR2(1)
+-- REPLACEMENT_ENDPOINT_ID NUMBER
+--
+-- ============================================================================
+
+-- ============================================================================
+-- STEP 2: CREATE APEX REST MODULE (IF NOT EXISTS)
+-- ============================================================================
+--
+-- In APEX:
+-- 1. Go to SQL Workshop → RESTful Services
+-- 2. Create Module: REERP
+-- 3. Module Alias: API
+-- 4. Base Path: /rr/
+-- 5. Save Module
+--
+-- ============================================================================
+
+-- ============================================================================
+-- STEP 3: CREATE RESOURCE TEMPLATE
+-- ============================================================================
+--
+-- Under the REERP module:
+-- 1. Click "Create Template"
+-- 2. URI Template: endpoints
+-- 3. Save Template
+--
+-- This creates the base resource: /rr/endpoints
+--
+-- ============================================================================
+
+-- ============================================================================
+-- STEP 4: CREATE HANDLER 1 - GET ALL ENDPOINTS
+-- ============================================================================
+--
+-- Template: endpoints
+-- Method: GET
+-- Source Type: PL/SQL
+--
+-- Query Parameters:
+-- - limit (NUMBER, Query String) - Number of records to return (default 10)
+-- - offset (NUMBER, Query String) - Starting record offset (default 0)
+--
+-- Handler Code: See file 20_rr_endpoints_COMPLETE_FIX.sql
+-- (The GET ALL handler with all 42 columns correctly mapped)
+--
+-- Test URL:
+-- GET /rr/endpoints?limit=10&offset=0
+--
+-- ============================================================================
+
+-- ============================================================================
+-- STEP 5: CREATE RESOURCE TEMPLATE FOR ID-BASED OPERATIONS
+-- ============================================================================
+--
+-- Under the REERP module:
+-- 1. Click "Create Template"
+-- 2. URI Template: endpoints/:id
+-- 3. Save Template
+--
+-- This creates: /rr/endpoints/:id
+--
+-- ============================================================================
+
+-- ============================================================================
+-- STEP 6: CREATE HANDLER 2 - GET ENDPOINT BY ID
+-- ============================================================================
+--
+-- Template: endpoints/:id
+-- Method: GET
+-- Source Type: PL/SQL
+--
+-- URL Parameters:
+-- - id (NUMBER, URI) - The endpoint ID
+--
+-- Handler Code: See file 23_rr_endpoint_by_id_DIRECT_QUERY.sql
+-- (Direct query version - no procedure dependency)
+--
+-- Test URL:
+-- GET /rr/endpoints/1
+--
+-- ============================================================================
+
+-- ============================================================================
+-- STEP 7: CREATE HANDLER 3 - POST (CREATE)
+-- ============================================================================
+--
+-- Template: endpoints
+-- Method: POST
+-- Source Type: PL/SQL
+--
+-- Handler Code: See file 24_rr_endpoints_POST_create.sql
+--
+-- Request Body Example:
+-- {
+--   "module_code": "GL",
+--   "feature_name": "Get Invoices",
+--   "workspace_url": "https://apex.oracle.com/pls/apex/workspace/",
+--   "endpoint_path": "api/gl/invoices",
+--   "http_method": "GET",
+--   "content_type": "application/json",
+--   "timeout_seconds": 30,
+--   "retry_count": 0,
+--   "description": "Fetch GL invoices from Fusion",
+--   "requires_auth": "Y",
+--   "is_active": "Y",
+--   "response_format": "JSON"
+-- }
+--
+-- Response:
+-- {
+--   "status": "SUCCESS",
+--   "message": "Endpoint created successfully",
+--   "data": {
+--     "endpoint_id": 5
+--   }
+-- }
+--
+-- Test with curl:
+-- curl -X POST https://[apex-url]/ords/WKSP_GRAYSAPP/REERP/API/rr/endpoints \
+--   -H "Content-Type: application/json" \
+--   -d '{"module_code":"GL","feature_name":"Test",...}'
+--
+-- ============================================================================
+
+-- ============================================================================
+-- STEP 8: CREATE HANDLER 4 - PUT (UPDATE)
+-- ============================================================================
+--
+-- Template: endpoints/:id
+-- Method: PUT
+-- Source Type: PL/SQL
+--
+-- URL Parameters:
+-- - id (NUMBER, URI) - The endpoint ID to update
+--
+-- Handler Code: See file 25_rr_endpoints_PUT_update.sql
+--
+-- Request Body Example:
+-- {
+--   "endpoint_id": 5,
+--   "module_code": "GL",
+--   "feature_name": "Get Invoices (Updated)",
+--   "workspace_url": "https://apex.oracle.com/pls/apex/workspace/",
+--   "endpoint_path": "api/gl/invoices/v2",
+--   "http_method": "GET",
+--   "content_type": "application/json",
+--   "timeout_seconds": 60,
+--   "retry_count": 2,
+--   "description": "Updated description",
+--   "requires_auth": "Y",
+--   "is_active": "Y",
+--   "response_format": "JSON"
+-- }
+--
+-- Response:
+-- {
+--   "status": "SUCCESS",
+--   "message": "Endpoint updated successfully",
+--   "data": {
+--     "endpoint_id": 5,
+--     "rows_updated": 1
+--   }
+-- }
+--
+-- Test with curl:
+-- curl -X PUT https://[apex-url]/ords/WKSP_GRAYSAPP/REERP/API/rr/endpoints/5 \
+--   -H "Content-Type: application/json" \
+--   -d '{"endpoint_id":5,"module_code":"GL",...}'
+--
+-- ============================================================================
+
+-- ============================================================================
+-- STEP 9: CREATE HANDLER 5 - DELETE
+-- ============================================================================
+--
+-- Template: endpoints/:id
+-- Method: DELETE
+-- Source Type: PL/SQL
+--
+-- URL Parameters:
+-- - id (NUMBER, URI) - The endpoint ID to delete
+--
+-- Handler Code: See file 26_rr_endpoints_DELETE.sql
+--
+-- Response:
+-- {
+--   "status": "SUCCESS",
+--   "message": "Endpoint deleted successfully",
+--   "data": {
+--     "endpoint_id": 5,
+--     "rows_deleted": 1
+--   }
+-- }
+--
+-- Test with curl:
+-- curl -X DELETE https://[apex-url]/ords/WKSP_GRAYSAPP/REERP/API/rr/endpoints/5 \
+--   -H "Content-Type: application/json"
+--
+-- ============================================================================
+
+-- ============================================================================
+-- STEP 10: ENABLE CORS (IF NEEDED)
+-- ============================================================================
+--
+-- If your frontend is hosted on a different domain:
+--
+-- 1. In APEX → RESTful Services → Module Settings
+-- 2. Scroll to "Origins Allowed"
+-- 3. Add your frontend URL or use "*" for development
+-- 4. Save changes
+--
+-- ============================================================================
+
+-- ============================================================================
+-- TESTING CHECKLIST
+-- ============================================================================
+--
+-- ✅ 1. GET /rr/endpoints?limit=10&offset=0
+--      Should return list of all endpoints
+--
+-- ✅ 2. GET /rr/endpoints/1
+--      Should return single endpoint with ID 1
+--
+-- ✅ 3. POST /rr/endpoints
+--      Should create new endpoint and return endpoint_id
+--
+-- ✅ 4. PUT /rr/endpoints/5
+--      Should update endpoint with ID 5
+--
+-- ✅ 5. DELETE /rr/endpoints/5
+--      Should delete endpoint with ID 5
+--
+-- ✅ 6. Test error cases:
+--      - GET non-existent ID
+--      - POST with missing required fields
+--      - PUT with invalid data
+--      - DELETE non-existent ID
+--
+-- ============================================================================
+
+-- ============================================================================
+-- COMMON ISSUES AND SOLUTIONS
+-- ============================================================================
+--
+-- Issue: ORA-00932 inconsistent datatypes
+-- Solution: Ensure FETCH statement matches all 42 columns from cursor
+--
+-- Issue: ORA-06550 component must be declared
+-- Solution: Use direct query instead of non-existent procedure
+--
+-- Issue: HTTP 404 Not Found
+-- Solution: Verify URI template and module alias are correct
+--
+-- Issue: HTTP 403 Forbidden
+-- Solution: Check ORDS authentication and user privileges
+--
+-- Issue: JSON parsing error
+-- Solution: Ensure request Content-Type is application/json
+--
+-- Issue: Null values in response
+-- Solution: Use NVL() or COALESCE() to handle null columns
+--
+-- ============================================================================
+
+-- ============================================================================
+-- POSTMAN COLLECTION SETUP
+-- ============================================================================
+--
+-- Create a Postman collection with these requests:
+--
+-- 1. Get All Endpoints
+--    GET {{baseUrl}}/rr/endpoints?limit=10&offset=0
+--
+-- 2. Get Endpoint By ID
+--    GET {{baseUrl}}/rr/endpoints/1
+--
+-- 3. Create Endpoint
+--    POST {{baseUrl}}/rr/endpoints
+--    Body: (See Step 7 example)
+--
+-- 4. Update Endpoint
+--    PUT {{baseUrl}}/rr/endpoints/5
+--    Body: (See Step 8 example)
+--
+-- 5. Delete Endpoint
+--    DELETE {{baseUrl}}/rr/endpoints/5
+--
+-- Environment Variables:
+-- - baseUrl: https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/REERP/API
+--
+-- ============================================================================
+
+-- ============================================================================
+-- SECURITY CONSIDERATIONS
+-- ============================================================================
+--
+-- 1. Input Validation:
+--    - All handlers validate required fields
+--    - SQL injection prevented by using bind variables
+--    - JSON parsing uses built-in JSON_VALUE functions
+--
+-- 2. Authentication:
+--    - Consider adding APEX authentication
+--    - Use OAuth2 for production
+--    - Implement API keys if needed
+--
+-- 3. Authorization:
+--    - Add role-based access control
+--    - Log all create/update/delete operations
+--    - Implement audit trail
+--
+-- 4. Rate Limiting:
+--    - Consider implementing rate limiting in APEX
+--    - Add throttling for DELETE operations
+--
+-- ============================================================================
+
+-- ============================================================================
+-- MAINTENANCE NOTES
+-- ============================================================================
+--
+-- 1. Regular Backups:
+--    - Backup RR_ENDPOINTS table regularly
+--    - Keep versioned copies of handler code
+--
+-- 2. Monitoring:
+--    - Monitor API response times
+--    - Track error rates
+--    - Set up alerts for failures
+--
+-- 3. Documentation:
+--    - Keep API documentation updated
+--    - Document any schema changes
+--    - Maintain change log
+--
+-- ============================================================================
+
+-- ============================================================================
+-- NEXT STEPS
+-- ============================================================================
+--
+-- After setting up all endpoints:
+--
+-- 1. Test each endpoint in APEX test console
+-- 2. Test with Postman or curl
+-- 3. Test from frontend (sync/pages/api-endpoints.html)
+-- 4. Enable CORS if needed
+-- 5. Add authentication layer
+-- 6. Set up monitoring and logging
+-- 7. Document for other developers
+-- 8. Deploy to production
+--
+-- ============================================================================
+
+-- ============================================================================
+-- FILE REFERENCES
+-- ============================================================================
+--
+-- These handler codes are in separate files for easy copy-paste:
+--
+-- 20_rr_endpoints_COMPLETE_FIX.sql         - GET all endpoints
+-- 23_rr_endpoint_by_id_DIRECT_QUERY.sql    - GET by ID
+-- 24_rr_endpoints_POST_create.sql          - POST create
+-- 25_rr_endpoints_PUT_update.sql           - PUT update
+-- 26_rr_endpoints_DELETE.sql               - DELETE
+-- 27_rr_endpoints_COMPLETE_SETUP_GUIDE.sql - This file
+--
+-- ============================================================================
+
+-- ============================================================================
+-- SUPPORT
+-- ============================================================================
+--
+-- For issues or questions:
+-- 1. Check APEX error logs
+-- 2. Review handler code for proper error handling
+-- 3. Verify table structure matches requirements
+-- 4. Test with simple cases first
+-- 5. Add debug logging if needed
+--
+-- ============================================================================

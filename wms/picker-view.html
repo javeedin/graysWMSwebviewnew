@@ -1,0 +1,2883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Picker Monitor - WMS</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --indigo:  #6366f1;
+            --indigo-d:#4f46e5;
+            --green:   #10b981;
+            --amber:   #f59e0b;
+            --red:     #ef4444;
+            --sky:     #0ea5e9;
+            --violet:  #8b5cf6;
+            --slate-50:#f8fafc;
+            --slate-100:#f1f5f9;
+            --slate-200:#e2e8f0;
+            --slate-400:#94a3b8;
+            --slate-500:#64748b;
+            --slate-700:#334155;
+            --slate-800:#1e293b;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--slate-50);
+            color: var(--slate-800);
+            font-size: 14px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ── Top header bar ─────────────────────────────────── */
+        .page-header {
+            background: linear-gradient(135deg, var(--indigo), var(--indigo-d));
+            padding: 0.7rem 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-shrink: 0;
+            box-shadow: 0 2px 10px rgba(99,102,241,0.4);
+        }
+        .page-header-icon {
+            width: 38px; height: 38px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 9px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .page-header-icon i { color: white; font-size: 1.1rem; }
+        .page-header-title  { font-size: 1rem; font-weight: 700; color: white; }
+        .page-header-sub    { font-size: 0.7rem; color: rgba(255,255,255,0.75); margin-top: 1px; }
+
+        /* ── Body layout ────────────────────────────────────── */
+        .layout {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        /* ── Main content ───────────────────────────────────── */
+        .main-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* ── Summary stats strip ────────────────────────────── */
+        .summary-strip {
+            display: flex;
+            gap: 0.55rem;
+            padding: 0.65rem 1rem;
+            background: white;
+            border-bottom: 1px solid var(--slate-200);
+            flex-wrap: wrap;
+            flex-shrink: 0;
+        }
+        .stat-pill {
+            display: flex;
+            align-items: center;
+            gap: 0.45rem;
+            padding: 0.35rem 0.7rem;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            border: 1px solid transparent;
+        }
+        .stat-pill .val { font-size: 1rem; font-weight: 800; }
+
+        /* ── View mode bar ──────────────────────────────────── */
+        .view-bar {
+            display: flex;
+            gap: 0.4rem;
+            padding: 0.55rem 1rem;
+            background: white;
+            border-bottom: 1px solid var(--slate-200);
+            flex-shrink: 0;
+            align-items: center;
+        }
+        .view-bar-label {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--slate-400);
+            margin-right: 0.25rem;
+        }
+        .view-btn {
+            padding: 0.4rem 0.85rem;
+            border: 1px solid var(--slate-200);
+            border-radius: 7px;
+            background: var(--slate-50);
+            color: var(--slate-500);
+            font-size: 0.76rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            transition: all 0.15s;
+        }
+        .view-btn:hover  { border-color: var(--indigo); color: var(--indigo); background: #eef2ff; }
+        .view-btn.active {
+            background: linear-gradient(135deg, var(--indigo), var(--indigo-d));
+            color: white;
+            border-color: transparent;
+            box-shadow: 0 2px 8px rgba(99,102,241,0.35);
+        }
+
+        /* ── Toolbar (search + display toggle + export) ─────── */
+        .data-toolbar {
+            display: flex;
+            gap: 0.5rem;
+            padding: 0.55rem 1rem;
+            background: #f8fafc;
+            border-bottom: 1px solid var(--slate-200);
+            flex-shrink: 0;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .search-box {
+            flex: 1;
+            min-width: 180px;
+            max-width: 340px;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            background: white;
+            border: 1px solid var(--slate-200);
+            border-radius: 7px;
+            padding: 0.35rem 0.7rem;
+        }
+        .search-box i { color: var(--slate-400); font-size: 0.8rem; }
+        .search-box input {
+            border: none;
+            outline: none;
+            font-size: 0.78rem;
+            width: 100%;
+            color: var(--slate-700);
+            background: transparent;
+        }
+        .disp-btn {
+            padding: 0.38rem 0.8rem;
+            border: 1px solid var(--slate-200);
+            border-radius: 7px;
+            background: var(--slate-50);
+            color: var(--slate-500);
+            font-size: 0.76rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            transition: all 0.15s;
+        }
+        .disp-btn:hover  { border-color: var(--indigo); color: var(--indigo); background: #eef2ff; }
+        .disp-btn.active { background: linear-gradient(135deg,var(--indigo),var(--indigo-d)); color: white; border-color: transparent; box-shadow: 0 2px 6px rgba(99,102,241,.3); }
+        .export-btn {
+            padding: 0.38rem 0.9rem;
+            border: 1px solid #16a34a;
+            border-radius: 7px;
+            background: #f0fdf4;
+            color: #16a34a;
+            font-size: 0.76rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            transition: all 0.15s;
+            margin-left: auto;
+        }
+        .export-btn:hover { background: #16a34a; color: white; }
+        .export-btn-pdf { border-color: #dc2626; color: #dc2626; background: #fff5f5; margin-left: 0.4rem; }
+        .export-btn-pdf:hover { background: #dc2626; color: white; }
+        .export-btn-ai  { border-color: #7c3aed; color: #7c3aed; background: #f5f3ff; margin-left: 0.4rem; }
+        .export-btn-ai:hover  { background: #7c3aed; color: white; }
+
+        /* ── Grid table ─────────────────────────────────────── */
+        .grid-table-wrap { overflow-x: scroll; padding: 1rem; }
+        .grid-table { min-width: 900px; }
+        .grid-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.78rem;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .grid-table thead tr { background: linear-gradient(135deg,#6366f1,#4f46e5); color: white; }
+        .grid-table th { padding: 0.6rem 0.85rem; text-align: left; font-weight: 700; font-size: 0.72rem; letter-spacing: 0.03em; white-space: nowrap; cursor: pointer; user-select: none; }
+        .grid-table th:hover { background: rgba(255,255,255,0.15); }
+        .grid-table th .sort-icon { margin-left: 4px; opacity: 0.6; }
+        .grid-table tbody tr { border-bottom: 1px solid #f1f5f9; transition: background 0.1s; }
+        .grid-table tbody tr:hover { background: #eef2ff; }
+        .grid-table tbody tr:last-child { border-bottom: none; }
+        .grid-table td { padding: 0.5rem 0.85rem; color: var(--slate-700); vertical-align: middle; }
+        .grid-table td.num { text-align: right; font-weight: 600; }
+        .gt-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 99px; font-size: 0.67rem; font-weight: 700; }
+        .gt-full    { background: #d1fae5; color: #065f46; }
+        .gt-partial { background: #fef3c7; color: #92400e; }
+        .gt-none    { background: #fee2e2; color: #991b1b; }
+        .gt-prog { width: 80px; height: 6px; background: #e2e8f0; border-radius: 4px; display: inline-block; vertical-align: middle; overflow: hidden; }
+        .gt-prog-fill { height: 100%; border-radius: 4px; }
+
+        /* ── Cards scroll area ──────────────────────────────── */
+        .cards-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+        }
+
+        /* ── Group block ────────────────────────────────────── */
+        .group-block {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid var(--slate-200);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+        .group-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.8rem 1rem;
+            border-bottom: 1px solid var(--slate-100);
+            background: linear-gradient(to right, #f8fafc, white);
+            flex-wrap: wrap;
+        }
+        .group-icon {
+            width: 40px; height: 40px;
+            border-radius: 9px;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+        }
+        .group-icon i { color: white; font-size: 1rem; }
+        .group-title { font-size: 0.95rem; font-weight: 700; color: var(--slate-800); }
+        .group-sub   { font-size: 0.68rem; color: var(--slate-500); margin-top: 1px; white-space: normal; word-break: break-word; }
+        .group-sub b { font-weight: 800; color: #1e293b; background: rgba(255,255,255,0.92); padding: 1px 6px; border-radius: 4px; font-size: 0.66rem; letter-spacing: 0.2px; }
+        .group-badges {
+            display: flex;
+            gap: 0.3rem;
+            flex-wrap: wrap;
+            margin-left: auto;
+        }
+        .gbadge {
+            padding: 0.18rem 0.5rem;
+            border-radius: 14px;
+            font-size: 0.67rem;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .gbadge-total   { background:#e0e7ff; color:#3730a3; }
+        .gbadge-picked  { background:#d1fae5; color:#065f46; }
+        .gbadge-partial { background:#fef3c7; color:#92400e; }
+        .gbadge-none    { background:#fee2e2; color:#991b1b; }
+
+        /* ── Progress bar ───────────────────────────────────── */
+        .prog-row {
+            padding: 0.4rem 1rem 0.6rem;
+            background: #fcfcfd;
+        }
+        .prog-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.25rem;
+        }
+        .prog-label { font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate-500); }
+        .prog-pct   { font-size: 0.72rem; font-weight: 800; }
+        .prog-track {
+            height: 7px;
+            background: var(--slate-200);
+            border-radius: 99px;
+            overflow: hidden;
+        }
+        .prog-fill {
+            height: 100%;
+            border-radius: 99px;
+            transition: width 0.5s ease;
+        }
+
+        /* ── Order cards grid ───────────────────────────────── */
+        .orders-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+            gap: 0.65rem;
+            padding: 0.65rem 1rem 0.9rem;
+        }
+
+        .order-card {
+            border: 1px solid var(--slate-200);
+            border-radius: 9px;
+            padding: 0.65rem 0.75rem;
+            background: #fafbfc;
+            transition: transform 0.15s, box-shadow 0.15s;
+            cursor: default;
+            border-left-width: 3px;
+        }
+        .order-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .order-card.card-full    { border-left-color: var(--green); }
+        .order-card.card-shipped { border-left-color: var(--sky);   }
+        .order-card.card-partial { border-left-color: var(--amber); }
+        .order-card.card-none    { border-left-color: var(--red);   }
+
+        .card-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 0.3rem;
+            margin-bottom: 0.3rem;
+        }
+        .card-order-num {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: var(--slate-800);
+        }
+        .card-status-badge {
+            padding: 0.15rem 0.4rem;
+            border-radius: 6px;
+            font-size: 0.6rem;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            flex-shrink: 0;
+        }
+        .badge-full    { background:#d1fae5; color:#065f46; }
+        .badge-partial { background:#fef3c7; color:#92400e; }
+        .badge-none    { background:#fee2e2; color:#991b1b; }
+        .badge-shipped { background:#dbeafe; color:#1e40af; }
+
+        .card-account {
+            font-size: 0.72rem;
+            color: var(--slate-600);
+            font-weight: 600;
+            white-space: normal;
+            word-break: break-word;
+            margin-bottom: 0.4rem;
+            line-height: 1.3;
+        }
+
+        /* Mini item progress bar inside card */
+        .card-progress {
+            margin-bottom: 0.4rem;
+        }
+        .card-prog-nums {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.62rem;
+            color: var(--slate-500);
+            margin-bottom: 0.15rem;
+        }
+        .card-prog-track {
+            height: 4px;
+            background: var(--slate-200);
+            border-radius: 99px;
+            overflow: hidden;
+        }
+        .card-prog-fill {
+            height: 100%;
+            border-radius: 99px;
+        }
+
+        .card-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 0.18rem;
+        }
+        .card-meta-row {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            font-size: 0.65rem;
+            color: var(--slate-500);
+        }
+        .card-meta-row i { width: 11px; text-align: center; flex-shrink: 0; }
+        .card-meta-row span { white-space: normal; word-break: break-word; }
+
+        /* Priority mini-badge */
+        .pri-badge {
+            display: inline-block;
+            padding: 0.1rem 0.35rem;
+            border-radius: 5px;
+            font-size: 0.6rem;
+            font-weight: 700;
+        }
+        .pri-high  { background:#fee2e2; color:#dc2626; }
+        .pri-mid   { background:#fef3c7; color:#d97706; }
+        .pri-low   { background:#d1fae5; color:#059669; }
+
+        /* ── RIGHT filter panel ─────────────────────────────── */
+        .filter-panel {
+            width: 270px;
+            min-width: 250px;
+            background: white;
+            border-left: 1px solid var(--slate-200);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+        .fp-section {
+            padding: 0.9rem 1rem;
+            border-bottom: 1px solid var(--slate-100);
+        }
+        .fp-title {
+            font-size: 0.67rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--slate-400);
+            margin-bottom: 0.55rem;
+        }
+
+        .fp-home-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            width: 100%;
+            padding: 0.55rem 0.85rem;
+            border: 1px solid var(--slate-200);
+            border-radius: 8px;
+            background: white;
+            color: var(--slate-700);
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+            text-decoration: none;
+        }
+        .fp-home-btn:hover { background: var(--slate-50); border-color: var(--slate-300); }
+        .fp-home-btn i     { color: var(--indigo); }
+
+        label.fp-lbl {
+            display: block;
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: var(--slate-700);
+            margin-bottom: 0.2rem;
+        }
+        label.fp-lbl i { margin-right: 3px; }
+
+        .fp-input, .fp-select {
+            width: 100%;
+            padding: 0.42rem 0.6rem;
+            border: 1px solid var(--slate-200);
+            border-radius: 7px;
+            font-size: 0.8rem;
+            font-family: inherit;
+            color: var(--slate-800);
+            background: white;
+            margin-bottom: 0.5rem;
+            transition: border-color 0.15s;
+        }
+        .fp-input:focus, .fp-select:focus {
+            outline: none;
+            border-color: var(--indigo);
+            box-shadow: 0 0 0 3px rgba(99,102,241,0.1);
+        }
+
+        .fp-btn-primary {
+            width: 100%;
+            padding: 0.58rem;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(135deg, var(--indigo), var(--indigo-d));
+            color: white;
+            font-size: 0.8rem;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            margin-top: 0.15rem;
+            transition: opacity 0.15s;
+        }
+        .fp-btn-primary:hover    { opacity: 0.9; }
+        .fp-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .fp-btn-outline {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid var(--indigo);
+            border-radius: 8px;
+            background: white;
+            color: var(--indigo);
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            transition: all 0.15s;
+        }
+        .fp-btn-outline:hover    { background: #eef2ff; }
+        .fp-btn-outline:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        .fp-btn-ghost {
+            width: 100%;
+            padding: 0.45rem;
+            border: 1px solid var(--slate-200);
+            border-radius: 8px;
+            background: white;
+            color: var(--slate-600);
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.35rem;
+            transition: all 0.15s;
+            margin-top: 0.35rem;
+        }
+        .fp-btn-ghost:hover { background: var(--slate-50); }
+
+        .fp-last-updated {
+            font-size: 0.65rem;
+            color: var(--slate-400);
+            text-align: center;
+            margin-top: 0.45rem;
+        }
+
+        .legend-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.7rem;
+            color: var(--slate-600);
+            margin-bottom: 0.3rem;
+        }
+        .legend-dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        /* ── Placeholder / Loading ──────────────────────────── */
+        .placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--slate-500);
+        }
+        .placeholder i { font-size: 4rem; color: var(--slate-200); margin-bottom: 1.25rem; display: block; }
+        .placeholder h3 { color: var(--slate-700); margin-bottom: 0.5rem; font-size: 1.05rem; }
+        .placeholder p  { font-size: 0.85rem; line-height: 1.6; }
+
+        /* ── Spinner ────────────────────────────────────────── */
+        .spinner-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 5rem 2rem;
+            color: var(--indigo);
+        }
+        .spinner-wrap i { font-size: 3.5rem; margin-bottom: 1rem; opacity: 0.7; }
+        .spinner-wrap p { font-size: 0.9rem; font-weight: 600; color: var(--slate-700); }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .fa-spin { animation: spin 0.8s linear infinite; }
+
+        /* ── API Info button in header ──────────────────────── */
+        .api-info-btn {
+            margin-left: auto;
+            background: rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.35);
+            border-radius: 8px;
+            color: white;
+            padding: 0.35rem 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: background 0.15s;
+        }
+        .api-info-btn:hover { background: rgba(255,255,255,0.28); }
+        .api-status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #94a3b8;
+            flex-shrink: 0;
+            transition: background 0.3s;
+        }
+        .api-status-dot.ok   { background: #34d399; }
+        .api-status-dot.err  { background: #f87171; }
+        .api-status-dot.busy { background: #fbbf24; animation: spin 1s linear infinite; }
+
+        /* ── API Info modal ─────────────────────────────────── */
+        .api-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15,23,42,0.45);
+            z-index: 900;
+            align-items: flex-start;
+            justify-content: flex-end;
+            padding: 3.5rem 1.5rem 0 0;
+        }
+        .api-modal-overlay.open { display: flex; }
+        .api-modal {
+            background: white;
+            border-radius: 14px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.2);
+            padding: 1.25rem 1.4rem;
+            width: 340px;
+            max-width: calc(100vw - 2rem);
+            font-size: 0.8rem;
+        }
+        .api-modal-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--slate-800);
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .api-row {
+            display: flex;
+            flex-direction: column;
+            gap: 0.2rem;
+            margin-bottom: 0.9rem;
+        }
+        .api-row-label {
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--slate-400);
+        }
+        .api-row-value {
+            background: var(--slate-100);
+            border-radius: 6px;
+            padding: 0.4rem 0.6rem;
+            font-family: monospace;
+            font-size: 0.72rem;
+            color: var(--slate-700);
+            word-break: break-all;
+        }
+        .api-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.25rem 0.6rem;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 700;
+        }
+        .api-badge-wv2  { background: #dbeafe; color: #1e40af; }
+        .api-badge-browser { background: #ede9fe; color: #5b21b6; }
+        .api-test-btn {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid var(--slate-200);
+            border-radius: 8px;
+            background: var(--slate-50);
+            color: var(--slate-700);
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            margin-top: 0.5rem;
+            transition: all 0.15s;
+        }
+        .api-test-btn:hover { background: #eef2ff; color: var(--indigo); border-color: var(--indigo); }
+        .api-test-result {
+            margin-top: 0.6rem;
+            padding: 0.5rem 0.6rem;
+            border-radius: 7px;
+            font-size: 0.73rem;
+            display: none;
+        }
+        .api-test-result.ok  { background: #d1fae5; color: #065f46; display: block; }
+        .api-test-result.err { background: #fee2e2; color: #991b1b; display: block; }
+
+        /* ── Summary View ─────────────────────────────────────── */
+        .summary-view { display: flex; flex-direction: column; gap: 1.1rem; }
+        .sv-lorry {
+            background: #fff;
+            border: 1px solid var(--slate-200);
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .sv-lorry-header {
+            display: flex;
+            align-items: center;
+            gap: 0.9rem;
+            padding: 0.85rem 1.1rem;
+            background: linear-gradient(135deg,#0ea5e9,#0284c7);
+            color: #fff;
+        }
+        .sv-lorry-icon {
+            width: 36px; height: 36px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 9px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1rem;
+            flex-shrink: 0;
+        }
+        .sv-lorry-title { font-weight: 700; font-size: 1rem; letter-spacing: 0.3px; }
+        .sv-lorry-meta  { font-size: 0.75rem; opacity: 0.85; margin-top: 1px; display: flex; gap: 1rem; }
+        .sv-lorry-badge {
+            margin-left: auto;
+            background: rgba(255,255,255,0.2);
+            border-radius: 99px;
+            padding: 0.2rem 0.65rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .sv-lorry-progress-wrap { padding: 0.6rem 1.1rem 0; }
+        .sv-progress-bar-bg {
+            background: rgba(255,255,255,0.25);
+            border-radius: 99px;
+            height: 6px;
+            overflow: hidden;
+        }
+        .sv-lorry-header .sv-progress-bar-bg { margin-top: 0.4rem; }
+        .sv-progress-bar-fill {
+            height: 100%;
+            border-radius: 99px;
+            transition: width 0.4s ease;
+        }
+        .fill-green  { background: #22c55e; }
+        .fill-amber  { background: #f59e0b; }
+        .fill-orange { background: #f97316; }
+        .fill-red    { background: #ef4444; }
+
+        .sv-pickers { padding: 0.6rem 0.9rem 0.9rem; display: flex; flex-direction: column; gap: 0.55rem; }
+        .sv-picker-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.6rem 0.75rem;
+            background: var(--slate-50);
+            border-radius: 9px;
+            border: 1px solid var(--slate-100);
+        }
+        .sv-picker-avatar {
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            background: linear-gradient(135deg,#6366f1,#4f46e5);
+            color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.7rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        .sv-picker-info { flex: 1; min-width: 0; }
+        .sv-picker-name {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--slate-700);
+            white-space: normal;
+            word-break: break-word;
+        }
+        .sv-picker-bar-wrap { margin-top: 0.3rem; position: relative; }
+        .sv-picker-bar-bg {
+            background: var(--slate-200);
+            border-radius: 99px;
+            height: 8px;
+            overflow: hidden;
+        }
+        .sv-picker-pct {
+            min-width: 42px;
+            text-align: right;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--slate-600);
+            flex-shrink: 0;
+        }
+        .sv-picker-lines {
+            min-width: 68px;
+            text-align: right;
+            font-size: 0.7rem;
+            color: var(--slate-400);
+            flex-shrink: 0;
+        }
+        .sv-lorry-aggregate {
+            padding: 0 1.1rem 0.6rem;
+        }
+        .sv-agg-bar-wrap { display: flex; align-items: center; gap: 0.6rem; }
+        .sv-agg-bar-bg {
+            flex: 1;
+            background: var(--slate-100);
+            border-radius: 99px;
+            height: 10px;
+            overflow: hidden;
+        }
+        .sv-agg-pct {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--slate-600);
+            min-width: 38px;
+            text-align: right;
+        }
+        .sv-no-data {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--slate-400);
+            font-size: 0.88rem;
+        }
+        .sv-no-data i { font-size: 2.5rem; display: block; margin-bottom: 0.75rem; }
+        .sv-lorry-tags { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.3rem; }
+        .sv-tag {
+            background: rgba(255,255,255,0.18);
+            border-radius: 99px;
+            padding: 0.1rem 0.55rem;
+            font-size: 0.7rem;
+            display: flex; align-items: center; gap: 0.3rem;
+        }
+        /* ── AI Summary Modal ───────────────────────────────────── */
+        .ai-modal-overlay {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(15,23,42,0.65);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+        .ai-modal-overlay.open { display: flex; }
+        .ai-modal {
+            background: #fff;
+            border-radius: 14px;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.28);
+            width: min(860px, 95vw);
+            max-height: 88vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: aiSlideIn 0.22s ease;
+        }
+        @keyframes aiSlideIn { from { opacity:0; transform:translateY(-18px) scale(0.97); } to { opacity:1; transform:none; } }
+        .ai-modal-header {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            color: #fff;
+            padding: 1rem 1.4rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-shrink: 0;
+        }
+        .ai-modal-header-icon {
+            width: 36px; height: 36px;
+            background: rgba(255,255,255,0.18);
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.1rem;
+            flex-shrink: 0;
+        }
+        .ai-modal-title { font-size: 1rem; font-weight: 700; }
+        .ai-modal-sub   { font-size: 0.72rem; opacity: 0.8; margin-top: 1px; }
+        .ai-modal-close {
+            margin-left: auto;
+            background: rgba(255,255,255,0.18);
+            border: none; border-radius: 8px;
+            color: #fff; cursor: pointer;
+            width: 30px; height: 30px;
+            font-size: 1rem;
+            display: flex; align-items: center; justify-content: center;
+            transition: background 0.15s;
+        }
+        .ai-modal-close:hover { background: rgba(255,255,255,0.35); }
+        .ai-modal-key-bar {
+            background: #f8fafc;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 0.65rem 1.4rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            flex-shrink: 0;
+        }
+        .ai-modal-key-bar label { font-size: 0.72rem; font-weight: 600; color: #475569; white-space: nowrap; }
+        .ai-modal-key-input {
+            flex: 1;
+            padding: 0.3rem 0.6rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-family: monospace;
+            color: #1e293b;
+            background: #fff;
+        }
+        .ai-modal-key-input:focus { outline: none; border-color: #818cf8; box-shadow: 0 0 0 2px rgba(129,140,248,0.2); }
+        .ai-modal-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.2rem 1.4rem;
+        }
+        .ai-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            padding: 3rem 2rem;
+            color: #64748b;
+            text-align: center;
+        }
+        .ai-loading .ai-spinner {
+            width: 48px; height: 48px;
+            border: 4px solid #e0e7ff;
+            border-top-color: #6366f1;
+            border-radius: 50%;
+            animation: spin 0.9s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .ai-loading-title  { font-size: 1rem; font-weight: 700; color: #4f46e5; }
+        .ai-loading-detail { font-size: 0.78rem; color: #94a3b8; }
+        /* Rendered AI content */
+        .ai-content h1 { font-size: 1.3rem; font-weight: 800; color: #1e293b; margin: 0 0 0.4rem; }
+        .ai-content h2 { font-size: 1rem; font-weight: 700; color: #4f46e5; margin: 1.2rem 0 0.4rem; border-bottom: 2px solid #e0e7ff; padding-bottom: 0.25rem; }
+        .ai-content h3 { font-size: 0.88rem; font-weight: 700; color: #1e293b; margin: 0.8rem 0 0.3rem; }
+        .ai-content p  { font-size: 0.82rem; color: #475569; line-height: 1.6; margin: 0 0 0.5rem; }
+        .ai-content ul, .ai-content ol { font-size: 0.82rem; color: #475569; padding-left: 1.2rem; margin: 0 0 0.5rem; line-height: 1.7; }
+        .ai-content table { width: 100%; border-collapse: collapse; font-size: 0.78rem; margin: 0.6rem 0 1rem; }
+        .ai-content th { background: #f1f5f9; color: #1e293b; font-weight: 700; padding: 6px 10px; text-align: left; border: 1px solid #e2e8f0; }
+        .ai-content td { padding: 5px 10px; border: 1px solid #e2e8f0; color: #475569; }
+        .ai-content tr:nth-child(even) td { background: #f8fafc; }
+        .ai-content .badge { display:inline-block; padding:2px 7px; border-radius:99px; font-size:0.68rem; font-weight:700; }
+        .ai-content .badge-green  { background:#d1fae5; color:#065f46; }
+        .ai-content .badge-amber  { background:#fef3c7; color:#92400e; }
+        .ai-content .badge-red    { background:#fee2e2; color:#991b1b; }
+        .ai-content .badge-blue   { background:#dbeafe; color:#1e40af; }
+        .ai-content .badge-purple { background:#ede9fe; color:#5b21b6; }
+        .ai-content .stat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:0.6rem; margin:0.6rem 0 1rem; }
+        .ai-content .stat-card { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:0.6rem 0.8rem; }
+        .ai-content .stat-val  { font-size:1.3rem; font-weight:800; color:#4f46e5; }
+        .ai-content .stat-lbl  { font-size:0.68rem; color:#64748b; margin-top:2px; }
+        .ai-content .progress-row { display:flex; align-items:center; gap:0.5rem; margin:3px 0; }
+        .ai-content .progress-row .pr-bar { flex:1; height:8px; background:#e2e8f0; border-radius:99px; overflow:hidden; }
+        .ai-content .progress-row .pr-fill { height:100%; border-radius:99px; }
+        .ai-content .progress-row .pr-label { font-size:0.72rem; color:#475569; min-width:110px; }
+        .ai-content .progress-row .pr-pct   { font-size:0.72rem; font-weight:700; color:#1e293b; min-width:32px; text-align:right; }
+        .ai-modal-footer {
+            border-top: 1px solid #e5e7eb;
+            padding: 0.7rem 1.4rem;
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.6rem;
+            flex-shrink: 0;
+            background: #f8fafc;
+        }
+        .ai-btn { padding:0.38rem 1rem; border-radius:7px; font-size:0.76rem; font-weight:600; cursor:pointer; border:none; display:flex; align-items:center; gap:0.35rem; transition:all 0.15s; }
+        .ai-btn-primary { background:#4f46e5; color:#fff; }
+        .ai-btn-primary:hover { background:#4338ca; }
+        .ai-btn-pdf     { background:#dc2626; color:#fff; }
+        .ai-btn-pdf:hover { background:#b91c1c; }
+        .ai-btn-ghost   { background:#fff; color:#64748b; border:1px solid #e2e8f0; }
+        .ai-btn-ghost:hover { background:#f1f5f9; color:#1e293b; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+
+    <!-- ── Top header ──────────────────────────────────────────── -->
+    <div class="page-header">
+        <div class="page-header-icon"><i class="fas fa-hard-hat"></i></div>
+        <div>
+            <div class="page-header-title">Picker Monitor</div>
+            <div class="page-header-sub">Real-time picking status — by picker, lorry or loading bay</div>
+        </div>
+        <button class="api-info-btn" onclick="toggleApiModal()" title="View API / web service info">
+            <div class="api-status-dot" id="apiStatusDot"></div>
+            <i class="fas fa-plug"></i> API Info
+        </button>
+    </div>
+
+    <!-- ── API Info Modal ───────────────────────────────────────── -->
+    <div class="api-modal-overlay" id="apiModalOverlay" onclick="closeApiModal(event)">
+        <div class="api-modal">
+            <div class="api-modal-title">
+                <i class="fas fa-plug" style="color:var(--indigo);"></i>
+                Web Service Info
+            </div>
+
+            <div class="api-row">
+                <div class="api-row-label">Mode</div>
+                <div>
+                    <span class="api-badge" id="apiModeBadge">—</span>
+                </div>
+            </div>
+
+            <div class="api-row">
+                <div class="api-row-label">Endpoint URL</div>
+                <div class="api-row-value" id="apiEndpointUrl">—</div>
+            </div>
+
+            <div class="api-row">
+                <div class="api-row-label">Last Fetch Status</div>
+                <div class="api-row-value" id="apiLastStatus">Not fetched yet</div>
+            </div>
+
+            <button class="api-test-btn" onclick="testApiConnection()">
+                <i class="fas fa-wifi" id="apiTestIcon"></i> Test Connection
+            </button>
+            <div class="api-test-result" id="apiTestResult"></div>
+
+            <div class="api-row" style="margin-top:0.75rem;">
+                <div class="api-row-label">Sample Record Fields</div>
+                <div class="api-row-value" id="apiSampleRecord" style="font-size:0.7rem;max-height:200px;overflow-y:auto;white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:0.5rem;font-family:monospace;">No data loaded yet</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Layout ──────────────────────────────────────────────── -->
+    <div class="layout">
+
+        <!-- ── MAIN AREA ─────────────────────────────────────── -->
+        <div class="main-area">
+
+            <!-- Summary stats strip -->
+            <div class="summary-strip" id="summaryStrip">
+                <span style="font-size:0.78rem;color:var(--slate-400);font-style:italic;">Load data to see summary…</span>
+            </div>
+
+            <!-- View mode bar -->
+            <div class="view-bar">
+                <span class="view-bar-label">View by</span>
+                <button class="view-btn active" id="vbtn-picker" onclick="setView('picker')">
+                    <i class="fas fa-user-tie"></i> Picker
+                </button>
+                <button class="view-btn" id="vbtn-lorry" onclick="setView('lorry')">
+                    <i class="fas fa-truck"></i> Lorry
+                </button>
+                <button class="view-btn" id="vbtn-priority" onclick="setView('priority')">
+                    <i class="fas fa-flag"></i> Priority
+                </button>
+                <button class="view-btn" id="vbtn-bay" onclick="setView('bay')">
+                    <i class="fas fa-warehouse"></i> Loading Bay
+                </button>
+                <button class="view-btn" id="vbtn-order" onclick="setView('order')">
+                    <i class="fas fa-box"></i> Order
+                </button>
+                <button class="view-btn" id="vbtn-summary" onclick="setView('summary')">
+                    <i class="fas fa-chart-bar"></i> Summary
+                </button>
+            </div>
+
+            <!-- Toolbar: search + display toggle + export -->
+            <div class="data-toolbar">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="globalSearch" placeholder="Search orders, pickers, lorry…" oninput="applySearch()">
+                </div>
+                <button class="disp-btn active" id="dbtn-card" onclick="setDisplayMode('card')" title="Card View">
+                    <i class="fas fa-th-large"></i> Cards
+                </button>
+                <button class="disp-btn" id="dbtn-grid" onclick="setDisplayMode('grid')" title="Grid View">
+                    <i class="fas fa-table"></i> Grid
+                </button>
+                <button class="export-btn" onclick="exportToExcel()" title="Export visible data to Excel">
+                    <i class="fas fa-file-excel"></i> Export Excel
+                </button>
+                <button class="export-btn export-btn-pdf" onclick="exportToPdf()" title="Export current view to PDF (exactly as shown)">
+                    <i class="fas fa-file-pdf"></i> Export PDF
+                </button>
+                <button class="export-btn export-btn-ai" onclick="openAiSummaryModal()" title="Generate an AI-powered summary report">
+                    <i class="fas fa-robot"></i> AI Summary
+                </button>
+                <button class="export-btn" onclick="toggleApiModal()" title="View API endpoint and response fields" style="border-color:#6366f1;color:#6366f1;background:#eef2ff;">
+                    <div class="api-status-dot" id="apiStatusDot2" style="width:7px;height:7px;border-radius:50%;background:#94a3b8;flex-shrink:0;"></div>
+                    <i class="fas fa-plug"></i> API
+                </button>
+            </div>
+
+            <!-- Cards -->
+            <div class="cards-area" id="cardsArea">
+                <div class="placeholder">
+                    <i class="fas fa-hard-hat"></i>
+                    <h3>No Data Loaded</h3>
+                    <p>Select a date on the right panel and click <strong>Fetch Data</strong> to start monitoring.</p>
+                </div>
+            </div>
+
+        </div><!-- /main-area -->
+
+        <!-- ── RIGHT FILTER PANEL ────────────────────────────── -->
+        <div class="filter-panel">
+
+            <!-- WMS Home -->
+            <div class="fp-section">
+                <a class="fp-home-btn" href="index.html">
+                    <i class="fas fa-home"></i> WMS Home
+                </a>
+            </div>
+
+            <!-- Date & Instance -->
+            <div class="fp-section">
+                <div class="fp-title">Date &amp; Instance</div>
+
+                <label class="fp-lbl" for="fpDate">
+                    <i class="fas fa-calendar-alt" style="color:var(--indigo);"></i> Date
+                </label>
+                <input type="date" id="fpDate" class="fp-input">
+
+                <label class="fp-lbl" for="fpInstance">
+                    <i class="fas fa-server" style="color:var(--indigo);"></i> Instance
+                </label>
+                <select id="fpInstance" class="fp-select">
+                    <option value="PROD">PROD</option>
+                    <option value="TEST">TEST</option>
+                </select>
+
+                <button id="fetchBtn" class="fp-btn-primary" onclick="loadData()">
+                    <i class="fas fa-sync-alt"></i> Fetch Data
+                </button>
+            </div>
+
+            <!-- Filters -->
+            <div class="fp-section">
+                <div class="fp-title">Filters</div>
+
+                <label class="fp-lbl" for="fPicker">
+                    <i class="fas fa-user-tie" style="color:var(--indigo);"></i> Picker
+                </label>
+                <select id="fPicker" class="fp-select" onchange="applyFilters()">
+                    <option value="">All Pickers</option>
+                </select>
+
+                <label class="fp-lbl" for="fLorry">
+                    <i class="fas fa-truck" style="color:var(--sky);"></i> Lorry
+                </label>
+                <select id="fLorry" class="fp-select" onchange="applyFilters()">
+                    <option value="">All Lorries</option>
+                </select>
+
+                <label class="fp-lbl" for="fBay">
+                    <i class="fas fa-warehouse" style="color:var(--green);"></i> Loading Bay
+                </label>
+                <select id="fBay" class="fp-select" onchange="applyFilters()">
+                    <option value="">All Bays</option>
+                </select>
+
+                <label class="fp-lbl" for="fStatus">
+                    <i class="fas fa-check-circle" style="color:var(--amber);"></i> Pick Status
+                </label>
+                <select id="fStatus" class="fp-select" onchange="applyFilters()">
+                    <option value="">All Statuses</option>
+                    <option value="full">Fully Picked</option>
+                    <option value="shipped">Shipped</option>
+                    <option value="partial">Partial</option>
+                    <option value="none">Not Picked</option>
+                </select>
+
+                <button class="fp-btn-ghost" onclick="clearFilters()">
+                    <i class="fas fa-times"></i> Clear Filters
+                </button>
+            </div>
+
+            <!-- Refresh -->
+            <div class="fp-section">
+                <div class="fp-title">Refresh</div>
+                <button id="refreshBtn" class="fp-btn-outline" onclick="loadData()" disabled>
+                    <i class="fas fa-redo-alt"></i> Refresh Now
+                </button>
+                <div id="lastUpdated" class="fp-last-updated">Not loaded yet</div>
+            </div>
+
+            <!-- Legend -->
+            <div class="fp-section">
+                <div class="fp-title">Legend</div>
+                <div class="legend-row"><div class="legend-dot" style="background:var(--green);"></div><span>All items picked</span></div>
+                <div class="legend-row"><div class="legend-dot" style="background:var(--amber);"></div><span>Partially picked</span></div>
+                <div class="legend-row"><div class="legend-dot" style="background:var(--red);"></div><span>Not picked</span></div>
+            </div>
+
+        </div><!-- /filter-panel -->
+
+    </div><!-- /layout -->
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+let allData        = [];   // raw item rows from getPickersView
+let allSummaryData = [];   // rows from getPickersSummary
+let viewMode       = 'picker';
+let displayMode    = 'card';   // 'card' | 'grid'
+let lastRenderedOrders = [];   // kept for search & export
+let gridSortCol    = null;
+let gridSortAsc    = true;
+const isWV2        = !!(window.chrome && window.chrome.webview);
+let lastFetchUrl   = '';
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function () {
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('fpDate').value = today;
+
+    const savedInst = localStorage.getItem('instanceName');
+    if (savedInst) document.getElementById('fpInstance').value = savedInst;
+
+    updateApiModalInfo();
+    document.getElementById('fpInstance').addEventListener('change', updateApiModalInfo);
+});
+
+// ── API Modal helpers ─────────────────────────────────────────────────────────
+function getApiBase() {
+    return 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
+}
+
+function updateApiModalInfo() {
+    const instance = document.getElementById('fpInstance') ? document.getElementById('fpInstance').value : 'PROD';
+    const base = getApiBase();
+    const endpoint = `${base}/getpickersview`;
+    lastFetchUrl = endpoint;
+    const urlEl = document.getElementById('apiEndpointUrl');
+    if (urlEl) urlEl.textContent = endpoint + '?P_INSTANCE_NAME=' + instance + '&P_ASSIGNMENT_DATE=<DD-MM-YYYY>';
+
+    const badge = document.getElementById('apiModeBadge');
+    if (badge) {
+        if (isWV2) {
+            badge.className = 'api-badge api-badge-wv2';
+            badge.innerHTML = '<i class="fas fa-desktop"></i> WebView2 (Desktop App)';
+        } else {
+            badge.className = 'api-badge api-badge-browser';
+            badge.innerHTML = '<i class="fas fa-globe"></i> Browser (Direct Fetch)';
+        }
+    }
+}
+
+function toggleApiModal() {
+    updateApiModalInfo();
+    document.getElementById('apiModalOverlay').classList.toggle('open');
+}
+
+function closeApiModal(e) {
+    if (e.target === document.getElementById('apiModalOverlay')) {
+        document.getElementById('apiModalOverlay').classList.remove('open');
+    }
+}
+
+function setApiDot(state) {
+    ['apiStatusDot', 'apiStatusDot2'].forEach(id => {
+        const dot = document.getElementById(id);
+        if (dot) { dot.className = 'api-status-dot' + (state ? ' ' + state : ''); }
+    });
+}
+
+function setApiLastStatus(msg, ok) {
+    const el = document.getElementById('apiLastStatus');
+    if (el) {
+        el.textContent = msg;
+        el.style.color = ok === true ? '#065f46' : ok === false ? '#991b1b' : '';
+    }
+}
+
+function testApiConnection() {
+    const instance = document.getElementById('fpInstance') ? document.getElementById('fpInstance').value : 'PROD';
+    const d = new Date();
+    const today = `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+
+    const btn = document.querySelector('.api-test-btn');
+    const res = document.getElementById('apiTestResult');
+    const icon = document.getElementById('apiTestIcon');
+
+    if (btn) btn.disabled = true;
+    if (icon) icon.className = 'fas fa-circle-notch fa-spin';
+    if (res)  { res.className = 'api-test-result'; res.textContent = 'Testing via C# handler…'; }
+
+    // One-time callback checked by handlePickersViewData
+    window._apiTestPending = { btn, res, icon };
+
+    window.chrome.webview.postMessage({ action: 'getPickersView', assignmentDate: today, instance: instance });
+}
+
+// ── Fetch ────────────────────────────────────────────────────────────────────
+function loadData() {
+    const fromDate = document.getElementById('fpDate').value;
+    const instance = document.getElementById('fpInstance').value;
+    if (!fromDate) { alert('Please select a date.'); return; }
+    // Clear print status cache so fresh data is fetched on next load
+    window._pvPrintCache = {};
+
+    // Format date as DD-MM-YYYY for the API
+    const d = new Date(fromDate);
+    const apexDate = `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+
+    setLoading(true);
+    setApiDot('busy');
+    updateApiModalInfo();
+
+    lastFetchUrl = `${getApiBase()}/getpickersview?P_INSTANCE_NAME=${instance}&P_ASSIGNMENT_DATE=${apexDate}`;
+    console.log('[Picker Monitor] Requesting via C#:', lastFetchUrl);
+
+    // Route through C# to avoid CORS — handler calls window.handlePickersViewData() back
+    window.chrome.webview.postMessage({
+        action:         'getPickersView',
+        assignmentDate: apexDate,
+        instance:       instance
+    });
+
+    // Fire summary webservice in parallel
+    window.chrome.webview.postMessage({
+        action:         'getPickersSummary',
+        assignmentDate: apexDate,
+        instance:       instance
+    });
+}
+
+// ── Data callback ─────────────────────────────────────────────────────────────
+window.handlePickersViewData = function (data, error) {
+    setLoading(false);
+
+    // If this came from testApiConnection, resolve the test UI and stop
+    if (window._apiTestPending) {
+        const t = window._apiTestPending;
+        window._apiTestPending = null;
+        if (t.btn)  t.btn.disabled = false;
+        if (t.icon) t.icon.className = 'fas fa-wifi';
+        if (error) {
+            if (t.res) { t.res.className = 'api-test-result err'; t.res.textContent = `Failed: ${error}`; }
+            setApiDot('err');
+        } else {
+            const count = Array.isArray(data) ? data.length : '?';
+            if (t.res) { t.res.className = 'api-test-result ok'; t.res.textContent = `Connected! Records: ${count}.`; }
+            setApiDot('ok');
+        }
+        return;
+    }
+
+    if (error) {
+        setApiDot('err');
+        setApiLastStatus('Error: ' + String(error).substring(0, 80), false);
+        showError(error);
+        return;
+    }
+    // API returns a direct array
+    allData = Array.isArray(data) ? data
+            : (data && data.items) ? data.items
+            : [];
+    console.log('[Picker Monitor] Parsed rows:', allData.length, allData[0] || '(empty)');
+    // Show first record fields in API modal for debugging
+    const sampleEl = document.getElementById('apiSampleRecord');
+    if (sampleEl && allData.length) {
+        sampleEl.textContent = JSON.stringify(allData[0], null, 2);
+    }
+    setApiDot(allData.length ? 'ok' : 'err');
+    setApiLastStatus(
+        allData.length
+            ? `OK — ${allData.length} rows at ${new Date().toLocaleTimeString()}`
+            : `No rows returned at ${new Date().toLocaleTimeString()}`,
+        allData.length > 0
+    );
+    document.getElementById('lastUpdated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+    document.getElementById('refreshBtn').disabled = false;
+    buildFilterDropdowns();
+    applyFilters();
+    // Inject PDF download status into every rendered order card
+    setTimeout(() => fetchAndInjectPrintStatus(), 50);
+};
+
+// ── Summary data callback ──────────────────────────────────────────────────────
+window.handlePickersSummaryData = function (data, error) {
+    if (error) {
+        console.warn('[Picker Summary] Error:', error);
+        return;
+    }
+    allSummaryData = Array.isArray(data) ? data
+                   : (data && data.items) ? data.items
+                   : [];
+    console.log('[Picker Summary] Rows:', allSummaryData.length, allSummaryData[0] || '(empty)');
+    if (viewMode === 'summary') renderSummaryView();
+};
+
+// ── Build filter dropdowns ────────────────────────────────────────────────────
+function buildFilterDropdowns() {
+    const pickers = uniq(allData.map(r => r.picker_name  || '')).filter(Boolean).sort();
+    const lorries = uniq(allData.map(r => r.lorry_number || '')).filter(Boolean).sort();
+    const bays    = uniq(allData.map(r => r.loading_bay  || '')).filter(Boolean).sort();
+    populateSel('fPicker', pickers, 'All Pickers');
+    populateSel('fLorry',  lorries, 'All Lorries');
+    populateSel('fBay',    bays,    'All Bays');
+}
+
+function populateSel(id, vals, placeholder) {
+    const el = document.getElementById(id);
+    const cur = el.value;
+    el.innerHTML = `<option value="">${placeholder}</option>` +
+        vals.map(v => `<option value="${v}">${v}</option>`).join('');
+    if (vals.includes(cur)) el.value = cur;
+}
+
+// ── Filters ───────────────────────────────────────────────────────────────────
+function applyFilters() {
+    const fPicker = document.getElementById('fPicker').value;
+    const fLorry  = document.getElementById('fLorry').value;
+    const fBay    = document.getElementById('fBay').value;
+    const fStatus = document.getElementById('fStatus').value;
+
+    // Filter at item level first
+    let rows = allData.filter(r => {
+        if (fPicker && (r.picker_name  || '') !== fPicker) return false;
+        if (fLorry  && (r.lorry_number || '') !== fLorry)  return false;
+        if (fBay    && (r.loading_bay  || '') !== fBay)    return false;
+        return true;
+    });
+
+    // Group by order, compute pick status, then filter by fStatus
+    const orders = buildOrderMap(rows);
+    let filteredOrders = Object.values(orders);
+    if (fStatus) {
+        if (fStatus === 'shipped') {
+            filteredOrders = filteredOrders.filter(o => o.isShipped);
+        } else {
+            filteredOrders = filteredOrders.filter(o => o.pickStatus === fStatus);
+        }
+    }
+
+    updateSummary(rows, filteredOrders);
+    if (viewMode === 'summary') { renderSummaryView(); return; }
+    renderView(filteredOrders);
+    // Paint from cache only — no re-fetch (fetch happens once in handlePickersViewData)
+    setTimeout(() => paintAllFromCache(), 20);
+}
+
+function clearFilters() {
+    ['fPicker','fLorry','fBay','fStatus'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    applyFilters();
+}
+
+// ── Build order map — each API row is already one order summary ─────────────
+function buildOrderMap(rows) {
+    const map = {};
+    rows.forEach(r => {
+        const key         = r.source_order_number || 'UNKNOWN';
+        const totalLines  = Number(r.total_lines)  || 0;
+        const pickedLines = Number(r.picked_lines) || 0;
+
+        map[key] = {
+            orderNum:  key,
+            tripId:    r.trip_id || r.TRIP_ID || null,
+            account:   r.account_name   || '—',
+            picker:    r.picker_name    || 'Unassigned',
+            lorry:     r.lorry_number   || '—',
+            bay:       r.loading_bay    || '—',
+            priority:  r.order_priority || '',
+            date:      r.assignment_date || '',
+            totalQty:  totalLines,
+            pickedQty: pickedLines,
+            balance:   Number(r.balance_lines) || 0,
+            items:     []
+        };
+
+        const o = map[key];
+        if (totalLines === 0)               o.pickStatus = 'none';
+        else if (pickedLines === totalLines) o.pickStatus = 'full';
+        else if (pickedLines > 0)           o.pickStatus = 'partial';
+        else                                o.pickStatus = 'none';
+        o.pickPct   = totalLines ? Math.round(pickedLines / totalLines * 100) : 0;
+        // Shipped: all lines picked = fully shipped
+        o.isShipped = totalLines > 0 && pickedLines === totalLines;
+    });
+
+    return map;
+}
+
+// ── Summary strip ─────────────────────────────────────────────────────────────
+function updateSummary(rows, orders) {
+    const el = document.getElementById('summaryStrip');
+    if (!rows.length) { el.innerHTML = '<span style="font-size:.78rem;color:var(--slate-400);font-style:italic;">No data loaded…</span>'; return; }
+
+    const totalOrders   = orders.length;
+    const pickedOrders   = orders.filter(o => o.pickStatus === 'full').length;
+    const shippedOrders  = orders.filter(o => o.isShipped).length;
+    const partialOrders  = orders.filter(o => o.pickStatus === 'partial').length;
+    const pendingOrders  = orders.filter(o => o.pickStatus === 'none').length;
+    const pickers  = uniq(rows.map(r => r.picker_name  || '').filter(Boolean)).length;
+    const lorries  = uniq(rows.map(r => r.lorry_number || '').filter(Boolean)).length;
+    const bays     = uniq(rows.map(r => r.loading_bay  || '').filter(Boolean)).length;
+    const totalLines  = rows.reduce((s, r) => s + (Number(r.total_lines)  || 0), 0);
+    const pickedLines = rows.reduce((s, r) => s + (Number(r.picked_lines) || 0), 0);
+    const pct = totalLines ? Math.round(pickedLines / totalLines * 100) : 0;
+
+    el.innerHTML = `
+        ${pill('#e0e7ff','#3730a3',pickers,'fas fa-user-tie','Pickers')}
+        ${pill('#dbeafe','#1e40af',lorries,'fas fa-truck','Lorries')}
+        ${pill('#ede9fe','#5b21b6',bays,'fas fa-warehouse','Bays')}
+        ${pill('#f1f5f9','#334155',totalOrders,'fas fa-box','Orders')}
+        ${pill('#f1f5f9','#334155',totalLines,'fas fa-list','Total Lines')}
+        ${pill('#d1fae5','#065f46',pickedLines,'fas fa-check-circle','Lines Picked')}
+        ${pill('#fee2e2','#991b1b',totalLines - pickedLines,'fas fa-clock','Balance')}
+        ${pill('#d1fae5','#065f46',pickedOrders,'fas fa-check-double','Orders Done')}
+        ${shippedOrders ? pill('#dbeafe','#1e40af',shippedOrders,'fas fa-shipping-fast','Shipped') : ''}
+        ${pill('#fef3c7','#92400e',partialOrders,'fas fa-adjust','Partial')}
+        ${pill('#fee2e2','#991b1b',pendingOrders,'fas fa-hourglass','Pending')}
+        ${pillPct(pct)}
+    `;
+}
+
+function pill(bg, color, val, icon, label) {
+    return `<div class="stat-pill" style="background:${bg};color:${color};border-color:${bg};">
+        <i class="${icon}" style="font-size:.8rem;"></i>
+        <span class="val">${val}</span>
+        <span style="font-size:.68rem;opacity:.8;">${label}</span>
+    </div>`;
+}
+
+function pillPct(pct) {
+    const col = pct===100?'#059669':pct>=50?'#d97706':'#dc2626';
+    const bg  = pct===100?'#d1fae5':pct>=50?'#fef3c7':'#fee2e2';
+    return `<div class="stat-pill" style="background:${bg};color:${col};border-color:${bg};font-size:.8rem;">
+        <i class="fas fa-chart-pie"></i>
+        <span class="val">${pct}%</span>
+        <span style="font-size:.68rem;opacity:.8;">Complete</span>
+    </div>`;
+}
+
+// ── View mode ─────────────────────────────────────────────────────────────────
+function setView(mode) {
+    viewMode = mode;
+    document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('vbtn-' + mode).classList.add('active');
+
+    // Reset to card view on every view switch
+    displayMode = 'card';
+    document.querySelectorAll('.disp-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('dbtn-card').classList.add('active');
+
+    if (mode === 'summary') {
+        renderSummaryView();
+    } else if (allData.length) {
+        applyFilters();
+    }
+}
+
+// ── Display mode (card / grid) ────────────────────────────────────────────────
+function setDisplayMode(mode) {
+    displayMode = mode;
+    document.querySelectorAll('.disp-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('dbtn-' + mode).classList.add('active');
+    if (lastRenderedOrders.length) {
+        renderView(lastRenderedOrders);
+        setTimeout(() => paintAllFromCache(), 20);
+    }
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+function applySearch() {
+    if (!lastRenderedOrders.length) return;
+    const q = (document.getElementById('globalSearch').value || '').toLowerCase().trim();
+    if (!q) { renderView(lastRenderedOrders); return; }
+    const statusLabel = { full: 'picked', partial: 'partial', none: 'pending' };
+    const filtered = lastRenderedOrders.filter(o =>
+        o.orderNum.toLowerCase().includes(q)          ||
+        o.account.toLowerCase().includes(q)           ||
+        o.picker.toLowerCase().includes(q)            ||
+        o.lorry.toLowerCase().includes(q)             ||
+        o.bay.toLowerCase().includes(q)               ||
+        (o.priority + '').toLowerCase().includes(q)   ||
+        (statusLabel[o.pickStatus] || '').includes(q) ||
+        (o.pickPct  + '').includes(q)                 ||
+        (o.totalQty + '').includes(q)                 ||
+        (o.pickedQty + '').includes(q)                ||
+        (o.balance  + '').includes(q)
+    );
+    renderViewRaw(filtered);
+    setTimeout(() => paintAllFromCache(), 20);
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderView(orders) {
+    lastRenderedOrders = orders;
+    renderViewRaw(orders);
+}
+
+function renderViewRaw(orders) {
+    const area = document.getElementById('cardsArea');
+    if (!orders.length) {
+        area.innerHTML = `<div class="placeholder">
+            <i class="fas fa-search"></i>
+            <h3>No Results</h3>
+            <p>No orders match the selected filters. Try clearing some filters.</p>
+        </div>`;
+        return;
+    }
+
+    if (displayMode === 'grid') {
+        renderGridView(area, orders);
+        return;
+    }
+
+    if (viewMode === 'order') {
+        renderFlatOrders(area, orders);
+    } else {
+        const keyFn = {
+            picker:   o => o.picker,
+            lorry:    o => o.lorry,
+            bay:      o => o.bay,
+            priority: o => o.priority || '—',
+        }[viewMode];
+        const iconCfg = {
+            picker:   { icon:'fas fa-user-hard-hat', grad:'linear-gradient(135deg,#6366f1,#4f46e5)' },
+            lorry:    { icon:'fas fa-truck',          grad:'linear-gradient(135deg,#0ea5e9,#0284c7)' },
+            bay:      { icon:'fas fa-warehouse',       grad:'linear-gradient(135deg,#10b981,#059669)' },
+            priority: { icon:'fas fa-flag',            grad:'linear-gradient(135deg,#f59e0b,#d97706)' },
+        }[viewMode];
+        renderGrouped(area, orders, keyFn, iconCfg);
+    }
+}
+
+// ── Grid view (HTML table) ────────────────────────────────────────────────────
+function renderGridView(area, orders) {
+    const cols = [
+        { key: 'orderNum',   label: 'Order #' },
+        { key: 'picker',     label: 'Picker' },
+        { key: 'lorry',      label: 'Lorry' },
+        { key: 'bay',        label: 'Loading Bay' },
+        { key: 'priority',   label: 'Priority' },
+        { key: 'totalQty',   label: 'Total Lines' },
+        { key: 'pickedQty',  label: 'Picked Lines' },
+        { key: 'balance',    label: 'Balance' },
+        { key: 'pickPct',    label: '% Done' },
+        { key: 'pickStatus', label: 'Status' },
+        { key: 'pdf',        label: 'PDF', noSort: true },
+    ];
+
+    let sorted = [...orders];
+    if (gridSortCol) {
+        sorted.sort((a, b) => {
+            let va = a[gridSortCol], vb = b[gridSortCol];
+            if (!isNaN(Number(va)) && !isNaN(Number(vb))) { va = Number(va); vb = Number(vb); }
+            else { va = String(va||'').toLowerCase(); vb = String(vb||'').toLowerCase(); }
+            return gridSortAsc ? (va > vb ? 1 : va < vb ? -1 : 0) : (va < vb ? 1 : va > vb ? -1 : 0);
+        });
+    }
+
+    const statusCls = { full: 'gt-full', partial: 'gt-partial', none: 'gt-none' };
+    const statusLbl = { full: 'Picked',  partial: 'Partial',    none: 'Pending' };
+    const shippedBadge = `<span class="gt-badge" style="background:#dbeafe;color:#1e40af;margin-left:3px;"><i class="fas fa-shipping-fast"></i> Shipped</span>`;
+    const progCol   = pct => pct === 100 ? '#10b981' : pct > 0 ? '#f59e0b' : '#ef4444';
+
+    const headerHtml = cols.map(c => {
+        const isSort = gridSortCol === c.key;
+        const arrow  = isSort ? (gridSortAsc ? ' ▲' : ' ▼') : ' ↕';
+        const click  = c.noSort ? '' : `onclick="sortGrid('${c.key}')"`;
+        return `<th ${click}>${c.label}${c.noSort ? '' : `<span class="sort-icon">${arrow}</span>`}</th>`;
+    }).join('');
+
+    const rowsHtml = sorted.map(o => `
+        <tr data-order-num="${o.orderNum}"${o.tripId ? ` data-trip-id="${o.tripId}"` : ''}>
+            <td><strong>${o.orderNum}</strong></td>
+            <td>${o.picker}</td>
+            <td>${o.lorry}</td>
+            <td>${o.bay}</td>
+            <td>${o.priority || '—'}</td>
+            <td class="num">${o.totalQty}</td>
+            <td class="num">${o.pickedQty}</td>
+            <td class="num">${o.balance}</td>
+            <td class="num">
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <div class="gt-prog"><div class="gt-prog-fill" style="width:${o.pickPct}%;background:${progCol(o.pickPct)};"></div></div>
+                    <span>${o.pickPct}%</span>
+                </div>
+            </td>
+            <td><span class="gt-badge ${statusCls[o.pickStatus]||'gt-none'}">${statusLbl[o.pickStatus]||'Pending'}</span>${o.isShipped ? shippedBadge : ''}</td>
+            <td class="grid-pdf-cell" data-order="${o.orderNum}" style="color:#94a3b8;font-size:0.7rem;">…</td>
+        </tr>`).join('');
+
+    area.innerHTML = `
+        <div style="padding:0.75rem 1rem 0.25rem;font-size:0.75rem;color:var(--slate-500);">${sorted.length} orders</div>
+        <div id="grid-scroll-top" style="overflow-x:scroll;overflow-y:hidden;height:12px;margin:0 1rem 0;">
+            <div id="grid-scroll-top-inner" style="height:1px;"></div>
+        </div>
+        <div class="grid-table-wrap" id="grid-scroll-body">
+            <table class="grid-table" id="grid-main-table">
+                <thead><tr>${headerHtml}</tr></thead>
+                <tbody>${rowsHtml}</tbody>
+            </table>
+        </div>`;
+
+    // Sync top scrollbar width and scroll position
+    const topScroll  = area.querySelector('#grid-scroll-top');
+    const topInner   = area.querySelector('#grid-scroll-top-inner');
+    const bodyScroll = area.querySelector('#grid-scroll-body');
+    const table      = area.querySelector('#grid-main-table');
+    // Wait one frame for table to render and get its width
+    requestAnimationFrame(() => {
+        if (table && topInner) topInner.style.width = table.offsetWidth + 'px';
+        if (topScroll && bodyScroll) {
+            topScroll.addEventListener('scroll', () => { bodyScroll.scrollLeft = topScroll.scrollLeft; });
+            bodyScroll.addEventListener('scroll', () => { topScroll.scrollLeft  = bodyScroll.scrollLeft; });
+        }
+    });
+}
+
+function sortGrid(col) {
+    if (gridSortCol === col) gridSortAsc = !gridSortAsc;
+    else { gridSortCol = col; gridSortAsc = true; }
+    renderViewRaw(lastRenderedOrders);
+    setTimeout(() => paintAllFromCache(), 20);
+}
+
+// ── Export to Excel (ExcelJS — styled with progress bar) ─────────────────────
+async function exportToExcel() {
+    const orders = lastRenderedOrders;
+    if (!orders.length) { alert('No data to export. Load data first.'); return; }
+
+    const q = (document.getElementById('globalSearch').value || '').toLowerCase().trim();
+    const rows = q ? orders.filter(o =>
+        o.orderNum.toLowerCase().includes(q)  ||
+        o.picker.toLowerCase().includes(q)    ||
+        o.lorry.toLowerCase().includes(q)     ||
+        o.bay.toLowerCase().includes(q)       ||
+        (o.priority + '').toLowerCase().includes(q)
+    ) : orders;
+
+    const instance = document.getElementById('fpInstance') ? document.getElementById('fpInstance').value : 'PROD';
+    const date     = document.getElementById('fpDate')     ? document.getElementById('fpDate').value     : '';
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'WMS Picker Monitor';
+    wb.created = new Date();
+
+    const ws = wb.addWorksheet('Picker Monitor', { views: [{ state: 'frozen', ySplit: 2 }] });
+
+    // ── Title row ──────────────────────────────────────────────────────────────
+    ws.mergeCells('A1:L1');
+    const titleCell = ws.getCell('A1');
+    titleCell.value = `Picker Monitor — ${instance}  |  Date: ${date}  |  View: ${viewMode.charAt(0).toUpperCase()+viewMode.slice(1)}  |  ${rows.length} orders`;
+    titleCell.font  = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
+    titleCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
+    titleCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+    ws.getRow(1).height = 24;
+
+    // ── Header row ────────────────────────────────────────────────────────────
+    const headers = [
+        { header: 'Order #',      key: 'orderNum',  width: 18 },
+        { header: 'Account',      key: 'account',   width: 36 },
+        { header: 'Picker',       key: 'picker',    width: 22 },
+        { header: 'Lorry',        key: 'lorry',     width: 14 },
+        { header: 'Loading Bay',  key: 'bay',       width: 14 },
+        { header: 'Priority',     key: 'priority',  width: 10 },
+        { header: 'Total Lines',  key: 'totalQty',  width: 13 },
+        { header: 'Picked Lines', key: 'pickedQty', width: 14 },
+        { header: 'Balance',      key: 'balance',   width: 11 },
+        { header: 'Progress Bar', key: 'bar',       width: 30 },
+        { header: '% Done',       key: 'pickPct',   width: 10 },
+        { header: 'Status',       key: 'status',    width: 12 },
+    ];
+    ws.columns = headers;
+
+    const hdrRow = ws.getRow(2);
+    hdrRow.values = ['', ...headers.map(h => h.header)]; // col A is row-number label
+    ws.columns.forEach((col, i) => {
+        const cell = hdrRow.getCell(i + 1);
+        cell.value  = headers[i] ? headers[i].header : '';
+        cell.font   = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
+        cell.fill   = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF374151' } };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cell.border = { bottom: { style: 'thin', color: { argb: 'FF6366f1' } } };
+    });
+    hdrRow.height = 20;
+
+    // ── Status colours ────────────────────────────────────────────────────────
+    const statusCfg = {
+        full:    { label: 'Picked',  fill: 'FFD1FAE5', font: 'FF065F46' },
+        partial: { label: 'Partial', fill: 'FFFEF3C7', font: 'FF92400E' },
+        none:    { label: 'Pending', fill: 'FFFEE2E2', font: 'FF991B1B' },
+        shipped: { label: 'Shipped', fill: 'FFDBEAFE', font: 'FF1E40AF' },
+    };
+    const progColor = pct => pct === 100 ? 'FF10B981' : pct > 0 ? 'FFF59E0B' : 'FFEF4444';
+    const altFill   = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+
+    // ── Data rows ─────────────────────────────────────────────────────────────
+    rows.forEach((o, i) => {
+        const rowIdx = i + 3;   // rows 1=title, 2=header, 3+= data
+        const pct    = o.pickPct || 0;
+        const cfg    = o.isShipped ? statusCfg.shipped : (statusCfg[o.pickStatus] || statusCfg.none);
+
+        // Build a text-art progress bar: ████████░░░░ 80%
+        const filled  = Math.round(pct / 5);   // out of 20 blocks
+        const empty   = 20 - filled;
+        const barText = '█'.repeat(filled) + '░'.repeat(empty) + `  ${pct}%`;
+
+        const dataRow = ws.getRow(rowIdx);
+        dataRow.values = [
+            o.orderNum,
+            o.account || '—',
+            o.picker,
+            o.lorry,
+            o.bay,
+            o.priority || '—',
+            o.totalQty,
+            o.pickedQty,
+            o.balance,
+            barText,
+            pct / 100,          // stored as decimal so Excel shows as %
+            cfg.label,
+        ];
+        dataRow.height = 18;
+
+        // Zebra striping
+        const rowFill = i % 2 === 0 ? null : altFill;
+
+        dataRow.eachCell({ includeEmpty: true }, (cell, colNum) => {
+            cell.font      = { size: 9 };
+            cell.alignment = { vertical: 'middle', horizontal: colNum <= 2 ? 'left' : 'center' };
+            if (rowFill) cell.fill = rowFill;
+            cell.border = { bottom: { style: 'hair', color: { argb: 'FFE5E7EB' } } };
+        });
+
+        // Order # — bold + indigo
+        const orderCell = dataRow.getCell(1);
+        orderCell.font  = { bold: true, size: 9, color: { argb: 'FF4F46E5' } };
+
+        // Numeric columns — right-align
+        [7, 8, 9].forEach(c => { dataRow.getCell(c).alignment = { horizontal: 'right', vertical: 'middle' }; });
+
+        // Progress bar cell — coloured text matching fill %
+        const barCell  = dataRow.getCell(10);
+        barCell.font   = { size: 9, color: { argb: progColor(pct) }, name: 'Courier New' };
+        barCell.alignment = { horizontal: 'left', vertical: 'middle' };
+
+        // % Done — percentage format
+        const pctCell  = dataRow.getCell(11);
+        pctCell.numFmt = '0%';
+        pctCell.font   = { bold: true, size: 9, color: { argb: progColor(pct) } };
+
+        // Status — coloured badge look
+        const stCell   = dataRow.getCell(12);
+        stCell.font    = { bold: true, size: 9, color: { argb: 'FF' + cfg.font.slice(2) } };
+        stCell.fill    = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + cfg.fill.slice(2) } };
+    });
+
+    // ── Auto-filter on header row ─────────────────────────────────────────────
+    ws.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2, column: headers.length } };
+
+    // ── Download ──────────────────────────────────────────────────────────────
+    const buffer = await wb.xlsx.writeBuffer();
+    saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+        `PickerMonitor_${instance}_${date || 'export'}.xlsx`);
+}
+
+// ── Export to PDF (html2pdf — captures live UI) ───────────────────────────────
+function exportToPdf() {
+    const orders = lastRenderedOrders;
+    if (!orders.length) { alert('No data to export. Load data first.'); return; }
+
+    const instance = document.getElementById('fpInstance') ? document.getElementById('fpInstance').value : 'PROD';
+    const date     = document.getElementById('fpDate')     ? document.getElementById('fpDate').value     : '';
+
+    // ── Build a self-contained snapshot of the current view ───────────────────
+    const sourceArea = document.getElementById('cardsArea');
+
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'font-family:Inter,system-ui,sans-serif;padding:12px;background:#fff;';
+
+    // Title banner
+    const titleBar = document.createElement('div');
+    titleBar.style.cssText = [
+        'background:#4f46e5;color:#fff;padding:10px 16px;border-radius:8px;',
+        'margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;'
+    ].join('');
+    titleBar.innerHTML = `
+        <div>
+            <div style="font-size:15px;font-weight:700;letter-spacing:0.3px;">Picker Monitor — ${instance}</div>
+            <div style="font-size:11px;opacity:0.85;margin-top:2px;">Date: ${date} &nbsp;|&nbsp; View: ${viewMode.charAt(0).toUpperCase()+viewMode.slice(1)} &nbsp;|&nbsp; ${orders.length} orders</div>
+        </div>
+        <div style="font-size:10px;opacity:0.75;">Generated: ${new Date().toLocaleString()}</div>`;
+    wrapper.appendChild(titleBar);
+
+    // Clone the current rendered area with all inline styles preserved
+    const clone = sourceArea.cloneNode(true);
+    clone.style.cssText = 'background:#f8fafc;border-radius:8px;padding:10px;';
+
+    // html2pdf captures computed styles from the original document CSS,
+    // so we embed a <style> tag with the critical rules needed for the snapshot
+    const styleTag = document.createElement('style');
+    styleTag.textContent = `
+        * { box-sizing: border-box; }
+        .order-card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:10px; margin:4px; display:inline-block; width:190px; vertical-align:top; }
+        .card-full    { border-left:3px solid #10b981; }
+        .card-partial { border-left:3px solid #f59e0b; }
+        .card-none    { border-left:3px solid #ef4444; }
+        .card-top { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px; }
+        .card-order-num { font-size:11px; font-weight:700; color:#1e293b; }
+        .card-status-badge { padding:2px 5px; border-radius:5px; font-size:8px; font-weight:700; display:inline-flex; align-items:center; gap:3px; }
+        .badge-full    { background:#d1fae5; color:#065f46; }
+        .badge-partial { background:#fef3c7; color:#92400e; }
+        .badge-none    { background:#fee2e2; color:#991b1b; }
+        .badge-shipped { background:#dbeafe; color:#1e40af; }
+        .card-account { font-size:9px; color:#475569; font-weight:600; margin-bottom:5px; line-height:1.3; }
+        .card-progress { margin-bottom:5px; }
+        .card-prog-nums { display:flex; justify-content:space-between; font-size:8px; color:#64748b; margin-bottom:2px; }
+        .card-prog-track { height:4px; background:#e2e8f0; border-radius:99px; overflow:hidden; }
+        .card-prog-fill  { height:100%; border-radius:99px; }
+        .card-meta { display:flex; flex-direction:column; gap:2px; }
+        .card-meta-row { display:flex; align-items:center; gap:4px; font-size:8.5px; color:#64748b; }
+        .pri-badge { display:inline-block; padding:1px 5px; border-radius:4px; font-size:7px; font-weight:700; }
+        .pri-high { background:#fee2e2; color:#991b1b; }
+        .pri-mid  { background:#fef3c7; color:#92400e; }
+        .pri-low  { background:#f1f5f9; color:#475569; }
+        .group-block { background:#fff; border:1px solid #e5e7eb; border-radius:10px; margin-bottom:10px; overflow:hidden; }
+        .group-header { background:linear-gradient(135deg,#4f46e5,#6366f1); color:#fff; padding:10px 14px; display:flex; align-items:center; gap:10px; }
+        .group-icon { width:32px; height:32px; border-radius:8px; background:rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; }
+        .group-title { font-size:13px; font-weight:700; }
+        .group-sub   { font-size:9px; opacity:0.85; margin-top:2px; white-space:normal; word-break:break-word; }
+        .group-badges { display:flex; flex-wrap:wrap; gap:4px; margin-left:auto; }
+        .gbadge { padding:2px 7px; border-radius:99px; font-size:8px; font-weight:700; background:rgba(255,255,255,0.2); color:#fff; }
+        .prog-row { padding:6px 12px 4px; }
+        .prog-meta { display:flex; justify-content:space-between; font-size:8px; color:#64748b; margin-bottom:3px; }
+        .prog-track { height:6px; background:#e2e8f0; border-radius:99px; overflow:hidden; }
+        .prog-fill  { height:100%; border-radius:99px; }
+        .orders-grid { display:flex; flex-wrap:wrap; padding:8px; gap:6px; }
+        .grid-table { width:100%; border-collapse:collapse; font-size:8.5px; }
+        .grid-table th { background:#374151; color:#fff; padding:5px 7px; text-align:left; }
+        .grid-table td { padding:4px 7px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
+        .gt-badge { padding:2px 6px; border-radius:4px; font-size:7.5px; font-weight:700; }
+        .gt-full    { background:#d1fae5; color:#065f46; }
+        .gt-partial { background:#fef3c7; color:#92400e; }
+        .gt-none    { background:#fee2e2; color:#991b1b; }
+        .gt-prog { width:60px; height:5px; background:#e2e8f0; border-radius:99px; overflow:hidden; display:inline-block; }
+        .gt-prog-fill { height:100%; border-radius:99px; }
+        .num { text-align:right; }
+        .sv-lorry { background:#fff; border:1px solid #e5e7eb; border-radius:10px; margin-bottom:10px; overflow:hidden; }
+        .sv-lorry-header { background:linear-gradient(135deg,#0ea5e9,#0284c7); color:#fff; padding:10px 14px; display:flex; align-items:center; gap:10px; }
+        .sv-lorry-title { font-weight:700; font-size:13px; }
+        .sv-lorry-badge { background:rgba(255,255,255,0.2); padding:3px 10px; border-radius:99px; font-size:10px; font-weight:700; white-space:nowrap; }
+        .sv-pickers { padding:8px 12px; }
+        .sv-picker-row { display:flex; align-items:center; gap:8px; padding:4px 0; border-bottom:1px solid #f1f5f9; }
+        .sv-picker-avatar { width:28px; height:28px; border-radius:50%; background:#e0e7ff; color:#4f46e5; font-size:10px; font-weight:700; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+        .sv-picker-info { flex:1; min-width:0; }
+        .sv-picker-name { font-size:10px; font-weight:600; color:#1e293b; white-space:normal; word-break:break-word; }
+        .sv-progress-bar-bg { height:6px; background:#e2e8f0; border-radius:99px; overflow:hidden; margin-top:3px; }
+        .sv-progress-bar-fill { height:100%; border-radius:99px; }
+        .fill-green  { background:linear-gradient(90deg,#10b981,#059669); }
+        .fill-amber  { background:linear-gradient(90deg,#f59e0b,#d97706); }
+        .fill-orange { background:linear-gradient(90deg,#f97316,#ea580c); }
+        .fill-red    { background:linear-gradient(90deg,#ef4444,#dc2626); }
+        .sv-picker-pct   { font-size:10px; font-weight:700; color:#1e293b; min-width:32px; text-align:right; }
+        .sv-picker-lines { font-size:9px; color:#64748b; min-width:40px; text-align:right; }
+        .sv-tag { background:rgba(255,255,255,0.25); padding:2px 6px; border-radius:4px; font-size:8px; }
+        .sv-lorry-tags { display:flex; gap:5px; flex-wrap:wrap; margin-top:3px; }
+    `;
+    wrapper.insertBefore(styleTag, wrapper.firstChild);
+    wrapper.appendChild(clone);
+
+    const fileName = `PickerMonitor_${instance}_${date || 'export'}.pdf`;
+
+    html2pdf().set({
+        margin:      [8, 8, 8, 8],
+        filename:    fileName,
+        image:       { type: 'jpeg', quality: 0.97 },
+        html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
+        jsPDF:       { unit: 'mm', format: 'a4', orientation: orders.length > 15 ? 'portrait' : 'portrait' },
+        pagebreak:   { mode: ['avoid-all', 'css', 'legacy'] }
+    }).from(wrapper).save();
+}
+
+// ── Grouped render ────────────────────────────────────────────────────────────
+function renderGrouped(area, orders, keyFn, iconCfg) {
+    const groups = {};
+    orders.forEach(o => {
+        const k = keyFn(o) || 'Unknown';
+        (groups[k] = groups[k] || []).push(o);
+    });
+
+    area.innerHTML = '';
+    const sortedEntries = Object.entries(groups).sort(([a],[b]) => {
+        if (viewMode === 'priority') {
+            const na = Number(a), nb = Number(b);
+            if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        }
+        return a.localeCompare(b);
+    });
+    sortedEntries.forEach(([gKey, gOrders]) => {
+        const full    = gOrders.filter(o => o.pickStatus === 'full').length;
+        const partial = gOrders.filter(o => o.pickStatus === 'partial').length;
+        const none    = gOrders.filter(o => o.pickStatus === 'none').length;
+        const total   = gOrders.length;
+        const pct     = total ? Math.round(full / total * 100) : 0;
+
+        // subtitle: show linked pickers/lorries/bays
+        let sub = '';
+        if (viewMode === 'picker') {
+            const lorries = uniq(gOrders.map(o=>o.lorry).filter(Boolean));
+            const bays    = uniq(gOrders.map(o=>o.bay).filter(Boolean));
+            sub = `<b>Lorry:</b> ${lorries.join(', ')||'—'} &nbsp;|&nbsp; <b>Bay:</b> ${bays.join(', ')||'—'}`;
+        } else if (viewMode === 'lorry') {
+            const pickers = uniq(gOrders.map(o=>o.picker).filter(Boolean));
+            const bays    = uniq(gOrders.map(o=>o.bay).filter(Boolean));
+            sub = `<b>Pickers:</b> ${pickers.join(', ')||'—'} &nbsp;|&nbsp; <b>Bay:</b> ${bays.join(', ')||'—'}`;
+        } else if (viewMode === 'priority') {
+            const pickers = uniq(gOrders.map(o=>o.picker).filter(Boolean));
+            const lorries = uniq(gOrders.map(o=>o.lorry).filter(Boolean));
+            const bays    = uniq(gOrders.map(o=>o.bay).filter(Boolean));
+            sub = `<b>Pickers:</b> ${pickers.join(', ')||'—'} &nbsp;|&nbsp; <b>Lorry:</b> ${lorries.join(', ')||'—'} &nbsp;|&nbsp; <b>Bay:</b> ${bays.join(', ')||'—'}`;
+        } else {
+            const pickers = uniq(gOrders.map(o=>o.picker).filter(Boolean));
+            const lorries = uniq(gOrders.map(o=>o.lorry).filter(Boolean));
+            sub = `<b>Pickers:</b> ${pickers.join(', ')||'—'} &nbsp;|&nbsp; <b>Lorry:</b> ${lorries.join(', ')||'—'}`;
+        }
+
+        const block = document.createElement('div');
+        block.className = 'group-block';
+        block.innerHTML = `
+            <div class="group-header">
+                <div class="group-icon" style="background:${iconCfg.grad};">
+                    <i class="${iconCfg.icon}"></i>
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <div class="group-title">${gKey}</div>
+                    <div class="group-sub">${sub}</div>
+                </div>
+                <div class="group-badges">
+                    <span class="gbadge gbadge-total">${total} orders</span>
+                    <span class="gbadge gbadge-picked">${full} picked</span>
+                    ${partial ? `<span class="gbadge gbadge-partial">${partial} partial</span>` : ''}
+                    ${none    ? `<span class="gbadge gbadge-none">${none} pending</span>`   : ''}
+                </div>
+            </div>
+            <div class="prog-row">
+                <div class="prog-meta">
+                    <span class="prog-label">Picking Progress</span>
+                    <span class="prog-pct" style="color:${pct===100?'#065f46':pct>=50?'#92400e':'#991b1b'};">${pct}%</span>
+                </div>
+                <div class="prog-track">
+                    <div class="prog-fill" style="width:${pct}%;background:${pct===100?'linear-gradient(90deg,#10b981,#059669)':pct>=50?'linear-gradient(90deg,#f59e0b,#d97706)':'linear-gradient(90deg,#ef4444,#dc2626)'};"></div>
+                </div>
+            </div>
+            <div class="orders-grid" id="og-${gKey.replace(/[^a-zA-Z0-9]/g,'_')}"></div>
+        `;
+        area.appendChild(block);
+
+        const grid = block.querySelector('.orders-grid');
+        gOrders.sort((a,b) => {
+            const pOrd = {full:3,partial:2,none:1};
+            return (pOrd[b.pickStatus]||0) - (pOrd[a.pickStatus]||0);
+        }).forEach(o => grid.appendChild(buildOrderCard(o)));
+    });
+}
+
+// ── Flat order list ───────────────────────────────────────────────────────────
+function renderFlatOrders(area, orders) {
+    area.innerHTML = '';
+    const grid = document.createElement('div');
+    grid.className = 'orders-grid';
+    grid.style.paddingTop = '0';
+    orders.sort((a,b)=>{
+        const m={full:3,partial:2,none:1};
+        return (m[b.pickStatus]||0)-(m[a.pickStatus]||0);
+    }).forEach(o => grid.appendChild(buildOrderCard(o, true)));
+    area.appendChild(grid);
+}
+
+// ── Order card ────────────────────────────────────────────────────────────────
+function buildOrderCard(o, showAll) {
+    const cardClass = `order-card card-${o.pickStatus}`;
+    const badgeCfg  = {
+        full:    { cls:'badge-full',    icon:'fa-check-circle', lbl:'Picked'    },
+        partial: { cls:'badge-partial', icon:'fa-adjust',       lbl:'Partial'   },
+        none:    { cls:'badge-none',    icon:'fa-clock',        lbl:'Pending'   },
+    };
+    const b = badgeCfg[o.pickStatus] || badgeCfg.none;
+    const pPct  = o.pickPct;
+    const pFill = pPct===100
+        ? 'linear-gradient(90deg,#10b981,#059669)'
+        : pPct>0
+            ? 'linear-gradient(90deg,#f59e0b,#d97706)'
+            : '#ef4444';
+
+    const priNum = Number(o.priority);
+    const priCls = priNum && priNum <= 3 ? 'pri-high' : priNum <= 6 ? 'pri-mid' : 'pri-low';
+    const priLbl = o.priority || '';
+
+    const div = document.createElement('div');
+    div.className = cardClass;
+    div.dataset.orderNum = o.orderNum;
+    if (o.tripId) div.dataset.tripId = o.tripId;
+    div.innerHTML = `
+        <div class="card-top">
+            <span class="card-order-num">#${o.orderNum}</span>
+            <div style="display:flex;gap:3px;flex-wrap:wrap;justify-content:flex-end;">
+                <span class="card-status-badge ${b.cls}"><i class="fas ${b.icon}"></i>${b.lbl}</span>
+                ${o.isShipped ? `<span class="card-status-badge badge-shipped"><i class="fas fa-shipping-fast"></i>Shipped</span>` : ''}
+            </div>
+        </div>
+        ${o.tripId ? `<div style="font-size:0.62rem;color:var(--slate-400,#94a3b8);margin:-0.15rem 0 0.25rem 0;"><i class="fas fa-route" style="margin-right:0.2rem;"></i>Trip #${o.tripId}</div>` : ''}
+        <div class="card-account"><i class="fas fa-building" style="color:var(--indigo,#6366f1);margin-right:0.25rem;font-size:0.62rem;"></i>${o.account}</div>
+        <div class="card-progress">
+            <div class="card-prog-nums">
+                <span>${o.pickedQty} / ${o.totalQty} lines picked</span>
+                <span style="font-weight:700;">${pPct}%</span>
+            </div>
+            <div class="card-prog-track">
+                <div class="card-prog-fill" style="width:${pPct}%;background:${pFill};"></div>
+            </div>
+        </div>
+        <div class="card-meta">
+            <div class="card-meta-row"><i class="fas fa-truck"     style="color:var(--sky);"></i><span>${o.lorry}</span></div>
+            <div class="card-meta-row"><i class="fas fa-warehouse" style="color:var(--green);"></i><span>Bay ${o.bay}</span></div>
+            <div class="card-meta-row"><i class="fas fa-user"      style="color:var(--amber);"></i><span>${o.picker}</span></div>
+            ${priLbl ? `<div class="card-meta-row"><i class="fas fa-flag" style="color:var(--rose,#f43f5e);"></i><span><span class="pri-badge ${priCls}">P${priLbl}</span></span></div>` : ''}
+            <div class="card-meta-row"><i class="fas fa-layer-group" style="color:var(--slate-400);"></i><span>${o.items.length} item lines</span></div>
+        </div>
+        <div class="card-pdf-status" data-order="${o.orderNum}" style="margin-top:0.4rem;min-height:1rem;"></div>
+    `;
+    return div;
+}
+
+// ── PDF print-status — fetched once per Fetch Data click, cached forever ────────
+window._pvPrintCache = {};   // { orderNum: rows[] }  — null means "fetched, no record"
+
+// Promise wrapper: executeGet via C# IPC
+function pvApexGet(path) {
+    return new Promise((resolve, reject) => {
+        if (!window.chrome || !window.chrome.webview) return reject(new Error('WebView2 not available'));
+        const reqId = 'pv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+        const url = getApiBase() + '/' + path;
+        const timer = setTimeout(() => { delete window.pendingRequests[reqId]; reject(new Error('timeout')); }, 12000);
+        if (!window.pendingRequests) window.pendingRequests = {};
+        window.pendingRequests[reqId] = function(err, dataStr) {
+            clearTimeout(timer);
+            if (err) return reject(new Error(String(err)));
+            try { resolve(typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr); }
+            catch(e) { reject(e); }
+        };
+        window.chrome.webview.postMessage({ action: 'executeGet', requestId: reqId, fullUrl: url });
+    });
+}
+
+// Paint a single order into whatever slots are currently in the DOM
+function paintPdfCard(orderNum, rows) {
+    const esc = CSS.escape(orderNum);
+    const cardSlot = document.querySelector(`.card-pdf-status[data-order="${esc}"]`);
+    const gridCell = document.querySelector(`.grid-pdf-cell[data-order="${esc}"]`);
+
+    if (!rows || !rows.length) {
+        if (cardSlot) cardSlot.innerHTML = '';
+        if (gridCell) { gridCell.innerHTML = ''; gridCell.style.color = '#cbd5e1'; gridCell.style.fontSize = '0.75rem'; gridCell.textContent = '—'; }
+        return;
+    }
+    const total   = rows.length;
+    const printed = rows.filter(r => (r.print_status || r.PRINT_STATUS || '').toString().toUpperCase() === 'PRINTED').length;
+    const overall = (rows[0].overall_status || rows[0].OVERALL_STATUS || '').toString().toUpperCase();
+
+    let color, bg, icon, lbl, gridHtml;
+    if (printed >= total) {
+        color = '#059669'; bg = '#d1fae5'; icon = 'fa-print'; lbl = `Printed (${total})`;
+        gridHtml = `<span style="color:#059669;font-weight:700;font-size:0.75rem;"><i class="fas fa-check-circle"></i> Yes</span>`;
+    } else if (printed > 0) {
+        color = '#d97706'; bg = '#fef3c7'; icon = 'fa-print'; lbl = `${printed}/${total} printed`;
+        gridHtml = `<span style="color:#d97706;font-weight:700;font-size:0.75rem;"><i class="fas fa-check-circle"></i> Yes</span>`;
+    } else if (overall.includes('DOWNLOAD') || overall.includes('COMPLETED')) {
+        color = '#dc2626'; bg = '#fef08a'; icon = 'fa-check-circle'; lbl = 'PDF Downloaded';
+        gridHtml = `<span style="background:#fef08a;color:#dc2626;border-radius:0.35rem;padding:0.1rem 0.4rem;font-weight:700;font-size:0.75rem;"><i class="fas fa-check-circle"></i> Yes</span>`;
+    } else {
+        color = '#6b7280'; bg = '#f1f5f9'; icon = 'fa-hourglass'; lbl = 'Not printed yet';
+        gridHtml = `<span style="color:#6b7280;font-size:0.75rem;"><i class="fas fa-hourglass"></i> —</span>`;
+    }
+    const badge = `<span style="display:inline-flex;align-items:center;gap:0.25rem;background:${bg};color:${color};border-radius:0.35rem;padding:0.15rem 0.45rem;font-weight:600;font-size:0.65rem;"><i class="fas ${icon}" style="font-size:0.6rem;"></i>${lbl}</span>`;
+    if (cardSlot) cardSlot.innerHTML = badge;
+    if (gridCell) gridCell.innerHTML = gridHtml;
+}
+
+// Paint all currently visible DOM elements from cache — no API calls
+function paintAllFromCache() {
+    const cache = window._pvPrintCache;
+    if (!Object.keys(cache).length) return;
+    document.querySelectorAll('[data-order-num]').forEach(el => {
+        const on = el.dataset.orderNum;
+        if (on && on in cache) paintPdfCard(on, cache[on]);
+    });
+}
+
+// Fetch print status for every visible order, store in cache, then paint.
+// Only called once after Fetch Data completes — never on view/filter switch.
+async function fetchAndInjectPrintStatus() {
+    const allEls = document.querySelectorAll('.order-card[data-order-num], tr[data-order-num]');
+    if (!allEls.length) return;
+
+    const inst = (document.getElementById('fpInstance') || {}).value || 'PROD';
+
+    // Collect unique orders — skip any already cached
+    const tripIds = new Set();
+    const noTrip  = [];
+    const seen    = new Set();
+    allEls.forEach(el => {
+        const on  = el.dataset.orderNum;
+        const tid = el.dataset.tripId;
+        if (!on || seen.has(on)) return;
+        seen.add(on);
+        if (on in window._pvPrintCache) return; // already have it
+        if (tid) tripIds.add(tid);
+        else noTrip.push(on);
+    });
+
+    // Per-trip call (one call gets all orders for that trip)
+    const tripPromises = [...tripIds].map(async tripId => {
+        try {
+            const data = await pvApexGet(`printjobs/trip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
+            const rows = Array.isArray(data) ? data : (data.items || []);
+            const byOrder = {};
+            rows.forEach(r => {
+                const on      = r.order_number || r.ORDER_NUMBER || '';
+                if (!on) return;
+                const total   = Number(r.print_total   || r.PRINT_TOTAL   || 0);
+                const printed = Number(r.print_printed || r.PRINT_PRINTED || 0);
+                const overall = r.overall_status || r.OVERALL_STATUS || '';
+                byOrder[on] = Array.from({ length: total }, (_, i) => ({
+                    print_status: i < printed ? 'PRINTED' : 'PENDING',
+                    overall_status: overall
+                }));
+            });
+            // Store + paint every order in this trip
+            document.querySelectorAll(`[data-trip-id="${tripId}"][data-order-num]`).forEach(el => {
+                const on = el.dataset.orderNum;
+                window._pvPrintCache[on] = byOrder[on] || [];
+                paintPdfCard(on, window._pvPrintCache[on]);
+            });
+        } catch(e) {
+            console.warn('[PrintStatus] trip fetch failed:', tripId, e);
+        }
+    });
+    await Promise.all(tripPromises);
+
+    // Per-order calls for orders without a tripId
+    const orderPromises = noTrip.map(async on => {
+        try {
+            const data = await pvApexGet(`printjobs/order/${encodeURIComponent(on)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
+            const rows = Array.isArray(data) ? data : (data.items || []);
+            window._pvPrintCache[on] = rows;
+            paintPdfCard(on, rows);
+        } catch(e) {
+            console.warn('[PrintStatus] order fetch failed:', on, e);
+            window._pvPrintCache[on] = [];
+            paintPdfCard(on, []);
+        }
+    });
+    await Promise.all(orderPromises);
+}
+
+// ── Loading / Error helpers ───────────────────────────────────────────────────
+function setLoading(on) {
+    const btn  = document.getElementById('fetchBtn');
+    const rBtn = document.getElementById('refreshBtn');
+    const area = document.getElementById('cardsArea');
+    if (btn)  { btn.disabled = on; btn.innerHTML = on ? '<i class="fas fa-circle-notch fa-spin"></i> Loading…' : '<i class="fas fa-sync-alt"></i> Fetch Data'; }
+    if (rBtn) rBtn.disabled = on;
+    if (on && area) {
+        area.innerHTML = `<div class="spinner-wrap">
+            <i class="fas fa-circle-notch fa-spin"></i>
+            <p>Loading picking data…</p>
+        </div>`;
+        document.getElementById('summaryStrip').innerHTML =
+            '<span style="font-size:.78rem;color:var(--slate-400);font-style:italic;">Loading…</span>';
+    }
+}
+
+// ── Summary View Renderer ─────────────────────────────────────────────────────
+function renderSummaryView() {
+    const area = document.getElementById('cardsArea');
+
+    if (!allSummaryData.length) {
+        area.innerHTML = `<div class="sv-no-data">
+            <i class="fas fa-chart-bar"></i>
+            <strong>No Summary Data</strong>
+            <div style="margin-top:0.4rem;">Fetch data first using the panel on the right.</div>
+        </div>`;
+        return;
+    }
+
+    // Helper: colour class by pct
+    function fillClass(pct) {
+        if (pct >= 100) return 'fill-green';
+        if (pct >= 50)  return 'fill-amber';
+        if (pct > 0)    return 'fill-orange';
+        return 'fill-red';
+    }
+
+    // Helper: initials from name
+    function initials(name) {
+        return name.split(' ').map(w => w[0] || '').join('').substring(0, 2).toUpperCase();
+    }
+
+    // Group rows by lorry_number
+    const lorryMap = {};
+    allSummaryData.forEach(r => {
+        const lorry   = r.lorry_number   || 'UNKNOWN';
+        const bay     = r.loading_bay    || '—';
+        const priority= r.order_priority || '—';
+        const picker  = r.picker_name    || 'Unassigned';
+        const total   = Number(r.total_lines)  || 0;
+        const picked  = Number(r.picked_lines) || 0;
+
+        if (!lorryMap[lorry]) {
+            lorryMap[lorry] = { lorry, bay, priority, totalLines: 0, pickedLines: 0, pickers: {} };
+        }
+        lorryMap[lorry].totalLines  += total;
+        lorryMap[lorry].pickedLines += picked;
+        if (!lorryMap[lorry].pickers[picker]) {
+            lorryMap[lorry].pickers[picker] = { name: picker, totalLines: 0, pickedLines: 0 };
+        }
+        lorryMap[lorry].pickers[picker].totalLines  += total;
+        lorryMap[lorry].pickers[picker].pickedLines += picked;
+    });
+
+    // Sort lorries alphabetically
+    const lorries = Object.values(lorryMap).sort((a, b) => a.lorry.localeCompare(b.lorry));
+
+    const html = lorries.map(lry => {
+        const lryPct = lry.totalLines > 0 ? Math.round(lry.pickedLines / lry.totalLines * 100) : 0;
+        const lryFill = fillClass(lryPct);
+
+        // Sort pickers: incomplete first, then by name
+        const pickerRows = Object.values(lry.pickers).sort((a, b) => {
+            const pa = a.totalLines > 0 ? a.pickedLines / a.totalLines : 0;
+            const pb = b.totalLines > 0 ? b.pickedLines / b.totalLines : 0;
+            return pa - pb || a.name.localeCompare(b.name);
+        });
+
+        const pickerHtml = pickerRows.map(p => {
+            const pct  = p.totalLines > 0 ? Math.round(p.pickedLines / p.totalLines * 100) : 0;
+            const fc   = fillClass(pct);
+            return `
+            <div class="sv-picker-row">
+                <div class="sv-picker-avatar">${initials(p.name)}</div>
+                <div class="sv-picker-info">
+                    <div class="sv-picker-name">${p.name}</div>
+                    <div class="sv-picker-bar-wrap">
+                        <div class="sv-picker-bar-bg sv-progress-bar-bg">
+                            <div class="sv-progress-bar-fill ${fc}" style="width:${pct}%"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="sv-picker-pct">${pct}%</div>
+                <div class="sv-picker-lines">${p.pickedLines}/${p.totalLines}</div>
+            </div>`;
+        }).join('');
+
+        return `
+        <div class="sv-lorry">
+            <div class="sv-lorry-header">
+                <div class="sv-lorry-icon"><i class="fas fa-truck"></i></div>
+                <div style="flex:1;min-width:0;">
+                    <div class="sv-lorry-title">${lry.lorry}</div>
+                    <div class="sv-lorry-tags">
+                        <span class="sv-tag"><i class="fas fa-warehouse"></i> ${lry.bay}</span>
+                        <span class="sv-tag"><i class="fas fa-sort-numeric-up"></i> Priority ${lry.priority}</span>
+                        <span class="sv-tag"><i class="fas fa-users"></i> ${pickerRows.length} picker${pickerRows.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="sv-progress-bar-bg" style="margin-top:0.45rem;background:rgba(255,255,255,0.25);">
+                        <div class="sv-progress-bar-fill ${lryFill}" style="width:${lryPct}%"></div>
+                    </div>
+                </div>
+                <div class="sv-lorry-badge">${lryPct}% &bull; ${lry.pickedLines}/${lry.totalLines} lines</div>
+            </div>
+            <div class="sv-pickers">${pickerHtml}</div>
+        </div>`;
+    }).join('');
+
+    area.innerHTML = `<div class="summary-view">${html}</div>`;
+}
+
+function showError(msg) {
+    document.getElementById('cardsArea').innerHTML = `<div class="placeholder">
+        <i class="fas fa-exclamation-triangle" style="color:var(--red);"></i>
+        <h3 style="color:var(--red);">Error</h3>
+        <p>${msg}</p>
+    </div>`;
+}
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function uniq(arr) { return [...new Set(arr)]; }
+
+// ── WebView2 message listener ──────────────────────────────────────────────────
+if (window.chrome && window.chrome.webview) {
+    window.chrome.webview.addEventListener('message', function(evt) {
+        try {
+            const msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
+            if (msg.action === 'pickerAiSummaryResponse') {
+                handleAiSummaryResponse(msg);
+            } else if (msg.action === 'restResponse' || msg.action === 'error') {
+                // Route executeGet / executePost responses back to pvApexGet promises
+                const reqId = msg.requestId;
+                if (reqId && window.pendingRequests && window.pendingRequests[reqId]) {
+                    if (msg.action === 'error' || !msg.success) {
+                        window.pendingRequests[reqId](msg.data || 'error', null);
+                    } else {
+                        window.pendingRequests[reqId](null, msg.data);
+                    }
+                    delete window.pendingRequests[reqId];
+                }
+            }
+        } catch(e) { console.warn('[PickerView] message parse error', e); }
+    });
+}
+
+// ── AI Summary ────────────────────────────────────────────────────────────────
+
+// Context for the currently displayed summary (used by Export PDF)
+let _aiCtx = { date: '', instance: 'PROD' };
+
+function openAiSummaryModal() {
+    document.getElementById('aiModal').classList.add('open');
+    // Pre-fill API key from localStorage
+    const saved = localStorage.getItem('wms_claude_api_key');
+    if (saved) document.getElementById('aiApiKey').value = saved;
+    renderAiSavedList();
+}
+function closeAiSummaryModal() {
+    document.getElementById('aiModal').classList.remove('open');
+}
+
+// ── Saved-summary list ─────────────────────────────────────────────────────
+function _getAiSummaryKey(instance, date) {
+    return `wms_ai_summary_${instance}_${date}`;
+}
+
+function _loadAllSavedSummaries() {
+    const list = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith('wms_ai_summary_')) continue;
+        try { list.push({ key: k, ...JSON.parse(localStorage.getItem(k)) }); } catch(e) {}
+    }
+    return list.sort((a,b) => new Date(b.generatedAt) - new Date(a.generatedAt));
+}
+
+function renderAiSavedList() {
+    const date     = (document.getElementById('fpDate')     || {}).value || '';
+    const instance = (document.getElementById('fpInstance') || {}).value || 'PROD';
+    const saved    = _loadAllSavedSummaries();
+
+    document.getElementById('aiPdfBtn').style.display = 'none';
+
+    if (!saved.length) {
+        document.getElementById('aiModalBody').innerHTML = `
+            <div class="ai-loading" style="color:#94a3b8;">
+                <i class="fas fa-robot" style="font-size:2.5rem;color:#c7d2fe;"></i>
+                <div class="ai-loading-title" style="color:#4f46e5;">Ready to Analyse</div>
+                <div class="ai-loading-detail">Enter your Claude API key above and click <strong>Generate Summary</strong></div>
+            </div>`;
+        return;
+    }
+
+    const currentMatch = saved.find(s => s.date === date && s.instance === instance);
+
+    let html = '';
+
+    // ── Banner when a summary already exists for current date/instance ──────
+    if (currentMatch) {
+        const ago = _timeAgo(currentMatch.generatedAt);
+        html += `
+        <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:0.65rem 1rem;margin-bottom:1rem;display:flex;align-items:center;gap:0.75rem;">
+            <i class="fas fa-check-circle" style="color:#22c55e;font-size:1.4rem;flex-shrink:0;"></i>
+            <div style="flex:1;">
+                <div style="font-size:0.8rem;font-weight:700;color:#166534;">Summary already exists for <strong>${instance}</strong> — <strong>${date}</strong></div>
+                <div style="font-size:0.7rem;color:#4ade80;margin-top:1px;">Generated ${ago}</div>
+            </div>
+            <button onclick="loadSavedAiSummary('${currentMatch.key}')"
+                style="background:#22c55e;color:#fff;border:none;border-radius:7px;padding:0.38rem 0.9rem;cursor:pointer;font-size:0.75rem;font-weight:700;display:flex;align-items:center;gap:5px;flex-shrink:0;">
+                <i class="fas fa-eye"></i> View Summary
+            </button>
+        </div>`;
+    }
+
+    // ── Previous summaries list ──────────────────────────────────────────────
+    html += `<div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.6px;text-transform:uppercase;margin-bottom:0.5rem;padding:0 0.1rem;">
+        <i class="fas fa-history" style="margin-right:4px;"></i>Previously Generated Summaries (${saved.length})
+    </div>`;
+    html += `<div style="display:flex;flex-direction:column;gap:0.35rem;">`;
+
+    saved.forEach(s => {
+        const isCurrent = s.date === date && s.instance === instance;
+        const ago = _timeAgo(s.generatedAt);
+        const genTime = new Date(s.generatedAt).toLocaleString();
+        html += `
+        <div style="display:flex;align-items:center;gap:0.65rem;background:${isCurrent?'#f0fdf4':'#f8fafc'};border:1.5px solid ${isCurrent?'#86efac':'#e2e8f0'};border-radius:9px;padding:0.55rem 0.8rem;transition:border-color .15s;">
+            <i class="fas fa-file-alt" style="color:${isCurrent?'#22c55e':'#818cf8'};font-size:1.1rem;flex-shrink:0;"></i>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:0.78rem;font-weight:700;color:#1e293b;">
+                    ${s.instance} &nbsp;<span style="color:#94a3b8;font-weight:400;">·</span>&nbsp; ${s.date}
+                    ${isCurrent ? '<span style="background:#dcfce7;color:#166534;font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:99px;margin-left:5px;">Current</span>' : ''}
+                </div>
+                <div style="font-size:0.68rem;color:#94a3b8;" title="${genTime}">Generated ${ago}</div>
+            </div>
+            <button onclick="loadSavedAiSummary('${s.key}')"
+                style="background:#4f46e5;color:#fff;border:none;border-radius:6px;padding:0.32rem 0.8rem;cursor:pointer;font-size:0.72rem;font-weight:600;display:flex;align-items:center;gap:4px;flex-shrink:0;"
+                onmouseover="this.style.background='#4338ca'" onmouseout="this.style.background='#4f46e5'">
+                <i class="fas fa-eye"></i> View
+            </button>
+            <button onclick="deleteSavedAiSummary('${s.key}')"
+                style="background:#fff0f0;color:#dc2626;border:1px solid #fecaca;border-radius:6px;padding:0.32rem 0.6rem;cursor:pointer;font-size:0.72rem;flex-shrink:0;"
+                title="Delete this saved summary"
+                onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff0f0'">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>`;
+    });
+
+    html += `</div>
+    <div style="border-top:2px dashed #e2e8f0;margin:1rem 0 0.5rem;"></div>
+    <div style="font-size:0.72rem;color:#94a3b8;text-align:center;">
+        <i class="fas fa-magic"></i>&nbsp; To generate a fresh summary for <strong>${instance} — ${date}</strong>, enter your API key above and click <strong>Generate Summary</strong>
+    </div>`;
+
+    document.getElementById('aiModalBody').innerHTML = html;
+}
+
+function loadSavedAiSummary(key) {
+    try {
+        const saved = JSON.parse(localStorage.getItem(key));
+        if (!saved || !saved.html) return;
+        _aiCtx = { date: saved.date, instance: saved.instance };
+        document.getElementById('aiModalBody').innerHTML = `
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;padding-bottom:0.6rem;border-bottom:1px solid #e2e8f0;">
+                <button onclick="renderAiSavedList()"
+                    style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:7px;padding:0.3rem 0.7rem;cursor:pointer;font-size:0.72rem;font-weight:600;display:flex;align-items:center;gap:4px;"
+                    onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
+                    <i class="fas fa-arrow-left"></i> Back to List
+                </button>
+                <span style="font-size:0.75rem;color:#64748b;">
+                    <i class="fas fa-file-alt" style="color:#818cf8;"></i>
+                    &nbsp;<strong>${saved.instance}</strong> — ${saved.date}
+                    &nbsp;·&nbsp; Generated ${_timeAgo(saved.generatedAt)}
+                </span>
+            </div>
+            <div class="ai-content">${saved.html}</div>`;
+        document.getElementById('aiPdfBtn').style.display = '';
+    } catch(e) { console.warn('[AiSummary] Failed to load saved summary', e); }
+}
+
+function deleteSavedAiSummary(key) {
+    if (!confirm('Delete this saved summary? This cannot be undone.')) return;
+    localStorage.removeItem(key);
+    renderAiSavedList();
+}
+
+function _timeAgo(isoStr) {
+    const diff = Date.now() - new Date(isoStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins <  1)  return 'just now';
+    if (mins <  60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs  < 24)  return `${hrs}h ago`;
+    return `${Math.floor(hrs/24)}d ago`;
+}
+
+// ── Generate (calls Claude) ────────────────────────────────────────────────
+function generateAiSummary() {
+    const orders = lastRenderedOrders;
+    if (!orders.length) { alert('No data loaded. Fetch data first.'); return; }
+
+    const apiKey = (document.getElementById('aiApiKey').value || '').trim();
+    if (!apiKey) {
+        document.getElementById('aiApiKey').focus();
+        document.getElementById('aiApiKey').style.borderColor = '#ef4444';
+        return;
+    }
+    document.getElementById('aiApiKey').style.borderColor = '';
+    localStorage.setItem('wms_claude_api_key', apiKey);
+
+    // ── Compute statistics ──────────────────────────────────────────────────
+    const instance  = document.getElementById('fpInstance').value || 'PROD';
+    const date      = document.getElementById('fpDate').value     || '';
+    _aiCtx = { date, instance };
+
+    const totalOrders   = orders.length;
+    const pickedOrders  = orders.filter(o => o.pickStatus === 'full').length;
+    const partialOrders = orders.filter(o => o.pickStatus === 'partial').length;
+    const pendingOrders = orders.filter(o => o.pickStatus === 'none').length;
+    const totalLines    = orders.reduce((s,o) => s + o.totalQty, 0);
+    const pickedLines   = orders.reduce((s,o) => s + o.pickedQty, 0);
+    const overallPct    = totalLines ? Math.round(pickedLines / totalLines * 100) : 0;
+
+    // By Picker
+    const pickerMap = {};
+    orders.forEach(o => {
+        const k = o.picker || 'Unassigned';
+        if (!pickerMap[k]) pickerMap[k] = { name:k, orders:0, totalLines:0, pickedLines:0 };
+        pickerMap[k].orders++;
+        pickerMap[k].totalLines  += o.totalQty;
+        pickerMap[k].pickedLines += o.pickedQty;
+    });
+    const byPicker = Object.values(pickerMap).sort((a,b)=>b.orders-a.orders).map(p=>({
+        ...p, pct: p.totalLines ? Math.round(p.pickedLines/p.totalLines*100) : 0
+    }));
+
+    // By Account
+    const acctMap = {};
+    orders.forEach(o => {
+        const k = o.account || '—';
+        if (!acctMap[k]) acctMap[k] = { name:k, orders:0, totalLines:0, pickedLines:0 };
+        acctMap[k].orders++;
+        acctMap[k].totalLines  += o.totalQty;
+        acctMap[k].pickedLines += o.pickedQty;
+    });
+    const byAccount = Object.values(acctMap).sort((a,b)=>b.orders-a.orders).map(a=>({
+        ...a, pct: a.totalLines ? Math.round(a.pickedLines/a.totalLines*100) : 0
+    }));
+
+    // By Lorry
+    const lorryMap = {};
+    orders.forEach(o => {
+        const k = o.lorry || '—';
+        if (!lorryMap[k]) lorryMap[k] = { lorry:k, orders:0, totalLines:0, pickedLines:0, pickers:new Set() };
+        lorryMap[k].orders++;
+        lorryMap[k].totalLines  += o.totalQty;
+        lorryMap[k].pickedLines += o.pickedQty;
+        if (o.picker) lorryMap[k].pickers.add(o.picker);
+    });
+    const byLorry = Object.values(lorryMap).sort((a,b)=>b.orders-a.orders).map(l=>({
+        lorry:l.lorry, orders:l.orders, totalLines:l.totalLines, pickedLines:l.pickedLines,
+        pickerCount: l.pickers.size,
+        pct: l.totalLines ? Math.round(l.pickedLines/l.totalLines*100) : 0
+    }));
+
+    // By Bay
+    const bayMap = {};
+    orders.forEach(o => {
+        const k = o.bay || '—';
+        if (!bayMap[k]) bayMap[k] = { bay:k, orders:0, totalLines:0, pickedLines:0 };
+        bayMap[k].orders++;
+        bayMap[k].totalLines  += o.totalQty;
+        bayMap[k].pickedLines += o.pickedQty;
+    });
+    const byBay = Object.values(bayMap).sort((a,b)=>b.orders-a.orders).map(b=>({
+        ...b, pct: b.totalLines ? Math.round(b.pickedLines/b.totalLines*100) : 0
+    }));
+
+    // By Priority
+    const priMap = {};
+    orders.forEach(o => {
+        const k = o.priority || 'None';
+        if (!priMap[k]) priMap[k] = { priority:k, orders:0, totalLines:0, pickedLines:0 };
+        priMap[k].orders++;
+        priMap[k].totalLines  += o.totalQty;
+        priMap[k].pickedLines += o.pickedQty;
+    });
+    const byPriority = Object.values(priMap).sort((a,b)=>Number(a.priority||99)-Number(b.priority||99)).map(p=>({
+        ...p, pct: p.totalLines ? Math.round(p.pickedLines/p.totalLines*100) : 0
+    }));
+
+    const statsData = {
+        reportDate: date, instance,
+        totalOrders, pickedOrders, partialOrders, pendingOrders,
+        totalLines, pickedLines, overallPct,
+        byPicker, byAccount, byLorry, byBay, byPriority
+    };
+
+    // ── Show loading state ──────────────────────────────────────────────────
+    document.getElementById('aiModalBody').innerHTML = `
+        <div class="ai-loading">
+            <div class="ai-spinner"></div>
+            <div class="ai-loading-title">Generating AI Summary…</div>
+            <div class="ai-loading-detail">Claude is analysing ${totalOrders} orders across ${byPicker.length} pickers and ${byLorry.length} lorries</div>
+        </div>`;
+    document.getElementById('aiPdfBtn').style.display = 'none';
+
+    // ── Send to Claude via C# bridge ────────────────────────────────────────
+    const systemPrompt = `You are an expert warehouse operations analyst for a WMS system.
+Your task is to produce a clear, professional, executive-level HTML status report for the picking operations.
+
+IMPORTANT OUTPUT RULES:
+- Return ONLY valid HTML (no markdown, no code fences, no preamble)
+- Use the CSS classes already defined in the page: ai-content, stat-grid, stat-card, stat-val, stat-lbl, badge, badge-green, badge-amber, badge-red, badge-blue, badge-purple, progress-row, pr-bar, pr-fill, pr-label, pr-pct
+- Progress bar fill colours: use inline style background — green #10b981 for ≥80%, amber #f59e0b for 40-79%, red #ef4444 for <40%
+- For tables use standard HTML table tags with no extra classes needed (the page styles them automatically)
+- Use concise language — this is a status report, not a narrative
+- Do NOT list individual order numbers
+- Show counts and percentages only
+- Highlight bottlenecks, top performers, and risks with badge spans`;
+
+    window.chrome.webview.postMessage({
+        action:       'pickeraisummary',
+        requestId:    'ai-summary-' + Date.now(),
+        apiKey:       apiKey,
+        systemPrompt: systemPrompt,
+        userQuery:    'Generate a comprehensive warehouse picking operations status report in HTML using the provided statistics. Include: executive summary with overall health, by-picker performance table with progress bars, by-customer/account breakdown, by-lorry breakdown, by-loading-bay breakdown, by-priority breakdown, and a key observations section highlighting any risks or standout performers.',
+        dataJson:     JSON.stringify(statsData)
+    });
+}
+
+function handleAiSummaryResponse(msg) {
+    if (!msg.success) {
+        document.getElementById('aiModalBody').innerHTML = `
+            <div style="padding:2rem;text-align:center;color:#dc2626;">
+                <i class="fas fa-exclamation-circle" style="font-size:2rem;margin-bottom:0.75rem;display:block;"></i>
+                <strong>Claude API Error</strong><br>
+                <span style="font-size:0.82rem;color:#64748b;margin-top:0.4rem;display:block;">${msg.error || 'Unknown error'}</span>
+            </div>`;
+        return;
+    }
+
+    // Extract text from Claude response JSON
+    let html = '';
+    try {
+        const parsed = (typeof msg.data === 'string') ? JSON.parse(msg.data) : msg.data;
+        html = parsed?.content?.[0]?.text || msg.data;
+    } catch(e) { html = msg.data || ''; }
+
+    // ── Save to localStorage ─────────────────────────────────────────────────
+    const storageKey = _getAiSummaryKey(_aiCtx.instance, _aiCtx.date);
+    try {
+        localStorage.setItem(storageKey, JSON.stringify({
+            html,
+            date:        _aiCtx.date,
+            instance:    _aiCtx.instance,
+            generatedAt: new Date().toISOString()
+        }));
+    } catch(e) { console.warn('[AiSummary] Failed to save to localStorage', e); }
+
+    document.getElementById('aiModalBody').innerHTML = `
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;padding-bottom:0.6rem;border-bottom:1px solid #e2e8f0;">
+            <button onclick="renderAiSavedList()"
+                style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:7px;padding:0.3rem 0.7rem;cursor:pointer;font-size:0.72rem;font-weight:600;display:flex;align-items:center;gap:4px;"
+                onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
+                <i class="fas fa-arrow-left"></i> Back to List
+            </button>
+            <span style="font-size:0.75rem;color:#64748b;">
+                <i class="fas fa-check-circle" style="color:#22c55e;"></i>
+                &nbsp;<strong>${_aiCtx.instance}</strong> — ${_aiCtx.date}
+                &nbsp;·&nbsp; Saved automatically
+            </span>
+        </div>
+        <div class="ai-content">${html}</div>`;
+    document.getElementById('aiPdfBtn').style.display = '';
+}
+
+async function exportAiSummaryPdf() {
+    const { instance, date } = _aiCtx;
+    const body = document.getElementById('aiModalBody');
+    const fileName = `AiPickerSummary_${instance}_${date||'export'}.pdf`;
+
+    // ── Build printable wrapper ──────────────────────────────────────────────
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'font-family:Inter,system-ui,sans-serif;padding:16px;background:#fff;';
+
+    const titleBar = document.createElement('div');
+    titleBar.style.cssText = 'background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;padding:12px 18px;border-radius:10px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;';
+    titleBar.innerHTML = `
+        <div>
+            <div style="font-size:15px;font-weight:800;">AI Picking Operations Summary — ${instance}</div>
+            <div style="font-size:11px;opacity:0.8;margin-top:3px;">Date: ${date} &nbsp;|&nbsp; Exported: ${new Date().toLocaleString()}</div>
+        </div>
+        <div style="font-size:28px;opacity:0.6;">🤖</div>`;
+
+    const styleTag = document.createElement('style');
+    styleTag.textContent = `
+        h1{font-size:18px;font-weight:800;color:#1e293b;margin:0 0 6px}
+        h2{font-size:14px;font-weight:700;color:#4f46e5;margin:16px 0 5px;border-bottom:2px solid #e0e7ff;padding-bottom:4px}
+        h3{font-size:12px;font-weight:700;color:#1e293b;margin:10px 0 4px}
+        p{font-size:11px;color:#475569;line-height:1.6;margin:0 0 6px}
+        ul,ol{font-size:11px;color:#475569;padding-left:16px;margin:0 0 6px;line-height:1.7}
+        table{width:100%;border-collapse:collapse;font-size:10px;margin:6px 0 12px}
+        th{background:#f1f5f9;color:#1e293b;font-weight:700;padding:5px 8px;text-align:left;border:1px solid #e2e8f0}
+        td{padding:4px 8px;border:1px solid #e2e8f0;color:#475569}
+        tr:nth-child(even) td{background:#f8fafc}
+        .badge{display:inline-block;padding:1px 6px;border-radius:99px;font-size:9px;font-weight:700}
+        .badge-green{background:#d1fae5;color:#065f46}.badge-amber{background:#fef3c7;color:#92400e}
+        .badge-red{background:#fee2e2;color:#991b1b}.badge-blue{background:#dbeafe;color:#1e40af}
+        .badge-purple{background:#ede9fe;color:#5b21b6}
+        .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0 12px}
+        .stat-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px}
+        .stat-val{font-size:20px;font-weight:800;color:#4f46e5}.stat-lbl{font-size:9px;color:#64748b;margin-top:2px}
+        .progress-row{display:flex;align-items:center;gap:6px;margin:3px 0}
+        .pr-bar{flex:1;height:7px;background:#e2e8f0;border-radius:99px;overflow:hidden}
+        .pr-fill{height:100%;border-radius:99px}
+        .pr-label{font-size:9px;color:#475569;min-width:100px}.pr-pct{font-size:9px;font-weight:700;color:#1e293b;min-width:28px;text-align:right}`;
+
+    wrapper.appendChild(styleTag);
+    wrapper.appendChild(titleBar);
+    const contentDiv = body.querySelector('.ai-content') || body;
+    wrapper.appendChild(contentDiv.cloneNode(true));
+
+    // ── Generate blob and open externally via C# (bypasses WebView2 viewer) ─
+    try {
+        const blob = await html2pdf().set({
+            margin:      [8, 8, 8, 8],
+            image:       { type: 'jpeg', quality: 0.97 },
+            html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
+            jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak:   { mode: ['avoid-all', 'css', 'legacy'] }
+        }).from(wrapper).output('blob');
+
+        // Convert blob → base64 and hand off to C# to open externally
+        const reader = new FileReader();
+        reader.onloadend = function() {
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({
+                    action:   'openPdfFromBase64',
+                    requestId: 'ai-pdf-' + Date.now(),
+                    base64:    reader.result,   // includes data:application/pdf;base64, prefix
+                    fileName:  fileName
+                });
+            } else {
+                // Fallback for non-WebView2 (plain browser preview/testing)
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+            }
+        };
+        reader.readAsDataURL(blob);
+    } catch(err) {
+        console.error('[AiSummary] PDF generation failed:', err);
+        alert('PDF generation failed: ' + err.message);
+    }
+}
+</script>
+
+<!-- ── AI Summary Modal ──────────────────────────────────────────────────── -->
+<div class="ai-modal-overlay" id="aiModal" onclick="if(event.target===this)closeAiSummaryModal()">
+    <div class="ai-modal">
+        <div class="ai-modal-header">
+            <div class="ai-modal-header-icon"><i class="fas fa-robot"></i></div>
+            <div>
+                <div class="ai-modal-title">AI Picking Operations Summary</div>
+                <div class="ai-modal-sub">Powered by Claude AI &nbsp;·&nbsp; Summaries by picker, account, lorry, bay &amp; priority</div>
+            </div>
+            <button class="ai-modal-close" onclick="closeAiSummaryModal()"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="ai-modal-key-bar">
+            <label><i class="fas fa-key" style="margin-right:4px;color:#818cf8;"></i>Claude API Key</label>
+            <input type="password" id="aiApiKey" class="ai-modal-key-input" placeholder="sk-ant-…" />
+            <button class="ai-btn ai-btn-primary" onclick="generateAiSummary()">
+                <i class="fas fa-magic"></i> Generate Summary
+            </button>
+        </div>
+        <div class="ai-modal-body" id="aiModalBody">
+            <div class="ai-loading" style="color:#94a3b8;">
+                <i class="fas fa-robot" style="font-size:2.5rem;color:#c7d2fe;"></i>
+                <div class="ai-loading-title" style="color:#4f46e5;">Ready to Analyse</div>
+                <div class="ai-loading-detail">Enter your Claude API key above and click <strong>Generate Summary</strong></div>
+            </div>
+        </div>
+        <div class="ai-modal-footer">
+            <button class="ai-btn ai-btn-ghost" onclick="closeAiSummaryModal()"><i class="fas fa-times"></i> Close</button>
+            <button class="ai-btn ai-btn-pdf" id="aiPdfBtn" onclick="exportAiSummaryPdf()" style="display:none;"><i class="fas fa-file-pdf"></i> Export PDF</button>
+        </div>
+    </div>
+</div>
+</body>
+</html>

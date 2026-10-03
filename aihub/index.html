@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Hub — Fusion Client</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="aihub.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+    <header class="top">
+        <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
+        <div class="logo"><i class="fa-solid fa-diagram-project"></i></div>
+        <div class="ttl">
+            <h1>AI Hub <span class="ver">v12.0.0</span> <span class="hubchip" id="hubchip"></span></h1>
+            <p>One gateway to Claude on AWS, NVIDIA NIM and more — routing, cost, evals and LangGraph agents</p>
+        </div>
+        <nav class="tabs" id="tabs">
+            <button class="tab active" data-tab="overview"><i class="fa-solid fa-gauge-high"></i> Overview</button>
+            <button class="tab" data-tab="providers"><i class="fa-solid fa-cloud"></i> Providers</button>
+            <button class="tab" data-tab="playground"><i class="fa-solid fa-flask"></i> Playground</button>
+            <button class="tab" data-tab="router"><i class="fa-solid fa-route"></i> Router</button>
+            <button class="tab" data-tab="usage"><i class="fa-solid fa-coins"></i> Usage</button>
+            <button class="tab" data-tab="evals"><i class="fa-solid fa-ranking-star"></i> Evals</button>
+            <button class="tab" data-tab="doctor"><i class="fa-solid fa-user-doctor"></i> Pipeline Doctor</button>
+        </nav>
+    </header>
+    <main id="main">
+        <section class="page" id="page-overview"></section>
+        <section class="page" id="page-providers" hidden></section>
+        <section class="page" id="page-playground" hidden></section>
+        <section class="page" id="page-router" hidden></section>
+        <section class="page" id="page-usage" hidden></section>
+        <section class="page" id="page-evals" hidden></section>
+        <section class="page" id="page-doctor" hidden></section>
+    </main>
+    <div class="modal" id="modal"><div class="modal-box"><div class="modal-h"><b id="modal-t"></b><button class="icon" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div><div class="modal-b" id="modal-b"></div><div class="modal-f" id="modal-f"></div></div></div>
+    <div class="toasts" id="toasts"></div>
+    <script src="aihub.js"></script>
+    <script src="providers.js"></script>
+    <script src="playground.js"></script>
+    <script src="router.js"></script>
+    <script src="evals.js"></script>
+    <script src="doctor.js"></script>
+    <script>AH.init();</script>
+</body>
+</html>

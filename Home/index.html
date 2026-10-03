@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fusion Client</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f7;
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 0 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 64px;
+            box-shadow: 0 2px 12px rgba(102, 126, 234, 0.35);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* ── Fusion Logo ── */
+        .fusion-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .fusion-logo-icon {
+            width: 38px;
+            height: 38px;
+            background: rgba(255,255,255,0.15);
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            backdrop-filter: blur(4px);
+        }
+
+        .fusion-logo-text {
+            display: flex;
+            flex-direction: column;
+            line-height: 1;
+        }
+
+        .fusion-logo-name {
+            font-size: 1.25rem;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+        }
+
+        .fusion-logo-name span {
+            color: rgba(255,255,255,0.65);
+            font-weight: 400;
+            font-size: 1rem;
+            text-transform: none;
+            letter-spacing: 0.3px;
+        }
+
+        .fusion-logo-tagline {
+            font-size: 0.68rem;
+            opacity: 0.75;
+            letter-spacing: 0.5px;
+            margin-top: 3px;
+        }
+
+        .version-badge {
+            font-size: 0.62rem;
+            font-weight: 700;
+            background: rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.35);
+            color: white;
+            padding: 2px 7px;
+            border-radius: 20px;
+            letter-spacing: 0.5px;
+            align-self: flex-start;
+            margin-top: 2px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+        }
+
+        .user-avatar {
+            width: 34px;
+            height: 34px;
+            background: rgba(255,255,255,0.25);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .user-details {
+            text-align: right;
+        }
+
+        .user-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .user-instance {
+            font-size: 0.72rem;
+            opacity: 0.8;
+        }
+
+        .btn-auth {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.35);
+            color: white;
+            padding: 7px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.82rem;
+            font-family: inherit;
+            transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+
+        .btn-auth:hover {
+            background: rgba(255,255,255,0.35);
+        }
+
+        /* ── Main Content ── */
+        .main { padding: 22px 28px 10px; max-width: 1320px; margin: 0 auto; }
+
+        /* hero: greeting, search, quick facts */
+        .hero {
+            position: relative; overflow: hidden; border-radius: 18px; padding: 22px 26px; margin-bottom: 18px;
+            background: radial-gradient(1200px 200px at 0% 0%, rgba(255,255,255,.18), transparent 60%), linear-gradient(120deg, #1e1b4b 0%, #4338ca 55%, #7c3aed 100%);
+            color: #fff; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; box-shadow: 0 10px 30px rgba(67,56,202,.25);
+        }
+        .hero::after { content: ''; position: absolute; right: -60px; top: -80px; width: 260px; height: 260px; border-radius: 50%; background: rgba(255,255,255,.07); }
+        .hero-text { flex: 1; min-width: 260px; position: relative; z-index: 1; }
+        .hero-text h2 { font-size: 1.45rem; font-weight: 700; }
+        .hero-text p { margin-top: 4px; font-size: .86rem; color: #c7d2fe; }
+        .hero-facts { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+        .fact { background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.2); border-radius: 999px; padding: 4px 11px; font-size: .74rem; font-weight: 600; }
+        .search { position: relative; flex: 0 1 380px; min-width: 240px; z-index: 1; }
+        .search i { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #6366f1; }
+        .search input { width: 100%; border: 0; border-radius: 12px; padding: 12px 40px 12px 38px; font: inherit; font-size: .92rem; color: #1e1b4b; box-shadow: 0 6px 20px rgba(0,0,0,.18); outline: none; }
+        .search kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font: 600 .68rem 'Segoe UI'; color: #64748b; border: 1px solid #cbd5e1; border-radius: 5px; padding: 1px 6px; background: #f8fafc; }
+
+        /* quick rows: pinned + recent */
+        .quick { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 0 0 6px; }
+        .quick-label { font-size: .7rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: .08em; margin-right: 4px; }
+        .qchip { display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid #e2e8f0; border-radius: 999px; padding: 5px 12px 5px 6px; font-size: .78rem; font-weight: 600; color: #334155; text-decoration: none; transition: .15s; }
+        .qchip:hover { border-color: var(--c, #6366f1); color: var(--c, #6366f1); box-shadow: 0 3px 10px rgba(0,0,0,.06); }
+        .qchip .qi { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; background: var(--b, #eef2ff); font-size: 12px; }
+
+        /* sections */
+        .section { margin-top: 18px; }
+        .section-h { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .section-h h3 { font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: #475569; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+        .section-h h3 i { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center; color: #fff; font-size: .72rem; }
+        .section-h .count { font-size: .7rem; color: #94a3b8; font-weight: 700; }
+        .section-h .line { flex: 1; height: 1px; background: linear-gradient(90deg, #e2e8f0, transparent); }
+
+        /* ── Module Grid (compact tiles) ── */
+        .modules-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(232px, 1fr)); gap: 10px; }
+        .module-card {
+            background: #fff; border-radius: 12px; padding: 11px 12px 11px 14px; text-decoration: none; position: relative; overflow: hidden;
+            display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; grid-template-areas: "icon title badge" "icon desc desc"; column-gap: 10px; row-gap: 2px; align-items: center;
+            border: 1px solid #e8ecf3; box-shadow: 0 1px 2px rgba(15,23,42,.04); transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+            min-height: 62px;
+        }
+        .module-card::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--card-color); opacity: .85; }
+        .module-card:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(15,23,42,.10); border-color: var(--card-color); }
+        .module-card:focus-visible { outline: 2px solid var(--card-color); outline-offset: 2px; }
+        .module-card.disabled { opacity: .55; cursor: default; pointer-events: none; }
+        .card-icon { grid-area: icon; width: 38px; height: 38px; border-radius: 10px; background: var(--card-bg); display: flex; align-items: center; justify-content: center; font-size: 19px; transition: transform .2s; }
+        .module-card:hover .card-icon { transform: scale(1.08) rotate(-3deg); }
+        .card-title { grid-area: title; font-size: .88rem; font-weight: 700; color: #1e293b; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .card-desc { grid-area: desc; font-size: .74rem; color: #64748b; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 16px; }
+        .card-badge { grid-area: badge; justify-self: end; font-size: .58rem; font-weight: 800; letter-spacing: .04em; padding: 2px 6px; border-radius: 999px; background: var(--card-bg); color: var(--card-text); margin: 0; white-space: nowrap; }
+        .module-card .trial-tag { top: auto !important; bottom: 4px; right: 26px !important; font-size: 9px !important; }
+        .pin { position: absolute; right: 6px; bottom: 4px; border: 0; background: transparent; color: #cbd5e1; font-size: .85rem; cursor: pointer; opacity: 0; transition: .15s; padding: 2px; }
+        .module-card:hover .pin, .pin.on { opacity: 1; }
+        .pin.on { color: #f59e0b; }
+        .pin:hover { color: #f59e0b; transform: scale(1.15); }
+        .module-card.match-hide { display: none; }
+        .module-card.first-match { border-color: var(--card-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--card-color) 18%, transparent); }
+        .no-match { display: none; text-align: center; color: #94a3b8; padding: 30px; font-size: .9rem; }
+
+        /* ── Footer ── */
+        .footer { text-align: center; padding: 24px; color: #a0aec0; font-size: .76rem; }
+
+        @media (max-width: 640px) {
+            .main { padding: 14px; }
+            .hero { padding: 18px; }
+            .header { padding: 0 14px; }
+            .fusion-logo-tagline, .user-details { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <div class="fusion-logo">
+                <div class="fusion-logo-icon">⚡</div>
+                <div class="fusion-logo-text">
+                    <div class="fusion-logo-name">Fusion <span>Client</span></div>
+                    <div class="fusion-logo-tagline">Oracle Fusion Enterprise Suite</div>
+                </div>
+                <span class="version-badge">v12.0.0</span>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="user-info">
+                <div class="user-avatar">👤</div>
+                <div class="user-details">
+                    <div class="user-name" id="displayUsername">User</div>
+                    <div class="user-instance" id="displayInstance">—</div>
+                </div>
+            </div>
+            <button id="authBtn" class="btn-auth" onclick="handleAuthAction()">
+                <i id="authIcon" class="fa-solid fa-right-to-bracket"></i>
+                <span id="authLabel">Login</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+        <div class="hero">
+            <div class="hero-text">
+                <h2><span id="greeting">Welcome back</span>, <span id="welcomeName">User</span> 👋</h2>
+                <p id="todayText">Select a module to get started.</p>
+                <div class="hero-facts">
+                    <span class="fact" id="factInstance"><i class="fa-solid fa-server"></i> —</span>
+                    <span class="fact" id="factModules"><i class="fa-solid fa-grip"></i> modules</span>
+                </div>
+            </div>
+            <div class="search">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="moduleSearch" placeholder="Find a module… (e.g. trips, SQL, orders, AI)" autocomplete="off">
+                <kbd>/</kbd>
+            </div>
+        </div>
+        <div id="quickRows"></div>
+
+        <div class="modules-grid">
+
+            <!-- WMS -->
+            <a href="../wms/index.html" class="module-card"
+               style="--card-color:#667eea; --card-bg:rgba(102,126,234,0.1); --card-text:#667eea;">
+                <div class="card-icon">📦</div>
+                <div class="card-title">Warehouse Management</div>
+                <div class="card-desc">Trip management, print jobs, printer configuration and monitoring.</div>
+                <span class="card-badge">WMS</span>
+            </a>
+
+            <!-- Order Management -->
+            <a href="../om/index.html" class="module-card"
+               style="--card-color:#48bb78; --card-bg:rgba(72,187,120,0.1); --card-text:#48bb78;">
+                <div class="card-icon">🛒</div>
+                <div class="card-title">Order Management</div>
+                <div class="card-desc">Order pad with live discount, credit and stock checks, approvals and Fusion submit.</div>
+                <span class="card-badge">OM</span>
+            </a>
+
+            <!-- Fusion Order Management -->
+            <a href="../fscm/om.html" class="module-card"
+               style="--card-color:#fb923c; --card-bg:rgba(251,146,60,0.1); --card-text:#fb923c;">
+                <div class="card-icon">🚚</div>
+                <div class="card-title">Fusion Order Management</div>
+                <div class="card-desc">Live Order Hub sales orders, POS order, customers, shipment lines and pick confirmation.</div>
+                <span class="card-badge">FUSION OM</span>
+            </a>
+
+            <!-- Fusion Purchasing -->
+            <a href="../fscm/purchasing.html" class="module-card"
+               style="--card-color:#3b82f6; --card-bg:rgba(59,130,246,0.1); --card-text:#3b82f6;">
+                <div class="card-icon">🧾</div>
+                <div class="card-title">Fusion Purchasing</div>
+                <div class="card-desc">Create and manage purchase orders, receipts, ASNs, supplier returns and suppliers.</div>
+                <span class="card-badge">FUSION PO</span>
+            </a>
+
+            <!-- Fusion Inventory -->
+            <a href="../fscm/inventory.html" class="module-card"
+               style="--card-color:#10b981; --card-bg:rgba(16,185,129,0.1); --card-text:#10b981;">
+                <div class="card-icon">📦</div>
+                <div class="card-title">Fusion Inventory</div>
+                <div class="card-desc">Item master, on-hand, subinventories, transfer orders and inventory transactions.</div>
+                <span class="card-badge">FUSION INV</span>
+            </a>
+
+            <!-- Fusion Costing -->
+            <a href="../fscm/costing.html" class="module-card"
+               style="--card-color:#f59e0b; --card-bg:rgba(245,158,11,0.1); --card-text:#f59e0b;">
+                <div class="card-icon">🪙</div>
+                <div class="card-title">Fusion Costing</div>
+                <div class="card-desc">Item costs, receipt costs and cost management processes.</div>
+                <span class="card-badge">FUSION CST</span>
+            </a>
+
+            <!-- Fusion Setup &amp; Diagnostics -->
+            <a href="../fscm/setup.html" class="module-card"
+               style="--card-color:#8b5cf6; --card-bg:rgba(139,92,246,0.1); --card-text:#8b5cf6;">
+                <div class="card-icon">🛠️</div>
+                <div class="card-title">Fusion Setup &amp; Diagnostics</div>
+                <div class="card-desc">Business units, legal entities, setup data explorer, UAT diagnostics and guides.</div>
+                <span class="card-badge">FUSION SETUP</span>
+            </a>
+
+            <!-- Inventory -->
+            <a href="../Inventory/index.html" class="module-card"
+               style="--card-color:#00b894; --card-bg:rgba(0,184,148,0.1); --card-text:#00b894;">
+                <div class="card-icon">🏪</div>
+                <div class="card-title">Inventory</div>
+                <div class="card-desc">Items list, onhand quantities, inventory transactions and PO receiving.</div>
+                <span class="card-badge">INV</span>
+            </a>
+
+            <!-- Fusion SQL (read-only SQL workbench over BI Publisher) -->
+            <a href="../fusionsql/index.html" class="module-card" data-trial="1"
+               style="--card-color:#c74634; --card-bg:rgba(199,70,52,0.1); --card-text:#c74634;">
+                <div class="card-icon">🗄️</div>
+                <div class="card-title">Fusion SQL</div>
+                <div class="card-desc">Run read-only SQL live against Oracle Fusion, browse the schema, save queries and let AI write SQL for you.</div>
+                <span class="card-badge">SQL</span>
+            </a>
+
+            <!-- Data Loading (Oracle Fusion FBDI templates) -->
+            <a href="../dataload/index.html" class="module-card"
+               style="--card-color:#2a78d6; --card-bg:rgba(42,120,214,0.1); --card-text:#2a78d6;">
+                <div class="card-icon">📥</div>
+                <div class="card-title">Data Loading</div>
+                <div class="card-desc">Oracle Fusion FBDI templates — browse every template's interface tables and columns, and download the official .xlsm files.</div>
+                <span class="card-badge">FBDI</span>
+            </a>
+
+            <!-- DLL Explorer (read any .dll / .exe - never run) -->
+            <a href="../dllexplorer/index.html" class="module-card"
+               style="--card-color:#0e7490; --card-bg:rgba(14,116,144,0.1); --card-text:#0e7490;">
+                <div class="card-icon">🔬</div>
+                <div class="card-title">DLL Explorer</div>
+                <div class="card-desc">Open any .dll or .exe and see what it can do — capabilities, classes, decompiled code, integrations and an AI feature map.</div>
+                <span class="card-badge">NEW</span>
+            </a>
+
+            <!-- Fusion Model (DuckDB module files - shared dataset from APEX and Oracle Fusion) -->
+            <a href="../fusionmodel/index.html" class="module-card"
+               style="--card-color:#4338ca; --card-bg:rgba(67,56,202,0.1); --card-text:#4338ca;">
+                <div class="card-icon">🧊</div>
+                <div class="card-title">Fusion Model</div>
+                <div class="card-desc">One fast, shared dataset: module files loaded from APEX and Oracle Fusion, refreshed on a schedule and queried in milliseconds.</div>
+                <span class="card-badge">NEW</span>
+            </a>
+
+            <!-- Power BI (datasets fed from APEX, embedded reports) -->
+            <a href="../powerbi/index.html" class="module-card"
+               style="--card-color:#ca8a04; --card-bg:rgba(242,200,17,0.14); --card-text:#a16207;">
+                <div class="card-icon">📊</div>
+                <div class="card-title">Power BI</div>
+                <div class="card-desc">Gray's Power BI reports inside the app — the WMS Operations dataset filled from APEX, WMS filters, and new reports built right here.</div>
+                <span class="card-badge">NEW</span>
+            </a>
+
+            <!-- Finance Lens: statements from journal balances, KPIs, analytics, journal risk, board packs -->
+            <a href="../finance/index.html" class="module-card"
+               style="--card-color:#0d9488; --card-bg:rgba(13,148,136,0.1); --card-text:#0f766e;">
+                <div class="card-icon">💹</div>
+                <div class="card-title">Finance Lens</div>
+                <div class="card-desc">For the CFO: income statement, balance sheet and cash flow from your journal balances in templates you design, 40 KPIs with monitors, analytics, journal risk, close checks and a one-click board pack.</div>
+                <span class="card-badge">NEW</span>
+            </a>
+
+            <!-- AI Agent (beta): LangGraph supervisor + specialists over Fusion SQL, WMS, orders, loads and reports; replaces the AI Digital Employee in stages -->
+            <a href="../aiagent/index.html" class="module-card" id="aiagent-card"
+               style="--card-color:#4338ca; --card-bg:rgba(67,56,202,0.1); --card-text:#4338ca;">
+                <div class="card-icon">🤖</div>
+                <div class="card-title">AI Agent</div>
+                <div class="card-desc">A team of AI specialists: asks Fusion in plain words (checked SQL, results, charts), trips and printing, MRA, orders, FBDI loads and reports — always asks before acting.</div>
+                <span class="card-badge">BETA</span>
+            </a>
+
+            <!-- AI Hub (multi-cloud model gateway: Claude on AWS / NVIDIA NIM, evals, LangGraph Pipeline Doctor) -->
+            <a href="../aihub/index.html" class="module-card"
+               style="--card-color:#0f766e; --card-bg:rgba(15,118,110,0.1); --card-text:#0f766e;">
+                <div class="card-icon">🛰️</div>
+                <div class="card-title">AI Hub</div>
+                <div class="card-desc">One gateway to Claude on AWS Bedrock, NVIDIA NIM and more — routing, cost, model evals on our Fusion questions and the LangGraph Pipeline Doctor.</div>
+                <span class="card-badge">NEW</span>
+            </a>
+
+            <!-- AI Knowledge Base (RAG) -->
+            <a href="../rag/index.html" class="module-card"
+               style="--card-color:#6366f1; --card-bg:rgba(99,102,241,0.1); --card-text:#6366f1;">
+                <div class="card-icon">🧠</div>
+                <div class="card-title">AI Knowledge Base</div>
+                <div class="card-desc">Sync WMS trip data and ask AI questions powered by RAG + Claude.</div>
+                <span class="card-badge">RAG</span>
+            </a>
+
+            <!-- AI Digital Employee (agentic assistant) -->
+            <a href="../aianalysis/index.html" class="module-card" data-trial="1"
+               style="--card-color:#a855f7; --card-bg:rgba(168,85,247,0.1); --card-text:#a855f7;">
+                <div class="card-icon">🤖</div>
+                <div class="card-title">AI Digital Employee</div>
+                <div class="card-desc">Ask, analyze and operate the WMS in plain English — reports, trips, cancellations, printing, scheduled jobs.</div>
+                <span class="card-badge">AI</span>
+            </a>
+
+            <!-- Forms Designer (DB-stored forms) -->
+            <a href="../formsdesigner/index.html" class="module-card"
+               style="--card-color:#0f766e; --card-bg:rgba(15,118,110,0.1); --card-text:#0f766e;">
+                <div class="card-icon">🧩</div>
+                <div class="card-title">Forms Designer</div>
+                <div class="card-desc">Build master-detail forms with pickers, rules, validations and custom buttons — stored in the DB, no rebuild.</div>
+                <span class="card-badge">NEW</span>
+            </a>
+
+            <!-- Agent Flow -->
+            <a href="../agentflow/index.html" class="module-card"
+               style="--card-color:#7c3aed; --card-bg:rgba(124,58,237,0.1); --card-text:#7c3aed;">
+                <div class="card-icon">🧠</div>
+                <div class="card-title">Agent Flow</div>
+                <div class="card-desc">Build agentic AI flows on a visual canvas — agents, SQL, conditions, approvals, email — and run them. LangGraph-style.</div>
+                <span class="card-badge">NEW</span>
+            </a>
+
+            <!-- Internet Search (private) -->
+            <a href="../internetsearch/index.html" class="module-card"
+               style="--card-color:#0284c7; --card-bg:rgba(2,132,199,0.1); --card-text:#0284c7;">
+                <div class="card-icon">🌐</div>
+                <div class="card-title">Internet Search</div>
+                <div class="card-desc">AI-enabled IT job search across Greenhouse, Lever, Adzuna, Jooble and more — India-first, with resume matching.</div>
+                <span class="card-badge">PRIVATE</span>
+            </a>
+
+            <!-- Admin (dev PC only - not in the client package, so Home hides it there) -->
+            <a href="../admin/index.html" class="module-card" id="admin-card"
+               style="display:none; --card-color:#0f766e; --card-bg:rgba(15,118,110,0.1); --card-text:#0f766e;">
+                <div class="card-icon">🛠️</div>
+                <div class="card-title">Admin</div>
+                <div class="card-desc">Build tools — Create ZIP file builds the app and packages the release in one click, with live status.</div>
+                <span class="card-badge">ADMIN</span>
+            </a>
+
+            <!-- Accounts Payable (hidden) -->
+            <!-- Accounts Receivable (hidden) -->
+            <!-- General Ledger (hidden) -->
+            <!-- Fixed Assets (hidden) -->
+            <!-- Cash Management (hidden) -->
+            <!-- POS (hidden) -->
+            <!-- Sync (hidden) -->
+
+        </div>
+        <div class="no-match" id="noMatch">No module matches. Try another word.</div>
+    </div>
+
+    <div class="footer">
+        Fusion Client v12.0.0 &copy; 2026 &mdash; Powered by Oracle Fusion
+    </div>
+
+    <script>
+        var _isLoggedIn = false;
+
+        // Check login state and update header on page load
+        (function checkLoginState() {
+            const loggedIn = localStorage.getItem('loggedIn') === 'true';
+            _isLoggedIn = loggedIn;
+
+            const username = localStorage.getItem('username') || localStorage.getItem('fusionUsername') || 'User';
+            const instance = localStorage.getItem('instanceName') || localStorage.getItem('fusionInstance') || '';
+
+            if (loggedIn) {
+                // Show user info and logout button
+                document.getElementById('displayUsername').textContent = username;
+                document.getElementById('welcomeName').textContent = username;
+                document.getElementById('displayInstance').textContent = instance ? 'Instance: ' + instance : '';
+
+                document.getElementById('authIcon').className = 'fa-solid fa-right-from-bracket';
+                document.getElementById('authLabel').textContent = 'Logout';
+            } else {
+                // Not logged in — hide user info, show login button
+                document.getElementById('displayUsername').textContent = 'Guest';
+                document.getElementById('welcomeName').textContent = 'Guest';
+                document.getElementById('displayInstance').textContent = 'Not logged in';
+                document.querySelector('.user-avatar').textContent = '🔒';
+
+                document.getElementById('authIcon').className = 'fa-solid fa-right-to-bracket';
+                document.getElementById('authLabel').textContent = 'Login';
+            }
+        })();
+
+        function handleAuthAction() {
+            if (_isLoggedIn) {
+                logout();
+            } else {
+                window.location.href = '../login.html';
+            }
+        }
+
+        function logout() {
+            // Clear all session data
+            localStorage.removeItem('loggedIn');
+            localStorage.removeItem('username');
+            localStorage.removeItem('fusionUsername');
+            localStorage.removeItem('instanceName');
+            localStorage.removeItem('fusionInstance');
+            localStorage.removeItem('loginTime');
+            localStorage.removeItem('password');
+
+            // Notify C# host if available
+            if (window.chrome && window.chrome.webview) {
+                try {
+                    window.chrome.webview.postMessage({ action: 'logout' });
+                } catch (e) { /* not in WebView2 context */ }
+            }
+
+            window.location.href = '../login.html';
+        }
+    </script>
+
+    <!-- Release module list: written by package-release.bat. Missing in dev = show every module. -->
+    <script src="modules.js"></script>
+    <script>
+        // Hide tiles for modules that are not part of this release package.
+        (function () {
+            var list = window.RELEASE_MODULES;
+            if (!Array.isArray(list) || !list.length) return;
+            var keep = {};
+            list.forEach(function (m) { keep[String(m).toLowerCase()] = 1; });
+            document.querySelectorAll('.modules-grid .module-card').forEach(function (card) {
+                var m = /\.\.\/([^\/]+)\//.exec(card.getAttribute('href') || '');
+                if (m && !keep[m[1].toLowerCase()] && card.id !== 'admin-card') card.remove();
+            });
+        })();
+    </script>
+    <script>
+        // Admin tile: only on a PC where the app finds the source repo (release.bat) — the build PC.
+        (function () {
+            var card = document.getElementById('admin-card');
+            if (!card || !(window.chrome && window.chrome.webview)) return;
+            var id = 'home_admin_' + Date.now();
+            window.chrome.webview.addEventListener('message', function (ev) {
+                var r = ev.data; if (typeof r === 'string') { try { r = JSON.parse(r); } catch (e) { return; } }
+                if (r && r.requestId === id && r.data && r.data.repoRoot) card.style.display = '';
+            });
+            setTimeout(function () { window.chrome.webview.postMessage({ action: 'adminReleaseInfo', requestId: id }); }, 400);
+        })();
+    </script>
+    <script>
+        // Home layout: sections, search, pinned + recent. Runs after the release filter, so it only sees the tiles of
+        // this package; the tiles keep their hrefs (release filter / trial badges).
+        (function () {
+            var GROUPS = [
+                { id: 'wms', title: 'Warehouse & Orders', icon: 'fa-warehouse', color: '#667eea', folders: ['wms', 'om', 'inventory'] },
+                { id: 'finance', title: 'Finance', icon: 'fa-sack-dollar', color: '#0d9488', folders: ['finance'] },
+                { id: 'fusion', title: 'Oracle Fusion', icon: 'fa-cloud', color: '#c74634', folders: ['fscm', 'fusionsql', 'dataload', 'fusionmodel', 'powerbi'] },
+                { id: 'ai', title: 'AI', icon: 'fa-wand-magic-sparkles', color: '#7c3aed', folders: ['aiagent', 'aihub', 'aianalysis', 'rag', 'agentflow', 'internetsearch'] },
+                { id: 'tools', title: 'Tools', icon: 'fa-screwdriver-wrench', color: '#0f766e', folders: [] }
+            ];
+            var grid = document.querySelector('.modules-grid'); if (!grid) return;
+            function ls(k, d) { try { var v = localStorage.getItem('home.' + k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
+            function lsSet(k, v) { try { localStorage.setItem('home.' + k, JSON.stringify(v)); } catch (e) { } }
+            function folderOf(card) { var m = /\.\.\/([^\/]+)\//.exec(card.getAttribute('href') || ''); return m ? m[1].toLowerCase() : ''; }
+            function keyOf(card) { return card.getAttribute('href') || ''; }
+            var cards = Array.prototype.slice.call(grid.querySelectorAll('.module-card'));
+            var sections = {}, main = grid.parentNode, noMatch = document.getElementById('noMatch');
+            GROUPS.forEach(function (g) {
+                var sec = document.createElement('div'); sec.className = 'section'; sec.dataset.group = g.id;
+                sec.innerHTML = '<div class="section-h"><h3><i class="fa-solid ' + g.icon + '" style="background:' + g.color + '"></i>' + g.title + '</h3><span class="count"></span><span class="line"></span></div><div class="modules-grid"></div>';
+                main.insertBefore(sec, noMatch);
+                sections[g.id] = sec;
+            });
+            cards.forEach(function (card) {
+                var f = folderOf(card), g = GROUPS.filter(function (x) { return x.folders.indexOf(f) >= 0; })[0] || GROUPS[3];
+                sections[g.id].querySelector('.modules-grid').appendChild(card);
+                // badges that only repeat the name (WMS, FUSION OM …) take room from the title: keep status badges only
+                var bd = card.querySelector('.card-badge');
+                if (bd && !/^(NEW|BETA|PRIVATE|TRIAL)/i.test(bd.textContent.trim())) bd.style.display = 'none';
+                var d = card.querySelector('.card-desc'); if (d) card.title = card.querySelector('.card-title').textContent + ' — ' + d.textContent.trim();
+                card.addEventListener('click', function () {
+                    var r = ls('recent', []).filter(function (k) { return k !== keyOf(card); }); r.unshift(keyOf(card)); lsSet('recent', r.slice(0, 6));
+                });
+                var pin = document.createElement('button'); pin.className = 'pin'; pin.title = 'Pin to the top'; pin.innerHTML = '<i class="fa-solid fa-star"></i>';
+                pin.onclick = function (e) {
+                    e.preventDefault(); e.stopPropagation();
+                    var p = ls('pinned', []), k = keyOf(card), i = p.indexOf(k);
+                    if (i >= 0) p.splice(i, 1); else p.push(k);
+                    lsSet('pinned', p); refresh();
+                };
+                card.appendChild(pin);
+            });
+            grid.remove();
+            function visible(card) { return card.isConnected && card.style.display !== 'none'; }
+            function chip(card) {
+                var st = card.getAttribute('style') || '', c = (/--card-color:\s*([^;]+)/.exec(st) || [])[1] || '#6366f1', b = (/--card-bg:\s*([^;]+)/.exec(st) || [])[1] || '#eef2ff';
+                return '<a class="qchip" href="' + card.getAttribute('href') + '" style="--c:' + c + ';--b:' + b + '"><span class="qi">' + card.querySelector('.card-icon').textContent + '</span>' + card.querySelector('.card-title').textContent + '</a>';
+            }
+            function refresh() {
+                var byKey = {}; cards.forEach(function (c) { byKey[keyOf(c)] = c; });
+                var pinned = ls('pinned', []).map(function (k) { return byKey[k]; }).filter(function (c) { return c && visible(c); });
+                var recent = ls('recent', []).map(function (k) { return byKey[k]; }).filter(function (c) { return c && visible(c) && pinned.indexOf(c) < 0; }).slice(0, 5);
+                var html = '';
+                if (pinned.length) html += '<div class="quick"><span class="quick-label"><i class="fa-solid fa-star" style="color:#f59e0b"></i> Pinned</span>' + pinned.map(chip).join('') + '</div>';
+                if (recent.length) html += '<div class="quick"><span class="quick-label"><i class="fa-solid fa-clock-rotate-left"></i> Recent</span>' + recent.map(chip).join('') + '</div>';
+                document.getElementById('quickRows').innerHTML = html;
+                cards.forEach(function (c) { c.querySelector('.pin').classList.toggle('on', ls('pinned', []).indexOf(keyOf(c)) >= 0); });
+                var total = 0;
+                Object.keys(sections).forEach(function (id) {
+                    var n = Array.prototype.filter.call(sections[id].querySelectorAll('.module-card'), function (c) { return visible(c) && !c.classList.contains('match-hide'); }).length;
+                    total += n;
+                    sections[id].style.display = n ? '' : 'none';
+                    sections[id].querySelector('.count').textContent = n;
+                });
+                noMatch.style.display = total ? 'none' : 'block';
+                document.getElementById('factModules').innerHTML = '<i class="fa-solid fa-grip"></i> ' + cards.filter(visible).length + ' modules';
+            }
+            // search
+            var input = document.getElementById('moduleSearch');
+            function filter() {
+                var q = input.value.trim().toLowerCase(), first = null;
+                cards.forEach(function (c) {
+                    var hay = (c.textContent + ' ' + folderOf(c)).toLowerCase();
+                    var ok = !q || q.split(/\s+/).every(function (w) { return hay.indexOf(w) >= 0; });
+                    c.classList.toggle('match-hide', !ok);
+                    c.classList.remove('first-match');
+                    if (ok && q && !first && visible(c)) first = c;
+                });
+                if (first) first.classList.add('first-match');
+                refresh();
+                return first;
+            }
+            input.addEventListener('input', filter);
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { var f = filter(); if (f) f.click(); }
+                if (e.key === 'Escape') { input.value = ''; filter(); input.blur(); }
+            });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === '/' && document.activeElement !== input && !/INPUT|TEXTAREA/.test((document.activeElement || {}).tagName)) { e.preventDefault(); input.focus(); }
+            });
+            // greeting + facts
+            var h = new Date().getHours();
+            document.getElementById('greeting').textContent = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+            document.getElementById('todayText').textContent = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) + ' · pick a module or search for one.';
+            var inst = localStorage.getItem('instanceName') || localStorage.getItem('fusionInstance') || '';
+            document.getElementById('factInstance').innerHTML = '<i class="fa-solid fa-server"></i> ' + (inst ? 'Instance ' + inst : 'Not logged in');
+            refresh();
+            // the Admin tile appears later (host answer): recount when it does
+            var admin = document.getElementById('admin-card');
+            if (admin && window.MutationObserver) new MutationObserver(refresh).observe(admin, { attributes: true, attributeFilter: ['style'] });
+        })();
+    </script>
+    <!-- Trial countdown on AI Digital Employee + Fusion SQL tiles (shared WMS_AI_TRIAL row) -->
+    <script src="trial-gate.js" data-home="1"></script>
+</body>
+</html>

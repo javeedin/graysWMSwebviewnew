@@ -1,0 +1,44 @@
+<!--
+  Compiles every C# file of the WMS app on Linux (CI) without the Windows Desktop SDK: the WinForms / WPF reference
+  assemblies come from the Microsoft.WindowsDesktop.App.Ref targeting pack, the NuGet packages are
+  the app's own. The pack is pinned (PackageDownload) so the path is the same on every SDK. Catches compile errors (e.g. a missing namespace) before anyone opens Visual Studio. Nothing runs.
+  The real Windows build is the windows job in .github/workflows/ci.yml.
+    dotnet restore tools/ci/AppCompileCheck && dotnet build tools/ci/AppCompileCheck - -no-restore
+  Keep the PackageReference list in step with WMSApp.csproj.
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>WMSApp</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- same warnings the Visual Studio build shows today; errors are what this check is for -->
+    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8603;CS8604;CS8618;CS8619;CS8620;CS8625;CS8629;CS8632;CS8765;CS8767;CS0168;CS0219;CA1416;CS0618;CS1998;CS4014;CS0162;CS0414;CS0649;CS0169;SYSLIB0014;CS8981;CS0105;CS8622;CS8714;CS0108;NU1701;NU1505</NoWarn>
+    <WdRefVersion>8.0.11</WdRefVersion>
+    <Repo>$(MSBuildThisFileDirectory)../../../</Repo>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="AppConfigStub.cs" />
+    <Compile Include="$(Repo)**/*.cs" Exclude="$(Repo)engine/**;$(Repo)ai-hub/**;$(Repo)pipeline-server/**;$(Repo)tools/**;$(Repo)obj/**;$(Repo)bin/**;$(Repo)dist*/**" />
+    <Using Include="System.Drawing" />
+    <Using Include="System.Windows.Forms" />
+    <ProjectReference Include="$(Repo)engine/FusionModel/FusionModel.csproj" />
+    <PackageDownload Include="Microsoft.WindowsDesktop.App.Ref" Version="[$(WdRefVersion)]" />
+    <Reference Include="$(NuGetPackageRoot)microsoft.windowsdesktop.app.ref/$(WdRefVersion)/ref/net8.0/*.dll" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3537.50" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="System.Drawing.Common" Version="9.0.10" />
+    <PackageReference Include="System.DirectoryServices" Version="8.0.0" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="Anthropic" Version="12.50.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.31" />
+    <PackageReference Include="ICSharpCode.Decompiler" Version="9.1.0.7988" />
+    <PackageReference Include="Microsoft.Identity.Client" Version="4.90.1" />
+    <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.90.1" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,11 @@
+# Gray's WMS AI Hub — Python 3.11+ (Windows laptop / Windows Server; Linux works too)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+anthropic[bedrock,aws]>=1.11     # Claude: direct, Claude in Amazon Bedrock (AnthropicBedrockMantle), Claude Platform on AWS (AnthropicAWS)
+boto3>=1.40                      # Amazon Bedrock Converse (Nova, Llama, Mistral …) + model discovery
+httpx>=0.27                      # NVIDIA NIM (OpenAI-compatible REST)
+langgraph>=1.0                   # agents as graphs with checkpoints + human-in-the-loop interrupts
+langgraph-checkpoint-sqlite>=3.0
+langchain-core>=1.0              # GatewayChatModel: any LangChain / LangGraph code can use the router
+keyring>=25                      # Windows Credential Manager for the cloud keys
+tzdata>=2024.1

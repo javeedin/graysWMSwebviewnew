@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Management — Gray's</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="om.css">
+</head>
+<body>
+    <header class="top">
+        <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
+        <div class="logo"><i class="fa-solid fa-cart-shopping"></i></div>
+        <div>
+            <h1>Order Management <span class="ver">v12.0.0</span></h1>
+            <p><span id="who">…</span> · <button class="bu-pick" id="bu-pick" title="Business unit"><i class="fa-solid fa-building"></i> <span id="bu-name">Choose business unit</span> <i class="fa-solid fa-caret-down"></i></button> · <span id="inst" class="inst"></span></p>
+        </div>
+        <nav class="tabs">
+            <button class="tab active" data-tab="pad"><i class="fa-solid fa-cash-register"></i> Order Pad</button>
+            <button class="tab" data-tab="orders"><i class="fa-solid fa-table-columns"></i> Orders</button>
+            <button class="tab" data-tab="approvals"><i class="fa-solid fa-stamp"></i> Approvals <b class="badge" id="appr-n" hidden>0</b></button>
+            <button class="tab" data-tab="discounts"><i class="fa-solid fa-percent"></i> Discounts</button>
+            <button class="tab" data-tab="setup"><i class="fa-solid fa-gear"></i> Setup</button>
+        </nav>
+    </header>
+
+    <!-- ── Order Pad ─────────────────────────────────────────── -->
+    <section id="page-pad" class="page">
+        <div class="pad">
+            <div class="pad-left">
+                <div class="card cust-card">
+                    <div class="card-h">
+                        <b><i class="fa-solid fa-user-tie"></i> Customer</b>
+                        <span class="kbd" title="Search customers">F7</span>
+                        <span class="grow"></span>
+                        <span class="muted" id="ord-no"></span>
+                    </div>
+                    <div class="typeahead">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input id="cust-q" type="search" placeholder="Customer name or number…" autocomplete="off">
+                        <div class="ta-list" id="cust-list" hidden></div>
+                    </div>
+                    <div id="cust-info" class="cust-info"></div>
+                </div>
+                <div class="card">
+                    <div class="card-h"><b><i class="fa-solid fa-sliders"></i> Order</b><span class="grow"></span><button class="link" id="hdr-more">More</button></div>
+                    <div class="form">
+                        <label>Order type<select id="h-otype"></select></label>
+                        <label>Price list<select id="h-plist"></select></label>
+                        <label>Pricing date<input type="date" id="h-pdate"></label>
+                        <label>Order date<input type="date" id="h-odate"></label>
+                        <label>Warehouse<select id="h-wh"></select></label>
+                        <label>Subinventory<select id="h-sub"></select></label>
+                        <label>Sales rep<select id="h-rep"></select></label>
+                        <label>Delivery officer<select id="h-do"></select></label>
+                        <label>Customer PO<input id="h-po" maxlength="50"></label>
+                        <label>Reference<input id="h-ref" maxlength="60" placeholder="Original order (adjustments, credit notes)"></label>
+                        <div class="more" id="hdr-more-box" hidden>
+                            <label>Ship date<input type="date" id="h-ship"></label>
+                            <label>Payment terms<input id="h-terms"></label>
+                            <label class="wide">Comments<textarea id="h-comments" rows="2" maxlength="900"></textarea></label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="pad-mid card">
+                <div class="entry">
+                    <div class="seg" id="mode" title="Line type for new lines (or type ORD / RET / ADJ+ / ADJ- on the scanner)">
+                        <button data-mode="ORD" class="on">Order</button><button data-mode="RET">Return</button><button data-mode="PADJ">+ Adj</button><button data-mode="NADJ">− Adj</button>
+                    </div>
+                    <div class="typeahead grow">
+                        <i class="fa-solid fa-barcode"></i>
+                        <input id="item-q" type="search" placeholder="Scan or type item / barcode / description — 12*code adds 12   (F6)" autocomplete="off">
+                        <div class="ta-list" id="item-list" hidden></div>
+                    </div>
+                    <button class="btn" id="b-paste" title="Paste from Excel, an e-mail, a PDF or barcodes — Claude reads free text"><i class="fa-solid fa-wand-magic-sparkles"></i> Smart paste</button>
+                    <button class="btn" id="b-repeat" title="Lines this customer usually orders"><i class="fa-solid fa-clock-rotate-left"></i> Usual</button>
+                    <button class="btn icon" id="b-pl" title="Browse the whole price list"><i class="fa-solid fa-list"></i></button>
+                </div>
+                <div class="pl-state" id="pl-state"></div>
+                <div class="cart-wrap">
+                    <table class="cart" id="cart">
+                        <thead><tr>
+                            <th class="c-no">#</th><th>Item</th><th class="c-type">Type</th><th class="n">Qty</th><th class="n">List</th>
+                            <th class="n" title="Customer + marketing + additional discount">Disc %</th><th class="n" title="Additional discount you give">+ %</th><th class="n">Price</th>
+                            <th class="c-tax">Tax</th><th class="n">Deposit</th><th class="n">Crates</th><th class="n">Net</th><th class="c-x"></th>
+                        </tr></thead>
+                        <tbody id="cart-body"></tbody>
+                    </table>
+                    <div class="empty" id="cart-empty">
+                        <i class="fa-solid fa-basket-shopping"></i>
+                        <b>Scan, search or paste items</b>
+                        <span>Pick a customer and price list first — discounts, tax, deposits and crates are worked out as you go.</span>
+                    </div>
+                </div>
+            </div>
+
+            <aside class="pad-right">
+                <div class="card verdict" id="verdict"></div>
+                <div class="card">
+                    <div class="card-h"><b><i class="fa-solid fa-heart-pulse"></i> Order health</b><span class="grow"></span><button class="link" id="b-recheck" title="Run credit, stock, period and PO checks again">Re-check</button></div>
+                    <ul class="checks" id="checks"></ul>
+                </div>
+                <div class="card totals" id="totals"></div>
+                <div class="actions">
+                    <button class="btn" id="b-new" title="Start a new order"><i class="fa-solid fa-file-circle-plus"></i> New</button>
+                    <button class="btn" id="b-save" title="Save the draft in APEX"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+                    <button class="btn" id="b-payload" title="What will be sent to Fusion"><i class="fa-solid fa-code"></i></button>
+                </div>
+                <button class="btn big warn" id="b-approve" hidden><i class="fa-solid fa-stamp"></i> Ask for approval</button>
+                <div class="send">
+                    <button class="btn big" id="b-fdraft" title="Create the order in Fusion as a draft (not submitted)"><i class="fa-solid fa-cloud"></i> Fusion draft</button>
+                    <button class="btn big primary" id="b-submit" title="Create and submit the order in Fusion (Ctrl+Enter)"><i class="fa-solid fa-paper-plane"></i> Submit</button>
+                </div>
+            </aside>
+        </div>
+    </section>
+
+    <!-- ── Orders ────────────────────────────────────────────── -->
+    <section id="page-orders" class="page" hidden>
+        <div class="bar">
+            <div class="search"><i class="fa-solid fa-magnifying-glass"></i><input id="o-q" type="search" placeholder="Order, customer, PO…"></div>
+            <select id="o-scope"><option value="mine">My orders</option><option value="bu">This business unit</option><option value="all">All</option></select>
+            <select id="o-days"><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="3650">All time</option></select>
+            <div class="seg" id="o-view"><button data-v="board" class="on"><i class="fa-solid fa-table-columns"></i> Board</button><button data-v="list"><i class="fa-solid fa-list"></i> List</button></div>
+            <button class="btn" id="o-refresh"><i class="fa-solid fa-rotate"></i></button>
+            <button class="btn" id="o-sync" title="Read the current Fusion status of the orders sent"><i class="fa-solid fa-cloud-arrow-down"></i> Fusion status</button>
+            <span class="grow"></span>
+            <div class="search sm"><i class="fa-solid fa-cloud"></i><input id="o-fusion" type="search" placeholder="Open a Fusion order (copy / credit note)…"></div>
+        </div>
+        <div class="kpis" id="o-kpis"></div>
+        <div class="o-body" id="o-body"></div>
+    </section>
+
+    <!-- ── Approvals ─────────────────────────────────────────── -->
+    <section id="page-approvals" class="page" hidden>
+        <div class="bar">
+            <div class="seg" id="a-filter"><button data-f="PENDING" class="on">Waiting</button><button data-f="DONE">Decided</button><button data-f="MINE">Asked by me</button></div>
+            <button class="btn" id="a-refresh"><i class="fa-solid fa-rotate"></i></button>
+            <span class="grow"></span><span class="muted" id="a-who"></span>
+        </div>
+        <div class="a-body" id="a-body"></div>
+    </section>
+
+    <!-- ── Discounts ─────────────────────────────────────────── -->
+    <section id="page-discounts" class="page" hidden>
+        <div class="bar">
+            <div class="search"><i class="fa-solid fa-magnifying-glass"></i><input id="d-q" type="search" placeholder="Customer, category, target, reference…"></div>
+            <select id="d-ctx"><option value="">All contexts</option><option>CUSTOMER</option><option>MARKETING</option></select>
+            <select id="d-state"><option value="live">Live today</option><option value="">All</option><option value="future">Future</option><option value="expired">Expired</option><option value="off">Switched off</option></select>
+            <button class="btn" id="d-add"><i class="fa-solid fa-plus"></i> Rule</button>
+            <button class="btn" id="d-import" title="Paste or open Excel / CSV (legacy column names work)"><i class="fa-solid fa-file-import"></i> Import</button>
+            <button class="btn" id="d-sync" title="Read the rules from the Fusion discount report"><i class="fa-solid fa-cloud-arrow-down"></i> Sync from Fusion</button>
+            <button class="btn primary" id="d-sim"><i class="fa-solid fa-flask"></i> Simulator</button>
+        </div>
+        <div class="d-body card" id="d-body"></div>
+    </section>
+
+    <!-- ── Setup ─────────────────────────────────────────────── -->
+    <section id="page-setup" class="page" hidden>
+        <div class="setup">
+            <nav class="s-nav" id="s-nav">
+                <button data-s="me" class="on"><i class="fa-solid fa-id-badge"></i> My defaults</button>
+                <button data-s="bus"><i class="fa-solid fa-building"></i> Business units</button>
+                <button data-s="general"><i class="fa-solid fa-sliders"></i> Rules &amp; Fusion</button>
+                <button data-s="sources"><i class="fa-solid fa-plug"></i> Lookup sources</button>
+                <button data-s="layouts"><i class="fa-solid fa-print"></i> Print layouts</button>
+                <button data-s="users"><i class="fa-solid fa-users"></i> Users</button>
+            </nav>
+            <div class="s-body card" id="s-body"></div>
+        </div>
+    </section>
+
+    <div class="modal-bg" id="modal" hidden><div class="modal" id="modal-box"></div></div>
+    <div class="busy" id="busy" hidden><div><i class="fa-solid fa-circle-notch fa-spin"></i><span id="busy-t"></span></div></div>
+    <div class="toast" id="toast"></div>
+
+    <script src="om-engine.js"></script>
+    <script src="om-seed.js"></script>
+    <script src="om-core.js"></script>
+    <script src="om-ui.js"></script>
+    <script src="pad.js"></script>
+    <script src="orders.js"></script>
+    <script src="discounts.js"></script>
+    <script src="setup.js"></script>
+</body>
+</html>

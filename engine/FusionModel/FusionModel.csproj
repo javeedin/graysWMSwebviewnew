@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Fusion Model engine: DuckDB module files, versioned publish, local cache, loaders, query.
+       Plain .NET 8 (no Windows APIs) so it also runs as a service or on Linux. Tests: engine/FusionModel.Tests (dotnet test). -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FusionModel</RootNamespace>
+    <AssemblyName>FusionModel</AssemblyName>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DuckDB.NET.Data.Full" Version="1.5.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Fusion packs (GL, AP, AR, PO, OM, INV): tables, measures, glossary, checks -->
+    <EmbeddedResource Include="Packs\fusion-packs.json" />
+  </ItemGroup>
+
+</Project>

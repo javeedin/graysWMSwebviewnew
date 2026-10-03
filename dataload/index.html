@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Loading — Fusion Client</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="dataload.css">
+</head>
+<body>
+    <header class="top">
+        <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
+        <div class="logo"><i class="fa-solid fa-file-import"></i></div>
+        <div>
+            <h1>Data Loading <span class="ver">v12.0.0</span></h1>
+            <p>Load data into Oracle Fusion with File-Based Data Import (FBDI)</p>
+        </div>
+        <nav class="tabs">
+            <button class="tab active" data-tab="templates"><i class="fa-solid fa-table-list"></i> Fusion FBDI Templates</button>
+            <button class="tab" data-tab="prepare" title="Fill a template from Excel, pasted data or SQL, check it against Fusion and generate the FBDI ZIP"><i class="fa-solid fa-wand-magic-sparkles"></i> Prepare &amp; Load</button>
+            <button class="tab" data-tab="fsm" title="Track Oracle FSM implementation projects and their setup tasks"><i class="fa-solid fa-list-check"></i> Setup Projects</button>
+            <button class="tab" data-tab="fapi" title="Load data through Oracle Fusion REST APIs — by module, Setup / Masters / Transactions"><i class="fa-solid fa-plug-circle-bolt"></i> Fusion API</button>
+        </nav>
+    </header>
+
+    <section id="page-templates" class="page">
+        <div class="bar">
+            <div class="search">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input id="q" type="search" placeholder="Search templates, interface tables or columns…  e.g. invoice, GL_INTERFACE, Supplier Number" autocomplete="off">
+            </div>
+            <label class="rel" title="Oracle publishes a template set per quarterly release — pick the one your pod runs">
+                <span>Release</span>
+                <select id="rel"></select>
+            </label>
+            <button class="btn ghost" id="b-check" title="Ask Oracle whether a newer release is published"><i class="fa-solid fa-rotate"></i> Check newer</button>
+            <button class="btn ghost" id="b-folder" title="Open the local template folder"><i class="fa-regular fa-folder-open"></i> Folder</button>
+            <button class="btn primary" id="b-dlsel" disabled><i class="fa-solid fa-download"></i> Download selected <b id="n-sel">0</b></button>
+        </div>
+        <div class="areas" id="areas"></div>
+
+        <div class="layout">
+            <aside class="side">
+                <div class="side-h">
+                    <label class="chk"><input type="checkbox" id="sel-all"> <span id="side-count">Templates</span></label>
+                    <span class="muted" id="side-dl"></span>
+                </div>
+                <div class="list" id="list"></div>
+            </aside>
+            <main class="main" id="main"></main>
+        </div>
+    </section>
+
+    <section id="page-prepare" class="page" hidden>
+        <div class="layout">
+            <aside class="side">
+                <div class="side-h">
+                    <b>Loads</b>
+                    <button class="btn sm ghost" id="pr-refresh" style="margin-left:auto" title="Reload the list from APEX"><i class="fa-solid fa-rotate"></i></button>
+                    <button class="btn sm primary" id="pr-new"><i class="fa-solid fa-plus"></i> New load</button>
+                </div>
+                <div class="pr-search"><i class="fa-solid fa-magnifying-glass"></i><input id="pr-q" type="search" placeholder="Search loads…"></div>
+                <div class="list" id="pr-list"></div>
+            </aside>
+            <main class="main" id="pr-main"></main>
+        </div>
+    </section>
+
+    <section id="page-fsm" class="page" hidden>
+        <div class="layout">
+            <aside class="side">
+                <div class="side-h">
+                    <div class="seg sm fm-views"><button data-fmview="projects" title="FSM implementation projects and task status"><i class="fa-solid fa-list-check"></i> Projects</button><button data-fmview="exports" title="What setup really exists — FSM CSV exports analysed"><i class="fa-solid fa-box-archive"></i> Setup data</button></div>
+                    <button class="btn sm" id="fm-settings" style="margin-left:auto" title="Which FSM tables hold projects and tasks"><i class="fa-solid fa-gear"></i></button>
+                </div>
+                <div class="fm-refbar" id="fm-refbar"><button class="btn primary" id="fm-refresh"><i class="fa-solid fa-cloud-arrow-down"></i> Read from Fusion</button><small class="muted" id="fm-last"></small></div>
+                <div class="fm-refbar" id="fx-newbar" hidden><button class="btn primary" id="fx-new"><i class="fa-solid fa-plus"></i> New setup export</button><small class="muted">Offering, functional area or task — or an FSM ZIP</small></div>
+                <div class="list" id="fm-list"></div>
+            </aside>
+            <main class="main" id="fm-main"></main>
+        </div>
+    </section>
+
+    <section id="page-fapi" class="page" hidden>
+        <div class="layout">
+            <aside class="side">
+                <div class="side-h">
+                    <b>Fusion APIs</b>
+                    <button class="btn sm ghost" id="fa-home" style="margin-left:auto" title="Overview: module × Setup / Masters / Transactions"><i class="fa-solid fa-table-cells"></i></button>
+                </div>
+                <div class="fap-filt"><div class="pr-search"><i class="fa-solid fa-magnifying-glass"></i><input id="fa-q" type="search" placeholder="Search APIs…"></div><select id="fa-area"></select></div>
+                <div class="list" id="fa-list"></div>
+            </aside>
+            <main class="main" id="fa-main"></main>
+        </div>
+    </section>
+
+    <div class="modal-bg" id="pr-modal"><div class="modal" id="pr-modal-box"></div></div>
+
+    <div class="dl-tray" id="tray">
+        <div class="dl-h"><i class="fa-solid fa-download"></i> <b id="tray-title">Downloading</b><span class="grow"></span><button class="x" id="tray-x" title="Close"><i class="fa-solid fa-xmark"></i></button></div>
+        <div class="dl-bar"><i id="tray-bar"></i></div>
+        <div class="dl-rows" id="tray-rows"></div>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="fbdi-catalog.js"></script>
+    <script src="fbdi-specs.js"></script>
+    <script src="fbdi-engine.js"></script>
+    <script src="fbdi-rules.js"></script>
+    <script src="dataload.js"></script>
+    <script src="prepare.js"></script>
+    <script src="prepare-assist.js"></script>
+    <script src="fsm.js"></script>
+    <script src="fsm-export.js"></script>
+    <script src="fapi-catalog.js"></script>
+    <script src="fapi.js"></script>
+</body>
+</html>

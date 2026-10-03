@@ -208,6 +208,15 @@ namespace WMSApp.PrintManagement
     }
 
     /// <summary>
+    /// Fusion credentials for API access
+    /// </summary>
+    public class FusionCredentials
+    {
+        public string Username { get; set; }
+        public string Password { get; set; }
+    }
+
+    /// <summary>
     /// Download status enum
     /// </summary>
     public enum DownloadStatus
@@ -255,6 +264,27 @@ namespace WMSApp.PrintManagement
     }
 
     /// <summary>
+    /// 🔧 NEW: Message from JavaScript to check if PDF exists locally
+    /// </summary>
+    public class CheckPdfExistsMessage
+    {
+        [JsonProperty("action")]
+        public string Action { get; set; }
+
+        [JsonProperty("requestId")]
+        public string RequestId { get; set; }
+
+        [JsonProperty("orderNumber")]
+        public string OrderNumber { get; set; }
+
+        [JsonProperty("tripId")]
+        public string TripId { get; set; }
+
+        [JsonProperty("tripDate")]
+        public string TripDate { get; set; }
+    }
+
+    /// <summary>
     /// Message from JavaScript to print PDF
     /// </summary>
     public class PrintPdfMessage
@@ -276,6 +306,39 @@ namespace WMSApp.PrintManagement
 
         [JsonProperty("pdfPath")]
         public string PdfPath { get; set; }
+    }
+
+    /// <summary>
+    /// Message from JavaScript to print Sales Order PDF
+    /// </summary>
+    public class PrintSalesOrderMessage
+    {
+        [JsonProperty("action")]
+        public string Action { get; set; }
+
+        [JsonProperty("requestId")]
+        public string RequestId { get; set; }
+
+        [JsonProperty("orderNumber")]
+        public string OrderNumber { get; set; }
+
+        [JsonProperty("instance")]
+        public string Instance { get; set; }
+
+        [JsonProperty("reportPath")]
+        public string ReportPath { get; set; }
+
+        [JsonProperty("parameterName")]
+        public string ParameterName { get; set; }
+
+        [JsonProperty("tripId")]
+        public string TripId { get; set; }
+
+        [JsonProperty("tripDate")]
+        public string TripDate { get; set; }
+
+        [JsonProperty("orderType")]
+        public string OrderType { get; set; }
     }
 
     /// <summary>
