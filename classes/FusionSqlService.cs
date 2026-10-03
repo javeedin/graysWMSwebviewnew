@@ -361,10 +361,15 @@ namespace WMSApp.FusionSql
                     return Timed(FusionQueryResult.Fail(csv.Fault ?? "HTTP " + csv.Status, csv.Raw), sw);
             }
             if (rows != null && rows.Count > 0 && rows.All(r => r.Keys.All(RowsetParser.IsEnvelopeKey)))
-            {   // only the runner's envelope came back (e.g. an error text in RESULT) - never pass it on as data
-                var bad = FusionQueryResult.Fail(RowsetParser.Diagnose(decoded) ?? "Fusion answered with the runner's RESULT text instead of rows.", xml.Raw);
-                bad.Decoded = Truncate(decoded, 3000);
-                return Timed(bad, sw);
+            {   // only the runner's envelope came back: an error text in RESULT is a failure; a blank one (or empty rows) is simply no data
+                string why2 = RowsetParser.Diagnose(decoded);
+                if (why2 != null && !why2.StartsWith("Fusion answered without rows", StringComparison.Ordinal))
+                {
+                    var bad = FusionQueryResult.Fail(why2, xml.Raw);
+                    bad.Decoded = Truncate(decoded, 3000);
+                    return Timed(bad, sw);
+                }
+                rows = new List<Dictionary<string, object>>();
             }
             if (rows == null && xml.Fault == null && RowsetParser.Diagnose(decoded) is string why)
             {

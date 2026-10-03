@@ -412,13 +412,27 @@
             "WHERE NOT (ABS(tb.b) < 0.005 AND ABS(tb.d) < 0.005 AND ABS(tb.c) < 0.005) AND (ex.account IS NULL OR ABS(tb.b - ex.b) > 0.5 OR ABS(tb.d - ex.d) > 0.5 OR ABS(tb.c - ex.c) > 0.5)) " +
             (detail ? "SELECT * FROM bad ORDER BY company, account" : "SELECT seq, COUNT(*) AS n, STRING_AGG(company || ':' || account, ', ' ORDER BY company, account) AS accts FROM bad GROUP BY seq");
     };
+    /** Per-account results of the account-by-account reads → L.acct[seq] = { ok, empty, failed, list } */
+    T.loadAcct = function () {
+        var l = T.ledgerObj(); L.acct = {};
+        if (!l) return Promise.resolve();
+        var seqOf = {}; T.cal().forEach(function (p) { seqOf[p.name] = p.seq; });
+        (L.ext && L.ext.rows || []).forEach(function (x) { if (x.seq != null) seqOf[x.period] = +x.seq; });
+        return FL.call('finTbExtAcctStatus', { pod: L.pod || '', ledgerId: +l.id }).then(function (r) {
+            (r.rows || []).forEach(function (z) {
+                var q = seqOf[z.period]; if (q == null) return;
+                var a = L.acct[q] = L.acct[q] || { ok: 0, empty: 0, failed: 0, list: [] };
+                a[z.state] = (a[z.state] || 0) + 1; a.list.push(z);
+            });
+        }).catch(function () { L.acct = {}; });
+    };
     T.loadTies = function () {
         var q = T.tieSql(null, false); L.ties = {};
         if (!q || !L.ext || !(L.ext.rows || []).length) return Promise.resolve();
         return FL.sql(q, 5000).then(function (d) { d.rows.forEach(function (r) { L.ties[+r[0]] = { n: +r[1], accts: String(r[2] || '') }; }); }).catch(function () { L.ties = null; });
     };
     T.board = function () {
-        return Promise.all([FL.call('finTbSyncStatus'), FL.call('finTbExtStatus').catch(function () { return { rows: [] }; })]).then(function (rr) { L.status = rr[0]; L.ext = rr[1]; return T.loadTies(); }).then(function () { T.paintBoard(); T.paintExt(); }).catch(function (e) { if ($('ts-board')) $('ts-board').innerHTML = '<div class="callout bad">' + esc(e) + '</div>'; });
+        return Promise.all([FL.call('finTbSyncStatus'), FL.call('finTbExtStatus').catch(function () { return { rows: [] }; })]).then(function (rr) { L.status = rr[0]; L.ext = rr[1]; return Promise.all([T.loadTies(), T.loadAcct()]); }).then(function () { T.paintBoard(); T.paintExt(); }).catch(function (e) { if ($('ts-board')) $('ts-board').innerHTML = '<div class="callout bad">' + esc(e) + '</div>'; });
     };
     T.cells = function () {
         var cells = {}, l = T.ledgerObj(); if (!l || !L.status) return cells;
@@ -489,6 +503,7 @@
                     if (a === 'tb') T.sync([q], false); else if (a === 'tbo') T.sync([q], true); else if (a === 'ext') T.extSync([q], false); else if (a === 'exto') T.extSync([q], true);
                 };
             });
+            box.querySelectorAll('[data-acct]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); T.acctDialog(+b.dataset.acct); }; });
             box.querySelectorAll('[data-sql]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); T.sqlDialog(+b.dataset.s, b.dataset.sql); }; });
             box.querySelectorAll('[data-view]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); T.view(+b.dataset.s, b.dataset.view); }; });
             if ($(x + '-years')) { $(x + '-years').innerHTML = yearsHtml; $(x + '-years').querySelectorAll('button').forEach(function (b) { b.onclick = function () { L.year = +b.dataset.y; FL.lsSet('tbl.year', L.year); T.paintBoard(); }; }); }
@@ -517,7 +532,7 @@
             var xs = T.extState(p.seq, want), xl = T.xlive && T.xlive.per[p.name], x = xc[p.seq];
             var miss = x ? need.filter(function (n) { return Object.keys(x.cos).every(function (co) { return x.cos[co].indexOf(n) < 0; }); }) : [];
             var ex = !ext.length ? pill('off', '–', 'no segments chosen')
-                : xl && xl.state === 'running' ? pill('run', '<i class="fa-solid fa-circle-notch fa-spin"></i>', xl.acct ? 'company ' + xl.acct.co + ' · account ' + xl.acct.i + ' of ' + xl.acct.n
+                : xl && xl.state === 'running' ? pill('run', '<i class="fa-solid fa-circle-notch fa-spin"></i>', xl.acct ? 'company ' + xl.acct.co + ' · account ' + xl.acct.i + ' of ' + xl.acct.n + (xl.acctFail ? ' · ✗ ' + xl.acctFail : '')
                     : 'syncing · ' + xl.done + ' of ' + xl.total + ' compan' + (xl.total === 1 ? 'y' : 'ies'), xl.acct ? 'Timed out per company - reading it account by account (now ' + xl.acct.name + ')' : '') + (xl.fails ? ' ' + pill('bad', '⚠', xl.fails.length + ' failed', xl.error) : '')
                 : xl && xl.state === 'queued' ? pill('run', '⏳', 'waiting') : xl && xl.state === 'failed' ? pill('bad', '⚠', 'failed', xl.error)
                 : xs === 'done' && L.ties && L.ties[p.seq] ? pill('part', '◐', 'Yes · ' + (x.rows || 0).toLocaleString() + ' rows · ' + L.ties[p.seq].n + ' account' + (L.ties[p.seq].n === 1 ? '' : 's') + ' differ from TB',
@@ -530,7 +545,7 @@
             var delBtn = admin && c && !run ? '<button class="ts-eye ts-del" data-del="' + p.seq + '" title="Delete ' + esc(p.name) + ' from this PC (trial balance and extended segments; Sync reads it again any time)"><i class="fa-solid fa-trash"></i></button>' : '';
             return '<tr class="ts-tr' + (future ? ' future' : '') + '" data-s="' + p.seq + '"><td><b>' + esc(p.name) + '</b>' +
                 (c && c.adj.length ? ' <span class="muted sm">+ ' + esc(c.adj.join(', ')) + '</span>' : '') + (future ? ' <span class="muted sm">not open yet</span>' : '') + '</td><td>' + tb +
-                    (st === 'done' || st === 'part' ? ' <button class="ts-eye" data-view="tb" data-s="' + p.seq + '" title="View the trial balance rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td class="ts-btns">' + tbBtn + sqlBtn('tb') + delBtn + '</td><td class="ts-xc">' + ex + (ext.length && x && (xs === 'done' || xs === 'part') ? ' <button class="ts-eye" data-view="ext" data-s="' + p.seq + '" title="View the extended-segment rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td class="ts-btns">' + exBtn + (ext.length ? sqlBtn('ext') : '') + '</td></tr>';
+                    (st === 'done' || st === 'part' ? ' <button class="ts-eye" data-view="tb" data-s="' + p.seq + '" title="View the trial balance rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td class="ts-btns">' + tbBtn + sqlBtn('tb') + delBtn + '</td><td class="ts-xc">' + ex + T.acctIcon(p.seq) + (ext.length && x && (xs === 'done' || xs === 'part') ? ' <button class="ts-eye" data-view="ext" data-s="' + p.seq + '" title="View the extended-segment rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td class="ts-btns">' + exBtn + (ext.length ? sqlBtn('ext') : '') + '</td></tr>';
         }).join('');
         var openP = ps.filter(function (p) { return !(p.start && p.start > today); });
         var missTb = openP.filter(function (p) { var st = T.stateOf(p, cells, want); return st === 'none' || st === 'part' || st === 'failed'; }).map(function (p) { return p.seq; });
@@ -710,6 +725,7 @@
             else if (e.t === 'ext' && xl.per[e.period]) {
                 var pe = xl.per[e.period];
                 if (e.state === 'split') { pe.split = (pe.split || 0) + 1; pe.retry = e.why; }
+                else if (e.state === 'acct') { if (!e.ok) { pe.acctFail = (pe.acctFail || 0) + 1; } }
                 else if (e.state === 'done') { pe.done = Math.min(pe.total, pe.done + 1); pe.acct = null; }
                 else if (e.state === 'failed') { pe.fails = (pe.fails || []).concat(['company ' + e.company + ': ' + e.error]); pe.error = pe.fails.join(' · '); pe.acct = null; }
             }
@@ -858,13 +874,46 @@
             T.extSync(list, false);
         };
     };
+    /** The account-by-account result of a period as an icon: ✗ n failed (red) or ✓ n accounts (green); nothing when the period was read per company */
+    T.acctIcon = function (seq) {
+        var a = L.acct && L.acct[seq]; if (!a || !a.list.length) return '';
+        return a.failed ? ' <button class="ts-acc bad" data-acct="' + seq + '" title="' + a.failed + ' account(s) failed — click for the list and Retry"><i class="fa-solid fa-circle-xmark"></i> ' + a.failed + ' failed</button>'
+            : ' <button class="ts-acc ok" data-acct="' + seq + '" title="Read account by account: ' + a.ok + ' with rows, ' + a.empty + ' without data — click for the list"><i class="fa-solid fa-circle-check"></i> ' + a.list.length + '</button>';
+    };
+    /** Every account of the account-by-account reads of one period: ✓ rows / ○ no data / ✗ failed (error), Retry the failed ones */
+    T.acctDialog = function (seq) {
+        var a = L.acct && L.acct[seq], per = T.cal().filter(function (p) { return p.seq === seq; })[0] || { name: String(seq) }; if (!a) return;
+        var admin = FL.who && FL.who.admin, failed = a.list.filter(function (z) { return z.state === 'failed'; });
+        var ICON = { ok: '<span class="ts-ai ok" title="synced">✓</span>', empty: '<span class="ts-ai empty" title="no data in Fusion">○</span>', failed: '<span class="ts-ai bad" title="failed">✗</span>' };
+        FL.modal('<i class="fa-solid fa-list-check"></i> ' + esc(per.name) + ' · extended segments by account',
+            '<div class="ts-vsum"><span>' + ICON.ok + ' <b>' + a.ok + '</b> synced</span><span>' + ICON.empty + ' <b>' + a.empty + '</b> no data</span><span>' + ICON.failed + ' <b>' + a.failed + '</b> failed</span><span class="grow"></span>' +
+            (admin && failed.length ? '<button class="btn sm primary" id="ta-retry"><i class="fa-solid fa-rotate-right"></i> Retry ' + failed.length + ' failed</button>' : '') + '</div>' +
+            '<p class="sm muted" style="margin:6px 0">Each account was read on its own; a failing account does not stop the others. <b>No data</b> = Fusion has no balance for it in this period.</p><div id="ta-grid"></div>');
+        FL.grid($('ta-grid'), [
+            { label: '', html: 1, get: function (z) { return ICON[z.state] || esc(z.state); }, val: function (z) { return z.state; } },
+            { label: 'Company', get: function (z) { return z.company; } },
+            { label: 'Account', get: function (z) { return z.account; } },
+            { label: 'Period', get: function (z) { return z.period; } },
+            { label: 'Rows', n: 1, get: function (z) { return z.rows; }, val: function (z) { return +z.rows || 0; } },
+            { label: 'Time', n: 1, get: function (z) { return z.ms != null ? (z.ms / 1000).toFixed(1) + ' s' : ''; }, val: function (z) { return +z.ms || 0; } },
+            { label: 'Error', get: function (z) { return z.error || ''; } },
+            { label: 'Read', get: function (z) { return String(z.at || '').slice(0, 16); } }
+        ], a.list.slice().sort(function (x, y) { return (x.state === 'failed' ? 0 : x.state === 'ok' ? 1 : 2) - (y.state === 'failed' ? 0 : y.state === 'ok' ? 1 : 2); }),
+            { id: 'ta-' + seq, height: '58vh', csv: 'extended-accounts-' + per.name + '.csv', max: 5000 });
+        if ($('ta-retry')) $('ta-retry').onclick = function () {
+            var byCo = {}; failed.forEach(function (z) { (byCo[z.company] = byCo[z.company] || []).push(z.account); });
+            FL.closeModal();
+            Object.keys(byCo).reduce(function (pr, co) { return pr.then(function () { return T.extSync([seq], true, false, { companies: [co], accounts: byCo[co] }); }); }, Promise.resolve());
+        };
+    };
     /** The extended-segments choice in a dialog (segments, how they are read, sync after the trial balance) */
     T.extDialog = function () {
         FL.modal('<i class="fa-solid fa-layer-group"></i> Extended trial balance — segments', '<p class="sm muted" style="margin-top:0">Company and account are always in. Tick the segments the extended trial balance is grouped by (e.g. salesperson, item profit centre), then <b>Save choice</b>; the table then shows Sync for every period that lacks them.</p><div class="ts-ext" id="ts-ext"></div>');
         T.paintExt();
     };
     /** Reads the extended-segment balances of some periods (only what this PC lacks unless refresh) */
-    T.extSync = function (seqs, refresh, quiet) {
+    T.extSync = function (seqs, refresh, quiet, only) {
+        only = only || {};
         var l = T.ledgerObj(), ext = T.extCols(); if (!l || !ext.length || !seqs.length) return Promise.resolve();
         var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), today = new Date().toISOString().slice(0, 10);
         var future = T.cal().filter(function (p) { return seqs.indexOf(p.seq) >= 0 && p.start && p.start > today; });
@@ -880,7 +929,7 @@
         FL.fusion.run.pod = L.pod || '';
         T.pfx().forEach(function (x) { if ($(x + '-md')) $(x + '-md').querySelectorAll('button').forEach(function (b) { b.disabled = true; }); });
         if ($('ts-xgo')) { $('ts-xgo').disabled = true; $('ts-xgo').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Syncing…'; }
-        return FL.call('finTbExtSync', { pod: L.pod || '', options: { ledger: led, periodSeqs: seqs, foldAdjustments: L.fold, companies: L.cos, parallel: L.par, refresh: !!refresh, extSegments: ext, extNames: T.extNames(), extBy: L.extBy, extAccountBatch: L.extBatch,
+        return FL.call('finTbExtSync', { pod: L.pod || '', options: { ledger: led, periodSeqs: seqs, foldAdjustments: L.fold, companies: only.companies || L.cos, parallel: L.par, refresh: !!refresh || !!only.accounts, extSegments: ext, extNames: T.extNames(), extBy: L.extBy, extAccountBatch: L.extBatch, extAccounts: only.accounts || [],
             skipZero: !!L.opt.skipZero, hint: !!L.opt.hint, allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 90 * 60000, p).then(function (r) {
             FL.fusion.finish();
             (r.failed || []).forEach(function (f) { var x = T.xlive.per[f.period]; if (x) { x.state = 'failed'; x.error = 'company ' + f.company + ': ' + f.error; } });

@@ -197,6 +197,9 @@ namespace WMSApp
                                          sqlAccount = FinanceFusion.ExtSql(led, segs, to, null, per, co, new List<string> { string.IsNullOrEmpty(ac) ? "ACCOUNT" : ac }) };
                             break;
                         }
+                    case "finTbExtAcctStatus":   // per-account results of the account-by-account extended reads (ok / empty / failed)
+                        data = await Task.Run(() => FinanceLens.ExtAcctStatus(PipeSrvStr(root, "pod") ?? "", root.TryGetProperty("ledgerId", out var lidE) && lidE.TryGetInt64(out var lidV) ? lidV : 0));
+                        break;
                     case "finTbExtStatus":
                         data = await Task.Run(() => FinanceLens.ExtStatus());
                         break;

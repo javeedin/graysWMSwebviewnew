@@ -161,6 +161,7 @@ Data › Trial balance sync opens as a table (switch to Tiles at the top right).
 - **Company 01 read as 1.** Company lists discovered before leading zeros were kept say *1* where Fusion holds *01*, so a filter `c.SEGMENT1 = '1'` found nothing. Every filter and comparison now accepts both (`… OR LTRIM(c.SEGMENT1, '0') = '1'`), and the board asks you to run **Fusion setup › Discover** again; afterwards **Overwrite** the periods synced before so the stored codes are exact.
 - **Companies** are picked right under the ledger (not in Settings). The first time, the company of the header filter is ticked — else the ledger's first company — instead of all; your choice is kept per ledger.
 - **Extended segments: …** (beside Table / Tiles) opens the segment choice in a dialog: tick the segments, how they are read, *Save choice*. The rows then offer Sync for every period that lacks them.
+- **Accounts read one by one** each get a result: ✓ synced, ○ no data in Fusion, ✗ failed. A failing account no longer stops the others. The icon beside the extended status (*✗ 2 failed* in red, or *✓ 160* in green) opens the list of accounts with their error and **Retry n failed**, which reads only those accounts again and keeps the rest.
 
 ## Segment P&L (P&L, pivot and trial balance by extended segments)
 

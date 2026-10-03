@@ -566,3 +566,8 @@ td.sp-tc, th.sp-tc { background: #f1f5f9; font-weight: 700; }
 .ts-fun-drop td { background: #fee2e2; font-weight: 600; }
 .ts-corow { margin-top: 8px; align-items: flex-start; }
 .ts-corow .tl-cos .chip.on { border-color: var(--accent); background: #eef2ff; }
+.ts-acc { border: 0; border-radius: 999px; padding: 1px 8px; font-size: 12px; font-weight: 600; cursor: pointer; margin-left: 4px; }
+.ts-acc.ok { background: #dcfce7; color: #166534; }
+.ts-acc.bad { background: #fee2e2; color: #b91c1c; }
+.ts-ai { display: inline-block; width: 18px; text-align: center; font-weight: 700; }
+.ts-ai.ok { color: #16a34a; } .ts-ai.empty { color: #94a3b8; } .ts-ai.bad { color: #dc2626; }

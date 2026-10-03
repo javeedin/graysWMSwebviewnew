@@ -1176,6 +1176,8 @@ namespace WMSApp
             public int ExtAccountBatch { get; set; } = 1;
             /// <summary>Extended segments: the segment names (SEGMENTn → e.g. "Salesperson") so the SQL reads `c.SEGMENT10 salesperson`; rows are mapped back to SEGMENTn.</summary>
             public Dictionary<string, string> ExtNames { get; set; } = new();
+            /// <summary>Extended segments: read only these accounts (retry of failed accounts) and replace only their rows.</summary>
+            public List<string> ExtAccounts { get; set; } = new();
         }
 
         /// <summary>
@@ -1764,9 +1766,12 @@ namespace WMSApp
                     if (!r.Success) throw new InvalidOperationException("account list of company " + co + ": " + Short(r.Error));
                     return r.Rows.Select(z => S(z, "A")).Where(v => !string.IsNullOrEmpty(v)).Distinct().OrderBy(a => a, StringComparer.Ordinal).ToList();
                 }
-                async Task<List<Dictionary<string, object>>> ByAccount(string period, string co, List<string> only = null)
+                string K(string a) => a != null && a.Length > 0 && a.All(char.IsDigit) ? a.TrimStart('0') : a ?? "";   // account key that survives lost leading zeros
+                // one status per account read on its own: ok (rows) / empty (Fusion has none) / failed (error) — a failing account never stops the others
+                async Task<List<Dictionary<string, object>>> ByAccount(string period, string co, List<string> only, List<(string Account, string State, int Rows, string Error, long Ms)> stat, bool failIfAll = true)
                 {
                     var accts = only ?? await AccountsFor(period, co).ConfigureAwait(false);
+                    int failedHere = 0; string firstAcctErr = null;
                     x.Note("   " + period + " · company " + co + ": reading " + accts.Count + " account(s) " + (batch == 1 ? "one by one" : batch + " per query"));
                     var all = new List<Dictionary<string, object>>();
                     var queue = new Queue<(int At, List<string> Accts)>(accts.Select((a, i) => (i, a)).Chunk(batch).Select(c => (c[0].i, c.Select(z => z.a).ToList())));
@@ -1775,9 +1780,20 @@ namespace WMSApp
                         x.Ct.ThrowIfCancellationRequested();
                         var (at, list) = queue.Dequeue();
                         string label = led.Name + " · " + period + " · extended · company " + co + " · account " + (list.Count == 1 ? list[0] : list[0] + "…" + list[^1]) + " · " + (at + 1) + " of " + accts.Count;
+                        var ta = Stopwatch.StartNew();
                         var r = Back(await RunLive(x, label, Sql(period, co, list), CAP).ConfigureAwait(false));
                         Interlocked.Increment(ref reads);
-                        if (r.Success && r.Rows.Count < CAP) { all.AddRange(r.Rows); continue; }
+                        if (r.Success && r.Rows.Count < CAP)
+                        {
+                            all.AddRange(r.Rows);
+                            foreach (var a in list)
+                            {
+                                int n = r.Rows.Count(z => K(S(z, led.Account)) == K(a));
+                                stat.Add((a, n > 0 ? "ok" : "empty", n, null, ta.ElapsedMilliseconds));
+                                x.Live(new { t = "ext", period, company = co, state = "acct", account = a, ok = true, rows = n });
+                            }
+                            continue;
+                        }
                         if (list.Count > 1)
                         {   // split the batch and read both halves before the rest
                             int h = list.Count / 2;
@@ -1787,13 +1803,18 @@ namespace WMSApp
                             x.Note("   ↯ " + label + " failed - split in two");
                             continue;
                         }
-                        throw new InvalidOperationException("account " + list[0] + ": " + (r.Success ? "more than " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows" : Short(r.Error)));
+                        string aerr = r.Success ? "more than " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows" : Short(r.Error);
+                        stat.Add((list[0], "failed", 0, aerr, ta.ElapsedMilliseconds));
+                        failedHere++; firstAcctErr ??= "account " + list[0] + ": " + aerr;
+                        x.Note("   ✖ " + period + " · company " + co + " · account " + list[0] + ": " + aerr + " - carrying on with the next account");
+                        x.Live(new { t = "ext", period, company = co, state = "acct", account = list[0], ok = false, error = aerr });
                     }
+                    if (failIfAll && accts.Count > 0 && failedHere == accts.Count) throw new InvalidOperationException("every account failed - " + firstAcctErr);
+                    if (failedHere > 0) x.Note("⚠ " + period + " · company " + co + ": " + failedHere + " of " + accts.Count + " account(s) failed - the others are kept; Retry them from the accounts list");
                     return all;
                 }
                 // tie-out: the extended rows of a period × company must add up, per account, to the trial balance already on this PC
                 string ExtTf(Dictionary<string, object> r) => S(r, "TRANSLATED_FLAG");
-                string K(string a) => a != null && a.Length > 0 && a.All(char.IsDigit) ? a.TrimStart('0') : a ?? "";   // account key that survives lost leading zeros
                 List<string> Mismatch(string period, string co, List<Dictionary<string, object>> got, out int tbAccounts)
                 {
                     List<AcctRow> mine;
@@ -1821,6 +1842,20 @@ namespace WMSApp
                         string label = led.Name + " · " + j.Period + " · extended · company " + j.Co;
                         var t0 = Stopwatch.StartNew();
                         List<Dictionary<string, object>> got = null; string how = "company";
+                        var stat = new List<(string Account, string State, int Rows, string Error, long Ms)>();
+                        var retry = (o.ExtAccounts ?? new()).Where(a => !string.IsNullOrWhiteSpace(a)).Distinct().ToList();
+                        if (retry.Count > 0)
+                        {   // Retry: only these accounts, their rows replaced, the other accounts of the read stay
+                            var part = await ByAccount(j.Period, j.Co, retry, stat, false).ConfigureAwait(false);
+                            FinanceLens.SaveExt(o.Pod, led.Id, j.Period, led.Currency, j.Co, led.Company, led.Account, segs, part, t0.ElapsedMilliseconds, retry);
+                            FinanceLens.SaveExtAcctStatus(o.Pod, led.Id, j.Period, j.Co, stat, false);
+                            Interlocked.Add(ref rows, part.Count);
+                            int nf = stat.Count(z => z.State == "failed");
+                            x.Note("✓ " + j.Period + " · company " + j.Co + ": " + retry.Count + " account(s) read again · " + part.Count + " rows" + (nf > 0 ? " · " + nf + " still failing" : ""));
+                            x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "done", rows = part.Count, how = "retry", failedAccounts = nf });
+                            lock (sources) sources.Add(new { period = j.Period, company = j.Co, rows = part.Count, ms = t0.ElapsedMilliseconds, how = "retry", failedAccounts = nf });
+                            return;
+                        }
                         if (by != "account")
                         {
                             string sql = Sql(j.Period, j.Co);
@@ -1836,16 +1871,18 @@ namespace WMSApp
                                 x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "split", why });
                             }
                         }
-                        if (got == null) { got = await ByAccount(j.Period, j.Co).ConfigureAwait(false); how = "account"; }
+                        if (got == null) { got = await ByAccount(j.Period, j.Co, null, stat).ConfigureAwait(false); how = "account"; }
                         // tie-out with the trial balance; accounts missing or different are read again one by one and replaced
                         var bad = Mismatch(j.Period, j.Co, got, out int tbAcc);
                         int reread = 0;
-                        if (bad.Count > 0 && by != "company")
+                        var failedSet = new HashSet<string>(stat.Where(z => z.State == "failed").Select(z => K(z.Account)), StringComparer.Ordinal);
+                        if (bad.Any(b2 => !failedSet.Contains(b2)) && by != "company")
                         {
+                            bad = bad.Where(b2 => !failedSet.Contains(b2)).ToList();   // accounts that just failed are not asked again here - Retry does that
                             x.Note("⚠ " + j.Period + " · company " + j.Co + ": " + bad.Count + " of " + tbAcc + " account(s) do not match the trial balance on this PC (" + string.Join(", ", bad.Take(12)) + (bad.Count > 12 ? " …" : "") + ") - reading them account by account");
                             x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "split", why = bad.Count + " account(s) differ from the trial balance" });
                             var badSet = new HashSet<string>(bad, StringComparer.Ordinal);
-                            var again = await ByAccount(j.Period, j.Co, bad).ConfigureAwait(false);
+                            var again = await ByAccount(j.Period, j.Co, bad, stat, false).ConfigureAwait(false);
                             got = got.Where(r => !badSet.Contains(K(S(r, led.Account)))).Concat(again).ToList();
                             reread = bad.Count;
                             bad = Mismatch(j.Period, j.Co, got, out tbAcc);
@@ -1855,10 +1892,12 @@ namespace WMSApp
                         else if (tie == "ok") x.Note("   " + j.Period + " · company " + j.Co + ": ties to the trial balance (" + tbAcc + " accounts)" + (reread > 0 ? " after reading " + reread + " again" : ""));
                         lock (gate) if (!sampled && got.Count > 0) { sampled = true; LiveSample(x, label, got); }
                         FinanceLens.SaveExt(o.Pod, led.Id, j.Period, led.Currency, j.Co, led.Company, led.Account, segs, got, t0.ElapsedMilliseconds);
+                        FinanceLens.SaveExtAcctStatus(o.Pod, led.Id, j.Period, j.Co, stat, true);
+                        int failedAccts = stat.Count(z => z.State == "failed");
                         Interlocked.Add(ref rows, got.Count);
                         x.Note("✓ " + j.Period + " · company " + j.Co + ": " + got.Count.ToString("N0", CultureInfo.InvariantCulture) + " rows in " + (t0.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" + (how == "account" ? " (account by account)" : "") + " (fin_gl_balances_ext)");
-                        x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "done", rows = got.Count, how, tie, differ = bad.Count });
-                        lock (sources) sources.Add(new { period = j.Period, company = j.Co, rows = got.Count, ms = t0.ElapsedMilliseconds, how, tie, differ = bad, reread });
+                        x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "done", rows = got.Count, how, tie, differ = bad.Count, failedAccounts = failedAccts });
+                        lock (sources) sources.Add(new { period = j.Period, company = j.Co, rows = got.Count, ms = t0.ElapsedMilliseconds, how, tie, differ = bad, reread, failedAccounts = failedAccts });
                     }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex)
