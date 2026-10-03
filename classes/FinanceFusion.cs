@@ -73,7 +73,29 @@ namespace WMSApp
             public bool Has(string table, string col) => Cols.TryGetValue(table, out var c) && c.Contains(col);
             public bool HasTable(string table) => Cols.ContainsKey(table) && Cols[table].Count > 0;
             public void Note(string s) { lock (Log) Log.Add(DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "  " + s); Progress?.Invoke(s); }
+            /// <summary>A structured event for the page's live monitor (not in the log): "\u0001" + JSON —
+            /// t = sql (a query starts: id, what, sql), end (it finished: id, ok, rows, ms, error), sample (first rows of a step).</summary>
+            public void Live(object o) { try { Progress?.Invoke("\u0001" + JsonSerializer.Serialize(o)); } catch { } }
             public bool LogSql;
+        }
+
+        private static int _liveId;
+        /// <summary>Runs one Fusion query and tells the live monitor when it starts (with its SQL) and ends.</summary>
+        private static async Task<FusionQueryResult> RunLive(Ctx x, string what, string sql, int cap)
+        {
+            int id = Interlocked.Increment(ref _liveId);
+            x.Live(new { t = "sql", id, what, sql, at = DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) });
+            var sw = Stopwatch.StartNew();
+            FusionQueryResult r = null;
+            try { r = await x.Run(sql, cap, x.Ct).ConfigureAwait(false); return r; }
+            finally { x.Live(new { t = "end", id, ok = r != null && r.Success, rows = r?.Rows?.Count ?? 0, ms = sw.ElapsedMilliseconds, error = r == null ? "cancelled" : r.Success ? null : r.Error }); }
+        }
+        /// <summary>The first rows of a step for the live monitor (column names without the ranking column).</summary>
+        private static void LiveSample(Ctx x, string what, List<Dictionary<string, object>> rows)
+        {
+            if (rows == null || rows.Count == 0) return;
+            var cols = rows[0].Keys.Where(k => !string.Equals(k, "RN", StringComparison.OrdinalIgnoreCase)).ToList();
+            x.Live(new { t = "sample", what, cols, rows = rows.Take(5).Select(r => cols.Select(c => r.TryGetValue(c, out var v) ? Convert.ToString(v, CultureInfo.InvariantCulture) : null).ToList()).ToList() });
         }
 
         private static async Task<FusionQueryResult> Try(Ctx x, string label, int cap, params string[] variants)
@@ -82,7 +104,7 @@ namespace WMSApp
             foreach (var sql in variants.Where(v => !string.IsNullOrWhiteSpace(v)))
             {
                 x.Ct.ThrowIfCancellationRequested();
-                var r = await x.Run(sql, cap, x.Ct).ConfigureAwait(false);
+                var r = await RunLive(x, label, sql, cap).ConfigureAwait(false);
                 if (r.Success) return r;
                 last = r.Error;
                 Debug.WriteLine("[FinanceFusion] " + label + " variant failed: " + r.Error);
@@ -776,19 +798,7 @@ namespace WMSApp
                 if (!incremental)
                 {
                     foreach (var stmt in FinanceLens.SCHEMA.Split(';').Select(s => s.Trim()).Where(s => s.Length > 0)) FinanceLens.Exec(conn, stmt);
-                    FinanceLens.Exec(conn, FinanceLens.SEGVAL_TABLE);
-                    if (File.Exists(FinanceLens.DbPath))
-                        try
-                        {   // segment values fetched earlier stay with the data
-                            FinanceLens.Exec(conn, "ATTACH " + FinanceLens.Lit(FinanceLens.DbPath.Replace('\\', '/')) + " AS prev (READ_ONLY)");
-                            using (var pc = conn.CreateCommand())
-                            {
-                                pc.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog = 'prev' AND table_name = 'fin_segment_values'";
-                                if (Convert.ToInt64(pc.ExecuteScalar()) > 0) FinanceLens.Exec(conn, "INSERT INTO fin_segment_values SELECT * FROM prev.fin_segment_values");
-                            }
-                            FinanceLens.Exec(conn, "DETACH prev");
-                        }
-                        catch (Exception ex) { x.Note("⚠ earlier segment values not kept: " + ex.Message); }
+                    FinanceLens.CarryOver(conn, x.Note);   // segment values and live trial balances stay with the data
                 }
                 else
                 {
@@ -1089,6 +1099,103 @@ namespace WMSApp
                    (saved == "duckdb" ? " · saved in DuckDB" : saved == "pending" ? " · kept on this PC, added to DuckDB by the first load" : ""));
             return new { ok = true, coaId, column = col, values = list.Select(v => new { value = v.Value, description = v.Description, combinations = v.Combinations, accountType = v.AccountType }), savedDuck = saved == "duckdb", pendingDuck = saved == "pending", log = x.Log };
         }
+        // ═════ Trial balance live from Fusion ═════
+        public sealed class TbOptions
+        {
+            public SyncLedger Ledger { get; set; }
+            /// <summary>period_seq (year × 100 + period number) of the normal period; 0 = the latest started period.</summary>
+            public int PeriodSeq { get; set; }
+            public bool FoldAdjustments { get; set; } = true;
+            /// <summary>Only these balancing values (empty = every company of the ledger).</summary>
+            public List<string> Companies { get; set; } = new();
+            public bool ByCostCentre { get; set; }
+            public int ChunkSize { get; set; } = DEFAULT_CHUNK;
+            public bool LogSql { get; set; }
+        }
+
+        /// <summary>
+        /// Trial balance of one ledger and period straight from GL_BALANCES (ledger currency, actuals, no translated or summary
+        /// rows) grouped by company × account (× cost centre): opening, PTD debits / credits, closing, and the balances at the start
+        /// of the quarter and of the fiscal year (QTD / YTD activity = closing − those). Only GL_BALANCES and GL_CODE_COMBINATIONS
+        /// are read — the names come from this PC (DuckDB / segment values), not from the value sets, so the query stays small.
+        /// Read in ranked chunks like the sync; adjustment periods are folded into the period they close.
+        /// </summary>
+        public static async Task<object> TrialBalanceAsync(Runner run, TbOptions o, Action<string> progress, CancellationToken ct)
+        {
+            var x = new Ctx { Run = run, Ct = ct, Progress = progress, LogSql = o.LogSql };
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                var led = o.Ledger;
+                if (led == null) return new { ok = false, error = "Pick a ledger." };
+                led.Company = SegCol(led.Company); led.Account = SegCol(led.Account); led.CostCentre = SegCol(led.CostCentre);
+                if (led.Company == null || led.Account == null || string.IsNullOrEmpty(led.Currency) || string.IsNullOrEmpty(led.PeriodSet))
+                    return new { ok = false, error = "Ledger " + led.Name + ": the company / account segment or the calendar is missing — run Discover in Fusion setup." };
+                await Probe(x).ConfigureAwait(false);
+                var calr = await CalendarAsync(x, led, o.FoldAdjustments).ConfigureAwait(false);
+                if (calr == null) return new { ok = false, error = "Could not read GL_PERIODS.", log = x.Log };
+                var (_, normal, target) = calr.Value;
+                string today = DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+                var p = normal.FirstOrDefault(q => q.Seq == o.PeriodSeq) ?? normal.Where(q => q.Start == null || string.CompareOrdinal(q.Start, today) <= 0).LastOrDefault() ?? normal.LastOrDefault();
+                if (p == null) return new { ok = false, error = "No periods in the calendar " + led.PeriodSet + "." };
+                var fy = normal.Where(q => q.Year == p.Year).OrderBy(q => q.Num).First();
+                var fq = normal.Where(q => q.Year == p.Year && q.Quarter == p.Quarter).OrderBy(q => q.Num).FirstOrDefault() ?? p;
+                var cur = target.Where(kv => kv.Value == p).Select(kv => kv.Key).ToList();
+                var names = cur.Concat(new[] { fy.Name, fq.Name }).Distinct().ToList();
+                string tmpl = x.Has("GL_BALANCES", "TEMPLATE_ID") ? " AND b.template_id IS NULL" : "";
+                string trans = x.Has("GL_BALANCES", "TRANSLATED_FLAG") ? " AND NVL(b.translated_flag, 'X') <> 'R'" : "";
+                string summ = x.Has("GL_CODE_COMBINATIONS", "SUMMARY_FLAG") ? " AND NVL(c.summary_flag, 'N') = 'N'" : "";
+                bool byCc = o.ByCostCentre && led.CostCentre != null;
+                var cos = (o.Companies ?? new()).Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().Take(500).ToList();
+                string bb = "NVL(b.begin_balance_dr, 0) - NVL(b.begin_balance_cr, 0)";
+                string group = "c." + led.Company + ", c." + led.Account + (byCc ? ", c." + led.CostCentre : "");
+                string inner = "SELECT c." + led.Company + " co, c." + led.Account + " ac" + (byCc ? ", c." + led.CostCentre + " cc" : "") + ", MAX(c.account_type) atype, " +
+                    "SUM(CASE WHEN b.period_name = " + Q(p.Name) + " THEN " + bb + " ELSE 0 END) opening, " +
+                    "SUM(CASE WHEN b.period_name IN (" + string.Join(",", cur.Select(Q)) + ") THEN NVL(b.period_net_dr, 0) ELSE 0 END) ptd_dr, " +
+                    "SUM(CASE WHEN b.period_name IN (" + string.Join(",", cur.Select(Q)) + ") THEN NVL(b.period_net_cr, 0) ELSE 0 END) ptd_cr, " +
+                    "SUM(CASE WHEN b.period_name = " + Q(fq.Name) + " THEN " + bb + " ELSE 0 END) qtr_open, " +
+                    "SUM(CASE WHEN b.period_name = " + Q(fy.Name) + " THEN " + bb + " ELSE 0 END) year_open " +
+                    "FROM gl_balances b JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id " +
+                    "WHERE b.ledger_id = " + led.Id + " AND b.currency_code = " + Q(led.Currency) + " AND b.actual_flag = 'A'" + trans + tmpl + summ +
+                    " AND b.period_name IN (" + string.Join(",", names.Select(Q)) + ")" +
+                    (cos.Count > 0 ? " AND c." + led.Company + " IN (" + string.Join(",", cos.Select(Q)) + ")" : "") +
+                    " GROUP BY " + group;
+                x.Note("Trial balance " + led.Name + " · " + p.Name + (cur.Count > 1 ? " (with " + string.Join(", ", cur.Where(n => n != p.Name)) + ")" : "") +
+                       " · year from " + fy.Name + " · quarter from " + fq.Name + (cos.Count > 0 ? " · companies " + string.Join(", ", cos) : " · every company") + (byCc ? " · by cost centre" : ""));
+                var rows = new List<Dictionary<string, object>>();
+                var keys = byCc ? new[] { "CO", "AC", "CC" } : new[] { "CO", "AC" };
+                await RankedAsync(x, led.Name + " · trial balance " + p.Name, inner, keys, keys.Select(_ => false).ToArray(), o.ChunkSize, rows.AddRange).ConfigureAwait(false);
+                // names from this PC: DuckDB accounts / segment values (or values kept before the first load)
+                var accNames = FinanceLens.SegmentNames(led.CoaId, led.Account);
+                var coNames = FinanceLens.SegmentNames(led.CoaId, led.Company);
+                foreach (var kv in led.CompanyNames ?? new()) if (!string.IsNullOrEmpty(kv.Value) && !coNames.ContainsKey(kv.Key)) coNames[kv.Key] = kv.Value;
+                var ccNames = byCc ? FinanceLens.SegmentNames(led.CoaId, led.CostCentre) : new Dictionary<string, string>();
+                var list = rows.Select(r =>
+                {
+                    double op = D(r, "OPENING"), dr = D(r, "PTD_DR"), cr = D(r, "PTD_CR"), cl = op + dr - cr, yo = D(r, "YEAR_OPEN"), qo = D(r, "QTR_OPEN");
+                    string co = S(r, "CO"), ac = S(r, "AC"), cc = byCc ? S(r, "CC") : null;
+                    return new
+                    {
+                        company = co, companyName = co != null && coNames.TryGetValue(co, out var cn) ? cn : null,
+                        account = ac, accountName = ac != null && accNames.TryGetValue(ac, out var an) ? an : null, accountType = S(r, "ATYPE"),
+                        costCentre = cc, costCentreName = cc != null && ccNames.TryGetValue(cc, out var ccn) ? ccn : null,
+                        opening = Math.Round(op, 2), ptdDr = Math.Round(dr, 2), ptdCr = Math.Round(cr, 2), closing = Math.Round(cl, 2),
+                        qtrOpen = Math.Round(qo, 2), yearOpen = Math.Round(yo, 2), qtd = Math.Round(cl - qo, 2), ytd = Math.Round(cl - yo, 2)
+                    };
+                }).Where(r => r.opening != 0 || r.ptdDr != 0 || r.ptdCr != 0 || r.closing != 0 || r.yearOpen != 0).OrderBy(r => r.company, StringComparer.Ordinal).ThenBy(r => r.account, StringComparer.Ordinal).ThenBy(r => r.costCentre, StringComparer.Ordinal).ToList();
+                x.Note("✓ " + list.Count.ToString("N0", CultureInfo.InvariantCulture) + " lines · names for " + list.Count(r => r.accountName != null).ToString("N0", CultureInfo.InvariantCulture) + " from this PC · " +
+                       (sw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s");
+                return new
+                {
+                    ok = true, ledger = new { id = led.Id, code = led.Code, name = led.Name, currency = led.Currency, coaId = led.CoaId },
+                    period = new { name = p.Name, seq = p.Seq, year = p.Year, quarter = p.Quarter, folded = cur.Where(n => n != p.Name).ToList(), yearFrom = fy.Name, quarterFrom = fq.Name },
+                    byCostCentre = byCc, companies = cos, rows = list, namesFromPc = accNames.Count, ms = sw.ElapsedMilliseconds, log = x.Log
+                };
+            }
+            catch (OperationCanceledException) { return new { ok = false, error = "Cancelled.", log = x.Log }; }
+            catch (Exception ex) { x.Note("✖ " + ex.Message); return new { ok = false, error = ex.Message, log = x.Log }; }
+        }
+
         public sealed class SegValue { public string Value { get; set; } public string Description { get; set; } public long Combinations { get; set; } public string AccountType { get; set; } }
 
         private static void DeleteCodes(DuckDBConnection conn, string table, IEnumerable<string> codes)
@@ -1164,7 +1271,7 @@ namespace WMSApp
                 string sql = "SELECT * FROM (SELECT q.*, ROW_NUMBER() OVER (ORDER BY " + order + ") rn FROM (" + inner + ") q WHERE " + after + ") WHERE rn <= " + size + " ORDER BY rn";
                 if (x.LogSql && n == 0) x.Note("   SQL: " + sql);
                 var sw = Stopwatch.StartNew();
-                var r = await x.Run(sql, size, x.Ct).ConfigureAwait(false);
+                var r = await RunLive(x, what + " · chunk " + (n + 1), sql, size).ConfigureAwait(false);
                 if (!r.Success)
                 {
                     bool slow = (r.Error ?? "").IndexOf("Timed out", StringComparison.OrdinalIgnoreCase) >= 0 || (r.Error ?? "").IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -1179,6 +1286,7 @@ namespace WMSApp
                 }
                 n++;
                 var rows = r.Rows;
+                if (n == 1) LiveSample(x, what, rows);
                 onRows(rows);
                 double secs = Math.Max(0.001, sw.ElapsedMilliseconds / 1000.0);
                 x.Note("   " + what + " · chunk " + n + " · rows " + (total + 1).ToString("N0", CultureInfo.InvariantCulture) + "–" + (total + rows.Count).ToString("N0", CultureInfo.InvariantCulture) +

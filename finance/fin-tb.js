@@ -17,6 +17,7 @@
     };
 
     T.render = function (el) {
+        if (T.source === 'live' || !(FL.status && FL.status.loaded)) return T.renderLive(el);
         var seqs = T.window(); if (!seqs.length) seqs = [FL.filter.period];
         var first = Math.min.apply(null, seqs), last = Math.max.apply(null, seqs);
         var w = FL.where('b').concat(["b.scenario = " + FL.q(T.scen), 'b.period_seq IN (' + seqs.join(',') + ')']);
@@ -49,8 +50,7 @@
             T.last = { lines: lines, tot: tot, dim: dim };
             var head = (dim ? '<th>' + { 'b.company': 'Company', 'b.cost_centre': 'Cost centre', 'b.ledger': 'Ledger' }[dim] + '</th>' : '') + (keyOf ? '<th>' + (T.group === 'class' ? 'Class' : 'Type') + '</th><th class="n">Accounts</th>' : '<th>Account</th><th>Name</th><th>Type</th><th>Class</th>') +
                 '<th class="n">Opening</th><th class="n">Debits</th><th class="n">Credits</th><th class="n">Net movement</th><th class="n">Closing debit</th><th class="n">Closing credit</th>';
-            el.innerHTML = '<div class="row toolbar" style="margin-bottom:10px"><div class="seg" id="st-tpls">' + FL.templates.map(function (t) { return '<button data-t="' + esc(t.id) + '">' + esc(t.name) + '</button>'; }).join('') +
-                '<button data-t="TB" class="on"><i class="fa-solid fa-scale-balanced"></i> Trial balance</button></div><span class="grow"></span>' +
+            el.innerHTML = T.head(false) +
                 '<label class="sm">Range <select id="tb-range">' + [['MTD', 'Month'], ['QTD', 'Quarter to date'], ['YTD', 'Year to date'], ['LTM', 'Last 12 months']].map(function (x) { return '<option value="' + x[0] + '"' + (T.range === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>' +
                 '<label class="sm">Show <select id="tb-group">' + [['account', 'every account'], ['class', 'by class'], ['type', 'by type']].map(function (x) { return '<option value="' + x[0] + '"' + (T.group === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>' +
                 '<label class="sm">Split <select id="tb-by">' + [['', 'none'], ['company', 'by company'], ['cc', 'by cost centre'], ['ledger', 'by ledger']].map(function (x) { return '<option value="' + x[0] + '"' + (T.by === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>' +
@@ -67,7 +67,7 @@
                 }).join('') + '</tbody><tfoot><tr><td colspan="' + ((dim ? 1 : 0) + (keyOf ? 2 : 4)) + '"><b>Total</b></td><td class="n"><b>' + f(tot.opening) + '</b></td><td class="n"><b>' + f(tot.dr) + '</b></td><td class="n"><b>' + f(tot.cr) + '</b></td><td class="n"><b>' + f(tot.dr - tot.cr) + '</b></td>' +
                 '<td class="n"><b>' + f(tot.cdr) + '</b></td><td class="n"><b>' + f(tot.ccr) + '</b></td></tr></tfoot></table></div></div>' +
                 '<p class="sm muted">Opening = balance at the start of the range (income statement accounts start each fiscal year at nil); closing debit / credit = the closing balance on its side. Click a line to drill to companies, cost centres, months and journal lines.</p>';
-            el.querySelectorAll('#st-tpls button').forEach(function (b) { b.onclick = function () { FL.stmt.tpl = b.dataset.t; FL.lsSet('stmt.tpl', b.dataset.t); FL.render(); }; });
+            T.wireHead(el);
             [['tb-range', 'range'], ['tb-group', 'group'], ['tb-by', 'by'], ['tb-scen', 'scen']].forEach(function (x) { $(x[0]).onchange = function () { T[x[1]] = this.value; FL.lsSet('tb.' + x[1], this.value); FL.render(); }; });
             $('tb-zero').onchange = function () { T.zero = this.checked; FL.lsSet('tb.zero', T.zero); FL.render(); };
             $('tb-csv').onclick = function () { FL.csv('trial-balance-' + FL.periodName(last) + '.csv', (dim ? ['split'] : []).concat(['account', 'name', 'type', 'class', 'opening', 'debits', 'credits', 'net', 'closing']), lines.map(function (r) { return (dim ? [r.dim] : []).concat([r.account, r.name, r.type, r.cls, r.opening.toFixed(2), r.dr.toFixed(2), r.cr.toFixed(2), r.net.toFixed(2), r.closing.toFixed(2)]); })); };

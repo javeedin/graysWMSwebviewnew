@@ -159,6 +159,20 @@ namespace WMSApp
                             data = await Task.Run(() => FinanceFusion.CheckAsync(FinRunner(PipeSrvStr(root, "pod")), co, FinProgress(wv, requestId), cts.Token));
                             break;
                         }
+                    case "finFusionTb":         // trial balance of one ledger × period live from GL_BALANCES (read-only)
+                        {
+                            var to = root.GetProperty("options").Deserialize<FinanceFusion.TbOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            var cts = FinNewCts(TimeSpan.FromMinutes(30));
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            data = await Task.Run(() => FinanceFusion.TrialBalanceAsync(FinRunner(PipeSrvStr(root, "pod")), to, FinProgress(wv, requestId), cts.Token));
+                            bool okTb = JsonSerializer.SerializeToElement(data).TryGetProperty("ok", out var okt) && okt.ValueKind == JsonValueKind.True;
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_fusion_tb", Outcome = okTb ? "OK" : "FAILED", DurationMs = sw.ElapsedMilliseconds,
+                                Target = (PipeSrvStr(root, "pod") ?? "") + " · " + to.Ledger?.Name, Detail = to.PeriodSeq + (to.Companies?.Count > 0 ? " · " + string.Join(",", to.Companies) : "") });
+                            break;
+                        }
+                    case "finTbSave":           // keep a live trial balance in DuckDB (fin_tb_live)
+                        data = new { ok = true, rows = await Task.Run(() => FinanceLens.SaveTb(root, user)) };
+                        break;
                     case "finFusionSegValues":  // all values of one segment (value set + use in GL_CODE_COMBINATIONS)
                         {
                             var cts = FinNewCts(TimeSpan.FromMinutes(20));

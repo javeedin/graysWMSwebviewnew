@@ -190,14 +190,7 @@ namespace WMSApp
                 long N(string sql) { using var c = conn.CreateCommand(); c.CommandText = sql; var v = c.ExecuteScalar(); return v == null || v is DBNull ? 0 : Convert.ToInt64(v); }
                 foreach (var stmt in FinanceLens.SCHEMA.Split(';').Select(s => s.Trim()).Where(s => s.Length > 0)) X(stmt);
                 X(FinanceFusion.SYNC_TABLE); X(FinanceLens.SEGVAL_TABLE);
-                bool hadOld = File.Exists(FinanceLens.DbPath);
-                if (hadOld)
-                {
-                    // names of segment values fetched earlier stay with the data
-                    X("ATTACH " + Lit(FinanceLens.DbPath.Replace('\\', '/')) + " AS prev (READ_ONLY)");
-                    if (N("SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog = 'prev' AND table_name = 'fin_segment_values'") > 0) X("INSERT INTO fin_segment_values SELECT * FROM prev.fin_segment_values");
-                    X("DETACH prev");
-                }
+                FinanceLens.CarryOver(conn, Note);   // segment values and live trial balances stay with the data
                 pendingSeg = FinanceLens.ImportPendingSegValues(conn, Note);
 
                 // calendar + ledgers as tables

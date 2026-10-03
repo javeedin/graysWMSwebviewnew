@@ -272,3 +272,25 @@ table.sgrid td.kd { text-align: left; color: var(--muted); padding-right: 8px; w
 .segbox.r-ic { border-top: 4px solid #7c3aed; } .segbox.r-ic .sr { color: #7c3aed; }
 .side .item > div { line-height: 1.2; }
 table.t.tb tfoot td { border-top: 2px solid var(--ink); background: #f8fafc; }
+
+/* live monitor (Data › Sync status, setup, trial balance live) */
+.fu-prog.mon { background: var(--card, #fff); }
+.mon-tabs { margin: 6px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.mon-tabs .tag { margin-left: 4px; }
+.mon-q { border: 1px solid var(--line); border-left: 3px solid #6366f1; border-radius: 6px; padding: 6px 8px; margin: 6px 0; background: #f8fafc; }
+.mon-sql { margin: 6px 0 0; max-height: 220px; overflow: auto; font: 11px/1.45 var(--mono); white-space: pre-wrap; word-break: break-word; color: #334155; background: #fff; border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; }
+.mon-sql b { color: #7c3aed; font-weight: 600; }
+.mon-sample td { font-size: 11px; white-space: nowrap; }
+.mon-sqlrow td { background: #f8fafc; }
+/* load form in Sync status */
+details.lf-card > summary { cursor: pointer; list-style: none; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+details.lf-card > summary::before { content: '▸'; color: var(--muted); }
+details.lf-card[open] > summary::before { content: '▾'; }
+.lf-leds { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.lf-led { display: flex; gap: 8px; align-items: flex-start; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; cursor: pointer; background: #fff; }
+.lf-led.on { border-color: #6366f1; background: #eef2ff; }
+.lf-led input { margin-top: 3px; }
+/* trial balance live */
+.tl-cos { display: flex; flex-wrap: wrap; gap: 4px; max-height: 96px; overflow: auto; }
+.tl-cos .chip { border: 1px solid var(--line); border-radius: 99px; padding: 2px 8px; font-size: 12px; cursor: pointer; background: #fff; }
+.seg button[disabled] { opacity: .45; cursor: not-allowed; }

@@ -52,8 +52,18 @@
             kpi('Periods', st.loaded ? (c.first_period || '') + ' – ' + (c.last_period || '') : '—', FL.dims.periods.length + ' months') +
             kpi('Balances', (c.balances || 0).toLocaleString(), (c.accounts || 0).toLocaleString() + ' accounts') +
             kpi('Journal lines', (c.journals || 0).toLocaleString(), m.journals_from_seq ? 'from ' + FL.periodName(+m.journals_from_seq) : '') + '</div>';
+        // the live monitor first (what runs in Fusion now, sample rows, log), then the load form, then the month grid
+        var admin = FL.who && FL.who.admin, pod = D.pod != null ? D.pod : ((s && s.setup && s.setup.pod) || (s && s.pod) || '');
+        D.pod = pod;
+        var open = D.loadOpen != null ? D.loadOpen : !(s && s.ledgers && st.loaded);
+        h += '<div id="fu-prog"></div>' +
+            '<details class="card lf-card" id="ds-load"' + (open ? ' open' : '') + ' style="margin-top:12px"><summary><b><i class="fa-solid fa-cloud-arrow-down"></i> Load from Fusion</b> <span class="sm muted">choose the ledgers and months, then watch the SQL run above</span></summary>' +
+            '<div class="row" style="margin:8px 0"><label class="sm">Pod <select id="ds-pod"><option value="">Logged-in pod</option><option value="PROD"' + (pod === 'PROD' ? ' selected' : '') + '>PROD</option><option value="TEST"' + (pod === 'TEST' ? ' selected' : '') + '>TEST</option></select></label>' +
+            '<span class="sm muted" id="ds-disc"></span><span class="grow"></span><a class="sm" onclick="FL.dataTab.go(\'setup\')"><i class="fa-solid fa-sliders"></i> segments &amp; discovery (Fusion setup)</a></div><div id="ds-lf"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div></details>';
         if (!s || !s.ledgers) {
-            el.innerHTML = h + '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-signal"></i> Sync status</h3><p>No Fusion load is set up on this PC yet. Start in <a onclick="FL.dataTab.go(\'setup\')">Fusion setup</a> (SQL, month by month) or <a onclick="FL.dataTab.go(\'bicc\')">BICC bulk extracts</a> (everything at once).</p></div>';
+            el.innerHTML = h + '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-signal"></i> Which months are in sync with Fusion</h3><p class="sm muted">Nothing loaded yet — the month grid fills with the first load. Or load everything at once from <a onclick="FL.dataTab.go(\'bicc\')">BICC bulk extracts</a>.</p></div>';
+            D.wireLoad(admin);
+            FL.fusion.paint();
             return;
         }
         var chk = D.check, when = chk ? String(chk.checkedAt || '').replace('T', ' ').slice(0, 16) : null;
@@ -65,14 +75,34 @@
             '<button class="btn" id="ds-one"><i class="fa-solid fa-calendar-day"></i> Sync one period…</button>' +
             '<label class="sm">split each read <select id="ds-split"><option value="">as set up (' + esc(s.splitBy || 'none') + ')</option><option value="none">no</option><option value="account">by GL account ranges</option><option value="company">by company</option></select></label>' +
             '<span class="grow"></span>' + Object.keys(ST).filter(function (k) { return k !== 'LOADED' || !chk; }).map(function (k) { return '<span class="lg"><i class="cell ' + ST[k][0] + '"></i>' + ST[k][1] + '</span>'; }).join('') + '</div>' +
-            '<div id="fu-prog"></div><div id="ds-grid"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div></div>';
+            '<div id="ds-grid"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div></div>';
         el.innerHTML = h;
         $('ds-check').onclick = function () { D.runCheck(); };
         $('ds-chg').onclick = function () { D.syncChanged(); };
         $('ds-open').onclick = function () { D.syncOpen(); };
         $('ds-one').onclick = function () { D.pickPeriod(); };
+        D.wireLoad(admin);
+        FL.fusion.paint();
         return D.grid();
     };
+    /** The load form inside Sync status: discovery of the chosen pod (this session / APEX / DuckDB) → ledgers + months */
+    D.wireLoad = function (admin) {
+        var det = $('ds-load'); if (!det) return;
+        det.addEventListener('toggle', function () { D.loadOpen = det.open; });
+        $('ds-pod').onchange = function () { D.pod = this.value; D.wireLoad(admin); };
+        var box = $('ds-lf');
+        if (!admin) { box.innerHTML = '<p class="sm">An AI admin loads the finance data from Fusion; this page shows its progress and which months are in sync.</p>'; return; }
+        box.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i> Reading the saved chart of accounts…</div>';
+        var pod = D.pod || '';
+        FL.fusion.getDisc(pod).then(function (r) {
+            if (!$('ds-lf') || (D.pod || '') !== pod) return;
+            if (!r) { box.innerHTML = '<p class="sm">Nothing discovered for ' + esc(pod || 'the logged-in pod') + ' yet — <a onclick="FL.dataTab.dataSetup()">Discover the ledgers and chart of accounts</a> once (Fusion setup); the result is kept in APEX and DuckDB.</p>'; $('ds-disc').textContent = ''; return; }
+            $('ds-disc').textContent = 'chart of accounts from ' + (r.where || 'APEX') + (r.at ? ' · discovered ' + String(r.at).replace('T', ' ').slice(0, 16) : '') + ' · ' + (r.disc.ledgers || []).length + ' ledgers';
+            box.innerHTML = FL.fusion.loadForm(r.disc);
+            FL.fusion.wireLoadForm(box, r.disc);
+        });
+    };
+    D.dataSetup = function () { FL.fusion.editing = true; D.go('setup'); };
     D.go = function (v) { D.view = v; FL.lsSet('data.view', v); FL.render(); };
     D.split = function () { var e = $('ds-split'); return e && e.value ? e.value : null; };
 
@@ -124,13 +154,13 @@
         var p = FL.fusion.progress('Checking Fusion…', true);
         return FL.call('finFusionCheck', { pod: s.pod || '', options: { ledgers: s.ledgers, fromSeq: s.fromSeq || 0, toSeq: 0, foldAdjustments: s.foldAdjustments !== false } }, 30 * 60000, p).then(function (r) {
             D.check = r; try { FL.lsSet('fusion.check', r); } catch (e) { /* too big for storage */ }
-            if ($('fu-prog')) $('fu-prog').innerHTML = '';
+            FL.fusion.finish();
             if (FL.tab === 'data' && D.view === 'status') FL.render();
             if (!silent) {
                 var n = r.cells.filter(function (c) { return c.bal.status !== 'OK' && c.bal.status !== 'EMPTY'; }).length;
                 FL.toast(n ? n + ' ledger-month(s) need a sync' : 'Every month is in sync with Fusion', n ? '' : 'ok');
             }
-        }).catch(function (e) { if ($('fu-prog')) $('fu-prog').innerHTML = '<div class="callout bad">' + esc(e) + '</div>'; });
+        }).catch(function (e) { FL.fusion.finish(e); });
     };
     var afterSync = function () { if (D.check) D.runCheck(true); };
 
@@ -263,9 +293,9 @@
                 show();
                 p('Saving ' + D.segVals.length.toLocaleString() + ' values in APEX…');
                 return FL.apexStore.saveSegValues(s ? s.pod : '', sg.coa, sg.col, D.segVals, function (i, n) { p('APEX ' + i + ' / ' + n); }).then(function () {
-                    $('sv-src').textContent += ' · saved in APEX'; if ($('fu-prog')) $('fu-prog').innerHTML = '';
+                    $('sv-src').textContent += ' · saved in APEX'; FL.fusion.finish();
                 });
-            }).catch(function (e) { if ($('fu-prog')) $('fu-prog').insertAdjacentHTML('beforeend', '<div class="callout bad">' + esc(e && e.message || e) + '</div>'); });
+            }).catch(function (e) { FL.fusion.finish(e && e.message || e); });
         };
         return (D.segVals ? Promise.resolve() : load()).then(show);
     };
@@ -346,8 +376,8 @@
         if (!pick.length) { FL.toast('Tick the files to download', 'err'); return; }
         var p = FL.fusion.progress('Downloading ' + pick.length + ' file(s) from UCM…', true);
         FL.call('finUcmDownload', { pod: $('bc-pod').value, docs: pick, folder: D.biccFolder() }, 2 * 3600000, p).then(function (r) {
-            FL.toast(r.saved.length + ' file(s) in ' + r.folder, 'ok'); if ($('fu-prog')) $('fu-prog').innerHTML = ''; D.biccInspect().then(D.ucmShow);
-        }).catch(function (e) { if ($('fu-prog')) $('fu-prog').insertAdjacentHTML('beforeend', '<div class="callout bad">' + esc(e) + '</div>'); });
+            FL.toast(r.saved.length + ' file(s) in ' + r.folder, 'ok'); FL.fusion.finish(); D.biccInspect().then(D.ucmShow);
+        }).catch(function (e) { FL.fusion.finish(e); });
     };
     D.biccLoad = function () {
         var s = sv();
@@ -360,11 +390,11 @@
             FL.call('finBiccLoad', { options: { folder: D.biccFolder(), ledgers: s.ledgers, calendar: cal.map(function (c) { return { name: c.name, year: c.year, num: c.num, quarter: c.quarter, start: c.start, end: c.end, adj: c.adj }; }),
                 fromSeq: +$('bc-from').value, toSeq: +$('bc-to').value, journals: $('bc-jnl').checked, budgetVersionId: $('bc-bud').value.trim(), foldAdjustments: s.foldAdjustments !== false, map: FL.config.bicc.map || {}, pod: s.pod || '' } }, 4 * 3600000, p)
                 .then(function (res) {
-                    FL.fusion.keepLog();
+                    FL.fusion.keepLog(); FL.fusion.finish();
                     FL.toast('BICC: ' + res.balances.toLocaleString() + ' balances, ' + res.journals.toLocaleString() + ' journal lines in ' + Math.round(res.ms / 1000) + ' s', 'ok');
                     FL.config.fusion.loader = 'BICC'; FL.config.fusion.lastSync = new Date().toISOString();
                     return FL.saveConfig().then(FL.refresh);
-                }).catch(function (e) { FL.fusion.keepLog(); if ($('fu-prog')) $('fu-prog').insertAdjacentHTML('beforeend', '<div class="callout bad">' + esc(e) + '</div>'); });
+                }).catch(function (e) { FL.fusion.keepLog(); FL.fusion.finish(e); });
         });
     };
 

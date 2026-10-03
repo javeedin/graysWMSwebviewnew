@@ -82,6 +82,31 @@ CREATE TABLE wms_fin_segment_values (
     CONSTRAINT wms_fin_segment_values_pk PRIMARY KEY (pod, coa_id, column_name, value)
 );
 
+-- Trial balances read live from Fusion (Statements › Trial balance › Live from Fusion › Save to APEX): one row per
+-- company × account (× cost centre) of a ledger and period, replaced on every save of that pod × ledger × period.
+-- QTD / YTD activity = closing - qtr_open / year_open.
+CREATE TABLE wms_fin_tb_live (
+    pod           VARCHAR2(20) NOT NULL,
+    ledger_code   VARCHAR2(100) NOT NULL,
+    ledger_name   VARCHAR2(200),
+    currency      VARCHAR2(15),
+    period_seq    NUMBER NOT NULL,
+    period_name   VARCHAR2(30),
+    company       VARCHAR2(150),
+    account       VARCHAR2(150),
+    cost_centre   VARCHAR2(150),
+    account_type  VARCHAR2(10),
+    account_name  VARCHAR2(400),
+    opening       NUMBER,
+    ptd_dr        NUMBER,
+    ptd_cr        NUMBER,
+    closing       NUMBER,
+    qtr_open      NUMBER,
+    year_open     NUMBER,
+    fetched_at    DATE DEFAULT SYSDATE,
+    fetched_by    VARCHAR2(100)
+);
+
 -- Which segment is what, per pod:
 -- SELECT pod, coa_id, column_name, segment_name, role, ROUND(purity * 100) purity_pct, evidence
 --   FROM wms_fin_coa_segments ORDER BY pod, coa_id, segment_num;

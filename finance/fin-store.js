@@ -45,12 +45,15 @@
         WMS_FIN_ACCOUNT_MAP: 'CREATE TABLE wms_fin_account_map (coa_id VARCHAR2(30) NOT NULL, account_code VARCHAR2(60) NOT NULL, account_name VARCHAR2(400), account_type VARCHAR2(5), ' +
             'class VARCHAR2(100), source VARCHAR2(10), changed_by VARCHAR2(100), changed_at DATE DEFAULT SYSDATE, CONSTRAINT wms_fin_account_map_pk PRIMARY KEY (coa_id, account_code))',
         WMS_FIN_SEGMENT_VALUES: 'CREATE TABLE wms_fin_segment_values (pod VARCHAR2(20) NOT NULL, coa_id VARCHAR2(30) NOT NULL, column_name VARCHAR2(30) NOT NULL, value VARCHAR2(150) NOT NULL, ' +
-            'description VARCHAR2(400), combinations NUMBER, account_type VARCHAR2(10), fetched_at DATE DEFAULT SYSDATE, CONSTRAINT wms_fin_segment_values_pk PRIMARY KEY (pod, coa_id, column_name, value))'
+            'description VARCHAR2(400), combinations NUMBER, account_type VARCHAR2(10), fetched_at DATE DEFAULT SYSDATE, CONSTRAINT wms_fin_segment_values_pk PRIMARY KEY (pod, coa_id, column_name, value))',
+        WMS_FIN_TB_LIVE: 'CREATE TABLE wms_fin_tb_live (pod VARCHAR2(20) NOT NULL, ledger_code VARCHAR2(100) NOT NULL, ledger_name VARCHAR2(200), currency VARCHAR2(15), period_seq NUMBER NOT NULL, ' +
+            'period_name VARCHAR2(30), company VARCHAR2(150), account VARCHAR2(150), cost_centre VARCHAR2(150), account_type VARCHAR2(10), account_name VARCHAR2(400), opening NUMBER, ptd_dr NUMBER, ptd_cr NUMBER, ' +
+            'closing NUMBER, qtr_open NUMBER, year_open NUMBER, fetched_at DATE DEFAULT SYSDATE, fetched_by VARCHAR2(100))'
     };
     var ready = null;
     A.ensure = function () {
         if (ready) return ready;
-        ready = A.read("SELECT table_name FROM user_tables WHERE table_name IN ('WMS_FIN_DISCOVERY', 'WMS_FIN_COA_SEGMENTS', 'WMS_FIN_LEDGERS', 'WMS_FIN_ACCOUNT_MAP', 'WMS_FIN_SEGMENT_VALUES')").then(function (rows) {
+        ready = A.read("SELECT table_name FROM user_tables WHERE table_name IN ('WMS_FIN_DISCOVERY', 'WMS_FIN_COA_SEGMENTS', 'WMS_FIN_LEDGERS', 'WMS_FIN_ACCOUNT_MAP', 'WMS_FIN_SEGMENT_VALUES', 'WMS_FIN_TB_LIVE')").then(function (rows) {
             var have = {}; rows.forEach(function (r) { have[r.TABLE_NAME] = 1; });
             return Object.keys(TABLES).filter(function (t) { return !have[t]; }).reduce(function (p, t) { return p.then(function () { return A.write(TABLES[t]); }); }, Promise.resolve());
         }).catch(function (e) { ready = null; throw e; });
@@ -161,6 +164,43 @@
             return A.read("SELECT value, description, combinations, account_type, TO_CHAR(fetched_at, 'YYYY-MM-DD HH24:MI') fetched_on FROM wms_fin_segment_values WHERE pod = " + lit(podKey(pod)) +
                 ' AND coa_id = ' + lit(coa) + ' AND column_name = ' + lit(col) + ' ORDER BY value', 100000);
         }).then(function (rows) { return rows.map(function (r) { return { value: r.VALUE, description: r.DESCRIPTION, combinations: r.COMBINATIONS, accountType: r.ACCOUNT_TYPE, fetchedAt: r.FETCHED_ON }; }); });
+    };
+
+    /** A live trial balance (Statements › Trial balance › Live from Fusion): replaces that pod × ledger × period. onStep(done, total) */
+    A.saveTb = function (pod, tb, onStep) {
+        var key = podKey(pod), by = (FL.who || {}).user || appUser() || 'WMS', L = tb.ledger, P = tb.period, rows = tb.rows;
+        var p = A.ensure().then(function () { return A.write('DELETE FROM wms_fin_tb_live WHERE pod = ' + lit(key) + ' AND ledger_code = ' + lit(L.code) + ' AND period_seq = ' + num(P.seq)); });
+        for (var i = 0; i < rows.length; i += 60) {
+            (function (chunk, at) {
+                p = p.then(function () {
+                    if (onStep) onStep(at, rows.length);
+                    return A.write('INSERT INTO wms_fin_tb_live (pod, ledger_code, ledger_name, currency, period_seq, period_name, company, account, cost_centre, account_type, account_name, opening, ptd_dr, ptd_cr, closing, qtr_open, year_open, fetched_at, fetched_by) ' +
+                        chunk.map(function (r) {
+                            return 'SELECT ' + [lit(key), lit(cut(L.code, 100)), lit(cut(L.name, 200)), lit(L.currency), num(P.seq), lit(P.name), lit(cut(r.company, 150)), lit(cut(r.account, 150)), lit(cut(r.costCentre, 150)), lit(cut(r.accountType, 10)),
+                                lit(cut(r.accountName, 400)), num(r.opening), num(r.ptdDr), num(r.ptdCr), num(r.closing), num(r.qtrOpen), num(r.yearOpen), 'SYSDATE', lit(by)].join(', ') + ' FROM dual';
+                        }).join(' UNION ALL '));
+                });
+            })(rows.slice(i, i + 60), i);
+        }
+        return p;
+    };
+    /** The live trial balances kept in APEX: [{pod, code, name, currency, seq, period, lines, at, by}] */
+    A.listTb = function () {
+        return A.ensure().then(function () {
+            return A.read("SELECT pod, ledger_code, MAX(ledger_name) ledger_name, MAX(currency) currency, period_seq, MAX(period_name) period_name, COUNT(*) lines, TO_CHAR(MAX(fetched_at), 'YYYY-MM-DD HH24:MI') fetched_on, MAX(fetched_by) fetched_by " +
+                'FROM wms_fin_tb_live GROUP BY pod, ledger_code, period_seq ORDER BY MAX(fetched_at) DESC', 200);
+        }).then(function (rows) { return rows.map(function (r) { return { pod: r.POD === 'LOGGED-IN' ? '' : r.POD, code: r.LEDGER_CODE, name: r.LEDGER_NAME, currency: r.CURRENCY, seq: +r.PERIOD_SEQ, period: r.PERIOD_NAME, lines: +r.LINES, at: r.FETCHED_ON, by: r.FETCHED_BY, where: 'APEX' }; }); });
+    };
+    A.loadTb = function (pod, code, seq) {
+        return A.ensure().then(function () {
+            return A.read('SELECT company, account, cost_centre, account_type, account_name, opening, ptd_dr, ptd_cr, closing, qtr_open, year_open FROM wms_fin_tb_live WHERE pod = ' + lit(podKey(pod)) +
+                ' AND ledger_code = ' + lit(code) + ' AND period_seq = ' + num(seq), 200000);
+        }).then(function (rows) {
+            return rows.map(function (r) {
+                return { company: r.COMPANY, account: r.ACCOUNT, costCentre: r.COST_CENTRE, accountType: r.ACCOUNT_TYPE, accountName: r.ACCOUNT_NAME, opening: +r.OPENING || 0, ptdDr: +r.PTD_DR || 0, ptdCr: +r.PTD_CR || 0,
+                    closing: +r.CLOSING || 0, qtrOpen: +r.QTR_OPEN || 0, yearOpen: +r.YEAR_OPEN || 0 };
+            });
+        });
     };
 
     /** The saved discovery of a pod: {disc, at, by, where: 'APEX' | 'DuckDB'} or null — APEX first (shared), then this PC's DuckDB file. */

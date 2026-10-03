@@ -136,7 +136,7 @@ FL.refresh = function () {
     FL.cache = {};
     return FL.call('finStatus').then(function (st) {
         FL.status = st;
-        if (!st.loaded) { FL.dataChip(); return FL.loadDocs().catch(function () { /* first run */ }).then(function () { if (FL.tab === 'data') FL.render(); else FL.welcome(); }); }
+        if (!st.loaded) { FL.dataChip(); return FL.loadDocs().catch(function () { /* first run */ }).then(function () { FL.show(FL.tab || FL.ls('tab', 'overview')); }); }
         return Promise.all([
             FL.rows('SELECT code, name, currency FROM fin_companies ORDER BY code'),
             FL.rows('SELECT code, name FROM fin_cost_centres ORDER BY code'),
@@ -201,7 +201,13 @@ FL.show = function (tab) {
     FL.render();
 };
 FL.render = function () {
-    if (!FL.status || !FL.status.loaded) { if (FL.tab === 'data' && FL.TABS.data) FL.TABS.data.render($('main')); else FL.welcome(); return; }
+    if (!FL.status || !FL.status.loaded) {
+        // before any load: the Data workspace, and the trial balance live from Fusion under Statements
+        if (FL.tab === 'data' && FL.TABS.data) FL.TABS.data.render($('main'));
+        else if (FL.tab === 'statements' && FL.tb) { FL.stmt.tpl = 'TB'; FL.tb.renderLive($('main')); }
+        else FL.welcome();
+        return;
+    }
     Object.keys(FL.charts).forEach(function (k) { try { FL.charts[k].destroy(); } catch (e) { /* gone */ } });
     FL.charts = {};
     var t = FL.TABS[FL.tab], el = $('main');
@@ -219,8 +225,9 @@ FL.welcome = function () {
         '<div class="card" style="color:var(--ink)"><h3><i class="fa-solid fa-cloud-arrow-down"></i> Connect your Oracle Fusion general ledger</h3>' +
         '<p class="sm">Discover finds the ledgers, the chart of accounts segments and the account types; then load the GL balances and journals — month by month through Fusion SQL, or everything at once from BICC extracts.</p>' +
         (old ? '<div class="callout warn sm">This PC still holds the old built-in sample data — it is not shown.' + (admin ? ' <a onclick="FL.clearData()">Remove it</a>' : '') + '</div>' : '') +
-        (admin ? '<button class="btn primary" onclick="FL.dataTab && (FL.dataTab.view = \'setup\'); FL.show(\'data\')"><i class="fa-solid fa-plug"></i> Connect to Fusion</button>'
-            : '<div class="callout warn">An AI admin connects Finance Lens to Fusion on this PC.</div>') + '</div></div>';
+        (admin ? '<div class="row"><button class="btn primary" onclick="FL.dataTab && (FL.dataTab.view = \'setup\'); FL.show(\'data\')"><i class="fa-solid fa-plug"></i> Connect to Fusion</button>' +
+            '<button class="btn" onclick="FL.show(\'statements\')"><i class="fa-solid fa-bolt"></i> Trial balance live from Fusion</button></div>'
+            : '<div class="callout warn">An AI admin connects Finance Lens to Fusion on this PC.</div><button class="btn" onclick="FL.show(\'statements\')"><i class="fa-solid fa-bolt"></i> Trial balance live from Fusion</button>') + '</div></div>';
 };
 /** Removes the finance data file (setup, templates and mapping stay) */
 FL.clearData = function () {

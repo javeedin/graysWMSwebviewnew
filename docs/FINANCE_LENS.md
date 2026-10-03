@@ -86,14 +86,24 @@ Data has seven views (side menu): **Sync status**, **Chart of accounts**, **Fusi
 accounts with their qualifiers, the **balancing segment** (`BAL_SEG_COLUMN_NAME` / qualifier), the **natural account segment**
 (qualifier, else *measured*: the segment whose values each carry one `ACCOUNT_TYPE` in `GL_CODE_COMBINATIONS`), the **cost
 centre** segment, account types, the calendar and the budgets. Tick the primary ledgers (secondary / reporting ledgers repeat
-the same companies), check the segment roles, choose the months, budget and journal months, and *Load*.
+the same companies — this is the default choice for loading), check the segment roles and *Save setup*. Loading itself is done
+in **Sync status**.
 
 Read options: *Rows per chunk* (default 2,000 — every read is ranked with `ROW_NUMBER()` and the next chunk starts after the
 last key; a chunk that times out is read again at half the size), *Reads in parallel* (default 2) and **Split each period**
 — *by GL account ranges* (the sorted natural account values cut into ranges of *n* values, with no gap) or *by company* — so
 no single query is big enough to time out. *Show the SQL in the log* adds each step's SQL to the detailed log.
 
-### Sync status — which months match Fusion
+### Sync status — load, watch and check
+**Load from Fusion** (a fold-out card): tick the ledgers to load (each shows its currency, companies and segments), the months,
+budget, journal months and the read options below, then *Load into Finance Lens* (or, once data is loaded, *Sync these months*
+— keeps the other months — or *Full reload*).
+
+The **live monitor** above it shows any Fusion run (load, period sync, check, discovery, segment values, live trial balance):
+*Running now* — every query in flight with its full SQL and how long it has been running (copy button); *Finished queries* —
+the last 60 with rows and seconds (click for the SQL); *Sample rows* — the first rows of every step exactly as Fusion returned
+them; *Log* — the detailed log (save / copy). Leaving the page and coming back shows the run again.
+
 A grid of ledger × month, one square for balances and one for journals. **Check Fusion now** runs one small aggregate per
 ledger and year — rows, debits, credits and last update of every month in `GL_BALANCES` and of the posted journal headers —
 and compares it with what this PC holds:
@@ -133,8 +143,8 @@ then daily incremental extracts, then *Load* (it rebuilds from all files, so not
 ### Where everything is kept
 - **APEX** (shared by every PC; `apex_sql/85_finance_lens_fusion.sql`, created by the page): `WMS_FIN_DISCOVERY` (the whole
   discovery), `WMS_FIN_COA_SEGMENTS` (segments + roles + why), `WMS_FIN_LEDGERS`, `WMS_FIN_ACCOUNT_MAP` (class per account —
-  your choices win on every PC and every load), `WMS_FIN_SEGMENT_VALUES`.
-- **DuckDB** (with the data): `fin_fusion_discovery`, `fin_coa_segments`, `fin_ledgers`, `fin_segment_values`,
+  your choices win on every PC and every load), `WMS_FIN_SEGMENT_VALUES`, `WMS_FIN_TB_LIVE` (saved live trial balances).
+- **DuckDB** (with the data): `fin_fusion_discovery`, `fin_coa_segments`, `fin_ledgers`, `fin_segment_values`, `fin_tb_live`,
   `fin_account_map` + `fin_accounts.class`, `fin_sync_periods`; plus `config.json` (setup), `fusion-sync.log`, `bicc\`.
 
 ### Account mapping
@@ -146,8 +156,21 @@ After a Fusion load every account gets a class from its type and name and the st
 same line ids as the starters, so KPIs, monitors, analytics and the board pack work at once. Click a line *name* in Statements
 for the accounts mapped to it.
 
-### Trial balance
-Statements › **Trial balance**: every account with opening balance, debits, credits, net movement and closing balance as debit
+### Trial balance — live from Fusion
+Statements › Trial balance › **Live from Fusion** (also before anything is loaded — the other statements need a load):
+pod, ledger, period, companies (all or some), optional cost centre, *Fetch from Fusion*. One read of `GL_BALANCES` (ledger
+currency, actuals, no translated / summary rows) joined only to `GL_CODE_COMBINATIONS`, grouped by company × account
+(× cost centre), in ranked chunks with the live monitor: **opening, PTD debits / credits / net, QTD, YTD, closing** (QTD / YTD
+= closing − the balance at the start of the quarter / fiscal year; adjustment periods folded into the period they close).
+Names are not read from the value sets (keeps the Fusion query small): they come from this PC (DuckDB accounts or segment
+values), else APEX; if there are none yet, *Read the account names from Fusion* reads the account segment once and keeps it.
+*Save to DuckDB* (`fin_tb_live`, kept across loads; before the first load the file holds only these and still reads as "no
+data loaded") and *Save to APEX* (`WMS_FIN_TB_LIVE`, shared); *Saved trial balances* reopen without Fusion. When that ledger
+and period are loaded, each line is compared with this PC (*On this PC*, *Difference*). Excel / CSV; click a line for the
+account across companies.
+
+### Trial balance — loaded data
+Statements › Trial balance › **This PC**: every account with opening balance, debits, credits, net movement and closing balance as debit
 / credit — for the month, quarter to date, year to date or last 12 months; every account, by class or by type; split by company,
 cost centre or ledger; actual or budget. The header shows *debits = credits* and *closing balances net to nil*; click a line to
 drill; Excel (with SUM formulas and the check) and CSV.

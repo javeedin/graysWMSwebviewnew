@@ -118,6 +118,11 @@ namespace WMSApp
             // Finance Lens holds Oracle Fusion data only: a file from the old built-in sample counts as no data
             if (meta.Error == null && meta.Rows.Any(r => Convert.ToString(r[0]) == "source" && Convert.ToString(r[1]) == "SAMPLE"))
                 return new { ok = true, loaded = false, oldSample = true, root = Root };
+            if (meta.Error != null || !meta.Rows.Any(r => Convert.ToString(r[0]) == "source"))
+            {   // only live trial balances / segment values so far
+                var tb = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_tb_live'", 1);
+                return new { ok = true, loaded = false, root = Root, snapshotsOnly = tb.Error == null && tb.Rows.Count > 0 && Convert.ToInt64(tb.Rows[0][0]) > 0 };
+            }
             var counts = Query("SELECT (SELECT COUNT(*) FROM fin_balances) AS balances, (SELECT COUNT(*) FROM fin_journals) AS journals, " +
                                "(SELECT COUNT(*) FROM fin_accounts) AS accounts, (SELECT COUNT(*) FROM fin_companies) AS companies, " +
                                "(SELECT COUNT(*) FROM fin_cost_centres) AS cost_centres, (SELECT MIN(period_name) FILTER (WHERE period_seq = (SELECT MIN(period_seq) FROM fin_periods)) FROM fin_periods) AS first_period, " +
@@ -258,6 +263,93 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             }
             try { File.Delete(PendingSegFile(coaId, column)); } catch { }
             return "duckdb";
+        }
+
+        // ── trial balances read live from Fusion (Statements › Trial balance › Live from Fusion) ──
+        internal const string TB_TABLE = "CREATE TABLE IF NOT EXISTS fin_tb_live (pod VARCHAR, ledger VARCHAR, ledger_name VARCHAR, currency VARCHAR, period_seq INTEGER, period_name VARCHAR, " +
+            "company VARCHAR, account VARCHAR, cost_centre VARCHAR, account_type VARCHAR, account_name VARCHAR, opening DOUBLE, ptd_dr DOUBLE, ptd_cr DOUBLE, closing DOUBLE, " +
+            "qtr_open DOUBLE, year_open DOUBLE, fetched_at TIMESTAMP, fetched_by VARCHAR)";
+
+        /// <summary>Saves a live trial balance in fin_tb_live (replacing that pod × ledger × period). Creates the finance file when
+        /// there is none yet: it then holds only snapshots and still reads as "no data loaded"; the first load keeps them.</summary>
+        public static int SaveTb(JsonElement root, string user)
+        {
+            string pod = Str(root, "pod") ?? "", by = user ?? "";
+            var led = root.GetProperty("ledger"); var per = root.GetProperty("period");
+            string code = Str(led, "code"), lname = Str(led, "name"), ccy = Str(led, "currency"), pname = Str(per, "name");
+            int seq = per.TryGetProperty("seq", out var sq) && sq.ValueKind == JsonValueKind.Number ? sq.GetInt32() : 0;
+            if (string.IsNullOrEmpty(code) || seq == 0) throw new InvalidOperationException("ledger and period are required");
+            double N(JsonElement r, string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : 0;
+            var now = DateTime.Now;
+            var rows = root.GetProperty("rows").EnumerateArray().Select(r => new object[] { pod, code, lname, ccy, seq, pname, Str(r, "company"), Str(r, "account"), Str(r, "costCentre"), Str(r, "accountType"), Str(r, "accountName"),
+                N(r, "opening"), N(r, "ptdDr"), N(r, "ptdCr"), N(r, "closing"), N(r, "qtrOpen"), N(r, "yearOpen"), now, by }).ToList();
+            lock (_lock)
+            {
+                ResetSessionNoLock();
+                Directory.CreateDirectory(Root);
+                bool fresh = !File.Exists(DbPath);
+                using var conn = new DuckDBConnection("Data Source=" + DbPath);
+                conn.Open();
+                if (fresh) Exec(conn, "CREATE TABLE IF NOT EXISTS fin_meta (key VARCHAR, value VARCHAR)");
+                Exec(conn, TB_TABLE);
+                Exec(conn, "DELETE FROM fin_tb_live WHERE pod = " + Lit(pod) + " AND ledger = " + Lit(code) + " AND period_seq = " + seq);
+                Append(conn, "fin_tb_live", rows);
+                Exec(conn, "CHECKPOINT");
+            }
+            return rows.Count;
+        }
+        private static string Str(JsonElement e, string k) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(k, out var v) && v.ValueKind != JsonValueKind.Null ? (v.ValueKind == JsonValueKind.String ? v.GetString() : v.ToString()) : null;
+
+        /// <summary>Copies tables a new finance file must keep from the old one (segment values, live trial balances).</summary>
+        internal static void CarryOver(DuckDBConnection conn, Action<string> note)
+        {
+            if (!File.Exists(DbPath)) return;
+            try
+            {
+                Exec(conn, SEGVAL_TABLE); Exec(conn, TB_TABLE);
+                Exec(conn, "ATTACH " + Lit(DbPath.Replace('\\', '/')) + " AS prev (READ_ONLY)");
+                try
+                {
+                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live" })
+                    {
+                        using var c = conn.CreateCommand();
+                        c.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog = 'prev' AND table_name = '" + t + "'";
+                        if (Convert.ToInt64(c.ExecuteScalar()) > 0) Exec(conn, "INSERT INTO " + t + " SELECT * FROM prev." + t);
+                    }
+                }
+                finally { Exec(conn, "DETACH prev"); }
+            }
+            catch (Exception ex) { note?.Invoke("⚠ earlier segment values / trial balances not kept: " + ex.Message); }
+        }
+
+        /// <summary>value → description of one segment from this PC: fin_segment_values, the loaded dimension (fin_accounts /
+        /// fin_companies / fin_cost_centres for the ledger's segments) or values kept before the first load.</summary>
+        public static Dictionary<string, string> SegmentNames(string coaId, string column)
+        {
+            var d = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (string.IsNullOrEmpty(column)) return d;
+            if (File.Exists(DbPath))
+            {
+                var t = Query("SELECT table_name FROM information_schema.tables WHERE table_name IN ('fin_segment_values', 'fin_ledgers', 'fin_accounts')", 10);
+                var have = new HashSet<string>(t.Error == null ? t.Rows.Select(r => Convert.ToString(r[0])) : Enumerable.Empty<string>());
+                if (have.Contains("fin_segment_values"))
+                    foreach (var r in Query("SELECT value, ANY_VALUE(description) FROM fin_segment_values WHERE coa_id = " + Lit(coaId) + " AND column_name = " + Lit(column) + " AND description IS NOT NULL GROUP BY value", 500000).Rows)
+                        d[Convert.ToString(r[0])] = Convert.ToString(r[1]);
+                if (have.Contains("fin_ledgers"))
+                {
+                    var l = Query("SELECT MAX(CASE WHEN account_segment = " + Lit(column) + " THEN 1 END), MAX(CASE WHEN company_segment = " + Lit(column) + " THEN 1 END), MAX(CASE WHEN cost_centre_segment = " + Lit(column) + " THEN 1 END) FROM fin_ledgers WHERE CAST(coa_id AS VARCHAR) = " + Lit(coaId), 1);
+                    if (l.Error == null && l.Rows.Count > 0)
+                    {
+                        string dim = l.Rows[0][0] != null ? "fin_accounts" : l.Rows[0][1] != null ? "fin_companies" : l.Rows[0][2] != null ? "fin_cost_centres" : null;
+                        if (dim != null)
+                            foreach (var r in Query("SELECT code, name FROM " + dim + " WHERE name IS NOT NULL AND name <> code", 500000).Rows)
+                                d.TryAdd(Convert.ToString(r[0]), Convert.ToString(r[1]));
+                    }
+                }
+            }
+            var pend = PendingSegValues(coaId, column);
+            if (pend?.Values != null) foreach (var v in pend.Values) if (!string.IsNullOrEmpty(v.Description)) d.TryAdd(v.Value, v.Description);
+            return d;
         }
 
         // ── segment values read before any finance data was loaded ──

@@ -23,19 +23,13 @@
                 ['Reading', 'ranked chunks of ' + (sv.chunkSize || 2000).toLocaleString() + ' rows · ' + (sv.parallel || 2) + ' in parallel'],
                 ['Chart of accounts stored in', 'APEX (WMS_FIN_COA_SEGMENTS, WMS_FIN_LEDGERS, WMS_FIN_DISCOVERY) and DuckDB (fin_coa_segments, fin_ledgers)' + (sv.discoveredAt ? ' · discovered ' + String(sv.discoveredAt).replace('T', ' ').slice(0, 16) : '')]]
                 .map(function (r) { return '<tr><td class="muted">' + esc(r[0]) + '</td><td>' + esc(r[1]) + '</td></tr>'; }).join('') + '</tbody></table>' +
-                '<div class="row" style="margin-top:10px"><button class="btn primary" id="fu-again"><i class="fa-solid fa-rotate"></i> Sync again</button>' +
-                '<label class="sm"><input type="checkbox" id="fu-incr" checked> only the last <input type="number" id="fu-last" value="' + (sv.incrementalMonths || 3) + '" min="1" max="36" style="width:46px"> period(s)</label>' +
+                '<div class="row" style="margin-top:10px"><button class="btn primary" id="fu-status"><i class="fa-solid fa-signal"></i> Load / sync in Sync status</button>' +
                 '<span class="grow"></span><button class="btn" id="fu-setup"><i class="fa-solid fa-sliders"></i> Change setup</button></div>' + F.lastLogLink() + '<div id="fu-prog"></div>';
             el.innerHTML = h;
             F.wireLastLog();
             $('fu-setup').onclick = function () { F.editing = true; F.render(el); };
-            $('fu-again').onclick = function () {
-                var o = JSON.parse(JSON.stringify(sv)), incr = $('fu-incr').checked, n = Math.max(1, +$('fu-last').value || 3);
-                sv.incrementalMonths = n;
-                o.toSeq = F.latestSeq(sv) || o.toSeq;
-                if (incr) { var cal = (sv.calendar || []).filter(function (p) { return p.seq <= o.toSeq; }); o.fromSeq = cal.length ? cal[Math.max(0, cal.length - n)].seq : o.fromSeq; o.incremental = true; o.journalMonths = Math.min(o.journalMonths || 0, n); }
-                F.sync(o);
-            };
+            $('fu-status').onclick = function () { FL.dataTab.go('status'); };
+            F.paint();
             return;
         }
         h += '<p class="sm">Finance Lens reads Fusion through the read-only Fusion SQL runner: the ledgers (<code>GL_LEDGERS</code>), the chart of accounts segments and their qualifiers, the account type of every account (<code>GL_CODE_COMBINATIONS</code>), the calendar and the budgets — then loads <code>GL_BALANCES</code> summed to company × cost centre × account and the posted journal lines.</p>' +
@@ -47,6 +41,7 @@
         $('fu-disc').onclick = function () { F.discover($('fu-pod').value); };
         $('fu-pod').onchange = function () { F.disc = null; F.restore(this.value); };
         if (F.disc) F.showDiscovery(); else F.restore($('fu-pod').value);
+        F.paint();
     };
 
     /** Shows the chart of accounts saved for this pod (APEX, else this PC's DuckDB file) — no need to ask Fusion again. */
@@ -72,36 +67,126 @@
         return c.length ? c[c.length - 1].seq : null;
     };
 
+    // ═════ live monitor: what runs in Fusion right now (SQL, how long), first rows of every step, the log ═════
+    // The host sends text lines (the log) and structured events ("\u0001" + JSON: sql / end / sample — FinanceFusion.Ctx.Live).
+    // The run lives in F.run, so leaving the view and coming back (Data › Sync status) shows it again while it goes on.
     F.log = [];
+    F.run = null;
     F.progress = function (title, cancel) {
-        var box = $('fu-prog'); if (!box) return function () { };
         F.log = [];
-        box.innerHTML = '<div class="fu-prog"><div class="row"><b id="fu-pt"><i class="fa-solid fa-circle-notch fa-spin"></i> ' + esc(title) + '</b><span class="sm muted" id="fu-pstat"></span><span class="grow"></span>' +
-            '<label class="sm"><input type="checkbox" id="fu-chunks" checked> chunk lines</label>' +
-            '<button class="btn sm" id="fu-logcopy" title="Copy the log"><i class="fa-regular fa-copy"></i></button><button class="btn sm" id="fu-logsave" title="Save the log as a text file"><i class="fa-solid fa-download"></i> Log</button>' +
-            (cancel ? '<button class="btn sm" id="fu-cancel"><i class="fa-solid fa-stop"></i> Cancel</button>' : '') + '</div><div class="fu-bar"><i id="fu-barv" style="width:0"></i></div><div class="fu-log" id="fu-log"></div></div>';
-        if ($('fu-cancel')) $('fu-cancel').onclick = function () { FL.call('finCancel'); this.disabled = true; };
-        $('fu-logcopy').onclick = function () { try { navigator.clipboard.writeText(F.log.join('\n')); FL.toast('Log copied', 'ok'); } catch (e) { FL.toast('Copy failed', 'err'); } };
-        $('fu-logsave').onclick = function () { F.saveLog(F.log); };
-        $('fu-chunks').onchange = function () { $('fu-log').classList.toggle('nochunks', !this.checked); };
-        var t0 = Date.now(), rows = 0, chunks = 0;
+        var R = F.run = { title: title, cancel: !!cancel, running: true, t0: Date.now(), sql: {}, done: [], samples: [], chunks: 0, rows: 0, pct: 0, tab: FL.ls('mon.tab', 'running'), error: null, end: null };
+        F.paint(true);
+        clearInterval(F.tick);
+        F.tick = setInterval(function () { if (!R.running) { clearInterval(F.tick); return; } F.paintTimes(); }, 1000);
         return function (msg) {
             msg = String(msg || '');
+            if (msg.charAt(0) === '\u0001') { try { F.live(R, JSON.parse(msg.slice(1))); } catch (e) { /* not an event */ } return; }
             var stamp = new Date().toTimeString().slice(0, 8);
             F.log.push(stamp + '  ' + msg);
             if (F.log.length > 20000) F.log.shift();
-            var log = $('fu-log'); if (!log) return;
             var m = /^\[(\d+)\/(\d+)\]/.exec(msg);
-            if (m && $('fu-barv')) $('fu-barv').style.width = Math.round(+m[1] / +m[2] * 100) + '%';
+            if (m) R.pct = Math.round(+m[1] / +m[2] * 100);
             var ch = /· chunk \d+ · rows ([\d,]+)–([\d,]+)/.exec(msg);
-            if (ch) { chunks++; rows += (+ch[2].replace(/,/g, '')) - (+ch[1].replace(/,/g, '')) + 1; }
-            if ($('fu-pstat')) $('fu-pstat').textContent = ' · ' + chunks.toLocaleString() + ' chunks · ' + rows.toLocaleString() + ' rows · ' + Math.round((Date.now() - t0) / 1000) + ' s';
+            if (ch) { R.chunks++; R.rows += (+ch[2].replace(/,/g, '')) - (+ch[1].replace(/,/g, '')) + 1; }
+            if (R !== F.run) return;
+            if ($('fu-barv')) $('fu-barv').style.width = R.pct + '%';
+            F.paintTimes();
+            var log = $('fu-log'); if (!log) return;
             var cls = /✖|failed/.test(msg) ? 'neg' : /⚠/.test(msg) ? 'warn' : /✓|^Done/.test(msg) ? 'pos' : /^\s*SQL:/.test(msg) ? 'sql' : ch ? 'chunk' : /^▶/.test(msg.trim()) ? 'step' : '';
             var stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
             log.insertAdjacentHTML('beforeend', '<div class="' + cls + '"><span class="ts">' + stamp + '</span>' + esc(msg) + '</div>');
             while (log.childNodes.length > 5000) log.removeChild(log.firstChild);
             if (stick) log.scrollTop = log.scrollHeight;
         };
+    };
+    F.live = function (R, e) {
+        if (e.t === 'sql') R.sql[e.id] = { id: e.id, what: e.what, sql: e.sql, at: e.at, t: Date.now() };
+        else if (e.t === 'end') {
+            var q = R.sql[e.id]; delete R.sql[e.id];
+            if (q) { q.ms = e.ms; q.rows = e.rows; q.ok = e.ok; q.error = e.error; R.done.unshift(q); if (R.done.length > 60) R.done.pop(); }
+        } else if (e.t === 'sample') { R.samples.unshift({ what: e.what, cols: e.cols, rows: e.rows, at: new Date().toTimeString().slice(0, 8) }); if (R.samples.length > 30) R.samples.pop(); }
+        if (R !== F.run) return;
+        if (e.t === 'sample' && R.tab !== 'sample') { if ($('mon-ns')) $('mon-ns').textContent = R.samples.length; return; }
+        clearTimeout(F.paintT); F.paintT = setTimeout(function () { F.paintPane(); }, 120);
+    };
+    /** Marks the current run finished (ok / error text); the monitor stays readable. */
+    F.finish = function (err) {
+        var R = F.run; if (!R) return;
+        R.running = false; R.error = err ? String(err) : null; R.end = Date.now(); R.sql = {};
+        clearInterval(F.tick);
+        if ($('fu-pt')) $('fu-pt').innerHTML = err ? '<i class="fa-solid fa-circle-xmark neg"></i> ' + esc(R.title.replace(/…$/, '')) + ' — stopped' : '<i class="fa-solid fa-circle-check pos"></i> ' + esc(R.title.replace(/…$/, '')) + ' — done';
+        F.paint();
+    };
+    F.secs = function (ms) { var s = Math.round(ms / 1000); return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min ' + (s % 60) + ' s'; };
+    /** Draws the monitor into #fu-prog of the current view (fresh = a new run). */
+    F.paint = function () {
+        var box = $('fu-prog'), R = F.run; if (!box || !R) return;
+        var tabs = [['running', 'fa-bolt', 'Running now'], ['done', 'fa-list-check', 'Finished queries'], ['sample', 'fa-table', 'Sample rows'], ['log', 'fa-scroll', 'Log']];
+        box.innerHTML = '<div class="fu-prog mon"><div class="row"><b id="fu-pt">' + (R.running ? '<i class="fa-solid fa-circle-notch fa-spin"></i> ' + esc(R.title) : (R.error ? '<i class="fa-solid fa-circle-xmark neg"></i> ' : '<i class="fa-solid fa-circle-check pos"></i> ') + esc(R.title.replace(/…$/, '')) + (R.error ? ' — stopped' : ' — done')) + '</b>' +
+            '<span class="sm muted" id="fu-pstat"></span><span class="grow"></span>' +
+            '<button class="btn sm" id="fu-logcopy" title="Copy the log"><i class="fa-regular fa-copy"></i></button><button class="btn sm" id="fu-logsave" title="Save the log as a text file"><i class="fa-solid fa-download"></i> Log</button>' +
+            (R.cancel && R.running ? '<button class="btn sm" id="fu-cancel"><i class="fa-solid fa-stop"></i> Cancel</button>' : '') +
+            (!R.running ? '<button class="btn sm ghost" id="fu-close" title="Hide this monitor"><i class="fa-solid fa-xmark"></i></button>' : '') + '</div><div class="fu-bar"><i id="fu-barv" style="width:' + R.pct + '%"></i></div>' +
+            '<div class="seg mon-tabs">' + tabs.map(function (t) { return '<button data-t="' + t[0] + '" class="' + (R.tab === t[0] ? 'on' : '') + '"><i class="fa-solid ' + t[1] + '"></i> ' + t[2] + (t[0] === 'sample' ? ' <span class="tag" id="mon-ns">' + R.samples.length + '</span>' : t[0] === 'running' ? ' <span class="tag" id="mon-nr">' + Object.keys(R.sql).length + '</span>' : '') + '</button>'; }).join('') +
+            '<label class="sm" style="margin-left:auto"><input type="checkbox" id="fu-chunks"' + (F.hideChunks ? '' : ' checked') + '> chunk lines</label></div>' +
+            '<div id="mon-pane"></div><div class="fu-log' + (F.hideChunks ? ' nochunks' : '') + '" id="fu-log"' + (R.tab === 'log' ? '' : ' style="display:none"') + '></div>' +
+            (R.error ? '<div class="callout bad">' + esc(R.error) + '</div>' : '') + '</div>';
+        if ($('fu-cancel')) $('fu-cancel').onclick = function () { FL.call('finCancel'); this.disabled = true; };
+        if ($('fu-close')) $('fu-close').onclick = function () { F.run = null; box.innerHTML = ''; };
+        $('fu-logcopy').onclick = function () { try { navigator.clipboard.writeText(F.log.join('\n')); FL.toast('Log copied', 'ok'); } catch (e) { FL.toast('Copy failed', 'err'); } };
+        $('fu-logsave').onclick = function () { F.saveLog(F.log); };
+        $('fu-chunks').onchange = function () { F.hideChunks = !this.checked; $('fu-log').classList.toggle('nochunks', F.hideChunks); };
+        box.querySelectorAll('.mon-tabs button').forEach(function (b) { b.onclick = function () { R.tab = b.dataset.t; FL.lsSet('mon.tab', R.tab); box.querySelectorAll('.mon-tabs button').forEach(function (x) { x.classList.toggle('on', x === b); }); F.paintPane(); }; });
+        // the log so far (the last 1,500 lines)
+        var log = $('fu-log');
+        log.innerHTML = F.log.slice(-1500).map(function (l) {
+            var msg = l.slice(10), cls = /✖|failed/.test(msg) ? 'neg' : /⚠/.test(msg) ? 'warn' : /✓|^Done/.test(msg) ? 'pos' : /^\s*SQL:/.test(msg) ? 'sql' : /· chunk \d+ · rows/.test(msg) ? 'chunk' : /^▶/.test(msg.trim()) ? 'step' : '';
+            return '<div class="' + cls + '"><span class="ts">' + esc(l.slice(0, 8)) + '</span>' + esc(msg) + '</div>';
+        }).join('');
+        log.scrollTop = log.scrollHeight;
+        F.paintTimes(); F.paintPane();
+    };
+    F.paintTimes = function () {
+        var R = F.run; if (!R) return;
+        if ($('fu-pstat')) $('fu-pstat').textContent = ' · ' + R.chunks.toLocaleString() + ' chunks · ' + R.rows.toLocaleString() + ' rows · ' + F.secs((R.end || Date.now()) - R.t0) +
+            (R.running ? ' · ' + Object.keys(R.sql).length + ' quer' + (Object.keys(R.sql).length === 1 ? 'y' : 'ies') + ' running' : '');
+        document.querySelectorAll('#mon-pane [data-el]').forEach(function (s) { var q = R.sql[s.dataset.el]; if (q) s.textContent = F.secs(Date.now() - q.t); });
+        if ($('mon-nr')) $('mon-nr').textContent = Object.keys(R.sql).length;
+    };
+    var hiSql = function (sql) {   // light SQL highlighting
+        return esc(sql).replace(/\b(SELECT|FROM|WHERE|AND|OR|GROUP BY|ORDER BY|JOIN|ON|IN|CASE|WHEN|THEN|ELSE|END|SUM|MAX|MIN|COUNT|NVL|OVER|ROW_NUMBER|AS|NOT|IS|NULL|DISTINCT|UNION ALL)\b/g, '<b>$1</b>');
+    };
+    F.paintPane = function () {
+        var R = F.run, el = $('mon-pane'); if (!R || !el) return;
+        if ($('fu-log')) $('fu-log').style.display = R.tab === 'log' ? '' : 'none';
+        if (R.tab === 'log') { el.innerHTML = ''; return; }
+        if (R.tab === 'running') {
+            var qs = Object.keys(R.sql).map(function (k) { return R.sql[k]; });
+            el.innerHTML = qs.length ? qs.map(function (q) {
+                return '<div class="mon-q"><div class="row"><i class="fa-solid fa-circle-notch fa-spin"></i><b>' + esc(q.what) + '</b><span class="sm muted">started ' + esc(q.at) + ' · running <span data-el="' + q.id + '">' + F.secs(Date.now() - q.t) + '</span></span><span class="grow"></span>' +
+                    '<button class="btn sm" data-copy="' + q.id + '" title="Copy the SQL"><i class="fa-regular fa-copy"></i></button></div><pre class="mon-sql">' + hiSql(q.sql) + '</pre></div>';
+            }).join('') : '<p class="sm muted">' + (R.running ? 'Between queries…' : 'Nothing running — see Finished queries, Sample rows and the Log.') + '</p>';
+            el.querySelectorAll('[data-copy]').forEach(function (b) { b.onclick = function () { var q = R.sql[b.dataset.copy]; if (q) { try { navigator.clipboard.writeText(q.sql); FL.toast('SQL copied', 'ok'); } catch (e) { /* no clipboard */ } } }; });
+        } else if (R.tab === 'done') {
+            el.innerHTML = R.done.length ? '<div class="scroll" style="max-height:300px"><table class="t"><thead><tr><th>Step</th><th class="n">Rows</th><th class="n">Time</th><th></th></tr></thead><tbody>' + R.done.map(function (q, i) {
+                return '<tr class="click" data-i="' + i + '"><td>' + (q.ok ? '' : '<i class="fa-solid fa-circle-xmark neg"></i> ') + esc(q.what) + (q.error ? '<div class="sm neg">' + esc(q.error) + '</div>' : '') + '</td><td class="n">' + (q.rows || 0).toLocaleString() + '</td><td class="n">' + ((q.ms || 0) / 1000).toFixed(1) + ' s</td><td class="sm muted">SQL ›</td></tr>';
+            }).join('') + '</tbody></table></div><p class="sm muted">The last ' + R.done.length + ' queries — click one for its SQL.</p>' : '<p class="sm muted">No query finished yet.</p>';
+            el.querySelectorAll('tr[data-i]').forEach(function (tr) {
+                tr.onclick = function () {
+                    var q = R.done[+tr.dataset.i];
+                    var nx = tr.nextElementSibling;
+                    if (nx && nx.classList.contains('mon-sqlrow')) { nx.remove(); return; }
+                    tr.insertAdjacentHTML('afterend', '<tr class="mon-sqlrow"><td colspan="4"><pre class="mon-sql">' + hiSql(q.sql) + '</pre></td></tr>');
+                };
+            });
+        } else if (R.tab === 'sample') {
+            if (!R.samples.length) { el.innerHTML = '<p class="sm muted">The first rows of every step show here as soon as its first chunk comes back.</p>'; return; }
+            var ix = Math.min(F.sampleIx || 0, R.samples.length - 1), sm = R.samples[ix];
+            el.innerHTML = '<div class="row"><label class="sm">Step <select id="mon-ss">' + R.samples.map(function (x, i) { return '<option value="' + i + '"' + (i === ix ? ' selected' : '') + '>' + esc(x.at + ' · ' + x.what) + '</option>'; }).join('') + '</select></label>' +
+                '<span class="sm muted">first ' + sm.rows.length + ' row(s) as Fusion returned them</span></div><div class="scroll" style="max-height:260px"><table class="t mon-sample"><thead><tr>' + sm.cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+                sm.rows.map(function (r) { return '<tr>' + r.map(function (v) { return '<td class="mono">' + esc(v == null ? '' : v) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
+            $('mon-ss').onchange = function () { F.sampleIx = +this.value; F.paintPane(); };
+        }
     };
     F.saveLog = function (lines) { FL.download('fusion-sync-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.log', new Blob([lines.join('\r\n')], { type: 'text/plain' })); };
     /** The log of the last sync stays available after the page reloads (this PC). */
@@ -116,27 +201,27 @@
         FL.call('finFusionDiscover', { pod: pod }, 30 * 60000, p).then(function (r) {
             F.busy = false;
             F.disc = r.discovery; F.disc.pod = pod; F.discFrom = { where: 'Fusion', at: new Date().toLocaleString() };
-            if ($('fu-prog')) $('fu-prog').innerHTML = '';
+            FL.fusion.finish();
             F.showDiscovery();
             F.storeStatus('Saving the chart of accounts…');
             FL.apexStore.saveDiscovery(F.disc, null, null).then(function () { F.storeStatus('✓ Saved in APEX' + (r.savedDuck ? ' and DuckDB' : ' (DuckDB: with the first load)')); })
                 .catch(function (e) { F.storeStatus('⚠ Not saved in APEX: ' + (e.message || e) + (r.savedDuck ? ' · saved in DuckDB' : ''), true); });
-        }).catch(function (e) { F.busy = false; if ($('fu-prog')) $('fu-prog').innerHTML = '<div class="callout bad">' + esc(e) + '</div>'; });
+        }).catch(function (e) { F.busy = false; FL.fusion.finish(e); });
     };
 
     F.storeStatus = function (t, bad) { F.storeMsg = { t: t, bad: bad }; if ($('fu-store')) { $('fu-store').textContent = t; $('fu-store').className = 'sm ' + (bad ? 'neg' : 'muted'); } };
     F.showDiscovery = function () {
         var d = F.disc, box = $('fu-res'); if (!box || !d) return;
         var from = F.discFrom || {};
-        var sv = F.saved() || {}, chosen = {};
-        (sv.ledgers || []).forEach(function (l) { chosen[l.id] = 1; });
+        var sv = F.saved() || {}, chosen = {}, setup = sv.setup || {};
+        (setup.ledgerIds || (sv.ledgers || []).map(function (l) { return l.id; })).forEach(function (id) { chosen[id] = 1; });
         var leds = (d.ledgers || []).filter(function (l) { return l.coaId; });
         if (!Object.keys(chosen).length) leds.forEach(function (l) { if ((l.category || 'PRIMARY') === 'PRIMARY') chosen[l.id] = 1; });
         var warns = (d.log || []).filter(function (x) { return /^⚠/.test(x); });
         var h = '<div class="callout ' + (from.where === 'Fusion' ? 'good' : '') + ' sm"><i class="fa-solid fa-database"></i> ' +
             (from.where === 'Fusion' ? 'Discovered just now' : 'Saved chart of accounts from <b>' + esc(from.where || '') + '</b> · discovered ' + esc(from.at || d.discoveredAt || '') + (from.by ? ' by ' + esc(from.by) : '') + ' — press Discover to read Fusion again') +
             ' <span id="fu-store" class="sm muted"></span></div>' +
-            '<h4 style="margin:14px 0 6px">1 · Ledgers <small class="muted">a dashboard by company needs the ledger of each company — tick the primary ledgers (secondary and reporting ledgers repeat the same companies)</small></h4>' +
+            '<h4 style="margin:14px 0 6px">1 · Ledgers <small class="muted">a dashboard by company needs the ledger of each company — tick the primary ledgers (secondary and reporting ledgers repeat the same companies); this is the default choice in Sync status</small></h4>' +
             '<div class="scroll"><table class="t"><thead><tr><th></th><th>Ledger</th><th>Currency</th><th>Category</th><th>Chart</th><th>Calendar</th><th>Companies (balancing values)</th><th>Open periods</th></tr></thead><tbody>' +
             leds.map(function (l) {
                 var open = Object.keys(l.periodStatus || {}).filter(function (k) { return l.periodStatus[k] === 'O'; });
@@ -145,7 +230,7 @@
             }).join('') + '</tbody></table></div>';
         h += '<h4 style="margin:14px 0 6px">2 · Chart of accounts segments <small class="muted">found from the qualifiers and measured in GL_CODE_COMBINATIONS — change a role if Fusion is set up differently</small></h4>';
         Object.keys(d.coas || {}).forEach(function (id) {
-            var c = d.coas[id], sel = (sv.coa && sv.coa[id]) || { company: c.company, costCentre: c.costCentre, account: c.account };
+            var c = d.coas[id], sel = (setup.coa && setup.coa[id]) || (sv.coa && sv.coa[id]) || { company: c.company, costCentre: c.costCentre, account: c.account };
             h += '<div class="card" style="margin:6px 0;padding:10px"><div class="row"><b>Chart ' + esc(id) + '</b><span class="sm muted">' + (c.combinations || 0).toLocaleString() + ' account combinations</span><span class="grow"></span>' +
                 Object.keys(c.accountTypes || {}).map(function (t) { return '<span class="tag">' + esc(TYPE[t] || t) + ' ' + c.accountTypes[t].toLocaleString() + '</span>'; }).join(' ') + '</div>' +
                 '<table class="t"><thead><tr><th>Column</th><th>Segment</th><th>Qualifiers</th><th class="n">Values</th><th title="Share of the values that carry one account type — the natural account segment is close to 100 %">One type per value</th><th>Role</th></tr></thead><tbody>' +
@@ -158,28 +243,9 @@
                         (role === 'intercompany' ? ' <span class="tag">intercompany</span>' : '') + '</td></tr>';
                 }).join('') + '</tbody></table><div class="sm muted" style="margin-top:4px">' + Object.keys(c.why || {}).map(function (k) { return '<b>' + esc(ROLE[k] || k) + ':</b> ' + esc(c.why[k]); }).join(' · ') + '</div></div>';
         });
-        // periods from the first ledger's calendar
-        var first = leds.filter(function (l) { return chosen[l.id]; })[0] || leds[0];
-        var cal = first ? ((d.calendars || {})[first.periodSet + '|' + first.periodType] || []).filter(function (p) { return !p.adj; }) : [];
-        F.cal = cal.map(function (p) { return { name: p.name, seq: p.year * 100 + p.num, start: p.start }; });
-        var today = new Date().toISOString().slice(0, 10), started = F.cal.filter(function (p) { return !p.start || p.start <= today; });
-        var to = sv.toSeq || (started.length ? started[started.length - 1].seq : (F.cal[F.cal.length - 1] || {}).seq);
-        var toIx = Math.max(0, F.cal.map(function (p) { return p.seq; }).indexOf(to)), from = sv.fromSeq || (F.cal[Math.max(0, toIx - 23)] || {}).seq;
-        var opt = function (v) { return F.cal.map(function (p) { return '<option value="' + p.seq + '"' + (p.seq === v ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join(''); };
-        h += '<h4 style="margin:14px 0 6px">3 · What to load</h4><div class="row">' +
-            '<label class="sm">From <select id="fu-from">' + opt(from) + '</select></label><label class="sm">To <select id="fu-to">' + opt(to) + '</select></label>' +
-            '<label class="sm">Budget <select id="fu-bud"><option value="">none</option>' + (d.budgets || []).map(function (b, i) { return '<option value="' + i + '"' + (sv.budgetId === b.id && sv.budgetSource === b.source ? ' selected' : '') + '>' + esc(b.name + ' (' + b.source + ', ' + (b.rows || 0).toLocaleString() + ' rows)') + '</option>'; }).join('') + '</select></label>' +
-            '<label class="sm">Journal lines for drill-down <select id="fu-jm">' + [0, 1, 3, 6, 12, 24].map(function (n) { return '<option value="' + n + '"' + ((sv.journalMonths != null ? sv.journalMonths : 3) === n ? ' selected' : '') + '>' + (n ? 'last ' + n + ' month(s)' : 'none') + '</option>'; }).join('') + '</select></label>' +
-            '<label class="sm"><input type="checkbox" id="fu-fold" checked> fold adjustment periods into the period they close</label></div>' +
-            '<div class="row" style="margin-top:6px"><label class="sm" title="Each read is ranked with ROW_NUMBER over its key and limited to this many rows; the next read starts after the last key. A read that times out is repeated at half the size.">Rows per chunk <select id="fu-chunk">' +
-            [500, 1000, 2000, 5000, 10000].map(function (n) { return '<option value="' + n + '"' + ((sv.chunkSize || 2000) === n ? ' selected' : '') + '>' + n.toLocaleString() + '</option>'; }).join('') + '</select></label>' +
-            '<label class="sm">Reads in parallel <select id="fu-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + ((sv.parallel || 2) === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>' +
-            '<label class="sm" title="Each period is read in several smaller queries, one per range of natural account (or company) values, so no single query is big enough to time out.">Split each period <select id="fu-split">' +
-            [['none', 'no'], ['account', 'by GL account ranges'], ['company', 'by company']].map(function (x) { return '<option value="' + x[0] + '"' + ((sv.splitBy || 'none') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>' +
-            '<label class="sm">values per range <input type="number" id="fu-splitn" min="5" max="2000" value="' + (sv.splitSize || 100) + '" style="width:64px"></label>' +
-            '<label class="sm"><input type="checkbox" id="fu-sqllog"> show the SQL in the log</label></div>' +
-            (warns.length ? '<details class="sm" style="margin-top:8px"><summary>' + warns.length + ' Fusion object(s) not available on this pod (other ways were used)</summary>' + warns.map(esc).join('<br>') + '</details>' : '') +
-            '<div class="row" style="margin-top:12px"><button class="btn primary" id="fu-sync"><i class="fa-solid fa-cloud-arrow-down"></i> Load into Finance Lens</button><span class="sm muted">Replaces the finance data on this PC · discovered in ' + ((d.ms || 0) / 1000).toFixed(1) + ' s</span></div>';
+        h += '<h4 style="margin:14px 0 6px">3 · Save the setup</h4><div class="row"><button class="btn primary" id="fu-save"><i class="fa-solid fa-floppy-disk"></i> Save setup &amp; go to Sync status</button>' +
+            '<span class="sm muted">Choose what to load and watch it run (the SQL running now, sample rows, the log) in <b>Data › Sync status</b> · discovered in ' + ((d.ms || 0) / 1000).toFixed(1) + ' s</span></div>' +
+            (warns.length ? '<details class="sm" style="margin-top:8px"><summary>' + warns.length + ' Fusion object(s) not available on this pod (other ways were used)</summary>' + warns.map(esc).join('<br>') + '</details>' : '');
         box.innerHTML = h;
         box.querySelectorAll('.fu-role').forEach(function (s) {
             s.onchange = function () {   // one segment per role: clear the role elsewhere in the same chart
@@ -187,30 +253,136 @@
                 if (me.value) box.querySelectorAll('.fu-role[data-coa="' + me.dataset.coa + '"]').forEach(function (o) { if (o !== me && o.value === me.value) o.value = ''; });
             };
         });
-        $('fu-sync').onclick = function () {
+        $('fu-save').onclick = function () {
             var ids = Array.prototype.map.call(box.querySelectorAll('.fu-led:checked'), function (c) { return c.value; });
             if (!ids.length) { FL.toast('Tick at least one ledger', 'err'); return; }
             var roles = {};
             box.querySelectorAll('.fu-role').forEach(function (s) { var r = roles[s.dataset.coa] = roles[s.dataset.coa] || {}; if (s.value) r[s.value] = s.dataset.col; });
-            var ledgers = leds.filter(function (l) { return ids.indexOf(String(l.id)) >= 0; }).map(function (l) {
-                var r = roles[l.coaId] || {}, names = {};
-                (l.companies || []).forEach(function (c) { if (c.legalEntity) names[c.value] = c.legalEntity; });
-                return { id: l.id, name: l.name, code: l.shortName || String(l.id), currency: l.currency, coaId: l.coaId, periodSet: l.periodSet, periodType: l.periodType, category: l.category,
-                    company: r.company, costCentre: r.costCentre || null, account: r.account, companyNames: names };
-            });
-            var bad = ledgers.filter(function (l) { return !l.company || !l.account; });
+            var bad = leds.filter(function (l) { return ids.indexOf(String(l.id)) >= 0; }).filter(function (l) { var r = roles[l.coaId] || {}; return !r.company || !r.account; });
             if (bad.length) { FL.toast('Choose the company and the natural account segment for ' + bad[0].name, 'err'); return; }
-            var b = $('fu-bud').value === '' ? null : d.budgets[+$('fu-bud').value];
-            var o = { pod: d.pod || '', ledgers: ledgers, fromSeq: +$('fu-from').value, toSeq: +$('fu-to').value, budgetSource: b ? b.source : '', budgetId: b ? b.id : '', budgetName: b ? b.name : '',
-                journalMonths: +$('fu-jm').value, foldAdjustments: $('fu-fold').checked, incremental: false, chunkSize: +$('fu-chunk').value, parallel: +$('fu-par').value, logSql: $('fu-sqllog').checked, splitBy: $('fu-split').value, splitSize: +$('fu-splitn').value || 100,
-                discoveredAt: d.discoveredAt };
-            if (o.toSeq < o.fromSeq) { FL.toast('"From" is after "To"', 'err'); return; }
-            if (!confirm('Load ' + ledgers.length + ' ledger(s), ' + F.pname(o.fromSeq) + ' – ' + F.pname(o.toSeq) + ', from Fusion? This replaces the finance data on this PC.')) return;
-            o.coa = roles; o.calendar = F.cal;
-            // keep the chosen roles and ledgers in APEX too (DuckDB gets them with the load)
-            FL.apexStore.saveDiscovery(d, roles, ids).catch(function (e) { console.warn('[Finance] roles not saved in APEX', e); });
-            F.sync(o, d);
+            F.saveSetup(d, roles, ids).then(function () { F.editing = false; FL.toast('Setup saved — choose what to load', 'ok'); FL.dataTab.go('status'); });
         };
+    };
+
+    /** Keeps the chosen segment roles and default ledgers (config.json fusion.setup + APEX). */
+    F.saveSetup = function (d, roles, ids) {
+        FL.config.fusion = Object.assign({}, FL.config.fusion || {}, { setup: { pod: d.pod || '', coa: roles, ledgerIds: ids.map(String), discoveredAt: d.discoveredAt } });
+        F.discCache[d.pod || ''] = { disc: d, where: 'this session' };
+        FL.apexStore.saveDiscovery(d, roles, ids).catch(function (e) { console.warn('[Finance] roles not saved in APEX', e); });
+        return FL.saveConfig();
+    };
+
+    /** The discovery of a pod: this session, else APEX (shared), else this PC's DuckDB file. → {disc, where, at, by} or null */
+    F.discCache = {};
+    F.getDisc = function (pod) {
+        pod = pod || '';
+        if (F.disc && (F.disc.pod || '') === pod) return Promise.resolve({ disc: F.disc, where: 'this session' });
+        if (F.discCache[pod]) return Promise.resolve(F.discCache[pod]);
+        return FL.apexStore.loadDiscovery(pod).catch(function () { return null; }).then(function (r) {
+            if (r && r.disc) return r;
+            return FL.call('finDiscoveryGet', { pod: pod }).then(function (x) { return x && x.found ? { disc: JSON.parse(x.json), where: 'DuckDB', at: x.at, by: x.by } : null; }).catch(function () { return null; });
+        }).then(function (r) { if (r) { r.disc.pod = pod; F.discCache[pod] = r; } return r; });
+    };
+    /** Segment roles per chart: the saved setup / last load, else what discovery decided. */
+    F.rolesOf = function (d) {
+        var sv = F.saved() || {}, out = {};
+        Object.keys(d.coas || {}).forEach(function (id) {
+            var c = d.coas[id], r = ((sv.setup || {}).coa || {})[id] || (sv.coa || {})[id];
+            out[id] = r && r.company ? r : { company: c.company, costCentre: c.costCentre, account: c.account };
+        });
+        return out;
+    };
+    /** A discovered ledger as the host's SyncLedger (with the roles of its chart). */
+    F.ledgerFor = function (l, roles) {
+        var r = roles[l.coaId] || {}, names = {};
+        (l.companies || []).forEach(function (c) { if (c.legalEntity) names[c.value] = c.legalEntity; });
+        return { id: l.id, name: l.name, code: l.shortName || String(l.id), currency: l.currency, coaId: l.coaId, periodSet: l.periodSet, periodType: l.periodType, category: l.category,
+            company: r.company, costCentre: r.costCentre || null, account: r.account, companyNames: names };
+    };
+    /** The normal periods of a ledger's calendar: [{name, seq, start, year, num, quarter}] */
+    F.calOf = function (d, l) {
+        var cal = l ? ((d.calendars || {})[l.periodSet + '|' + l.periodType] || []) : [];
+        return cal.filter(function (p) { return !p.adj; }).map(function (p) { return { name: p.name, seq: p.year * 100 + p.num, start: p.start, year: p.year, num: p.num, quarter: p.quarter }; });
+    };
+    F.defaultIds = function (d) {
+        var sv = F.saved() || {}, ids = (sv.setup || {}).ledgerIds || (sv.ledgers || []).map(function (l) { return String(l.id); });
+        var leds = (d.ledgers || []).filter(function (l) { return l.coaId; });
+        if (!ids.length) ids = leds.filter(function (l) { return (l.category || 'PRIMARY') === 'PRIMARY'; }).map(function (l) { return String(l.id); });
+        return ids.map(String);
+    };
+
+    // ═════ the load form (Data › Sync status): which ledgers, which months, how to read ═════
+    F.loadForm = function (d) {
+        var sv = F.saved() || {}, roles = F.rolesOf(d), ids = F.defaultIds(d), leds = (d.ledgers || []).filter(function (l) { return l.coaId; });
+        var first = leds.filter(function (l) { return ids.indexOf(String(l.id)) >= 0; })[0] || leds[0];
+        F.cal = F.calOf(d, first);
+        var today = new Date().toISOString().slice(0, 10), started = F.cal.filter(function (p) { return !p.start || p.start <= today; });
+        var to = (started.length ? started[started.length - 1].seq : (F.cal[F.cal.length - 1] || {}).seq);
+        if (sv.toSeq && sv.toSeq > to) to = sv.toSeq;
+        var toIx = Math.max(0, F.cal.map(function (p) { return p.seq; }).indexOf(to)), from = sv.fromSeq || (F.cal[Math.max(0, toIx - 23)] || {}).seq;
+        var opt = function (v) { return F.cal.map(function (p) { return '<option value="' + p.seq + '"' + (p.seq === v ? ' selected' : '') + '>' + esc(p.name) + '</option>'; }).join(''); };
+        var loadedCodes = {}; (sv.ledgers || []).forEach(function (l) { loadedCodes[String(l.id)] = 1; });
+        var h = '<h4 style="margin:4px 0 6px">Ledgers to load <small class="muted">tick the ledgers you need — the company dashboards use the ledger of each company</small></h4><div class="lf-leds">' +
+            leds.map(function (l) {
+                var r = roles[l.coaId] || {}, on = ids.indexOf(String(l.id)) >= 0;
+                return '<label class="lf-led' + (on ? ' on' : '') + '"><input type="checkbox" class="lf-led-c" value="' + esc(l.id) + '"' + (on ? ' checked' : '') + '><div><b>' + esc(l.name) + '</b> <span class="tag">' + esc(l.currency) + '</span>' +
+                    (loadedCodes[String(l.id)] && (FL.status || {}).loaded ? ' <span class="tag good">loaded</span>' : '') + '<div class="sm muted">' + esc((l.category || '') + ' · chart ' + l.coaId + ' · ' + (l.companies || []).length + ' compan' + ((l.companies || []).length === 1 ? 'y' : 'ies') +
+                    ' · company ' + (r.company || '?') + ' / account ' + (r.account || '?') + (r.costCentre ? ' / cost centre ' + r.costCentre : '')) + '</div></div></label>';
+            }).join('') + '</div>' +
+            '<h4 style="margin:12px 0 6px">What to load</h4><div class="row">' +
+            '<label class="sm">From <select id="fu-from">' + opt(from) + '</select></label><label class="sm">To <select id="fu-to">' + opt(to) + '</select></label>' +
+            '<label class="sm">Budget <select id="fu-bud"><option value="">none</option>' + (d.budgets || []).map(function (b, i) { return '<option value="' + i + '"' + (sv.budgetId === b.id && sv.budgetSource === b.source ? ' selected' : '') + '>' + esc(b.name + ' (' + b.source + ', ' + (b.rows || 0).toLocaleString() + ' rows)') + '</option>'; }).join('') + '</select></label>' +
+            '<label class="sm">Journal lines for drill-down <select id="fu-jm">' + [0, 1, 3, 6, 12, 24].map(function (n) { return '<option value="' + n + '"' + ((sv.journalMonths != null ? sv.journalMonths : 3) === n ? ' selected' : '') + '>' + (n ? 'last ' + n + ' month(s)' : 'none') + '</option>'; }).join('') + '</select></label>' +
+            '<label class="sm"><input type="checkbox" id="fu-fold"' + (sv.foldAdjustments === false ? '' : ' checked') + '> fold adjustment periods into the period they close</label></div>' +
+            '<div class="row" style="margin-top:6px"><label class="sm" title="Each read is ranked with ROW_NUMBER over its key and limited to this many rows; the next read starts after the last key. A read that times out is repeated at half the size.">Rows per chunk <select id="fu-chunk">' +
+            [500, 1000, 2000, 5000, 10000].map(function (n) { return '<option value="' + n + '"' + ((sv.chunkSize || 2000) === n ? ' selected' : '') + '>' + n.toLocaleString() + '</option>'; }).join('') + '</select></label>' +
+            '<label class="sm">Reads in parallel <select id="fu-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + ((sv.parallel || 2) === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>' +
+            '<label class="sm" title="Each period is read in several smaller queries, one per range of natural account (or company) values, so no single query is big enough to time out.">Split each period <select id="fu-split">' +
+            [['none', 'no'], ['account', 'by GL account ranges'], ['company', 'by company']].map(function (x) { return '<option value="' + x[0] + '"' + ((sv.splitBy || 'none') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>' +
+            '<label class="sm">values per range <input type="number" id="fu-splitn" min="5" max="2000" value="' + (sv.splitSize || 100) + '" style="width:64px"></label>' +
+            '<label class="sm"><input type="checkbox" id="fu-sqllog"' + (sv.logSql ? ' checked' : '') + '> also write the SQL into the log</label></div>' +
+            '<div class="row" style="margin-top:12px">' + ((FL.status || {}).loaded ? '<button class="btn primary" id="fu-go-incr" title="Reads the chosen months again and keeps the other months on this PC (a full load runs instead when the ledgers or segments differ from the loaded ones)"><i class="fa-solid fa-rotate"></i> Sync these months</button>' +
+            '<button class="btn" id="fu-go-full"><i class="fa-solid fa-cloud-arrow-down"></i> Full reload</button>' : '<button class="btn primary" id="fu-go-full"><i class="fa-solid fa-cloud-arrow-down"></i> Load into Finance Lens</button>') +
+            '<span class="sm muted" id="fu-est"></span></div>';
+        return h;
+    };
+    /** Wires the form inside box: ledger chips, calendar follows the first ledger, buttons → F.sync */
+    F.wireLoadForm = function (box, d) {
+        var est = function () {
+            var n = box.querySelectorAll('.lf-led-c:checked').length, a = +$('fu-from').value, b = +$('fu-to').value;
+            var months = F.cal.filter(function (p) { return p.seq >= a && p.seq <= b; }).length;
+            $('fu-est').textContent = n + ' ledger(s) × ' + months + ' month(s) = ' + (n * months) + ' period reads' + (+$('fu-jm').value ? ' + journals of the last ' + $('fu-jm').value + ' month(s)' : '');
+        };
+        box.querySelectorAll('.lf-led-c').forEach(function (c) { c.onchange = function () { c.closest('.lf-led').classList.toggle('on', c.checked); est(); }; });
+        ['fu-from', 'fu-to', 'fu-jm'].forEach(function (id) { $(id).onchange = est; });
+        est();
+        var go = function (incr) {
+            var o = F.readLoad(box, d); if (!o) return;
+            o.incremental = incr;
+            var msg = incr ? 'Sync ' + o.ledgers.length + ' ledger(s), ' + F.pname(o.fromSeq) + ' – ' + F.pname(o.toSeq) + ', from Fusion? Other months stay as they are.'
+                : 'Load ' + o.ledgers.length + ' ledger(s), ' + F.pname(o.fromSeq) + ' – ' + F.pname(o.toSeq) + ', from Fusion? This replaces the finance data on this PC.';
+            if (!confirm(msg)) return;
+            FL.apexStore.saveDiscovery(d, o.coa, o.ledgers.map(function (l) { return String(l.id); })).catch(function (e) { console.warn('[Finance] roles not saved in APEX', e); });
+            F.sync(o, d);
+            if (box.closest('details')) box.closest('details').open = false;
+            var mon = $('fu-prog'); if (mon && mon.scrollIntoView) mon.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+        if ($('fu-go-incr')) $('fu-go-incr').onclick = function () { go(true); };
+        $('fu-go-full').onclick = function () { go(false); };
+    };
+    F.readLoad = function (box, d) {
+        var ids = Array.prototype.map.call(box.querySelectorAll('.lf-led-c:checked'), function (c) { return c.value; });
+        if (!ids.length) { FL.toast('Tick at least one ledger', 'err'); return null; }
+        var roles = F.rolesOf(d), leds = (d.ledgers || []).filter(function (l) { return l.coaId && ids.indexOf(String(l.id)) >= 0; });
+        var ledgers = leds.map(function (l) { return F.ledgerFor(l, roles); });
+        var bad = ledgers.filter(function (l) { return !l.company || !l.account; });
+        if (bad.length) { FL.toast('Choose the company and the natural account segment for ' + bad[0].name + ' in Fusion setup', 'err'); return null; }
+        var b = $('fu-bud').value === '' ? null : d.budgets[+$('fu-bud').value];
+        var o = { pod: d.pod || '', ledgers: ledgers, fromSeq: +$('fu-from').value, toSeq: +$('fu-to').value, budgetSource: b ? b.source : '', budgetId: b ? b.id : '', budgetName: b ? b.name : '',
+            journalMonths: +$('fu-jm').value, foldAdjustments: $('fu-fold').checked, chunkSize: +$('fu-chunk').value, parallel: +$('fu-par').value, logSql: $('fu-sqllog').checked, splitBy: $('fu-split').value, splitSize: +$('fu-splitn').value || 100,
+            discoveredAt: d.discoveredAt, coa: roles, calendar: F.cal };
+        if (o.toSeq < o.fromSeq) { FL.toast('"From" is after "To"', 'err'); return null; }
+        return o;
     };
 
     F.sync = function (o, disc) {
@@ -222,9 +394,9 @@
             splitBy: o.splitBy || 'none', splitSize: o.splitSize || 100, periodSeqs: o.periodSeqs || [], kinds: o.kinds || [] };
         if (disc) opts.discovery = disc;
         FL.call('finFusionSync', { options: opts }, 6 * 3600000, p).then(function (r) {
-            F.busy = false; F.keepLog();
+            F.busy = false; F.keepLog(); F.finish();
             var base = F.saved() || {};
-            FL.config.fusion = o.incremental ? Object.assign({}, base, { toSeq: Math.max(base.toSeq || 0, o.toSeq) }) : Object.assign({}, base, o);
+            FL.config.fusion = r.mode === 'FULL' ? Object.assign({}, base, o) : Object.assign({}, base, { toSeq: Math.max(base.toSeq || 0, o.toSeq), fromSeq: Math.min(base.fromSeq || o.fromSeq, o.fromSeq) });
             delete FL.config.fusion.incremental; delete FL.config.fusion.periodSeqs; delete FL.config.fusion.kinds;
             FL.config.fusion.lastSync = new Date().toISOString();
             FL.config.fusion.lastResult = { balances: r.balances, journals: r.journals, mode: r.mode };
@@ -237,8 +409,7 @@
             });
         }).catch(function (e) {
             F.busy = false; F.keepLog();
-            if ($('fu-pt')) $('fu-pt').innerHTML = '<i class="fa-solid fa-circle-xmark neg"></i> Load stopped';
-            if ($('fu-prog')) $('fu-prog').insertAdjacentHTML('beforeend', '<div class="callout bad">' + esc(e) + '<div class="sm">The log above shows every chunk; it is also saved next to the data as <code>fusion-sync.log</code>. Try fewer rows per chunk or fewer reads in parallel.</div></div>');
+            F.finish(String(e && e.message || e) + ' — the log shows every chunk; it is also saved next to the data as fusion-sync.log. Try fewer rows per chunk, fewer reads in parallel or Split each period.');
         });
     };
 
