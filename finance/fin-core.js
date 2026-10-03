@@ -285,6 +285,47 @@ FL.clearData = function () {
 FL.modal = function (title, html, acts) { $('m-title').innerHTML = title; $('m-body').innerHTML = html; $('m-acts').innerHTML = acts || ''; $('modal').classList.add('open'); };
 FL.closeModal = function () { $('modal').classList.remove('open'); if (FL.charts.drill) { FL.charts.drill.destroy(); delete FL.charts.drill; } };
 
+// ── yellow "working" banner under the tabs: every sync shows here, wherever the user is on the page ──
+FL.busy = {
+    n: 0, items: {},
+    box: function () {
+        var b = $('fl-busy'); if (b) return b;
+        b = document.createElement('div'); b.id = 'fl-busy'; b.className = 'fl-busy';
+        var tabs = $('tabs'); if (tabs && tabs.parentNode) tabs.parentNode.insertBefore(b, tabs.nextSibling); else document.body.insertBefore(b, document.body.firstChild);
+        return b;
+    },
+    /** Starts an item; returns its id. label = what is running ("Syncing debtors…") */
+    start: function (label) { var id = 'b' + (++FL.busy.n); FL.busy.items[id] = { label: String(label || 'Working…').replace(/…$/, ''), line: '', t0: Date.now(), state: 'run' }; FL.busy.paint(); FL.busy.tick(); return id; },
+    line: function (id, msg) { var it = FL.busy.items[id]; if (!it || !msg) return; it.line = String(msg).trim().slice(0, 220); clearTimeout(FL.busy.pt); FL.busy.pt = setTimeout(FL.busy.paint, 150); },
+    end: function (id, err) {
+        var it = FL.busy.items[id]; if (!it) return;
+        it.state = err ? 'bad' : 'ok'; it.line = err ? String(err).slice(0, 300) : 'done in ' + FL.busy.secs(Date.now() - it.t0); it.t1 = Date.now();
+        FL.busy.paint();
+        if (!err) setTimeout(function () { delete FL.busy.items[id]; FL.busy.paint(); }, 5000);
+    },
+    secs: function (ms) { var s = Math.round(ms / 1000); return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min ' + (s % 60) + ' s'; },
+    tick: function () {
+        clearInterval(FL.busy.ti);
+        FL.busy.ti = setInterval(function () {
+            var run = Object.keys(FL.busy.items).some(function (k) { return FL.busy.items[k].state === 'run'; });
+            if (!run) { clearInterval(FL.busy.ti); return; }
+            document.querySelectorAll('#fl-busy [data-t0]').forEach(function (e) { e.textContent = FL.busy.secs(Date.now() - +e.dataset.t0); });
+        }, 1000);
+    },
+    paint: function () {
+        var b = FL.busy.box(), ids = Object.keys(FL.busy.items);
+        b.style.display = ids.length ? '' : 'none';
+        b.innerHTML = ids.map(function (id) {
+            var it = FL.busy.items[id];
+            return '<div class="fl-busy-i ' + it.state + '">' + (it.state === 'run' ? '<i class="fa-solid fa-circle-notch fa-spin"></i>' : it.state === 'ok' ? '<i class="fa-solid fa-circle-check"></i>' : '<i class="fa-solid fa-triangle-exclamation"></i>') +
+                '<b>' + esc(it.label) + (it.state === 'run' ? ' — syncing' : it.state === 'ok' ? ' — done' : ' — stopped') + '</b>' +
+                (it.state === 'run' ? '<span class="fl-busy-t" data-t0="' + it.t0 + '">' + FL.busy.secs(Date.now() - it.t0) + '</span>' : '') +
+                '<span class="fl-busy-l">' + esc(it.line) + '</span>' + (it.state !== 'run' ? '<a class="fl-busy-x" data-x="' + id + '" title="Hide">×</a>' : '') + '</div>';
+        }).join('');
+        b.querySelectorAll('[data-x]').forEach(function (a) { a.onclick = function () { delete FL.busy.items[a.dataset.x]; FL.busy.paint(); }; });
+    }
+};
+
 // ── tables / csv ──
 FL.table = function (cols, rows, opts) {
     opts = opts || {};

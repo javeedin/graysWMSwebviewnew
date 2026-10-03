@@ -74,13 +74,16 @@
     F.run = null;
     F.progress = function (title, cancel) {
         F.log = [];
+        if (F.run && F.run.busy && F.run.running) FL.busy.end(F.run.busy);   // a run replaced by a new one
         var R = F.run = { title: title, cancel: !!cancel, running: true, t0: Date.now(), sql: {}, done: [], samples: [], chunks: 0, rows: 0, pct: 0, tab: FL.ls('mon.tab', 'running'), error: null, end: null };
+        R.busy = FL.busy.start(title);
         F.paint(true);
         clearInterval(F.tick);
         F.tick = setInterval(function () { if (!R.running) { clearInterval(F.tick); return; } F.paintTimes(); }, 1000);
         return function (msg) {
             msg = String(msg || '');
-            if (msg.charAt(0) === '\u0001') { try { F.live(R, JSON.parse(msg.slice(1))); } catch (e) { /* not an event */ } return; }
+            if (msg.charAt(0) === '\u0001') { try { var ev = JSON.parse(msg.slice(1)); F.live(R, ev); if (ev.t === 'sql') FL.busy.line(R.busy, 'asking Fusion: ' + ev.what); } catch (e) { /* not an event */ } return; }
+            FL.busy.line(R.busy, msg);
             var stamp = new Date().toTimeString().slice(0, 8);
             F.log.push(stamp + '  ' + msg);
             if (F.log.length > 20000) F.log.shift();
@@ -112,6 +115,7 @@
     /** Marks the current run finished (ok / error text); the monitor stays readable. */
     F.finish = function (err) {
         var R = F.run; if (!R) return;
+        if (R.busy) { FL.busy.end(R.busy, err); R.busy = null; }
         R.running = false; R.error = err ? String(err) : null; R.end = Date.now(); R.sql = {};
         clearInterval(F.tick);
         if ($('fu-pt')) $('fu-pt').innerHTML = err ? '<i class="fa-solid fa-circle-xmark neg"></i> ' + esc(R.title.replace(/…$/, '')) + ' — stopped' : '<i class="fa-solid fa-circle-check pos"></i> ' + esc(R.title.replace(/…$/, '')) + ' — done';

@@ -295,9 +295,11 @@
     W.run = function (action, payload, label, ms) {
         var log = $('wc-prog'), lines = [];
         if (log) log.innerHTML = '<div class="callout sm" id="wc-log"><i class="fa-solid fa-circle-notch fa-spin"></i> ' + esc(label) + '…</div>';
+        var bz = FL.busy.start(label);
         return FL.call(action, Object.assign({ pod: W.cfg().pod || '' }, payload), ms || 60 * 60000, function (m) {
-            if (!m || m.charAt(0) === '\u0001') return; lines.push(m); if ($('wc-log')) $('wc-log').innerHTML = lines.slice(-12).map(esc).join('<br>');
+            if (!m || m.charAt(0) === '\u0001') return; lines.push(m); FL.busy.line(bz, m); if ($('wc-log')) $('wc-log').innerHTML = lines.slice(-12).map(esc).join('<br>');
         }).then(function (r) {
+            FL.busy.end(bz, r.failed && r.failed.length ? r.failed.length + ' organisation(s) failed — see the page' : null);
             var bad = r.failed || [];
             FL.toast(label + (r.items != null ? ': ' + r.items.toLocaleString() + ' items' + (bad.length ? ' · ' + bad.length + ' organisation(s) failed' : '') : r.labels ? ': ' + r.labels.length + ' labels' : r.named != null ? ': ' + r.named + ' names' : ' done'), bad.length ? 'err' : 'ok');
             return FL.render().then(function () {
@@ -305,7 +307,7 @@
                     bad.map(function (b) { return '<div class="muted">' + esc(W.orgName(b.org) + ': ' + b.error) + '</div>'; }).join('') + '</div>';
                 if (r.labels && !r.labels.length && $('wc-prog')) $('wc-prog').innerHTML = '<div class="callout warn sm">Fusion has no labels for the item flexfield (or the report user cannot see them) — open <b>Profile &amp; name</b> and name the columns that hold your categories.</div>';
             });
-        }).catch(function (e) { var m = String(e && e.message || e); if ($('wc-log')) $('wc-log').innerHTML = '<span class="neg">' + esc(m) + '</span>'; FL.toast(m, 'err'); });
+        }).catch(function (e) { var m = String(e && e.message || e); FL.busy.end(bz, m); if ($('wc-log')) $('wc-log').innerHTML = '<span class="neg">' + esc(m) + '</span>'; FL.toast(m, 'err'); });
     };
 
     /** Reads the missing names from Fusion; says which source answered, and opens the editor for what is still unnamed */
@@ -362,14 +364,15 @@
     W.sync = function (kinds) {
         var c = W.cfg(), btn = $('wc-sync'); if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Syncing…'; }
         var log = $('wc-prog'); if (log) log.innerHTML = '<div class="callout sm" id="wc-log"></div>';
-        var lines = [];
+        var lines = [], bz = FL.busy.start('Working capital · ' + kinds.map(function (k) { return KIND[k][0]; }).join(', '));
         return FL.call('finWcSync', { options: { pod: c.pod || '', kinds: kinds, buckets: c.buckets, orgs: c.orgs, cost: c.cost, arQuery: c.arQuery || null, apQuery: c.apQuery || null, invQuery: c.invQuery || null } }, 31 * 60000, function (m) {
-            if (!m || m.charAt(0) === '\u0001') return; lines.push(m); if ($('wc-log')) $('wc-log').innerHTML = lines.map(esc).join('<br>');
+            if (!m || m.charAt(0) === '\u0001') return; lines.push(m); FL.busy.line(bz, m); if ($('wc-log')) $('wc-log').innerHTML = lines.map(esc).join('<br>');
         }).then(function (r) {
             var bad = (r.results || []).filter(function (x) { return !x.ok; });
+            FL.busy.end(bz, bad.length ? bad.map(function (x) { return x.kind + ': ' + x.error; }).join(' · ') : null);
             FL.toast(bad.length ? bad.map(function (x) { return x.kind + ': ' + x.error; }).join(' · ') : 'Subledgers synced', bad.length ? 'err' : 'ok');
             return FL.render();
-        }).catch(function (e) { FL.toast(String(e), 'err'); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> Sync from Fusion'; } });
+        }).catch(function (e) { FL.busy.end(bz, String(e && e.message || e)); FL.toast(String(e), 'err'); if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-down"></i> Sync from Fusion'; } });
     };
 
     // ── checklist: what working capital needs, with its status and a button ──

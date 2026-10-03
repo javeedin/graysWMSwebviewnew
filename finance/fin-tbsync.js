@@ -523,9 +523,10 @@
             }).join('') + '</div>' +
             '<div class="row sm" style="margin-top:4px"><label><input type="checkbox" id="ts-xauto"' + (L.extAuto ? ' checked' : '') + '> sync them after every trial balance sync</label>' +
             '<span class="muted">' + (ext.length ? done + ' of ' + n + ' synced period(s) have them · ' + Object.keys(cells).length + ' period(s) on this PC' : 'nothing chosen') + '</span><span class="grow"></span>' +
-            (admin ? '<button class="btn sm" id="ts-xsave" disabled><i class="fa-solid fa-floppy-disk"></i> Save choice</button><button class="btn sm primary" id="ts-xgo"' + (ext.length ? '' : ' disabled') + ' title="For the ticked periods, or every synced period that lacks them"><i class="fa-solid fa-cloud-arrow-down"></i> Sync extended</button>' : '') + '</div>';
+            (ext.length && Object.keys(cells).length ? '<button class="btn sm" id="ts-xopen" title="P&L, pivot and trial balance by these segments"><i class="fa-solid fa-layer-group"></i> Open Segment P&amp;L</button>' : '') + (admin ? '<button class="btn sm" id="ts-xsave" disabled><i class="fa-solid fa-floppy-disk"></i> Save choice</button><button class="btn sm primary" id="ts-xgo"' + (ext.length ? '' : ' disabled') + ' title="For the ticked periods, or every synced period that lacks them"><i class="fa-solid fa-cloud-arrow-down"></i> Sync extended</button>' : '') + '</div>';
         var chosen = function () { return [].map.call(box.querySelectorAll('.ts-xs:checked:not([disabled])'), function (i) { return i.value; }); };
         box.querySelectorAll('.ts-xs').forEach(function (i) { i.onchange = function () { if ($('ts-xsave')) $('ts-xsave').disabled = chosen().join() === ext.join(); }; });
+        if ($('ts-xopen')) $('ts-xopen').onclick = function () { FL.show('segpl'); };
         $('ts-xauto').onchange = function () { L.extAuto = this.checked; FL.lsSet('tbl.extAuto', L.extAuto); };
         if ($('ts-xsave')) $('ts-xsave').onclick = function () {
             FL.config.tbsync = FL.config.tbsync || {}; FL.config.tbsync.ext = FL.config.tbsync.ext || {}; FL.config.tbsync.ext[String(l.coaId)] = chosen();

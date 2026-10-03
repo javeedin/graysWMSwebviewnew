@@ -136,6 +136,30 @@ mapped to receivables / inventory / payables / cash / finance costs / cost of sa
 lines. The master data checklist (Data › Trial balance sync and SQL explorer) has the same items — *12 months in a row* and *Last year* with a
 Sync button for exactly the missing periods, and *Budget*.
 
+## Segment P&L (P&L, pivot and trial balance by extended segments)
+
+The **Segment P&L** tab works on the extended segments synced in Data › Trial balance sync (view `fin_gl_ext_v`).
+
+- **Left panel**: ledger · periods (tick several; *Last*, *Quarter*, *YTD*, *12 m*, *All*, or a year) · **Group by** — add
+  segments in order (e.g. *Salesperson*, then *Item profit centre* under it; company and account are always in the data),
+  move them up / down, filter each segment to some values (search, tick) · companies · the statement template · the lines
+  the tree shows.
+- **Tree**: one row per value of the first segment, ▸ opens the next segment under it; the columns are P&L lines
+  (revenue, cost of sales, gross profit, operating expenses, EBITDA, net profit … — *choose the lines*). Every row is the
+  real statement template computed on that row's accounts, so subtotals, margins and formulas are right; ⋯ shows the whole
+  statement for that row. Rows with no P&L at all (balance-sheet only) are left out.
+- **By columns**: the whole statement with one column per value of the first segment (biggest 12, others, total).
+- **Pivot**: rows = any fields in order (company, account, period, any segment) with subtotals and ▸ / open all / close
+  all, columns = one field (default period), value = profit (income +, costs −), net movement, closing balance or one
+  statement line (e.g. *Revenue* by salesperson × month).
+- **Trial balance**: company × account × the group-by segments with opening (first period), debits, credits, closing,
+  a balance check and a filter box under every column. This is where the trial balance with extended segments is shown.
+- The chosen periods are added up (movement); closing = opening of the first period + movement. Excel exports the view
+  on screen.
+
+A **yellow banner** under the tabs shows every sync while it runs (trial balance, extended segments, master data,
+working capital, item master …) with the last step and the time; it turns green when done or red with the error.
+
 ## Extended segments (cost centre, analysis, salesperson, profit centre …)
 
 The trial balance sync reads balances by company × account (× cost centre) — small and fast. To report by more segments,
