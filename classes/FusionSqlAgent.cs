@@ -74,6 +74,41 @@ Only facts you verified with the tools or sample data; never restate the hints; 
         /// <summary>Per-session cache of dictionary tool results (not run_query), keyed by the SQL.</summary>
         private static readonly ConcurrentDictionary<string, string> _dictCache = new ConcurrentDictionary<string, string>();
 
+        /// <summary>Test button: one tiny request (no tools) with the typed key, else the saved one, and the chosen model.
+        /// Says in plain words what is wrong: key not valid, no access to the model, no credit, rate limit, network.</summary>
+        public static async Task<object> TestKeyAsync(string typedKey, string model)
+        {
+            string key = string.IsNullOrWhiteSpace(typedKey) ? FusionSqlStore.LoadAiKey() : typedKey.Trim();
+            string useModel = string.IsNullOrWhiteSpace(model) ? "claude-opus-5" : model;
+            if (string.IsNullOrEmpty(key)) return new { ok = false, model = useModel, error = "No key saved — paste your Claude API key (sk-ant-…) first." };
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                var client = new AnthropicClient { ApiKey = key };
+                var resp = await client.Messages.Create(new MessageCreateParams
+                {
+                    Model = useModel,
+                    MaxTokens = 16,
+                    Messages = new List<MessageParam> { new MessageParam { Role = Role.User, Content = "Reply with the single word OK." } },
+                }).ConfigureAwait(false);
+                string reply = string.Concat(resp.Content.Select(b => b.TryPickText(out var t) ? t.Text : ""));
+                return new { ok = true, model = useModel, ms = sw.ElapsedMilliseconds, reply = reply.Trim(), typed = !string.IsNullOrWhiteSpace(typedKey) };
+            }
+            catch (Exception ex)
+            {
+                string m = ex.Message ?? "", t = ex.GetType().Name;
+                string why = t.Contains("Unauthorized") || m.Contains("authentication_error") || m.Contains("401") ? "The key is not valid (401) — check that it is copied whole, not revoked, and starts with sk-ant-."
+                    : t.Contains("PermissionDenied") || m.Contains("permission_error") ? "The key works but has no access to " + useModel + " (403) — pick another model or check the workspace."
+                    : t.Contains("NotFound") || m.Contains("not_found_error") ? "Model " + useModel + " is not available for this key (404) — pick another model."
+                    : m.Contains("credit balance") || m.Contains("billing") ? "The key is valid but the account has no credit — add credit in the Claude Console (Billing)."
+                    : t.Contains("RateLimit") || m.Contains("rate_limit_error") ? "The key is valid but rate-limited right now (429) — try again in a minute."
+                    : m.Contains("overloaded_error") || m.Contains("529") ? "The key is valid; Claude is overloaded right now (529) — try again shortly."
+                    : ex is System.Net.Http.HttpRequestException || ex.InnerException is System.Net.Http.HttpRequestException || ex is TaskCanceledException ? "Could not reach api.anthropic.com — check the internet / proxy / firewall on this PC."
+                    : "Claude refused the test request.";
+                return new { ok = false, model = useModel, ms = sw.ElapsedMilliseconds, error = why, detail = m.Length > 600 ? m.Substring(0, 600) : m };
+            }
+        }
+
         public static async Task<(bool Success, string Response, string Error, List<string> Steps)> AskAsync(
             string question, string schema, JsonElement history, string model,
             FusionSqlService svc, Action<string> progress, CancellationToken ct = default)
@@ -119,18 +154,20 @@ Only facts you verified with the tools or sample data; never restate the hints; 
                 {
                     bool finalRound = turn == MAX_TURNS;
                     progress?.Invoke(turn == 0 ? "Claude is thinking…" : finalRound ? "Claude is writing the answer from what it verified…" : "Claude is reviewing what it found…");
-                    var resp = await client.Messages.Create(new MessageCreateParams
+                    var req = new MessageCreateParams
                     {
                         Model = useModel,
                         MaxTokens = 16000,
                         System = SYSTEM_PROMPT,
                         Tools = tools,
-                        ToolChoice = finalRound ? new ToolChoiceNone() : null,
                         Thinking = new ThinkingConfigAdaptive(),
                         OutputConfig = new OutputConfig { Effort = Effort.High },
                         CacheControl = new CacheControlEphemeral(),      // caches the growing prefix across tool turns
                         Messages = messages,
-                    }, ct).ConfigureAwait(false);
+                    };
+                    // tool_choice only when tools are switched off: a null value goes on the wire as "tool_choice": null and the API refuses it
+                    if (finalRound) req = req with { ToolChoice = new ToolChoiceNone() };
+                    var resp = await client.Messages.Create(req, ct).ConfigureAwait(false);
 
                     var assistant = new List<ContentBlockParam>();
                     var results = new List<ContentBlockParam>();

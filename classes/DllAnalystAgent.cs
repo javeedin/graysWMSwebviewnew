@@ -89,18 +89,20 @@ Be concrete and business-readable. Do not paste large code blocks.";
                 {
                     bool finalRound = turn == MAX_TURNS;
                     progress?.Invoke(turn == 0 ? "Claude is reading the outline…" : finalRound ? "Claude is writing the feature map…" : "Claude is reviewing what it found…");
-                    var resp = await client.Messages.Create(new MessageCreateParams
+                    var req = new MessageCreateParams
                     {
                         Model = useModel,
                         MaxTokens = 16000,
                         System = SYSTEM_PROMPT,
                         Tools = tools,
-                        ToolChoice = finalRound ? new ToolChoiceNone() : null,
                         Thinking = new ThinkingConfigAdaptive(),
                         OutputConfig = new OutputConfig { Effort = Effort.High },
                         CacheControl = new CacheControlEphemeral(),
                         Messages = messages,
-                    }, ct).ConfigureAwait(false);
+                    };
+                    // tool_choice only when tools are switched off: a null value goes on the wire as "tool_choice": null and the API refuses it
+                    if (finalRound) req = req with { ToolChoice = new ToolChoiceNone() };
+                    var resp = await client.Messages.Create(req, ct).ConfigureAwait(false);
 
                     var assistant = new List<ContentBlockParam>();
                     var results = new List<ContentBlockParam>();

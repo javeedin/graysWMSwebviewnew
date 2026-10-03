@@ -208,18 +208,20 @@ RULES:
                 {
                     bool last = turn == MAX_TURNS;
                     progress?.Invoke(turn == 0 ? "Reading the numbers…" : last ? "Writing the answer…" : "Checking the ledger…");
-                    var resp = await client.Messages.Create(new MessageCreateParams
+                    var req = new MessageCreateParams
                     {
                         Model = res.Model,
                         MaxTokens = 12000,
                         System = GUIDE,
                         Tools = TOOLS,
-                        ToolChoice = last ? new ToolChoiceNone() : null,
                         Thinking = new ThinkingConfigAdaptive(),
                         OutputConfig = new OutputConfig { Effort = Effort.High },
                         CacheControl = new CacheControlEphemeral(),
                         Messages = messages,
-                    }, ct).ConfigureAwait(false);
+                    };
+                    // tool_choice only when tools are switched off: a null value goes on the wire as "tool_choice": null and the API refuses it
+                    if (last) req = req with { ToolChoice = new ToolChoiceNone() };
+                    var resp = await client.Messages.Create(req, ct).ConfigureAwait(false);
                     if (resp.Usage != null)
                     {
                         res.TokensIn += N(resp.Usage.InputTokens); res.TokensOut += N(resp.Usage.OutputTokens);

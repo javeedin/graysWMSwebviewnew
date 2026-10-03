@@ -191,6 +191,10 @@ namespace WMSApp
                             break;
                         }
 
+                    case "fusionSqlAiTest":
+                        data = await FusionSqlAi.TestKeyAsync(FsStr(root, "apiKey"), FsStr(root, "model"));
+                        break;
+
                     case "fusionSqlSaveAiKey":
                         FusionSqlStore.SaveAiKey(FsStr(root, "apiKey"));
                         data = FusionSqlStatus(svc, FusionSqlStore.LoadConfig());

@@ -1691,6 +1691,16 @@ function saveAiSettings() {
         })
         .catch(function (e) { toast(String(e), 'err'); });
 }
+/** Test button: one tiny request to Claude with the typed key (else the saved one) and the chosen model */
+function testAiKey(keyId, modelId, outId) {
+    var out = $(outId), key = ($(keyId).value || '').trim(), model = $(modelId).value;
+    if (key && !/^sk-ant-/.test(key)) { out.innerHTML = '<span class="bad">✗ That does not look like a Claude API key (it starts with sk-ant-).</span>'; return; }
+    out.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Asking ' + esc(model) + ' with the ' + (key ? 'key in the box' : 'saved key') + '…';
+    fsCall('fusionSqlAiTest', { apiKey: key, model: model }).then(function (r) {
+        out.innerHTML = r.ok ? '<span class="good">✓ The key works — ' + esc(r.model) + ' answered "' + esc(r.reply || '') + '" in ' + r.ms + ' ms.</span>' + (r.typed ? ' <b>Press Save to keep this key.</b>' : '')
+            : '<span class="bad">✗ ' + esc(r.error) + '</span>' + (r.detail ? '<details><summary>Details</summary><code>' + esc(r.detail) + '</code></details>' : '');
+    }).catch(function (e) { out.innerHTML = '<span class="bad">✗ ' + esc(String(e)) + '</span>'; });
+}
 function closeAi() { $('fs-ai').classList.remove('open'); $('fs-ai-backdrop').classList.remove('open'); }
 function clearAi() { FS.ai.history = []; $('fs-ai-body').querySelectorAll('.fs-msg').forEach(function (m) { m.remove(); }); $('fs-ai-body').querySelector('.fs-ai-welcome').style.display = ''; }
 function aiSuggest(btn) { $('fs-ai-q').value = btn.textContent; sendAi(); }

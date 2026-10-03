@@ -524,8 +524,10 @@ ORDER BY table_name</textarea>
             </div>
             <div class="fs-form-row">
                 <button class="fs-btn primary" onclick="saveAi()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
+                <button class="fs-btn" onclick="testAiKey('ai-key','cfg-aiModel','ai-test')" title="Send one tiny request to Claude with this key and model"><i class="fa-solid fa-plug-circle-check"></i> Test</button>
                 <button class="fs-btn ghost" onclick="removeAiKey()"><i class="fa-solid fa-trash"></i> Remove key</button>
             </div>
+            <div id="ai-test" class="fs-ai-test"></div>
         </div>
 
         <div class="fs-card">
@@ -586,9 +588,11 @@ ORDER BY table_name</textarea>
         </select>
         <div class="fs-ai-settings-foot">
             <span class="fs-muted"><i class="fa-solid fa-shield-halved"></i> Encrypted on this PC; never sent back to the page.</span>
+            <button class="fs-btn sm" onclick="testAiKey('fs-ai-key','fs-ai-model','fs-ai-test')" title="Send one tiny request to Claude with this key and model"><i class="fa-solid fa-plug-circle-check"></i> Test</button>
             <button class="fs-btn sm ghost" onclick="toggleAiSettings(false)">Cancel</button>
             <button class="fs-btn sm ai" onclick="saveAiSettings()"><i class="fa-solid fa-floppy-disk"></i> Save</button>
         </div>
+        <div id="fs-ai-test" class="fs-ai-test"></div>
     </div>
     <div class="fs-ai-body" id="fs-ai-body">
         <div class="fs-ai-welcome">
