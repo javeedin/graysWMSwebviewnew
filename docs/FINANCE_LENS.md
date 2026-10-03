@@ -179,9 +179,11 @@ Seeing what happened: the monitor's *Finished queries* also lists what was **not
 with the SQL that would run) — tick *read again from Fusion* to ask. Every query there has **Run** (asks Fusion now: rows, time,
 first rows), and the query box has **Test query** (the To period, the first company). A company written into the query
 (`AND c.SEGMENT1 = '01'`) or a missing `{COMPANY_FILTER}` is flagged with *Fix the query* — with one query per company the app
-puts each company there itself (and keeps only that company's rows if the query has none). **Account names & types** come from
-the segment values: the card under the grid counts accounts without a name or type and fills them *From APEX* or *Read from
-Fusion* (once; kept on this PC and in APEX), then rebuilds the statements. The trial balance has Ledger / Year / Period
+puts each company there itself (and keeps only that company's rows if the query has none). **Account names & types** come from the
+segment values. The **Master data checklist** under the board (and in the SQL explorer) lists everything the statements need — ledgers & calendar,
+segment roles, company / account (with account type) / cost centre values and names, account classes, synced periods — each ✓ / ◐ / ✗ with its
+numbers and a button (*Sync* from Fusion, *From APEX*, Fusion setup, Account mapping), plus *Sync all missing*. After every trial balance
+sync the values this PC does not have yet are read automatically (APEX first, else Fusion) and the statements are rebuilt with the names. The trial balance has Ledger / Year / Period
 selects, and closing balances that do not net to nil show which ledger × company is off.
 
 The query, its options and the reading below are the same as for one period:

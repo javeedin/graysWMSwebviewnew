@@ -337,3 +337,10 @@ details.lf-card[open] > summary::before { content: '▾'; }
 .ts-tile .ts-ti { font-weight: 700; }
 .ts-spin { display: inline-block; animation: ts-spin 1s linear infinite; }
 @keyframes ts-spin { to { transform: rotate(360deg); } }
+/* master data checklist */
+.md-list { margin-top: 8px; }
+.md-list td { vertical-align: middle; padding: 7px 8px; }
+.md-list .md-st { width: 28px; font-size: 18px; font-weight: 700; text-align: center; }
+.md-list tr.ok .md-st { color: #16a34a; } .md-list tr.part .md-st { color: #d97706; } .md-list tr.miss .md-st { color: #dc2626; }
+.md-list tr.miss { background: #fef2f2; } .md-list tr.part { background: #fffbeb; }
+.md-list .md-act { text-align: right; white-space: nowrap; } .md-list .md-act .btn { margin-left: 4px; }

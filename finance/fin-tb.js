@@ -118,7 +118,8 @@
             var box = $('tb-why'); if (!box) return;
             var meta = (FL.status || {}).meta || {}, f = function (v) { return FINE.fmt(v, 'num', { decimals: 2 }); };
             box.innerHTML = '<b>Closing balances do not net to nil</b> — each balancing company should. By ledger × company: ' +
-                (rows.length ? rows.slice(0, 12).map(function (r) { return '<span class="tag">' + esc((r.ledger || '') + ' · ' + r.company) + ': ' + f(r.net) + '</span>'; }).join(' ') : 'every company nets to nil (the difference is spread across them)') +
+                (rows.length ? rows.slice(0, 12).map(function (r) { var lg = (FL.dims.ledgers || []).filter(function (x) { return x.code === r.ledger; })[0], co = (FL.dims.companies || []).filter(function (x) { return x.code === r.company; })[0];
+                    return '<span class="tag">' + esc((lg ? lg.name : r.ledger || '') + ' · ' + r.company + (co && co.name !== co.code ? ' ' + co.name : '')) + ': ' + f(r.net) + '</span>'; }).join(' ') : 'every company nets to nil (the difference is spread across them)') +
                 '<div style="margin-top:4px">Usual causes: ' + (meta.source === 'FUSION_TB' ? 'a company read with a query that has no <code>{COMPANY_FILTER}</code> or a company written into it (Data › Trial balance sync flags it); not every company synced (the grid shows n/m); ' : '') +
                 'an adjustment period not folded; a different balancing segment than the company role (Data › Fusion setup). Click a line to drill.</div>';
         }).catch(function () { /* the check stays shown */ });

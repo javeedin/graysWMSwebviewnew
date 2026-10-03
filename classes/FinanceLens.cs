@@ -630,9 +630,9 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 using (var c = conn.CreateCommand())
                 {   // the account segment's values read on this PC (Data › Chart of accounts) carry the account type too
                     c.CommandText = "SELECT value, ANY_VALUE(account_type) FROM fin_segment_values WHERE coa_id = " + Lit(lead.Coa ?? "") + " AND column_name = " + Lit(lead.Ac ?? "") + " AND account_type IS NOT NULL GROUP BY value";
-                    using var r = c.ExecuteReader(); while (r.Read()) types.TryAdd(Convert.ToString(r.GetValue(0)), Convert.ToString(r.GetValue(1)));
+                    using var r = c.ExecuteReader(); while (r.Read()) types.TryAdd(Convert.ToString(r.GetValue(0)), OneType(Convert.ToString(r.GetValue(1))));
                 }
-                { var pend = PendingSegValues(lead.Coa, lead.Ac); if (pend?.Values != null) foreach (var v in pend.Values) if (!string.IsNullOrEmpty(v.AccountType)) types.TryAdd(v.Value, v.AccountType); }
+                { var pend = PendingSegValues(lead.Coa, lead.Ac); if (pend?.Values != null) foreach (var v in pend.Values) if (!string.IsNullOrEmpty(v.AccountType)) types.TryAdd(v.Value, OneType(v.AccountType)); }
                 if (Has("fin_ccid") && Regex.IsMatch(lead.Ac ?? "", "^SEGMENT([1-9]|[12][0-9]|30)$", RegexOptions.IgnoreCase))
                     using (var c = conn.CreateCommand())
                     {
@@ -662,6 +662,9 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 return new { built = true, periods = nPer, balances = nBal, ledgers = leds.Count };
             }
         }
+
+        /// <summary>A segment value whose combinations carry two account types reads "A/L": the first one is used (A / L / O / R / E).</summary>
+        private static string OneType(string t) { t = (t ?? "").Trim(); int i = t.IndexOf('/'); return i > 0 ? t.Substring(0, i) : t.Length == 0 ? null : t; }
 
         /// <summary>When the statements come from synced trial balances, builds them again (after names / types were read).</summary>
         public static object RebuildTbIfActive()

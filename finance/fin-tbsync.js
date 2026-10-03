@@ -47,7 +47,7 @@
             '<div class="row"><button class="btn sm" id="ts-test" title="Runs this query in Fusion now for the first selected period (or the latest) and the first company — rows, time and the first rows"><i class="fa-solid fa-play"></i> Test query</button>' +
             '<button class="btn sm" id="tl-qreset"><i class="fa-solid fa-rotate-left"></i> Default query</button><div id="tl-qfix"></div>' +
             '<span class="sm muted">Sync uses this query; your own query is kept on this PC.</span></div><div id="ts-testres"></div></details></details>' +
-            '<div class="card" style="margin-top:12px" id="ts-names"></div>';
+            '<div class="card" style="margin-top:12px" id="ts-md"></div>';
         FL.fusion.paint();
         T.paintLive();
         $('ts-det').ontoggle = function () { FL.lsSet('tbl.det', this.open); if (this.open) FL.fusion.paint(); };
@@ -75,7 +75,6 @@
         $('tl-qreset').onclick = function () { L.query = ''; FL.lsSet('tbl.query.account', ''); $('tl-qtext').value = L.defaultQuery || T.defaultQ(); $('tl-qstate').textContent = 'default'; T.qCheck(false); };
         T.qCheck(false);
         T.fillLedgers();
-        T.names();
         if (running) $('ts-go').disabled = true;
     };
 
@@ -97,32 +96,79 @@
         FL.fusion.runSql(sql, L.pod || '', $('ts-testres').querySelector('.fu-runres'));
     };
 
-    // ── account names and types (from the segment values: this PC, APEX, or read from Fusion once) ──
-    T.names = function () {
-        var box = $('ts-names'); if (!box) return;
-        var st = FL.status || {};
-        if (!st.loaded || (st.meta || {}).source !== 'FUSION_TB') { box.style.display = 'none'; return; }
-        box.style.display = '';
-        FL.rows("SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE name IS NULL OR name = code) AS noname, COUNT(*) FILTER (WHERE account_type IS NULL) AS notype FROM fin_accounts", 1).then(function (r) {
-            var x = r[0] || {}, ok = !x.noname && !x.notype, admin = FL.who && FL.who.admin;
-            box.innerHTML = '<div class="row"><h3 style="margin:0"><i class="fa-solid fa-tags"></i> Account names &amp; types</h3><span class="sm ' + (ok ? 'pos' : 'warn') + '">' +
-                (ok ? '✓ all ' + x.n + ' accounts have a name and a type' : (x.noname ? x.noname + ' of ' + x.n + ' accounts have no name' : '') + (x.noname && x.notype ? ' · ' : '') + (x.notype ? x.notype + ' have no type (A / L / O / R / E)' : '')) + '</span><span class="grow"></span>' +
-                '<button class="btn sm" id="ts-napex"' + (admin ? '' : ' disabled') + ' title="Use the segment values kept in APEX (Data › Chart of accounts)"><i class="fa-solid fa-cloud-arrow-down"></i> From APEX</button>' +
-                '<button class="btn sm" id="ts-nfus"' + (admin ? '' : ' disabled') + ' title="Read the account (and company, cost centre) segment values with their description and account type from Fusion once — kept on this PC and in APEX"><i class="fa-solid fa-bolt"></i> Read from Fusion</button></div>' +
-                '<p class="sm muted" style="margin:6px 0 0">The trial balance query brings amounts only; names and types come from the segment values. ' + (ok ? '' : 'Read them once and the statements are rebuilt with them.') + '</p>';
-            $('ts-napex').onclick = function () { T.namesFrom('apex', this); };
-            $('ts-nfus').onclick = function () { T.namesFrom('fusion', this); };
-            if (!ok && !T._triedApex) { T._triedApex = true; T.namesFrom('apex', null, true); }   // quietly once: APEX may already have them
+    // ── master data checklist: what the trial balance and the statements need besides the balances, with its status and a sync button ──
+    T.md = function () {
+        var boxes = T.pfx().map(function (x) { return $(x + '-md'); }).filter(Boolean); if (!boxes.length) return;
+        var l = T.ledgerObj();
+        if (!l) { boxes.forEach(function (b) { b.innerHTML = '<h3 style="margin:0"><i class="fa-solid fa-list-check"></i> Master data</h3><p class="sm muted">Pick a ledger (Fusion setup › Discover first).</p>'; }); return; }
+        var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), coa = l.coaId, st = FL.status || {};
+        var segs = [['co', 'Company values & names', led.company, false], ['ac', 'Account values, names & types', led.account, true]];
+        if (led.costCentre) segs.push(['cc', 'Cost centre values & names', led.costCentre, false]);
+        var reads = segs.map(function (g) {
+            return FL.call('finSegValues', { coaId: coa, column: g[2] }).then(function (r) { return r; }).catch(function () { return { values: [] }; });
+        });
+        var cls = st.loaded ? FL.rows('SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE class IS NULL OR class = \'\') AS nocls, COUNT(*) FILTER (WHERE account_type IS NULL) AS notype, COUNT(*) FILTER (WHERE name IS NULL OR name = code) AS noname FROM fin_accounts', 1).then(function (r) { return r[0]; }).catch(function () { return null; }) : Promise.resolve(null);
+        Promise.all(reads.concat([cls])).then(function (res) {
+            var acc = res[res.length - 1], cells = T.cells(), nSync = Object.keys(cells).length, cal = T.cal();
+            var items = [
+                { k: 'ledgers', label: 'Ledgers & calendar', ok: !!L.disc, info: (L.disc ? (L.disc.ledgers || []).length + ' ledger(s) · ' + cal.length + ' periods in ' + l.name + "'s calendar" : 'not discovered'), act: '<button class="btn sm" data-md="setup">Fusion setup</button>' },
+                { k: 'roles', label: 'Segment roles', ok: !!(led.company && led.account), info: 'company ' + (led.company || '?') + ' · account ' + (led.account || '?') + ' · cost centre ' + (led.costCentre || 'none'), act: '<button class="btn sm" data-md="setup">Change</button>' }
+            ];
+            segs.forEach(function (g, i) {
+                var r = res[i] || {}, v = r.values || [], named = v.filter(function (x) { return x.description; }).length, typed = v.filter(function (x) { return x.accountType; }).length;
+                var ok = v.length > 0 && named >= v.length * 0.9 && (!g[3] || typed >= v.length * 0.9);
+                items.push({ k: g[0], col: g[2], label: g[1] + ' (' + g[2] + ')', ok: ok, part: v.length > 0 && !ok,
+                    info: v.length ? v.length.toLocaleString() + ' values · ' + named.toLocaleString() + ' named' + (g[3] ? ' · ' + typed.toLocaleString() + ' typed' : '') + ' · read ' + String(v[0].fetchedAt || '').slice(0, 16) + (r.source === 'pending' ? ' (waiting for the first load)' : '') : 'not read yet — the trial balance shows codes' + (g[3] ? ' and type ?' : ''),
+                    act: '<button class="btn sm" data-md="apex" data-col="' + esc(g[2]) + '" title="Use the values kept in APEX">From APEX</button><button class="btn sm' + (ok ? '' : ' primary') + '" data-md="fusion" data-col="' + esc(g[2]) + '" title="Read every value with its description' + (g[3] ? ' and account type' : '') + ' from Fusion (one query over the code combinations; kept on this PC and in APEX)"><i class="fa-solid fa-cloud-arrow-down"></i> ' + (v.length ? 'Sync again' : 'Sync') + '</button>' });
+            });
+            if (acc) items.push({ k: 'cls', label: 'Account classes (statement lines)', ok: !acc.nocls, part: acc.nocls && acc.nocls < acc.n,
+                info: acc.n.toLocaleString() + ' accounts · ' + (acc.n - acc.nocls).toLocaleString() + ' with a class' + (acc.notype ? ' · ' + acc.notype + ' without a type' : '') + (acc.noname ? ' · ' + acc.noname + ' without a name' : ''),
+                act: '<button class="btn sm" data-md="mapping">Account mapping</button>' });
+            items.push({ k: 'tb', label: 'Trial balance periods', ok: nSync > 0, info: nSync ? nSync + ' period(s) of ' + l.name + ' synced' : 'none yet — tick periods on the board and press Sync', act: '' });
+            var missing = items.filter(function (it) { return it.col && !it.ok; }), admin = FL.who && FL.who.admin;
+            var html = '<div class="row"><h3 style="margin:0"><i class="fa-solid fa-list-check"></i> Master data checklist</h3><span class="sm ' + (items.every(function (x) { return x.ok; }) ? 'pos' : 'warn') + '">' +
+                items.filter(function (x) { return x.ok; }).length + ' of ' + items.length + ' ready</span><span class="grow"></span>' +
+                (missing.length ? '<button class="btn sm primary" data-md="all"' + (admin ? '' : ' disabled') + '><i class="fa-solid fa-cloud-arrow-down"></i> Sync all missing (' + missing.length + ')</button>' : '') + '</div>' +
+                '<table class="t md-list"><tbody>' + items.map(function (it) {
+                    return '<tr class="' + (it.ok ? 'ok' : it.part ? 'part' : 'miss') + '"><td class="md-st">' + (it.ok ? '✓' : it.part ? '◐' : '✗') + '</td><td><b>' + esc(it.label) + '</b><div class="sm muted md-info" data-k="' + it.k + '">' + esc(it.info) + '</div></td><td class="md-act">' + (admin || !it.col ? it.act : '') + '</td></tr>';
+                }).join('') + '</tbody></table><p class="sm muted" style="margin:6px 0 0">Names and account types of the trial balance come from these values; after a sync the statements are rebuilt with them.</p>';
+            boxes.forEach(function (b) {
+                b.innerHTML = html;
+                b.querySelectorAll('[data-md]').forEach(function (btn) {
+                    btn.onclick = function () {
+                        var a = btn.dataset.md;
+                        if (a === 'setup') return FL.dataTab.dataSetup();
+                        if (a === 'mapping') return FL.dataTab.go('mapping');
+                        var cols = a === 'all' ? missing.map(function (x) { return x.col; }) : [btn.dataset.col];
+                        T.mdSync(a === 'apex' ? 'apex' : 'fusion', cols, btn);
+                    };
+                });
+            });
         });
     };
-    /** The ledger's company / account / cost centre columns → values from APEX or Fusion → this PC (finSegValuesSave / finFusionSegValues), statements rebuilt */
-    T.namesFrom = function (where, btn, quiet) {
-        var l = T.ledgerObj(); if (!l) { if (!quiet) FL.toast('Pick the ledger above', 'err'); return; }
-        var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), pod = L.pod || '', coa = l.coaId;
-        var cols = [led.account, led.company, led.costCentre].filter(function (c, i, a) { return c && a.indexOf(c) === i; });
-        if (btn) btn.disabled = true;
-        var p = where === 'fusion' ? FL.fusion.progress('Segment values ' + cols.join(', ') + '…', true) : null;
-        var n = 0, chain = Promise.resolve();
+    /** After a sync: segment values this PC does not have yet (names, account types) come along — from APEX when it has them, else from Fusion */
+    T.autoMd = function () {
+        var l = T.ledgerObj(); if (!l || !(FL.who && FL.who.admin)) return;
+        var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), cols = [led.account, led.company, led.costCentre].filter(function (c, i, a) { return c && a.indexOf(c) === i; });
+        return Promise.all(cols.map(function (c) { return FL.call('finSegValues', { coaId: l.coaId, column: c }).then(function (r) { return (r.values || []).length ? null : c; }).catch(function () { return c; }); }))
+            .then(function (miss) {
+                miss = miss.filter(Boolean); if (!miss.length) return;
+                FL.toast('Reading the names of ' + miss.join(', ') + ' (master data) …', 'info');
+                return Promise.all(miss.map(function (c) { return FL.apexStore.loadSegValues(L.pod || '', l.coaId, c).then(function (v) { return v.length ? null : c; }).catch(function () { return c; }); })).then(function (still) {
+                    var fromApex = miss.filter(function (c) { return still.indexOf(c) < 0; }), fromFusion = still.filter(Boolean);
+                    return (fromApex.length ? T.mdSync('apex', fromApex, null, true) : Promise.resolve()).then(function () { if (fromFusion.length) return T.mdSync('fusion', fromFusion, null, true); });
+                });
+            });
+    };
+    /** Values of the given segment columns from APEX or Fusion → this PC (and APEX), then the statements are rebuilt */
+    T.mdSync = function (where, cols, btn, quiet) {
+        var l = T.ledgerObj(); if (!l) return;
+        var pod = L.pod || '', coa = l.coaId, n = 0, t0 = Date.now();
+        T.pfx().forEach(function (x) { if ($(x + '-md')) $(x + '-md').querySelectorAll('button').forEach(function (b) { b.disabled = true; }); });
+        if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> ' + (where === 'apex' ? 'APEX…' : 'syncing…');
+        var p = where === 'fusion' ? FL.fusion.progress('Master data · ' + cols.join(', ') + ' values…', true) : null;
+        var tick = setInterval(function () { if (btn && btn.isConnected) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> ' + FL.fusion.secs(Date.now() - t0); }, 1000);
+        var chain = Promise.resolve();
         cols.forEach(function (col) {
             chain = chain.then(function () {
                 if (where === 'apex') return FL.apexStore.loadSegValues(pod, coa, col).then(function (v) {
@@ -130,20 +176,21 @@
                     n += v.length;
                     return FL.call('finSegValuesSave', { coaId: coa, column: col, values: v.map(function (x) { return { value: x.value, description: x.description, accountType: x.accountType, combinations: x.combinations }; }) }, 120000);
                 });
-                return FL.call('finFusionSegValues', { pod: pod, coaId: coa, column: col }, 20 * 60000, p).then(function (r) {
+                return FL.call('finFusionSegValues', { pod: pod, coaId: coa, column: col }, 30 * 60000, p).then(function (r) {
+                    if (r && r.ok === false) throw new Error(r.error || 'failed');
                     var vals = (r.values || []).map(function (x) { return { value: x.value, description: x.description, accountType: x.accountType, combinations: x.combinations }; });
                     n += vals.length;
-                    return FL.apexStore.saveSegValues(pod, coa, col, vals).catch(function () { /* APEX copy is optional */ });
+                    return FL.apexStore.saveSegValues(pod, coa, col, vals).catch(function () { /* the APEX copy is optional */ });
                 });
             });
         });
-        chain.then(function () {
-            if (p) FL.fusion.finish();
-            if (!n) { if (!quiet) FL.toast(where === 'apex' ? 'APEX has no segment values for this chart yet — press Read from Fusion' : 'No values came back', 'err'); return; }
-            FL.toast(n.toLocaleString() + ' segment values applied — statements rebuilt', 'ok');
+        return chain.then(function () {
+            clearInterval(tick); if (p) FL.fusion.finish();
+            if (!n) { if (!quiet) FL.toast(where === 'apex' ? 'APEX has no values for ' + cols.join(', ') + ' yet — use Sync (from Fusion)' : 'No values came back', 'err'); return; }
+            FL.toast(n.toLocaleString() + ' values of ' + cols.join(', ') + ' on this PC — statements rebuilt', 'ok');
             return FL.refresh();
-        }).catch(function (e) { if (p) FL.fusion.finish(String(e && e.message || e)); if (!quiet) FL.toast(String(e && e.message || e), 'err'); })
-            .then(function () { if (btn) btn.disabled = false; T.names(); });
+        }).catch(function (e) { clearInterval(tick); if (p) FL.fusion.finish(String(e && e.message || e)); if (!quiet) FL.toast(String(e && e.message || e), 'err'); })
+            .then(function () { T.md(); });
     };
 
     // ── the default query (the host builds the same from this pod's columns) ──
@@ -230,7 +277,7 @@
             '<label class="sm">Ledger <select id="tsm-led"><option>…</option></select></label><div class="seg" id="tsm-years"></div></div>' +
             '<div id="tsm-board" class="ts-board"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div>' +
             '<div class="row ts-acts"><span class="sm muted">Companies, options and the query: Data › Trial balance sync</span><span class="grow"></span>' +
-            '<button class="btn sm" id="tsm-full"><i class="fa-solid fa-up-right-from-square"></i> Full page</button>' + T.actBtns('tsm') + '</div><div id="tsm-live"></div></div>';
+            '<button class="btn sm" id="tsm-full"><i class="fa-solid fa-up-right-from-square"></i> Full page</button>' + T.actBtns('tsm') + '</div><div id="tsm-live"></div></div><div class="card" style="margin-top:12px" id="tsm-md"></div>';
         T.wireActs('tsm');
         $('tsm-full').onclick = function () { FL.dataTab.go('tbsync'); };
         T.paintLive();
@@ -267,7 +314,7 @@
         document.querySelectorAll('.ts-co').forEach(function (c) { c.onchange = pick; });
         if ($('ts-all')) $('ts-all').onchange = function () { if (this.checked) { document.querySelectorAll('.ts-co').forEach(function (c) { c.checked = false; }); L.cos = []; } else this.checked = !L.cos.length; T.setSum(); T.paintBoard(); };
         T.setSum();
-        T.board();
+        T.board().then(function () { T.md(); });
     };
     T.setSum = function () {
         var l = T.ledgerObj(), n = (l && l.companies || []).length;
@@ -440,7 +487,7 @@
             if (r.defaultTemplate) { L.defaultQuery = r.defaultTemplate; FL.lsSet('tbl.dq.' + T.qKey(), r.defaultTemplate); if ($('tl-qtext') && !L.query) $('tl-qtext').value = r.defaultTemplate; }
             var b = r.built || {};
             FL.toast(names.length + ' period(s) synced' + (b.built ? ' — the statements now use ' + b.periods + ' synced period(s)' : b.reason === 'full load' ? ' — kept beside the full load the statements use' : ''), 'ok');
-            return FL.refresh();
+            return FL.refresh().then(function () { return T.autoMd(); });
         }).catch(function (e) {
             var msg = String(e && e.message || e); FL.fusion.finish(msg);
             if (T.live) { T.live.running = false; T.live.end = Date.now(); T.live.error = msg; Object.keys(T.live.per).forEach(function (n) { var x = T.live.per[n]; if (x.state === 'running' || x.state === 'queued') { x.state = 'failed'; x.error = x.error || msg; } }); }
