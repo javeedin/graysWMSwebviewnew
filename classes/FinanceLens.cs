@@ -590,6 +590,27 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             return d;
         }
 
+        /// <summary>account value → account type (A/L/O/R/E) known on this PC: the most common type of the code combinations in fin_ccid,
+        /// then the loaded accounts (fin_accounts) — so the trial balance query does not need MAX(account_type) from GL_CODE_COMBINATIONS.</summary>
+        public static Dictionary<string, string> AccountTypes(string coaId, string column)
+        {
+            var d = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (string.IsNullOrEmpty(column) || !File.Exists(DbPath) || !Regex.IsMatch(column, "^SEGMENT([1-9]|[12][0-9]|30)$", RegexOptions.IgnoreCase)) return d;
+            var t = Query("SELECT table_name FROM information_schema.tables WHERE table_name IN ('fin_ccid', 'fin_ledgers', 'fin_accounts')", 10);
+            var have = new HashSet<string>(t.Error == null ? t.Rows.Select(r => Convert.ToString(r[0])) : Enumerable.Empty<string>());
+            if (have.Contains("fin_ccid"))
+                foreach (var r in Query("SELECT " + column.ToLowerInvariant() + ", MODE(account_type) FROM fin_ccid WHERE coa_id = " + Lit(coaId ?? "") + " AND account_type IS NOT NULL AND " + column.ToLowerInvariant() + " IS NOT NULL GROUP BY 1", 500000).Rows)
+                    d[Convert.ToString(r[0])] = Convert.ToString(r[1]);
+            if (have.Contains("fin_ledgers") && have.Contains("fin_accounts"))
+            {
+                var l = Query("SELECT COUNT(*) FROM fin_ledgers WHERE CAST(coa_id AS VARCHAR) = " + Lit(coaId ?? "") + " AND account_segment = " + Lit(column), 1);
+                if (l.Error == null && l.Rows.Count > 0 && Convert.ToInt64(l.Rows[0][0]) > 0)
+                    foreach (var r in Query("SELECT code, account_type FROM fin_accounts WHERE account_type IS NOT NULL", 500000).Rows)
+                        d.TryAdd(Convert.ToString(r[0]), Convert.ToString(r[1]));
+            }
+            return d;
+        }
+
         // ── segment values read before any finance data was loaded ──
         public sealed class PendingSeg { public string CoaId { get; set; } public string Column { get; set; } public DateTime FetchedAt { get; set; } public List<FinanceFusion.SegValue> Values { get; set; } }
         internal static string PendingSegDir => Path.Combine(Root, "segment-values");

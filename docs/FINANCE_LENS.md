@@ -174,6 +174,12 @@ currency, actuals, no translated / summary rows) joined only to `GL_CODE_COMBINA
   A period with more than 1,000,000 rows stops after the row count and shows what they are (detail / summary template, translated,
   zero / non-zero) with *Add these filters & run* (`template_id IS NULL AND NOT (zero balance and no movement)` — same trial balance).
 
+Options under the query (they change the default query; kept per PC): **skip zero & summary rows** (on — `b.template_id IS NULL
+AND (begin dr <> begin cr OR period net dr <> 0 OR period net cr <> 0)`, applied while GL_BALANCES is scanned, before the join
+and the grouping — those rows add nothing to a trial balance), **all balance columns** (off — only BEGIN_BALANCE_DR / _CR and
+PERIOD_NET_DR / _CR are summed), **optimizer hint** (on — `/*+ LEADING(b) USE_HASH(c) PARALLEL(4) */`). The account type is not
+read from Fusion (it would need MAX() per account): it comes from this PC (`FinanceLens.AccountTypes` — fin_ccid, fin_accounts).
+
 The query box warns about fixed values (`ledger_id = 300000003236002`, `period_name = 'Oct-26'` … → *Use placeholders & run*) and
 about an own ROWNUM / ROW_NUMBER.
 

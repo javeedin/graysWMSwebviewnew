@@ -1135,6 +1135,12 @@ namespace WMSApp
             /// <summary>"account" (default) = Fusion joins GL_CODE_COMBINATIONS and groups by company × account (× cost centre) — one row per
             /// account; "combination" = GL_BALANCES alone, one row per code combination, segments from the map on this PC.</summary>
             public string GroupIn { get; set; } = "account";
+            /// <summary>Default query: leave out rows with no opening balance and no movement (they add nothing) and summary-template rows.</summary>
+            public bool SkipZero { get; set; } = true;
+            /// <summary>Default query: SUM() every _DR / _CR / _ADB (_BEQ) column, not only the four a trial balance needs.</summary>
+            public bool AllSums { get; set; }
+            /// <summary>Default query: optimizer hint (GL_BALANCES first, hash join, parallel 4).</summary>
+            public bool Hint { get; set; } = true;
         }
 
         /// <summary>
@@ -1211,6 +1217,9 @@ namespace WMSApp
                         if (r.Type != null) atypes[(r.Co, r.Ac)] = r.Type;
                     }
                     acc.Clear(); foreach (var kv in folded) acc[kv.Key] = kv.Value;
+                    // account type: from the query when it returns one, else from this PC (combinations / loaded accounts)
+                    var known = FinanceLens.AccountTypes(led.CoaId, led.Account);
+                    foreach (var k in acc.Keys) if (!atypes.ContainsKey((k.Co, k.Ac)) && known.TryGetValue(k.Ac, out var kt)) atypes[(k.Co, k.Ac)] = kt;
                 }
                 else
                 {
@@ -1235,13 +1244,13 @@ namespace WMSApp
                 var glbSet = new HashSet<string>(glbCols.Select(c => c.Col), StringComparer.OrdinalIgnoreCase);
                 var groupCols = new[] { "LEDGER_ID", "PERIOD_NAME", "PERIOD_YEAR", "CURRENCY_CODE", "ACTUAL_FLAG", "CODE_COMBINATION_ID", "TRANSLATED_FLAG" }
                     .Where(c => glbSet.Contains(c) || c == "LEDGER_ID" || c == "PERIOD_NAME" || c == "CODE_COMBINATION_ID").ToList();
-                var sumCols = glbCols.Where(c => (c.Type ?? "").StartsWith("NUMBER", StringComparison.OrdinalIgnoreCase) && Regex.IsMatch(c.Col, "_(DR|CR|ADB)(_BEQ)?$", RegexOptions.IgnoreCase)).Select(c => c.Col.ToUpperInvariant()).ToList();
+                var sumCols = o.AllSums ? glbCols.Where(c => (c.Type ?? "").StartsWith("NUMBER", StringComparison.OrdinalIgnoreCase) && Regex.IsMatch(c.Col, "_(DR|CR|ADB)(_BEQ)?$", RegexOptions.IgnoreCase)).Select(c => c.Col.ToUpperInvariant()).ToList() : new List<string>();
                 foreach (var c in new[] { "BEGIN_BALANCE_DR", "BEGIN_BALANCE_CR", "PERIOD_NET_DR", "PERIOD_NET_CR" }) if (!sumCols.Contains(c)) sumCols.Add(c);
                 glbCols = groupCols.Select(c => (c, glbCols.FirstOrDefault(g => g.Col.Equals(c, StringComparison.OrdinalIgnoreCase)).Type ?? (c.EndsWith("_ID") || c == "PERIOD_YEAR" ? "NUMBER" : "VARCHAR2")))
                     .Concat(sumCols.Select(c => (c, "NUMBER"))).ToList();
                 string groupBy = string.Join(", ", groupCols.Select(c => "b." + c.ToLowerInvariant()));
                 defaultTemplate = "SELECT " + groupBy + ", " + string.Join(", ", sumCols.Select(c => "SUM(b." + c.ToLowerInvariant() + ") " + c.ToLowerInvariant())) +
-                                         " FROM gl_balances b WHERE b.ledger_id = {LEDGER_ID} AND b.period_name = '{PERIOD}' AND b.currency_code = '{CURRENCY}' AND b.actual_flag = 'A' GROUP BY " + groupBy;
+                                         " FROM gl_balances b WHERE b.ledger_id = {LEDGER_ID} AND b.period_name = '{PERIOD}' AND b.currency_code = '{CURRENCY}' AND b.actual_flag = 'A'" + DefaultFilters(o, glbSet) + " GROUP BY " + groupBy;
                 template = string.IsNullOrWhiteSpace(o.QueryTemplate) ? defaultTemplate : o.QueryTemplate.Trim().TrimEnd(';');
                 custom = !string.IsNullOrWhiteSpace(o.QueryTemplate) && template != defaultTemplate;
                 if (custom && !Regex.IsMatch(template, @"^\s*(SELECT|WITH)\b", RegexOptions.IgnoreCase)) return new { ok = false, error = "The query must start with SELECT or WITH." };
@@ -1419,6 +1428,15 @@ namespace WMSApp
             catch (Exception ex) { x.Note("✖ " + ex.Message); return new { ok = false, error = ex.Message, log = x.Log }; }
         }
 
+        /// <summary>The filters of the default trial balance queries: summary-template rows and rows with no opening balance and no movement
+        /// (both add nothing to a trial balance) — applied while GL_BALANCES is scanned, before any join or grouping.</summary>
+        private static string DefaultFilters(TbOptions o, HashSet<string> glbCols)
+        {
+            if (!o.SkipZero) return "";
+            return (glbCols.Count == 0 || glbCols.Contains("TEMPLATE_ID") ? " AND b.template_id IS NULL" : "") +
+                   " AND (NVL(b.begin_balance_dr, 0) <> NVL(b.begin_balance_cr, 0) OR NVL(b.period_net_dr, 0) <> 0 OR NVL(b.period_net_cr, 0) <> 0)";
+        }
+
         // ═════ trial balance grouped in Fusion by company × account ═════
         public sealed class AcctRow { public string Period, Co, Ac, Cc, Tf, Type; public double Bdr, Bcr, Ndr, Ncr; }
         private sealed class AcctRead { public string Error, Template, Default; public bool Custom; public List<AcctRow> Rows = new(); }
@@ -1436,19 +1454,19 @@ namespace WMSApp
             var res = new AcctRead();
             var glb = x.Types.TryGetValue("GL_BALANCES", out var gt) ? gt : new List<(string Col, string Type)>();
             var have = new HashSet<string>(glb.Select(c => c.Col), StringComparer.OrdinalIgnoreCase);
-            var sumCols = glb.Where(c => (c.Type ?? "").StartsWith("NUMBER", StringComparison.OrdinalIgnoreCase) && Regex.IsMatch(c.Col, "_(DR|CR|ADB)(_BEQ)?$", RegexOptions.IgnoreCase)).Select(c => c.Col.ToLowerInvariant()).ToList();
+            var sumCols = o.AllSums ? glb.Where(c => (c.Type ?? "").StartsWith("NUMBER", StringComparison.OrdinalIgnoreCase) && Regex.IsMatch(c.Col, "_(DR|CR|ADB)(_BEQ)?$", RegexOptions.IgnoreCase)).Select(c => c.Col.ToLowerInvariant()).ToList() : new List<string>();
             foreach (var c in new[] { "begin_balance_dr", "begin_balance_cr", "period_net_dr", "period_net_cr" }) if (!sumCols.Contains(c)) sumCols.Add(c);
-            var keys = new List<string> { "b.ledger_id", "b.period_name" };
-            if (have.Contains("PERIOD_YEAR")) keys.Add("b.period_year");
-            keys.Add("b.currency_code");
+            var keys = new List<string> { "b.ledger_id", "b.period_name", "b.currency_code" };
             if (have.Count == 0 || have.Contains("TRANSLATED_FLAG")) keys.Add("b.translated_flag");
             var segs = new List<string> { "c.{COMPANY_SEGMENT}", "c.{ACCOUNT_SEGMENT}" }; if (byCc) segs.Add("c.{COST_CENTRE_SEGMENT}");
             var segAs = new List<string> { "c.{COMPANY_SEGMENT} company", "c.{ACCOUNT_SEGMENT} account" }; if (byCc) segAs.Add("c.{COST_CENTRE_SEGMENT} cost_centre");
-            res.Default = "SELECT " + string.Join(", ", keys) + ",\n       " + string.Join(", ", segAs) + ", MAX(c.account_type) account_type,\n       " +
+            // no account_type from Fusion (it would need MAX() - it belongs to each combination): the type comes from this PC (FinanceLens.AccountTypes)
+            res.Default = "SELECT " + (o.Hint ? "/*+ LEADING(b) USE_HASH(c) PARALLEL(4) */ " : "") + string.Join(", ", keys) + ",\n       " + string.Join(", ", segAs) + ",\n       " +
                           string.Join(", ", sumCols.Select(c => "SUM(b." + c + ") " + c)) +
                           "\nFROM gl_balances b JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id" +
                           "\nWHERE b.ledger_id = {LEDGER_ID} AND b.period_name = '{PERIOD}' AND b.currency_code = '{CURRENCY}' AND b.actual_flag = 'A'" +
-                          "\n  AND c.summary_flag = 'N'{COMPANY_FILTER}" +
+                          DefaultFilters(o, have).Replace(" AND (", "\n  AND (").Replace(" AND b.template_id", "\n  AND b.template_id") +
+                          (o.SkipZero && have.Contains("TEMPLATE_ID") ? "" : "\n  AND c.summary_flag = 'N'") + "{COMPANY_FILTER}" +
                           "\nGROUP BY " + string.Join(", ", keys) + ", " + string.Join(", ", segs);
             res.Template = string.IsNullOrWhiteSpace(o.QueryTemplate) ? res.Default : o.QueryTemplate.Trim().TrimEnd(';');
             res.Custom = !string.IsNullOrWhiteSpace(o.QueryTemplate) && res.Template != res.Default;
