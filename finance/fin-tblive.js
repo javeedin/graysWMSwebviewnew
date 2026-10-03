@@ -7,7 +7,7 @@
    compared line by line with the balances loaded on this PC when that ledger and period are loaded. */
 (function () {
     var T = FL.tb;
-    var L = T.live = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), seq: null, cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2), page: FL.ls('tbl.page', 5000), query: FL.ls('tbl.query', ''), defaultQuery: FL.ls('tbl.defaultQuery', ''),
+    var L = T.live = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), seq: null, cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2), page: FL.ls('tbl.page', 5000), query: FL.ls('tbl.query', ''), defaultQuery: FL.ls('tbl.defaultQuery2', ''),
         view: FL.ls('tbl.view', 'account'), q: '', zero: true, scale: FL.ls('tbl.scale', 1), compare: FL.ls('tbl.compare', true), res: null };
     T.source = FL.ls('tb.source', 'duck');
     var TYPE = { A: 'Asset', L: 'Liability', O: 'Equity', R: 'Revenue', E: 'Expense' };
@@ -44,8 +44,9 @@
             '<div class="row" style="margin-top:6px"><span class="sm muted">Companies</span><div id="tl-cos" class="tl-cos"></div></div>' +
             '<details class="tl-q" id="tl-qbox"' + (L.query ? ' open' : '') + '><summary><b><i class="fa-solid fa-code"></i> GL_BALANCES query</b> <span class="sm muted" id="tl-qstate">' + (L.query ? 'your own query' : 'default') + '</span></summary>' +
             '<p class="sm muted">One query per period. <code>{LEDGER_ID}</code>, <code>{PERIOD}</code> and <code>{CURRENCY}</code> are filled in for each period read (the period, its adjustment period, the start of the quarter and of the year). ' +
-            'It must return CODE_COMBINATION_ID, BEGIN_BALANCE_DR, BEGIN_BALANCE_CR, PERIOD_NET_DR and PERIOD_NET_CR; every column it returns is kept on this PC (fin_gl_balances). Read-only: SELECT / WITH.</p>' +
-            '<textarea id="tl-qtext" spellcheck="false" rows="6">' + esc(L.query || L.defaultQuery || "SELECT b.* FROM gl_balances b WHERE b.ledger_id = {LEDGER_ID} AND b.period_name = '{PERIOD}' AND b.currency_code = '{CURRENCY}' AND b.actual_flag = 'A'") + '</textarea>' +
+            'It must return CODE_COMBINATION_ID, BEGIN_BALANCE_DR, BEGIN_BALANCE_CR, PERIOD_NET_DR and PERIOD_NET_CR; every column it returns is kept on this PC (fin_gl_balances). Read-only: SELECT / WITH. ' +
+            'Do not add ROWNUM / ROW_NUMBER — the app reads it in chunks itself: <code>SELECT * FROM (SELECT q.* FROM (your query) q WHERE q.code_combination_id &gt; last id ORDER BY q.code_combination_id) WHERE ROWNUM &lt;= rows per fetch</code>. A query pasted with real values gets its placeholders back on Run.</p>' +
+            '<textarea id="tl-qtext" spellcheck="false" rows="6">' + esc(L.query || L.defaultQuery || T.DEFAULT_Q) + '</textarea>' +
             '<div class="row"><button class="btn primary sm" id="tl-qrun"><i class="fa-solid fa-play"></i> Run with this query</button><button class="btn sm" id="tl-qreset"><i class="fa-solid fa-rotate-left"></i> Default query</button>' +
             '<span class="sm muted">Run re-reads the periods from Fusion with this query (the copy on this PC is replaced).</span></div></details>' +
             '<div id="fu-prog"></div></div><div id="tl-res"></div>' +
@@ -62,15 +63,32 @@
         $('tl-qrun').onclick = function () {
             var q = $('tl-qtext').value.trim();
             if (!/^\s*(select|with)\b/i.test(q)) { FL.toast('The query must start with SELECT or WITH', 'err'); return; }
+            // a query pasted from Fusion SQL with real values: turn ledger / period / currency into the placeholders
+            var fixedQ = T.toTemplate(q);
+            if (fixedQ !== q && confirm('This query has fixed values. Use placeholders instead, so each period read gets its own values?\n\n' + fixedQ)) { q = fixedQ; $('tl-qtext').value = q; }
+            if (/\bROWNUM\b|\bROW_NUMBER\s*\(/i.test(q) && !confirm('The app already reads the query in chunks (ROWNUM pages in code_combination_id order, after the last id read). Your own ROWNUM / ROW_NUMBER would cut each period short. Run it anyway?')) return;
             if (!/\{PERIOD\}/.test(q)) { if (!confirm('The query has no {PERIOD} placeholder — every period read would return the same rows. Run it anyway?')) return; }
             L.query = (L.defaultQuery && q === L.defaultQuery.trim()) ? '' : q;
             FL.lsSet('tbl.query', L.query); $('tl-qstate').textContent = L.query ? 'your own query' : 'default';
             T.fetch(true);
         };
-        $('tl-qreset').onclick = function () { L.query = ''; FL.lsSet('tbl.query', ''); $('tl-qtext').value = L.defaultQuery || $('tl-qtext').value; $('tl-qstate').textContent = 'default'; };
+        $('tl-qreset').onclick = function () { L.query = ''; FL.lsSet('tbl.query', ''); $('tl-qtext').value = L.defaultQuery || T.DEFAULT_Q; $('tl-qstate').textContent = 'default'; };
         T.fillLedgers();
         T.listSaved();
         if (L.res) T.show();
+    };
+
+    // shown until the host returns the default built from this pod's GL_BALANCES columns (one row per combination, balances summed)
+    T.DEFAULT_Q = "SELECT b.ledger_id, b.period_name, b.period_year, b.currency_code, b.actual_flag, b.code_combination_id, b.translated_flag,\n" +
+        "       SUM(b.begin_balance_dr) begin_balance_dr, SUM(b.begin_balance_cr) begin_balance_cr, SUM(b.period_net_dr) period_net_dr, SUM(b.period_net_cr) period_net_cr\n" +
+        "FROM gl_balances b\nWHERE b.ledger_id = {LEDGER_ID} AND b.period_name = '{PERIOD}' AND b.currency_code = '{CURRENCY}' AND b.actual_flag = 'A'\n" +
+        "GROUP BY b.ledger_id, b.period_name, b.period_year, b.currency_code, b.actual_flag, b.code_combination_id, b.translated_flag";
+
+    // ledger_id = 300000003236002 → {LEDGER_ID}, period_name = 'Oct-26' → '{PERIOD}', currency_code = 'MUR' → '{CURRENCY}'
+    T.toTemplate = function (q) {
+        return q.replace(/(\b(?:\w+\.)?ledger_id\s*=\s*)\d+/gi, '$1{LEDGER_ID}')
+            .replace(/(\b(?:\w+\.)?period_name\s*=\s*)'[^'{}]*'/gi, "$1'{PERIOD}'")
+            .replace(/(\b(?:\w+\.)?currency_code\s*=\s*)'[^'{}]*'/gi, "$1'{CURRENCY}'");
     };
 
     T.fillLedgers = function () {
@@ -114,7 +132,7 @@
             r.source = (r.sources && r.sources.every(function (z) { return z.from === 'pc'; }) ? 'GL balances kept on this PC' : 'Fusion') + ' · built ' + new Date().toLocaleString();
             T.listRaw(); r.pod = L.pod || ''; r.accountCol = led.account; r.companyCol = led.company; r.costCentreCol = led.costCentre;
             L.res = r;
-            if (r.defaultTemplate) { L.defaultQuery = r.defaultTemplate; FL.lsSet('tbl.defaultQuery', r.defaultTemplate); if ($('tl-qtext') && !L.query) $('tl-qtext').value = r.defaultTemplate; }
+            if (r.defaultTemplate) { L.defaultQuery = r.defaultTemplate; FL.lsSet('tbl.defaultQuery2', r.defaultTemplate); if ($('tl-qtext') && !L.query) $('tl-qtext').value = r.defaultTemplate; }
             return T.fillNames(r).then(T.show);
         }).catch(function (e) { FL.fusion.finish(e && e.message || e); }).then(function () { if ($('tl-go')) $('tl-go').disabled = false; });
     };

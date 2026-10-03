@@ -174,7 +174,7 @@ GROUP BY b.ledger_id, b.period_name, b.period_year, b.currency_code, b.actual_fl
 ```
 
 (code_combination_id maps a row to company / account; translated_flag stays a key so the 'R' part is never added to the
-total). The rows are kept on this PC (DuckDB `fin_gl_balances`, the columns the query returns with Fusion's names, listed under *GL
+total). The rows are kept on this PC (DuckDB `fin_gl_balances`, the columns the query returns with Fusion's names — do not add ROWNUM: the app pages the query itself, and a query pasted with real values gets its placeholders back on Run — listed under *GL
 balances kept on this PC*); after that the trial balance is built from this
 copy in a fraction of a second. Tick *read again from Fusion* after postings. Every period is read **page by page**: its rows are counted
 first (the monitor shows *page i of N*), then *Rows per fetch* rows at a time in code_combination_id order, each page after the
