@@ -190,7 +190,10 @@ the warehouse — straight from the Fusion subledgers, read-only.
   with the oldest receipt; click an item for its on-hand lines (lots, subinventories, receipt dates).
 - **Filter bar on top**: *Business unit* (debtors and creditors — cards, ageing and list) and *Inventory organisation*
   (inventory), shown with their names (FUN_ALL_BUSINESS_UNITS_V / INV_ORGANIZATION_DEFINITIONS_V, else HR organisation
-  units; read with every sync and by *Read names*, kept in fin_wc_names). With a filter on, the GL comparison is hidden
+  units; read with every sync and by *Read names* — no re-sync needed — kept in fin_wc_names). *Read names* tries
+  FUN_ALL_BUSINESS_UNITS_V, HR_OPERATING_UNITS, HR_ALL_ORGANIZATION_UNITS_F_VL and HR_ORGANIZATION_UNITS_F_TL for the ids
+  still unnamed and shows what each returned (a view secured for the report user returns no rows); **Names** lets an AI
+  admin type or fix the names (`finWcNamesSave`), kept on this PC like the ones from Fusion. With a filter on, the GL comparison is hidden
   (the GL control is for every business unit).
 - **Every grid filters by column**: a box under each header — text = contains, `=x` exact, `!x` not, numbers `>100`,
   `<=5`, `10..20`; click a header to sort; CSV exports what is shown (`FL.grid` in fin-core.js, also in the open-items

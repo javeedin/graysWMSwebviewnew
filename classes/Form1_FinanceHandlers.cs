@@ -276,6 +276,14 @@ namespace WMSApp
                             AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = action == "finWcItems" ? "fin_wc_items" : action == "finWcItemDff" ? "fin_wc_item_dff" : "fin_wc_names", Outcome = "OK", DurationMs = sw.ElapsedMilliseconds, Target = pod });
                             break;
                         }
+                    case "finWcNamesSave":      // business unit / organisation names typed on the page
+                        {
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can change the finance data." }; break; }
+                            var nm = root.TryGetProperty("names", out var ne) && ne.ValueKind == JsonValueKind.Object ? ne.Deserialize<System.Collections.Generic.Dictionary<string, string>>() : new System.Collections.Generic.Dictionary<string, string>();
+                            data = await Task.Run(() => FinanceWorkingCapital.NamesSave(PipeSrvStr(root, "pod") ?? "", PipeSrvStr(root, "kind"), nm));
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_wc_names_save", Outcome = "OK", Target = PipeSrvStr(root, "kind") ?? "", Detail = nm.Count + " name(s)" });
+                            break;
+                        }
                     case "finWcDefaults":
                         data = new { ok = true, ar = FinanceWorkingCapital.AR_DEFAULT, ap = FinanceWorkingCapital.AP_DEFAULT, inv = FinanceWorkingCapital.INV_DEFAULT };
                         break;

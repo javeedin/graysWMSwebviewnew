@@ -164,11 +164,12 @@
         };
         var unnamed = Object.keys(bus).some(function (b) { return W.buName(b) === b; }) || Object.keys(orgs).some(function (o) { return !((d.names || {}).ORG || {})[o]; });
         var filt = '<div class="wc-filt"><label class="sm"><b>Business unit</b> <span class="muted">debtors &amp; creditors</span> <select id="wc-bu"><option value="">All business units</option>' +
-            Object.keys(bus).sort(function (a, b) { return String(W.buName(a)).localeCompare(String(W.buName(b))); }).map(function (b) { return '<option value="' + esc(b) + '"' + (W.bu === b ? ' selected' : '') + '>' + esc(W.buName(b) !== b ? W.buName(b) + '  (' + b + ')' : b) + '</option>'; }).join('') + '</select></label>' +
+            Object.keys(bus).sort(function (a, b) { var na = W.buName(a) !== a, nb = W.buName(b) !== b; return na !== nb ? (na ? -1 : 1) : String(W.buName(a)).localeCompare(String(W.buName(b))); }).map(function (b) { return '<option value="' + esc(b) + '"' + (W.bu === b ? ' selected' : '') + '>' + esc(W.buName(b) !== b ? W.buName(b) + '  (' + b + ')' : b) + '</option>'; }).join('') + '</select></label>' +
             '<label class="sm"><b>Inventory organisation</b> <select id="wc-org"><option value="">All organisations</option>' +
             Object.keys(orgs).sort(function (a, b) { return String(orgs[a]).localeCompare(String(orgs[b])); }).map(function (o) { return '<option value="' + esc(o) + '"' + (W.org === o ? ' selected' : '') + '>' + esc(W.orgName(o, orgs[o])) + '</option>'; }).join('') + '</select></label>' +
             (W.bu || W.org ? '<a class="sm" id="wc-fclear"><i class="fa-solid fa-xmark"></i> show all</a>' : '') + '<span class="grow"></span>' +
-            (unnamed && admin ? '<button class="btn sm ghost" id="wc-names" title="Read business unit and organisation names from Fusion"><i class="fa-solid fa-tag"></i> Read names</button>' : '') + '</div>';
+            (admin ? (unnamed ? '<button class="btn sm" id="wc-names" title="Read business unit and organisation names from Fusion (no re-sync needed)"><i class="fa-solid fa-tag"></i> Read names</button>' : '') +
+                '<button class="btn sm ghost" id="wc-nameed" title="See or type the names yourself"><i class="fa-solid fa-pen"></i> Names</button>' : '') + '</div>';
         var cards = '<div class="grid g3 wc-cards">' +
             card('AR', d.last.AR ? ar.total : null, [['Overdue', money(ar.overdue) + ' · ' + pct(ar.overdue, ar.total)], ['Over 90 days', money(ar.old90)], ['Days sales outstanding (GL)', kv('dso')], ['Open items', ar.items.toLocaleString()]], d.last.AR ? recon(ar.total, gl.AR, !!W.bu) : '') +
             card('AP', d.last.AP ? ap.total : null, [['Overdue', money(ap.overdue) + ' · ' + pct(ap.overdue, ap.total)], ['Over 90 days', money(ap.old90)], ['Days payables outstanding (GL)', kv('dpo')], ['On hold', ap.hold.toLocaleString() + ' item(s)']], d.last.AP ? recon(ap.total, gl.AP, !!W.bu) : '') +
@@ -282,7 +283,8 @@
         if (q('#wc-bu')) q('#wc-bu').onchange = function () { W.bu = this.value; FL.lsSet('wc.bu', W.bu); if (W.sub === 'INV') { W.sub = 'AR'; FL.lsSet('wc.sub', 'AR'); } W.paint(el); };
         if (q('#wc-org')) q('#wc-org').onchange = function () { W.org = this.value; FL.lsSet('wc.org', W.org); W.sub = 'INV'; FL.lsSet('wc.sub', 'INV'); W.paint(el); };
         if (q('#wc-fclear')) q('#wc-fclear').onclick = function () { W.bu = W.org = ''; FL.lsSet('wc.bu', ''); FL.lsSet('wc.org', ''); W.paint(el); };
-        if (q('#wc-names')) q('#wc-names').onclick = function () { W.run('finWcNames', {}, 'Business unit / organisation names', 5 * 60000); };
+        if (q('#wc-names')) q('#wc-names').onclick = function () { W.readNames(); };
+        if (q('#wc-nameed')) q('#wc-nameed').onclick = function () { W.nameEditor(); };
         if (q('#wc-xl')) q('#wc-xl').onclick = W.excel;
         if (q('#wc-sync')) q('#wc-sync').onclick = function () { W.sync(['AR', 'AP', 'INV']); };
         if (q('#wc-set')) q('#wc-set').onclick = W.settings;
@@ -299,6 +301,43 @@
             FL.toast(label + (r.items != null ? ': ' + r.items.toLocaleString() + ' items' : r.labels ? ': ' + r.labels.length + ' labels' : r.named != null ? ': ' + r.named + ' names' : ' done'), 'ok');
             return FL.render();
         }).catch(function (e) { var m = String(e && e.message || e); if ($('wc-log')) $('wc-log').innerHTML = '<span class="neg">' + esc(m) + '</span>'; FL.toast(m, 'err'); });
+    };
+
+    /** Reads the missing names from Fusion; says which source answered, and opens the editor for what is still unnamed */
+    W.readNames = function () {
+        var log = $('wc-prog'); if (log) log.innerHTML = '<div class="callout sm" id="wc-log"><i class="fa-solid fa-circle-notch fa-spin"></i> Reading business unit / organisation names from Fusion…</div>';
+        return FL.call('finWcNames', { pod: W.cfg().pod || '' }, 5 * 60000).then(function (r) {
+            var miss = r.missing || {}, nMiss = (miss.BU || []).length + (miss.ORG || []).length;
+            return FL.render().then(function () {
+                if (!r.named && !nMiss) { FL.toast('Every business unit and organisation already has a name', 'ok'); return; }
+                if ($('wc-prog')) $('wc-prog').innerHTML = '<div class="callout ' + (nMiss ? 'warn' : '') + ' sm"><b>' + r.named + ' name(s) read from Fusion' + (nMiss ? ', ' + nMiss + ' still without a name' : '') + '.</b>' +
+                    (r.log || []).map(function (l) { return '<div class="muted">' + esc(l) + '</div>'; }).join('') +
+                    (nMiss ? '<div style="margin-top:4px">The report user cannot see them in Fusion — <a id="wc-typenames">type the names</a> once; they are kept on this PC.</div>' : '') + '</div>';
+                if ($('wc-typenames')) $('wc-typenames').onclick = function () { W.nameEditor(); };
+            });
+        }).catch(function (e) { if ($('wc-log')) $('wc-log').innerHTML = '<span class="neg">' + esc(String(e && e.message || e)) + '</span>'; });
+    };
+    /** Names of the business units / organisations in the snapshots — see them, type or fix them */
+    W.nameEditor = function () {
+        var d = W.data || {}, names = d.names || { BU: {}, ORG: {} }, bus = {}, orgs = {};
+        (d.AR || []).concat(d.AP || []).forEach(function (r) { bus[r.bu_id] = (bus[r.bu_id] || 0) + Math.abs(r.amount || 0); });
+        (d.INV || []).forEach(function (r) { orgs[r.org_id] = r.org_code || ''; });
+        var rows = function (kind, ids, extra) {
+            return ids.map(function (id) { return '<tr><td class="mono">' + esc(id) + '</td><td class="muted sm">' + esc(extra(id)) + '</td><td><input class="ne-i" data-k="' + kind + '" data-id="' + esc(id) + '" value="' + esc((names[kind] || {})[id] || '') + '" placeholder="name" style="width:260px"></td></tr>'; }).join('');
+        };
+        var buIds = Object.keys(bus).sort(function (a, b) { return bus[b] - bus[a]; }), orgIds = Object.keys(orgs).sort();
+        FL.modal('<i class="fa-solid fa-tag"></i> Business unit & organisation names', '<p class="sm">Names come from Fusion (<b>Read names</b>); when the report user cannot see a business unit there, type its name here — it is kept on this PC with the others. No re-sync needed.</p>' +
+            '<div class="scroll" style="max-height:62vh"><table class="t"><thead><tr><th>Business unit id</th><th>open amount</th><th>Name</th></tr></thead><tbody>' + rows('BU', buIds, function (id) { return money(bus[id]); }) + '</tbody></table>' +
+            (orgIds.length ? '<table class="t" style="margin-top:10px"><thead><tr><th>Inventory org id</th><th>code</th><th>Name</th></tr></thead><tbody>' + rows('ORG', orgIds, function (id) { return orgs[id]; }) + '</tbody></table>' : '') + '</div>',
+            '<button class="btn" id="ne-read"><i class="fa-solid fa-cloud-arrow-down"></i> Read from Fusion</button><button class="btn primary" id="ne-save"><i class="fa-solid fa-floppy-disk"></i> Save</button>');
+        $('ne-read').onclick = function () { FL.closeModal(); W.readNames(); };
+        $('ne-save').onclick = function () {
+            var by = { BU: {}, ORG: {} };
+            document.querySelectorAll('.ne-i').forEach(function (i) { var v = i.value.trim(); if (v && v !== (names[i.dataset.k] || {})[i.dataset.id]) by[i.dataset.k][i.dataset.id] = v; });
+            var jobs = ['BU', 'ORG'].filter(function (k) { return Object.keys(by[k]).length; }).map(function (k) { return FL.call('finWcNamesSave', { pod: W.cfg().pod || '', kind: k, names: by[k] }); });
+            if (!jobs.length) { FL.closeModal(); return; }
+            Promise.all(jobs).then(function () { FL.closeModal(); FL.toast('Names saved', 'ok'); FL.render(); }).catch(function (e) { FL.toast(String(e && e.message || e), 'err'); });
+        };
     };
 
     W.sync = function (kinds) {
@@ -352,7 +391,7 @@
             b.onclick = function () {
                 var a = b.dataset.w;
                 if (a === 'sync') return W.sync([b.dataset.k]);
-                if (a === 'names') return W.run('finWcNames', {}, 'Business unit / organisation names', 5 * 60000);
+                if (a === 'names') return W.readNames();
                 if (a === 'items') return W.run('finWcItems', { options: { orgs: [] } }, 'Item master');
                 if (a === 'dff') return W.run('finWcItemDff', {}, 'Item DFF labels', 5 * 60000);
                 if (a === 'profile') return W.dffProfile();

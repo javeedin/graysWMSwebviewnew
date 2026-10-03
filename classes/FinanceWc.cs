@@ -181,7 +181,12 @@ GROUP BY q.ORGANIZATION_ID, i.INVENTORY_ITEM_ID, i.ORGANIZATION_ID, i.ITEM_NUMBE
                     string nk = kind == "INV" ? "ORG" : "BU";
                     var known = FinanceLens.WcNames(o.Pod, nk);
                     var todo = ids.Where(v => !known.ContainsKey(v)).ToList();
-                    if (todo.Count > 0) { var nm = await NamesAsync(run, nk, todo, ct).ConfigureAwait(false); if (nm.Count > 0) { FinanceLens.SaveWcNames(o.Pod, nk, nm); progress?.Invoke("   " + nm.Count + (nk == "BU" ? " business unit" : " organisation") + " name(s) read"); } }
+                    if (todo.Count > 0)
+                    {
+                        var (nm, lg) = await NamesAsync(run, nk, todo, ct).ConfigureAwait(false);
+                        if (nm.Count > 0) FinanceLens.SaveWcNames(o.Pod, nk, nm);
+                        progress?.Invoke("   " + nm.Count + " of " + todo.Count + (nk == "BU" ? " business unit" : " organisation") + " name(s) read" + (nm.Count < todo.Count ? " — " + string.Join(" · ", lg) : ""));
+                    }
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { progress?.Invoke("   ⚠ names: " + ex.Message); }
@@ -245,46 +250,70 @@ GROUP BY q.ORGANIZATION_ID, i.INVENTORY_ITEM_ID, i.ORGANIZATION_ID, i.ITEM_NUMBE
             return new { ok = true, tables = list.OrderBy(t => Rank((string)t.GetType().GetProperty("table").GetValue(t))).ToList(), maps };
         }
 
-        /// <summary>Names of business units (FUN_ALL_BUSINESS_UNITS_V, else HR organisation units) or inventory organisations
-        /// (INV_ORGANIZATION_DEFINITIONS_V, else HR organisation units) — the first source that answers.</summary>
-        public static async Task<Dictionary<string, string>> NamesAsync(FinanceFusion.Runner run, string kind, List<string> ids, CancellationToken ct)
+        /// <summary>
+        /// Names of business units or inventory organisations. Every source is asked for the ids still without a name, so one that
+        /// is not readable (or secured to 0 rows for the runner's user) does not stop the others:
+        /// BU  = FUN_ALL_BUSINESS_UNITS_V, HR_OPERATING_UNITS, HR_ALL_ORGANIZATION_UNITS_F_VL, HR_ORGANIZATION_UNITS_F_TL;
+        /// ORG = INV_ORGANIZATION_DEFINITIONS_V, HR_ALL_ORGANIZATION_UNITS_F_VL, HR_ORGANIZATION_UNITS_F_TL.
+        /// The log says what each source returned (shown on the page when names stay missing).
+        /// </summary>
+        public static async Task<(Dictionary<string, string> Names, List<string> Log)> NamesAsync(FinanceFusion.Runner run, string kind, List<string> ids, CancellationToken ct)
         {
             var d = new Dictionary<string, string>(StringComparer.Ordinal);
+            var log = new List<string>();
             ids = ids.Where(v => Regex.IsMatch(v ?? "", "^[0-9]{1,20}$")).Distinct().ToList();
-            if (ids.Count == 0) return d;
-            foreach (var chunk in ids.Chunk(500))
+            if (ids.Count == 0) return (d, log);
+            var sources = kind == "BU"
+                ? new[] { ("FUN_ALL_BUSINESS_UNITS_V", "SELECT BU_ID AS ID, BU_NAME AS NAME FROM FUN_ALL_BUSINESS_UNITS_V WHERE BU_ID IN ({IDS})"),
+                          ("HR_OPERATING_UNITS", "SELECT ORGANIZATION_ID AS ID, NAME FROM HR_OPERATING_UNITS WHERE ORGANIZATION_ID IN ({IDS})"),
+                          ("HR_ALL_ORGANIZATION_UNITS_F_VL", "SELECT ORGANIZATION_ID AS ID, NAME FROM HR_ALL_ORGANIZATION_UNITS_F_VL WHERE ORGANIZATION_ID IN ({IDS})"),
+                          ("HR_ORGANIZATION_UNITS_F_TL", "SELECT ORGANIZATION_ID AS ID, NAME FROM HR_ORGANIZATION_UNITS_F_TL WHERE LANGUAGE = 'US' AND ORGANIZATION_ID IN ({IDS})") }
+                : new[] { ("INV_ORGANIZATION_DEFINITIONS_V", "SELECT ORGANIZATION_ID AS ID, ORGANIZATION_NAME AS NAME FROM INV_ORGANIZATION_DEFINITIONS_V WHERE ORGANIZATION_ID IN ({IDS})"),
+                          ("HR_ALL_ORGANIZATION_UNITS_F_VL", "SELECT ORGANIZATION_ID AS ID, NAME FROM HR_ALL_ORGANIZATION_UNITS_F_VL WHERE ORGANIZATION_ID IN ({IDS})"),
+                          ("HR_ORGANIZATION_UNITS_F_TL", "SELECT ORGANIZATION_ID AS ID, NAME FROM HR_ORGANIZATION_UNITS_F_TL WHERE LANGUAGE = 'US' AND ORGANIZATION_ID IN ({IDS})") };
+            foreach (var (src, tpl) in sources)
             {
-                string inList = string.Join(",", chunk);
-                var tries = kind == "BU"
-                    ? new[] { "SELECT BU_ID AS ID, BU_NAME AS NAME FROM FUN_ALL_BUSINESS_UNITS_V WHERE BU_ID IN (" + inList + ")",
-                              "SELECT ORGANIZATION_ID AS ID, NAME FROM HR_ORGANIZATION_UNITS_F_TL WHERE LANGUAGE = USERENV('LANG') AND ORGANIZATION_ID IN (" + inList + ")" }
-                    : new[] { "SELECT ORGANIZATION_ID AS ID, ORGANIZATION_NAME AS NAME FROM INV_ORGANIZATION_DEFINITIONS_V WHERE ORGANIZATION_ID IN (" + inList + ")",
-                              "SELECT ORGANIZATION_ID AS ID, NAME FROM HR_ORGANIZATION_UNITS_F_TL WHERE LANGUAGE = USERENV('LANG') AND ORGANIZATION_ID IN (" + inList + ")" };
-                foreach (var sql in tries)
+                var todo = ids.Where(v => !d.ContainsKey(v)).ToList();
+                if (todo.Count == 0) break;
+                int got = 0; string err = null;
+                foreach (var chunk in todo.Chunk(500))
                 {
-                    var r = await run(sql, 5000, ct).ConfigureAwait(false);
-                    if (r == null || !r.Success || r.Rows.Count == 0) continue;
-                    foreach (var row in r.Rows) { var id = S(Get(row, "ID")); var nm = S(Get(row, "NAME")); if (id != null && !string.IsNullOrEmpty(nm)) d[id] = nm; }
-                    break;
+                    var r = await run(tpl.Replace("{IDS}", string.Join(",", chunk)), 5000, ct).ConfigureAwait(false);
+                    if (r == null || !r.Success) { err = r?.Error ?? "cancelled"; break; }
+                    foreach (var row in r.Rows) { var id = S(Get(row, "ID")); var nm = S(Get(row, "NAME")); if (id != null && !string.IsNullOrEmpty(nm) && !d.ContainsKey(id)) { d[id] = nm; got++; } }
                 }
+                log.Add(src + ": " + (err != null ? "not readable — " + (err.Length > 140 ? err.Substring(0, 140) + "…" : err) : got + " of " + todo.Count + " named" + (got == 0 ? " (no rows — the view may be secured for the report user)" : "")));
             }
-            return d;
+            return (d, log);
         }
 
         /// <summary>Names of every business unit / organisation in the kept snapshots that has none yet.</summary>
         public static async Task<object> NamesSyncAsync(FinanceFusion.Runner run, string pod, CancellationToken ct)
         {
-            int n = 0;
+            int n = 0; var log = new List<string>(); var missing = new Dictionary<string, List<string>>();
             foreach (var (kind, sql) in new[] { ("BU", "SELECT DISTINCT bu_id FROM fin_wc_parties WHERE pod = " + Lit(pod ?? "")), ("ORG", "SELECT DISTINCT org_id FROM fin_wc_stock WHERE pod = " + Lit(pod ?? "")) })
             {
                 var q = FinanceLens.Query(sql, 100000);
                 if (q.Error != null) continue;
                 var known = FinanceLens.WcNames(pod, kind);
                 var todo = q.Rows.Select(z => Convert.ToString(z[0], CultureInfo.InvariantCulture)).Where(v => v != null && !known.ContainsKey(v)).ToList();
-                var nm = await NamesAsync(run, kind, todo, ct).ConfigureAwait(false);
+                if (todo.Count == 0) continue;
+                var (nm, lg) = await NamesAsync(run, kind, todo, ct).ConfigureAwait(false);
+                log.AddRange(lg.Select(l => (kind == "BU" ? "Business units · " : "Organisations · ") + l));
                 if (nm.Count > 0) { FinanceLens.SaveWcNames(pod, kind, nm); n += nm.Count; }
+                missing[kind] = todo.Where(v => !nm.ContainsKey(v)).ToList();
             }
-            return new { ok = true, named = n };
+            return new { ok = true, named = n, log, missing };
+        }
+
+        /// <summary>Names typed on the page (when Fusion has none for the report user) — kept like the ones read from Fusion.</summary>
+        public static object NamesSave(string pod, string kind, Dictionary<string, string> names)
+        {
+            if (kind != "BU" && kind != "ORG") return new { ok = false, error = "kind is BU or ORG" };
+            var clean = (names ?? new()).Where(kv => Regex.IsMatch(kv.Key ?? "", "^[0-9]{1,20}$") && !string.IsNullOrWhiteSpace(kv.Value))
+                                        .ToDictionary(kv => kv.Key, kv => kv.Value.Trim().Length > 200 ? kv.Value.Trim().Substring(0, 200) : kv.Value.Trim());
+            FinanceLens.SaveWcNames(pod, kind, clean);
+            return new { ok = true, saved = clean.Count };
         }
 
         // ═════ item master (EGP_SYSTEM_ITEMS_B with its descriptive flexfield) — synced on its own, joined to the stock on this PC ═════

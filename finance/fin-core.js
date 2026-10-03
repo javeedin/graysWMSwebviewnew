@@ -250,13 +250,13 @@ FL.render = function () {
         if (FL.tab === 'data' && FL.TABS.data) FL.TABS.data.render($('main'));
         else if (FL.tab === 'statements' && FL.tb) FL.tb.empty($('main'));
         else FL.welcome();
-        return;
+        return Promise.resolve();
     }
     Object.keys(FL.charts).forEach(function (k) { try { FL.charts[k].destroy(); } catch (e) { /* gone */ } });
     FL.charts = {};
     var t = FL.TABS[FL.tab], el = $('main');
     el.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i>Working…</div>';
-    Promise.resolve().then(function () { return t.render(el); }).then(function () {
+    return Promise.resolve().then(function () { return t.render(el); }).then(function () {
         if (FL.mixedCurrency && !FL.filter.ledger && !FL.filter.company && FL.tab !== 'data')
             el.insertAdjacentHTML('afterbegin', '<div class="callout warn"><i class="fa-solid fa-coins"></i> The ledgers have different currencies — these totals add them up as if they were one. Pick a ledger in the header.</div>');
     }).catch(function (e) { console.error(e); el.innerHTML = '<div class="callout bad"><b>Could not show this view.</b><br>' + esc(e && e.message || e) + '</div>'; });
