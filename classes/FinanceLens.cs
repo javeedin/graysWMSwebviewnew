@@ -120,7 +120,7 @@ namespace WMSApp
                 return new { ok = true, loaded = false, oldSample = true, root = Root };
             if (meta.Error != null || !meta.Rows.Any(r => Convert.ToString(r[0]) == "source"))
             {   // only live trial balances / segment values so far
-                var tb = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name IN ('fin_tb_live', 'fin_gl_raw')", 1);
+                var tb = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name IN ('fin_tb_live', 'fin_gl_balances')", 1);
                 return new { ok = true, loaded = false, root = Root, snapshotsOnly = tb.Error == null && tb.Rows.Count > 0 && Convert.ToInt64(tb.Rows[0][0]) > 0 };
             }
             var counts = Query("SELECT (SELECT COUNT(*) FROM fin_balances) AS balances, (SELECT COUNT(*) FROM fin_journals) AS journals, " +
@@ -300,13 +300,20 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
         }
         private static string Str(JsonElement e, string k) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(k, out var v) && v.ValueKind != JsonValueKind.Null ? (v.ValueKind == JsonValueKind.String ? v.GetString() : v.ToString()) : null;
 
-        // ── raw GL_BALANCES rows of a ledger × period, read once and kept here (the live trial balance is built from them) ──
-        internal const string RAW_TABLE = "CREATE TABLE IF NOT EXISTS fin_gl_raw (pod VARCHAR, ledger_id BIGINT, period_name VARCHAR, currency VARCHAR, ccid BIGINT, translated_flag VARCHAR, " +
-            "begin_dr DOUBLE, begin_cr DOUBLE, net_dr DOUBLE, net_cr DOUBLE)";
-        internal const string RAW_SYNC_TABLE = "CREATE TABLE IF NOT EXISTS fin_gl_raw_sync (pod VARCHAR, ledger_id BIGINT, period_name VARCHAR, currency VARCHAR, rows_read BIGINT, ms BIGINT, " +
+        // ── GL_BALANCES rows (every column) of a ledger × period, read once and kept here (the live trial balance is built from them) ──
+        // fin_gl_balances = pod + fetched_at + the GL_BALANCES columns with their own names (NUMBER → DOUBLE, *_ID → BIGINT, other types → VARCHAR);
+        // columns Fusion adds later are added to the table on the next read. fin_gl_balances_sync = one row per ledger × period × currency read.
+        internal const string RAW_SYNC_TABLE = "CREATE TABLE IF NOT EXISTS fin_gl_balances_sync (pod VARCHAR, ledger_id BIGINT, period_name VARCHAR, currency VARCHAR, rows_read BIGINT, columns_read INTEGER, ms BIGINT, " +
             "fetched_at TIMESTAMP, fetched_by VARCHAR)";
         internal static readonly string CCID_TABLE = "CREATE TABLE IF NOT EXISTS fin_ccid (coa_id VARCHAR, ccid BIGINT, account_type VARCHAR, summary_flag VARCHAR, " +
             string.Join(", ", Enumerable.Range(1, 30).Select(i => "segment" + i + " VARCHAR")) + ")";
+        private static string DuckType(string col, string oracleType)
+        {
+            string t = (oracleType ?? "").ToUpperInvariant();
+            if (t == "NUMBER" || t == "FLOAT" || t.StartsWith("BINARY_")) return col.EndsWith("_ID", StringComparison.OrdinalIgnoreCase) ? "BIGINT" : "DOUBLE";
+            return "VARCHAR";
+        }
+        private static string QI(string name) => "\"" + name.ToLowerInvariant().Replace("\"", "") + "\"";
 
         private static DuckDBConnection OpenWrite()
         {
@@ -316,8 +323,18 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             var conn = new DuckDBConnection("Data Source=" + DbPath);
             conn.Open();
             if (fresh) Exec(conn, "CREATE TABLE IF NOT EXISTS fin_meta (key VARCHAR, value VARCHAR)");   // still reads as "no data loaded"
-            Exec(conn, RAW_TABLE); Exec(conn, RAW_SYNC_TABLE); Exec(conn, CCID_TABLE);
+            Exec(conn, RAW_SYNC_TABLE); Exec(conn, CCID_TABLE);
+            Exec(conn, "DROP TABLE IF EXISTS fin_gl_raw"); Exec(conn, "DROP TABLE IF EXISTS fin_gl_raw_sync");   // the earlier few-column layout
             return conn;
+        }
+        private static List<(string Name, string Type)> TableColumns(DuckDBConnection conn, string table)
+        {
+            var list = new List<(string, string)>();
+            using var c = conn.CreateCommand();
+            c.CommandText = "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'main' AND table_name = " + Lit(table) + " ORDER BY ordinal_position";
+            using var r = c.ExecuteReader();
+            while (r.Read()) list.Add((r.GetString(0), r.GetString(1)));
+            return list;
         }
 
         /// <summary>The ledger's periods kept on this PC: period → (rows, fetched_at).</summary>
@@ -325,29 +342,44 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
         {
             var d = new Dictionary<string, (long, DateTime)>(StringComparer.Ordinal);
             if (!File.Exists(DbPath)) return d;
-            var t = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_gl_raw_sync'", 1);
-            if (t.Error != null || t.Rows.Count == 0 || Convert.ToInt64(t.Rows[0][0]) == 0) return d;
-            var r = Query("SELECT period_name, rows_read, CAST(fetched_at AS VARCHAR) FROM fin_gl_raw_sync WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND currency = " + Lit(currency), 10000);
+            var t = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name IN ('fin_gl_balances_sync', 'fin_gl_balances')", 1);
+            if (t.Error != null || t.Rows.Count == 0 || Convert.ToInt64(t.Rows[0][0]) < 2) return d;
+            var r = Query("SELECT period_name, rows_read, CAST(fetched_at AS VARCHAR) FROM fin_gl_balances_sync WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND currency = " + Lit(currency), 10000);
             foreach (var row in r.Rows) d[Convert.ToString(row[0])] = (Convert.ToInt64(row[1]), DateTime.TryParse(Convert.ToString(row[2]), CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt) ? dt : DateTime.MinValue);
             return d;
         }
 
-        /// <summary>Replaces one ledger × period of fin_gl_raw. rows = ccid, translated_flag, begin_dr, begin_cr, net_dr, net_cr.</summary>
-        public static void SaveRaw(string pod, long ledgerId, string period, string currency, List<object[]> rows, long ms, string user)
+        /// <summary>Replaces one ledger × period (actuals, that currency) of fin_gl_balances with the rows read (every column).</summary>
+        public static void SaveRaw(string pod, long ledgerId, string period, string currency, List<(string Col, string Type)> cols, List<Dictionary<string, object>> rows, long ms, string user)
         {
             lock (_lock)
             {
                 using var conn = OpenWrite();
-                string w = "pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND period_name = " + Lit(period) + " AND currency = " + Lit(currency);
-                Exec(conn, "DELETE FROM fin_gl_raw WHERE " + w);
-                Exec(conn, "DELETE FROM fin_gl_raw_sync WHERE " + w);
-                Append(conn, "fin_gl_raw", rows.Select(r => new object[] { pod ?? "", ledgerId, period, currency, r[0], r[1], r[2], r[3], r[4], r[5] }).ToList());
-                Append(conn, "fin_gl_raw_sync", new List<object[]> { new object[] { pod ?? "", ledgerId, period, currency, (long)rows.Count, ms, DateTime.Now, user ?? "" } });
+                Exec(conn, "CREATE TABLE IF NOT EXISTS fin_gl_balances (pod VARCHAR, fetched_at TIMESTAMP, " + string.Join(", ", cols.Select(c => QI(c.Col) + " " + DuckType(c.Col, c.Type))) + ")");
+                var have = TableColumns(conn, "fin_gl_balances");
+                foreach (var c in cols.Where(c => !have.Any(h => string.Equals(h.Name, c.Col, StringComparison.OrdinalIgnoreCase))))
+                    Exec(conn, "ALTER TABLE fin_gl_balances ADD COLUMN " + QI(c.Col) + " " + DuckType(c.Col, c.Type));
+                have = TableColumns(conn, "fin_gl_balances");
+                string w = "pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND period_name = " + Lit(period) + " AND currency_code = " + Lit(currency) + " AND actual_flag = 'A'";
+                Exec(conn, "DELETE FROM fin_gl_balances WHERE " + w);
+                Exec(conn, "DELETE FROM fin_gl_balances_sync WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND period_name = " + Lit(period) + " AND currency = " + Lit(currency));
+                var now = DateTime.Now;
+                object Val(Dictionary<string, object> row, string name, string type)
+                {
+                    if (!row.TryGetValue(name.ToUpperInvariant(), out var v) && !row.TryGetValue(name, out v)) return null;
+                    string sv = v == null ? null : Convert.ToString(v, CultureInfo.InvariantCulture);
+                    if (string.IsNullOrEmpty(sv)) return null;
+                    if (type == "BIGINT") return long.TryParse(sv, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l) ? l : decimal.TryParse(sv, NumberStyles.Float, CultureInfo.InvariantCulture, out var dm) ? (long)dm : null;
+                    if (type == "DOUBLE") return double.TryParse(sv, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : null;
+                    return sv;
+                }
+                Append(conn, "fin_gl_balances", rows.Select(row => have.Select(h => h.Name == "pod" ? pod ?? "" : h.Name == "fetched_at" ? now : Val(row, h.Name, h.Type)).ToArray()).ToList());
+                Append(conn, "fin_gl_balances_sync", new List<object[]> { new object[] { pod ?? "", ledgerId, period, currency, (long)rows.Count, cols.Count, ms, now, user ?? "" } });
                 Exec(conn, "CHECKPOINT");
             }
         }
 
-        /// <summary>The kept rows of some periods: (period, ccid, translated_flag, begin_dr, begin_cr, net_dr, net_cr).</summary>
+        /// <summary>What the trial balance needs from the kept rows: (period, ccid, translated_flag, begin_dr, begin_cr, net_dr, net_cr).</summary>
         public static List<(string Period, long Ccid, string Tf, double Bdr, double Bcr, double Ndr, double Ncr)> LoadRaw(string pod, long ledgerId, string currency, IEnumerable<string> periods)
         {
             var list = new List<(string, long, string, double, double, double, double)>();
@@ -358,12 +390,15 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 ResetSessionNoLock();
                 using var conn = new DuckDBConnection("Data Source=" + DbPath);
                 conn.Open();
+                var cols = TableColumns(conn, "fin_gl_balances");
+                if (cols.Count == 0) return list;
+                bool tf = cols.Any(c => c.Name == "translated_flag");
                 using var c = conn.CreateCommand();
-                c.CommandText = "SELECT period_name, ccid, translated_flag, begin_dr, begin_cr, net_dr, net_cr FROM fin_gl_raw WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId +
-                                " AND currency = " + Lit(currency) + " AND period_name IN (" + string.Join(",", names.Select(Lit)) + ")";
+                c.CommandText = "SELECT period_name, code_combination_id, " + (tf ? "translated_flag" : "NULL") + ", begin_balance_dr, begin_balance_cr, period_net_dr, period_net_cr FROM fin_gl_balances WHERE pod = " + Lit(pod ?? "") +
+                                " AND ledger_id = " + ledgerId + " AND currency_code = " + Lit(currency) + " AND actual_flag = 'A' AND period_name IN (" + string.Join(",", names.Select(Lit)) + ")";
                 using var r = c.ExecuteReader();
                 double N(int i) => r.IsDBNull(i) ? 0 : Convert.ToDouble(r.GetValue(i), CultureInfo.InvariantCulture);
-                while (r.Read()) list.Add((r.GetString(0), Convert.ToInt64(r.GetValue(1)), r.IsDBNull(2) ? null : r.GetString(2), N(3), N(4), N(5), N(6)));
+                while (r.Read()) list.Add((r.GetString(0), Convert.ToInt64(r.GetValue(1)), r.IsDBNull(2) ? null : Convert.ToString(r.GetValue(2)), N(3), N(4), N(5), N(6)));
             }
             return list;
         }
@@ -394,15 +429,18 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             if (!File.Exists(DbPath)) return;
             try
             {
-                Exec(conn, SEGVAL_TABLE); Exec(conn, TB_TABLE); Exec(conn, RAW_TABLE); Exec(conn, RAW_SYNC_TABLE); Exec(conn, CCID_TABLE);
+                Exec(conn, SEGVAL_TABLE); Exec(conn, TB_TABLE); Exec(conn, RAW_SYNC_TABLE); Exec(conn, CCID_TABLE);
                 Exec(conn, "ATTACH " + Lit(DbPath.Replace('\\', '/')) + " AS prev (READ_ONLY)");
                 try
                 {
-                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_raw", "fin_gl_raw_sync", "fin_ccid" })
+                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances" })
                     {
                         using var c = conn.CreateCommand();
                         c.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog = 'prev' AND table_name = '" + t + "'";
-                        if (Convert.ToInt64(c.ExecuteScalar()) > 0) Exec(conn, "INSERT INTO " + t + " SELECT * FROM prev." + t);
+                        if (Convert.ToInt64(c.ExecuteScalar()) == 0) continue;
+                        // fin_gl_balances has the pod's own columns: copied whole (its layout comes with it)
+                        if (t == "fin_gl_balances") Exec(conn, "CREATE TABLE fin_gl_balances AS SELECT * FROM prev.fin_gl_balances");
+                        else Exec(conn, "INSERT INTO " + t + " SELECT * FROM prev." + t);
                     }
                 }
                 finally { Exec(conn, "DETACH prev"); }

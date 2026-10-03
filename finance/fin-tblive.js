@@ -38,11 +38,11 @@
             '<label class="sm"><input type="checkbox" id="tl-cc"' + (L.byCc ? ' checked' : '') + '> by cost centre</label>' +
             '<label class="sm"><input type="checkbox" id="tl-fold"' + (L.fold ? ' checked' : '') + ' title="Adjustment periods (e.g. Adj-25) are added to the period they close"> fold adjustment periods</label>' +
             '<label class="sm" title="One query per period and company runs at a time per slot; a query that still times out is split by account ranges">Reads in parallel <select id="tl-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + (L.par === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>' +
-            '<label class="sm" title="This PC keeps the GL_BALANCES rows of every ledger and period it has read (DuckDB fin_gl_raw) and builds the trial balance from them. Tick to read the periods from Fusion again, e.g. after postings."><input type="checkbox" id="tl-ref"> read again from Fusion</label>' +
+            '<label class="sm" title="This PC keeps the GL_BALANCES rows of every ledger and period it has read (DuckDB fin_gl_balances, every column) and builds the trial balance from them. Tick to read the periods from Fusion again, e.g. after postings."><input type="checkbox" id="tl-ref"> read again from Fusion</label>' +
             '<button class="btn primary" id="tl-go"><i class="fa-solid fa-bolt"></i> Fetch from Fusion</button></div>' +
             '<div class="row" style="margin-top:6px"><span class="sm muted">Companies</span><div id="tl-cos" class="tl-cos"></div></div>' +
             '<div id="fu-prog"></div></div><div id="tl-res"></div>' +
-            '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-database"></i> GL balances kept on this PC <small>raw GL_BALANCES rows per ledger and period (DuckDB fin_gl_raw) — a trial balance reads Fusion only for periods missing here</small></h3><div id="tl-raw"></div></div>' +
+            '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-database"></i> GL balances kept on this PC <small>GL_BALANCES rows with all their columns, per ledger and period (DuckDB fin_gl_balances) — a trial balance reads Fusion only for periods missing here</small></h3><div id="tl-raw"></div></div>' +
             '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-box-archive"></i> Saved trial balances <small>open without asking Fusion</small></h3><div id="tl-saved"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div></div>';
         T.wireHead(el);
         FL.fusion.paint();
@@ -272,16 +272,16 @@
     };
     T.listRaw = function () {
         var box = $('tl-raw'); if (!box) return;
-        FL.call('finQuery', { sql: "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_name = 'fin_gl_raw_sync'", maxRows: 1 }).then(function (d) {
+        FL.call('finQuery', { sql: "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_name = 'fin_gl_balances_sync'", maxRows: 1 }).then(function (d) {
             if (!d.rows.length || !d.rows[0][0]) return [];
-            return FL.call('finQuery', { sql: "SELECT s.pod, s.ledger_id, s.period_name, s.currency, s.rows_read, s.ms, CAST(s.fetched_at AS VARCHAR) FROM fin_gl_raw_sync s ORDER BY s.fetched_at DESC", maxRows: 500 }).then(function (q) { return q.rows; });
+            return FL.call('finQuery', { sql: "SELECT s.pod, s.ledger_id, s.period_name, s.currency, s.rows_read, s.ms, CAST(s.fetched_at AS VARCHAR), s.columns_read FROM fin_gl_balances_sync s ORDER BY s.fetched_at DESC", maxRows: 500 }).then(function (q) { return q.rows; });
         }).catch(function () { return []; }).then(function (rows) {
             if (!$('tl-raw')) return;
             var leds = {}; ((L.disc && L.disc.ledgers) || []).forEach(function (l) { leds[String(l.id)] = l.name; });
             box.innerHTML = rows.length ? '<div class="scroll" style="max-height:220px">' + FL.table([{ label: 'Pod', get: function (x) { return x[0] || 'logged-in'; } }, { label: 'Ledger', get: function (x) { return leds[String(x[1])] || x[1]; } },
-                { label: 'Period', get: function (x) { return x[2]; } }, { label: 'Currency', get: function (x) { return x[3]; } }, { label: 'Rows', n: 1, get: function (x) { return (+x[4]).toLocaleString(); } },
+                { label: 'Period', get: function (x) { return x[2]; } }, { label: 'Currency', get: function (x) { return x[3]; } }, { label: 'Rows', n: 1, get: function (x) { return (+x[4]).toLocaleString(); } }, { label: 'Columns', n: 1, get: function (x) { return x[7]; } },
                 { label: 'Read in', n: 1, get: function (x) { return ((+x[5] || 0) / 1000).toFixed(1) + ' s'; } }, { label: 'Read at', get: function (x) { return String(x[6] || '').slice(0, 16); } }], rows) + '</div>' +
-                '<p class="sm muted">Query them in Data › SQL explorer: <code>fin_gl_raw</code> joined to <code>fin_ccid</code> (segments of every code combination read so far).</p>'
+                '<p class="sm muted">Query them in Data › SQL explorer: <code>fin_gl_balances</code> (every GL_BALANCES column) joined to <code>fin_ccid</code> on code_combination_id = ccid (segments of every code combination read so far).</p>'
                 : '<p class="sm muted">None yet — the first trial balance of a ledger and period reads its GL_BALANCES rows from Fusion and keeps them here.</p>';
         });
     };

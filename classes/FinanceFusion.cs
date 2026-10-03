@@ -70,6 +70,8 @@ namespace WMSApp
             public Runner Run; public CancellationToken Ct; public Action<string> Progress;
             public List<string> Log = new();
             public Dictionary<string, HashSet<string>> Cols = new(StringComparer.OrdinalIgnoreCase);
+            /// <summary>table → column → Oracle data type, in column order (from ALL_TAB_COLUMNS).</summary>
+            public Dictionary<string, List<(string Col, string Type)>> Types = new(StringComparer.OrdinalIgnoreCase);
             public bool Has(string table, string col) => Cols.TryGetValue(table, out var c) && c.Contains(col);
             public bool HasTable(string table) => Cols.ContainsKey(table) && Cols[table].Count > 0;
             public void Note(string s) { lock (Log) Log.Add(DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) + "  " + s); Progress?.Invoke(s); }
@@ -125,6 +127,7 @@ namespace WMSApp
         {
             x.Note("Reading the data dictionary…");
             var r = await Try(x, "data dictionary", 20000,
+                "SELECT table_name, column_name, data_type, column_id FROM all_tab_columns WHERE table_name IN (" + string.Join(",", PROBE_TABLES.Select(Q)) + ")",
                 "SELECT table_name, column_name FROM all_tab_columns WHERE table_name IN (" + string.Join(",", PROBE_TABLES.Select(Q)) + ")").ConfigureAwait(false);
             if (r == null) return;
             foreach (var row in r.Rows)
@@ -132,8 +135,11 @@ namespace WMSApp
                 string t = S(row, "TABLE_NAME"), c = S(row, "COLUMN_NAME");
                 if (t == null || c == null) continue;
                 if (!x.Cols.TryGetValue(t, out var set)) x.Cols[t] = set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                set.Add(c);
+                if (!set.Add(c)) continue;   // the same table can be visible in two schemas
+                if (!x.Types.TryGetValue(t, out var list)) x.Types[t] = list = new();
+                list.Add((c, S(row, "DATA_TYPE") ?? "VARCHAR2"));
             }
+            foreach (var t in x.Types.Keys.ToList()) x.Types[t] = x.Types[t].ToList();
         }
 
         // ───────────────────────── discovery ─────────────────────────
@@ -1167,7 +1173,7 @@ namespace WMSApp
                        " · quarter from " + fq.Name + " · year from " + fy.Name + (cos.Count > 0 ? " · companies " + string.Join(", ", cos) : " · every company") + (byCc ? " · by cost centre" : "") +
                        " · " + roles.Count + " period(s): " + string.Join(", ", roles.Select(r => r.Period)) + " · kept on this PC after the first read");
 
-                // 1. the raw GL_BALANCES rows of each period are kept on this PC (DuckDB fin_gl_raw); only missing periods are read
+                // 1. the GL_BALANCES rows (every column) of each period are kept on this PC (DuckDB fin_gl_balances); only missing periods are read
                 var have = FinanceLens.RawPeriods(o.Pod, led.Id, led.Currency);
                 var sources = new List<object>();
                 var toRead = roles.Select(r => r.Period).Distinct().Where(n => o.Refresh || !have.ContainsKey(n)).ToList();
@@ -1180,16 +1186,21 @@ namespace WMSApp
                 var gate = new SemaphoreSlim(Math.Clamp(o.Parallel, 1, 4));
                 (long Lo, long Hi)? bounds = null;
                 var bLock = new SemaphoreSlim(1, 1);
-                bool hasTf = x.Has("GL_BALANCES", "TRANSLATED_FLAG");
-                const int CAP = 50000;
+                // every column of GL_BALANCES (as the data dictionary lists them) — kept as they are for later use
+                var glbCols = (x.Types.TryGetValue("GL_BALANCES", out var gt) ? gt : new List<(string Col, string Type)>())
+                    .Where(c => Regex.IsMatch(c.Col, "^[A-Z][A-Z0-9_$#]*$", RegexOptions.IgnoreCase)).ToList();
+                if (glbCols.Count == 0) glbCols = new[] { "LEDGER_ID", "CODE_COMBINATION_ID", "CURRENCY_CODE", "PERIOD_NAME", "ACTUAL_FLAG", "TRANSLATED_FLAG", "BEGIN_BALANCE_DR", "BEGIN_BALANCE_CR", "PERIOD_NET_DR", "PERIOD_NET_CR" }
+                    .Select(c => (c, c.EndsWith("_DR") || c.EndsWith("_CR") || c.EndsWith("_ID") ? "NUMBER" : "VARCHAR2")).ToList();
+                string selectCols = string.Join(", ", glbCols.Select(c => "b." + c.Col));
+                const int CAP = 20000;
                 bool Slow(string e) => e != null && (e.IndexOf("timed out", StringComparison.OrdinalIgnoreCase) >= 0 || e.IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0 || e.Contains("ORA-01013"));
 
                 // one period: plain filters only (no ORDER BY, no join); the runner adds ROWNUM <= cap. When a read is cut at the cap or
                 // times out it is read again in code_combination_id ranges (bounds from the primary key of GL_CODE_COMBINATIONS), halved again as needed.
-                async Task<List<object[]>> Fetch(string period, long? lo, long? hi, int depth)
+                async Task<List<Dictionary<string, object>>> Fetch(string period, long? lo, long? hi, int depth)
                 {
                     string what = led.Name + " · GL_BALANCES " + period + (lo != null ? " · ids " + lo + "–" + hi : "");
-                    string sql = "SELECT b.code_combination_id ccid" + (hasTf ? ", b.translated_flag tf" : "") + ", b.begin_balance_dr bdr, b.begin_balance_cr bcr, b.period_net_dr ndr, b.period_net_cr ncr" +
+                    string sql = "SELECT " + selectCols +
                                  " FROM gl_balances b WHERE b.ledger_id = " + led.Id + " AND b.period_name = " + Q(period) + " AND b.currency_code = " + Q(led.Currency) + " AND b.actual_flag = 'A'" +
                                  " AND (b.begin_balance_dr <> b.begin_balance_cr OR b.period_net_dr <> 0 OR b.period_net_cr <> 0)" +
                                  (lo != null ? " AND b.code_combination_id >= " + lo.Value.ToString(CultureInfo.InvariantCulture) + " AND b.code_combination_id < " + hi.Value.ToString(CultureInfo.InvariantCulture) : "");
@@ -1209,7 +1220,7 @@ namespace WMSApp
                         }
                         x.Note("   " + what + " · chunk " + pages + " · rows " + from.ToString("N0", CultureInfo.InvariantCulture) + "–" + Math.Max(from, to).ToString("N0", CultureInfo.InvariantCulture) +
                                " · " + (t0.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s");
-                        return res.Rows.Select(rw => new object[] { L(rw, "CCID"), hasTf ? S(rw, "TF") : null, D(rw, "BDR"), D(rw, "BCR"), D(rw, "NDR"), D(rw, "NCR") }).ToList();
+                        return res.Rows;
                     }
                     if (!res.Success && !Slow(res.Error)) throw new InvalidOperationException(what + ": " + res.Error);
                     if (depth >= 14) throw new InvalidOperationException(what + ": still " + (res.Success ? "over " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows" : "timing out") + " after 14 splits");
@@ -1245,8 +1256,8 @@ namespace WMSApp
                 {
                     var tw = Stopwatch.StartNew();
                     var rows = await Fetch(n, null, null, 0).ConfigureAwait(false);
-                    FinanceLens.SaveRaw(o.Pod, led.Id, n, led.Currency, rows, tw.ElapsedMilliseconds, null);
-                    x.Note("✓ " + n + ": " + rows.Count.ToString("N0", CultureInfo.InvariantCulture) + " GL_BALANCES rows read in " + (tw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s and kept on this PC (fin_gl_raw)");
+                    FinanceLens.SaveRaw(o.Pod, led.Id, n, led.Currency, glbCols, rows, tw.ElapsedMilliseconds, null);
+                    x.Note("✓ " + n + ": " + rows.Count.ToString("N0", CultureInfo.InvariantCulture) + " GL_BALANCES rows (" + glbCols.Count + " columns) read in " + (tw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s and kept on this PC (fin_gl_balances)");
                     lock (sources) sources.Add(new { period = n, from = "fusion", rows = (long)rows.Count, at = DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) });
                 })).ConfigureAwait(false);
 
