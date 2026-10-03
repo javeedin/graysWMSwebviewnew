@@ -1143,6 +1143,8 @@ namespace WMSApp
             public bool Hint { get; set; } = true;
             /// <summary>Company × account: one query per company (c.SEGMENTn = 'x'), Reads in parallel at a time — instead of one query for all companies first.</summary>
             public bool PerCompany { get; set; } = true;
+            /// <summary>Trial balance sync: these normal periods (period_seq), each with the adjustment periods it closes; empty = PeriodSeq.</summary>
+            public List<int> PeriodSeqs { get; set; } = new();
         }
 
         /// <summary>
@@ -1462,8 +1464,8 @@ namespace WMSApp
             if (have.Count == 0 || have.Contains("TRANSLATED_FLAG")) keys.Add("b.translated_flag");
             var segs = new List<string> { "c.{COMPANY_SEGMENT}", "c.{ACCOUNT_SEGMENT}" }; if (byCc) segs.Add("c.{COST_CENTRE_SEGMENT}");
             var segAs = new List<string> { "c.{COMPANY_SEGMENT} company", "c.{ACCOUNT_SEGMENT} account" }; if (byCc) segAs.Add("c.{COST_CENTRE_SEGMENT} cost_centre");
-            // no account_type from Fusion (it would need MAX() - it belongs to each combination): the type comes from this PC (FinanceLens.AccountTypes)
-            res.Default = "SELECT " + (o.Hint ? "/*+ LEADING(b) USE_HASH(c) PARALLEL(4) */ " : "") + string.Join(", ", keys) + ",\n       " + string.Join(", ", segAs) + ",\n       " +
+            // account_type belongs to each combination: MAX() gives the account's one value (the join is there anyway); this PC fills it when a query leaves it out
+            res.Default = "SELECT " + (o.Hint ? "/*+ LEADING(b) USE_HASH(c) PARALLEL(4) */ " : "") + string.Join(", ", keys) + ",\n       " + string.Join(", ", segAs) + ", MAX(c.account_type) account_type,\n       " +
                           string.Join(", ", sumCols.Select(c => "SUM(b." + c + ") " + c)) +
                           "\nFROM gl_balances b JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id" +
                           "\nWHERE b.ledger_id = {LEDGER_ID} AND b.period_name = '{PERIOD}' AND b.currency_code = '{CURRENCY}' AND b.actual_flag = 'A'" +
@@ -1580,6 +1582,51 @@ namespace WMSApp
             counts(reads, res.Rows.Count);
             return res;
         }
+
+        /// <summary>
+        /// Trial balance sync (Data › Trial balance sync): reads the chosen normal periods of one ledger — each with the adjustment periods
+        /// it closes — grouped by company × account (× cost centre) through <see cref="AccountReadAsync"/> (one query per company, only what this
+        /// PC is missing unless Refresh), remembers the ledger and calendar (fin_tb_periods / fin_tb_ledgers) and rebuilds the statements data
+        /// from every synced period (<see cref="FinanceLens.BuildFromTb"/>) unless a full SQL / BICC load is on this PC.
+        /// </summary>
+        public static async Task<object> SyncTbAsync(Runner run, TbOptions o, Action<string> progress, CancellationToken ct)
+        {
+            var x = new Ctx { Run = run, Ct = ct, Progress = progress, LogSql = o.LogSql };
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                var led = o.Ledger;
+                if (led == null) return new { ok = false, error = "Pick a ledger." };
+                led.Company = SegCol(led.Company); led.Account = SegCol(led.Account); led.CostCentre = SegCol(led.CostCentre);
+                if (led.Company == null || led.Account == null || string.IsNullOrEmpty(led.Currency) || string.IsNullOrEmpty(led.PeriodSet))
+                    return new { ok = false, error = "Ledger " + led.Name + ": the company / account segment or the calendar is missing — run Discover in Fusion setup." };
+                await Probe(x).ConfigureAwait(false);
+                var calr = await CalendarAsync(x, led, o.FoldAdjustments).ConfigureAwait(false);
+                if (calr == null) return new { ok = false, error = "Could not read GL_PERIODS.", log = x.Log };
+                var (cal, normal, target) = calr.Value;
+                var seqs = new HashSet<int>((o.PeriodSeqs ?? new()).Where(v => v > 0)); if (seqs.Count == 0 && o.PeriodSeq > 0) seqs.Add(o.PeriodSeq);
+                var pick = normal.Where(p => seqs.Contains(p.Seq)).OrderBy(p => p.Seq).ToList();
+                if (pick.Count == 0) return new { ok = false, error = "Pick the periods to sync.", log = x.Log };
+                var names = target.Where(kv => pick.Contains(kv.Value)).Select(kv => kv.Key).Distinct().ToList();
+                bool byCc = o.ByCostCentre && led.CostCentre != null;
+                var cos = new HashSet<string>((o.Companies ?? new()).Where(v => !string.IsNullOrWhiteSpace(v)));
+                x.Note("Trial balance sync " + led.Name + " · " + pick.Count + " period(s) " + pick[0].Name + (pick.Count > 1 ? " – " + pick[^1].Name : "") +
+                       (names.Count > pick.Count ? " (+ " + string.Join(", ", names.Where(n => !pick.Any(p => p.Name == n))) + ")" : "") +
+                       (cos.Count > 0 ? " · companies " + string.Join(", ", cos) : " · every company") + (byCc ? " · by cost centre" : "") + (o.Refresh ? " · read again" : " · only what this PC is missing"));
+                var sources = new List<object>(); int reads = 0, rows = 0;
+                var rr = await AccountReadAsync(x, o, led, names, byCc, cos, sources, new(), new(), (a, b) => { reads = a; rows = b; }).ConfigureAwait(false);
+                if (rr.Error != null) { x.Note("✖ " + rr.Error); return new { ok = false, error = rr.Error, log = x.Log }; }
+                FinanceLens.SaveTbCalendar(o.Pod, led, cal.Where(c => names.Contains(c.Name)).Select(c => (c.Name, target[c.Name].Seq, c.Year, c.Num, c.Quarter, c.Start, c.End, c.Adj)));
+                var built = FinanceLens.BuildFromTb(o.Pod, x.Note);
+                x.Note("✓ Trial balance sync done in " + (sw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s · " + reads + " quer" + (reads == 1 ? "y" : "ies") + " to Fusion");
+                return new { ok = true, periods = pick.Select(p => new { name = p.Name, seq = p.Seq }).ToList(), reads, rows, sources, built, queryTemplate = rr.Template, defaultTemplate = rr.Default, customQuery = rr.Custom, ms = sw.ElapsedMilliseconds, log = x.Log };
+            }
+            catch (OperationCanceledException) { return new { ok = false, error = "Cancelled.", log = x.Log }; }
+            catch (Exception ex) { x.Note("✖ " + ex.Message); return new { ok = false, error = ex.Message, log = x.Log }; }
+        }
+
+        /// <summary>The periods synced on this PC per pod × ledger (for the Data page): companies, rows, when.</summary>
+        public static object TbSyncStatus() => FinanceLens.TbSyncStatus();
 
         // ═════ code combination map kept on this PC ═════
         public sealed class CcidInfo

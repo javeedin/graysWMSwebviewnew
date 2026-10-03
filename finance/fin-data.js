@@ -7,11 +7,12 @@
    Host actions: finFusionCheck, finFusionSync (periodSeqs / kinds / splitBy), finFusionSegValues, finSegValues,
    finBiccInspect, finBiccLoad, finUcmList, finUcmDownload (classes/FinanceFusion.cs, FinanceBicc.cs). */
 (function () {
-    var D = FL.dataTab = { view: FL.ls('data.view', 'status'), check: FL.ls('fusion.check', null), seg: null, segVals: null, ucm: null, biccRes: null };
+    var D = FL.dataTab = { view: FL.ls('data.view', 'tbsync'), check: FL.ls('fusion.check', null), seg: null, segVals: null, ucm: null, biccRes: null };
     var VIEWS = [
-        ['status', 'fa-signal', 'Sync status', 'which months match Fusion'],
+        ['tbsync', 'fa-scale-balanced', 'Trial balance sync', 'ledger × periods → statements'],
+        ['setup', 'fa-sliders', 'Fusion setup', 'ledgers, chart of accounts roles'],
         ['coa', 'fa-sitemap', 'Chart of accounts', 'segments and their values'],
-        ['setup', 'fa-sliders', 'Fusion setup', 'ledgers, segments, SQL load'],
+        ['status', 'fa-layer-group', 'Full GL load', 'all balances + journals, month check'],
         ['bicc', 'fa-boxes-stacked', 'BICC bulk extracts', 'all balances & journals at once'],
         ['mapping', 'fa-diagram-project', 'Account mapping', 'account → statement line'],
         ['sql', 'fa-terminal', 'SQL explorer', 'read-only DuckDB SQL'],
@@ -31,7 +32,7 @@
 
     FL.TABS.data = {
         render: function (el) {
-            if (!VIEWS.some(function (v) { return v[0] === D.view; })) D.view = 'status';
+            if (!VIEWS.some(function (v) { return v[0] === D.view; })) D.view = 'tbsync';
             el.innerHTML = '<div class="split"><div class="side">' + VIEWS.map(function (v) {
                 return '<div class="item' + (v[0] === D.view ? ' on' : '') + '" data-v="' + v[0] + '"><i class="fa-solid ' + v[1] + '"></i><div>' + v[2] + '<small>' + v[3] + '</small></div></div>';
             }).join('') + '</div><div id="dt-main"></div></div>';
@@ -41,12 +42,15 @@
         }
     };
 
-    // ═════════ Sync status ═════════
+    // ═════════ Trial balance sync (fin-tbsync.js) ═════════
+    D.tbsync = function (el) { return FL.tbsync.render(el); };
+
+    // ═════════ Full GL load (sync status) ═════════
     D.status = function (el) {
         var st = FL.status || {}, m = st.meta || {}, c = st.counts || {}, s = sv();
         var kpi = function (l, v, sub) { return '<div class="kpi"><div class="k-l">' + esc(l) + '</div><div class="k-v" style="font-size:1.05rem">' + esc(v) + '</div>' + (sub ? '<div class="sm muted">' + esc(sub) + '</div>' : '') + '</div>'; };
         var h = '<div class="kpis" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">' +
-            kpi('Source', st.loaded ? (m.source === 'FUSION' ? 'Oracle Fusion' + (m.loader === 'BICC' ? ' · BICC' : ' · SQL') : m.source || '?') : 'nothing loaded', m.pod ? 'pod ' + m.pod : '') +
+            kpi('Source', st.loaded ? (m.source === 'FUSION' ? 'Oracle Fusion' + (m.loader === 'BICC' ? ' · BICC' : ' · SQL') : m.source === 'FUSION_TB' ? 'Synced trial balances' : m.source || '?') : 'nothing loaded', m.pod ? 'pod ' + m.pod : '') +
             kpi('Last load', st.loaded ? String(m.loaded_at || '').replace('T', ' ').slice(0, 16) : '—', m.load_mode || '') +
             kpi('Ledgers', (FL.dims.ledgers || []).length || (st.loaded ? 1 : 0), (FL.dims.ledgers || []).map(function (l) { return l.code + ' ' + l.currency; }).join(' · ')) +
             kpi('Periods', st.loaded ? (c.first_period || '') + ' – ' + (c.last_period || '') : '—', FL.dims.periods.length + ' months') +

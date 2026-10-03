@@ -1,7 +1,7 @@
 /* Finance Lens — Statements: any template (income statement, balance sheet, cash flow, your own) for the period and filter,
    formatted like a published statement; click any amount to drill; account detail; Excel (formatted) / CSV / print. */
 (function () {
-    var S = FL.stmt = { tpl: FL.ls('stmt.tpl', 'PL'), hideZero: FL.ls('stmt.hideZero', true), detail: false };
+    var S = FL.stmt = { tpl: FL.ls('stmt.tpl', 'TB'), hideZero: FL.ls('stmt.hideZero', true), detail: false };
 
     FL.stmtOpts = function () { return { period: FL.filter.period, scale: FL.filter.scale }; };
 
@@ -78,7 +78,7 @@
 
     FL.TABS.statements = {
         render: function (el) {
-            if (S.tpl === 'TB' && FL.tb) return FL.tb.render(el);
+            if (S.tpl === 'TB' || !(FL.status && FL.status.loaded)) return FL.tb.render(el);
             var tpl = FL.tpl(S.tpl) || FL.templates[0];
             if (!tpl) { el.innerHTML = '<div class="empty">No templates — open the Template designer.</div>'; return; }
             S.tpl = tpl.id;
@@ -86,10 +86,7 @@
                 var opts = FL.stmtOpts(), st = FINE.compute(tpl, data, opts);
                 S.last = { tpl: tpl, st: st, opts: opts };
                 var sub = S.detail ? subRows(tpl, data, opts, st) : null;
-                el.innerHTML = '<div class="row toolbar" style="margin-bottom:10px"><div class="seg" id="st-tpls">' +
-                    FL.templates.map(function (t) { return '<button data-t="' + esc(t.id) + '" class="' + (t.id === tpl.id ? 'on' : '') + '" title="' + esc(t.description || '') + '">' + esc(t.name) + '</button>'; }).join('') +
-                    '<button data-t="TB" title="Every account: opening, debits, credits, closing — debits must equal credits"><i class="fa-solid fa-scale-balanced"></i> Trial balance</button></div>' +
-                    '<span class="grow"></span>' +
+                el.innerHTML = FL.tb.head() +
                     '<label class="sm"><input type="checkbox" id="st-zero"' + (S.hideZero ? ' checked' : '') + '> hide empty lines</label>' +
                     '<label class="sm"><input type="checkbox" id="st-det"' + (S.detail ? ' checked' : '') + '> account detail</label>' +
                     '<button class="btn sm" id="st-xl"><i class="fa-solid fa-file-excel"></i> Excel</button>' +

@@ -300,3 +300,11 @@ details.lf-card[open] > summary::before { content: '▾'; }
 .tl-qwarn .tl-fx { display: inline-block; margin: 0 6px 2px 0; padding: 0 6px; background: #fff; border: 1px solid var(--line2); border-radius: 10px; white-space: nowrap; }
 .tl-qwarn .tl-fx s { color: #b91c1c; } .tl-qwarn .tl-fx code { color: #047857; }
 .tl-q textarea { width: 100%; box-sizing: border-box; font: 12px/1.45 var(--mono); padding: 8px; border: 1px solid var(--line2); border-radius: 6px; margin: 6px 0; resize: vertical; }
+/* Data › Trial balance sync: ledger × period grid */
+.ts-grid td.c, .ts-grid th.c { text-align: center; min-width: 52px; }
+.ts-grid .ts-cell { cursor: pointer; font-weight: 600; border-radius: 4px; }
+.ts-grid .ts-cell.full { background: #dcfce7; color: #166534; }
+.ts-grid .ts-cell.part { background: #fef9c3; color: #854d0e; }
+.ts-grid .ts-cell.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ts-grid .ts-cell sup { font-size: 9px; margin-left: 2px; font-weight: 400; }
+#ts-quick button { padding: 3px 8px; }

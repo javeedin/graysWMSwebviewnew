@@ -156,8 +156,20 @@ After a Fusion load every account gets a class from its type and name and the st
 same line ids as the starters, so KPIs, monitors, analytics and the board pack work at once. Click a line *name* in Statements
 for the accounts mapped to it.
 
-### Trial balance — live from Fusion
-Statements › Trial balance › **Live from Fusion** (also before anything is loaded — the other statements need a load):
+### Trial balance sync (Data › Trial balance sync)
+The quickest way to statements: **Data › Trial balance sync** (the Data tab's first view). Pick the pod, the ledger, the periods
+(From – To; *Year to date*, *Last 3*, *One period*), the companies and optionally *by cost centre*, then **Sync**. Each period —
+with the adjustment periods it closes — is read grouped by company × account in Fusion (the query below, one query per company
+and period, *Reads in parallel* at a time, only what this PC is missing unless *read again from Fusion*) and kept in DuckDB.
+After every sync the statements data is rebuilt from **all synced periods** (fin_balances, periods, companies, accounts with
+their type, cost centres, ledgers — source *synced trial balances*): **Statements** starts with the **Trial balance** (debits =
+credits check, Excel / CSV / *Save to APEX*), the income statement, balance sheet and cash flow, Analytics and KPIs all work on
+the synced periods, and the header's period list shows exactly those periods. The grid *Synced on this PC* shows ledger ×
+period (✓ every company, n/m some, cc by cost centre); select cells to *Sync again* or *Remove* them. A full SQL / BICC load
+(Data › Full GL load) wins over synced trial balances; they are kept beside it. Year to date figures need every period of the
+year synced (use *Year to date*). Account names come from the segment values on this PC (Data › Chart of accounts).
+
+The query, its options and the reading below are the same as for one period:
 pod, ledger, period, companies (all or some), optional cost centre, *Fetch from Fusion*. One read of `GL_BALANCES` (ledger
 currency, actuals, no translated / summary rows) joined only to `GL_CODE_COMBINATIONS`, grouped by company × account
 (× cost centre).

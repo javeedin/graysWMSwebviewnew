@@ -9,7 +9,7 @@ namespace WMSApp
     /// <summary>
     /// Finance Lens IPC (finance/index.html, classes/FinanceLens.cs): fin* actions, reply finResponse.
     /// finStatus, finQuery (one read-only SELECT on the finance DuckDB file), finClearData, finDocGet / finDocSave
-    /// (templates.json, config.json, notes.json next to the data), finSetRoot, finFusionDiscover / finFusionSync (Fusion GL
+    /// (templates.json, config.json, notes.json next to the data), finSetRoot, finTbSync / finTbSyncStatus / finTbSyncDelete (trial balance sync), finFusionDiscover / finFusionSync (Fusion GL
     /// through the Fusion SQL runner, classes/FinanceFusion.cs, progress finProgress, finCancel) and finAsk / finAskCancel
     /// (CFO Copilot, classes/FinanceAskAgent.cs: kill switch, audited with cost). Loading data and changing the folder are
     /// for AI admins; reading and editing statement templates is for everyone using the module.
@@ -169,6 +169,31 @@ namespace WMSApp
                             bool okTb = JsonSerializer.SerializeToElement(data).TryGetProperty("ok", out var okt) && okt.ValueKind == JsonValueKind.True;
                             AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_fusion_tb", Outcome = okTb ? "OK" : "FAILED", DurationMs = sw.ElapsedMilliseconds,
                                 Target = (PipeSrvStr(root, "pod") ?? "") + " · " + to.Ledger?.Name, Detail = to.PeriodSeq + (to.Companies?.Count > 0 ? " · " + string.Join(",", to.Companies) : "") });
+                            break;
+                        }
+                    case "finTbSync":           // Data › Trial balance sync: periods of one ledger grouped by company × account → DuckDB, statements rebuilt from them
+                        {
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can load finance data." }; break; }
+                            var to = root.GetProperty("options").Deserialize<FinanceFusion.TbOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            to.Pod = PipeSrvStr(root, "pod") ?? "";
+                            var cts = FinNewCts(TimeSpan.FromMinutes(60));
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            data = await Task.Run(() => FinanceFusion.SyncTbAsync(FinRunner(PipeSrvStr(root, "pod")), to, FinProgress(wv, requestId), cts.Token));
+                            bool okS = JsonSerializer.SerializeToElement(data).TryGetProperty("ok", out var oks) && oks.ValueKind == JsonValueKind.True;
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_tb_sync", Outcome = okS ? "OK" : "FAILED", DurationMs = sw.ElapsedMilliseconds,
+                                Target = (PipeSrvStr(root, "pod") ?? "") + " · " + to.Ledger?.Name, Detail = string.Join(",", to.PeriodSeqs ?? new()) + (to.Companies?.Count > 0 ? " · " + string.Join(",", to.Companies) : "") });
+                            break;
+                        }
+                    case "finTbSyncStatus":     // the synced trial balance periods on this PC
+                        data = await Task.Run(() => FinanceLens.TbSyncStatus());
+                        break;
+                    case "finTbSyncDelete":     // forget synced periods (statements rebuilt)
+                        {
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can remove finance data." }; break; }
+                            var per = root.TryGetProperty("periods", out var pe) && pe.ValueKind == JsonValueKind.Array ? pe.EnumerateArray().Select(v => v.GetString()).Where(v => !string.IsNullOrEmpty(v)).ToList() : new List<string>();
+                            long lid = root.TryGetProperty("ledgerId", out var li) && li.TryGetInt64(out var l2) ? l2 : 0;
+                            data = await Task.Run(() => FinanceLens.TbSyncDelete(PipeSrvStr(root, "pod") ?? "", lid, per));
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_tb_sync_delete", Outcome = "OK", Target = (PipeSrvStr(root, "pod") ?? "") + " · " + lid, Detail = string.Join(",", per) });
                             break;
                         }
                     case "finTbSave":           // keep a live trial balance in DuckDB (fin_tb_live)

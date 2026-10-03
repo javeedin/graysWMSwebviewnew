@@ -158,7 +158,8 @@ FL.refresh = function () {
 };
 FL.dataChip = function () {
     var s = FL.status || {}, m = s.meta || {}, c = s.counts || {};
-    $('datachip').innerHTML = s.loaded ? '<i class="fa-solid fa-database"></i> ' + esc(m.source || '?') + ' · ' + (c.journals || 0).toLocaleString() + ' journal lines · ' + esc(c.first_period || '') + ' – ' + esc(c.last_period || '')
+    $('datachip').innerHTML = s.loaded && m.source === 'FUSION_TB' ? '<i class="fa-solid fa-scale-balanced"></i> synced trial balances · ' + esc(c.first_period || '') + ' – ' + esc(c.last_period || '') + ' · ' + (FL.dims.periods || []).length + ' period(s)'
+        : s.loaded ? '<i class="fa-solid fa-database"></i> ' + esc(m.source || '?') + ' · ' + (c.journals || 0).toLocaleString() + ' journal lines · ' + esc(c.first_period || '') + ' – ' + esc(c.last_period || '')
         : '<i class="fa-solid fa-triangle-exclamation"></i> no data loaded';
 };
 FL.fillFilters = function () {
@@ -204,7 +205,7 @@ FL.render = function () {
     if (!FL.status || !FL.status.loaded) {
         // before any load: the Data workspace, and the trial balance live from Fusion under Statements
         if (FL.tab === 'data' && FL.TABS.data) FL.TABS.data.render($('main'));
-        else if (FL.tab === 'statements' && FL.tb) { FL.stmt.tpl = 'TB'; FL.tb.renderLive($('main')); }
+        else if (FL.tab === 'statements' && FL.tb) FL.tb.empty($('main'));
         else FL.welcome();
         return;
     }
@@ -225,9 +226,10 @@ FL.welcome = function () {
         '<div class="card" style="color:var(--ink)"><h3><i class="fa-solid fa-cloud-arrow-down"></i> Connect your Oracle Fusion general ledger</h3>' +
         '<p class="sm">Discover finds the ledgers, the chart of accounts segments and the account types; then load the GL balances and journals — month by month through Fusion SQL, or everything at once from BICC extracts.</p>' +
         (old ? '<div class="callout warn sm">This PC still holds the old built-in sample data — it is not shown.' + (admin ? ' <a onclick="FL.clearData()">Remove it</a>' : '') + '</div>' : '') +
-        (admin ? '<div class="row"><button class="btn primary" onclick="FL.dataTab && (FL.dataTab.view = \'setup\'); FL.show(\'data\')"><i class="fa-solid fa-plug"></i> Connect to Fusion</button>' +
-            '<button class="btn" onclick="FL.show(\'statements\')"><i class="fa-solid fa-bolt"></i> Trial balance live from Fusion</button></div>'
-            : '<div class="callout warn">An AI admin connects Finance Lens to Fusion on this PC.</div><button class="btn" onclick="FL.show(\'statements\')"><i class="fa-solid fa-bolt"></i> Trial balance live from Fusion</button>') + '</div></div>';
+        '<ol class="sm"><li><b>Fusion setup</b> — discover the ledgers and the chart of accounts once</li><li><b>Trial balance sync</b> — pick a ledger and the periods; Fusion groups the balances by company × account</li><li><b>Statements</b> — trial balance, income statement, balance sheet and cash flow of the synced periods</li></ol>' +
+        (admin ? '<div class="row"><button class="btn primary" onclick="FL.dataTab.go(\'tbsync\'); FL.show(\'data\')"><i class="fa-solid fa-scale-balanced"></i> Trial balance sync</button>' +
+            '<button class="btn" onclick="FL.dataTab.go(\'setup\'); FL.show(\'data\')"><i class="fa-solid fa-plug"></i> Fusion setup</button></div>'
+            : '<div class="callout warn">An AI admin syncs the finance data on this PC.</div>') + '</div></div>';
 };
 /** Removes the finance data file (setup, templates and mapping stay) */
 FL.clearData = function () {

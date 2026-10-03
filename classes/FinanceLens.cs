@@ -523,6 +523,177 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             return list.Where(z => z.Co != null && z.Ac != null).ToList();
         }
 
+        // ── trial balances synced from Fusion → the tables the statements read (when no full load is on this PC) ──
+        internal const string TBP_TABLE = "CREATE TABLE IF NOT EXISTS fin_tb_periods (pod VARCHAR, ledger_id BIGINT, period_name VARCHAR, period_seq INTEGER, fiscal_year INTEGER, period_num INTEGER, quarter INTEGER, " +
+            "start_date DATE, end_date DATE, adj BOOLEAN)";
+        internal const string TBL_TABLE = "CREATE TABLE IF NOT EXISTS fin_tb_ledgers (pod VARCHAR, ledger_id BIGINT, code VARCHAR, name VARCHAR, currency VARCHAR, coa_id VARCHAR, company_segment VARCHAR, " +
+            "cost_centre_segment VARCHAR, account_segment VARCHAR, category VARCHAR, company_names VARCHAR)";
+
+        /// <summary>Remembers the ledger and the calendar of the periods a trial balance sync read (period_seq = the normal period an adjustment period folds into).</summary>
+        public static void SaveTbCalendar(string pod, FinanceFusion.SyncLedger led, IEnumerable<(string Name, int Seq, int Year, int Num, int Quarter, string Start, string End, bool Adj)> periods)
+        {
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, TBP_TABLE); Exec(conn, TBL_TABLE);
+                var list = periods.ToList();
+                Exec(conn, "DELETE FROM fin_tb_periods WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + led.Id + " AND period_name IN (" + string.Join(",", list.Select(p => Lit(p.Name)).DefaultIfEmpty("''")) + ")");
+                object D(string v) => DateTime.TryParse(v, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? DateOnly.FromDateTime(d) : null;
+                Append(conn, "fin_tb_periods", list.Select(p => new object[] { pod ?? "", led.Id, p.Name, p.Seq, p.Year, p.Num, p.Quarter > 0 ? p.Quarter : (p.Num - 1) / 3 + 1, D(p.Start), D(p.End), p.Adj }).ToList());
+                Exec(conn, "DELETE FROM fin_tb_ledgers WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + led.Id);
+                Append(conn, "fin_tb_ledgers", new List<object[]> { new object[] { pod ?? "", led.Id, string.IsNullOrEmpty(led.Code) ? led.Id.ToString(CultureInfo.InvariantCulture) : led.Code, led.Name, led.Currency, led.CoaId,
+                    led.Company, led.CostCentre, led.Account, led.Category, JsonSerializer.Serialize(led.CompanyNames ?? new()) } });
+                Exec(conn, "CHECKPOINT");
+            }
+        }
+
+        /// <summary>
+        /// Builds fin_balances (ACTUAL), fin_periods, fin_companies, fin_cost_centres, fin_accounts, fin_ledgers, fin_segments and fin_meta
+        /// (source FUSION_TB) from the trial balances synced for a pod (fin_gl_balances_acct): per normal period opening = its begin balance,
+        /// debits / credits = the period's plus its adjustment periods', closing = opening + net; translated_flag 'R' rows left out; per
+        /// ledger × period the finest grain read (with cost centre when there is one). Never over a full SQL / BICC load.
+        /// </summary>
+        public static object BuildFromTb(string pod, Action<string> note)
+        {
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                string Scalar(string sql) { using var c = conn.CreateCommand(); c.CommandText = sql; var v = c.ExecuteScalar(); return v == null || v is DBNull ? null : Convert.ToString(v, CultureInfo.InvariantCulture); }
+                bool Has(string t) => Convert.ToInt64(Scalar("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'main' AND table_name = " + Lit(t))) > 0;
+                string src = Has("fin_meta") ? Scalar("SELECT MAX(value) FROM fin_meta WHERE key = 'source'") : null;
+                if (src != null && src != "FUSION_TB") { note?.Invoke("The statements keep using the full load on this PC (" + src + ") - the trial balances are kept beside it."); return new { built = false, reason = "full load" }; }
+                if (!Has("fin_gl_balances_acct") || !Has("fin_tb_periods") || !Has("fin_tb_ledgers")) return new { built = false, reason = "nothing synced" };
+                Exec(conn, SEGVAL_TABLE);
+                foreach (var t in new[] { "fin_meta", "fin_ledgers", "fin_segments", "fin_companies", "fin_cost_centres", "fin_accounts", "fin_periods", "fin_balances", "fin_journals" }) Exec(conn, "DROP TABLE IF EXISTS " + t);
+                foreach (var stmt in SCHEMA.Split(';').Select(z => z.Trim()).Where(z => z.Length > 0))
+                    Exec(conn, stmt.Replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS "));
+                string P = Lit(pod ?? "");
+                Exec(conn, "CREATE OR REPLACE TEMP TABLE tb_rows AS SELECT l.code AS ledger, a.ledger_id, a.grain, a.period_name, t.period_seq, t.adj, a.company, COALESCE(NULLIF(a.cost_centre, ''), '-') AS cc, a.account, " +
+                           "COALESCE(a.begin_balance_dr, 0) - COALESCE(a.begin_balance_cr, 0) AS b0, COALESCE(a.period_net_dr, 0) AS ndr, COALESCE(a.period_net_cr, 0) AS ncr, a.account_type " +
+                           "FROM fin_gl_balances_acct a JOIN fin_tb_periods t ON t.pod = a.pod AND t.ledger_id = a.ledger_id AND t.period_name = a.period_name " +
+                           "JOIN fin_tb_ledgers l ON l.pod = a.pod AND l.ledger_id = a.ledger_id AND l.currency = a.currency_code " +
+                           "WHERE a.pod = " + P + " AND COALESCE(a.translated_flag, '-') <> 'R' AND a.company IS NOT NULL AND a.account IS NOT NULL");
+                Exec(conn, "CREATE OR REPLACE TEMP TABLE tb_pick AS SELECT ledger, period_seq, MAX(grain) AS grain FROM tb_rows WHERE NOT adj GROUP BY ledger, period_seq");
+                Exec(conn, "INSERT INTO fin_balances SELECT 'ACTUAL', r.company, r.cc, r.account, MAX(r.period_name) FILTER (WHERE NOT r.adj), r.period_seq, " +
+                           "SUM(CASE WHEN NOT r.adj THEN r.b0 ELSE 0 END), SUM(r.ndr), SUM(r.ncr), SUM(r.ndr - r.ncr), SUM(CASE WHEN NOT r.adj THEN r.b0 ELSE 0 END) + SUM(r.ndr - r.ncr), r.ledger " +
+                           "FROM tb_rows r JOIN tb_pick p ON p.ledger = r.ledger AND p.period_seq = r.period_seq AND p.grain = r.grain " +
+                           "GROUP BY r.ledger, r.company, r.cc, r.account, r.period_seq HAVING BOOL_OR(NOT r.adj)");
+                Exec(conn, "INSERT INTO fin_periods SELECT period_name, period_seq, ANY_VALUE(fiscal_year), ANY_VALUE(period_num), ANY_VALUE(quarter), ANY_VALUE(start_date), ANY_VALUE(end_date) FROM fin_tb_periods " +
+                           "WHERE pod = " + P + " AND NOT adj AND period_seq IN (SELECT DISTINCT period_seq FROM fin_balances) GROUP BY period_name, period_seq");
+                // ledgers of this pod that have balances
+                var leds = new List<(string Code, string Name, string Ccy, string Coa, string Co, string Cc, string Ac, string Cat, string Names)>();
+                using (var c = conn.CreateCommand())
+                {
+                    c.CommandText = "SELECT code, ANY_VALUE(name), ANY_VALUE(currency), ANY_VALUE(coa_id), ANY_VALUE(company_segment), ANY_VALUE(cost_centre_segment), ANY_VALUE(account_segment), ANY_VALUE(category), ANY_VALUE(company_names) " +
+                                    "FROM fin_tb_ledgers WHERE pod = " + P + " AND code IN (SELECT DISTINCT ledger FROM fin_balances) GROUP BY code ORDER BY code";
+                    using var r = c.ExecuteReader();
+                    string T(int i) => r.IsDBNull(i) ? null : Convert.ToString(r.GetValue(i), CultureInfo.InvariantCulture);
+                    while (r.Read()) leds.Add((T(0), T(1), T(2), T(3), T(4), T(5), T(6), T(7), T(8)));
+                }
+                if (leds.Count == 0) { Exec(conn, "CHECKPOINT"); note?.Invoke("No synced trial balance for this pod yet."); return new { built = false, reason = "nothing synced" }; }
+                var lead = leds[0];
+                Append(conn, "fin_ledgers", leds.Select(l => new object[] { l.Code, l.Name, l.Ccy, l.Coa, l.Co, l.Cc, l.Ac, l.Cat }).ToList());
+                Append(conn, "fin_segments", new List<object[]> {
+                    new object[] { 1, "COMPANY", "Company (" + lead.Co + ")", lead.Co }, new object[] { 2, "COST_CENTRE", "Cost centre (" + (lead.Cc ?? "none") + ")", lead.Cc },
+                    new object[] { 3, "ACCOUNT", "Account (" + lead.Ac + ")", lead.Ac } });
+                List<string> Distinct(string sql) { var l = new List<string>(); using var c = conn.CreateCommand(); c.CommandText = sql; using var r = c.ExecuteReader(); while (r.Read()) if (!r.IsDBNull(0)) l.Add(Convert.ToString(r.GetValue(0), CultureInfo.InvariantCulture)); return l; }
+                // names from this file's segment values (and the ledger's legal entities), read with this connection
+                Dictionary<string, string> Names(string coa, string col)
+                {
+                    var d = new Dictionary<string, string>(StringComparer.Ordinal);
+                    if (string.IsNullOrEmpty(col)) return d;
+                    using var c = conn.CreateCommand();
+                    c.CommandText = "SELECT value, ANY_VALUE(description) FROM fin_segment_values WHERE coa_id = " + Lit(coa ?? "") + " AND column_name = " + Lit(col) + " AND description IS NOT NULL GROUP BY value";
+                    using var r = c.ExecuteReader(); while (r.Read()) d[Convert.ToString(r.GetValue(0))] = Convert.ToString(r.GetValue(1));
+                    var pend = PendingSegValues(coa, col);
+                    if (pend?.Values != null) foreach (var v in pend.Values) if (!string.IsNullOrEmpty(v.Description)) d.TryAdd(v.Value, v.Description);
+                    return d;
+                }
+                var coNames = Names(lead.Coa, lead.Co);
+                foreach (var l in leds) { try { foreach (var kv in JsonSerializer.Deserialize<Dictionary<string, string>>(l.Names ?? "{}") ?? new()) if (!string.IsNullOrEmpty(kv.Value)) coNames.TryAdd(kv.Key, kv.Value); } catch { } }
+                var coCcy = new Dictionary<string, string>();
+                using (var c = conn.CreateCommand())
+                {
+                    c.CommandText = "SELECT b.company, ANY_VALUE(l.currency) FROM fin_balances b JOIN fin_ledgers l ON l.code = b.ledger GROUP BY b.company";
+                    using var r = c.ExecuteReader(); while (r.Read()) coCcy[Convert.ToString(r.GetValue(0))] = r.IsDBNull(1) ? null : Convert.ToString(r.GetValue(1));
+                }
+                Append(conn, "fin_companies", Distinct("SELECT DISTINCT company FROM fin_balances ORDER BY 1").Select(v => new object[] { v, coNames.TryGetValue(v, out var n) ? n : v, coCcy.TryGetValue(v, out var cy) ? cy : lead.Ccy }).ToList());
+                var ccNames = Names(lead.Coa, lead.Cc);
+                Append(conn, "fin_cost_centres", Distinct("SELECT DISTINCT cost_centre FROM fin_balances ORDER BY 1").Select(v => new object[] { v, v == "-" ? "(all cost centres)" : ccNames.TryGetValue(v, out var n) ? n : v, null }).ToList());
+                var acNames = Names(lead.Coa, lead.Ac);
+                var types = new Dictionary<string, string>(StringComparer.Ordinal);
+                using (var c = conn.CreateCommand())
+                {
+                    c.CommandText = "SELECT account, MODE(account_type) FROM tb_rows WHERE account_type IS NOT NULL GROUP BY account";
+                    using var r = c.ExecuteReader(); while (r.Read()) types[Convert.ToString(r.GetValue(0))] = Convert.ToString(r.GetValue(1));
+                }
+                if (Has("fin_ccid") && Regex.IsMatch(lead.Ac ?? "", "^SEGMENT([1-9]|[12][0-9]|30)$", RegexOptions.IgnoreCase))
+                    using (var c = conn.CreateCommand())
+                    {
+                        c.CommandText = "SELECT " + lead.Ac.ToLowerInvariant() + ", MODE(account_type) FROM fin_ccid WHERE coa_id = " + Lit(lead.Coa ?? "") + " AND account_type IS NOT NULL GROUP BY 1";
+                        using var r = c.ExecuteReader(); while (r.Read()) if (!r.IsDBNull(0)) types.TryAdd(Convert.ToString(r.GetValue(0)), Convert.ToString(r.GetValue(1)));
+                    }
+                var cls = new Dictionary<string, string>(StringComparer.Ordinal);
+                if (Has("fin_account_map"))
+                    using (var c = conn.CreateCommand())
+                    {   // the user's mapping first, then the page's earlier guesses
+                        c.CommandText = "SELECT code, class FROM fin_account_map WHERE class IS NOT NULL ORDER BY CASE source WHEN 'USER' THEN 0 ELSE 1 END";
+                        using var r = c.ExecuteReader(); while (r.Read()) cls.TryAdd(Convert.ToString(r.GetValue(0)), Convert.ToString(r.GetValue(1)));
+                    }
+                Append(conn, "fin_accounts", Distinct("SELECT DISTINCT account FROM fin_balances ORDER BY 1").Select(v => new object[] { v, acNames.TryGetValue(v, out var n) ? n : v, types.TryGetValue(v, out var t) ? t : null, cls.TryGetValue(v, out var k) ? k : null, null }).ToList());
+                string first = Scalar("SELECT MIN(period_seq) FROM fin_periods"), last = Scalar("SELECT MAX(period_seq) FROM fin_periods");
+                Append(conn, "fin_meta", new List<object[]>
+                {
+                    new object[] { "source", "FUSION_TB" }, new object[] { "loader", "TB" }, new object[] { "pod", pod ?? "" }, new object[] { "loaded_at", DateTime.Now.ToString("s") },
+                    new object[] { "currency", lead.Ccy }, new object[] { "currencies", string.Join(",", leds.Select(l => l.Ccy).Distinct()) },
+                    new object[] { "description", "Trial balances synced from Oracle Fusion: " + string.Join(", ", leds.Select(l => l.Name)) },
+                    new object[] { "from_seq", first ?? "" }, new object[] { "to_seq", last ?? "" }, new object[] { "budget", "" }, new object[] { "load_mode", "TB" }
+                });
+                long nBal = Convert.ToInt64(Scalar("SELECT COUNT(*) FROM fin_balances")), nPer = Convert.ToInt64(Scalar("SELECT COUNT(*) FROM fin_periods"));
+                Exec(conn, "DROP TABLE IF EXISTS tb_rows"); Exec(conn, "DROP TABLE IF EXISTS tb_pick");
+                Exec(conn, "CHECKPOINT");
+                note?.Invoke("✓ Statements data rebuilt from the synced trial balances: " + nPer + " period(s), " + nBal.ToString("N0", CultureInfo.InvariantCulture) + " balances, " + leds.Count + " ledger(s).");
+                return new { built = true, periods = nPer, balances = nBal, ledgers = leds.Count };
+            }
+        }
+
+        /// <summary>Synced trial balance periods: pod, ledger, period, grain, companies, rows, read at — and whether they feed the statements.</summary>
+        public static object TbSyncStatus()
+        {
+            if (!File.Exists(DbPath)) return new { ok = true, rows = new List<object>() };
+            var t = Query("SELECT table_name FROM information_schema.tables WHERE table_name IN ('fin_gl_balances_acct_sync', 'fin_tb_periods', 'fin_tb_ledgers', 'fin_meta')", 10);
+            var have = new HashSet<string>(t.Error == null ? t.Rows.Select(r => Convert.ToString(r[0])) : Enumerable.Empty<string>());
+            if (!have.Contains("fin_gl_balances_acct_sync")) return new { ok = true, rows = new List<object>() };
+            bool cal = have.Contains("fin_tb_periods") && have.Contains("fin_tb_ledgers");
+            var q = Query("SELECT s.pod, s.ledger_id, " + (cal ? "ANY_VALUE(l.code), ANY_VALUE(l.name)" : "NULL, NULL") + ", s.period_name, " + (cal ? "ANY_VALUE(p.period_seq), BOOL_OR(p.adj)" : "NULL, NULL") + ", s.grain, " +
+                          "CASE WHEN BOOL_OR(s.company = '*') THEN '*' ELSE STRING_AGG(DISTINCT s.company, ',' ORDER BY s.company) END, SUM(s.rows_read), CAST(MAX(s.fetched_at) AS VARCHAR), SUM(s.ms), s.currency " +
+                          "FROM fin_gl_balances_acct_sync s" + (cal ? " LEFT JOIN fin_tb_ledgers l ON l.pod = s.pod AND l.ledger_id = s.ledger_id LEFT JOIN fin_tb_periods p ON p.pod = s.pod AND p.ledger_id = s.ledger_id AND p.period_name = s.period_name" : "") +
+                          " GROUP BY s.pod, s.ledger_id, s.period_name, s.grain, s.currency ORDER BY 6 DESC NULLS LAST, 5", 5000);
+            string src = have.Contains("fin_meta") ? Convert.ToString(Query("SELECT MAX(value) FROM fin_meta WHERE key = 'source'", 1).Rows.FirstOrDefault()?[0]) : null;
+            return new
+            {
+                ok = true, statementsFrom = string.IsNullOrEmpty(src) ? "none" : src, error = q.Error,
+                rows = (q.Rows ?? new()).Select(r => new { pod = r[0], ledgerId = r[1], ledger = r[2], ledgerName = r[3], period = r[4], seq = r[5], adj = r[6], grain = r[7], companies = r[8], rows = r[9], at = r[10], ms = r[11], currency = r[12] }).ToList()
+            };
+        }
+
+        /// <summary>Removes synced trial balance periods (pod × ledger × periods) and rebuilds the statements data.</summary>
+        public static object TbSyncDelete(string pod, long ledgerId, List<string> periods)
+        {
+            if (!File.Exists(DbPath) || periods == null || periods.Count == 0) return new { ok = true, removed = 0 };
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, ACCT_SYNC_TABLE); Exec(conn, TBP_TABLE);
+                string w = " WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND period_name IN (" + string.Join(",", periods.Select(Lit)) + ")";
+                Exec(conn, "DELETE FROM fin_gl_balances_acct_sync" + w);
+                using (var c = conn.CreateCommand()) { c.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_gl_balances_acct'"; if (Convert.ToInt64(c.ExecuteScalar()) > 0) Exec(conn, "DELETE FROM fin_gl_balances_acct" + w); }
+                Exec(conn, "CHECKPOINT");
+            }
+            BuildFromTb(pod, null);
+            return new { ok = true, removed = periods.Count };
+        }
+
         /// <summary>Adds code combinations to fin_ccid (so they can be queried with the raw balances in the SQL explorer).</summary>
         public static void SaveCcids(string coaId, IEnumerable<(long Id, string Type, bool Summary, Dictionary<string, string> Segs)> items)
         {
@@ -549,11 +720,11 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             if (!File.Exists(DbPath)) return;
             try
             {
-                Exec(conn, SEGVAL_TABLE); Exec(conn, TB_TABLE); Exec(conn, RAW_SYNC_TABLE); Exec(conn, CCID_TABLE); Exec(conn, ACCT_SYNC_TABLE);
+                Exec(conn, SEGVAL_TABLE); Exec(conn, TB_TABLE); Exec(conn, RAW_SYNC_TABLE); Exec(conn, CCID_TABLE); Exec(conn, ACCT_SYNC_TABLE); Exec(conn, TBP_TABLE); Exec(conn, TBL_TABLE);
                 Exec(conn, "ATTACH " + Lit(DbPath.Replace('\\', '/')) + " AS prev (READ_ONLY)");
                 try
                 {
-                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances", "fin_gl_balances_acct_sync", "fin_gl_balances_acct" })
+                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances", "fin_gl_balances_acct_sync", "fin_gl_balances_acct", "fin_tb_periods", "fin_tb_ledgers" })
                     {
                         using var c = conn.CreateCommand();
                         c.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog = 'prev' AND table_name = '" + t + "'";
@@ -698,6 +869,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                     {
                         case null: row.AppendNullValue(); break;
                         case string s: row.AppendValue(s); break;
+                        case bool bo: row.AppendValue((bool?)bo); break;
                         case int i: row.AppendValue(i); break;
                         case long l: row.AppendValue(l); break;
                         case double d: row.AppendValue(d); break;
