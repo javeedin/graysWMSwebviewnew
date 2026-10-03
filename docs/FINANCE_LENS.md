@@ -136,6 +136,32 @@ mapped to receivables / inventory / payables / cash / finance costs / cost of sa
 lines. The master data checklist (Data › Trial balance sync and SQL explorer) has the same items — *12 months in a row* and *Last year* with a
 Sync button for exactly the missing periods, and *Budget*.
 
+## Close & reconcile (finance skills)
+
+The **Close & reconcile** tab runs finance workflows ("skills") through the CFO Copilot on your synced ledger — one click,
+for the period and entity in the header:
+
+| Task | What you get |
+|---|---|
+| Month-end close package | close checks (TB balances, BS balances, suspense nil, no missing months, late journals), accrual schedule, roll-forwards of cash / receivables / inventory / payables / accruals / borrowings, variance commentary, open points |
+| Variance commentary | every line over materiality vs previous month, last year and budget, with the *driver* (why, not what) from accounts, cost centres and journals — or "driver unclear — flag for controller" |
+| Accrual schedule | one row per accrual on your policy list (or proposed candidates from recurring costs), basis, already booked, this-period accrual, support, **draft** journals |
+| Roll-forward | opening + movements by journal source ± reclasses ± revaluation = closing, foot check, biggest journals |
+| GL ↔ subledger reconciliation | trade payables / receivables (inventory optional) in the GL against the open balances in Oracle Fusion's subledgers, breaks classified (timing, unposted, manual GL journal, mapping, FX), material breaks traced; the Fusion side runs read-only and only for AI admins |
+
+Nothing is ever posted: journals are drafts for the controller. **Save as close package** keeps the result in
+`close.json` with a sign-off trail **Draft → Prepared → Reviewed → Approved** (the preparer cannot review or approve;
+*Send back to draft* needs a note); **Excel** writes a Package sheet plus one sheet per table and the sign-off trail;
+**Continue in Copilot** asks follow-ups. The **close policy** (config.json `close`: materiality % and floor, lines to
+always comment on, the accrual policy list, reconciliation tolerance) is what the skills read.
+
+The shipped skills (`finance/skills/*.md`) are adapted from **Anthropic's Claude for Financial Services** plugins
+(github.com/anthropics/financial-services-plugins, Apache-2.0 — `finance/skills/NOTICE.md` lists the changes): the
+month-end closer's accrual-schedule, roll-forward and variance-commentary and the GL reconciler's gl-recon and
+break-trace, rewritten for a Fusion general ledger. The **Skills library** shows each skill; an AI admin can add a
+custom skill or *make my own version* of a shipped one (saved in the data folder `skills\`, same name wins, audited).
+The Copilot also picks a skill by itself when a question asks for such a task ("run the month-end close …").
+
 ## KPIs
 
 KPI formulas refer to template rows with a window: `PL.NP@YTD`, `BS.AR@BAL`, `CF.OPC@LTM`; windows `MTD QTD YTD LTM BAL

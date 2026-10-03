@@ -13,7 +13,10 @@
         'Explain the movement in cash this month',
         'What are the five biggest expense increases versus last year?',
         'Are there unusual or risky journals this month?',
-        'Give me a three-line summary for the board'
+        'Give me a three-line summary for the board',
+        'Run the month-end close for this period',
+        'Write the variance commentary for this month',
+        'Build the roll-forward of trade receivables'
     ];
 
     C.toggle = function () { C.open ? C.close() : C.show(); };

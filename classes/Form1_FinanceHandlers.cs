@@ -292,16 +292,34 @@ namespace WMSApp
                             var history = root.TryGetProperty("history", out var hh) ? hh.Clone() : default;
                             string question = PipeSrvStr(root, "question") ?? "";
                             var sw = System.Diagnostics.Stopwatch.StartNew();
-                            var r = await FinanceAskAgent.AskAsync(question, history, PipeSrvStr(root, "context"), PipeSrvStr(root, "model"), FinProgress(wv, requestId), _finAskCts.Token);
+                            string skill = PipeSrvStr(root, "skill");
+                            // the read-only Fusion subledger tool (reconciliations) is for AI admins
+                            var fusion = await AiControl.IsAdminAsync(user) ? FinRunner(PipeSrvStr(root, "pod")) : null;
+                            var r = await FinanceAskAgent.AskAsync(question, history, PipeSrvStr(root, "context"), PipeSrvStr(root, "model"), FinProgress(wv, requestId), _finAskCts.Token, skill, fusion);
                             double? cost = null;
                             try { cost = await AiControl.CostAsync(r.Model, r.TokensIn, r.TokensOut, r.CacheRead, r.CacheWrite, user); } catch { }
                             AiControl.Audit(new AiControl.AuditEvent
                             {
                                 User = user, Source = "FINANCE", Action = "turn", Outcome = r.Ok ? "OK" : "FAILED", Model = r.Model,
                                 TokensIn = r.TokensIn, TokensOut = r.TokensOut, CacheRead = r.CacheRead, CacheWrite = r.CacheWrite, CostUsd = cost, DurationMs = sw.ElapsedMilliseconds,
-                                Detail = (question.Length > 300 ? question.Substring(0, 300) : question) + (r.Ok ? "" : " · " + r.Error)
+                                Detail = (string.IsNullOrEmpty(skill) ? "" : "[skill " + skill + "] ") + (question.Length > 300 ? question.Substring(0, 300) : question) + (r.Ok ? "" : " · " + r.Error)
                             });
                             data = new { ok = r.Ok, error = r.Error, answer = r.Answer, steps = r.Steps, queries = r.Queries, costUsd = cost };
+                            break;
+                        }
+                    case "finSkills":
+                        data = new { ok = true, dir = FinanceSkills.CustomDir, skills = FinanceSkills.List().Select(k => new { name = k.Name, title = k.Title, description = k.Description, source = k.Source, uses = k.Uses, custom = k.Custom, body = k.Body }) };
+                        break;
+                    case "finSkillSave":
+                    case "finSkillDelete":
+                        {
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can change the finance skills." }; break; }
+                            string nm = (PipeSrvStr(root, "name") ?? "").Trim().ToLowerInvariant();
+                            bool done = true;
+                            if (action == "finSkillSave") FinanceSkills.SaveCustom(nm, PipeSrvStr(root, "text"));
+                            else done = FinanceSkills.DeleteCustom(nm);
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = action == "finSkillSave" ? "skill_save" : "skill_delete", Outcome = done ? "OK" : "NOT_FOUND", Detail = nm });
+                            data = new { ok = done, error = done ? null : "No custom skill " + nm };
                             break;
                         }
                     case "finAskCancel":

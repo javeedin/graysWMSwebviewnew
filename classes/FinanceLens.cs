@@ -137,7 +137,7 @@ namespace WMSApp
         }
 
         // ── documents (templates, KPIs, monitors, settings) ──
-        private static readonly string[] DOCS = { "templates", "config", "notes" };
+        private static readonly string[] DOCS = { "templates", "config", "notes", "close" };     // close = saved close packages + sign-off
         public static string ReadDoc(string name)
         {
             if (!DOCS.Contains(name)) throw new ArgumentException("unknown document " + name);

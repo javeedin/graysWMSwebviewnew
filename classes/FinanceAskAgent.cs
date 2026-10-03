@@ -20,7 +20,7 @@ namespace WMSApp
     /// </summary>
     public static class FinanceAskAgent
     {
-        private const int MAX_TURNS = 12;
+        private const int MAX_TURNS = 24;            // a close package runs several schedules
         public const string DEFAULT_MODEL = "claude-opus-5-5";
 
         public sealed class AskResult
@@ -69,7 +69,15 @@ RULES:
   ```
 - Link accounts and journals so the user can drill: [6200 Freight outwards](acct:6200), [journal 123](je:123),
   a cost centre [400 Logistics](cc:400), a period [Aug-26](period:202608).
-- End with up to 3 short follow-up questions as a list of links [question](ask:question text).";
+- End with up to 3 short follow-up questions as a list of links [question](ask:question text).
+
+SKILLS (finance workflows — month-end close, accruals, roll-forwards, variance commentary, reconciliations):
+- When the question is one of these tasks, call use_skill with its name FIRST and follow its steps and output format;
+  a skill can name others it uses (load those too when you reach that step). close_settings holds the company's close
+  policy (materiality, always-comment lines, accrual policy list, reconciliation tolerance).
+- Journal entries are DRAFTS for controller approval — never say anything was posted. Never plug a difference.
+- fusion_sql (when offered) reads Oracle Fusion subledgers read-only; keep its queries small (SUM / GROUP BY).
+- For a close package: one Markdown table per schedule (the page exports every table to an Excel sheet).";
 
         private static Dictionary<string, JsonElement> Props(object o) =>
             JsonSerializer.SerializeToElement(o).EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone());
@@ -85,6 +93,16 @@ RULES:
             {
                 Name = "template_rows", Description = "The rows of a statement template (PL, PLS, BS, CF or another id): row id, label, type, account mapping (ranges like 4000-4099, lists, 5* prefixes, !exclusions or {type/class}), formula, sign, basis.",
                 InputSchema = new() { Properties = Props(new { template = new { type = "string" } }), Required = new List<string> { "template" } }
+            },
+            new Tool
+            {
+                Name = "use_skill", Description = "Load a finance skill (step-by-step workflow and output format) by name, e.g. month-end-close, variance-commentary, accrual-schedule, roll-forward, gl-recon, break-trace. Returns the skill's instructions.",
+                InputSchema = new() { Properties = Props(new { name = new { type = "string" } }), Required = new List<string> { "name" } }
+            },
+            new Tool
+            {
+                Name = "close_settings", Description = "The company's month-end close policy: materiality (percent, floor), always-comment statement lines, the accrual policy list (name, expense account, liability account, method fixed|avg3|annual, amount, reverses) and the reconciliation tolerance.",
+                InputSchema = new() { Properties = Props(new { }), Required = new List<string>() }
             },
             new Tool
             {
@@ -148,6 +166,22 @@ RULES:
                         }
                         return "ERROR: no template " + id + ". Templates: " + string.Join(", ", ts.EnumerateArray().Select(t => t.TryGetProperty("id", out var x) ? x.GetString() : "?"));
                     }
+                case "use_skill":
+                    {
+                        var sk = FinanceSkills.Get(Arg(input, "name") ?? "");
+                        if (sk == null) return "ERROR: no skill " + Arg(input, "name") + ". Skills:\n" + FinanceSkills.Index();
+                        return "SKILL " + sk.Name + " — " + sk.Title + (string.IsNullOrEmpty(sk.Uses) ? "" : " (uses: " + sk.Uses + ")") + "\n\n" + sk.Body;
+                    }
+                case "close_settings":
+                    {
+                        string json = FinanceLens.ReadDoc("config");
+                        if (json != null)
+                        {
+                            using var d = JsonDocument.Parse(json);
+                            if (d.RootElement.TryGetProperty("close", out var c)) return c.GetRawText();
+                        }
+                        return "{\"materialityPct\": 5, \"materialityFloor\": 10000, \"alwaysComment\": [\"REV\", \"STAFF\", \"CASH\"], \"accruals\": [], \"reconTolerance\": 1, \"note\": \"defaults - no close policy saved yet (Finance Lens › Close › Settings)\"}";
+                    }
                 case "accounts":
                     {
                         string s = (Arg(input, "search") ?? "").Trim();
@@ -165,12 +199,42 @@ RULES:
             "run_sql" => "🔎 Querying the ledger: " + Short(Arg(input, "sql")),
             "template_rows" => "📄 Reading template " + Arg(input, "template"),
             "accounts" => "📚 Searching accounts: " + Arg(input, "search"),
+            "use_skill" => "🧭 Following the skill " + Arg(input, "name"),
+            "close_settings" => "⚙ Reading the close policy",
+            "fusion_sql" => "🏛 Reading Fusion: " + Short(Arg(input, "sql")),
             _ => name
         };
         private static string Short(string s) { s = (s ?? "").Replace('\n', ' '); return s.Length > 110 ? s.Substring(0, 110) + "…" : s; }
         private static long N(object o) => o == null ? 0 : Convert.ToInt64(o);
 
-        public static async Task<AskResult> AskAsync(string question, JsonElement history, string context, string model, Action<string> progress, CancellationToken ct)
+        private static readonly Tool FUSION_TOOL = new Tool
+        {
+            Name = "fusion_sql", Description = "Run ONE read-only Oracle SQL SELECT / WITH on Oracle Fusion (the logged-in pod) — for subledger balances (AP_PAYMENT_SCHEDULES_ALL, AR_PAYMENT_SCHEDULES_ALL …) in reconciliations. At most 300 rows; aggregate.",
+            InputSchema = new() { Properties = Props(new { sql = new { type = "string" } }), Required = new List<string> { "sql" } }
+        };
+
+        /// <summary>fusion_sql: one SELECT / WITH through the Fusion SQL runner (read-only BI Publisher report), as a table</summary>
+        private static async Task<string> FusionSqlAsync(FinanceFusion.Runner fusion, string sql, CancellationToken ct)
+        {
+            sql = (sql ?? "").Trim().TrimEnd(';').Trim();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(sql, @"^(select|with)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase) || sql.Contains(';'))
+                return "ERROR: only one SELECT / WITH query";
+            var r = await fusion(sql, 301, ct).ConfigureAwait(false);
+            if (r == null) return "ERROR: cancelled";
+            if (!r.Success) return "ERROR: " + r.Error;
+            var cols = r.Columns.Count > 0 ? r.Columns : r.Rows.SelectMany(x => x.Keys).Distinct().ToList();
+            var sb = new StringBuilder(string.Join(" | ", cols)).Append('\n');
+            foreach (var row in r.Rows.Take(300))
+                sb.Append(string.Join(" | ", cols.Select(c => row.TryGetValue(c, out var v) ? Convert.ToString(v, CultureInfo.InvariantCulture) : ""))).Append('\n');
+            sb.Append("(" + Math.Min(r.Rows.Count, 300) + " row(s)" + (r.Rows.Count > 300 || r.Capped ? ", more exist - aggregate" : "") + ")");
+            string s = sb.ToString();
+            return s.Length > 40000 ? s.Substring(0, 40000) + "\n…(cut)" : s;
+        }
+
+        /// <param name="skill">a skill the user picked (Close page / quick action): its instructions go in with the question</param>
+        /// <param name="fusion">the Fusion SQL runner — only for AI admins (offers the fusion_sql tool)</param>
+        public static async Task<AskResult> AskAsync(string question, JsonElement history, string context, string model, Action<string> progress, CancellationToken ct,
+            string skill = null, FinanceFusion.Runner fusion = null)
         {
             var res = new AskResult { Model = string.IsNullOrWhiteSpace(model) ? DEFAULT_MODEL : model };
             string key = WMSApp.FusionSql.FusionSqlStore.LoadAiKey();
@@ -195,11 +259,18 @@ RULES:
             var status = FinanceLens.Query("SELECT key, value FROM fin_meta", 50);
             string meta = status.Error == null ? string.Join("; ", status.Rows.Select(r => r[0] + "=" + r[1]).Where(s => !s.StartsWith("fusion_signature", StringComparison.Ordinal))) : "no data loaded";
             if (context != null && context.Length > 60000) context = context.Substring(0, 60000);
+            var picked = string.IsNullOrWhiteSpace(skill) ? null : FinanceSkills.Get(skill);
+            if (!string.IsNullOrWhiteSpace(skill) && picked == null) { res.Error = "No finance skill " + skill + "."; return res; }
             messages.Add(new MessageParam
             {
                 Role = Role.User,
-                Content = "DATA: " + meta + "\nCONTEXT (what the user sees now)\n" + (context ?? "{}") + "\n\nQUESTION (today is " + DateTime.Now.ToString("yyyy-MM-dd") + ")\n" + question
+                Content = "DATA: " + meta + "\nCONTEXT (what the user sees now)\n" + (context ?? "{}") +
+                    (picked != null ? "\n\nSKILL TO FOLLOW: " + picked.Name + " — " + picked.Title + (string.IsNullOrEmpty(picked.Uses) ? "" : " (uses: " + picked.Uses + " — load them with use_skill)") + "\n" + picked.Body : "") +
+                    "\n\nQUESTION (today is " + DateTime.Now.ToString("yyyy-MM-dd") + ")\n" + question
             });
+            var tools = new List<ToolUnion>(TOOLS);
+            if (fusion != null) tools.Add(FUSION_TOOL);
+            string system = GUIDE + "\n\nAVAILABLE SKILLS (use_skill):\n" + FinanceSkills.Index() + (fusion == null ? "\nfusion_sql is not offered to this user (AI admins only): reconcile with the GL side and say so." : "");
 
             var client = new AnthropicClient { ApiKey = key };
             try
@@ -212,8 +283,8 @@ RULES:
                     {
                         Model = res.Model,
                         MaxTokens = 12000,
-                        System = GUIDE,
-                        Tools = TOOLS,
+                        System = system,
+                        Tools = tools,
                         Thinking = new ThinkingConfigAdaptive(),
                         OutputConfig = new OutputConfig { Effort = Effort.High },
                         CacheControl = new CacheControlEphemeral(),
@@ -252,7 +323,10 @@ RULES:
                         res.Steps.Add(label);
                         progress?.Invoke(label);
                         string ran = null;
-                        string output = await Task.Run(() => Run(call.Name, call.Input, out ran), ct).ConfigureAwait(false);
+                        string output = call.Name == "fusion_sql"
+                            ? (fusion == null ? "ERROR: fusion_sql is for AI admins" : await FusionSqlAsync(fusion, Arg(call.Input, "sql"), ct).ConfigureAwait(false))
+                            : await Task.Run(() => Run(call.Name, call.Input, out ran), ct).ConfigureAwait(false);
+                        if (call.Name == "fusion_sql" && !output.StartsWith("ERROR", StringComparison.Ordinal)) ran = "-- Fusion\n" + Arg(call.Input, "sql");
                         if (ran != null) res.Queries.Add(ran);
                         results.Add(new ToolResultBlockParam { ToolUseID = call.ID, Content = output, IsError = output.StartsWith("ERROR", StringComparison.Ordinal) });
                     }

@@ -455,3 +455,12 @@ details.lf-card[open] > summary::before { content: '▾'; }
 .hx-k.good .dot { background: var(--good); } .hx-k.watch .dot { background: #d97706; } .hx-k.poor .dot { background: var(--bad); } .hx-k.nodata .dot { background: #cbd5e1; } .hx-k.nodata { color: var(--muted); }
 .hx-gaps { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 6px; }
 .hx-gap { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+
+/* ── Close & reconcile ── */
+.ck-grid { align-items: start; }
+.ck-grid .card { margin-bottom: 12px; }
+.ck-tasks { display: grid; gap: 8px; }
+.ck-task { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: #fff; }
+.ck-task .row { gap: 8px; align-items: center; }
+.ck-md { max-height: 70vh; overflow: auto; margin-top: 8px; }
+.ck-md table.t { font-size: .8rem; }
