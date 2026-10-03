@@ -166,7 +166,7 @@
                 (FL.config.kpis || []).forEach(function (d) { if (k[d.id] && k[d.id].value != null) out.kpis[d.label] = r0(k[d.id].value) + (d.fmt === 'pct' ? ' %' : d.fmt === 'days' ? ' days' : d.fmt === 'ratio' ? '×' : ''); });
                 out.monitors = FINE.monitor(FL.config.monitors || [], k).filter(function (m) { return m.status === 'breach' || m.status === 'bad' || m.status === 'alert'; }).map(function (m) { return m.rule.label; });
             } catch (e) { out.kpiError = String(e.message || e); }
-            return out;
+            return FL.wc ? FL.wc.summary().then(function (w) { if (w) out.workingCapital = w; return out; }) : out;
         });
     };
 

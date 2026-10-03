@@ -136,6 +136,41 @@ mapped to receivables / inventory / payables / cash / finance costs / cost of sa
 lines. The master data checklist (Data › Trial balance sync and SQL explorer) has the same items — *12 months in a row* and *Last year* with a
 Sync button for exactly the missing periods, and *Budget*.
 
+## Working capital (debtors, creditors, inventory)
+
+The **Working capital** tab shows what the CFO needs beside the statements: who owes us, whom we owe and what sits in
+the warehouse — straight from the Fusion subledgers, read-only.
+
+- **Sync from Fusion** (AI admins, audited `fin_wc_sync`) runs one query per kind through the Fusion SQL runner of the
+  logged-in pod (or PROD / TEST from Settings) and keeps a dated snapshot in DuckDB, so a trend builds up sync by sync:
+  - **Debtors** — `AR_PAYMENT_SCHEDULES_ALL` open items (status OP) by business unit × customer × currency × age bucket,
+    in ledger currency (`ACCTD_AMOUNT_DUE_REMAINING`) → `fin_wc_parties` kind `AR`.
+  - **Creditors** — `AP_PAYMENT_SCHEDULES_ALL` × `AP_INVOICES_ALL` (not cancelled), remaining × exchange rate, items on
+    hold counted → kind `AP`.
+  - **Inventory** — `INV_ONHAND_QUANTITIES_DETAIL` × `EGP_SYSTEM_ITEMS_B` by organisation × item × subinventory, aged from
+    the oldest receipt → `fin_wc_stock`. Unit costs differ per pod: Settings › *Find cost tables in Fusion* lists the
+    `CST%` tables with an item id and a cost column (ALL_TAB_COLUMNS) and you pick one; without it the card shows the
+    quantities and takes the value from the GL inventory line.
+  - Every sync also writes `fin_wc_snapshots` (rows, total, time, capped). The last 36 snapshots per kind are kept and
+    carried over by full GL loads.
+- **Cards**: total, overdue, over 90 days, DSO / DPO / DIO from the KPIs, open items / on hold, the GL control balance
+  (balance-sheet lines AR / AP / INV at the period in the header) with the difference, and a sparkline of the snapshots.
+  The cash conversion cycle sits under them. Ages are as of the snapshot time, the GL at the period end — a difference
+  can be timing.
+- **Debtors / Creditors**: an ageing bar (buckets from Settings, default 30 / 60 / 90 / 180 days past due), customers or
+  suppliers biggest first with each bucket, overdue %, oldest due date; click one for its open items, read live from
+  Fusion (≤ 500, CSV). Filter by business unit, search by name or number.
+- **Inventory**: stock age (0-90 / 91-180 / 181-365 / over a year) by value or quantity, by organisation, items by value
+  with the oldest receipt; click an item for its on-hand lines (lots, subinventories, receipt dates).
+- **Excel** exports the customers, suppliers and on-hand lines of the latest snapshots.
+- Settings: pod, buckets, business units / inventory orgs (ids), cost source and the three queries (placeholders
+  `{BUCKET:due date column}`, `{AS_OF}`, `{ORG_FILTER:column}`, `{UNIT_COST}`; the column names must stay) — kept in
+  `config.json` `wc`.
+- The CFO Copilot gets the latest totals, buckets and biggest parties in its context and can query `fin_wc_*` itself.
+
+Host: `classes/FinanceWc.cs` (`FinanceWorkingCapital`: default queries, `Fill`, `SyncAsync`, `DetailAsync`,
+`CostTablesAsync`), IPC `finWcSync`, `finWcDetail`, `finWcDefaults`, `finWcCostTables`; page `finance/fin-wc.js`.
+
 ## Close & reconcile (finance skills)
 
 The **Close & reconcile** tab runs finance workflows ("skills") through the CFO Copilot on your synced ledger — one click,

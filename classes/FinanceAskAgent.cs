@@ -51,6 +51,13 @@ DATA (DuckDB, read-only — use run_sql):
   fin_ledgers(code, name, currency, coa_id, company_segment, cost_centre_segment, account_segment), fin_meta(key, value),
   fin_coa_segments(pod, coa_id, column_name, segment_name, qualifiers, distinct_values, purity, role COMPANY/COST_CENTRE/ACCOUNT/
   INTERCOMPANY, evidence) — the Fusion chart of accounts structure.
+- Working capital subledger snapshots (each Sync on the Working capital tab adds one; use the latest snapshot_at per kind):
+  fin_wc_parties(pod, kind 'AR' debtors | 'AP' creditors, snapshot_at, bu_id, party_number, party_name, currency, bucket
+  'Current' | '1-30' | ... | '>180' days past due, items, amount (ledger currency, open amount), amount_entered, oldest_due,
+  on_hold), fin_wc_stock(pod, snapshot_at, org_id, org_code, item_number, description, subinventory, uom, quantity,
+  unit_cost, value (NULL without a cost source), oldest_receipt, age_days), fin_wc_snapshots(pod, kind, snapshot_at, rows,
+  total, ms, capped, note). Ages are as of snapshot_at, not the period end; compare with the GL control lines AR / AP / INV
+  of the balance sheet and say the difference can be timing. The CONTEXT block has workingCapital with the latest totals.
 - The CONTEXT block holds what the user is looking at: filter (period, company, cost centre, ledger), statement lines and KPI
   values the page computed with the statement templates. Prefer those numbers for lines like revenue, gross profit, EBITDA,
   net profit, cash, so you agree with the screen; use template_rows to see which accounts a line is made of, then run_sql to

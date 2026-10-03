@@ -222,6 +222,35 @@ namespace WMSApp
                                          sample = res.Rows.Take(50).Select(r2 => cols.Select(c => r2.TryGetValue(c, out var v) ? Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) : null).ToList()).ToList() };
                             break;
                         }
+                    case "finWcSync":           // debtors / creditors / stock on hand from the Fusion subledgers → DuckDB snapshots
+                        {
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can load finance data." }; break; }
+                            var o = JsonSerializer.Deserialize<FinanceWorkingCapital.Options>(root.TryGetProperty("options", out var oe) ? oe.GetRawText() : "{}", new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new FinanceWorkingCapital.Options();
+                            var cts = FinNewCts(TimeSpan.FromMinutes(30));
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            var res = await Task.Run(() => FinanceWorkingCapital.SyncAsync(FinRunner(o.Pod), o, FinProgress(wv, requestId), cts.Token));
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_wc_sync", Outcome = "OK", DurationMs = sw.ElapsedMilliseconds, Target = o.Pod ?? "", Detail = string.Join(",", o.Kinds ?? new List<string>()) });
+                            data = new { ok = true, results = res, buckets = FinanceWorkingCapital.BucketNames(o.Buckets) };
+                            break;
+                        }
+                    case "finWcDetail":         // the open items of one customer / supplier, or the on-hand lines of one item, live (≤ 500)
+                        {
+                            var cts = FinNewCts(TimeSpan.FromMinutes(5));
+                            string kind = PipeSrvStr(root, "kind"), party = PipeSrvStr(root, "party");
+                            data = await FinanceWorkingCapital.DetailAsync(FinRunner(PipeSrvStr(root, "pod")), kind, party, PipeSrvStr(root, "bu"), cts.Token);
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_wc_detail", Outcome = "OK", Target = kind ?? "", Detail = party ?? "" });
+                            break;
+                        }
+                    case "finWcDefaults":
+                        data = new { ok = true, ar = FinanceWorkingCapital.AR_DEFAULT, ap = FinanceWorkingCapital.AP_DEFAULT, inv = FinanceWorkingCapital.INV_DEFAULT };
+                        break;
+                    case "finWcCostTables":     // candidate unit-cost tables (ALL_TAB_COLUMNS)
+                        {
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can change the finance data." }; break; }
+                            var cts = FinNewCts(TimeSpan.FromMinutes(5));
+                            data = await FinanceWorkingCapital.CostTablesAsync(FinRunner(PipeSrvStr(root, "pod")), cts.Token);
+                            break;
+                        }
                     case "finTbSave":           // keep a live trial balance in DuckDB (fin_tb_live)
                         data = new { ok = true, rows = await Task.Run(() => FinanceLens.SaveTb(root, user)) };
                         break;

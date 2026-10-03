@@ -464,3 +464,13 @@ details.lf-card[open] > summary::before { content: '▾'; }
 .ck-task .row { gap: 8px; align-items: center; }
 .ck-md { max-height: 70vh; overflow: auto; margin-top: 8px; }
 .ck-md table.t { font-size: .8rem; }
+
+/* Working capital */
+.wc-cards { margin-bottom: 4px; }
+.wc-card { cursor: pointer; border: 2px solid transparent; }
+.wc-card.on { border-color: var(--primary, #1d4ed8); }
+.wc-card .row { gap: 6px; align-items: center; }
+.wc-big { font-size: 26px; font-weight: 700; margin: 6px 0 8px; }
+.wc-spark { height: 38px; margin-top: 8px; }
+.wc-agebar { display: flex; height: 22px; border-radius: 6px; overflow: hidden; background: var(--line, #e5e7eb); }
+.wc-agebar span { display: block; height: 100%; }

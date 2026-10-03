@@ -499,6 +499,28 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             }
         }
 
+        // ── working capital snapshots (debtors / creditors from the Fusion subledgers, stock on hand) — FinanceWorkingCapital ──
+        internal const string WC_PARTIES_TABLE = "CREATE TABLE IF NOT EXISTS fin_wc_parties (pod VARCHAR, kind VARCHAR, snapshot_at TIMESTAMP, bu_id VARCHAR, party_number VARCHAR, party_name VARCHAR, currency VARCHAR, bucket VARCHAR, items BIGINT, amount DOUBLE, amount_entered DOUBLE, oldest_due VARCHAR, on_hold BIGINT)";
+        internal const string WC_STOCK_TABLE = "CREATE TABLE IF NOT EXISTS fin_wc_stock (pod VARCHAR, snapshot_at TIMESTAMP, org_id VARCHAR, org_code VARCHAR, item_number VARCHAR, description VARCHAR, subinventory VARCHAR, uom VARCHAR, quantity DOUBLE, unit_cost DOUBLE, value DOUBLE, oldest_receipt VARCHAR, age_days BIGINT)";
+        internal const string WC_SNAP_TABLE = "CREATE TABLE IF NOT EXISTS fin_wc_snapshots (pod VARCHAR, kind VARCHAR, snapshot_at TIMESTAMP, rows BIGINT, total DOUBLE, ms BIGINT, capped BOOLEAN, note VARCHAR)";
+        /// <summary>Saves one snapshot of a kind (AR | AP | INV) — rows already shaped as the table's columns after pod / kind / snapshot_at;
+        /// keeps the last <paramref name="keep"/> snapshots of that kind for the trend.</summary>
+        public static void SaveWc(string pod, string kind, DateTime at, List<object[]> rows, double total, long ms, bool capped, string note, int keep = 36)
+        {
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, WC_PARTIES_TABLE); Exec(conn, WC_STOCK_TABLE); Exec(conn, WC_SNAP_TABLE);
+                bool stock = kind == "INV";
+                Append(conn, stock ? "fin_wc_stock" : "fin_wc_parties", rows.Select(r => (stock ? new object[] { pod ?? "", at } : new object[] { pod ?? "", kind, at }).Concat(r).ToArray()).ToList());
+                Append(conn, "fin_wc_snapshots", new List<object[]> { new object[] { pod ?? "", kind, at, (long)rows.Count, total, ms, capped, note ?? "" } });
+                // older snapshots beyond `keep` go (the trend keeps the snapshot totals in fin_wc_snapshots)
+                string w = "pod = " + Lit(pod ?? "") + " AND kind = " + Lit(kind);
+                Exec(conn, "DELETE FROM " + (stock ? "fin_wc_stock WHERE pod = " + Lit(pod ?? "") : "fin_wc_parties WHERE " + w) + " AND snapshot_at NOT IN (SELECT snapshot_at FROM fin_wc_snapshots WHERE " + w + " ORDER BY snapshot_at DESC LIMIT " + Math.Max(1, keep) + ")");
+                Exec(conn, "CHECKPOINT");
+            }
+        }
+
         /// <summary>The kept account rows of some periods (one ledger, grain).</summary>
         public static List<FinanceFusion.AcctRow> LoadAcct(string pod, long ledgerId, string currency, string grain, IEnumerable<string> periods)
         {
@@ -741,10 +763,11 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             try
             {
                 Exec(conn, SEGVAL_TABLE); Exec(conn, TB_TABLE); Exec(conn, RAW_SYNC_TABLE); Exec(conn, CCID_TABLE); Exec(conn, ACCT_SYNC_TABLE); Exec(conn, TBP_TABLE); Exec(conn, TBL_TABLE);
+                Exec(conn, WC_PARTIES_TABLE); Exec(conn, WC_STOCK_TABLE); Exec(conn, WC_SNAP_TABLE);
                 Exec(conn, "ATTACH " + Lit(DbPath.Replace('\\', '/')) + " AS prev (READ_ONLY)");
                 try
                 {
-                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances", "fin_gl_balances_acct_sync", "fin_gl_balances_acct", "fin_tb_periods", "fin_tb_ledgers" })
+                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances", "fin_gl_balances_acct_sync", "fin_gl_balances_acct", "fin_tb_periods", "fin_tb_ledgers", "fin_wc_parties", "fin_wc_stock", "fin_wc_snapshots" })
                     {
                         using var c = conn.CreateCommand();
                         c.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog = 'prev' AND table_name = '" + t + "'";
