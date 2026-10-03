@@ -355,6 +355,11 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             lock (_lock)
             {
                 using var conn = OpenWrite();
+                // the identifying columns are always there (a query of your own may leave them out)
+                var all = cols.ToList();
+                foreach (var (c0, t0) in new[] { ("LEDGER_ID", "NUMBER"), ("PERIOD_NAME", "VARCHAR2"), ("CURRENCY_CODE", "VARCHAR2"), ("ACTUAL_FLAG", "VARCHAR2"), ("CODE_COMBINATION_ID", "NUMBER") })
+                    if (!all.Any(c => string.Equals(c.Col, c0, StringComparison.OrdinalIgnoreCase))) all.Add((c0, t0));
+                cols = all;
                 Exec(conn, "CREATE TABLE IF NOT EXISTS fin_gl_balances (pod VARCHAR, fetched_at TIMESTAMP, " + string.Join(", ", cols.Select(c => QI(c.Col) + " " + DuckType(c.Col, c.Type))) + ")");
                 var have = TableColumns(conn, "fin_gl_balances");
                 foreach (var c in cols.Where(c => !have.Any(h => string.Equals(h.Name, c.Col, StringComparison.OrdinalIgnoreCase))))
@@ -373,7 +378,17 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                     if (type == "DOUBLE") return double.TryParse(sv, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : null;
                     return sv;
                 }
-                Append(conn, "fin_gl_balances", rows.Select(row => have.Select(h => h.Name == "pod" ? pod ?? "" : h.Name == "fetched_at" ? now : Val(row, h.Name, h.Type)).ToArray()).ToList());
+                object Cell(Dictionary<string, object> row, string name, string type) => name switch
+                {
+                    "pod" => pod ?? "",
+                    "fetched_at" => now,
+                    "ledger_id" => Val(row, name, type) ?? (type == "BIGINT" ? ledgerId : type == "DOUBLE" ? (double)ledgerId : ledgerId.ToString(CultureInfo.InvariantCulture)),
+                    "period_name" => Val(row, name, type) ?? period,
+                    "currency_code" => Val(row, name, type) ?? currency,
+                    "actual_flag" => Val(row, name, type) ?? "A",
+                    _ => Val(row, name, type)
+                };
+                Append(conn, "fin_gl_balances", rows.Select(row => have.Select(h => Cell(row, h.Name, h.Type)).ToArray()).ToList());
                 Append(conn, "fin_gl_balances_sync", new List<object[]> { new object[] { pod ?? "", ledgerId, period, currency, (long)rows.Count, cols.Count, ms, now, user ?? "" } });
                 Exec(conn, "CHECKPOINT");
             }

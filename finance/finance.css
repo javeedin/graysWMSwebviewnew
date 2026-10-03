@@ -294,3 +294,6 @@ details.lf-card[open] > summary::before { content: '▾'; }
 .tl-cos { display: flex; flex-wrap: wrap; gap: 4px; max-height: 96px; overflow: auto; }
 .tl-cos .chip { border: 1px solid var(--line); border-radius: 99px; padding: 2px 8px; font-size: 12px; cursor: pointer; background: #fff; }
 .seg button[disabled] { opacity: .45; cursor: not-allowed; }
+.tl-q { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: #f8fafc; }
+.tl-q > summary { cursor: pointer; }
+.tl-q textarea { width: 100%; box-sizing: border-box; font: 12px/1.45 var(--mono); padding: 8px; border: 1px solid var(--line2); border-radius: 6px; margin: 6px 0; resize: vertical; }

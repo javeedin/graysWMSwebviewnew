@@ -1127,6 +1127,9 @@ namespace WMSApp
             public string Pod { get; set; } = "";
             /// <summary>Read the periods from Fusion again even when this PC already holds them.</summary>
             public bool Refresh { get; set; }
+            /// <summary>The user's own GL_BALANCES query for ONE period (SELECT / WITH; placeholders {LEDGER_ID}, {PERIOD}, {CURRENCY});
+            /// empty = the default. It must return CODE_COMBINATION_ID, BEGIN_BALANCE_DR / _CR and PERIOD_NET_DR / _CR.</summary>
+            public string QueryTemplate { get; set; }
         }
 
         /// <summary>
@@ -1184,26 +1187,29 @@ namespace WMSApp
                 }
                 int pages = 0, rowsSoFar = 0; bool sampled = false;
                 var gate = new SemaphoreSlim(Math.Clamp(o.Parallel, 1, 4));
-                (long Lo, long Hi)? bounds = null;
-                var bLock = new SemaphoreSlim(1, 1);
                 // every column of GL_BALANCES (as the data dictionary lists them) — kept as they are for later use
                 var glbCols = (x.Types.TryGetValue("GL_BALANCES", out var gt) ? gt : new List<(string Col, string Type)>())
                     .Where(c => Regex.IsMatch(c.Col, "^[A-Z][A-Z0-9_$#]*$", RegexOptions.IgnoreCase)).ToList();
                 if (glbCols.Count == 0) glbCols = new[] { "LEDGER_ID", "CODE_COMBINATION_ID", "CURRENCY_CODE", "PERIOD_NAME", "ACTUAL_FLAG", "TRANSLATED_FLAG", "BEGIN_BALANCE_DR", "BEGIN_BALANCE_CR", "PERIOD_NET_DR", "PERIOD_NET_CR" }
                     .Select(c => (c, c.EndsWith("_DR") || c.EndsWith("_CR") || c.EndsWith("_ID") ? "NUMBER" : "VARCHAR2")).ToList();
                 string selectCols = string.Join(", ", glbCols.Select(c => "b." + c.Col));
-                const int CAP = 20000;
+                string defaultTemplate = "SELECT " + selectCols + " FROM gl_balances b WHERE b.ledger_id = {LEDGER_ID} AND b.period_name = '{PERIOD}' AND b.currency_code = '{CURRENCY}' AND b.actual_flag = 'A'";
+                string template = string.IsNullOrWhiteSpace(o.QueryTemplate) ? defaultTemplate : o.QueryTemplate.Trim().TrimEnd(';');
+                bool custom = !string.IsNullOrWhiteSpace(o.QueryTemplate) && template != defaultTemplate;
+                if (custom && !Regex.IsMatch(template, @"^\s*(SELECT|WITH)\b", RegexOptions.IgnoreCase)) return new { ok = false, error = "The query must start with SELECT or WITH." };
+                if (custom) x.Note("Using your own GL_BALANCES query: " + template);
+                string Fill(string period) => template.Replace("{LEDGER_ID}", led.Id.ToString(CultureInfo.InvariantCulture)).Replace("{PERIOD}", period.Replace("'", "''")).Replace("{CURRENCY}", (led.Currency ?? "").Replace("'", "''"));
+                const int CAP = 100000;   // the runner's maximum: one query per period whenever the period fits
                 bool Slow(string e) => e != null && (e.IndexOf("timed out", StringComparison.OrdinalIgnoreCase) >= 0 || e.IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0 || e.Contains("ORA-01013"));
 
-                // one period: plain filters only (no ORDER BY, no join); the runner adds ROWNUM <= cap. When a read is cut at the cap or
-                // times out it is read again in code_combination_id ranges (bounds from the primary key of GL_CODE_COMBINATIONS), halved again as needed.
-                async Task<List<Dictionary<string, object>>> Fetch(string period, long? lo, long? hi, int depth)
+                // One period = ONE query with only ledger / period / currency / actual flag (no ORDER BY, no join, no id ranges, no
+                // expression filters — zero rows are kept and skipped on the PC); the runner adds ROWNUM <= cap.
+                // Only when that read is cut at the cap or times out is the period read in k even slices, MOD(code_combination_id, k) = i —
+                // every slice returns about 1/k of the rows (no empty ranges); a slice that is still too big is split again (k × 2).
+                async Task<List<Dictionary<string, object>>> Fetch(string period, int k, int i, int depth)
                 {
-                    string what = led.Name + " · GL_BALANCES " + period + (lo != null ? " · ids " + lo + "–" + hi : "");
-                    string sql = "SELECT " + selectCols +
-                                 " FROM gl_balances b WHERE b.ledger_id = " + led.Id + " AND b.period_name = " + Q(period) + " AND b.currency_code = " + Q(led.Currency) + " AND b.actual_flag = 'A'" +
-                                 " AND (b.begin_balance_dr <> b.begin_balance_cr OR b.period_net_dr <> 0 OR b.period_net_cr <> 0)" +
-                                 (lo != null ? " AND b.code_combination_id >= " + lo.Value.ToString(CultureInfo.InvariantCulture) + " AND b.code_combination_id < " + hi.Value.ToString(CultureInfo.InvariantCulture) : "");
+                    string what = led.Name + " · GL_BALANCES " + period + (k > 1 ? " · slice " + (i + 1) + "/" + k : "");
+                    string sql = k > 1 ? "SELECT * FROM (" + Fill(period) + ") q WHERE MOD(q.code_combination_id, " + k + ") = " + i : Fill(period);
                     if (x.LogSql) x.Note("   SQL: " + sql);
                     FusionQueryResult res;
                     var t0 = Stopwatch.StartNew();
@@ -1223,40 +1229,40 @@ namespace WMSApp
                         return res.Rows;
                     }
                     if (!res.Success && !Slow(res.Error)) throw new InvalidOperationException(what + ": " + res.Error);
-                    if (depth >= 14) throw new InvalidOperationException(what + ": still " + (res.Success ? "over " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows" : "timing out") + " after 14 splits");
-                    var parts = new List<(long, long)>();
-                    if (lo == null)
+                    if (depth >= 5) throw new InvalidOperationException(what + ": still " + (res.Success ? "over " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows" : "timing out") + " after splitting it into " + k + " slices");
+                    // first split: 4 slices (or as many as the row count needs); later: this slice in two
+                    var parts = new List<(int K, int I)>();
+                    if (k == 1)
                     {
-                        await bLock.WaitAsync(ct).ConfigureAwait(false);
-                        try
+                        int nk = 4;
+                        if (res.Success)   // cut at the cap: count the period's rows once to size the slices
                         {
-                            if (bounds == null)
-                            {
-                                var br = await RunLive(x, "code combination id range", "SELECT MIN(code_combination_id) mn, MAX(code_combination_id) mx FROM gl_code_combinations", 1).ConfigureAwait(false);
-                                if (!br.Success || br.Rows.Count == 0) throw new InvalidOperationException("code combination id range: " + br.Error);
-                                bounds = (L(br.Rows[0], "MN"), L(br.Rows[0], "MX") + 1);
-                            }
+                            var cr = await RunLive(x, what + " · rows", "SELECT COUNT(*) n FROM (" + Fill(period) + ")", 1).ConfigureAwait(false);
+                            if (cr.Success && cr.Rows.Count > 0) nk = (int)Math.Clamp(Math.Ceiling(L(cr.Rows[0], "N") / (CAP * 0.6)), 2, 64);
                         }
-                        finally { bLock.Release(); }
-                        long w = Math.Max(1, (bounds.Value.Hi - bounds.Value.Lo + 7) / 8);
-                        for (long a0 = bounds.Value.Lo; a0 < bounds.Value.Hi; a0 += w) parts.Add((a0, Math.Min(bounds.Value.Hi, a0 + w)));
+                        for (int j = 0; j < nk; j++) parts.Add((nk, j));
                     }
-                    else
-                    {
-                        if (hi.Value - lo.Value < 2) throw new InvalidOperationException(what + ": cannot split further - " + res.Error);
-                        long mid = lo.Value + (hi.Value - lo.Value) / 2;
-                        parts.Add((lo.Value, mid)); parts.Add((mid, hi.Value));
-                    }
+                    else { parts.Add((k * 2, i)); parts.Add((k * 2, i + k)); }
                     x.Note("   ⚠ " + what + (res.Success ? " has more than " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows" : " timed out after " + (t0.ElapsedMilliseconds / 1000.0).ToString("0", CultureInfo.InvariantCulture) + " s") +
-                           " - reading it in " + parts.Count + " ranges of code_combination_id");
-                    var got = await Task.WhenAll(parts.Select(pt => Fetch(period, pt.Item1, pt.Item2, depth + 1))).ConfigureAwait(false);
+                           " - reading it in " + parts.Count + " even slices (MOD(code_combination_id, " + parts[0].K + "))");
+                    var got = await Task.WhenAll(parts.Select(pt => Fetch(period, pt.K, pt.I, depth + 1))).ConfigureAwait(false);
                     return got.SelectMany(g => g).ToList();
                 }
                 await Task.WhenAll(toRead.Select(async n =>
                 {
                     var tw = Stopwatch.StartNew();
-                    var rows = await Fetch(n, null, null, 0).ConfigureAwait(false);
-                    FinanceLens.SaveRaw(o.Pod, led.Id, n, led.Currency, glbCols, rows, tw.ElapsedMilliseconds, null);
+                    var rows = await Fetch(n, 1, 0, 0).ConfigureAwait(false);
+                    if (rows.Count > 0)
+                    {
+                        var need = new[] { "CODE_COMBINATION_ID", "BEGIN_BALANCE_DR", "BEGIN_BALANCE_CR", "PERIOD_NET_DR", "PERIOD_NET_CR" }.Where(c => !rows[0].ContainsKey(c)).ToList();
+                        if (need.Count > 0) throw new InvalidOperationException("The query must return " + string.Join(", ", need) + " (it returned " + string.Join(", ", rows[0].Keys.Take(12)) + ").");
+                    }
+                    // the columns kept = what the query returned (types from the data dictionary when it is a GL_BALANCES column)
+                    var typeOf = glbCols.ToDictionary(c => c.Col, c => c.Type, StringComparer.OrdinalIgnoreCase);
+                    var keep = custom && rows.Count > 0
+                        ? rows[0].Keys.Where(k2 => Regex.IsMatch(k2, "^[A-Z][A-Z0-9_$#]*$", RegexOptions.IgnoreCase)).Select(k2 => (k2, typeOf.TryGetValue(k2, out var t2) ? t2 : rows.Take(50).All(r2 => r2[k2] == null || double.TryParse(Convert.ToString(r2[k2], CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out _)) ? "NUMBER" : "VARCHAR2")).ToList()
+                        : glbCols;
+                    FinanceLens.SaveRaw(o.Pod, led.Id, n, led.Currency, keep, rows, tw.ElapsedMilliseconds, null);
                     x.Note("✓ " + n + ": " + rows.Count.ToString("N0", CultureInfo.InvariantCulture) + " GL_BALANCES rows (" + glbCols.Count + " columns) read in " + (tw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s and kept on this PC (fin_gl_balances)");
                     lock (sources) sources.Add(new { period = n, from = "fusion", rows = (long)rows.Count, at = DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) });
                 })).ConfigureAwait(false);
@@ -1324,7 +1330,7 @@ namespace WMSApp
                 {
                     ok = true, ledger = new { id = led.Id, code = led.Code, name = led.Name, currency = led.Currency, coaId = led.CoaId },
                     period = new { name = p.Name, seq = p.Seq, year = p.Year, quarter = p.Quarter, folded = cur.Where(n => n != p.Name).ToList(), yearFrom = fy.Name, quarterFrom = fq.Name },
-                    byCostCentre = byCc, companies = cos.ToList(), rows = list, namesFromPc = accNames.Count, reads = pages, combinations = bal.Count, sources, ms = sw.ElapsedMilliseconds, log = x.Log
+                    byCostCentre = byCc, companies = cos.ToList(), rows = list, namesFromPc = accNames.Count, reads = pages, combinations = bal.Count, sources, queryTemplate = template, defaultTemplate, customQuery = custom, ms = sw.ElapsedMilliseconds, log = x.Log
                 };
             }
             catch (OperationCanceledException) { return new { ok = false, error = "Cancelled.", log = x.Log }; }

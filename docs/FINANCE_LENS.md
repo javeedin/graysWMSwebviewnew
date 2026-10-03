@@ -161,11 +161,13 @@ Statements › Trial balance › **Live from Fusion** (also before anything is l
 pod, ledger, period, companies (all or some), optional cost centre, *Fetch from Fusion*. One read of `GL_BALANCES` (ledger
 currency, actuals, no translated / summary rows) joined only to `GL_CODE_COMBINATIONS`, grouped by company × account
 (× cost centre). The **GL_BALANCES rows, with every column of the table**, of each period it needs (the period, its adjustment
-period, the start of the quarter and of the year) are read **once** with the simplest filters — ledger, period, currency, actual,
-non-zero; no ORDER BY, no join — and kept on this PC (DuckDB `fin_gl_balances`, same column names as Fusion, listed under *GL
+period, the start of the quarter and of the year) are read **once**, one query per period filtered only on ledger, period, currency and actual flag (no ORDER BY, no join, no
+expression filters), and kept on this PC (DuckDB `fin_gl_balances`, same column names as Fusion, listed under *GL
 balances kept on this PC*), so any other column is there for later reports; after that the trial balance is built from this
-copy in a fraction of a second. Tick *read again from Fusion* after postings. A period with more than 20,000 rows, or one that times
-out, is read in ranges of code_combination_id. The segments of each combination come from a map on this PC (`ccid-cache`, also
+copy in a fraction of a second. Tick *read again from Fusion* after postings. A period with more than 100,000 rows, or one that times
+out, is read in even slices (`MOD(code_combination_id, k) = i`). **GL_BALANCES query** (fold-out under the fetch button): change
+the query — `{LEDGER_ID}`, `{PERIOD}`, `{CURRENCY}` are filled in for each period; it must return CODE_COMBINATION_ID,
+BEGIN_BALANCE_DR / _CR and PERIOD_NET_DR / _CR — and *Run with this query*; *Default query* goes back. The segments of each combination come from a map on this PC (`ccid-cache`, also
 `fin_ccid`), looked up in Fusion by primary key only for new combinations. All shown in the live monitor: **opening, PTD debits / credits / net, QTD, YTD, closing** (QTD / YTD
 = closing − the balance at the start of the quarter / fiscal year; adjustment periods folded into the period they close).
 Names are not read from the value sets (keeps the Fusion query small): they come from this PC (DuckDB accounts or segment
