@@ -116,6 +116,9 @@ Every chart with its segments as a strip (company / cost centre / natural accoun
 value", qualifiers, why each role was chosen). Click a segment for **all its values**: description (value set), how many
 account combinations use it, account type, and for the natural account its class in the mapping. *Read from Fusion* (ranked
 chunks) saves them in DuckDB (`fin_segment_values`) and APEX (`WMS_FIN_SEGMENT_VALUES`); later they open from there.
+Before any finance data is loaded there is no DuckDB file yet: the values are then kept on this PC
+(`segment-values\{chart}_{segment}.json` in the finance folder) and the first load (SQL or BICC) adds them to DuckDB.
+Discovery measures every segment in one query; on a big chart that times out, so it then measures one segment at a time.
 
 ### BICC bulk extracts — every balance and journal at once
 For large ledgers: BI Cloud Connector extracts the GL view objects (`…GlBiccExtractAM.BalanceExtractPVO`,

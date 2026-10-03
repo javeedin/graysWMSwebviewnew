@@ -256,18 +256,38 @@ namespace WMSApp
                     var sql = new StringBuilder("SELECT COUNT(*) n");
                     for (int i = 0; i < cols.Count; i++) sql.Append(", COUNT(DISTINCT ").Append(cols[i]).Append(") d").Append(i).Append(", COUNT(DISTINCT ").Append(cols[i]).Append("||'|'||account_type) t").Append(i);
                     sql.Append(" FROM gl_code_combinations WHERE chart_of_accounts_id = ").Append(coa.CoaId).Append(x.Has("GL_CODE_COMBINATIONS", "SUMMARY_FLAG") ? " AND NVL(summary_flag, 'N') = 'N'" : "");
-                    var mr = await Try(x, "segment measures", 5, sql.ToString()).ConfigureAwait(false);
+                    void Take(int i, long dd, long tt)
+                    {
+                        if (dd == 0) return;                 // segment not used
+                        var seg = coa.Segments.FirstOrDefault(s => s.Col == cols[i]);
+                        if (seg == null) coa.Segments.Add(seg = new Segment { Col = cols[i], Name = cols[i], Num = i + 1 });
+                        seg.Distinct = dd; seg.DistinctWithType = tt; seg.Purity = tt > 0 ? Math.Round((double)dd / tt, 4) : 0;
+                    }
+                    string where = " FROM gl_code_combinations WHERE chart_of_accounts_id = " + coa.CoaId + (x.Has("GL_CODE_COMBINATIONS", "SUMMARY_FLAG") ? " AND NVL(summary_flag, 'N') = 'N'" : "");
+                    var mr = await Try(x, "segment measures (all segments in one query)", 5, sql.ToString()).ConfigureAwait(false);
                     if (mr != null && mr.Rows.Count > 0)
                     {
                         var r = mr.Rows[0];
                         coa.Combinations = L(r, "N");
+                        for (int i = 0; i < cols.Count; i++) Take(i, L(r, "D" + i), L(r, "T" + i));
+                    }
+                    else
+                    {
+                        // big charts (many segments × millions of combinations) time out in one query: one segment at a time,
+                        // exact first, then Oracle's APPROX_COUNT_DISTINCT (enough for the ≥ 80 % purity test)
+                        x.Note("Measuring chart " + coa.CoaId + " one segment at a time (" + cols.Count + " segments)…");
+                        var nr = await Try(x, "combinations of chart " + coa.CoaId, 5, "SELECT COUNT(*) n" + where).ConfigureAwait(false);
+                        if (nr != null && nr.Rows.Count > 0) coa.Combinations = L(nr.Rows[0], "N");
                         for (int i = 0; i < cols.Count; i++)
                         {
-                            long dd = L(r, "D" + i), tt = L(r, "T" + i);
-                            if (dd == 0) continue;           // segment not used
-                            var seg = coa.Segments.FirstOrDefault(s => s.Col == cols[i]);
-                            if (seg == null) coa.Segments.Add(seg = new Segment { Col = cols[i], Name = cols[i], Num = i + 1 });
-                            seg.Distinct = dd; seg.DistinctWithType = tt; seg.Purity = tt > 0 ? Math.Round((double)dd / tt, 4) : 0;
+                            var segR = await Try(x, "segment " + cols[i] + " of chart " + coa.CoaId, 5,
+                                "SELECT COUNT(DISTINCT " + cols[i] + ") d, COUNT(DISTINCT " + cols[i] + "||'|'||account_type) t" + where,
+                                "SELECT APPROX_COUNT_DISTINCT(" + cols[i] + ") d, APPROX_COUNT_DISTINCT(" + cols[i] + "||'|'||account_type) t" + where).ConfigureAwait(false);
+                            if (segR != null && segR.Rows.Count > 0)
+                            {
+                                Take(i, L(segR.Rows[0], "D"), L(segR.Rows[0], "T"));
+                                x.Note("  " + cols[i] + ": " + L(segR.Rows[0], "D").ToString("N0", CultureInfo.InvariantCulture) + " values");
+                            }
                         }
                     }
                     coa.Segments = coa.Segments.OrderBy(s => s.Num).ToList();
@@ -748,6 +768,7 @@ namespace WMSApp
             int jMin = journalPeriods.Count > 0 ? journalPeriods.Min(p => p.Seq) : int.MaxValue;
             string ledIn = string.Join(",", o.Ledgers.Select(l => FinanceLens.Lit(l.Code)));
             int keptFrom = o.FromSeq, keptTo = o.ToSeq;
+            List<string> pendingSeg = null;
             var prevDiscovery = o.Discovery.ValueKind == JsonValueKind.Object ? null : FinanceLens.LoadDiscovery(o.Pod ?? "");
             using (var conn = new DuckDBConnection("Data Source=" + tmp))
             {
@@ -786,6 +807,8 @@ namespace WMSApp
                     if (journalPeriods.Count > 0) FinanceLens.Exec(conn, "DELETE FROM fin_journals WHERE ledger IN (" + ledIn + ") AND period_seq IN (" + string.Join(",", journalPeriods.Select(p => p.Seq)) + ")");
                     foreach (var t in new[] { "fin_meta", "fin_ledgers", "fin_segments" }) FinanceLens.Exec(conn, "DELETE FROM " + t);
                 }
+                // segment values read before the finance file existed join the data now
+                try { pendingSeg = FinanceLens.ImportPendingSegValues(conn, x.Note); } catch (Exception ex) { x.Note("⚠ pending segment values not added: " + ex.Message); }
                 // dimensions: replace the codes this load saw, keep the others (incremental)
                 var accRows = acctTypes.Keys.Select(a => new object[] { a, acctNames.TryGetValue(a, out var n) ? n : a, TypeOf(acctTypes, a), null, null }).ToList();
                 var coRows = companies.Select(kv => new object[] { kv.Key, kv.Value.Name ?? (coNames.TryGetValue(kv.Key, out var n) ? n : kv.Key), o.Ledgers.First(l => l.Code == kv.Value.Ledger).Currency }).ToList();
@@ -833,6 +856,7 @@ namespace WMSApp
                 FinanceLens.Exec(conn, "CHECKPOINT");
             }
             FinanceLens.SwapIn(tmp);
+            FinanceLens.DropPending(pendingSeg);
             x.Note("Done in " + (sw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s.");
             return new
             {
@@ -1059,10 +1083,11 @@ namespace WMSApp
                 used.TryGetValue(v, out var u);
                 return new SegValue { Value = v, Description = names.TryGetValue(v, out var d) ? d : null, Combinations = u.N, AccountType = u.T1 == null ? null : u.T1 == u.T2 ? u.T1 : u.T1 + "/" + u.T2 };
             }).ToList();
-            bool saved = false;
-            try { saved = FinanceLens.SaveSegmentValues(coaId, col, list); } catch (Exception ex) { x.Note("⚠ values not saved in DuckDB: " + ex.Message); }
-            x.Note(list.Count.ToString("N0", CultureInfo.InvariantCulture) + " values (" + used.Count.ToString("N0", CultureInfo.InvariantCulture) + " in use)" + (saved ? " · saved in DuckDB" : ""));
-            return new { ok = true, coaId, column = col, values = list.Select(v => new { value = v.Value, description = v.Description, combinations = v.Combinations, accountType = v.AccountType }), savedDuck = saved, log = x.Log };
+            string saved = null;
+            try { saved = FinanceLens.SaveSegmentValues(coaId, col, list); } catch (Exception ex) { x.Note("⚠ values not saved on this PC: " + ex.Message); }
+            x.Note(list.Count.ToString("N0", CultureInfo.InvariantCulture) + " values (" + used.Count.ToString("N0", CultureInfo.InvariantCulture) + " in use)" +
+                   (saved == "duckdb" ? " · saved in DuckDB" : saved == "pending" ? " · kept on this PC, added to DuckDB by the first load" : ""));
+            return new { ok = true, coaId, column = col, values = list.Select(v => new { value = v.Value, description = v.Description, combinations = v.Combinations, accountType = v.AccountType }), savedDuck = saved == "duckdb", pendingDuck = saved == "pending", log = x.Log };
         }
         public sealed class SegValue { public string Value { get; set; } public string Description { get; set; } public long Combinations { get; set; } public string AccountType { get; set; } }
 

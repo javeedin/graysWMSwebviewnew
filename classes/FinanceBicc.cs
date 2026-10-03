@@ -178,6 +178,7 @@ namespace WMSApp
             int from = o.FromSeq > 0 ? o.FromSeq : normal.Min(p => p.Year * 100 + p.Num), to = o.ToSeq > 0 ? o.ToSeq : normal.Max(p => p.Year * 100 + p.Num);
 
             string tmp = Path.Combine(FinanceLens.Root, "finance.new.duckdb");
+            List<string> pendingSeg = null;
             foreach (var f in new[] { tmp, tmp + ".wal" }) if (File.Exists(f)) File.Delete(f);
             var prev = o.Discovery.ValueKind == JsonValueKind.Object ? null : FinanceLens.LoadDiscovery(o.Pod ?? "");
             long nBal = 0, nJnl = 0;
@@ -197,6 +198,7 @@ namespace WMSApp
                     if (N("SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog = 'prev' AND table_name = 'fin_segment_values'") > 0) X("INSERT INTO fin_segment_values SELECT * FROM prev.fin_segment_values");
                     X("DETACH prev");
                 }
+                pendingSeg = FinanceLens.ImportPendingSegValues(conn, Note);
 
                 // calendar + ledgers as tables
                 X("CREATE TEMP TABLE cal (period_name VARCHAR, t_name VARCHAR, t_seq INTEGER, t_year INTEGER, t_num INTEGER, t_q INTEGER, t_start DATE, t_end DATE)");
@@ -329,6 +331,7 @@ namespace WMSApp
             catch (OperationCanceledException) { Note("✖ Cancelled - nothing was changed."); return new { ok = false, error = "Cancelled - nothing was changed.", log }; }
             catch (Exception ex) { Note("✖ " + ex.Message + " - nothing was changed."); return new { ok = false, error = ex.Message, log }; }
             FinanceLens.SwapIn(tmp);
+            FinanceLens.DropPending(pendingSeg);
             Note("Done: " + nBal.ToString("N0", CultureInfo.InvariantCulture) + " balances, " + nJnl.ToString("N0", CultureInfo.InvariantCulture) + " journal lines in " + (sw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s.");
             try { File.WriteAllLines(Path.Combine(FinanceLens.Root, "fusion-sync.log"), new[] { "BICC load " + DateTime.Now.ToString("s") }.Concat(log)); } catch { }
             return new { ok = true, balances = nBal, journals = nJnl, mode = "BICC", ms = sw.ElapsedMilliseconds, log };

@@ -249,7 +249,7 @@
         };
         var load = function () {
             return FL.call('finSegValues', { coaId: sg.coa, column: sg.col }).then(function (r) {
-                if (r.values && r.values.length) { D.segVals = r.values; $('sv-src').textContent = '· from DuckDB, read ' + String(r.values[0].fetchedAt || '').slice(0, 16); return; }
+                if (r.values && r.values.length) { D.segVals = r.values; $('sv-src').textContent = (r.source === 'pending' ? '· kept on this PC (DuckDB gets them with the first load), read ' : '· from DuckDB, read ') + String(r.values[0].fetchedAt || '').slice(0, 16); return; }
                 return FL.apexStore.loadSegValues(s ? s.pod : '', sg.coa, sg.col).then(function (v) { D.segVals = v; $('sv-src').textContent = v.length ? '· from APEX, read ' + (v[0].fetchedAt || '') : '· not read yet — press Read from Fusion'; });
             }).catch(function (e) { $('sv-src').textContent = '· ' + e; D.segVals = []; });
         };
@@ -259,7 +259,7 @@
             var p = FL.fusion.progress('Reading ' + sg.col + ' values from Fusion…', true);
             FL.call('finFusionSegValues', { pod: s ? s.pod : '', coaId: sg.coa, column: sg.col }, 20 * 60000, p).then(function (r) {
                 D.segVals = r.values.map(function (v) { return { value: v.value, description: v.description, combinations: v.combinations, accountType: v.accountType }; });
-                $('sv-src').textContent = '· from Fusion just now' + (r.savedDuck ? ' · saved in DuckDB' : '');
+                $('sv-src').textContent = '· from Fusion just now' + (r.savedDuck ? ' · saved in DuckDB' : r.pendingDuck ? ' · kept on this PC — DuckDB gets them with the first load' : ' · not saved in DuckDB');
                 show();
                 p('Saving ' + D.segVals.length.toLocaleString() + ' values in APEX…');
                 return FL.apexStore.saveSegValues(s ? s.pod : '', sg.coa, sg.col, D.segVals, function (i, n) { p('APEX ' + i + ' / ' + n); }).then(function () {

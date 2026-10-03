@@ -168,11 +168,15 @@ namespace WMSApp
                     case "finSegValues":        // the values saved in the finance file
                         data = await Task.Run(() =>
                         {
+                            string coa = PipeSrvStr(root, "coaId"), col = PipeSrvStr(root, "column");
+                            var pend = FinanceLens.PendingSegValues(coa, col);   // read before any data was loaded: kept on this PC until the first load
+                            if (pend != null && pend.Values != null)
+                                return (object)new { ok = true, source = "pending", values = pend.Values.Select(v => new { value = v.Value, description = v.Description, combinations = v.Combinations, accountType = v.AccountType, fetchedAt = pend.FetchedAt.ToString("yyyy-MM-dd HH:mm") }) };
                             var t = FinanceLens.Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_segment_values'", 1);
                             if (t.Error != null || t.Rows.Count == 0 || Convert.ToInt64(t.Rows[0][0]) == 0) return (object)new { ok = true, values = Array.Empty<object>() };
                             var r = FinanceLens.Query("SELECT value, description, combinations, account_type, CAST(fetched_at AS VARCHAR) FROM fin_segment_values WHERE coa_id = " + FinanceLens.Lit(PipeSrvStr(root, "coaId")) +
                                                       " AND column_name = " + FinanceLens.Lit(PipeSrvStr(root, "column")) + " ORDER BY value", 200000);
-                            return new { ok = r.Error == null, error = r.Error, values = r.Rows.Select(z => new { value = z[0], description = z[1], combinations = z[2], accountType = z[3], fetchedAt = z[4] }) };
+                            return new { ok = r.Error == null, error = r.Error, source = "duckdb", values = r.Rows.Select(z => new { value = z[0], description = z[1], combinations = z[2], accountType = z[3], fetchedAt = z[4] }) };
                         });
                         break;
                     case "finBiccInspect":

@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using DuckDB.NET.Data;
 
 namespace WMSApp
@@ -232,10 +233,19 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             return true;
         }
 
-        /// <summary>Saves the values of one segment (fin_segment_values) when the finance file exists.</summary>
-        public static bool SaveSegmentValues(string coaId, string column, List<FinanceFusion.SegValue> values)
+        /// <summary>Saves the values of one segment: in fin_segment_values when the finance file exists ("duckdb"),
+        /// else as a pending file {root}\segment-values\{coa}_{column}.json that the first load imports ("pending").</summary>
+        public static string SaveSegmentValues(string coaId, string column, List<FinanceFusion.SegValue> values)
         {
-            if (!File.Exists(DbPath)) return false;
+            if (!File.Exists(DbPath))
+            {
+                Directory.CreateDirectory(PendingSegDir);
+                var doc = new PendingSeg { CoaId = coaId, Column = column, FetchedAt = DateTime.Now, Values = values };
+                string f = PendingSegFile(coaId, column);
+                File.WriteAllText(f + ".tmp", JsonSerializer.Serialize(doc));
+                File.Move(f + ".tmp", f, true);
+                return "pending";
+            }
             lock (_lock)
             {
                 ResetSessionNoLock();
@@ -246,7 +256,46 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 Append(conn, "fin_segment_values", values.Select(v => new object[] { coaId, column, v.Value, v.Description, v.Combinations, v.AccountType, DateTime.Now }).ToList());
                 Exec(conn, "CHECKPOINT");
             }
-            return true;
+            try { File.Delete(PendingSegFile(coaId, column)); } catch { }
+            return "duckdb";
+        }
+
+        // ── segment values read before any finance data was loaded ──
+        public sealed class PendingSeg { public string CoaId { get; set; } public string Column { get; set; } public DateTime FetchedAt { get; set; } public List<FinanceFusion.SegValue> Values { get; set; } }
+        internal static string PendingSegDir => Path.Combine(Root, "segment-values");
+        private static string PendingSegFile(string coaId, string column) =>
+            Path.Combine(PendingSegDir, Regex.Replace(coaId ?? "", "[^A-Za-z0-9_-]", "_") + "_" + Regex.Replace(column ?? "", "[^A-Za-z0-9_-]", "_") + ".json");
+        private static PendingSeg ReadPending(string file)
+        {
+            try { return JsonSerializer.Deserialize<PendingSeg>(File.ReadAllText(file)); } catch { return null; }
+        }
+        /// <summary>The pending values of one segment (null when there are none).</summary>
+        public static PendingSeg PendingSegValues(string coaId, string column)
+        {
+            string f = PendingSegFile(coaId, column);
+            return File.Exists(f) ? ReadPending(f) : null;
+        }
+        /// <summary>Moves every pending segment-value file into fin_segment_values of a file being built (replacing that
+        /// coa/column, newer than what the old file had); returns the files to delete once the new file is swapped in.</summary>
+        internal static List<string> ImportPendingSegValues(DuckDBConnection conn, Action<string> note)
+        {
+            var done = new List<string>();
+            if (!Directory.Exists(PendingSegDir)) return done;
+            Exec(conn, SEGVAL_TABLE);
+            foreach (var f in Directory.GetFiles(PendingSegDir, "*.json"))
+            {
+                var p = ReadPending(f);
+                if (p == null || p.Values == null) continue;
+                Exec(conn, "DELETE FROM fin_segment_values WHERE coa_id = " + Lit(p.CoaId) + " AND column_name = " + Lit(p.Column));
+                Append(conn, "fin_segment_values", p.Values.Select(v => new object[] { p.CoaId, p.Column, v.Value, v.Description, v.Combinations, v.AccountType, p.FetchedAt }).ToList());
+                note?.Invoke("Segment values of " + p.Column + " (chart " + p.CoaId + ", read " + p.FetchedAt.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + "): " + p.Values.Count.ToString("N0", CultureInfo.InvariantCulture) + " added from this PC.");
+                done.Add(f);
+            }
+            return done;
+        }
+        internal static void DropPending(IEnumerable<string> files)
+        {
+            foreach (var f in files ?? Enumerable.Empty<string>()) try { File.Delete(f); } catch { }
         }
         internal const string SEGVAL_TABLE = "CREATE TABLE IF NOT EXISTS fin_segment_values (coa_id VARCHAR, column_name VARCHAR, value VARCHAR, description VARCHAR, combinations BIGINT, account_type VARCHAR, fetched_at TIMESTAMP)";
 
