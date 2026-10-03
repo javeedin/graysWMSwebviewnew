@@ -169,6 +169,7 @@ Data › Trial balance sync opens as a table (switch to Tiles at the top right).
 ## Segment P&L (P&L, pivot and trial balance by extended segments)
 
 The **Segment P&L** tab works on the extended segments synced in Data › Trial balance sync (view `fin_gl_ext_v`).
+Segments are named from the chart of accounts (fin_coa_segments, else the saved Fusion discovery), e.g. *Salesperson* rather than SEGMENT10.
 
 - **Left panel**: ledger · periods (tick several; *Last*, *Quarter*, *YTD*, *12 m*, *All*, or a year) · **Group by** — add
   segments in order (e.g. *Salesperson*, then *Item profit centre* under it; company and account are always in the data),
@@ -179,6 +180,8 @@ The **Segment P&L** tab works on the extended segments synced in Data › Trial 
   real statement template computed on that row's accounts, so subtotals, margins and formulas are right; ⋯ shows the whole
   statement for that row. Rows with no P&L at all (balance-sheet only) are left out.
 - **By columns**: the whole statement with one column per value of the first segment (biggest 12, others, total).
+  Press ▸ on a line (or *Open all lines*) to see its accounts with their amount in every column; click an account amount for
+  the balance rows behind it (period × company × segments, debits / credits, filters and CSV).
 - **Pivot**: rows = any fields in order (company, account, period, any segment) with subtotals and ▸ / open all / close
   all, columns = one field (default period), value = profit (income +, costs −), net movement, closing balance or one
   statement line (e.g. *Revenue* by salesperson × month).

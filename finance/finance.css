@@ -589,3 +589,6 @@ body.nav-min .tabs.side button i { font-size: 15px; }
 body.nav-min .tabs.side .nav-h { font-size: 0; padding: 6px 0; border-top: 1px solid var(--line); margin: 6px 8px 0; }
 body.nav-min .tabs.side .datachip { display: none; }
 @media print { .tabs.side { display: none; } }
+.sp-cols tr.sp-acc td { background: #fbfdff; color: #334155; font-size: 12px; }
+.sp-cols td.sp-dc { cursor: pointer; } .sp-cols td.sp-dc:hover { background: #eff6ff; text-decoration: underline; }
+.sp-cols .sp-ctg { margin-right: 4px; }

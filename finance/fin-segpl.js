@@ -16,7 +16,7 @@
 
     // ── what is on this PC: ledgers, periods, segments, names ──
     G.meta = function () {
-        return FL.rows("SELECT e.ledger_id, ANY_VALUE(l.name) AS name, ANY_VALUE(l.currency) AS currency, ANY_VALUE(l.coa_id) AS coa_id, ANY_VALUE(l.company_segment) AS cseg, ANY_VALUE(l.account_segment) AS aseg, COUNT(*) AS n " +
+        return FL.rows("SELECT e.ledger_id, ANY_VALUE(l.name) AS name, ANY_VALUE(l.currency) AS currency, ANY_VALUE(l.coa_id) AS coa_id, ANY_VALUE(l.company_segment) AS cseg, ANY_VALUE(l.account_segment) AS aseg, ANY_VALUE(e.pod) AS pod, COUNT(*) AS n " +
             "FROM fin_gl_ext_v e LEFT JOIN fin_tb_ledgers l ON l.ledger_id = e.ledger_id AND l.pod = e.pod GROUP BY 1 ORDER BY 2", 100).then(function (leds) {
             G.leds = leds;
             if (!leds.length) return null;
@@ -33,13 +33,22 @@
                 var cseg = String(L.cseg || '').toLowerCase(), aseg = String(L.aseg || '').toLowerCase();
                 G.segs = Object.keys(cols).filter(function (c) { return segCol(c) && c !== cseg && c !== aseg; }).sort(function (a, b) { return +a.slice(7) - +b.slice(7); });
                 G.cos = r[2].map(function (x) { return x.company; });
-                G.segName = {}; r[3].forEach(function (x) { G.segName[String(x.column_name).toLowerCase()] = x.name; });
+                G.segName = {}; r[3].forEach(function (x) { if (x.name) G.segName[String(x.column_name).toLowerCase()] = x.name; });
                 G.st.groups = (G.st.groups || []).filter(function (g) { return G.segs.indexOf(g) >= 0 || g === 'company'; });
                 var seqs = G.periods.map(function (p) { return p.seq; });
                 G.st.periods = (G.st.periods || []).filter(function (q) { return seqs.indexOf(q) >= 0; });
                 if (!G.st.periods.length && seqs.length) G.st.periods = [seqs[seqs.length - 1]];
                 return FL.rows("SELECT lower(column_name) AS col, value, ANY_VALUE(description) AS d FROM fin_segment_values WHERE coa_id = " + FL.q(L.coa_id || '') +
                     " AND lower(column_name) IN (" + (G.segs.length ? G.segs.map(FL.q).join(',') : "''") + ") GROUP BY 1, 2", 200000).catch(function () { return []; });
+            }).then(function (vals) {
+                G.vals0 = vals;
+                // segment names this PC's DuckDB does not hold (fin_coa_segments is filled by full loads only): the saved discovery
+                if (!G.segs.some(function (c) { return !G.segName[c]; }) || !FL.fusion || !FL.fusion.getDisc) return vals;
+                return FL.fusion.getDisc(L.pod || '').then(function (r) {
+                    var c = r && r.disc && (r.disc.coas || {})[String(L.coa_id)];
+                    (c && c.segments || []).forEach(function (x) { var k = String(x.col || '').toLowerCase(); if (k && x.name && !G.segName[k]) G.segName[k] = x.name; });
+                    return vals;
+                }).catch(function () { return vals; });
             }).then(function (vals) {
                 G.valName = {}; (vals || []).forEach(function (v) { (G.valName[v.col] = G.valName[v.col] || {})[v.value] = v.d; });
                 return true;
@@ -260,28 +269,68 @@
         }).join('') + '</table></div>');
     };
 
-    // ── By columns: the whole statement, one column per value of the first segment (biggest 12 + others + total) ──
+    // ── By columns: the whole statement, one column per value of the first segment (biggest 12 + others + total).
+    //    A line with accounts opens (▸) into its accounts, each with its value per column; a click on an account cell lists the
+    //    balance rows behind it (company × segments × period). ──
+    G.cOpen = G.cOpen || {};
     G.viewCols = function (out) {
         var s = G.st, f = s.groups[0], key = (s.lines || G.defLines(G.total))[0];
-        var cols = [{ label: 'Total', st: G.total }];
+        var cols = [{ label: 'Total', st: G.total, rows: G.rows }];
         if (f) {
             var by = {}; G.rows.forEach(function (r) { var v = f === 'company' ? r.company : r[f]; v = v == null ? '' : String(v); (by[v] = by[v] || []).push(r); });
             var list = Object.keys(by).map(function (v) { var st = G.stmt(by[v]), kr = st.rows.filter(function (r) { return r.id === key; })[0]; return { v: v, rows: by[v], st: st, k: kr ? Math.abs(kr.values[0] || 0) : 0 }; }).sort(function (a, b) { return b.k - a.k; });
             var top = list.slice(0, 12), rest = list.slice(12);
-            cols = top.map(function (x) { return { label: G.valLabel(f, x.v), st: x.st }; });
-            if (rest.length) cols.push({ label: 'Others (' + rest.length + ')', st: G.stmt([].concat.apply([], rest.map(function (x) { return x.rows; }))) });
-            cols.push({ label: 'Total', st: G.total, total: true });
+            cols = top.map(function (x) { return { label: G.valLabel(f, x.v), st: x.st, rows: x.rows }; });
+            if (rest.length) { var rr = [].concat.apply([], rest.map(function (x) { return x.rows; })); cols.push({ label: 'Others (' + rest.length + ')', st: G.stmt(rr), rows: rr }); }
+            cols.push({ label: 'Total', st: G.total, rows: G.rows, total: true });
         }
+        // per column: account → { net, close }
+        cols.forEach(function (c) { var m = c.acc = {}; c.rows.forEach(function (r) { var x = m[r.account] = m[r.account] || { net: 0, close: 0 }; x.net += r.net; x.close += r.opening + r.net; }); });
+        var tot = cols[cols.length - 1];
+        var accVal = function (r, c, a) { var x = c.acc[a]; if (!x) return null; return (r.basis === 'balance' ? x.close : x.net) * (r.sign || 1); };
+        var drillable = function (r) { return r.type === 'accounts' && r.accounts && r.accounts.length; };
+        var accsOf = function (r) { return r.accounts.filter(function (a) { return tot.acc[a] && (Math.abs(tot.acc[a].net) > 0.005 || Math.abs(tot.acc[a].close) > 0.005); }).sort(function (a, b) { return Math.abs(accVal(r, tot, b)) - Math.abs(accVal(r, tot, a)); }); };
         var rows = G.total.rows.filter(function (r) { return !r.hidden && r.type !== 'blank'; });
-        out.innerHTML = '<div class="card sp-card"><div class="scroll" style="max-height:74vh"><table class="t sp-cols"><thead><tr><th>' + esc(G.tplObj().name) + (f ? ' · by ' + esc(G.label(f)) : '') + '</th>' + cols.map(function (c) { return '<th class="n' + (c.total ? ' sp-tc' : '') + '">' + esc(c.label) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-            rows.map(function (r) {
-                var b = r.type === 'group' || r.type === 'formula' || (r.style && r.style.bold);
-                return '<tr class="' + (r.type === 'header' ? 'sp-h' : b ? 'sp-b' : '') + '"><td style="padding-left:' + (8 + (r.level || 0) * 14) + 'px">' + esc(r.label) + '</td>' + cols.map(function (c) {
-                    var x = c.st.rows.filter(function (y) { return y.id === r.id && y.label === r.label; })[0], v = x ? x.values[0] : null;
-                    return '<td class="n' + (c.total ? ' sp-tc' : '') + '">' + (r.type === 'header' ? '' : G.fmtLine(r, v)) + '</td>'; }).join('') + '</tr>';
-            }).join('') + '</tbody></table></div>' + (f ? '' : '<p class="sm muted">Add a segment on the left to get one column per value (e.g. one per salesperson).</p>') + '</div>';
-        G.out = { head: [G.tplObj().name].concat(cols.map(function (c) { return c.label; })), rows: rows.filter(function (r) { return r.type !== 'header'; }).map(function (r) {
-            return [r.label].concat(cols.map(function (c) { var x = c.st.rows.filter(function (y) { return y.id === r.id && y.label === r.label; })[0], v = x ? x.values[0] : null; return /^(pct|ratio|days)$/.test(r.format) ? v : v == null ? null : v / (FL.filter.scale || 1); })); }) };
+        var cell = function (r, c) { var x = c.st.rows.filter(function (y) { return y.id === r.id && y.label === r.label; })[0]; return x ? x.values[0] : null; };
+        var anyLine = rows.some(drillable);
+        var html = [], exp = [];
+        rows.forEach(function (r, ri) {
+            var b = r.type === 'group' || r.type === 'formula' || (r.style && r.style.bold), d = drillable(r), open = d && G.cOpen[r.id];
+            var accs = d ? accsOf(r) : [];
+            html.push('<tr class="' + (r.type === 'header' ? 'sp-h' : b ? 'sp-b' : '') + '" data-r="' + ri + '"><td style="padding-left:' + (8 + (r.level || 0) * 14) + 'px">' +
+                (d ? '<span class="sp-tg sp-ctg" title="' + (open ? 'Hide' : 'Show') + ' the accounts">' + (open ? '▾' : '▸') + '</span>' : anyLine ? '<span class="sp-tg0"></span>' : '') + esc(r.label) +
+                (d ? ' <span class="muted sm">' + accs.length + ' acc.</span>' : '') + '</td>' +
+                cols.map(function (c) { return '<td class="n' + (c.total ? ' sp-tc' : '') + '">' + (r.type === 'header' ? '' : G.fmtLine(r, cell(r, c))) + '</td>'; }).join('') + '</tr>');
+            if (r.type !== 'header') exp.push([r.label].concat(cols.map(function (c) { var v = cell(r, c); return /^(pct|ratio|days)$/.test(r.format) ? v : v == null ? null : v / (FL.filter.scale || 1); })));
+            if (!open) return;
+            if (!accs.length) html.push('<tr class="sp-acc"><td colspan="' + (cols.length + 1) + '" class="muted sm" style="padding-left:' + (30 + (r.level || 0) * 14) + 'px">No account of this line has amounts for this choice.</td></tr>');
+            accs.forEach(function (a) {
+                html.push('<tr class="sp-acc" data-r="' + ri + '" data-a="' + esc(a) + '"><td style="padding-left:' + (30 + (r.level || 0) * 14) + 'px" title="' + esc(a) + '">' + esc(G.valLabel('account', a)) + '</td>' +
+                    cols.map(function (c, ci) { var v = accVal(r, c, a); return '<td class="n sp-dc' + (c.total ? ' sp-tc' : '') + '" data-c="' + ci + '"' + (v ? ' title="The balance rows behind this amount"' : '') + '>' + (v ? money(v) : '') + '</td>'; }).join('') + '</tr>');
+                exp.push(['   ' + G.valLabel('account', a)].concat(cols.map(function (c) { var v = accVal(r, c, a); return v == null ? null : v / (FL.filter.scale || 1); })));
+            });
+        });
+        var nOpen = rows.filter(function (r) { return drillable(r) && G.cOpen[r.id]; }).length;
+        out.innerHTML = '<div class="card sp-card">' + (anyLine ? '<div class="row sm" style="margin-bottom:6px"><span class="muted">▸ opens a line into its accounts · click an account amount for the rows behind it</span><span class="grow"></span>' +
+            '<button class="btn sm ghost" id="sp-cx">' + (nOpen ? '<i class="fa-solid fa-compress"></i> Close all' : '<i class="fa-solid fa-expand"></i> Open all lines') + '</button></div>' : '') +
+            '<div class="scroll" style="max-height:74vh"><table class="t sp-cols"><thead><tr><th>' + esc(G.tplObj().name) + (f ? ' · by ' + esc(G.label(f)) : '') + '</th>' + cols.map(function (c) { return '<th class="n' + (c.total ? ' sp-tc' : '') + '">' + esc(c.label) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+            html.join('') + '</tbody></table></div>' + (f ? '' : '<p class="sm muted">Add a segment on the left to get one column per value (e.g. one per salesperson).</p>') + '</div>';
+        G.out = { head: [G.tplObj().name].concat(cols.map(function (c) { return c.label; })), rows: exp };
+        out.querySelectorAll('.sp-ctg').forEach(function (t) { t.onclick = function () { var r = rows[+t.closest('tr').dataset.r]; if (G.cOpen[r.id]) delete G.cOpen[r.id]; else G.cOpen[r.id] = 1; G.draw(); }; });
+        if ($('sp-cx')) $('sp-cx').onclick = function () { if (nOpen) G.cOpen = {}; else rows.forEach(function (r) { if (drillable(r)) G.cOpen[r.id] = 1; }); G.draw(); };
+        out.querySelectorAll('.sp-dc').forEach(function (td) { td.onclick = function () {
+            var tr = td.closest('tr'), r = rows[+tr.dataset.r], c = cols[+td.dataset.c], a = tr.dataset.a;
+            G.acctRows(c.rows.filter(function (x) { return x.account === a; }), G.valLabel('account', a) + ' · ' + r.label + ' · ' + c.label);
+        }; });
+    };
+    /** The balance rows (company × segments × period) behind one account amount */
+    G.acctRows = function (list, title) {
+        var segs = G.fields().filter(function (c) { return list.some(function (r) { return c in r; }); });
+        FL.modal('<i class="fa-solid fa-magnifying-glass-dollar"></i> ' + esc(title), '<div id="sp-ar"></div>');
+        var cols = [{ label: 'Period', get: function (r) { return G.valLabel('period', r.period); } }, { label: 'Company', get: function (r) { return G.valLabel('company', r.company); } }]
+            .concat(segs.map(function (c) { return { label: G.label(c), get: function (r) { return G.valLabel(c, r[c]); } }; }))
+            .concat([['Debits', 'dr'], ['Credits', 'cr'], ['Net (debit +)', 'net']].map(function (m) { return { label: m[0], n: true, val: function (r) { return r[m[1]]; }, get: function (r) { return money(r[m[1]]); } }; }));
+        FL.grid($('sp-ar'), cols, list.slice().sort(function (a, b) { return Math.abs(b.net) - Math.abs(a.net); }), { id: 'sp-ar-' + segs.join('-'), height: '60vh', max: 2000, csv: 'account-rows.csv' });
     };
 
     // ── Pivot: rows (several fields, nested with subtotals), one column field, a measure ──
