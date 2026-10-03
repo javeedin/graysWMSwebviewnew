@@ -1153,6 +1153,8 @@ namespace WMSApp
             public string ExtBy { get; set; } = "auto";
             /// <summary>Accounts per query when reading account by account (1-50); a batch that fails is split in half down to one account.</summary>
             public int ExtAccountBatch { get; set; } = 1;
+            /// <summary>Extended segments: the segment names (SEGMENTn → e.g. "Salesperson") so the SQL reads `c.SEGMENT10 salesperson`; rows are mapped back to SEGMENTn.</summary>
+            public Dictionary<string, string> ExtNames { get; set; } = new();
         }
 
         /// <summary>
@@ -1686,6 +1688,20 @@ namespace WMSApp
                 bool tf = have.Count == 0 || have.Contains("TRANSLATED_FLAG");
                 string Lit(string v) => "'" + (v ?? "").Replace("'", "''") + "'";
                 string Sql(string period, string co, IList<string> accts = null) => ExtSql(led, segs, o, have, period, co, accts);
+                var alias = ExtAliases(led, segs, o.ExtNames);
+                // the SQL reads `c.SEGMENT10 salesperson`: put the values back under SEGMENTn, the column every later step and the table use
+                FusionQueryResult Back(FusionQueryResult r)
+                {
+                    if (r?.Rows == null) return r;
+                    foreach (var row in r.Rows)
+                        foreach (var kv in alias)
+                        {
+                            if (string.Equals(kv.Key, kv.Value, StringComparison.OrdinalIgnoreCase)) continue;
+                            var k = row.Keys.FirstOrDefault(z => string.Equals(z, kv.Value, StringComparison.OrdinalIgnoreCase));
+                            if (k != null) { row[kv.Key.ToUpperInvariant()] = row[k]; row.Remove(k); }
+                        }
+                    return r;
+                }
                 var kept = FinanceLens.ExtPeriods(o.Pod, led.Id, led.Currency);
                 var jobs = new List<(string Period, string Co)>();
                 int skipped = 0;
@@ -1738,7 +1754,7 @@ namespace WMSApp
                         x.Ct.ThrowIfCancellationRequested();
                         var (at, list) = queue.Dequeue();
                         string label = led.Name + " · " + period + " · extended · company " + co + " · account " + (list.Count == 1 ? list[0] : list[0] + "…" + list[^1]) + " · " + (at + 1) + " of " + accts.Count;
-                        var r = await RunLive(x, label, Sql(period, co, list), CAP).ConfigureAwait(false);
+                        var r = Back(await RunLive(x, label, Sql(period, co, list), CAP).ConfigureAwait(false));
                         Interlocked.Increment(ref reads);
                         if (r.Success && r.Rows.Count < CAP) { all.AddRange(r.Rows); continue; }
                         if (list.Count > 1)
@@ -1786,7 +1802,7 @@ namespace WMSApp
                         {
                             string sql = Sql(j.Period, j.Co);
                             if (x.LogSql) x.Note("   SQL: " + sql);
-                            var r = await RunLive(x, label, sql, CAP).ConfigureAwait(false);
+                            var r = Back(await RunLive(x, label, sql, CAP).ConfigureAwait(false));
                             Interlocked.Increment(ref reads);
                             if (r.Success && r.Rows.Count < CAP) got = r.Rows;
                             else
@@ -1848,13 +1864,35 @@ namespace WMSApp
 
         /// <summary>The SQL of one extended-segments read (one period × company, optionally only some accounts) — what the sync runs and the page shows.
         /// `have` = the GL_BALANCES columns of the pod (empty = assume TRANSLATED_FLAG and TEMPLATE_ID exist).</summary>
+        private static readonly HashSet<string> NOT_ALIAS = new(StringComparer.OrdinalIgnoreCase) {
+            "PERIOD_NAME", "TRANSLATED_FLAG", "ACCOUNT_TYPE", "BEGIN_BALANCE_DR", "BEGIN_BALANCE_CR", "PERIOD_NET_DR", "PERIOD_NET_CR", "RESULT", "P_QRY_STMT", "ROWNUM", "ROWID", "LEVEL", "SIZE", "SELECT",
+            "FROM", "WHERE", "GROUP", "ORDER", "BY", "AND", "OR", "NOT", "NULL", "TABLE", "VIEW", "INDEX", "USER", "UID", "DATE", "NUMBER", "CHAR", "VARCHAR2", "COMMENT", "MODE", "ACCESS", "FILE", "SESSION", "START", "CONNECT" };
+        /// <summary>SEGMENTn → a readable column alias from the segment's name (company, account, salesperson, item_profit_center …);
+        /// SEGMENTn itself when the name is missing, clashes or is a reserved word. Company and account are always COMPANY / ACCOUNT.</summary>
+        public static Dictionary<string, string> ExtAliases(SyncLedger led, List<string> segs, Dictionary<string, string> names)
+        {
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in segs)
+            {
+                string want = string.Equals(c, SegCol(led.Company), StringComparison.OrdinalIgnoreCase) ? "COMPANY"
+                    : string.Equals(c, SegCol(led.Account), StringComparison.OrdinalIgnoreCase) ? "ACCOUNT"
+                    : names != null && names.TryGetValue(c, out var n) && !string.IsNullOrWhiteSpace(n) ? Regex.Replace(n.Trim().ToUpperInvariant(), "[^A-Z0-9]+", "_").Trim('_') : null;
+                if (!string.IsNullOrEmpty(want) && char.IsDigit(want[0])) want = "S_" + want;
+                if (want != null && want.Length > 30) want = want.Substring(0, 30).TrimEnd('_');
+                if (string.IsNullOrEmpty(want) || NOT_ALIAS.Contains(want) || COL.IsMatch(want) || !used.Add(want)) { want = c.ToUpperInvariant(); used.Add(want); }
+                map[c] = want;
+            }
+            return map;
+        }
         public static string ExtSql(SyncLedger led, List<string> segs, TbOptions o, HashSet<string> have, string period, string co, IList<string> accts = null)
         {
+            var al = ExtAliases(led, segs, o.ExtNames);
             have ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             bool tf = have.Count == 0 || have.Contains("TRANSLATED_FLAG");
             string Lit(string v) => "'" + (v ?? "").Replace("'", "''") + "'";
             return
-                "SELECT " + (o.Hint ? "/*+ LEADING(b) USE_HASH(c) PARALLEL(4) */ " : "") + "b.period_name" + (tf ? ", b.translated_flag" : "") + ", " + string.Join(", ", segs.Select(c => "c." + c + " " + c)) +
+                "SELECT " + (o.Hint ? "/*+ LEADING(b) USE_HASH(c) PARALLEL(4) */ " : "") + "b.period_name" + (tf ? ", b.translated_flag" : "") + ", " + string.Join(", ", segs.Select(c => "c." + c + " " + al[c].ToLowerInvariant())) +
                 ", MAX(c.account_type) account_type, SUM(b.begin_balance_dr) begin_balance_dr, SUM(b.begin_balance_cr) begin_balance_cr, SUM(b.period_net_dr) period_net_dr, SUM(b.period_net_cr) period_net_cr" +
                 "\nFROM gl_balances b JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id" +
                 "\nWHERE b.ledger_id = " + led.Id.ToString(CultureInfo.InvariantCulture) + " AND b.period_name = " + Lit(period) + " AND b.currency_code = " + Lit(led.Currency) + " AND b.actual_flag = 'A'" +

@@ -91,7 +91,7 @@
                 return;
             }
             $('tq-sql').textContent = 'Building…';
-            FL.call('finTbExtSql', { period: per.name, company: co, options: { ledger: led, extSegments: T.extCols(), skipZero: !!L.opt.skipZero, hint: !!L.opt.hint } }).then(function (r) {
+            FL.call('finTbExtSql', { period: per.name, company: co, options: { ledger: led, extSegments: T.extCols(), extNames: T.extNames(), skipZero: !!L.opt.skipZero, hint: !!L.opt.hint } }).then(function (r) {
                 cur = r.sql; $('tq-sql').textContent = r.sql;
                 $('tq-note').innerHTML = esc('One query per company · ' + (L.extBy === 'company' ? 'never split' : L.extBy === 'account' ? 'always read account by account' : 'when it times out, or accounts do not tie to the trial balance, each account is read with') + ' ') +
                     (L.extBy === 'company' ? '' : '<code>' + esc((/AND c\.SEGMENT\d+ = 'ACCOUNT'/.exec(r.sqlAccount) || [''])[0]) + '</code>');
@@ -720,6 +720,8 @@
     L.extAuto = FL.ls('tbl.extAuto', true);
     L.view = FL.ls('tbl.view', 'table');
     T.coaOf = function () { var l = T.ledgerObj(); return l && L.disc && (L.disc.coas || {})[String(l.coaId)]; };
+    /** SEGMENTn → its name (Salesperson, Item profit center …) for the readable column names of the extended query */
+    T.extNames = function () { var o = {}; T.extCols().forEach(function (c) { o[c] = T.segName(c).replace(/ \(SEGMENT\d+\)$/, ''); }); return o; };
     T.segName = function (col) { var c = T.coaOf(), sg = c && (c.segments || []).filter(function (x) { return x.col === col; })[0]; return sg ? sg.name + ' (' + col + ')' : col; };
     /** The extra segments chosen for this ledger's chart of accounts (config.json tbsync.ext[coaId]) */
     T.extCols = function () { var l = T.ledgerObj(); if (!l) return []; var e = ((FL.config || {}).tbsync || {}).ext || {}; return (e[String(l.coaId)] || []).slice(); };
@@ -800,7 +802,7 @@
         FL.fusion.run.pod = L.pod || '';
         T.pfx().forEach(function (x) { if ($(x + '-md')) $(x + '-md').querySelectorAll('button').forEach(function (b) { b.disabled = true; }); });
         if ($('ts-xgo')) { $('ts-xgo').disabled = true; $('ts-xgo').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Syncing…'; }
-        return FL.call('finTbExtSync', { pod: L.pod || '', options: { ledger: led, periodSeqs: seqs, foldAdjustments: L.fold, companies: L.cos, parallel: L.par, refresh: !!refresh, extSegments: ext, extBy: L.extBy, extAccountBatch: L.extBatch,
+        return FL.call('finTbExtSync', { pod: L.pod || '', options: { ledger: led, periodSeqs: seqs, foldAdjustments: L.fold, companies: L.cos, parallel: L.par, refresh: !!refresh, extSegments: ext, extNames: T.extNames(), extBy: L.extBy, extAccountBatch: L.extBatch,
             skipZero: !!L.opt.skipZero, hint: !!L.opt.hint, allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 90 * 60000, p).then(function (r) {
             FL.fusion.finish();
             (r.failed || []).forEach(function (f) { var x = T.xlive.per[f.period]; if (x) { x.state = 'failed'; x.error = 'company ' + f.company + ': ' + f.error; } });

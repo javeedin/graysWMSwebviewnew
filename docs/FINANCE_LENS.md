@@ -156,6 +156,7 @@ Data › Trial balance sync opens as a table (switch to Tiles at the top right).
 - The 👁 view opens on **Raw rows from Fusion**: exactly what each read brought and is kept on this PC — every column (segments with their names), translated rows included, nothing added up — with the column totals and each read (company, rows, segments, when). **Balances** switches to opening / debit / credit / closing.
 - Codes with a leading zero (*000*, *03*, *0101*) are now kept as text; before, Fusion values such as salesperson or profit centre *000* were stored as *0*. Press **Overwrite** on periods synced before this fix.
 - The table has no bulk buttons any more: every action is on its row (Sync / Overwrite, </> SQL, 👁 data, 🗑 delete). The column headers have **Sync n missing** to fill every open period of the year at once. The Tiles view keeps tick-and-act buttons.
+- The extended query names its columns after the segments — `c.SEGMENT1 company, c.SEGMENT4 account, c.SEGMENT10 salesperson, c.SEGMENT15 item_profit_center` — so the SQL and its Test result read in your own words.
 
 ## Segment P&L (P&L, pivot and trial balance by extended segments)
 
