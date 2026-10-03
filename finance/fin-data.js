@@ -410,10 +410,18 @@
 
     // ═════════ SQL explorer ═════════
     D.sql = function (el) {
-        if (!(FL.status || {}).loaded) { el.innerHTML = '<div class="card">Load data first.</div>'; return; }
+        // the trial balance sync status (year tiles, Sync) on top — the SQL explorer below
+        el.innerHTML = '<div id="d-tbs"></div><div id="d-sqlx" style="margin-top:12px"></div>';
+        FL.tbsync.mini($('d-tbs'));
+        D.sqlx($('d-sqlx'));
+    };
+    D.sqlx = function (el) {
+        if (!(FL.status || {}).loaded) { el.innerHTML = '<div class="card sm muted">The SQL explorer reads the finance data — sync a trial balance above or load from Fusion first.</div>'; return; }
         var per = FL.filter.period;
         var samples = [['Trial balance', "SELECT b.account, a.name, a.account_type, ROUND(SUM(b.end_bal), 2) AS balance FROM fin_balances b JOIN fin_accounts a ON a.code = b.account WHERE b.scenario = 'ACTUAL' AND b.period_seq = " + per + ' GROUP BY ALL ORDER BY 1'],
-            ['Sync status', 'SELECT ledger, period_name, kind, rows_read, dr, cr, synced_at, ms, split FROM fin_sync_periods ORDER BY ledger, period_seq, kind'],
+            ['TB sync status', "SELECT l.name AS ledger, s.period_name, p.period_seq, s.grain, s.company, s.rows_read, CAST(s.fetched_at AS VARCHAR) AS read_at, s.ms FROM fin_gl_balances_acct_sync s LEFT JOIN fin_tb_ledgers l ON l.pod = s.pod AND l.ledger_id = s.ledger_id LEFT JOIN fin_tb_periods p ON p.pod = s.pod AND p.ledger_id = s.ledger_id AND p.period_name = s.period_name ORDER BY 1, 3 DESC, 2, 5"],
+            ['TB by period', "SELECT b.ledger, b.period_name, COUNT(*) AS lines, ROUND(SUM(b.period_dr), 2) AS debits, ROUND(SUM(b.period_cr), 2) AS credits, ROUND(SUM(b.end_bal), 2) AS closing_net FROM fin_balances b WHERE b.scenario = 'ACTUAL' GROUP BY ALL ORDER BY 1, MIN(b.period_seq)"],
+            ['Full load sync status', 'SELECT ledger, period_name, kind, rows_read, dr, cr, synced_at, ms, split FROM fin_sync_periods ORDER BY ledger, period_seq, kind'],
             ['COA segments', 'SELECT * FROM fin_coa_segments ORDER BY coa_id, segment_num'],
             ['Account mapping', 'SELECT a.code, a.name, a.account_type, a.class, m.source, m.changed_by FROM fin_accounts a LEFT JOIN fin_account_map m ON m.code = a.code ORDER BY 1'],
             ['Revenue by month', "SELECT b.period_name, b.period_seq, -SUM(b.period_net) AS revenue FROM fin_balances b JOIN fin_accounts a ON a.code = b.account WHERE b.scenario = 'ACTUAL' AND a.account_type = 'R' GROUP BY ALL ORDER BY 2"],

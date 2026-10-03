@@ -157,8 +157,14 @@ same line ids as the starters, so KPIs, monitors, analytics and the board pack w
 for the accounts mapped to it.
 
 ### Trial balance sync (Data › Trial balance sync)
-The quickest way to statements: **Data › Trial balance sync** (the Data tab's first view). Pick the pod, the ledger, the periods
-(From – To; *Year to date*, *Last 3*, *One period*), the companies and optionally *by cost centre*, then **Sync**. Each period —
+The quickest way to statements: **Data › Trial balance sync** (the Data tab's first view). Pick the pod and the ledger, then a
+**year**: each year chip shows how many of its periods are synced (e.g. *2025 · 9/12*) and the board shows one tile per period —
+✓ synced (every company), ◐ some companies, ✗ not synced, and while a sync runs ⏳ waiting, ⟳ syncing (company k of n) or ⚠ failed
+(with the reason). Tick tiles (*Select not synced* does it for you) and press **Sync** (reads only what is missing), **Overwrite**
+(reads the ticked periods again and replaces what this PC holds — after postings in Fusion) or **Delete** (removes them from this
+PC). One status line shows progress; *Details* unfolds the full monitor (every query, its SQL, sample rows, the log) and
+*Settings* the companies, *by cost centre*, folding, reads in parallel and the query. The same board sits on top of
+**Data › SQL explorer** (sync or overwrite a period from there; samples *TB sync status* and *TB by period*). Each period —
 with the adjustment periods it closes — is read grouped by company × account in Fusion (the query below, one query per company
 and period, *Reads in parallel* at a time, only what this PC is missing unless *read again from Fusion*) and kept in DuckDB.
 After every sync the statements data is rebuilt from **all synced periods** (fin_balances, periods, companies, accounts with
