@@ -982,6 +982,8 @@ $@"<?xml version = '1.0' encoding = 'utf-8'?>
         {
             if (string.IsNullOrEmpty(v)) return "";
             string n = v.Replace(",", "");
+            // a leading zero ("000", "03", "0101") is a code (segment value, account, salesperson …), not a number - keep its text
+            if (n.Length > 1 && (n[0] == '0' && char.IsDigit(n[1]) || n.StartsWith("-0", StringComparison.Ordinal) && n.Length > 2 && char.IsDigit(n[2]))) return v;
             if (NumberLike.IsMatch(n))
             {
                 int significant = n.TrimStart('-').Replace(".", "").TrimStart('0').Length;

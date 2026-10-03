@@ -508,8 +508,10 @@
             (rows || '<tr><td colspan="6" class="muted">No periods in this year.</td></tr>') + '</tbody></table>';
     };
     /** 👁 The rows this PC holds for one period: trial balance (fin_gl_balances_acct) or extended segments (fin_gl_ext_v), with names and totals */
-    T.view = function (seq, kind) {
+    T.view = function (seq, kind, mode) {
         var l = T.ledgerObj(); if (!l) return;
+        mode = mode || FL.ls('tbl.viewMode', 'raw');
+        if (mode === 'raw') return T.viewRaw(seq, kind);
         var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), per = T.cal().filter(function (p) { return p.seq === seq; })[0] || { name: String(seq) };
         var ext = kind === 'ext', segs = ext ? T.extCols().filter(function (c) { return c !== led.company && c !== led.account; }) : [];
         var lit = function (v) { return "'" + String(v == null ? '' : v).replace(/'/g, "''") + "'"; };
@@ -548,12 +550,13 @@
                 else if (rows.some(function (r) { return r[ix.cost_centre]; })) cols.push({ label: 'Cost centre', get: function (r) { return r[ix.cost_centre] || ''; } });
                 if (mixed) cols.push({ label: 'Grain', get: function (r) { return r[ix.grain]; } });
                 ['opening', 'dr', 'cr', 'closing'].forEach(function (k, i) { cols.push({ label: ['Opening', 'Debit', 'Credit', 'Closing'][i], n: 1, get: function (r) { return f2(+r[ix[k]] || 0); }, val: function (r) { return +r[ix[k]] || 0; } }); });
-                $('m-body').innerHTML = '<div class="ts-vsum">' +
+                $('m-body').innerHTML = T.viewBar(seq, kind, 'bal') + '<div class="ts-vsum">' +
                     '<span><b>' + rows.length.toLocaleString() + '</b> rows</span><span>Opening <b>' + f2(tot.o) + '</b></span><span>Debit <b>' + f2(tot.d) + '</b></span><span>Credit <b>' + f2(tot.c) + '</b></span><span>Closing <b>' + f2(tot.cl) + '</b></span>' +
                     (mixed ? '<span class="ts-st part">◐ two grains kept — company × account and × cost centre; totals count both</span>' : '<span class="ts-st ' + (ok ? 'ok' : 'part') + '">' + (ok ? '✓ debits = credits, closing nets to nil' : '◐ does not net — normal when only some companies are synced') + '</span>') +
                     '</div><p class="sm muted" style="margin:4px 0 8px">Kept on this PC (' + (ext ? 'fin_gl_ext_v' : 'fin_gl_balances_acct') + ') · type in any column header box to filter (=, !, >, <, a..b) · ' +
                     '<a href="#" id="ts-vsql">Copy SQL</a></p><div id="ts-vgrid"></div>';
                 FL.grid($('ts-vgrid'), cols, rows, { id: 'tsv-' + kind, height: '58vh', csv: (ext ? 'extended-' : 'tb-') + per.name + '.csv', max: 5000 });
+                T.wireViewBar(seq, kind);
                 if (ext && T.tieSql(seq, true)) FL.sql(T.tieSql(seq, true), 5000).then(function (dd) {
                     var box = document.createElement('div'); box.className = 'ts-vtie';
                     if (!dd.rows.length) { box.innerHTML = '<span class="ts-st ok">✓ every account adds up to the trial balance of ' + esc(per.name) + '</span>'; $('ts-vgrid').parentNode.insertBefore(box, $('ts-vgrid')); return; }
@@ -566,6 +569,51 @@
                 $('ts-vsql').onclick = function (e) { e.preventDefault(); try { navigator.clipboard.writeText(sql); FL.toast('SQL copied — paste it in Data › SQL explorer', 'ok'); } catch (x) { /* no clipboard */ } };
             });
         }).catch(function (e) { $('m-body').innerHTML = '<div class="callout bad">' + esc(String(e && e.message || e)) + '</div>'; });
+    };
+    T.viewBar = function (seq, kind, mode) {
+        return '<div class="seg ts-vbar" style="margin-bottom:8px">' + [['raw', 'fa-table-cells', 'Raw rows from Fusion'], ['bal', 'fa-scale-balanced', 'Balances (opening · debit · credit · closing)']].map(function (m) {
+            return '<button data-vm="' + m[0] + '" class="' + (mode === m[0] ? 'on' : '') + '"><i class="fa-solid ' + m[1] + '"></i> ' + m[2] + '</button>'; }).join('') + '</div>';
+    };
+    T.wireViewBar = function (seq, kind) {
+        document.querySelectorAll('#m-body [data-vm]').forEach(function (b) { b.onclick = function () { FL.lsSet('tbl.viewMode', b.dataset.vm); T.view(seq, kind, b.dataset.vm); }; });
+    };
+    /** The rows exactly as they were read from Fusion and kept on this PC (every column, translated 'R' rows included, nothing summed) + what each read brought */
+    T.viewRaw = function (seq, kind) {
+        var l = T.ledgerObj(), per = T.cal().filter(function (p) { return p.seq === seq; })[0] || { name: String(seq) }, ext = kind === 'ext';
+        var lit = function (v) { return "'" + String(v == null ? '' : v).replace(/'/g, "''") + "'"; }, pod = lit(L.pod || '');
+        var table = ext ? 'fin_gl_balances_ext' : 'fin_gl_balances_acct';
+        FL.modal('<i class="fa-solid fa-eye"></i> ' + esc(per.name) + ' · ' + (ext ? 'extended segments' : 'trial balance') + ' · ' + esc(l.name || ''), '<div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i> Reading this PC…</div>');
+        FL.sql("SELECT table_name FROM information_schema.tables WHERE table_name IN ('fin_tb_periods', '" + table + "_sync')", 10).then(function (t) {
+            var have = t.rows.map(function (r) { return r[0]; });
+            var names = have.indexOf('fin_tb_periods') >= 0 ? "(SELECT period_name FROM fin_tb_periods WHERE ledger_id = " + (+l.id) + " AND period_seq = " + seq + " AND COALESCE(pod, '') = " + pod + " UNION SELECT " + lit(per.name) + ")" : "(" + lit(per.name) + ")";
+            var where = " WHERE ledger_id = " + (+l.id) + " AND COALESCE(pod, '') = " + pod + " AND period_name IN " + names;
+            var sql = "SELECT * EXCLUDE (pod, ledger_id) FROM " + table + where + " ORDER BY period_name, company, account" + (ext ? '' : ', grain');
+            var syncSql = have.indexOf(table + '_sync') >= 0 ? "SELECT * EXCLUDE (pod, ledger_id) FROM " + table + "_sync" + where + " ORDER BY 1, 2" : null;
+            return Promise.all([FL.sql(sql, 200000), syncSql ? FL.sql(syncSql, 5000).catch(function () { return null; }) : null]).then(function (rr) {
+                var d = rr[0], sy = rr[1];
+                var used = d.columns.map(function (c, i) { return d.rows.some(function (r) { return r[i] != null && r[i] !== ''; }) ? i : -1; }).filter(function (i) { return i >= 0; });
+                var num = function (c) { return /(_dr|_cr|_adb|_beq|rows_read|^ms)$/i.test(c); };
+                var label = function (c) { var m = /^segment(\d+)$/i.exec(c); return m ? 'SEGMENT' + m[1] + ' · ' + T.segName('SEGMENT' + m[1]).replace(/ \(SEGMENT\d+\)$/, '') : c.toUpperCase(); };
+                var cols = used.map(function (i) {
+                    var c = d.columns[i];
+                    return num(c) ? { label: label(c), n: 1, get: function (r) { return r[i] == null ? '' : FINE.fmt(+r[i], 'num', { decimals: 2 }); }, val: function (r) { return r[i] == null ? null : +r[i]; } }
+                        : { label: label(c), get: function (r) { return r[i] == null ? '' : String(r[i]); } };
+                });
+                var col = function (n) { return d.columns.indexOf(n); };
+                var sum = function (n) { var i = col(n); return i < 0 ? 0 : d.rows.reduce(function (a, r) { return a + (+r[i] || 0); }, 0); };
+                var f2 = function (v) { return FINE.fmt(v, 'num', { decimals: 2 }); };
+                var reads = sy && sy.rows.length ? '<div class="sm muted" style="margin:2px 0 6px">Reads kept: ' + sy.rows.map(function (r) {
+                    var o = {}; sy.columns.forEach(function (c, i) { o[c] = r[i]; });
+                    return esc(o.period_name + ' · company ' + (o.company || o.companies || '*') + ': ' + (o.rows_read != null ? o.rows_read : o.rows != null ? o.rows : '?') + ' rows' + (o.segments ? ' · by ' + o.segments : '') + (o.fetched_at ? ' · ' + String(o.fetched_at).slice(0, 16) : ''));
+                }).join(' · ') + '</div>' : '';
+                $('m-body').innerHTML = T.viewBar(seq, kind, 'raw') +
+                    '<div class="ts-vsum"><span><b>' + d.rows.length.toLocaleString() + '</b> raw rows</span><span>Begin DR <b>' + f2(sum('begin_balance_dr')) + '</b></span><span>Begin CR <b>' + f2(sum('begin_balance_cr')) + '</b></span><span>Net DR <b>' + f2(sum('period_net_dr')) + '</b></span><span>Net CR <b>' + f2(sum('period_net_cr')) + '</b></span></div>' +
+                    reads + '<p class="sm muted" style="margin:4px 0 8px">Exactly as read from Fusion and kept on this PC (' + table + ') — every column, translated (R) rows included, nothing summed · filter any column · <a href="#" id="ts-vsql">Copy SQL</a></p><div id="ts-vgrid"></div>';
+                FL.grid($('ts-vgrid'), cols, d.rows, { id: 'tsr-' + kind, height: '58vh', csv: (ext ? 'extended-raw-' : 'tb-raw-') + per.name + '.csv', max: 5000 });
+                T.wireViewBar(seq, kind);
+                $('ts-vsql').onclick = function (e) { e.preventDefault(); try { navigator.clipboard.writeText(sql); FL.toast('SQL copied — paste it in Data › SQL explorer', 'ok'); } catch (x) { /* no clipboard */ } };
+            });
+        }).catch(function (e) { $('m-body').innerHTML = T.viewBar(seq, kind, 'raw') + '<div class="callout bad">' + esc(String(e && e.message || e)) + '</div>'; T.wireViewBar(seq, kind); });
     };
     /** Live per-period state of an extended-segments sync from its progress events */
     T.extTrack = function (msg) {

@@ -153,6 +153,8 @@ Data › Trial balance sync opens as a table (switch to Tiles at the top right).
 - **👁 View** next to each status shows the rows kept on this PC for that period — trial balance or extended segments, with names, totals, the debits = credits check, filters per column and CSV. The extended view lists first the accounts that do not add up to the trial balance (TB vs extended, *missing* when Fusion returned nothing).
 - **</> SQL** beside each Sync / Overwrite button opens the query that period runs: pick a company, see the exact SQL, **Test in Fusion** (rows, time, first rows) or copy it. For the trial balance, **Edit query** changes the query every Sync uses (kept on this PC; *Default query* puts it back). The query box that used to sit in Settings is gone.
 - When Fusion answers with text instead of rows, the error now says what it was — the Oracle error (e.g. *ORA-01652 unable to extend temp segment*), or that BI Publisher cut the answer short (then the trial balance sync reads company by company) — instead of *it returned RESULT*.
+- The 👁 view opens on **Raw rows from Fusion**: exactly what each read brought and is kept on this PC — every column (segments with their names), translated rows included, nothing added up — with the column totals and each read (company, rows, segments, when). **Balances** switches to opening / debit / credit / closing.
+- Codes with a leading zero (*000*, *03*, *0101*) are now kept as text; before, Fusion values such as salesperson or profit centre *000* were stored as *0*. Press **Overwrite** on periods synced before this fix.
 
 ## Segment P&L (P&L, pivot and trial balance by extended segments)
 
