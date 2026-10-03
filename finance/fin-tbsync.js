@@ -18,14 +18,13 @@
         if (L.pod == null) L.pod = (s.setup && s.setup.pod) || s.pod || '';
         var running = T.live && T.live.running;
         el.innerHTML = '<div class="card ts-main"><div class="row"><h3 style="margin:0"><i class="fa-solid fa-scale-balanced"></i> Trial balance sync</h3>' +
-            '<span class="sm muted">pick a ledger and a year, tick the periods, press Sync — Statements use what is synced</span></div>' +
+            '<span class="sm muted">pick a ledger and a year — each period has its own Sync, Overwrite, 👁 data and pick a ledger and a year, tick the periods, press Sync — Statements use what is syncedlt;/pick a ledger and a year, tick the periods, press Sync — Statements use what is syncedgt; SQL; Statements use what is synced</span></div>' +
             (admin ? '' : '<div class="callout warn sm" style="margin-top:8px">An AI admin syncs the finance data on this PC.</div>') +
             '<div class="row" style="margin-top:10px"><label class="sm">Pod <select id="ts-pod"><option value="">Logged-in pod</option><option value="PROD"' + (L.pod === 'PROD' ? ' selected' : '') + '>PROD</option><option value="TEST"' + (L.pod === 'TEST' ? ' selected' : '') + '>TEST</option></select></label>' +
             '<label class="sm">Ledger <select id="ts-led"><option>…</option></select></label><div class="seg" id="ts-years"></div></div>' +
             '<div id="ts-board" class="ts-board"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div>' +
-            '<div class="row ts-acts"><button class="btn sm" id="ts-selmiss"><i class="fa-regular fa-square-check"></i> Select not synced</button><button class="btn sm" id="ts-selall">Select all</button><button class="btn sm" id="ts-selnone">Clear</button>' +
-            '<span class="grow"></span>' + T.actBtns('ts') +
-            '<button class="btn" id="ts-open"><i class="fa-solid fa-arrow-right"></i> Trial balance</button></div>' +
+            '<div class="row ts-acts ts-bulk"><button class="btn sm" id="ts-selmiss"><i class="fa-regular fa-square-check"></i> Select not synced</button><button class="btn sm" id="ts-selall">Select all</button><button class="btn sm" id="ts-selnone">Clear</button>' +
+            '<span class="grow"></span>' + T.actBtns('ts') + '</div>' +
             '<div id="ts-live"></div>' +
             '<details class="ts-det" id="ts-det"' + (FL.ls('tbl.det', false) ? ' open' : '') + '><summary class="sm"><i class="fa-solid fa-list-check"></i> Details — every query, its SQL, sample rows and the log</summary><div id="fu-prog"></div></details></div>' +
             '<details class="card ts-set" id="ts-set" style="margin-top:12px"' + (FL.ls('tbl.setOpen', false) ? ' open' : '') + '><summary><b><i class="fa-solid fa-sliders"></i> Settings</b> <span class="sm muted" id="ts-setsum"></span></summary>' +
@@ -45,7 +44,6 @@
         $('ts-fold').onchange = function () { L.fold = this.checked; T.setSum(); };
         $('ts-par').onchange = function () { L.par = +this.value; FL.lsSet('tbl.par', L.par); T.setSum(); };
         T.wireActs('ts');
-        $('ts-open').onclick = function () { FL.stmt.tpl = 'TB'; FL.lsSet('stmt.tpl', 'TB'); FL.show('statements'); };
         $('ts-selmiss').onclick = function () { T.select('missing'); };
         $('ts-selall').onclick = function () { T.select('all'); };
         $('ts-selnone').onclick = function () { T.select('none'); };
@@ -330,7 +328,7 @@
             '<label class="sm">Ledger <select id="tsm-led"><option>…</option></select></label><div class="seg" id="tsm-years"></div></div>' +
             '<div id="tsm-board" class="ts-board"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div>' +
             '<div class="row ts-acts"><span class="sm muted">Companies, options and the query: Data › Trial balance sync</span><span class="grow"></span>' +
-            '<button class="btn sm" id="tsm-full"><i class="fa-solid fa-up-right-from-square"></i> Full page</button>' + T.actBtns('tsm') + '</div><div id="tsm-live"></div></div><div class="card" style="margin-top:12px" id="tsm-md"></div>';
+            '<button class="btn sm" id="tsm-full"><i class="fa-solid fa-up-right-from-square"></i> Full page</button><span class="ts-bulk">' + T.actBtns('tsm') + '</span></div><div id="tsm-live"></div></div><div class="card" style="margin-top:12px" id="tsm-md"></div>';
         T.wireActs('tsm');
         $('tsm-full').onclick = function () { FL.dataTab.go('tbsync'); };
         T.paintLive();
@@ -447,10 +445,15 @@
                 (c && c.grains['CO,AC,CC'] ? '<span class="ts-cc">cc</span>' : '') + T.extBadge(p, want) + '</div>';
         }).join('') || '<p class="sm muted">No periods in this year.</p>';
         var vt = '<div class="ts-vt"><div class="seg sm">' + [['table', 'fa-table-list', 'Table'], ['tiles', 'fa-table-cells', 'Tiles']].map(function (v) {
-            return '<button data-vw="' + v[0] + '" class="' + (L.view === v[0] ? 'on' : '') + '"><i class="fa-solid ' + v[1] + '"></i> ' + v[2] + '</button>'; }).join('') + '</div></div>';
+            return '<button data-vw="' + v[0] + '" class="' + (L.view === v[0] ? 'on' : '') + '"><i class="fa-solid ' + v[1] + '"></i> ' + v[2] + '</button>'; }).join('') + '</div>' +
+            '<button class="btn sm ghost ts-opentb" title="Statements › Trial balance"><i class="fa-solid fa-arrow-right"></i> Open trial balance</button></div>';
         if (L.view === 'table') tiles = T.table(ps, cells, want, today);
         views.forEach(function (x) {
             var box = $(x + '-board'); box.classList.toggle('ts-board-tbl', L.view === 'table'); box.innerHTML = vt + tiles;
+            var card = box.closest('.ts-main'); if (card) card.classList.toggle('ts-tblmode', L.view === 'table');   // table: every action is on its row, the bulk bar is hidden
+            box.querySelectorAll('.ts-opentb').forEach(function (b) { b.onclick = function () { FL.stmt.tpl = 'TB'; FL.lsSet('stmt.tpl', 'TB'); FL.show('statements'); }; });
+            box.querySelectorAll('[data-miss]').forEach(function (b) { b.onclick = function () { var q = b.dataset.q.split(',').map(Number); if (b.dataset.miss === 'tb') T.sync(q, false); else T.extSync(q, false); }; });
+            box.querySelectorAll('[data-del]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); T.remove([+b.dataset.del]); }; });
             box.querySelectorAll('[data-vw]').forEach(function (b) { b.onclick = function () { L.view = b.dataset.vw; FL.lsSet('tbl.view', L.view); T.paintBoard(); }; });
             box.querySelectorAll('[data-row]').forEach(function (b) {
                 b.onclick = function (ev) {
@@ -461,9 +464,6 @@
             });
             box.querySelectorAll('[data-sql]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); T.sqlDialog(+b.dataset.s, b.dataset.sql); }; });
             box.querySelectorAll('[data-view]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); T.view(+b.dataset.s, b.dataset.view); }; });
-            box.querySelectorAll('.ts-tr').forEach(function (tr) {
-                tr.onclick = function (ev) { if (ev.target.closest('button') || (T.live && T.live.running)) return; var q = +tr.dataset.s; if (L.sel[q]) delete L.sel[q]; else L.sel[q] = 1; T.paintBoard(); };
-            });
             if ($(x + '-years')) { $(x + '-years').innerHTML = yearsHtml; $(x + '-years').querySelectorAll('button').forEach(function (b) { b.onclick = function () { L.year = +b.dataset.y; FL.lsSet('tbl.year', L.year); T.paintBoard(); }; }); }
             box.querySelectorAll('.ts-tile').forEach(function (t) {
                 t.onclick = function () { if (T.live && T.live.running) return; var q = +t.dataset.s; if (L.sel[q]) delete L.sel[q]; else L.sel[q] = 1; T.paintBoard(); };
@@ -500,12 +500,17 @@
                 : future ? pill('off', '–', 'not open yet') : pill('no', '✗', 'No');
             var exBtn = !ext.length || future || !admin ? '' : xs === 'done' ? '<button class="btn sm" data-row="exto" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + '><i class="fa-solid fa-rotate"></i> Overwrite</button>'
                 : '<button class="btn sm' + (st === 'done' ? ' primary' : '') + '" data-row="ext" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + ' title="' + esc(st === 'done' ? 'Read the extended segments for this period' : 'Works on its own, but sync the trial balance too') + '"><i class="fa-solid fa-cloud-arrow-down"></i> Sync</button>';
-            return '<tr class="ts-tr' + (L.sel[p.seq] ? ' sel' : '') + (future ? ' future' : '') + '" data-s="' + p.seq + '"><td><input type="checkbox"' + (L.sel[p.seq] ? ' checked' : '') + ' tabindex="-1"></td><td><b>' + esc(p.name) + '</b>' +
+            var delBtn = admin && c && !run ? '<button class="ts-eye ts-del" data-del="' + p.seq + '" title="Delete ' + esc(p.name) + ' from this PC (trial balance and extended segments; Sync reads it again any time)"><i class="fa-solid fa-trash"></i></button>' : '';
+            return '<tr class="ts-tr' + (future ? ' future' : '') + '" data-s="' + p.seq + '"><td><b>' + esc(p.name) + '</b>' +
                 (c && c.adj.length ? ' <span class="muted sm">+ ' + esc(c.adj.join(', ')) + '</span>' : '') + (future ? ' <span class="muted sm">not open yet</span>' : '') + '</td><td>' + tb +
-                    (st === 'done' || st === 'part' ? ' <button class="ts-eye" data-view="tb" data-s="' + p.seq + '" title="View the trial balance rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td class="ts-btns">' + tbBtn + sqlBtn('tb') + '</td><td class="ts-xc">' + ex + (ext.length && x && (xs === 'done' || xs === 'part') ? ' <button class="ts-eye" data-view="ext" data-s="' + p.seq + '" title="View the extended-segment rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td class="ts-btns">' + exBtn + (ext.length ? sqlBtn('ext') : '') + '</td></tr>';
+                    (st === 'done' || st === 'part' ? ' <button class="ts-eye" data-view="tb" data-s="' + p.seq + '" title="View the trial balance rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td class="ts-btns">' + tbBtn + sqlBtn('tb') + delBtn + '</td><td class="ts-xc">' + ex + (ext.length && x && (xs === 'done' || xs === 'part') ? ' <button class="ts-eye" data-view="ext" data-s="' + p.seq + '" title="View the extended-segment rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td class="ts-btns">' + exBtn + (ext.length ? sqlBtn('ext') : '') + '</td></tr>';
         }).join('');
-        return '<table class="t ts-table"><thead><tr><th style="width:28px"></th><th>Period</th><th>Trial balance</th><th></th><th class="ts-xc">Extended segments' + (ext.length ? ' <span class="muted">(' + esc(ext.map(T.segName).map(function (n) { return n.replace(/ \(SEGMENT\d+\)$/, ''); }).join(', ')) + ')</span>' : '') + '</th><th></th></tr></thead><tbody>' +
-            (rows || '<tr><td colspan="6" class="muted">No periods in this year.</td></tr>') + '</tbody></table>';
+        var openP = ps.filter(function (p) { return !(p.start && p.start > today); });
+        var missTb = openP.filter(function (p) { var st = T.stateOf(p, cells, want); return st === 'none' || st === 'part' || st === 'failed'; }).map(function (p) { return p.seq; });
+        var missX = ext.length ? openP.filter(function (p) { return T.extState(p.seq, want) !== 'done'; }).map(function (p) { return p.seq; }) : [];
+        var missBtn = function (k, list) { return admin && list.length && !run ? ' <button class="btn sm ghost" data-miss="' + k + '" data-q="' + list.join(',') + '" title="Sync every open period of this year that is not complete"><i class="fa-solid fa-cloud-arrow-down"></i> Sync ' + list.length + ' missing</button>' : ''; };
+        return '<table class="t ts-table"><thead><tr><th>Period</th><th>Trial balance</th><th class="ts-btns">' + missBtn('tb', missTb) + '</th><th class="ts-xc">Extended segments' + (ext.length ? ' <span class="muted">(' + esc(ext.map(T.segName).map(function (n) { return n.replace(/ \(SEGMENT\d+\)$/, ''); }).join(', ')) + ')</span>' : '') + '</th><th class="ts-btns">' + missBtn('ext', missX) + '</th></tr></thead><tbody>' +
+            (rows || '<tr><td colspan="5" class="muted">No periods in this year.</td></tr>') + '</tbody></table>';
     };
     /** 👁 The rows this PC holds for one period: trial balance (fin_gl_balances_acct) or extended segments (fin_gl_ext_v), with names and totals */
     T.view = function (seq, kind, mode) {
@@ -658,9 +663,9 @@
             if ($(x + '-del')) { $(x + '-del').disabled = !held || !admin || run; $(x + '-del').innerHTML = '<i class="fa-solid fa-trash"></i> Delete' + (held ? ' ' + held : ''); }
         });
     };
-    T.remove = function () {
+    T.remove = function (seqs) {
         var l = T.ledgerObj(), cells = T.cells(), names = [];
-        T.selSeqs().forEach(function (s) { if (cells[s]) names = names.concat(Object.keys(cells[s].names)); });
+        (seqs || T.selSeqs()).forEach(function (s) { if (cells[s]) names = names.concat(Object.keys(cells[s].names)); });
         if (!names.length || !confirm('Delete ' + names.join(', ') + ' from this PC? The statements are rebuilt from the periods that stay; Sync reads them again any time.')) return;
         FL.call('finTbSyncDelete', { pod: L.pod || '', ledgerId: +l.id, periods: names }, 120000).then(function () { FL.toast('Removed', 'ok'); L.sel = {}; return FL.refresh(); })
             .catch(function (e) { FL.toast(String(e), 'err'); }).then(T.board);

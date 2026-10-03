@@ -559,3 +559,6 @@ td.sp-tc, th.sp-tc { background: #f1f5f9; font-weight: 700; }
 .ts-vtie summary { cursor: pointer; }
 .ts-btns { white-space: nowrap; }
 .ts-btns .ts-sqlb { margin-left: 4px; }
+.ts-tblmode .ts-bulk { display: none !important; }
+.ts-vt { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.ts-del:hover { background: #fee2e2; color: #b91c1c; }
