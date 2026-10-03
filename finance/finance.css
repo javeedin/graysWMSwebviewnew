@@ -422,3 +422,12 @@ details.lf-card[open] > summary::before { content: '▾'; }
 .bd-start label { font-weight: 400; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .bd-start select { display: inline-block !important; width: auto !important; margin: 0 !important; }
 @media print { .sbar { display: none; } }
+
+/* ── trends: several lines on one chart ── */
+.tr-pick { margin: 4px 0 8px; }
+.tr-pre { cursor: pointer; font-size: .8rem; font-weight: 600; }
+.tr-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.tr-chip { border: 1px solid var(--line2); background: #fff; border-radius: 14px; padding: 3px 10px; font-size: .78rem; cursor: pointer; color: var(--ink2); display: inline-flex; align-items: center; gap: 5px; }
+.tr-chip:hover { border-color: var(--accent); }
+.tr-chip.on { font-weight: 700; color: var(--ink); }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: middle; }

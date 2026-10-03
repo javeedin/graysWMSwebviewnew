@@ -25,7 +25,7 @@ templates and mapping stay).
   statement), CSV, print. Accounts with amounts that are in no line of the template are named in a warning with
   *Place them automatically*. **Click any amount** to drill:
   the accounts behind it → companies, cost centres and months → journal lines → the whole journal.
-- **Analytics** — trends with a seasonal forecast (Holt-Winters with 24+ months), variance bridges (YTD vs budget,
+- **Analytics** — trends of several income statement lines on one chart (pick any lines of any income statement template — Sales, Cost of sales, Discounts …, up to 8, each in its own colour; quick sets Sales & costs / Profit / Operating expenses / Margins; lines or columns; % lines on a right-hand axis; a monthly table underneath) with a seasonal forecast per line (dotted; Holt-Winters with 24+ months) and optional budget (dashed), variance bridges (YTD vs budget,
   vs last year, month vs budget / last month, last 12 months), cost centres against budget as a heat map, companies
   with intercompany elimination and the group total, all ratios with trends, common-size statements, what-if drivers
   (volume, unit cost, payroll, other costs, finance costs) and anomalies (seasonal: this month against the same month

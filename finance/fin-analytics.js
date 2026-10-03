@@ -101,7 +101,8 @@
     };
 
     // ═════════ Analytics ═════════
-    var A = FL.an = { view: FL.ls('an.view', 'trend'), trendRow: 'REV', horizon: 6, cmp: 'ytd_bud', drivers: { revenuePct: 0, cogsPct: 0, opexPct: 0, payrollPct: 0, financePct: 0 } };
+    var TR = FL.ls('an.trend', {});
+    var A = FL.an = { view: FL.ls('an.view', 'trend'), trendRows: TR.rows || ['REV', 'COGS', 'GP'], trendTpl: TR.tpl || 'PL', trendBud: TR.bud != null ? TR.bud : false, trendFc: TR.fc != null ? TR.fc : true, trendType: TR.type || 'line', horizon: TR.h || 6, cmp: 'ytd_bud', drivers: { revenuePct: 0, cogsPct: 0, opexPct: 0, payrollPct: 0, financePct: 0 } };
     var VIEWS = [['trend', 'fa-chart-line', 'Trends & forecast'], ['variance', 'fa-stairs', 'Variance & bridge'], ['cc', 'fa-table-cells', 'Cost centres vs budget'], ['company', 'fa-building', 'Companies & consolidation'],
         ['ratios', 'fa-scale-balanced', 'Ratios'], ['common', 'fa-percent', 'Common-size'], ['whatif', 'fa-sliders', 'What-if'], ['anom', 'fa-bolt', 'Anomalies']];
     FL.TABS.analytics = {
@@ -115,26 +116,59 @@
 
     var VIEW_FN = {
         trend: function (el, data) {
-            var tpl = T().PL; if (!tpl) { el.innerHTML = '<div class="empty">The trend view uses the template with id PL.</div>'; return; }
-            var rows = tpl.rows.filter(function (r) { return r.id && ['accounts', 'group', 'formula'].indexOf(r.type) >= 0; });
-            var m = FL.monthly(data, tpl, [A.trendRow], { scenario: 'ACTUAL', range: 'MTD' }, 36), b = FL.monthly(data, tpl, [A.trendRow], { scenario: 'BUDGET', range: 'MTD' }, 36);
-            var y = m.series[A.trendRow].map(function (v) { return v || 0; }), fc = FINE.forecast(y, A.horizon);
-            var row = rows.filter(function (r) { return r.id === A.trendRow; })[0] || {}, pct = row.format === 'pct';
-            var labels = m.labels.slice(), cp = FL.filter.period;
-            for (var i = 1; i <= A.horizon; i++) { var d = new Date(Math.floor(cp / 100), (cp % 100) - 1 + i, 1); labels.push(d.toLocaleString('en', { month: 'short' }) + '-' + String(d.getFullYear()).slice(2) + ' f'); }
-            var pad = function (a) { return a.concat(new Array(A.horizon).fill(null)); };
+            // several lines of an income statement template on one chart: each its own colour, forecast (dotted) and budget (dashed)
+            var tpls = FL.templates.filter(function (t) { return t.type === 'PL'; }), tm = T();
+            var tpl = tm[A.trendTpl] && tm[A.trendTpl].type === 'PL' ? tm[A.trendTpl] : tm.PL || tpls[0];
+            if (!tpl) { el.innerHTML = '<div class="empty">No income statement template — create one in the Statement builder.</div>'; return; }
+            var rows = tpl.rows.filter(function (r) { return r.id && ['accounts', 'group', 'formula'].indexOf(r.type) >= 0; }), has = {};
+            rows.forEach(function (r) { has[r.id] = r; });
+            var sel = (A.trendRows || []).filter(function (id) { return has[id]; });
+            if (!sel.length) sel = ['REV', 'COGS', 'GP'].filter(function (id) { return has[id]; });
+            if (!sel.length && rows.length) sel = [rows[0].id];
+            A.trendRows = sel;
+            var m = FL.monthly(data, tpl, sel, { scenario: 'ACTUAL', range: 'MTD' }, 36), b = A.trendBud ? FL.monthly(data, tpl, sel, { scenario: 'BUDGET', range: 'MTD' }, 36) : null;
+            var labels = m.labels.slice(), cp = FL.filter.period, n = m.labels.length, H = A.trendFc ? A.horizon : 0;
+            for (var i = 1; i <= H; i++) { var d = new Date(Math.floor(cp / 100), (cp % 100) - 1 + i, 1); labels.push(d.toLocaleString('en', { month: 'short' }) + '-' + String(d.getFullYear()).slice(2) + ' f'); }
+            var pad = function (a) { return a.concat(new Array(H).fill(null)); };
+            var colour = function (i) { return FL.PAL.series[i % FL.PAL.series.length]; };
+            var isPct = function (id) { return has[id].format === 'pct'; }, anyPct = sel.some(isPct), anyAmt = sel.some(function (id) { return !isPct(id); });
+            var fcs = {}, sets = [], bar = A.trendType === 'bar';
+            sel.forEach(function (id, k) {
+                var y = m.series[id].map(function (v) { return v || 0; }), c = colour(k), ax = isPct(id) && anyAmt ? 'y1' : 'y';
+                fcs[id] = H ? FINE.forecast(y, H) : { forecast: [], method: '' };
+                sets.push({ type: bar && !isPct(id) ? 'bar' : 'line', label: has[id].label, data: pad(y), borderColor: c, backgroundColor: bar ? c : c + '22', fill: !bar && sel.length === 1, tension: 0.25, yAxisID: ax, borderRadius: 3, order: 2 });
+                if (H) sets.push({ type: 'line', label: has[id].label + ' forecast', data: new Array(Math.max(0, y.length - 1)).fill(null).concat(y.length ? [y[y.length - 1]] : []).concat(fcs[id].forecast), borderColor: c, borderDash: [2, 3], pointRadius: 2, tension: 0.25, yAxisID: ax, order: 1 });
+                if (b) sets.push({ type: 'line', label: has[id].label + ' budget', data: pad(b.series[id]), borderColor: c, borderDash: [6, 4], borderWidth: 1.2, pointRadius: 0, yAxisID: ax, order: 1 });
+            });
+            var fmtV = function (id, v) { return v == null ? '–' : isPct(id) ? v.toFixed(1) + '%' : FL.compact(v); };
+            var presets = [['Sales & costs', ['REV', 'COGS', 'OPEX']], ['Profit', ['GP', 'EBITDA', 'NP']], ['Operating expenses', ['STAFF', 'PREM', 'DIST', 'SELL', 'ADMIN']], ['Margins', ['GP_M', 'EBITDA_M', 'NP_M', 'GM', 'EBITDAM', 'NPM']]]
+                .map(function (p) { return [p[0], p[1].filter(function (id) { return has[id]; })]; }).filter(function (p) { return p[1].length; });
+            var on = {}; sel.forEach(function (id, k) { on[id] = k; });
             el.innerHTML = '<div class="card"><h3><i class="fa-solid fa-chart-line"></i> Trends & forecast<span class="grow"></span>' +
-                '<select id="tr-row">' + rows.map(function (r) { return '<option value="' + r.id + '"' + (r.id === A.trendRow ? ' selected' : '') + '>' + esc(r.label) + '</option>'; }).join('') + '</select>' +
-                '<select id="tr-h">' + [3, 6, 12].map(function (h) { return '<option' + (h === A.horizon ? ' selected' : '') + '>' + h + '</option>'; }).join('') + '</select><small>months ahead</small></h3>' +
-                '<div class="chartbox tall"><canvas id="tr-c"></canvas></div><p class="sm muted">Forecast: ' + esc(fc.method) + ' on the last ' + y.length + ' months' + (y.length >= 24 ? ' (level, trend and month-of-year seasonality)' : '') + '. Dashed grey = budget.</p>' +
-                '<div class="row sm">' + fc.forecast.map(function (v, i) { return '<span class="tag">' + esc(labels[m.labels.length + i].replace(' f', '')) + ': ' + (pct ? v.toFixed(1) + '%' : FL.compact(v)) + '</span>'; }).join(' ') + '</div></div>';
-            $('tr-row').onchange = function () { A.trendRow = this.value; VIEW_FN.trend(el, data); };
-            $('tr-h').onchange = function () { A.horizon = +this.value; VIEW_FN.trend(el, data); };
-            FL.chart('tr-c', { type: 'line', data: { labels: labels, datasets: [
-                { label: row.label + ' (actual)', data: pad(y), borderColor: FL.PAL.act, backgroundColor: 'rgba(29,78,216,.08)', fill: true, tension: 0.25 },
-                { label: 'Budget', data: pad(b.series[A.trendRow]), borderColor: FL.PAL.bud, borderDash: [5, 4], pointRadius: 0 },
-                { label: 'Forecast', data: new Array(y.length - 1).fill(null).concat([y[y.length - 1]]).concat(fc.forecast), borderColor: FL.PAL.series[3], borderDash: [2, 3], tension: 0.25 }] },
-                options: { scales: { y: pct ? { ticks: { callback: function (v) { return v + '%'; } } } : FL.moneyAxis() } } });
+                (tpls.length > 1 ? '<select id="tr-tpl" title="Income statement template">' + tpls.map(function (t) { return '<option value="' + esc(t.id) + '"' + (t === tpl ? ' selected' : '') + '>' + esc(t.name) + '</option>'; }).join('') + '</select>' : '') +
+                '<div class="seg" id="tr-type"><button data-t="line" class="' + (bar ? '' : 'on') + '">Lines</button><button data-t="bar" class="' + (bar ? 'on' : '') + '">Columns</button></div>' +
+                '<label class="sm"><input type="checkbox" id="tr-bud"' + (A.trendBud ? ' checked' : '') + '> budget</label>' +
+                '<label class="sm"><input type="checkbox" id="tr-fc"' + (A.trendFc ? ' checked' : '') + '> forecast</label>' +
+                '<select id="tr-h"' + (A.trendFc ? '' : ' disabled') + '>' + [3, 6, 12].map(function (h) { return '<option' + (h === A.horizon ? ' selected' : '') + '>' + h + '</option>'; }).join('') + '</select><small>months ahead</small></h3>' +
+                '<div class="tr-pick">' + (presets.length ? '<span class="sm muted">Quick:</span> ' + presets.map(function (p, i) { return '<a class="tr-pre" data-p="' + i + '">' + esc(p[0]) + '</a>'; }).join(' · ') + ' <span class="sm muted">· click lines to add or remove them</span>' : '') +
+                '<div class="tr-chips">' + rows.map(function (r) { var k = on[r.id]; return '<button class="tr-chip' + (k != null ? ' on' : '') + '" data-id="' + esc(r.id) + '"' + (k != null ? ' style="border-color:' + colour(k) + ';background:' + colour(k) + '1a"' : '') + '>' + (k != null ? '<i class="dot" style="background:' + colour(k) + '"></i>' : '') + esc(r.label) + '</button>'; }).join('') + '</div></div>' +
+                '<div class="chartbox tall"><canvas id="tr-c"></canvas></div>' +
+                '<p class="sm muted">' + (H ? 'Forecast (dotted): ' + esc((fcs[sel[0]] || {}).method || '') + ' on the last ' + n + ' months' + (n >= 24 ? ' (level, trend and month-of-year seasonality)' : '') + '. ' : '') + (b ? 'Dashed = budget. ' : '') + (anyPct && anyAmt ? '% lines use the right-hand axis.' : '') + '</p>' +
+                '<div class="scroll"><table class="t"><thead><tr><th>Line</th>' + m.labels.slice(-12).map(function (l) { return '<th class="n">' + esc(l) + '</th>'; }).join('') + (H ? fcs[sel[0]].forecast.map(function (_, i) { return '<th class="n muted">' + esc(labels[n + i]) + '</th>'; }).join('') : '') + '</tr></thead><tbody>' +
+                sel.map(function (id, k) { return '<tr><td><i class="dot" style="background:' + colour(k) + '"></i> ' + esc(has[id].label) + '</td>' + m.series[id].slice(-12).map(function (v) { return '<td class="n">' + fmtV(id, v) + '</td>'; }).join('') +
+                    (H ? fcs[id].forecast.map(function (v) { return '<td class="n muted"><i>' + fmtV(id, v) + '</i></td>'; }).join('') : '') + '</tr>'; }).join('') + '</tbody></table></div></div>';
+            var redo = function () { FL.lsSet('an.trend', { rows: A.trendRows, tpl: A.trendTpl, bud: A.trendBud, fc: A.trendFc, type: A.trendType, h: A.horizon }); VIEW_FN.trend(el, data); };
+            el.querySelectorAll('.tr-chip').forEach(function (c) { c.onclick = function () { var id = c.dataset.id, i = A.trendRows.indexOf(id); if (i >= 0) { if (A.trendRows.length > 1) A.trendRows.splice(i, 1); } else if (A.trendRows.length < 8) A.trendRows.push(id); else FL.toast('Up to 8 lines', ''); redo(); }; });
+            el.querySelectorAll('.tr-pre').forEach(function (a) { a.onclick = function () { A.trendRows = presets[+a.dataset.p][1].slice(); redo(); }; });
+            el.querySelectorAll('#tr-type button').forEach(function (x) { x.onclick = function () { A.trendType = x.dataset.t; redo(); }; });
+            if ($('tr-tpl')) $('tr-tpl').onchange = function () { A.trendTpl = this.value; redo(); };
+            $('tr-bud').onchange = function () { A.trendBud = this.checked; redo(); };
+            $('tr-fc').onchange = function () { A.trendFc = this.checked; redo(); };
+            $('tr-h').onchange = function () { A.horizon = +this.value; redo(); };
+            var scales = { y: anyAmt ? FL.moneyAxis() : { ticks: { callback: function (v) { return v + '%'; } } } };
+            if (anyPct && anyAmt) scales.y1 = { position: 'right', grid: { drawOnChartArea: false }, ticks: { callback: function (v) { return v + '%'; } } };
+            FL.chart('tr-c', { type: 'bar', data: { labels: labels, datasets: sets },
+                options: { plugins: { legend: { labels: { boxWidth: 10, font: { size: 11 }, filter: function (it) { return !/ (forecast|budget)$/.test(it.text); } } }, tooltip: { callbacks: { label: function (c) { var id = sel[Math.floor(c.datasetIndex / (1 + (H ? 1 : 0) + (b ? 1 : 0)))]; return c.dataset.label + ': ' + fmtV(id, c.parsed.y); } } } }, scales: scales } });
         },
 
         variance: function (el, data) {
