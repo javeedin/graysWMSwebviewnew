@@ -7,8 +7,12 @@
    compared line by line with the balances loaded on this PC when that ledger and period are loaded. */
 (function () {
     var T = FL.tb;
-    var L = T.live = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), seq: null, cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2), page: FL.ls('tbl.page', 5000), query: FL.ls('tbl.query', ''), defaultQuery: FL.ls('tbl.defaultQuery2', ''),
+    var L = T.live = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), seq: null, cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2), page: FL.ls('tbl.page', 5000), grp: FL.ls('tbl.grp', 'account'), query: '', defaultQuery: '',
         view: FL.ls('tbl.view', 'account'), q: '', zero: true, scale: FL.ls('tbl.scale', 1), compare: FL.ls('tbl.compare', true), res: null };
+    // the query box per way of grouping (and, grouped by account, with / without cost centre — the default differs)
+    T.qKey = function () { return L.grp + (L.grp === 'account' && L.byCc ? '.cc' : ''); };
+    T.loadQ = function () { L.query = FL.ls('tbl.query.' + L.grp, ''); L.defaultQuery = FL.ls('tbl.dq.' + T.qKey(), ''); };
+    T.loadQ();
     T.source = FL.ls('tb.source', 'duck');
     var TYPE = { A: 'Asset', L: 'Liability', O: 'Equity', R: 'Revenue', E: 'Expense' };
 
@@ -33,6 +37,10 @@
         el.innerHTML = T.head(true) + '</div>' +
             (loaded ? '' : '<div class="callout sm"><i class="fa-solid fa-circle-info"></i> No finance data is loaded on this PC yet — the income statement, balance sheet and cash flow need a load (<a onclick="FL.dataTab.go(\'status\')">Data › Sync status</a>); the trial balance below reads Fusion directly.</div>') +
             '<div class="card"><div class="row"><h3 style="margin:0"><i class="fa-solid fa-bolt"></i> Trial balance live from Fusion</h3><span class="sm muted">GL_BALANCES of one ledger and period · grouped by company × account · names from this PC</span></div>' +
+            '<div class="row" style="margin-top:8px"><span class="sm muted">Group in Fusion</span><div class="seg" id="tl-grp">' +
+            [['account', 'Company × account', 'GL_BALANCES joined to GL_CODE_COMBINATIONS, SUM() grouped by the company and account segments — one row per account, a few thousand rows a period'],
+             ['combination', 'Code combination', 'GL_BALANCES alone, one row per code combination, read in pages; segments from the combination map on this PC']].map(function (g) {
+                return '<button class="' + (L.grp === g[0] ? 'on' : '') + '" data-g="' + g[0] + '" title="' + esc(g[2]) + '">' + g[1] + '</button>'; }).join('') + '</div></div>' +
             '<div class="row" style="margin-top:10px"><label class="sm">Pod <select id="tl-pod"><option value="">Logged-in pod</option><option value="PROD"' + (L.pod === 'PROD' ? ' selected' : '') + '>PROD</option><option value="TEST"' + (L.pod === 'TEST' ? ' selected' : '') + '>TEST</option></select></label>' +
             '<label class="sm">Ledger <select id="tl-led"><option>…</option></select></label><label class="sm">Period <select id="tl-per"></select></label>' +
             '<label class="sm"><input type="checkbox" id="tl-cc"' + (L.byCc ? ' checked' : '') + '> by cost centre</label>' +
@@ -44,18 +52,25 @@
             '<div class="row" style="margin-top:6px"><span class="sm muted">Companies</span><div id="tl-cos" class="tl-cos"></div></div>' +
             '<details class="tl-q" id="tl-qbox"' + (L.query ? ' open' : '') + '><summary><b><i class="fa-solid fa-code"></i> GL_BALANCES query</b> <span class="sm muted" id="tl-qstate">' + (L.query ? 'your own query' : 'default') + '</span></summary>' +
             '<p class="sm muted">One query per period. <code>{LEDGER_ID}</code>, <code>{PERIOD}</code> and <code>{CURRENCY}</code> are filled in for each period read (the period, its adjustment period, the start of the quarter and of the year). ' +
-            'It must return CODE_COMBINATION_ID, BEGIN_BALANCE_DR, BEGIN_BALANCE_CR, PERIOD_NET_DR and PERIOD_NET_CR; every column it returns is kept on this PC (fin_gl_balances). Read-only: SELECT / WITH. ' +
-            'Do not add ROWNUM / ROW_NUMBER — the app reads it in chunks itself: <code>SELECT * FROM (SELECT q.* FROM (your query) q WHERE q.code_combination_id &gt; last id ORDER BY q.code_combination_id) WHERE ROWNUM &lt;= rows per fetch</code>. A query pasted with real values gets its placeholders back on Run.</p>' +
-            '<textarea id="tl-qtext" spellcheck="false" rows="6">' + esc(L.query || L.defaultQuery || T.DEFAULT_Q) + '</textarea>' +
+            (L.grp === 'account'
+                ? 'Also <code>{COMPANY_SEGMENT}</code>, <code>{ACCOUNT_SEGMENT}</code>, <code>{COST_CENTRE_SEGMENT}</code> (this ledger\'s segment columns) and <code>{COMPANY_FILTER}</code> (empty, or <code>AND c.SEGMENTn IN (…)</code> for the ticked companies — and company by company when a read times out). ' +
+                  'It must return COMPANY, ACCOUNT, BEGIN_BALANCE_DR, BEGIN_BALANCE_CR, PERIOD_NET_DR and PERIOD_NET_CR; it is read in one go (no paging) and kept on this PC (fin_gl_balances_acct). Read-only: SELECT / WITH.'
+                : 'It must return CODE_COMBINATION_ID, BEGIN_BALANCE_DR, BEGIN_BALANCE_CR, PERIOD_NET_DR and PERIOD_NET_CR; every column it returns is kept on this PC (fin_gl_balances). Read-only: SELECT / WITH. ' +
+                  'Do not add ROWNUM / ROW_NUMBER — the app reads it in chunks itself: <code>SELECT * FROM (SELECT q.* FROM (your query) q WHERE q.code_combination_id &gt; last id ORDER BY q.code_combination_id) WHERE ROWNUM &lt;= rows per fetch</code>.') +
+            ' A query pasted with real values gets its placeholders back on Run.</p>' +
+            '<textarea id="tl-qtext" spellcheck="false" rows="6">' + esc(L.query || L.defaultQuery || T.defaultQ()) + '</textarea>' +
             '<div class="row"><button class="btn primary sm" id="tl-qrun"><i class="fa-solid fa-play"></i> Run with this query</button><button class="btn sm" id="tl-qreset"><i class="fa-solid fa-rotate-left"></i> Default query</button>' +
-            '<span class="sm muted">Run re-reads the periods from Fusion with this query (the copy on this PC is replaced).</span></div></details>' +
+            '<div id="tl-qfix"></div><span class="sm muted">Run re-reads the periods from Fusion with this query (the copy on this PC is replaced).</span></div></details>' +
             '<div id="fu-prog"></div></div><div id="tl-res"></div>' +
             '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-database"></i> GL balances kept on this PC <small>GL_BALANCES rows with all their columns, per ledger and period (DuckDB fin_gl_balances) — a trial balance reads Fusion only for periods missing here</small></h3><div id="tl-raw"></div></div>' +
             '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-box-archive"></i> Saved trial balances <small>open without asking Fusion</small></h3><div id="tl-saved"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div></div>';
         T.wireHead(el);
         FL.fusion.paint();
         $('tl-pod').onchange = function () { L.pod = this.value; FL.lsSet('tbl.pod', L.pod); L.ledger = null; T.fillLedgers(); };
-        $('tl-cc').onchange = function () { L.byCc = this.checked; FL.lsSet('tbl.byCc', L.byCc); };
+        $('tl-cc').onchange = function () { L.byCc = this.checked; FL.lsSet('tbl.byCc', L.byCc); T.loadQ(); if (!L.query && $('tl-qtext')) $('tl-qtext').value = L.defaultQuery || T.defaultQ(); };
+        [].forEach.call(document.querySelectorAll('#tl-grp button'), function (b) {
+            b.onclick = function () { L.grp = b.dataset.g; FL.lsSet('tbl.grp', L.grp); T.loadQ(); T.renderLive(el); };
+        });
         $('tl-fold').onchange = function () { L.fold = this.checked; };
         $('tl-page').onchange = function () { L.page = +this.value; FL.lsSet('tbl.page', L.page); };
         $('tl-par').onchange = function () { L.par = +this.value; FL.lsSet('tbl.par', L.par); };
@@ -63,26 +78,59 @@
         $('tl-qrun').onclick = function () {
             var q = $('tl-qtext').value.trim();
             if (!/^\s*(select|with)\b/i.test(q)) { FL.toast('The query must start with SELECT or WITH', 'err'); return; }
-            // a query pasted from Fusion SQL with real values: turn ledger / period / currency into the placeholders
-            var fixedQ = T.toTemplate(q);
-            if (fixedQ !== q && confirm('This query has fixed values. Use placeholders instead, so each period read gets its own values?\n\n' + fixedQ)) { q = fixedQ; $('tl-qtext').value = q; }
-            if (/\bROWNUM\b|\bROW_NUMBER\s*\(/i.test(q) && !confirm('The app already reads the query in chunks (ROWNUM pages in code_combination_id order, after the last id read). Your own ROWNUM / ROW_NUMBER would cut each period short. Run it anyway?')) return;
-            if (!/\{PERIOD\}/.test(q)) { if (!confirm('The query has no {PERIOD} placeholder — every period read would return the same rows. Run it anyway?')) return; }
-            L.query = (L.defaultQuery && q === L.defaultQuery.trim()) ? '' : q;
-            FL.lsSet('tbl.query', L.query); $('tl-qstate').textContent = L.query ? 'your own query' : 'default';
+            // fixed values / own paging: show the bar under the query instead of running (it has Use placeholders & run / Run as is)
+            if (!T._runAsIs && T.qCheck(true)) return;
+            T._runAsIs = false;
+            // the default (as the host built it for this pod, or the page's starting text) runs as the default: the host adds only columns the pod has
+            L.query = (L.defaultQuery && q === L.defaultQuery.trim()) || q === T.defaultQ().trim() ? '' : q;
+            FL.lsSet('tbl.query.' + L.grp, L.query); $('tl-qstate').textContent = L.query ? 'your own query' : 'default';
             T.fetch(true);
         };
-        $('tl-qreset').onclick = function () { L.query = ''; FL.lsSet('tbl.query', ''); $('tl-qtext').value = L.defaultQuery || T.DEFAULT_Q; $('tl-qstate').textContent = 'default'; };
+        $('tl-qtext').oninput = function () { T.qCheck(false); };
+        T.qCheck(false);
+        $('tl-qreset').onclick = function () { L.query = ''; FL.lsSet('tbl.query.' + L.grp, ''); $('tl-qtext').value = L.defaultQuery || T.defaultQ(); $('tl-qstate').textContent = 'default'; T.qCheck(false); };
         T.fillLedgers();
         T.listSaved();
         if (L.res) T.show();
     };
 
+    T.defaultQ = function () { return L.grp === 'account' ? (L.byCc ? T.DEFAULT_ACC_CC : T.DEFAULT_ACC) : T.DEFAULT_Q; };
+    T.DEFAULT_ACC = "SELECT b.ledger_id, b.period_name, b.period_year, b.currency_code, b.translated_flag,\n" +
+        "       c.{COMPANY_SEGMENT} company, c.{ACCOUNT_SEGMENT} account, MAX(c.account_type) account_type,\n" +
+        "       SUM(b.begin_balance_dr) begin_balance_dr, SUM(b.begin_balance_cr) begin_balance_cr, SUM(b.period_net_dr) period_net_dr, SUM(b.period_net_cr) period_net_cr\n" +
+        "FROM gl_balances b JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id\n" +
+        "WHERE b.ledger_id = {LEDGER_ID} AND b.period_name = '{PERIOD}' AND b.currency_code = '{CURRENCY}' AND b.actual_flag = 'A'\n" +
+        "  AND c.summary_flag = 'N'{COMPANY_FILTER}\n" +
+        "GROUP BY b.ledger_id, b.period_name, b.period_year, b.currency_code, b.translated_flag, c.{COMPANY_SEGMENT}, c.{ACCOUNT_SEGMENT}";
+    T.DEFAULT_ACC_CC = T.DEFAULT_ACC.replace('account, MAX(', 'account, c.{COST_CENTRE_SEGMENT} cost_centre, MAX(').replace(/c\.\{ACCOUNT_SEGMENT\}$/, 'c.{ACCOUNT_SEGMENT}, c.{COST_CENTRE_SEGMENT}');
     // shown until the host returns the default built from this pod's GL_BALANCES columns (one row per combination, balances summed)
     T.DEFAULT_Q = "SELECT b.ledger_id, b.period_name, b.period_year, b.currency_code, b.actual_flag, b.code_combination_id, b.translated_flag,\n" +
         "       SUM(b.begin_balance_dr) begin_balance_dr, SUM(b.begin_balance_cr) begin_balance_cr, SUM(b.period_net_dr) period_net_dr, SUM(b.period_net_cr) period_net_cr\n" +
         "FROM gl_balances b\nWHERE b.ledger_id = {LEDGER_ID} AND b.period_name = '{PERIOD}' AND b.currency_code = '{CURRENCY}' AND b.actual_flag = 'A'\n" +
         "GROUP BY b.ledger_id, b.period_name, b.period_year, b.currency_code, b.actual_flag, b.code_combination_id, b.translated_flag";
+
+    // what in the query would stop it working as a per-period template: fixed ledger / period / currency values, own ROWNUM, no {PERIOD}
+    T.qIssues = function (q) {
+        var fixes = [], re = [[/(\b(?:\w+\.)?ledger_id\s*=\s*)(\d+)/gi, '{LEDGER_ID}', false], [/(\b(?:\w+\.)?period_name\s*=\s*)('[^'{}]*')/gi, '{PERIOD}', true], [/(\b(?:\w+\.)?currency_code\s*=\s*)('[^'{}]*')/gi, '{CURRENCY}', true]];
+        re.forEach(function (r) { var m; r[0].lastIndex = 0; while ((m = r[0].exec(q))) fixes.push({ from: m[2], to: r[2] ? "'" + r[1] + "'" : r[1] }); });
+        return { fixes: fixes, paging: /\bROWNUM\b|\bROW_NUMBER\s*\(/i.test(q), noPeriod: !/\{PERIOD\}/.test(T.toTemplate(q)) };
+    };
+    // paints the bar under the query; `run` = Run was pressed (adds Use placeholders & run / Run as is); returns true when something needs a look
+    T.qCheck = function (run) {
+        var box = $('tl-qfix'); if (!box) return false;
+        var q = $('tl-qtext').value, is = T.qIssues(q), parts = [];
+        if (is.fixes.length) parts.push('<div><b><i class="fa-solid fa-wand-magic-sparkles"></i> Fixed values</b> — each period read needs its own: ' +
+            is.fixes.map(function (f) { return '<span class="tl-fx"><s>' + esc(f.from) + '</s> → <code>' + esc(f.to) + '</code></span>'; }).join(' ') + '</div>');
+        if (is.paging) parts.push('<div><b><i class="fa-solid fa-layer-group"></i> Own ROWNUM / ROW_NUMBER</b> — not needed: the app reads the query in pages itself (after the last code_combination_id read); yours would cut each period short.</div>');
+        else if (is.noPeriod) parts.push('<div><b><i class="fa-solid fa-triangle-exclamation"></i> No {PERIOD}</b> — every period read (period, adjustment, start of quarter / year) would return the same rows.</div>');
+        if (!parts.length) { box.innerHTML = ''; return false; }
+        box.innerHTML = '<div class="tl-qwarn">' + parts.join('') + '<div class="row" style="margin-top:6px">' +
+            (is.fixes.length ? '<button class="btn sm primary" id="tl-qfx">' + (run ? 'Use placeholders &amp; run' : 'Use placeholders') + '</button>' : '') +
+            (run ? '<button class="btn sm" id="tl-qasis">Run as is</button>' : '') + '</div></div>';
+        if ($('tl-qfx')) $('tl-qfx').onclick = function () { $('tl-qtext').value = T.toTemplate($('tl-qtext').value); var again = T.qCheck(run); if (run && !again) $('tl-qrun').click(); };
+        if ($('tl-qasis')) $('tl-qasis').onclick = function () { T._runAsIs = true; box.innerHTML = ''; $('tl-qrun').click(); };
+        return true;
+    };
 
     // ledger_id = 300000003236002 → {LEDGER_ID}, period_name = 'Oct-26' → '{PERIOD}', currency_code = 'MUR' → '{CURRENCY}'
     T.toTemplate = function (q) {
@@ -127,14 +175,28 @@
         if (!led.company || !led.account) { FL.toast('The company / account segment of chart ' + l.coaId + ' is not set — Data › Fusion setup', 'err'); return; }
         var p = FL.fusion.progress('Trial balance ' + l.name + ' · ' + FL.fusion.calOf(L.disc, l).filter(function (x) { return x.seq === L.seq; }).map(function (x) { return x.name; })[0] + '…', true);
         $('tl-go').disabled = true;
-        FL.call('finFusionTb', { pod: L.pod || '', options: { ledger: led, periodSeq: L.seq || 0, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, parallel: L.par, chunkSize: L.page, refresh: !!forceRefresh || !!($('tl-ref') && $('tl-ref').checked), queryTemplate: L.query || '', allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 30 * 60000, p).then(function (r) {
+        FL.call('finFusionTb', { pod: L.pod || '', options: { ledger: led, periodSeq: L.seq || 0, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, parallel: L.par, chunkSize: L.page, refresh: !!forceRefresh || !!($('tl-ref') && $('tl-ref').checked), queryTemplate: L.query || '', groupIn: L.grp, allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 30 * 60000, p).then(function (r) {
             FL.fusion.finish();
             r.source = (r.sources && r.sources.every(function (z) { return z.from === 'pc'; }) ? 'GL balances kept on this PC' : 'Fusion') + ' · built ' + new Date().toLocaleString();
             T.listRaw(); r.pod = L.pod || ''; r.accountCol = led.account; r.companyCol = led.company; r.costCentreCol = led.costCentre;
             L.res = r;
-            if (r.defaultTemplate) { L.defaultQuery = r.defaultTemplate; FL.lsSet('tbl.defaultQuery2', r.defaultTemplate); if ($('tl-qtext') && !L.query) $('tl-qtext').value = r.defaultTemplate; }
+            if (r.defaultTemplate) { L.defaultQuery = r.defaultTemplate; FL.lsSet('tbl.dq.' + T.qKey(), r.defaultTemplate); if ($('tl-qtext') && !L.query) $('tl-qtext').value = r.defaultTemplate; }
             return T.fillNames(r).then(T.show);
-        }).catch(function (e) { FL.fusion.finish(e && e.message || e); }).then(function () { if ($('tl-go')) $('tl-go').disabled = false; });
+        }).catch(function (e) {
+            var msg = String(e && e.message || e); FL.fusion.finish(msg);
+            // the host stopped before paging millions of rows: show what they are and offer the filters that cut them
+            if (/stopped before reading them/.test(msg) && $('tl-res')) {
+                var m = /Add to the query: (.*?) - zero rows/.exec(msg), add = m ? m[1] : '';
+                $('tl-res').innerHTML = '<div class="tl-qwarn" style="margin-top:10px"><b><i class="fa-solid fa-hand"></i> Too many rows to read</b><div>' + esc(msg.replace(/ Add to the query:.*$/, '')) + '</div>' +
+                    (add ? '<div style="margin-top:6px">Zero rows (no opening balance, no movement) add nothing to a trial balance and summary-template rows are skipped anyway, so the trial balance stays the same without them:<br><code>' + esc(add) + '</code></div>' +
+                        '<div class="row" style="margin-top:6px"><button class="btn sm primary" id="tl-addf"><i class="fa-solid fa-filter"></i> Add these filters &amp; run</button></div>' : '') + '</div>';
+                if ($('tl-addf')) $('tl-addf').onclick = function () {
+                    var q = $('tl-qtext').value.trim(), g = /\bGROUP\s+BY\b/i.exec(q);
+                    q = g ? q.slice(0, g.index).replace(/\s+$/, '') + '\n' + add + '\n' + q.slice(g.index) : q + '\n' + add;
+                    $('tl-qtext').value = q; $('tl-qbox').open = true; T.qCheck(false); $('tl-qrun').click();
+                };
+            }
+        }).then(function () { if ($('tl-go')) $('tl-go').disabled = false; });
     };
     /** Names this PC does not have come from APEX segment values (Data › Chart of accounts › Read from Fusion fills both). */
     T.fillNames = function (r) {
@@ -308,16 +370,21 @@
     };
     T.listRaw = function () {
         var box = $('tl-raw'); if (!box) return;
-        FL.call('finQuery', { sql: "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_name = 'fin_gl_balances_sync'", maxRows: 1 }).then(function (d) {
-            if (!d.rows.length || !d.rows[0][0]) return [];
-            return FL.call('finQuery', { sql: "SELECT s.pod, s.ledger_id, s.period_name, s.currency, s.rows_read, s.ms, CAST(s.fetched_at AS VARCHAR), s.columns_read FROM fin_gl_balances_sync s ORDER BY s.fetched_at DESC", maxRows: 500 }).then(function (q) { return q.rows; });
+        // both copies: per code combination (fin_gl_balances_sync) and grouped by company × account (fin_gl_balances_acct_sync, one row per company read or '*')
+        FL.call('finQuery', { sql: "SELECT table_name FROM information_schema.tables WHERE table_name IN ('fin_gl_balances_sync', 'fin_gl_balances_acct_sync')", maxRows: 5 }).then(function (d) {
+            var t = d.rows.map(function (r) { return r[0]; }), parts = [];
+            if (t.indexOf('fin_gl_balances_sync') >= 0) parts.push("SELECT s.pod, s.ledger_id, s.period_name, s.currency, s.rows_read, s.ms, s.fetched_at, CAST(s.columns_read AS VARCHAR) AS cols, 'code combination' AS grp FROM fin_gl_balances_sync s");
+            if (t.indexOf('fin_gl_balances_acct_sync') >= 0) parts.push("SELECT a.pod, a.ledger_id, a.period_name, a.currency, SUM(a.rows_read), MAX(a.ms), MAX(a.fetched_at), CASE WHEN BOOL_OR(a.company = '*') THEN 'every company' ELSE STRING_AGG(DISTINCT a.company, ', ') END, " +
+                "CASE a.grain WHEN 'CO,AC,CC' THEN 'company × account × cost centre' ELSE 'company × account' END FROM fin_gl_balances_acct_sync a GROUP BY a.pod, a.ledger_id, a.period_name, a.currency, a.grain");
+            if (!parts.length) return [];
+            return FL.call('finQuery', { sql: "SELECT pod, ledger_id, period_name, currency, rows_read, ms, CAST(fetched_at AS VARCHAR), cols, grp FROM (" + parts.join(' UNION ALL ') + ") ORDER BY 7 DESC", maxRows: 500 }).then(function (q) { return q.rows; });
         }).catch(function () { return []; }).then(function (rows) {
             if (!$('tl-raw')) return;
             var leds = {}; ((L.disc && L.disc.ledgers) || []).forEach(function (l) { leds[String(l.id)] = l.name; });
             box.innerHTML = rows.length ? '<div class="scroll" style="max-height:220px">' + FL.table([{ label: 'Pod', get: function (x) { return x[0] || 'logged-in'; } }, { label: 'Ledger', get: function (x) { return leds[String(x[1])] || x[1]; } },
-                { label: 'Period', get: function (x) { return x[2]; } }, { label: 'Currency', get: function (x) { return x[3]; } }, { label: 'Rows', n: 1, get: function (x) { return (+x[4]).toLocaleString(); } }, { label: 'Columns', n: 1, get: function (x) { return x[7]; } },
+                { label: 'Period', get: function (x) { return x[2]; } }, { label: 'Currency', get: function (x) { return x[3]; } }, { label: 'Grouped by', get: function (x) { return x[8]; } }, { label: 'Rows', n: 1, get: function (x) { return (+x[4]).toLocaleString(); } }, { label: 'Columns / companies', get: function (x) { return x[7]; } },
                 { label: 'Read in', n: 1, get: function (x) { return ((+x[5] || 0) / 1000).toFixed(1) + ' s'; } }, { label: 'Read at', get: function (x) { return String(x[6] || '').slice(0, 16); } }], rows) + '</div>' +
-                '<p class="sm muted">Query them in Data › SQL explorer: <code>fin_gl_balances</code> (every GL_BALANCES column) joined to <code>fin_ccid</code> on code_combination_id = ccid (segments of every code combination read so far).</p>'
+                '<p class="sm muted">Query them in Data › SQL explorer: <code>fin_gl_balances_acct</code> (company × account rows) or <code>fin_gl_balances</code> (one row per code combination) joined to <code>fin_ccid</code> on code_combination_id = ccid.</p>'
                 : '<p class="sm muted">None yet — the first trial balance of a ledger and period reads its GL_BALANCES rows from Fusion and keeps them here.</p>';
         });
     };

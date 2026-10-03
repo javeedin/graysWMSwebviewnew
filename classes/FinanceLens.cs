@@ -418,6 +418,103 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             return list;
         }
 
+        // ── GL_BALANCES grouped in Fusion by company × account (× cost centre): fin_gl_balances_acct + one sync row per period × company ('*' = all) ──
+        internal const string ACCT_SYNC_TABLE = "CREATE TABLE IF NOT EXISTS fin_gl_balances_acct_sync (pod VARCHAR, ledger_id BIGINT, period_name VARCHAR, currency VARCHAR, grain VARCHAR, company VARCHAR, " +
+            "rows_read BIGINT, ms BIGINT, fetched_at TIMESTAMP)";
+
+        /// <summary>period → (account rows, read at, companies read — '*' = every company) of one ledger × grain kept on this PC.</summary>
+        public static Dictionary<string, (long Rows, DateTime At, HashSet<string> Companies)> AcctPeriods(string pod, long ledgerId, string currency, string grain)
+        {
+            var d = new Dictionary<string, (long, DateTime, HashSet<string>)>(StringComparer.Ordinal);
+            if (!File.Exists(DbPath)) return d;
+            var t = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name IN ('fin_gl_balances_acct_sync', 'fin_gl_balances_acct')", 1);
+            if (t.Error != null || t.Rows.Count == 0 || Convert.ToInt64(t.Rows[0][0]) < 2) return d;
+            var r = Query("SELECT period_name, company, rows_read, CAST(fetched_at AS VARCHAR) FROM fin_gl_balances_acct_sync WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId +
+                          " AND currency = " + Lit(currency) + " AND grain = " + Lit(grain), 100000);
+            foreach (var row in r.Rows)
+            {
+                string n = Convert.ToString(row[0]);
+                var at = DateTime.TryParse(Convert.ToString(row[3]), CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt) ? dt : DateTime.MinValue;
+                if (!d.TryGetValue(n, out var cur)) cur = (0, at, new HashSet<string>(StringComparer.Ordinal));
+                cur.Item3.Add(Convert.ToString(row[1]));
+                d[n] = (cur.Item1 + Convert.ToInt64(row[2]), at < cur.Item2 ? at : cur.Item2, cur.Item3);
+            }
+            return d;
+        }
+
+        /// <summary>Replaces one ledger × period × grain (all companies, or the companies given) of fin_gl_balances_acct with the rows read.</summary>
+        public static void SaveAcct(string pod, long ledgerId, string period, string currency, string grain, List<string> companies, List<(string Col, string Type)> cols, List<Dictionary<string, object>> rows, long ms)
+        {
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, ACCT_SYNC_TABLE);
+                var all = cols.ToList();
+                foreach (var (c0, t0) in new[] { ("LEDGER_ID", "NUMBER"), ("PERIOD_NAME", "VARCHAR2"), ("CURRENCY_CODE", "VARCHAR2"), ("COMPANY", "VARCHAR2"), ("ACCOUNT", "VARCHAR2"), ("COST_CENTRE", "VARCHAR2"), ("TRANSLATED_FLAG", "VARCHAR2"), ("ACCOUNT_TYPE", "VARCHAR2") })
+                    if (!all.Any(c => string.Equals(c.Col, c0, StringComparison.OrdinalIgnoreCase))) all.Add((c0, t0));
+                cols = all;
+                Exec(conn, "CREATE TABLE IF NOT EXISTS fin_gl_balances_acct (pod VARCHAR, grain VARCHAR, fetched_at TIMESTAMP, " + string.Join(", ", cols.Select(c => QI(c.Col) + " " + DuckType(c.Col, c.Type))) + ")");
+                var have = TableColumns(conn, "fin_gl_balances_acct");
+                foreach (var c in cols.Where(c => !have.Any(h => string.Equals(h.Name, c.Col, StringComparison.OrdinalIgnoreCase))))
+                    Exec(conn, "ALTER TABLE fin_gl_balances_acct ADD COLUMN " + QI(c.Col) + " " + DuckType(c.Col, c.Type));
+                have = TableColumns(conn, "fin_gl_balances_acct");
+                string w = "pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND period_name = " + Lit(period) + " AND grain = " + Lit(grain);
+                string coIn = companies == null ? "" : " IN (" + string.Join(",", companies.Select(Lit)) + ")";
+                Exec(conn, "DELETE FROM fin_gl_balances_acct WHERE " + w + " AND currency_code = " + Lit(currency) + (companies == null ? "" : " AND company" + coIn));
+                Exec(conn, "DELETE FROM fin_gl_balances_acct_sync WHERE " + w + " AND currency = " + Lit(currency) + (companies == null ? "" : " AND company" + coIn));
+                var now = DateTime.Now;
+                object Val(Dictionary<string, object> row, string name, string type)
+                {
+                    if (!row.TryGetValue(name.ToUpperInvariant(), out var v) && !row.TryGetValue(name, out v)) return null;
+                    string sv = v == null ? null : Convert.ToString(v, CultureInfo.InvariantCulture);
+                    if (string.IsNullOrEmpty(sv)) return null;
+                    if (type == "BIGINT") return long.TryParse(sv, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l) ? l : decimal.TryParse(sv, NumberStyles.Float, CultureInfo.InvariantCulture, out var dm) ? (long)dm : null;
+                    if (type == "DOUBLE") return double.TryParse(sv, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : null;
+                    return sv;
+                }
+                object Cell(Dictionary<string, object> row, string name, string type) => name switch
+                {
+                    "pod" => pod ?? "",
+                    "grain" => grain,
+                    "fetched_at" => now,
+                    "ledger_id" => Val(row, name, type) ?? (type == "BIGINT" ? ledgerId : type == "DOUBLE" ? (double)ledgerId : ledgerId.ToString(CultureInfo.InvariantCulture)),
+                    "period_name" => Val(row, name, type) ?? period,
+                    "currency_code" => Val(row, name, type) ?? currency,
+                    _ => Val(row, name, type)
+                };
+                Append(conn, "fin_gl_balances_acct", rows.Select(row => have.Select(h => Cell(row, h.Name, h.Type)).ToArray()).ToList());
+                var sync = companies == null
+                    ? new List<object[]> { new object[] { pod ?? "", ledgerId, period, currency, grain, "*", (long)rows.Count, ms, now } }
+                    : companies.Select(co => new object[] { pod ?? "", ledgerId, period, currency, grain, co, (long)rows.Count(r => string.Equals(Convert.ToString(r.TryGetValue("COMPANY", out var v) ? v : null), co, StringComparison.Ordinal)), ms, now }).ToList();
+                Append(conn, "fin_gl_balances_acct_sync", sync);
+                Exec(conn, "CHECKPOINT");
+            }
+        }
+
+        /// <summary>The kept account rows of some periods (one ledger, grain).</summary>
+        public static List<FinanceFusion.AcctRow> LoadAcct(string pod, long ledgerId, string currency, string grain, IEnumerable<string> periods)
+        {
+            var list = new List<FinanceFusion.AcctRow>();
+            var names = periods.Distinct().ToList();
+            if (names.Count == 0 || !File.Exists(DbPath)) return list;
+            lock (_lock)
+            {
+                ResetSessionNoLock();
+                using var conn = new DuckDBConnection("Data Source=" + DbPath);
+                conn.Open();
+                var cols = TableColumns(conn, "fin_gl_balances_acct");
+                if (cols.Count == 0) return list;
+                using var c = conn.CreateCommand();
+                c.CommandText = "SELECT period_name, company, account, cost_centre, translated_flag, account_type, begin_balance_dr, begin_balance_cr, period_net_dr, period_net_cr FROM fin_gl_balances_acct WHERE pod = " + Lit(pod ?? "") +
+                                " AND ledger_id = " + ledgerId + " AND currency_code = " + Lit(currency) + " AND grain = " + Lit(grain) + " AND period_name IN (" + string.Join(",", names.Select(Lit)) + ")";
+                using var r = c.ExecuteReader();
+                double N(int i) => r.IsDBNull(i) ? 0 : Convert.ToDouble(r.GetValue(i), CultureInfo.InvariantCulture);
+                string T(int i) => r.IsDBNull(i) ? null : Convert.ToString(r.GetValue(i), CultureInfo.InvariantCulture);
+                while (r.Read()) list.Add(new FinanceFusion.AcctRow { Period = T(0), Co = T(1), Ac = T(2), Cc = T(3), Tf = T(4), Type = T(5), Bdr = N(6), Bcr = N(7), Ndr = N(8), Ncr = N(9) });
+            }
+            return list.Where(z => z.Co != null && z.Ac != null).ToList();
+        }
+
         /// <summary>Adds code combinations to fin_ccid (so they can be queried with the raw balances in the SQL explorer).</summary>
         public static void SaveCcids(string coaId, IEnumerable<(long Id, string Type, bool Summary, Dictionary<string, string> Segs)> items)
         {
@@ -444,17 +541,17 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             if (!File.Exists(DbPath)) return;
             try
             {
-                Exec(conn, SEGVAL_TABLE); Exec(conn, TB_TABLE); Exec(conn, RAW_SYNC_TABLE); Exec(conn, CCID_TABLE);
+                Exec(conn, SEGVAL_TABLE); Exec(conn, TB_TABLE); Exec(conn, RAW_SYNC_TABLE); Exec(conn, CCID_TABLE); Exec(conn, ACCT_SYNC_TABLE);
                 Exec(conn, "ATTACH " + Lit(DbPath.Replace('\\', '/')) + " AS prev (READ_ONLY)");
                 try
                 {
-                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances" })
+                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances", "fin_gl_balances_acct_sync", "fin_gl_balances_acct" })
                     {
                         using var c = conn.CreateCommand();
                         c.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog = 'prev' AND table_name = '" + t + "'";
                         if (Convert.ToInt64(c.ExecuteScalar()) == 0) continue;
                         // fin_gl_balances has the pod's own columns: copied whole (its layout comes with it)
-                        if (t == "fin_gl_balances") Exec(conn, "CREATE TABLE fin_gl_balances AS SELECT * FROM prev.fin_gl_balances");
+                        if (t == "fin_gl_balances" || t == "fin_gl_balances_acct") Exec(conn, "CREATE TABLE " + t + " AS SELECT * FROM prev." + t);
                         else Exec(conn, "INSERT INTO " + t + " SELECT * FROM prev." + t);
                     }
                 }

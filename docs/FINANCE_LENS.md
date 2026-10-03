@@ -160,7 +160,24 @@ for the accounts mapped to it.
 Statements › Trial balance › **Live from Fusion** (also before anything is loaded — the other statements need a load):
 pod, ledger, period, companies (all or some), optional cost centre, *Fetch from Fusion*. One read of `GL_BALANCES` (ledger
 currency, actuals, no translated / summary rows) joined only to `GL_CODE_COMBINATIONS`, grouped by company × account
-(× cost centre). The **GL_BALANCES balances** of each period it needs (the period, its adjustment
+(× cost centre).
+
+**Group in Fusion** (switch above the fetch button):
+
+- **Company × account** (default): one query per period: GL_BALANCES joined to GL_CODE_COMBINATIONS, `SUM()` of the balance
+  columns grouped by the company and account segments (× cost centre when ticked), summary combinations left out
+  (`c.summary_flag = 'N'`), translated_flag kept as a key so the 'R' part is dropped on the PC. A few thousand rows a period, read in
+  one go (no paging); kept in DuckDB `fin_gl_balances_acct` (+ `fin_gl_balances_acct_sync`, one row per period × company read, `*` =
+  every company). Placeholders `{COMPANY_SEGMENT}` `{ACCOUNT_SEGMENT}` `{COST_CENTRE_SEGMENT}` `{COMPANY_FILTER}` (ticked companies →
+  `AND c.SEGMENTn IN (…)`). A read that times out for every company is asked again **company by company** (Reads in parallel at a time).
+- **Code combination**: GL_BALANCES alone, one row per code combination, read in pages (below); segments from the map on this PC.
+  A period with more than 1,000,000 rows stops after the row count and shows what they are (detail / summary template, translated,
+  zero / non-zero) with *Add these filters & run* (`template_id IS NULL AND NOT (zero balance and no movement)` — same trial balance).
+
+The query box warns about fixed values (`ledger_id = 300000003236002`, `period_name = 'Oct-26'` … → *Use placeholders & run*) and
+about an own ROWNUM / ROW_NUMBER.
+
+In *Code combination* mode the **GL_BALANCES balances** of each period it needs (the period, its adjustment
 period, the start of the quarter and of the year) are read **once**, one query per period filtered only on ledger, period, currency and actual flag (no join, no
 expression filters). The default query keeps only what a balance needs — one row per combination:
 

@@ -296,4 +296,7 @@ details.lf-card[open] > summary::before { content: '▾'; }
 .seg button[disabled] { opacity: .45; cursor: not-allowed; }
 .tl-q { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: #f8fafc; }
 .tl-q > summary { cursor: pointer; }
+.tl-qwarn { margin: 4px 0 8px; padding: 8px 10px; border: 1px solid #f59e0b; background: #fffbeb; border-radius: 6px; font-size: 12.5px; line-height: 1.6; }
+.tl-qwarn .tl-fx { display: inline-block; margin: 0 6px 2px 0; padding: 0 6px; background: #fff; border: 1px solid var(--line2); border-radius: 10px; white-space: nowrap; }
+.tl-qwarn .tl-fx s { color: #b91c1c; } .tl-qwarn .tl-fx code { color: #047857; }
 .tl-q textarea { width: 100%; box-sizing: border-box; font: 12px/1.45 var(--mono); padding: 8px; border: 1px solid var(--line2); border-radius: 6px; margin: 6px 0; resize: vertical; }
