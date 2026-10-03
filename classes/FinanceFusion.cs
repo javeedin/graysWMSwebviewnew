@@ -1487,9 +1487,16 @@ namespace WMSApp
             var kept = FinanceLens.AcctPeriods(o.Pod, led.Id, led.Currency, grain);
             bool Covered(string n) => kept.TryGetValue(n, out var k) && (k.Companies.Contains("*") || (want.Count > 0 && want.All(k.Companies.Contains)));
             var toRead = periods.Where(n => o.Refresh || !Covered(n)).ToList();
+            void Skipped(string n, List<string> cosKept)
+            {   // the live monitor lists what was NOT asked from Fusion too (with the SQL that would run), so a sync that reads nothing is visible
+                int id = Interlocked.Increment(ref _liveId);
+                x.Live(new { t = "sql", id, what = led.Name + " · " + n + " · " + (cosKept == null ? "every company" : cosKept.Count == 1 ? "company " + cosKept[0] : cosKept.Count + " companies") + " · already on this PC", sql = Fill(n, cosKept == null || cosKept.Count == 0 ? null : cosKept.Take(1).ToList()), at = DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture) });
+                x.Live(new { t = "end", id, ok = true, rows = kept.TryGetValue(n, out var kk) ? kk.Rows : 0, ms = 0, skipped = true });
+            }
             foreach (var n in periods.Where(n => !toRead.Contains(n)))
             {
-                x.Note("✓ " + n + " already on this PC: " + kept[n].Rows.ToString("N0", CultureInfo.InvariantCulture) + " account rows read " + kept[n].At.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture));
+                Skipped(n, kept[n].Companies.Contains("*") ? null : kept[n].Companies.OrderBy(v => v, StringComparer.Ordinal).ToList());
+                x.Note("✓ " + n + " already on this PC: " + kept[n].Rows.ToString("N0", CultureInfo.InvariantCulture) + " account rows read " + kept[n].At.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " (tick read again from Fusion to ask Fusion)");
                 sources.Add(new { period = n, from = "pc", rows = kept[n].Rows, at = kept[n].At.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) });
             }
             int reads = 0, chunkNo = 0, soFar = 0; bool sampled = false;
@@ -1512,6 +1519,13 @@ namespace WMSApp
                     int from, to, nth;
                     lock (gate) { nth = ++chunkNo; from = soFar + 1; soFar += r.Rows.Count; to = soFar; }
                     x.Note("   " + label + " · chunk " + nth + " · rows " + from.ToString("N0", CultureInfo.InvariantCulture) + "–" + Math.Max(from, to).ToString("N0", CultureInfo.InvariantCulture) + " · " + (t0.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s");
+                    if (companies != null && !res.Template.Contains("{COMPANY_FILTER}") && r.Rows.Count > 0 && r.Rows.Any(z => z.ContainsKey("COMPANY")))
+                    {   // the query has no {COMPANY_FILTER} (e.g. a company written into it): keep only the companies this read is for
+                        var want1 = new HashSet<string>(companies, StringComparer.Ordinal);
+                        int before = r.Rows.Count;
+                        r.Rows = r.Rows.Where(z => want1.Contains(Convert.ToString(z.TryGetValue("COMPANY", out var cv) ? cv : null, CultureInfo.InvariantCulture) ?? "")).ToList();
+                        if (r.Rows.Count < before) x.Note("   ⚠ " + label + ": the query has no {COMPANY_FILTER} - " + (before - r.Rows.Count) + " row(s) of other companies left out");
+                    }
                     if (r.Rows.Count >= CAP) { r.Success = false; r.Error = label + ": more than " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows - tick fewer companies or turn off by cost centre"; }
                     else if (r.Rows.Count > 0)
                     {
@@ -1541,7 +1555,7 @@ namespace WMSApp
                     {   // one query per company (c.SEGMENTn = one value), a few at a time; companies already on this PC are not read again
                         var done = !o.Refresh && kept.TryGetValue(n, out var kn) ? kn.Companies : new HashSet<string>();
                         var miss = listCos.Where(co => !done.Contains(co)).ToList();
-                        if (miss.Count < listCos.Count) x.Note("   " + n + ": " + (listCos.Count - miss.Count) + " compan" + (listCos.Count - miss.Count == 1 ? "y" : "ies") + " already on this PC - reading " + miss.Count);
+                        if (miss.Count < listCos.Count) { x.Note("   " + n + ": " + (listCos.Count - miss.Count) + " compan" + (listCos.Count - miss.Count == 1 ? "y" : "ies") + " already on this PC - reading " + miss.Count); Skipped(n, listCos.Where(done.Contains).ToList()); }
                         var parts = await Task.WhenAll(miss.Select(async co =>
                         {
                             var t1 = Stopwatch.StartNew();

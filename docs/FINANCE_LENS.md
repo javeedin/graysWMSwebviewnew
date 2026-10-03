@@ -169,6 +169,15 @@ period (✓ every company, n/m some, cc by cost centre); select cells to *Sync a
 (Data › Full GL load) wins over synced trial balances; they are kept beside it. Year to date figures need every period of the
 year synced (use *Year to date*). Account names come from the segment values on this PC (Data › Chart of accounts).
 
+Seeing what happened: the monitor's *Finished queries* also lists what was **not** asked from Fusion ("already on this PC",
+with the SQL that would run) — tick *read again from Fusion* to ask. Every query there has **Run** (asks Fusion now: rows, time,
+first rows), and the query box has **Test query** (the To period, the first company). A company written into the query
+(`AND c.SEGMENT1 = '01'`) or a missing `{COMPANY_FILTER}` is flagged with *Fix the query* — with one query per company the app
+puts each company there itself (and keeps only that company's rows if the query has none). **Account names & types** come from
+the segment values: the card under the grid counts accounts without a name or type and fills them *From APEX* or *Read from
+Fusion* (once; kept on this PC and in APEX), then rebuilds the statements. The trial balance has Ledger / Year / Period
+selects, and closing balances that do not net to nil show which ledger × company is off.
+
 The query, its options and the reading below are the same as for one period:
 pod, ledger, period, companies (all or some), optional cost centre, *Fetch from Fusion*. One read of `GL_BALANCES` (ledger
 currency, actuals, no translated / summary rows) joined only to `GL_CODE_COMBINATIONS`, grouped by company × account

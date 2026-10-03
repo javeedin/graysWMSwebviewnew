@@ -41,12 +41,14 @@
              ['hint', 'optimizer hint', 'LEADING(b) USE_HASH(c) PARALLEL(4): scan GL_BALANCES first, hash join to GL_CODE_COMBINATIONS, in parallel']].map(function (x) {
                 return '<label title="' + esc(x[2]) + '"><input type="checkbox" data-o="' + x[0] + '"' + (L.opt[x[0]] ? ' checked' : '') + '> ' + x[1] + '</label>'; }).join('') + '</div>' +
             '<textarea id="tl-qtext" spellcheck="false" rows="7">' + esc(L.query || L.defaultQuery || T.defaultQ()) + '</textarea>' +
-            '<div class="row"><button class="btn sm" id="tl-qreset"><i class="fa-solid fa-rotate-left"></i> Default query</button><div id="tl-qfix"></div>' +
-            '<span class="sm muted">Sync uses this query; your own query is kept on this PC.</span></div></details>' +
+            '<div class="row"><button class="btn sm" id="ts-test" title="Runs this query in Fusion now for the To period and the first company (read-only) — rows, time and the first rows"><i class="fa-solid fa-play"></i> Test query</button>' +
+            '<button class="btn sm" id="tl-qreset"><i class="fa-solid fa-rotate-left"></i> Default query</button><div id="tl-qfix"></div>' +
+            '<span class="sm muted">Sync uses this query; your own query is kept on this PC.</span></div><div id="ts-testres"></div></details>' +
             '<div id="fu-prog"></div></div>' +
             '<div class="card" style="margin-top:12px"><div class="row"><h3 style="margin:0"><i class="fa-solid fa-table-cells"></i> Synced on this PC</h3><span class="sm muted" id="ts-from-what"></span><span class="grow"></span>' +
             '<button class="btn sm" id="ts-resync" disabled><i class="fa-solid fa-rotate"></i> Sync selected again</button><button class="btn sm" id="ts-del" disabled><i class="fa-solid fa-trash"></i> Remove selected</button>' +
-            '<button class="btn sm primary" id="ts-open"><i class="fa-solid fa-arrow-right"></i> Open the trial balance</button></div><div id="ts-grid" style="margin-top:8px"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div></div>';
+            '<button class="btn sm primary" id="ts-open"><i class="fa-solid fa-arrow-right"></i> Open the trial balance</button></div><div id="ts-grid" style="margin-top:8px"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div></div>' +
+            '<div class="card" style="margin-top:12px" id="ts-names"></div>';
         FL.fusion.paint();
         $('ts-pod').onchange = function () { L.pod = this.value; FL.lsSet('tbl.pod', L.pod); L.ledger = null; T.fillLedgers(); };
         $('ts-cc').onchange = function () { L.byCc = this.checked; FL.lsSet('tbl.byCc', L.byCc); T.loadQ(); if (!L.query) $('tl-qtext').value = L.defaultQuery || T.defaultQ(); };
@@ -56,6 +58,7 @@
         $('ts-open').onclick = function () { FL.stmt.tpl = 'TB'; FL.lsSet('stmt.tpl', 'TB'); FL.show('statements'); };
         el.querySelectorAll('#ts-quick button').forEach(function (b) { b.onclick = function () { T.quick(b.dataset.q); }; });
         $('tl-qtext').oninput = function () { T.qCheck(false); };
+        $('ts-test').onclick = function () { T.test(); };
         [].forEach.call(document.querySelectorAll('#tl-qopts input'), function (cb) {
             cb.onchange = function () {
                 L.opt[cb.dataset.o] = cb.checked; FL.lsSet('tbl.opt', L.opt);
@@ -69,6 +72,74 @@
         T.qCheck(false);
         T.fillLedgers();
         T.grid();
+        T.names();
+    };
+
+    /** The query with this ledger's values for one period and company (what Sync sends for that read) */
+    T.fill = function (q, period, company) {
+        var l = T.ledgerObj(), led = l ? FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)) : {};
+        var sq = function (v) { return String(v == null ? '' : v).replace(/'/g, "''"); };
+        return q.replace(/\{LEDGER_ID\}/g, l ? l.id : '').replace(/\{PERIOD\}/g, sq(period)).replace(/\{CURRENCY\}/g, sq(l && l.currency))
+            .replace(/\{COMPANY_FILTER\}/g, company ? ' AND c.' + led.company + " = '" + sq(company) + "'" : '')
+            .replace(/\{COMPANY_SEGMENT\}/g, led.company || '').replace(/\{ACCOUNT_SEGMENT\}/g, led.account || '').replace(/\{COST_CENTRE_SEGMENT\}/g, led.costCentre || led.account || '');
+    };
+    /** Test query: the To period, the first ticked company (or the ledger's first) — straight to Fusion, rows / time / first rows */
+    T.test = function () {
+        var l = T.ledgerObj(); if (!l) { FL.toast('Pick a ledger', 'err'); return; }
+        var per = T.cal().filter(function (p) { return p.seq === L.to; })[0]; if (!per) return;
+        var co = L.cos[0] || ((l.companies || [])[0] || {}).value;
+        var sql = T.fill($('tl-qtext').value.trim(), per.name, co);
+        $('ts-testres').innerHTML = '<div class="sm muted" style="margin-top:6px">' + esc(per.name + (co ? ' · company ' + co : '')) + '</div><div class="fu-runres"></div><pre class="mon-sql">' + esc(sql) + '</pre>';
+        FL.fusion.runSql(sql, L.pod || '', $('ts-testres').querySelector('.fu-runres'));
+    };
+
+    // ── account names and types (from the segment values: this PC, APEX, or read from Fusion once) ──
+    T.names = function () {
+        var box = $('ts-names'); if (!box) return;
+        var st = FL.status || {};
+        if (!st.loaded || (st.meta || {}).source !== 'FUSION_TB') { box.style.display = 'none'; return; }
+        box.style.display = '';
+        FL.rows("SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE name IS NULL OR name = code) AS noname, COUNT(*) FILTER (WHERE account_type IS NULL) AS notype FROM fin_accounts", 1).then(function (r) {
+            var x = r[0] || {}, ok = !x.noname && !x.notype, admin = FL.who && FL.who.admin;
+            box.innerHTML = '<div class="row"><h3 style="margin:0"><i class="fa-solid fa-tags"></i> Account names &amp; types</h3><span class="sm ' + (ok ? 'pos' : 'warn') + '">' +
+                (ok ? '✓ all ' + x.n + ' accounts have a name and a type' : (x.noname ? x.noname + ' of ' + x.n + ' accounts have no name' : '') + (x.noname && x.notype ? ' · ' : '') + (x.notype ? x.notype + ' have no type (A / L / O / R / E)' : '')) + '</span><span class="grow"></span>' +
+                '<button class="btn sm" id="ts-napex"' + (admin ? '' : ' disabled') + ' title="Use the segment values kept in APEX (Data › Chart of accounts)"><i class="fa-solid fa-cloud-arrow-down"></i> From APEX</button>' +
+                '<button class="btn sm" id="ts-nfus"' + (admin ? '' : ' disabled') + ' title="Read the account (and company, cost centre) segment values with their description and account type from Fusion once — kept on this PC and in APEX"><i class="fa-solid fa-bolt"></i> Read from Fusion</button></div>' +
+                '<p class="sm muted" style="margin:6px 0 0">The trial balance query brings amounts only; names and types come from the segment values. ' + (ok ? '' : 'Read them once and the statements are rebuilt with them.') + '</p>';
+            $('ts-napex').onclick = function () { T.namesFrom('apex', this); };
+            $('ts-nfus').onclick = function () { T.namesFrom('fusion', this); };
+            if (!ok && !T._triedApex) { T._triedApex = true; T.namesFrom('apex', null, true); }   // quietly once: APEX may already have them
+        });
+    };
+    /** The ledger's company / account / cost centre columns → values from APEX or Fusion → this PC (finSegValuesSave / finFusionSegValues), statements rebuilt */
+    T.namesFrom = function (where, btn, quiet) {
+        var l = T.ledgerObj(); if (!l) { if (!quiet) FL.toast('Pick the ledger above', 'err'); return; }
+        var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), pod = L.pod || '', coa = l.coaId;
+        var cols = [led.account, led.company, led.costCentre].filter(function (c, i, a) { return c && a.indexOf(c) === i; });
+        if (btn) btn.disabled = true;
+        var p = where === 'fusion' ? FL.fusion.progress('Segment values ' + cols.join(', ') + '…', true) : null;
+        var n = 0, chain = Promise.resolve();
+        cols.forEach(function (col) {
+            chain = chain.then(function () {
+                if (where === 'apex') return FL.apexStore.loadSegValues(pod, coa, col).then(function (v) {
+                    if (!v.length) return;
+                    n += v.length;
+                    return FL.call('finSegValuesSave', { coaId: coa, column: col, values: v.map(function (x) { return { value: x.value, description: x.description, accountType: x.accountType, combinations: x.combinations }; }) }, 120000);
+                });
+                return FL.call('finFusionSegValues', { pod: pod, coaId: coa, column: col }, 20 * 60000, p).then(function (r) {
+                    var vals = (r.values || []).map(function (x) { return { value: x.value, description: x.description, accountType: x.accountType, combinations: x.combinations }; });
+                    n += vals.length;
+                    return FL.apexStore.saveSegValues(pod, coa, col, vals).catch(function () { /* APEX copy is optional */ });
+                });
+            });
+        });
+        chain.then(function () {
+            if (p) FL.fusion.finish();
+            if (!n) { if (!quiet) FL.toast(where === 'apex' ? 'APEX has no segment values for this chart yet — press Read from Fusion' : 'No values came back', 'err'); return; }
+            FL.toast(n.toLocaleString() + ' segment values applied — statements rebuilt', 'ok');
+            return FL.refresh();
+        }).catch(function (e) { if (p) FL.fusion.finish(String(e && e.message || e)); if (!quiet) FL.toast(String(e && e.message || e), 'err'); })
+            .then(function () { if (btn) btn.disabled = false; T.names(); });
     };
 
     // ── the default query (the host builds the same from this pod's columns) ──
@@ -85,7 +156,9 @@
     T.qIssues = function (q) {
         var fixes = [], re = [[/(\b(?:\w+\.)?ledger_id\s*=\s*)(\d+)/gi, '{LEDGER_ID}', false], [/(\b(?:\w+\.)?period_name\s*=\s*)('[^'{}]*')/gi, '{PERIOD}', true], [/(\b(?:\w+\.)?currency_code\s*=\s*)('[^'{}]*')/gi, '{CURRENCY}', true]];
         re.forEach(function (r) { var m; r[0].lastIndex = 0; while ((m = r[0].exec(q))) fixes.push({ from: m[2], to: r[2] ? "'" + r[1] + "'" : r[1] }); });
-        return { fixes: fixes, paging: /\bROWNUM\b|\bROW_NUMBER\s*\(/i.test(q), noPeriod: !/\{PERIOD\}/.test(T.toTemplate(q)) };
+        var coCol = T.companyCol(), fixedCo = coCol ? new RegExp('\\s+AND\\s+(?:\\w+\\.)?' + coCol + "\\s*(=\\s*'[^']*'|IN\\s*\\([^)]*\\))", 'i').exec(q) : null;
+        return { fixes: fixes, paging: /\bROWNUM\b|\bROW_NUMBER\s*\(/i.test(q), noPeriod: !/\{PERIOD\}/.test(T.toTemplate(q)),
+            fixedCo: fixedCo ? fixedCo[0].trim() : null, noCoFilter: L.opt.perCompany && !/\{COMPANY_FILTER\}/.test(q) };
     };
     /** The bar under the query; `run` = Sync was pressed (Use placeholders & sync / Sync as is). True when something needs a look. */
     T.qCheck = function (run) {
@@ -93,17 +166,26 @@
         var q = $('tl-qtext').value, is = T.qIssues(q), parts = [];
         if (is.fixes.length) parts.push('<div><b><i class="fa-solid fa-wand-magic-sparkles"></i> Fixed values</b> — each period read needs its own: ' +
             is.fixes.map(function (f) { return '<span class="tl-fx"><s>' + esc(f.from) + '</s> → <code>' + esc(f.to) + '</code></span>'; }).join(' ') + '</div>');
+        if (is.fixedCo || is.noCoFilter) parts.push('<div><b><i class="fa-solid fa-building"></i> ' + (is.fixedCo ? 'Company written into the query' : 'No {COMPANY_FILTER}') + '</b> — ' +
+            (is.fixedCo ? '<code>' + esc(is.fixedCo) + '</code> reads one company whatever you tick; ' : '') + 'with one query per company the app puts <code>{COMPANY_FILTER}</code> (<code>AND c.' + esc(T.companyCol() || 'SEGMENTn') + " = '…'</code>) there for each company.</div>");
         if (is.paging) parts.push('<div><b><i class="fa-solid fa-layer-group"></i> Own ROWNUM / ROW_NUMBER</b> — not needed: the grouped result is read in one go; yours would cut each period short.</div>');
         else if (is.noPeriod) parts.push('<div><b><i class="fa-solid fa-triangle-exclamation"></i> No {PERIOD}</b> — every period would return the same rows.</div>');
         if (!parts.length) { box.innerHTML = ''; return false; }
         box.innerHTML = '<div class="tl-qwarn">' + parts.join('') + '<div class="row" style="margin-top:6px">' +
-            (is.fixes.length ? '<button class="btn sm primary" id="tl-qfx">' + (run ? 'Use placeholders &amp; sync' : 'Use placeholders') + '</button>' : '') +
+            (is.fixes.length || is.fixedCo || is.noCoFilter ? '<button class="btn sm primary" id="tl-qfx">' + (run ? 'Fix &amp; sync' : 'Fix the query') + '</button>' : '') +
             (run ? '<button class="btn sm" id="tl-qasis">Sync as is</button>' : '') + '</div></div>';
         if ($('tl-qfx')) $('tl-qfx').onclick = function () { $('tl-qtext').value = T.toTemplate($('tl-qtext').value); var again = T.qCheck(run); if (run && !again) T.sync(T._pending, T._pendingRefresh); };
         if ($('tl-qasis')) $('tl-qasis').onclick = function () { T._asIs = true; box.innerHTML = ''; T.sync(T._pending, T._pendingRefresh); };
         return true;
     };
+    T.companyCol = function () { var l = T.ledgerObj(); return l ? FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)).company : null; };
     T.toTemplate = function (q) {
+        var coCol = T.companyCol();
+        if (coCol) {   // a company written into the query → {COMPANY_FILTER}; none at all (one query per company) → before GROUP BY
+            var re = new RegExp('\\s+AND\\s+(?:\\w+\\.)?' + coCol + "\\s*(=\\s*'[^']*'|IN\\s*\\([^)]*\\))", 'i');
+            if (re.test(q)) q = q.replace(re, '{COMPANY_FILTER}');
+            else if (L.opt.perCompany && !/\{COMPANY_FILTER\}/.test(q)) { var g = /\s+GROUP\s+BY\b/i.exec(q); q = g ? q.slice(0, g.index) + '{COMPANY_FILTER}' + q.slice(g.index) : q + '{COMPANY_FILTER}'; }
+        }
         return q.replace(/(\b(?:\w+\.)?ledger_id\s*=\s*)\d+/gi, '$1{LEDGER_ID}')
             .replace(/(\b(?:\w+\.)?period_name\s*=\s*)'[^'{}]*'/gi, "$1'{PERIOD}'")
             .replace(/(\b(?:\w+\.)?currency_code\s*=\s*)'[^'{}]*'/gi, "$1'{CURRENCY}'");
@@ -176,6 +258,7 @@
         }
         var names = T.cal().filter(function (p) { return list.indexOf(p.seq) >= 0; }).map(function (p) { return p.name; });
         var p = FL.fusion.progress('Trial balance sync ' + l.name + ' · ' + names[0] + (names.length > 1 ? ' – ' + names[names.length - 1] : '') + '…', true);
+        FL.fusion.run.pod = L.pod || '';
         if ($('ts-go')) $('ts-go').disabled = true;
         FL.call('finTbSync', { pod: L.pod || '', options: { ledger: led, periodSeqs: list, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, parallel: L.par, refresh: !!refresh, queryTemplate: L.query || '',
             skipZero: !!L.opt.skipZero, allSums: !!L.opt.allSums, hint: !!L.opt.hint, perCompany: L.opt.perCompany !== false, allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 60 * 60000, p).then(function (r) {

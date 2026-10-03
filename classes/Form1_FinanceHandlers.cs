@@ -196,6 +196,32 @@ namespace WMSApp
                             AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_tb_sync_delete", Outcome = "OK", Target = (PipeSrvStr(root, "pod") ?? "") + " · " + lid, Detail = string.Join(",", per) });
                             break;
                         }
+                    case "finSegValuesSave":    // segment values kept elsewhere (APEX) → this PC (names / account types), statements rebuilt
+                        {
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can change the finance data." }; break; }
+                            var vals = root.TryGetProperty("values", out var vv) && vv.ValueKind == JsonValueKind.Array
+                                ? vv.EnumerateArray().Select(v => new FinanceFusion.SegValue { Value = PipeSrvStr(v, "value"), Description = PipeSrvStr(v, "description"), AccountType = PipeSrvStr(v, "accountType"),
+                                    Combinations = v.TryGetProperty("combinations", out var cb) && cb.TryGetInt64(out var cn) ? cn : 0 }).Where(v => !string.IsNullOrEmpty(v.Value)).ToList()
+                                : new List<FinanceFusion.SegValue>();
+                            string col = FinanceFusion.SegCol(PipeSrvStr(root, "column"));
+                            if (col == null || vals.Count == 0) { data = new { ok = false, error = "No values." }; break; }
+                            data = await Task.Run(() => { var w = FinanceLens.SaveSegmentValues(PipeSrvStr(root, "coaId"), col, vals); return (object)new { ok = true, saved = w, values = vals.Count, rebuilt = FinanceLens.RebuildTbIfActive() }; });
+                            break;
+                        }
+                    case "finFusionRun":        // one read-only query in Fusion (the monitor's Run / Test query): first 50 rows, time
+                        {
+                            string sql = (PipeSrvStr(root, "sql") ?? "").Trim().TrimEnd(';');
+                            if (!System.Text.RegularExpressions.Regex.IsMatch(sql, @"^(SELECT|WITH)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase) || sql.Contains(';'))
+                            { data = new { ok = false, error = "Only one SELECT / WITH query." }; break; }
+                            var cts = FinNewCts(TimeSpan.FromMinutes(5));
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            var res = await FinRunner(PipeSrvStr(root, "pod"))(sql, 1000, cts.Token);
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_fusion_run", Outcome = res.Success ? "OK" : "FAILED", DurationMs = sw.ElapsedMilliseconds, Target = PipeSrvStr(root, "pod") ?? "", Detail = sql.Length > 300 ? sql.Substring(0, 300) : sql });
+                            var cols = res.Rows.Count > 0 ? res.Rows.SelectMany(r2 => r2.Keys).Distinct().ToList() : (res.Columns ?? new List<string>());
+                            data = new { ok = res.Success, error = res.Error, rows = res.Rows.Count, capped = res.Capped, ms = sw.ElapsedMilliseconds, columns = cols,
+                                         sample = res.Rows.Take(50).Select(r2 => cols.Select(c => r2.TryGetValue(c, out var v) ? Convert.ToString(v, System.Globalization.CultureInfo.InvariantCulture) : null).ToList()).ToList() };
+                            break;
+                        }
                     case "finTbSave":           // keep a live trial balance in DuckDB (fin_tb_live)
                         data = new { ok = true, rows = await Task.Run(() => FinanceLens.SaveTb(root, user)) };
                         break;
@@ -203,6 +229,7 @@ namespace WMSApp
                         {
                             var cts = FinNewCts(TimeSpan.FromMinutes(20));
                             data = await Task.Run(() => FinanceFusion.SegmentValuesAsync(FinRunner(PipeSrvStr(root, "pod")), PipeSrvStr(root, "coaId"), PipeSrvStr(root, "column"), FinProgress(wv, requestId), cts.Token));
+                            await Task.Run(() => FinanceLens.RebuildTbIfActive());   // names / types into the statements built from synced trial balances
                             break;
                         }
                     case "finSegValues":        // the values saved in the finance file

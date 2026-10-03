@@ -308,3 +308,6 @@ details.lf-card[open] > summary::before { content: '▾'; }
 .ts-grid .ts-cell.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
 .ts-grid .ts-cell sup { font-size: 9px; margin-left: 2px; font-weight: 400; }
 #ts-quick button { padding: 3px 8px; }
+.mon-skip td { color: var(--ink2, #475569); background: #f8fafc; }
+.fu-runres { margin: 4px 0; }
+#ts-testres .mon-sql { max-height: 160px; }

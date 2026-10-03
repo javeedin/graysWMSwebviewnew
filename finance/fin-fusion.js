@@ -103,7 +103,7 @@
         if (e.t === 'sql') R.sql[e.id] = { id: e.id, what: e.what, sql: e.sql, at: e.at, t: Date.now() };
         else if (e.t === 'end') {
             var q = R.sql[e.id]; delete R.sql[e.id];
-            if (q) { q.ms = e.ms; q.rows = e.rows; q.ok = e.ok; q.error = e.error; R.done.unshift(q); if (R.done.length > 60) R.done.pop(); }
+            if (q) { q.ms = e.ms; q.rows = e.rows; q.ok = e.ok; q.error = e.error; q.skipped = !!e.skipped; R.done.unshift(q); if (R.done.length > 60) R.done.pop(); }
         } else if (e.t === 'sample') { R.samples.unshift({ what: e.what, cols: e.cols, rows: e.rows, at: new Date().toTimeString().slice(0, 8) }); if (R.samples.length > 30) R.samples.pop(); }
         if (R !== F.run) return;
         if (e.t === 'sample' && R.tab !== 'sample') { if ($('mon-ns')) $('mon-ns').textContent = R.samples.length; return; }
@@ -168,15 +168,26 @@
             }).join('') : '<p class="sm muted">' + (R.running ? 'Between queries…' : 'Nothing running — see Finished queries, Sample rows and the Log.') + '</p>';
             el.querySelectorAll('[data-copy]').forEach(function (b) { b.onclick = function () { var q = R.sql[b.dataset.copy]; if (q) { try { navigator.clipboard.writeText(q.sql); FL.toast('SQL copied', 'ok'); } catch (e) { /* no clipboard */ } } }; });
         } else if (R.tab === 'done') {
-            el.innerHTML = R.done.length ? '<div class="scroll" style="max-height:300px"><table class="t"><thead><tr><th>Step</th><th class="n">Rows</th><th class="n">Time</th><th></th></tr></thead><tbody>' + R.done.map(function (q, i) {
-                return '<tr class="click" data-i="' + i + '"><td>' + (q.ok ? '' : '<i class="fa-solid fa-circle-xmark neg"></i> ') + esc(q.what) + (q.error ? '<div class="sm neg">' + esc(q.error) + '</div>' : '') + '</td><td class="n">' + (q.rows || 0).toLocaleString() + '</td><td class="n">' + ((q.ms || 0) / 1000).toFixed(1) + ' s</td><td class="sm muted">SQL ›</td></tr>';
-            }).join('') + '</tbody></table></div><p class="sm muted">The last ' + R.done.length + ' queries — click one for its SQL.</p>' : '<p class="sm muted">No query finished yet.</p>';
+            el.innerHTML = R.done.length ? '<div class="scroll" style="max-height:360px"><table class="t"><thead><tr><th>Step</th><th class="n">Rows</th><th class="n">Time</th><th></th></tr></thead><tbody>' + R.done.map(function (q, i) {
+                return '<tr class="click' + (q.skipped ? ' mon-skip' : '') + '" data-i="' + i + '"><td>' + (q.skipped ? '<i class="fa-solid fa-hard-drive" title="Not asked from Fusion: this PC already holds it (tick read again from Fusion to ask)"></i> ' : q.ok ? '' : '<i class="fa-solid fa-circle-xmark neg"></i> ') + esc(q.what) + (q.error ? '<div class="sm neg">' + esc(q.error) + '</div>' : '') + '</td>' +
+                    '<td class="n">' + (q.rows || 0).toLocaleString() + '</td><td class="n">' + (q.skipped ? '<span class="sm muted">on this PC</span>' : ((q.ms || 0) / 1000).toFixed(1) + ' s') + '</td>' +
+                    '<td class="sm muted" style="white-space:nowrap">SQL › ' + (q.sql ? '<button class="btn sm" data-run="' + i + '" title="Run this query in Fusion now (read-only, first 50 rows shown)"><i class="fa-solid fa-play"></i> Run</button>' : '') + '</td></tr>';
+            }).join('') + '</tbody></table></div><p class="sm muted">The last ' + R.done.length + ' queries — click one for its SQL; Run asks Fusion now and shows rows and time.</p>' : '<p class="sm muted">No query finished yet.</p>';
             el.querySelectorAll('tr[data-i]').forEach(function (tr) {
-                tr.onclick = function () {
+                tr.onclick = function (ev) {
+                    if (ev.target.closest('[data-run]')) return;
                     var q = R.done[+tr.dataset.i];
                     var nx = tr.nextElementSibling;
                     if (nx && nx.classList.contains('mon-sqlrow')) { nx.remove(); return; }
                     tr.insertAdjacentHTML('afterend', '<tr class="mon-sqlrow"><td colspan="4"><pre class="mon-sql">' + hiSql(q.sql) + '</pre></td></tr>');
+                };
+            });
+            el.querySelectorAll('[data-run]').forEach(function (b) {
+                b.onclick = function () {
+                    var q = R.done[+b.dataset.run], tr = b.closest('tr'), nx = tr.nextElementSibling;
+                    if (nx && nx.classList.contains('mon-sqlrow')) nx.remove();
+                    tr.insertAdjacentHTML('afterend', '<tr class="mon-sqlrow"><td colspan="4"><div class="fu-runres"></div><pre class="mon-sql">' + hiSql(q.sql) + '</pre></td></tr>');
+                    F.runSql(q.sql, R.pod || '', tr.nextElementSibling.querySelector('.fu-runres'));
                 };
             });
         } else if (R.tab === 'sample') {
@@ -187,6 +198,20 @@
                 sm.rows.map(function (r) { return '<tr>' + r.map(function (v) { return '<td class="mono">' + esc(v == null ? '' : v) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
             $('mon-ss').onchange = function () { F.sampleIx = +this.value; F.paintPane(); };
         }
+    };
+    /** Runs one read-only query in Fusion now (host finFusionRun) and shows the rows count, the time and the first rows in `box`. */
+    F.runSql = function (sql, pod, box) {
+        var t0 = Date.now();
+        box.innerHTML = '<div class="sm"><i class="fa-solid fa-circle-notch fa-spin"></i> running in ' + esc(pod || 'the logged-in pod') + '… <span class="fu-runt">0 s</span></div>';
+        var tick = setInterval(function () { var t = box.querySelector('.fu-runt'); if (t) t.textContent = F.secs(Date.now() - t0); else clearInterval(tick); }, 1000);
+        return FL.call('finFusionRun', { pod: pod, sql: sql }, 6 * 60000).then(function (r) {
+            clearInterval(tick);
+            box.innerHTML = '<div class="row sm"><span class="tag ' + (r.ok ? 'good' : 'bad') + '">' + (r.ok ? '✓ ' + (r.rows || 0).toLocaleString() + (r.capped ? '+' : '') + ' row(s)' : '✗ failed') + '</span><span class="muted">' + F.secs(r.ms || (Date.now() - t0)) + ' in Fusion</span></div>' +
+                (r.error ? '<div class="sm neg">' + esc(r.error) + '</div>' : '') +
+                (r.sample && r.sample.length ? '<div class="scroll" style="max-height:240px"><table class="t mon-sample"><thead><tr>' + r.columns.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+                    r.sample.map(function (row) { return '<tr>' + row.map(function (v) { return '<td class="mono">' + esc(v == null ? '' : v) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>' : '');
+            return r;
+        }).catch(function (e) { clearInterval(tick); box.innerHTML = '<div class="sm neg">' + esc(e && e.message || e) + '</div>'; });
     };
     F.saveLog = function (lines) { FL.download('fusion-sync-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-') + '.log', new Blob([lines.join('\r\n')], { type: 'text/plain' })); };
     /** The log of the last sync stays available after the page reloads (this PC). */
