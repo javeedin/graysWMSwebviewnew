@@ -108,8 +108,9 @@
             return FL.call('finSegValues', { coaId: coa, column: g[2] }).then(function (r) { return r; }).catch(function () { return { values: [] }; });
         });
         var cls = st.loaded ? FL.rows('SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE class IS NULL OR class = \'\') AS nocls, COUNT(*) FILTER (WHERE account_type IS NULL) AS notype, COUNT(*) FILTER (WHERE name IS NULL OR name = code) AS noname FROM fin_accounts', 1).then(function (r) { return r[0]; }).catch(function () { return null; }) : Promise.resolve(null);
-        Promise.all(reads.concat([cls])).then(function (res) {
-            var acc = res[res.length - 1], cells = T.cells(), nSync = Object.keys(cells).length, cal = T.cal();
+        var bud = st.loaded ? FL.rows("SELECT COUNT(*) AS n FROM fin_balances WHERE scenario = 'BUDGET'", 1).then(function (r) { return r[0].n; }).catch(function () { return 0; }) : Promise.resolve(0);
+        Promise.all(reads.concat([bud, cls])).then(function (res) {
+            var acc = res[res.length - 1], nBud = res[res.length - 2], cells = T.cells(), nSync = Object.keys(cells).length, cal = T.cal();
             var items = [
                 { k: 'ledgers', label: 'Ledgers & calendar', ok: !!L.disc, info: (L.disc ? (L.disc.ledgers || []).length + ' ledger(s) · ' + cal.length + ' periods in ' + l.name + "'s calendar" : 'not discovered'), act: '<button class="btn sm" data-md="setup">Fusion setup</button>' },
                 { k: 'roles', label: 'Segment roles', ok: !!(led.company && led.account), info: 'company ' + (led.company || '?') + ' · account ' + (led.account || '?') + ' · cost centre ' + (led.costCentre || 'none'), act: '<button class="btn sm" data-md="setup">Change</button>' }
@@ -125,12 +126,24 @@
                 info: acc.n.toLocaleString() + ' accounts · ' + (acc.n - acc.nocls).toLocaleString() + ' with a class' + (acc.notype ? ' · ' + acc.notype + ' without a type' : '') + (acc.noname ? ' · ' + acc.noname + ' without a name' : ''),
                 act: '<button class="btn sm" data-md="mapping">Account mapping</button>' });
             items.push({ k: 'tb', label: 'Trial balance periods', ok: nSync > 0, info: nSync ? nSync + ' period(s) of ' + l.name + ' synced' : 'none yet — tick periods on the board and press Sync', act: '' });
+            // what the KPIs and the company health need besides the current months
+            var seqsOn = Object.keys(cells).map(Number), latest = seqsOn.length ? Math.max.apply(null, seqsOn) : null, lp = cal.filter(function (p) { return p.seq === latest; })[0];
+            var syncBtn = function (k, list, label) { return list.length ? '<button class="btn sm primary" data-md="seqs" data-seqs="' + list.join(',') + '" title="' + esc(list.length + ' period(s): ' + cal.filter(function (p) { return list.indexOf(p.seq) >= 0; }).map(function (p) { return p.name; }).join(', ')) + '"><i class="fa-solid fa-cloud-arrow-down"></i> ' + esc(label) + '</button>' : ''; };
+            if (lp) {
+                var last12 = cal.filter(function (p) { return p.seq <= latest; }).sort(function (a, b) { return a.seq - b.seq; }).slice(-12), miss12 = last12.filter(function (p) { return !cells[p.seq]; }).map(function (p) { return p.seq; });
+                items.push({ k: 'ltm', adm: true, label: '12 months in a row (last-12-month KPIs: DSO, ROE, interest cover …)', ok: last12.length >= 12 && !miss12.length, part: miss12.length > 0 && miss12.length < last12.length,
+                    info: last12.length < 12 ? 'the calendar has only ' + last12.length + ' months up to ' + lp.name : miss12.length ? miss12.length + ' of the 12 months up to ' + lp.name + ' are missing' : '12 months up to ' + lp.name + ' synced', act: syncBtn('ltm', miss12, 'Sync ' + miss12.length + ' month(s)') });
+                var prevY = cal.filter(function (p) { return p.year === lp.year - 1; }), missPy = prevY.filter(function (p) { return !cells[p.seq]; }).map(function (p) { return p.seq; });
+                items.push({ k: 'py', adm: true, label: 'Last year (' + (lp.year - 1) + ') — growth and every "vs last year" figure', ok: prevY.length > 0 && !missPy.length, part: missPy.length > 0 && missPy.length < prevY.length,
+                    info: !prevY.length ? 'the calendar has no ' + (lp.year - 1) : missPy.length ? missPy.length + ' of ' + prevY.length + ' periods of ' + (lp.year - 1) + ' not synced' : 'all ' + prevY.length + ' periods synced', act: syncBtn('py', missPy, 'Sync ' + (lp.year - 1)) });
+            }
+            items.push({ k: 'bud', label: 'Budget — budget KPIs and monitors', ok: nBud > 0, info: nBud ? nBud.toLocaleString() + ' budget balance rows' : 'not loaded — the trial balance sync reads actuals; the full GL load also reads the budget (GL_BUDGET_BALANCES)', act: '<button class="btn sm" data-md="status">Full GL load</button>' });
             var missing = items.filter(function (it) { return it.col && !it.ok; }), admin = FL.who && FL.who.admin;
             var html = '<div class="row"><h3 style="margin:0"><i class="fa-solid fa-list-check"></i> Master data checklist</h3><span class="sm ' + (items.every(function (x) { return x.ok; }) ? 'pos' : 'warn') + '">' +
                 items.filter(function (x) { return x.ok; }).length + ' of ' + items.length + ' ready</span><span class="grow"></span>' +
                 (missing.length ? '<button class="btn sm primary" data-md="all"' + (admin ? '' : ' disabled') + '><i class="fa-solid fa-cloud-arrow-down"></i> Sync all missing (' + missing.length + ')</button>' : '') + '</div>' +
                 '<table class="t md-list"><tbody>' + items.map(function (it) {
-                    return '<tr class="' + (it.ok ? 'ok' : it.part ? 'part' : 'miss') + '"><td class="md-st">' + (it.ok ? '✓' : it.part ? '◐' : '✗') + '</td><td><b>' + esc(it.label) + '</b><div class="sm muted md-info" data-k="' + it.k + '">' + esc(it.info) + '</div></td><td class="md-act">' + (admin || !it.col ? it.act : '') + '</td></tr>';
+                    return '<tr class="' + (it.ok ? 'ok' : it.part ? 'part' : 'miss') + '"><td class="md-st">' + (it.ok ? '✓' : it.part ? '◐' : '✗') + '</td><td><b>' + esc(it.label) + '</b><div class="sm muted md-info" data-k="' + it.k + '">' + esc(it.info) + '</div></td><td class="md-act">' + (admin || !(it.col || it.adm) ? it.act : '') + '</td></tr>';
                 }).join('') + '</tbody></table><p class="sm muted" style="margin:6px 0 0">Names and account types of the trial balance come from these values; after a sync the statements are rebuilt with them.</p>';
             boxes.forEach(function (b) {
                 b.innerHTML = html;
@@ -139,6 +152,8 @@
                         var a = btn.dataset.md;
                         if (a === 'setup') return FL.dataTab.dataSetup();
                         if (a === 'mapping') return FL.dataTab.go('mapping');
+                        if (a === 'status') return FL.dataTab.go('status');
+                        if (a === 'seqs') return T.sync(btn.dataset.seqs.split(',').map(Number), false);
                         var cols = a === 'all' ? missing.map(function (x) { return x.col; }) : [btn.dataset.col];
                         T.mdSync(a === 'apex' ? 'apex' : 'fusion', cols, btn);
                     };

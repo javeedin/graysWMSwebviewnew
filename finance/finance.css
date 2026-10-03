@@ -431,3 +431,27 @@ details.lf-card[open] > summary::before { content: '▾'; }
 .tr-chip:hover { border-color: var(--accent); }
 .tr-chip.on { font-weight: 700; color: var(--ink); }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: middle; }
+
+/* ── KPI explanation + company health ── */
+.kx-what { background: var(--accent-bg); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.kx-row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin: 4px 0; }
+.kx-l { min-width: 70px; font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; font-weight: 700; }
+.kx-row code { background: #f1f5f9; border-radius: 6px; padding: 2px 6px; font-family: var(--mono); font-size: .8rem; word-break: break-word; }
+.kx-v { font-size: 1.05rem; } .kx-v.good { color: var(--good); } .kx-v.poor { color: var(--bad); } .kx-v.watch { color: var(--warn); } .kx-v.nodata, .kx-v.error { color: var(--muted); }
+.kx-in { margin-top: 8px; } .kx-in td { vertical-align: top; }
+.kx-in details summary { cursor: pointer; color: var(--accent); font-size: .78rem; margin-top: 3px; }
+.kx-acc { margin: 4px 0; font-size: .78rem; } .kx-acc td { padding: 2px 6px; }
+.hx { margin-bottom: 12px; }
+.hx-top { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.hx-ring { width: 110px; height: 110px; flex: none; }
+.hx-sum { flex: 1; min-width: 260px; }
+.hx-l { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.hx-pillars { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-top: 12px; }
+.hx-p { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: #fff; }
+.hx-bar { height: 6px; border-radius: 3px; background: #e2e8f0; margin: 5px 0 7px; overflow: hidden; } .hx-bar span { display: block; height: 100%; border-radius: 3px; }
+.hx-k { display: inline-flex; gap: 5px; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 2px 8px; font-size: .74rem; margin: 2px 3px 2px 0; cursor: pointer; color: var(--ink2); background: #fff; }
+.hx-k:hover { border-color: var(--accent); }
+.hx-k .dot { width: 8px; height: 8px; }
+.hx-k.good .dot { background: var(--good); } .hx-k.watch .dot { background: #d97706; } .hx-k.poor .dot { background: var(--bad); } .hx-k.nodata .dot { background: #cbd5e1; } .hx-k.nodata { color: var(--muted); }
+.hx-gaps { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 6px; }
+.hx-gap { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed var(--line); }

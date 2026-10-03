@@ -14,26 +14,29 @@
                 var now = hist[hist.length - 1];
                 var kdef = function (id) { return cfg.kpis.filter(function (x) { return x.id === id; })[0] || {}; };
                 var breaches = now.mon.filter(function (m) { return m.status === 'breach'; });
-                el.innerHTML = '<div class="grid g2"><div class="card"><h3><i class="fa-solid fa-heart-pulse"></i> Monitors · ' + esc(FL.periodName(FL.filter.period)) + '<span class="grow"></span>' +
+                var nd = function (v, fmt) { return v && v.nodata ? '<span class="tag" title="' + esc(v.nodata.join(', ')) + '">no data</span>' : FL.kfmt(v && v.value, fmt); };
+                el.innerHTML = '<div id="mo-health"></div><div class="grid g2"><div class="card"><h3><i class="fa-solid fa-bell"></i> Monitors · ' + esc(FL.periodName(FL.filter.period)) + '<span class="grow"></span>' +
                     (breaches.length ? '<span class="tag bad">' + breaches.length + ' alert(s)</span>' : '<span class="tag good">all OK</span>') + '</h3>' +
                     '<table class="t"><thead><tr><th>Rule</th><th>Severity</th><th class="n">Now</th><th>Last 12 months</th><th></th></tr></thead><tbody>' +
                     cfg.monitors.map(function (r, ri) {
-                        var m = now.mon[ri], d = kdef(r.kpi);
+                        var m = now.mon[ri], d = kdef(r.kpi), kvv = now.kv[r.kpi] || {};
                         return '<tr><td>' + esc(r.label) + '<div class="sm muted">' + esc(d.label || r.kpi) + ' ' + esc(r.op) + ' ' + FL.kfmt(+r.value, d.fmt) + '</div></td><td><span class="tag ' + (r.severity === 'critical' ? 'critical' : r.severity === 'high' ? 'bad' : 'warn') + '">' + esc(r.severity) + '</span></td>' +
-                            '<td class="n"><span class="tag ' + (m.status === 'breach' ? 'bad' : m.status === 'ok' ? 'good' : '') + '">' + FL.kfmt(m.value, d.fmt) + '</span></td>' +
+                            '<td class="n">' + (kvv.nodata ? nd(kvv, d.fmt) : '<span class="tag ' + (m.status === 'breach' ? 'bad' : m.status === 'ok' ? 'good' : '') + '">' + FL.kfmt(m.value, d.fmt) + '</span>') + '</td>' +
                             '<td><div class="strip">' + hist.map(function (h) { var x = h.mon[ri]; return '<span class="' + x.status + '" title="' + esc(h.p.period_name + ': ' + FL.kfmt(x.value, d.fmt)) + '"></span>'; }).join('') + '</div></td>' +
-                            '<td><button class="icon" data-ed="' + ri + '" title="Edit"><i class="fa-solid fa-pen"></i></button><button class="icon" data-del="' + ri + '" title="Remove"><i class="fa-regular fa-trash-can"></i></button></td></tr>';
+                            '<td><button class="icon" data-kx="' + esc(r.kpi) + '" title="How it is worked out"><i class="fa-solid fa-circle-question"></i></button><button class="icon" data-ed="' + ri + '" title="Edit"><i class="fa-solid fa-pen"></i></button><button class="icon" data-del="' + ri + '" title="Remove"><i class="fa-regular fa-trash-can"></i></button></td></tr>';
                     }).join('') + '</tbody></table><div class="row" style="margin-top:8px"><button class="btn sm" id="mo-add"><i class="fa-solid fa-plus"></i> Rule</button></div></div>' +
-                    '<div class="card"><h3><i class="fa-solid fa-calculator"></i> KPI library <small>' + cfg.kpis.length + ' formulas — click to edit</small><span class="grow"></span><button class="btn sm" id="kp-add"><i class="fa-solid fa-plus"></i> KPI</button></h3>' +
+                    '<div class="card"><h3><i class="fa-solid fa-calculator"></i> KPI library <small>' + cfg.kpis.length + ' formulas — click one for how it is worked out</small><span class="grow"></span><button class="btn sm" id="kp-add"><i class="fa-solid fa-plus"></i> KPI</button></h3>' +
                     '<div class="scroll" style="max-height:62vh"><table class="t"><thead><tr><th>Group</th><th>KPI</th><th class="n">Value</th><th>Formula</th></tr></thead><tbody>' +
-                    cfg.kpis.map(function (k, ki) { var v = now.kv[k.id]; return '<tr class="click" data-k="' + ki + '"><td class="muted">' + esc(k.group || '') + '</td><td>' + esc(k.label) + '</td><td class="n">' + (v && v.error ? '<span class="tag bad" title="' + esc(v.error) + '">error</span>' : FL.kfmt(v && v.value, k.fmt)) + '</td><td class="mono sm">' + esc(k.expr) + '</td></tr>'; }).join('') +
+                    cfg.kpis.map(function (k, ki) { var v = now.kv[k.id]; return '<tr class="click" data-k="' + ki + '"><td class="muted">' + esc(k.group || '') + '</td><td>' + esc(k.label) + '</td><td class="n">' + (v && v.error ? '<span class="tag bad" title="' + esc(v.error) + '">error</span>' : nd(v, k.fmt)) + '</td><td class="mono sm">' + esc(k.expr) + '</td></tr>'; }).join('') +
                     '</tbody></table></div><p class="formhelp">Formulas use template rows: <code>PL.NP@YTD</code>, <code>BS.AR@BAL</code>, <code>CF.OPC@LTM</code>; windows ' + FINE.WINDOWS.map(function (w) { return '<code>@' + w + '</code>'; }).join(' ') +
                     '; functions ' + FINE.FUNCTIONS.map(function (f) { return '<code>' + f + '</code>'; }).join(' ') + '; earlier KPIs by id (<code>dso + dio - dpo</code>).</p></div></div>';
                 el.querySelectorAll('[data-ed]').forEach(function (b) { b.onclick = function () { FL.ruleEdit(+b.dataset.ed); }; });
                 el.querySelectorAll('[data-del]').forEach(function (b) { b.onclick = function () { if (!confirm('Remove this monitor?')) return; cfg.monitors.splice(+b.dataset.del, 1); FL.saveConfig().then(FL.render); }; });
                 $('mo-add').onclick = function () { FL.ruleEdit(-1); };
                 $('kp-add').onclick = function () { FL.kpiEdit(-1); };
-                el.querySelectorAll('tr.click[data-k]').forEach(function (r) { r.onclick = function () { FL.kpiEdit(+r.dataset.k); }; });
+                el.querySelectorAll('tr.click[data-k]').forEach(function (r) { r.onclick = function () { FL.kpiExplain(cfg.kpis[+r.dataset.k].id); }; });
+                el.querySelectorAll('[data-kx]').forEach(function (b) { b.onclick = function () { FL.kpiExplain(b.dataset.kx); }; });
+                if (FL.healthCard) FL.healthCard($('mo-health'), now.kv, data);
             });
         }
     };
@@ -45,7 +48,21 @@
             '<label class="field">Alert when the KPI is<select id="r-o">' + ['<', '<=', '>', '>=', '=', '<>'].map(function (o) { return '<option' + (o === r.op ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select></label>' +
             '<label class="field">Value<input id="r-v" type="number" step="any" value="' + esc(r.value) + '"></label>' +
             '<label class="field">Severity<select id="r-s">' + ['low', 'medium', 'high', 'critical'].map(function (o) { return '<option' + (o === r.severity ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select></label></div>' +
+            '<div id="r-now" class="callout sm" style="margin-top:10px"></div><h4 style="margin:10px 0 4px">How the KPI is worked out</h4><div id="r-x"><i class="fa-solid fa-circle-notch fa-spin"></i></div>' +
             '<div class="row" style="margin-top:12px"><span class="grow"></span><button class="btn primary" id="r-save"><i class="fa-solid fa-floppy-disk"></i> Save</button></div>');
+        var show = function () {
+            var def = cfg.kpis.filter(function (k) { return k.id === $('r-k').value; })[0]; if (!def) return;
+            FL.data().then(function (data) {
+                if (!$('r-x')) return;
+                $('r-x').innerHTML = FL.explainHtml(def, data);
+                var v = FINE.kpis(cfg.kpis, T(), data, FL.filter.period)[def.id] || {}, m = FINE.monitor([{ kpi: def.id, op: $('r-o').value, value: +$('r-v').value }], (function () { var o = {}; o[def.id] = v; return o; })())[0];
+                $('r-now').className = 'callout sm ' + (m.status === 'breach' ? 'bad' : m.status === 'ok' ? 'good' : 'warn');
+                $('r-now').innerHTML = '<b>The rule:</b> alert when <b>' + esc(def.label) + '</b> ' + esc($('r-o').value) + ' ' + esc(FL.kfmt(+$('r-v').value, def.fmt)) + '. <b>' + esc(FL.periodName(FL.filter.period)) + ':</b> ' +
+                    (v.nodata ? 'no data — ' + esc(v.nodata.join(', ')) : esc(FL.kfmt(v.value, def.fmt)) + ' → ' + (m.status === 'breach' ? '<b class="neg">ALERT</b>' : '<b class="pos">OK</b>'));
+            });
+        };
+        ['r-k', 'r-o', 'r-v'].forEach(function (id) { $(id).onchange = show; });
+        show();
         $('r-save').onclick = function () {
             Object.assign(r, { label: $('r-l').value || ($('r-k').selectedOptions[0].text + ' ' + $('r-o').value + ' ' + $('r-v').value), kpi: $('r-k').value, op: $('r-o').value, value: +$('r-v').value, severity: $('r-s').value });
             if (ix < 0) cfg.monitors.push(r);
@@ -64,17 +81,20 @@
             '<label class="field" style="margin-top:8px">Formula<input id="k-e" class="mono" value="' + esc(k.expr) + '" placeholder="PCT(PL.EBITDA@YTD, PL.REV@YTD)"></label>' +
             '<div class="row" style="margin-top:6px"><button class="btn sm" id="k-t"><i class="fa-solid fa-play"></i> Test</button><span id="k-r" class="sm"></span><span class="grow"></span>' +
             (ix >= 0 ? '<button class="btn sm" id="k-del"><i class="fa-regular fa-trash-can"></i> Delete</button>' : '') + '<button class="btn primary" id="k-s"><i class="fa-solid fa-floppy-disk"></i> Save</button></div>' +
+            '<h4 style="margin:10px 0 4px">How it is worked out <small class="muted">(press Test after changing the formula)</small></h4><div id="k-x"></div>' +
             '<p class="formhelp">Rows: ' + FL.templates.map(function (t) { return '<b>' + esc(t.id) + '</b>: ' + t.rows.filter(function (r) { return r.id && r.type !== 'header' && r.type !== 'blank' && r.type !== 'text'; }).map(function (r) { return '<code>' + esc(r.id) + '</code>'; }).join(' '); }).join('<br>') + '</p>');
         var test = function () {
             var def = { id: ($('k-id').value || 'x').trim(), expr: $('k-e').value, fmt: $('k-f').value };
             return FL.data().then(function (data) {
                 var others = cfg.kpis.filter(function (x) { return x.id !== def.id; });
                 var v = FINE.kpis(others.concat([def]), T(), data, FL.filter.period)[def.id];
-                $('k-r').innerHTML = v.error ? '<span class="neg">' + esc(v.error) + '</span>' : '= <b>' + FL.kfmt(v.value, def.fmt) + '</b> for ' + esc(FL.periodName(FL.filter.period));
+                $('k-r').innerHTML = v.error ? '<span class="neg">' + esc(v.error) + '</span>' : v.nodata ? '<span class="warn-t">no data — ' + esc(v.nodata.join(', ')) + '</span>' : '= <b>' + FL.kfmt(v.value, def.fmt) + '</b> for ' + esc(FL.periodName(FL.filter.period));
+                if ($('k-x') && def.expr) $('k-x').innerHTML = FL.explainHtml(Object.assign({}, k, def, { desc: $('k-d').value }), data);
                 return !v.error;
             });
         };
         $('k-t').onclick = test;
+        if (k.expr) test();
         if ($('k-del')) $('k-del').onclick = function () { if (!confirm('Delete this KPI?')) return; cfg.kpis.splice(ix, 1); FL.saveConfig().then(function () { FL.closeModal(); FL.render(); }); };
         $('k-s').onclick = function () {
             var id = $('k-id').value.trim();

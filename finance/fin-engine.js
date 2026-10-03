@@ -330,27 +330,144 @@
                 return { d: d, ast: ast };
             } catch (e) { return { d: d, err: e.message }; }
         });
-        var vals = {};
+        var vals = {}, nodata = {}, pi = data._pi || (data._pi = FINE.periodIndex(data.periods));
         Object.keys(need).forEach(function (t) {
             var tpl = templates[t]; if (!tpl) return;
             var res = FINE.compute(tpl, data, { period: period, columns: Object.keys(need[t]).map(function (k) { return need[t][k]; }), scale: 1 });
             res.rows.forEach(function (r) { if (!r.id) return; res.columns.forEach(function (c, i) { vals[t + '.' + r.id + '@' + c.id] = r.raw[i]; }); });
+            Object.keys(need[t]).forEach(function (w) { var why = FINE.windowGap(need[t][w], data, period, pi); if (why) nodata[t + '@' + w] = why; });
         });
         var out = {};
         parsed.forEach(function (x) {
             if (x.err) { out[x.d.id] = { value: null, error: x.err }; return; }
-            var missing = [];
+            var missing = [], gaps = [];
             var v = FINE.evalAst(x.ast, function (ref) {
                 var m = /^([A-Za-z_]\w*)\.([A-Za-z_]\w*)(?:@([A-Za-z_]+))?$/.exec(ref);
-                if (!m) { if (out[ref] && out[ref].value != null) return out[ref].value; missing.push(ref); return 0; }   // an earlier KPI
-                var k = m[1] + '.' + m[2] + '@' + (m[3] || x.d.win || 'YTD').toUpperCase();
+                if (!m) {                                                                     // an earlier KPI
+                    if (out[ref] && out[ref].value != null) return out[ref].value;
+                    if (out[ref] && out[ref].nodata) { gaps = gaps.concat(out[ref].nodata); return 0; }
+                    missing.push(ref); return 0;
+                }
+                var w = (m[3] || x.d.win || 'YTD').toUpperCase(), k = m[1] + '.' + m[2] + '@' + w;
                 if (!(k in vals)) { missing.push(ref); return 0; }
+                if (nodata[m[1] + '@' + w]) gaps.push(nodata[m[1] + '@' + w]);
                 return vals[k];
             });
-            out[x.d.id] = missing.length ? { value: null, error: 'unknown ' + missing.join(', ') } : { value: isFinite(v) ? v : null };
+            gaps = gaps.filter(function (g, i) { return gaps.indexOf(g) === i; });
+            out[x.d.id] = missing.length ? { value: null, error: 'unknown ' + missing.join(', ') }
+                : gaps.length ? { value: null, nodata: gaps }                               // not 0 %: the data for it is not there
+                : { value: isFinite(v) ? v : null };
         });
         return out;
     };
+    /** Why a window has no data: before the first synced period, or no budget loaded (null = it has data). Partial last-12-month
+        windows still compute — FINE.kpiExplain says so. */
+    FINE.windowGap = function (col, data, period, pi) {
+        pi = pi || data._pi || (data._pi = FINE.periodIndex(data.periods));
+        var w = FINE.windowOf(col, pi, period), sc = col.scenario || 'ACTUAL';
+        if (sc !== 'ACTUAL' && !Object.keys(data.facts[sc] || {}).length) return 'no ' + sc.toLowerCase() + ' loaded';
+        if (!w) return { PY: 'last year not synced', PYE: 'last year end not synced', PM: 'previous month not synced', PQ: 'the quarter before not synced' }[col.at] || 'period not synced';
+        return null;
+    };
+    var WIN_TEXT = { MTD: 'the month', QTD: 'quarter to date', YTD: 'year to date', LTM: 'last 12 months', BAL: 'closing balance', OPEN: 'opening balance', PM: 'previous month', PMBAL: 'balance at the end of the previous month',
+        PY: 'same month last year', PYYTD: 'year to date last year', PYLTM: 'the 12 months before', PYBAL: 'balance a year ago', PYE: 'balance at the last year end', BUD: 'budget for the month', BUDYTD: 'budget year to date', BUDFY: 'budget for the full year', FY: 'full year' };
+    /** How a KPI is worked out for one period: every input (template line × window) with its value, the periods it covers, the
+        accounts behind it and what is missing; the formula with the numbers in it. → {value, error, nodata, inputs, substituted, notes} */
+    FINE.kpiExplain = function (def, defs, templates, data, period) {
+        var pi = data._pi || (data._pi = FINE.periodIndex(data.periods));
+        var all = FINE.kpis(defs.filter(function (d) { return d.id !== def.id; }).concat([def]), templates, data, period), res = all[def.id] || {};
+        var ast; try { ast = FINE.parse(def.expr); } catch (e) { return { error: e.message, inputs: [] }; }
+        var refs = FINE.refs(ast).filter(function (r, i, a) { return a.indexOf(r) === i; }), notes = [];
+        var inputs = refs.map(function (ref) {
+            var m = /^([A-Za-z_]\w*)\.([A-Za-z_]\w*)(?:@([A-Za-z_]+))?$/.exec(ref);
+            if (!m) { var k = all[ref] || {}, d = defs.filter(function (x) { return x.id === ref; })[0] || {}; return { ref: ref, kind: 'kpi', label: d.label || ref, expr: d.expr, value: k.value, nodata: k.nodata, fmt: d.fmt }; }
+            var w = (m[3] || def.win || 'YTD').toUpperCase(), tpl = templates[m[1]], col = Object.assign({ id: 'x', scenario: 'ACTUAL' }, WIN[w] || {});
+            var row = tpl && (tpl.rows || []).filter(function (r) { return r.id === m[2]; })[0];
+            var out = { ref: ref, kind: 'row', tpl: m[1], tplName: tpl ? tpl.name : '?', row: m[2], label: row ? row.label : m[2], rowType: row ? row.type : '', formula: row && row.formula, window: w, windowText: WIN_TEXT[w] || w, scenario: col.scenario };
+            if (!tpl || !row) { out.error = !tpl ? 'no template ' + m[1] : 'no line ' + m[2] + ' in ' + m[1]; return out; }
+            var win = FINE.windowOf(col, pi, period);
+            out.nodata = FINE.windowGap(col, data, period, pi);
+            if (win) { out.from = pi.list[Math.max(0, win.from)].period_name; out.to = pi.list[win.to].period_name; out.months = win.to - Math.max(0, win.from) + 1; if (win.partial) { out.partial = true; notes.push(ref + ': only ' + out.months + ' of 12 months are synced — sync the earlier months for a true last-12-month figure'); } }
+            var st = FINE.compute(tpl, data, { period: period, columns: [col], scale: 1 }), r = st.rows.filter(function (x) { return x.id === m[2]; })[0];
+            out.value = r ? r.raw[0] : null;
+            if (row.type === 'accounts' || row.type === 'group') {
+                var acc = FINE.explain(tpl, data, { period: period, columns: [col] }, m[2], 'x');
+                out.accounts = acc; out.accountCount = acc.length;
+                if (row.type === 'accounts' && !FINE.matchAccounts(row.accounts, data.accounts).length) notes.push(ref + ': no accounts are mapped to "' + row.label + '" — map them in the Statement builder');
+            }
+            if (row.type === 'formula' && row.formula) {
+                // a formula line (Gross profit = REV - COGS): its parts in the same window, each with its accounts
+                try {
+                    out.parts = FINE.refs(FINE.parse(row.formula)).filter(function (r, i, a) { return a.indexOf(r) === i; }).map(function (pid) {
+                        var pr = (tpl.rows || []).filter(function (z) { return z.id === pid; })[0], sr = st.rows.filter(function (z) { return z.id === pid; })[0];
+                        var acc = pr && (pr.type === 'accounts' || pr.type === 'group') ? FINE.explain(tpl, data, { period: period, columns: [col] }, pid, 'x') : null;
+                        return { row: pid, label: pr ? pr.label : pid, type: pr ? pr.type : '?', formula: pr && pr.formula, value: sr ? sr.raw[0] : null, accounts: acc };
+                    });
+                } catch (e) { /* shown as the formula text */ }
+            }
+            if (out.nodata) notes.push(ref + ': ' + out.nodata);
+            return out;
+        });
+        var substituted = def.expr;
+        refs.slice().sort(function (a, b) { return b.length - a.length; }).forEach(function (ref) {
+            var x = inputs.filter(function (i) { return i.ref === ref; })[0], v = x && x.value;
+            var txt = v == null ? '?' : Math.abs(v) >= 1000 ? FINE.fmt(v, 'num', { decimals: 0, paren: false }) : String(Math.round(v * 100) / 100);
+            substituted = substituted.split(ref).join(txt);
+        });
+        return { value: res.value, error: res.error, nodata: res.nodata, inputs: inputs, substituted: substituted, notes: notes.filter(function (n, i, a) { return a.indexOf(n) === i; }) };
+    };
+
+    // ═════════ company health: KPIs scored against bands, grouped in pillars ═════════
+    /** Bands per KPI: good / poor limits (dir up: higher is better). Typical mid-size trading / distribution company —
+        change them in config.health (same shape) for your business. */
+    FINE.HEALTH = {
+        pillars: [
+            { id: 'profit', name: 'Profitability', kpis: ['gm', 'ebitda_m', 'npm', 'roe'], weight: 25 },
+            { id: 'growth', name: 'Growth & plan', kpis: ['rev_g', 'rev_bud'], weight: 10 },
+            { id: 'liquid', name: 'Liquidity', kpis: ['cr', 'qr'], weight: 20 },
+            { id: 'wc', name: 'Working capital', kpis: ['dso', 'dio', 'ccc'], weight: 15 },
+            { id: 'solv', name: 'Debt & solvency', kpis: ['de', 'nd_ebitda', 'icr'], weight: 20 },
+            { id: 'cash', name: 'Cash generation', kpis: ['cconv'], weight: 5 },
+            { id: 'books', name: 'Books in order', kpis: ['bs_chk', 'susp'], weight: 5 }],
+        bands: {
+            gm: { dir: 'up', good: 30, poor: 15 }, ebitda_m: { dir: 'up', good: 12, poor: 5 }, npm: { dir: 'up', good: 8, poor: 2 }, roe: { dir: 'up', good: 12, poor: 0 },
+            rev_g: { dir: 'up', good: 5, poor: 0 }, rev_bud: { dir: 'up', good: 97, poor: 90 },
+            cr: { dir: 'up', good: 1.5, poor: 1 }, qr: { dir: 'up', good: 1, poor: 0.7 },
+            dso: { dir: 'down', good: 45, poor: 75 }, dio: { dir: 'down', good: 60, poor: 120 }, ccc: { dir: 'down', good: 60, poor: 120 },
+            de: { dir: 'down', good: 1, poor: 2 }, nd_ebitda: { dir: 'down', good: 2, poor: 3.5, negBad: true }, icr: { dir: 'up', good: 4, poor: 1.5, negBad: true },
+            cconv: { dir: 'up', good: 80, poor: 50 }, bs_chk: { dir: 'zero', tol: 1 }, susp: { dir: 'zero', tol: 1, watchOnly: true } }
+    };
+    /** One KPI value against its band → 'good' | 'watch' | 'poor' | 'nodata' */
+    FINE.band = function (b, v) {
+        if (v == null || !isFinite(v) || !b) return 'nodata';
+        if (b.dir === 'zero') return Math.abs(v) <= (b.tol || 0.5) ? 'good' : b.watchOnly ? 'watch' : 'poor';
+        if (b.negBad && v < 0) return 'poor';                       // a negative EBITDA / EBIT makes the ratio meaningless — and bad
+        if (b.dir === 'down') return v <= b.good ? 'good' : v > b.poor ? 'poor' : 'watch';
+        return v >= b.good ? 'good' : v < b.poor ? 'poor' : 'watch';
+    };
+    /** Health from KPI values: {score 0-100 | null, grade, coverage, pillars: [{id, name, score, items: [{id, label, value, fmt, band, nodata}]}], gaps: [reasons]} */
+    FINE.health = function (kpiVals, defs, cfg) {
+        cfg = cfg || FINE.HEALTH;
+        var bands = Object.assign({}, FINE.HEALTH.bands, cfg.bands || {}), pts = { good: 100, watch: 60, poor: 20 }, byId = {};
+        (defs || []).forEach(function (d) { byId[d.id] = d; });
+        var gaps = [], tot = 0, wsum = 0, have = 0, all = 0;
+        var pillars = (cfg.pillars || FINE.HEALTH.pillars).map(function (p) {
+            var items = p.kpis.filter(function (id) { return byId[id]; }).map(function (id) {
+                var k = kpiVals[id] || {}, b = bands[id], st = k.error ? 'nodata' : FINE.band(b, k.value);
+                all++; if (st !== 'nodata') have++;
+                (k.nodata || []).forEach(function (g) { if (gaps.indexOf(g) < 0) gaps.push(g); });
+                return { id: id, label: byId[id].label, value: k.value, fmt: byId[id].fmt, band: st, nodata: k.nodata, error: k.error, limits: b };
+            });
+            var scored = items.filter(function (i) { return i.band !== 'nodata'; });
+            var sc = scored.length ? Math.round(scored.reduce(function (a, i) { return a + pts[i.band]; }, 0) / scored.length) : null;
+            if (sc != null) { tot += sc * (p.weight || 1); wsum += p.weight || 1; }
+            return { id: p.id, name: p.name, score: sc, items: items };
+        });
+        var score = wsum ? Math.round(tot / wsum) : null;
+        return { score: score, grade: score == null ? 'Not enough data' : score >= 75 ? 'Healthy' : score >= 55 ? 'Watch' : 'At risk',
+            coverage: all ? Math.round(have / all * 100) : 0, pillars: pillars, gaps: gaps };
+    };
+
     /** KPI values over the last n periods (oldest first) → {id: [{period, name, value}]} */
     FINE.kpiTrend = function (defs, templates, data, period, n) {
         var pi = data._pi || (data._pi = FINE.periodIndex(data.periods)), i = pi.bySeq[period], out = {};

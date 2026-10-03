@@ -221,5 +221,30 @@ test('simple templates: default mapping from types + names, compile, KPIs, uploa
     assert.strictEqual(FINE.simpleId('Gross profit', {}), 'GROSS_PROFIT'); assert.strictEqual(FINE.simpleId('2025 sales', {}), 'L_2025_SALES'); assert.strictEqual(FINE.simpleId('Sum', {}), 'L_SUM');
 });
 
+test('KPI explain, missing data and company health', function () {
+    var tm = {}; Object.keys(T).forEach(function (k) { tm[k] = T[k]; });
+    var defs = SEED.config.kpis, gm = defs.filter(function (d) { return d.id === 'gm'; })[0];
+    var ex = FINE.kpiExplain(gm, defs, tm, data, last), kv = FINE.kpis(defs, tm, data, last);
+    near(ex.value, kv.gm.value, 0.001, 'explained value = KPI value');
+    assert.strictEqual(ex.inputs.length, 2);
+    ex.inputs.forEach(function (i) { assert.ok(i.from && i.to && i.months >= 1, i.ref); assert.ok((i.accounts && i.accounts.length) || (i.parts && i.parts.length), i.ref + ' accounts / parts'); });
+    var sumAcc = ex.inputs[1].accounts.reduce(function (a, x) { return a + x.amount; }, 0);
+    near(sumAcc, ex.inputs[1].value, 0.5, 'accounts add up to the input');
+    assert.ok(/^PCT\(/.test(ex.substituted) && ex.substituted.indexOf('PL.') < 0, ex.substituted);
+    // without a budget, budget KPIs say so instead of 0 %; before the first year, growth vs last year has no data
+    var nob = { accounts: data.accounts, periods: data.periods, facts: { ACTUAL: data.facts.ACTUAL } };
+    var k2 = FINE.kpis(defs, tm, nob, last);
+    assert.strictEqual(k2.rev_bud.value, null); assert.ok(k2.rev_bud.nodata[0].indexOf('budget') >= 0);
+    var first12 = data.periods[11].period_seq, k3 = FINE.kpis(defs, tm, data, first12);
+    assert.strictEqual(k3.rev_g.value, null); assert.ok(/last year/.test(k3.rev_g.nodata[0]));
+    var h = FINE.health(kv, defs);
+    assert.ok(h.score > 0 && h.score <= 100 && /Healthy|Watch|At risk/.test(h.grade), h.grade + ' ' + h.score);
+    assert.strictEqual(h.coverage, 100);
+    var h2 = FINE.health(k2, defs);
+    assert.ok(h2.coverage < 100 && h2.gaps.some(function (g) { return /budget/.test(g); }));
+    assert.strictEqual(FINE.band(FINE.HEALTH.bands.cr, 1.6), 'good'); assert.strictEqual(FINE.band(FINE.HEALTH.bands.cr, 1.2), 'watch'); assert.strictEqual(FINE.band(FINE.HEALTH.bands.dso, 453), 'poor');
+    assert.strictEqual(FINE.band(FINE.HEALTH.bands.nd_ebitda, -18.9), 'poor');
+});
+
 console.log('\n' + (n - fail) + '/' + n + ' passed');
 process.exit(fail ? 1 : 0);
