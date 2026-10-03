@@ -38,6 +38,7 @@ namespace WMSApp
         private const int MIN_CHUNK = 250;
 
         // ───────────────────────── small helpers ─────────────────────────
+        private static string Short(string e) => e == null ? "" : e.Length > 300 ? e.Substring(0, 300) + "…" : e;
         private static string S(Dictionary<string, object> r, string k)
         {
             if (r == null) return null;
@@ -1147,6 +1148,11 @@ namespace WMSApp
             public List<int> PeriodSeqs { get; set; } = new();
             /// <summary>Extended segments sync: the extra SEGMENTn columns to group by besides company and account (cost centre, analysis …).</summary>
             public List<string> ExtSegments { get; set; } = new();
+            /// <summary>Extended segments sync: "auto" (one query per period × company; when it fails or times out that company is read
+            /// account by account), "account" (always account by account), "company" (never split).</summary>
+            public string ExtBy { get; set; } = "auto";
+            /// <summary>Accounts per query when reading account by account (1-50); a batch that fails is split in half down to one account.</summary>
+            public int ExtAccountBatch { get; set; } = 1;
         }
 
         /// <summary>
@@ -1679,12 +1685,13 @@ namespace WMSApp
                 var have = new HashSet<string>(x.Types.TryGetValue("GL_BALANCES", out var gt) ? gt.Select(c => c.Col) : Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
                 bool tf = have.Count == 0 || have.Contains("TRANSLATED_FLAG");
                 string Lit(string v) => "'" + (v ?? "").Replace("'", "''") + "'";
-                string Sql(string period, string co) =>
+                string Sql(string period, string co, IList<string> accts = null) =>
                     "SELECT " + (o.Hint ? "/*+ LEADING(b) USE_HASH(c) PARALLEL(4) */ " : "") + "b.period_name" + (tf ? ", b.translated_flag" : "") + ", " + string.Join(", ", segs.Select(c => "c." + c + " " + c)) +
                     ", MAX(c.account_type) account_type, SUM(b.begin_balance_dr) begin_balance_dr, SUM(b.begin_balance_cr) begin_balance_cr, SUM(b.period_net_dr) period_net_dr, SUM(b.period_net_cr) period_net_cr" +
                     "\nFROM gl_balances b JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id" +
                     "\nWHERE b.ledger_id = " + led.Id.ToString(CultureInfo.InvariantCulture) + " AND b.period_name = " + Lit(period) + " AND b.currency_code = " + Lit(led.Currency) + " AND b.actual_flag = 'A'" +
                     DefaultFilters(o, have) + (o.SkipZero && have.Contains("TEMPLATE_ID") ? "" : " AND c.summary_flag = 'N'") + " AND c." + led.Company + " = " + Lit(co) +
+                    (accts == null || accts.Count == 0 ? "" : accts.Count == 1 ? " AND c." + led.Account + " = " + Lit(accts[0]) : " AND c." + led.Account + " IN (" + string.Join(", ", accts.Select(Lit)) + ")") +
                     "\nGROUP BY b.period_name" + (tf ? ", b.translated_flag" : "") + ", " + string.Join(", ", segs.Select(c => "c." + c));
                 var kept = FinanceLens.ExtPeriods(o.Pod, led.Id, led.Currency);
                 var jobs = new List<(string Period, string Co)>();
@@ -1697,33 +1704,109 @@ namespace WMSApp
                     }
                 if (skipped > 0) x.Note(skipped + " period × company read(s) already on this PC with these segments - not asked again");
                 const int CAP = 100000;
+                string by = (o.ExtBy ?? "auto").Trim().ToLowerInvariant();
+                int batch = Math.Clamp(o.ExtAccountBatch <= 0 ? 1 : o.ExtAccountBatch, 1, 50);
                 var gate = new SemaphoreSlim(Math.Clamp(o.Parallel, 1, 4));
                 int reads = 0; long rows = 0; bool sampled = false;
                 var sources = new List<object>();
+                var failed = new List<object>();
+                string firstErr = null;
+                // accounts with balances per period × company from the trial balance this PC already holds (no Fusion query needed)
+                List<AcctRow> tbRows = null;
+                Dictionary<string, string> acctNames = null;
+                var acctLock = new object();
+                async Task<List<string>> AccountsFor(string period, string co)
+                {
+                    lock (acctLock)
+                    {
+                        tbRows ??= FinanceLens.LoadAcct(o.Pod, led.Id, led.Currency, "CO,AC", names).Concat(FinanceLens.LoadAcct(o.Pod, led.Id, led.Currency, "CO,AC,CC", names)).ToList();
+                        var mine = tbRows.Where(r => r.Co == co).ToList();
+                        var per = mine.Where(r => r.Period == period).Select(r => r.Ac).Distinct().OrderBy(a => a, StringComparer.Ordinal).ToList();
+                        if (per.Count > 0) return per;
+                        if (mine.Count > 0) return mine.Select(r => r.Ac).Distinct().OrderBy(a => a, StringComparer.Ordinal).ToList();
+                        acctNames ??= FinanceLens.SegmentNames(led.CoaId, led.Account);
+                        if (acctNames.Count > 0) return acctNames.Keys.OrderBy(a => a, StringComparer.Ordinal).ToList();
+                    }
+                    // nothing on this PC: ask Fusion for the company's account values (detail combinations only)
+                    var q = "SELECT DISTINCT c." + led.Account + " a FROM gl_code_combinations c WHERE c.chart_of_accounts_id = " + Lit(led.CoaId) + " AND c." + led.Company + " = " + Lit(co) +
+                            (x.Has("GL_CODE_COMBINATIONS", "SUMMARY_FLAG") ? " AND c.summary_flag = 'N'" : "");
+                    var r = await RunLive(x, led.Name + " · " + period + " · extended · company " + co + " · account list", q, 50000).ConfigureAwait(false);
+                    if (!r.Success) throw new InvalidOperationException("account list of company " + co + ": " + Short(r.Error));
+                    return r.Rows.Select(z => S(z, "A")).Where(v => !string.IsNullOrEmpty(v)).Distinct().OrderBy(a => a, StringComparer.Ordinal).ToList();
+                }
+                async Task<List<Dictionary<string, object>>> ByAccount(string period, string co)
+                {
+                    var accts = await AccountsFor(period, co).ConfigureAwait(false);
+                    x.Note("   " + period + " · company " + co + ": reading " + accts.Count + " account(s) " + (batch == 1 ? "one by one" : batch + " per query"));
+                    var all = new List<Dictionary<string, object>>();
+                    var queue = new Queue<(int At, List<string> Accts)>(accts.Select((a, i) => (i, a)).Chunk(batch).Select(c => (c[0].i, c.Select(z => z.a).ToList())));
+                    while (queue.Count > 0)
+                    {
+                        x.Ct.ThrowIfCancellationRequested();
+                        var (at, list) = queue.Dequeue();
+                        string label = led.Name + " · " + period + " · extended · company " + co + " · account " + (list.Count == 1 ? list[0] : list[0] + "…" + list[^1]) + " · " + (at + 1) + " of " + accts.Count;
+                        var r = await RunLive(x, label, Sql(period, co, list), CAP).ConfigureAwait(false);
+                        Interlocked.Increment(ref reads);
+                        if (r.Success && r.Rows.Count < CAP) { all.AddRange(r.Rows); continue; }
+                        if (list.Count > 1)
+                        {   // split the batch and read both halves before the rest
+                            int h = list.Count / 2;
+                            var rest = queue.ToList(); queue.Clear();
+                            queue.Enqueue((at, list.Take(h).ToList())); queue.Enqueue((at + h, list.Skip(h).ToList()));
+                            foreach (var z in rest) queue.Enqueue(z);
+                            x.Note("   ↯ " + label + " failed - split in two");
+                            continue;
+                        }
+                        throw new InvalidOperationException("account " + list[0] + ": " + (r.Success ? "more than " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows" : Short(r.Error)));
+                    }
+                    return all;
+                }
                 await Task.WhenAll(jobs.Select(async j =>
                 {
                     await gate.WaitAsync(x.Ct).ConfigureAwait(false);
                     try
                     {
                         string label = led.Name + " · " + j.Period + " · extended · company " + j.Co;
-                        string sql = Sql(j.Period, j.Co);
-                        if (x.LogSql) x.Note("   SQL: " + sql);
                         var t0 = Stopwatch.StartNew();
-                        var r = await RunLive(x, label, sql, CAP).ConfigureAwait(false);
-                        Interlocked.Increment(ref reads);
-                        if (!r.Success) throw new InvalidOperationException(label + ": " + r.Error);
-                        if (r.Rows.Count >= CAP) throw new InvalidOperationException(label + ": more than " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows - pick fewer extended segments");
-                        lock (gate) if (!sampled && r.Rows.Count > 0) { sampled = true; LiveSample(x, label, r.Rows); }
-                        FinanceLens.SaveExt(o.Pod, led.Id, j.Period, led.Currency, j.Co, led.Company, led.Account, segs, r.Rows, t0.ElapsedMilliseconds);
-                        Interlocked.Add(ref rows, r.Rows.Count);
-                        x.Note("✓ " + j.Period + " · company " + j.Co + ": " + r.Rows.Count.ToString("N0", CultureInfo.InvariantCulture) + " rows in " + (t0.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s (fin_gl_balances_ext)");
-                        lock (sources) sources.Add(new { period = j.Period, company = j.Co, rows = r.Rows.Count, ms = t0.ElapsedMilliseconds });
+                        List<Dictionary<string, object>> got = null; string how = "company";
+                        if (by != "account")
+                        {
+                            string sql = Sql(j.Period, j.Co);
+                            if (x.LogSql) x.Note("   SQL: " + sql);
+                            var r = await RunLive(x, label, sql, CAP).ConfigureAwait(false);
+                            Interlocked.Increment(ref reads);
+                            if (r.Success && r.Rows.Count < CAP) got = r.Rows;
+                            else
+                            {
+                                string why = r.Success ? "more than " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows" : Short(r.Error);
+                                if (by == "company") throw new InvalidOperationException(why);
+                                x.Note("⚠ " + j.Period + " · company " + j.Co + ": " + why + " - reading it account by account");
+                                x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "split", why });
+                            }
+                        }
+                        if (got == null) { got = await ByAccount(j.Period, j.Co).ConfigureAwait(false); how = "account"; }
+                        lock (gate) if (!sampled && got.Count > 0) { sampled = true; LiveSample(x, label, got); }
+                        FinanceLens.SaveExt(o.Pod, led.Id, j.Period, led.Currency, j.Co, led.Company, led.Account, segs, got, t0.ElapsedMilliseconds);
+                        Interlocked.Add(ref rows, got.Count);
+                        x.Note("✓ " + j.Period + " · company " + j.Co + ": " + got.Count.ToString("N0", CultureInfo.InvariantCulture) + " rows in " + (t0.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" + (how == "account" ? " (account by account)" : "") + " (fin_gl_balances_ext)");
+                        x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "done", rows = got.Count, how });
+                        lock (sources) sources.Add(new { period = j.Period, company = j.Co, rows = got.Count, ms = t0.ElapsedMilliseconds, how });
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {   // one period × company failing never stops the others
+                        string err = ex.Message;
+                        x.Note("✖ " + j.Period + " · company " + j.Co + ": " + err);
+                        x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "failed", error = err });
+                        lock (failed) { failed.Add(new { period = j.Period, company = j.Co, error = err }); firstErr ??= err; }
                     }
                     finally { gate.Release(); }
                 })).ConfigureAwait(false);
                 FinanceLens.SaveTbCalendar(o.Pod, led, cal.Where(c => names.Contains(c.Name)).Select(c => (c.Name, target[c.Name].Seq, c.Year, c.Num, c.Quarter, c.Start, c.End, c.Adj)));
                 x.Note("✓ Extended segments sync done in " + (sw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s · " + reads + " quer" + (reads == 1 ? "y" : "ies") + " · " + rows.ToString("N0", CultureInfo.InvariantCulture) + " rows · query fin_gl_ext_v in the SQL explorer");
-                return new { ok = true, periods = pick.Select(p => new { name = p.Name, seq = p.Seq }).ToList(), segments = segs, reads, rows, skipped, sources, sample = jobs.Count > 0 ? Sql(jobs[0].Period, jobs[0].Co) : Sql(names[0], cos[0]), ms = sw.ElapsedMilliseconds, log = x.Log };
+                if (failed.Count > 0 && failed.Count == jobs.Count)
+                    return new { ok = false, error = "Every read failed - " + firstErr, failed, log = x.Log };
+                return new { ok = true, periods = pick.Select(p => new { name = p.Name, seq = p.Seq }).ToList(), segments = segs, reads, rows, skipped, sources, failed, sample = jobs.Count > 0 ? Sql(jobs[0].Period, jobs[0].Co) : Sql(names[0], cos[0]), ms = sw.ElapsedMilliseconds, log = x.Log };
             }
             catch (OperationCanceledException) { return new { ok = false, error = "Cancelled.", log = x.Log }; }
             catch (Exception ex) { x.Note("✖ " + ex.Message); return new { ok = false, error = ex.Message, log = x.Log }; }

@@ -148,6 +148,7 @@ Data › Trial balance sync opens as a table (switch to Tiles at the top right).
 - While a sync runs the row shows its live state (waiting, syncing · company i of n, failed) and the yellow banner shows the run.
 - *Sync extended* syncs the extended segments for every ticked row.
 - Periods that are not open yet are marked *not open yet* and are never synced.
+- **When a company times out**, the extended segments of that company are read **account by account** (Settings › Extended segments › *Read*: per company with the account fallback (default), always account by account, or per company only; *accounts per query* 1–50 — a batch that fails is split in half). The account list comes from the trial balance already synced for that period, so sync the trial balance first. The row shows *company 01 · account 12 of 80* while it runs; a company that still fails is listed with ⚠ and the other companies are kept.
 
 ## Segment P&L (P&L, pivot and trial balance by extended segments)
 

@@ -8,7 +8,7 @@
 (function () {
     var T = FL.tbsync = {};
     var L = T.st = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), year: FL.ls('tbl.year', null), cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2),
-        opt: Object.assign({ skipZero: true, allSums: false, hint: true, perCompany: true }, FL.ls('tbl.opt', {})), query: '', defaultQuery: '', sel: {}, status: null };
+        opt: Object.assign({ skipZero: true, allSums: false, hint: true, perCompany: true }, FL.ls('tbl.opt', {})), query: '', defaultQuery: '', sel: {}, status: null, extBy: FL.ls('tbl.extBy', 'auto'), extBatch: FL.ls('tbl.extBatch', 1) };
     T.qKey = function () { return 'account' + (L.byCc ? '.cc' : '') + '.' + (L.opt.skipZero ? 'z' : '') + (L.opt.allSums ? 'a' : '') + (L.opt.hint ? 'h' : ''); };
     T.loadQ = function () { L.query = FL.ls('tbl.query.account', ''); L.defaultQuery = FL.ls('tbl.dq.' + T.qKey(), ''); };
     T.loadQ();
@@ -440,7 +440,8 @@
             var xs = T.extState(p.seq, want), xl = T.xlive && T.xlive.per[p.name], x = xc[p.seq];
             var miss = x ? need.filter(function (n) { return Object.keys(x.cos).every(function (co) { return x.cos[co].indexOf(n) < 0; }); }) : [];
             var ex = !ext.length ? pill('off', '–', 'no segments chosen')
-                : xl && xl.state === 'running' ? pill('run', '<i class="fa-solid fa-circle-notch fa-spin"></i>', 'syncing · ' + xl.done + ' of ' + xl.total + ' compan' + (xl.total === 1 ? 'y' : 'ies'))
+                : xl && xl.state === 'running' ? pill('run', '<i class="fa-solid fa-circle-notch fa-spin"></i>', xl.acct ? 'company ' + xl.acct.co + ' · account ' + xl.acct.i + ' of ' + xl.acct.n
+                    : 'syncing · ' + xl.done + ' of ' + xl.total + ' compan' + (xl.total === 1 ? 'y' : 'ies'), xl.acct ? 'Timed out per company - reading it account by account (now ' + xl.acct.name + ')' : '') + (xl.fails ? ' ' + pill('bad', '⚠', xl.fails.length + ' failed', xl.error) : '')
                 : xl && xl.state === 'queued' ? pill('run', '⏳', 'waiting') : xl && xl.state === 'failed' ? pill('bad', '⚠', 'failed', xl.error)
                 : xs === 'done' ? pill('ok', '✓', 'Yes · ' + (x.rows || 0).toLocaleString() + ' rows · ' + String(x.at).slice(5, 16), Object.keys(x.cos).length + ' compan(ies) · ' + need.join(', '))
                 : xs === 'part' ? pill('part', '◐', miss.length ? 'missing ' + miss.join(', ') : 'some companies', 'Sync to complete it')
@@ -459,8 +460,20 @@
         var periodOf = function (what) { var m = null; Object.keys(xl.per).forEach(function (n) { if (String(what || '').indexOf(' · ' + n + ' · extended') >= 0) m = n; }); return m; };
         if (msg.charAt(0) === '\u0001') {
             var e; try { e = JSON.parse(msg.slice(1)); } catch (x) { return; }
-            if (e.t === 'sql') { var n = periodOf(e.what); xl.ids[e.id] = n; if (n && xl.per[n].state === 'queued') xl.per[n].state = 'running'; }
-            else if (e.t === 'end') { var nn = xl.ids[e.id]; delete xl.ids[e.id]; if (nn) { if (e.ok) xl.per[nn].done = Math.min(xl.per[nn].total, xl.per[nn].done + 1); else { xl.per[nn].state = 'failed'; xl.per[nn].error = e.error; } } }
+            if (e.t === 'sql') {
+                var n = periodOf(e.what); xl.ids[e.id] = n;
+                if (n) {
+                    var pr = xl.per[n]; if (pr.state === 'queued') pr.state = 'running';
+                    var am = /· company (.+?) · account (.+?) · (\d+) of (\d+)$/.exec(e.what || '');
+                    pr.acct = am ? { co: am[1], i: +am[3], n: +am[4], name: am[2] } : pr.acct;
+                }
+            } else if (e.t === 'end') { var nn = xl.ids[e.id]; delete xl.ids[e.id]; if (nn && !e.ok) xl.per[nn].retry = e.error; }
+            else if (e.t === 'ext' && xl.per[e.period]) {
+                var pe = xl.per[e.period];
+                if (e.state === 'split') { pe.split = (pe.split || 0) + 1; pe.retry = e.why; }
+                else if (e.state === 'done') { pe.done = Math.min(pe.total, pe.done + 1); pe.acct = null; }
+                else if (e.state === 'failed') { pe.fails = (pe.fails || []).concat(['company ' + e.company + ': ' + e.error]); pe.error = pe.fails.join(' · '); pe.acct = null; }
+            }
         }
         clearTimeout(T._xt); T._xt = setTimeout(function () { T.paintBoard(); }, 150);
     };
@@ -581,6 +594,9 @@
                 var fixed = sg.col === led.company || sg.col === led.account;
                 return '<label class="chip' + (fixed ? ' fixed' : '') + '" title="' + esc(fixed ? 'always included' : (sg.qualifiers || []).join(' ')) + '"><input type="checkbox" class="ts-xs" value="' + esc(sg.col) + '"' + (fixed || ext.indexOf(sg.col) >= 0 ? ' checked' : '') + (fixed || !admin ? ' disabled' : '') + '> ' + esc(sg.name) + ' <span class="muted">' + esc(sg.col.replace('SEGMENT', 'S')) + '</span></label>';
             }).join('') + '</div>' +
+            '<div class="row sm" style="margin-top:4px"><span>Read</span><select id="ts-xby" title="A company whose query times out is read again account by account">' +
+            [['auto', 'per company — account by account when it times out'], ['account', 'always account by account'], ['company', 'per company only']].map(function (o) { return '<option value="' + o[0] + '"' + (L.extBy === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
+            '<span id="ts-xbw"' + (L.extBy === 'company' ? ' hidden' : '') + '>accounts per query <input type="number" id="ts-xbatch" min="1" max="50" value="' + L.extBatch + '" style="width:56px" title="A batch that fails is split in half, down to one account"></span></div>' +
             '<div class="row sm" style="margin-top:4px"><label><input type="checkbox" id="ts-xauto"' + (L.extAuto ? ' checked' : '') + '> sync them after every trial balance sync</label>' +
             '<span class="muted">' + (ext.length ? done + ' of ' + n + ' synced period(s) have them · ' + Object.keys(cells).length + ' period(s) on this PC' : 'nothing chosen') + '</span><span class="grow"></span>' +
             (ext.length && Object.keys(cells).length ? '<button class="btn sm" id="ts-xopen" title="P&L, pivot and trial balance by these segments"><i class="fa-solid fa-layer-group"></i> Open Segment P&amp;L</button>' : '') + (admin ? '<button class="btn sm" id="ts-xsave" disabled><i class="fa-solid fa-floppy-disk"></i> Save choice</button><button class="btn sm primary" id="ts-xgo"' + (ext.length ? '' : ' disabled') + ' title="For the ticked periods, or every synced period that lacks them"><i class="fa-solid fa-cloud-arrow-down"></i> Sync extended</button>' : '') + '</div>';
@@ -588,6 +604,8 @@
         box.querySelectorAll('.ts-xs').forEach(function (i) { i.onchange = function () { if ($('ts-xsave')) $('ts-xsave').disabled = chosen().join() === ext.join(); }; });
         if ($('ts-xopen')) $('ts-xopen').onclick = function () { FL.show('segpl'); };
         $('ts-xauto').onchange = function () { L.extAuto = this.checked; FL.lsSet('tbl.extAuto', L.extAuto); };
+        $('ts-xby').onchange = function () { L.extBy = this.value; FL.lsSet('tbl.extBy', L.extBy); $('ts-xbw').hidden = L.extBy === 'company'; };
+        $('ts-xbatch').onchange = function () { L.extBatch = Math.max(1, Math.min(50, parseInt(this.value, 10) || 1)); this.value = L.extBatch; FL.lsSet('tbl.extBatch', L.extBatch); };
         if ($('ts-xsave')) $('ts-xsave').onclick = function () {
             FL.config.tbsync = FL.config.tbsync || {}; FL.config.tbsync.ext = FL.config.tbsync.ext || {}; FL.config.tbsync.ext[String(l.coaId)] = chosen();
             FL.saveConfig().then(function () { FL.toast('Extended segments saved — ' + (chosen().length ? 'press Sync extended' : 'none'), 'ok'); T.paintExt(); T.paintBoard(); T.md(); });
@@ -616,10 +634,12 @@
         FL.fusion.run.pod = L.pod || '';
         T.pfx().forEach(function (x) { if ($(x + '-md')) $(x + '-md').querySelectorAll('button').forEach(function (b) { b.disabled = true; }); });
         if ($('ts-xgo')) { $('ts-xgo').disabled = true; $('ts-xgo').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Syncing…'; }
-        return FL.call('finTbExtSync', { pod: L.pod || '', options: { ledger: led, periodSeqs: seqs, foldAdjustments: L.fold, companies: L.cos, parallel: L.par, refresh: !!refresh, extSegments: ext,
+        return FL.call('finTbExtSync', { pod: L.pod || '', options: { ledger: led, periodSeqs: seqs, foldAdjustments: L.fold, companies: L.cos, parallel: L.par, refresh: !!refresh, extSegments: ext, extBy: L.extBy, extAccountBatch: L.extBatch,
             skipZero: !!L.opt.skipZero, hint: !!L.opt.hint, allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 90 * 60000, p).then(function (r) {
             FL.fusion.finish();
+            (r.failed || []).forEach(function (f) { var x = T.xlive.per[f.period]; if (x) { x.state = 'failed'; x.error = 'company ' + f.company + ': ' + f.error; } });
             Object.keys(T.xlive.per).forEach(function (n) { var x = T.xlive.per[n]; if (x.state !== 'failed') { x.state = 'done'; x.done = x.total; } });
+            if ((r.failed || []).length) FL.toast((r.failed.length) + ' period × company read(s) failed — see the rows marked ⚠', 'err');
             FL.toast('Extended segments: ' + (r.rows || 0).toLocaleString() + ' rows from ' + r.reads + ' quer' + (r.reads === 1 ? 'y' : 'ies') + (r.skipped ? ' · ' + r.skipped + ' already on this PC' : '') + ' — query fin_gl_ext_v', 'ok');
         }).catch(function (e) {
             var m = String(e && e.message || e); FL.fusion.finish(m); if (!quiet) FL.toast(m, 'err');
