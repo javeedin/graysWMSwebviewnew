@@ -21,7 +21,13 @@ namespace WMSApp
     /// </summary>
     public static class FinanceWorkingCapital
     {
-        public sealed class CostSource { public string Table { get; set; } public string ItemCol { get; set; } public string OrgCol { get; set; } public string CostCol { get; set; } }
+        public sealed class CostSource
+        {
+            public string Table { get; set; } public string ItemCol { get; set; } public string OrgCol { get; set; } public string CostCol { get; set; }
+            /// <summary>Cost tables keyed by cost organisation: the table's own org column (COST_ORG_ID) and the table that maps
+            /// inventory organisations to cost organisations (e.g. CST_COST_INV_ORGS: inventory org column → cost org column).</summary>
+            public string CostOrgCol { get; set; } public string MapTable { get; set; } public string MapInvCol { get; set; } public string MapCostCol { get; set; }
+        }
         public sealed class Options
         {
             public string Pod { get; set; }
@@ -102,9 +108,13 @@ GROUP BY q.ORGANIZATION_ID, i.INVENTORY_ITEM_ID, i.ORGANIZATION_ID, i.ITEM_NUMBE
             var c = o.Cost;
             if (c != null && !string.IsNullOrWhiteSpace(c.Table))
             {
-                foreach (var id in new[] { c.Table, c.ItemCol, c.CostCol }.Concat(string.IsNullOrWhiteSpace(c.OrgCol) ? Array.Empty<string>() : new[] { c.OrgCol }))
+                bool map = string.IsNullOrWhiteSpace(c.OrgCol) && !string.IsNullOrWhiteSpace(c.MapTable) && !string.IsNullOrWhiteSpace(c.CostOrgCol);
+                foreach (var id in new[] { c.Table, c.ItemCol, c.CostCol }.Concat(string.IsNullOrWhiteSpace(c.OrgCol) ? Array.Empty<string>() : new[] { c.OrgCol })
+                                   .Concat(map ? new[] { c.CostOrgCol, c.MapTable, c.MapInvCol, c.MapCostCol } : Array.Empty<string>()))
                     if (!IDENT.IsMatch(id ?? "")) throw new ArgumentException("The cost source must be plain table / column names.");
-                cost = "(SELECT MAX(cs." + c.CostCol + ") FROM " + c.Table + " cs WHERE cs." + c.ItemCol + " = i.INVENTORY_ITEM_ID" + (string.IsNullOrWhiteSpace(c.OrgCol) ? "" : " AND cs." + c.OrgCol + " = q.ORGANIZATION_ID") + ")";
+                cost = "(SELECT MAX(cs." + c.CostCol + ") FROM " + c.Table + " cs WHERE cs." + c.ItemCol + " = i.INVENTORY_ITEM_ID" +
+                       (!string.IsNullOrWhiteSpace(c.OrgCol) ? " AND cs." + c.OrgCol + " = q.ORGANIZATION_ID"
+                        : map ? " AND cs." + c.CostOrgCol + " IN (SELECT m." + c.MapCostCol + " FROM " + c.MapTable + " m WHERE m." + c.MapInvCol + " = q.ORGANIZATION_ID)" : "") + ")";
             }
             return sql.Replace("{UNIT_COST}", cost);
         }
@@ -165,6 +175,16 @@ GROUP BY q.ORGANIZATION_ID, i.INVENTORY_ITEM_ID, i.ORGANIZATION_ID, i.ITEM_NUMBE
                 }
                 string note = kind == "INV" ? (o.Cost != null && !string.IsNullOrWhiteSpace(o.Cost.Table) ? "unit cost from " + o.Cost.Table + "." + o.Cost.CostCol + ": " + costed + " of " + rows.Count + " lines costed" : "no cost source — quantities only; value from the GL") : "";
                 FinanceLens.SaveWc(o.Pod, kind, at, rows, total, sw.ElapsedMilliseconds, r.Capped, note);
+                try
+                {   // business unit / organisation names for the filters (kept on this PC, only ids not named yet)
+                    var ids = rows.Select(z => Convert.ToString(z[0], CultureInfo.InvariantCulture)).Where(v => v != null && Regex.IsMatch(v, "^[0-9]{1,20}$")).Distinct().ToList();
+                    string nk = kind == "INV" ? "ORG" : "BU";
+                    var known = FinanceLens.WcNames(o.Pod, nk);
+                    var todo = ids.Where(v => !known.ContainsKey(v)).ToList();
+                    if (todo.Count > 0) { var nm = await NamesAsync(run, nk, todo, ct).ConfigureAwait(false); if (nm.Count > 0) { FinanceLens.SaveWcNames(o.Pod, nk, nm); progress?.Invoke("   " + nm.Count + (nk == "BU" ? " business unit" : " organisation") + " name(s) read"); } }
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { progress?.Invoke("   ⚠ names: " + ex.Message); }
                 progress?.Invoke("✔ " + label + ": " + rows.Count.ToString("N0", CultureInfo.InvariantCulture) + " row(s)" + (kind == "INV" && costed == 0 ? "" : ", total " + total.ToString("N0", CultureInfo.InvariantCulture)) + (r.Capped ? " — capped at 100,000 rows, narrow it with organisations" : ""));
                 outList.Add(new { kind, ok = true, rows = rows.Count, total, ms = sw.ElapsedMilliseconds, capped = r.Capped, note, at });
             }
@@ -202,11 +222,11 @@ GROUP BY q.ORGANIZATION_ID, i.INVENTORY_ITEM_ID, i.ORGANIZATION_ID, i.ITEM_NUMBE
         public static async Task<object> CostTablesAsync(FinanceFusion.Runner run, CancellationToken ct)
         {
             const string sql = "SELECT table_name, column_name FROM all_tab_columns WHERE table_name LIKE 'CST%' AND column_name IN ('INVENTORY_ITEM_ID', 'ITEM_ID', 'ORGANIZATION_ID', 'INV_ORG_ID', 'INVENTORY_ORG_ID', 'COST_ORG_ID', " +
-                               "'UNIT_COST', 'ITEM_COST', 'AVERAGE_COST', 'PERPETUAL_AVG_COST', 'STANDARD_COST', 'TOTAL_COST', 'COST', 'UNIT_COST_AMOUNT')";
+                               "'UNIT_COST', 'ITEM_COST', 'AVERAGE_COST', 'PERPETUAL_AVG_COST', 'STANDARD_COST', 'TOTAL_COST', 'COST', 'UNIT_COST_AMOUNT', 'UNIT_COST_AVERAGE', 'AVERAGE_UNIT_COST', 'UNIT_COST_AVG', 'STD_COST')";
             var r = await run(sql, 5000, ct).ConfigureAwait(false);
             if (r == null || !r.Success) return new { ok = false, error = r?.Error ?? "cancelled" };
             var byTable = r.Rows.GroupBy(x => S(Get(x, "TABLE_NAME"))).Where(g => g.Key != null);
-            string[] itemC = { "INVENTORY_ITEM_ID", "ITEM_ID" }, orgC = { "ORGANIZATION_ID", "INV_ORG_ID", "INVENTORY_ORG_ID", "COST_ORG_ID" }, costC = { "UNIT_COST", "PERPETUAL_AVG_COST", "AVERAGE_COST", "ITEM_COST", "STANDARD_COST", "UNIT_COST_AMOUNT", "TOTAL_COST", "COST" };
+            string[] itemC = { "INVENTORY_ITEM_ID", "ITEM_ID" }, orgC = { "ORGANIZATION_ID", "INV_ORG_ID", "INVENTORY_ORG_ID", "COST_ORG_ID" }, costC = { "UNIT_COST_AVERAGE", "UNIT_COST", "PERPETUAL_AVG_COST", "AVERAGE_UNIT_COST", "UNIT_COST_AVG", "AVERAGE_COST", "ITEM_COST", "STANDARD_COST", "STD_COST", "UNIT_COST_AMOUNT", "TOTAL_COST", "COST" };
             var list = new List<object>();
             foreach (var g in byTable)
             {
@@ -215,7 +235,148 @@ GROUP BY q.ORGANIZATION_ID, i.INVENTORY_ITEM_ID, i.ORGANIZATION_ID, i.ITEM_NUMBE
                 if (item == null || cost == null) continue;
                 list.Add(new { table = g.Key, itemCol = item, orgCol = org, costCol = cost, columns = cols, invOrg = org == "ORGANIZATION_ID" || org == "INV_ORG_ID" || org == "INVENTORY_ORG_ID" });
             }
-            return new { ok = true, tables = list };
+            // tables that map inventory organisations to cost organisations (for cost tables keyed by COST_ORG_ID)
+            var maps = byTable.Select(g => (T: g.Key, C: g.Select(x => S(Get(x, "COLUMN_NAME"))).ToList()))
+                .Where(t => t.C.Contains("COST_ORG_ID") && t.C.Any(c => c == "INV_ORG_ID" || c == "INVENTORY_ORG_ID" || c == "ORGANIZATION_ID"))
+                .Select(t => new { table = t.T, invCol = new[] { "INV_ORG_ID", "INVENTORY_ORG_ID", "ORGANIZATION_ID" }.First(t.C.Contains), costCol = "COST_ORG_ID", hasItem = t.C.Contains("INVENTORY_ITEM_ID") })
+                .OrderBy(m => m.hasItem).ThenBy(m => m.table.Contains("INV_ORG") ? 0 : 1).ToList();
+            // most likely first: perpetual average / item cost tables, then standard costs
+            int Rank(string t) => t.Contains("PERPAVG") ? 0 : t.Contains("AVG") ? 1 : t.Contains("ITEM_COST") ? 2 : t.Contains("STD") ? 3 : 5;
+            return new { ok = true, tables = list.OrderBy(t => Rank((string)t.GetType().GetProperty("table").GetValue(t))).ToList(), maps };
+        }
+
+        /// <summary>Names of business units (FUN_ALL_BUSINESS_UNITS_V, else HR organisation units) or inventory organisations
+        /// (INV_ORGANIZATION_DEFINITIONS_V, else HR organisation units) — the first source that answers.</summary>
+        public static async Task<Dictionary<string, string>> NamesAsync(FinanceFusion.Runner run, string kind, List<string> ids, CancellationToken ct)
+        {
+            var d = new Dictionary<string, string>(StringComparer.Ordinal);
+            ids = ids.Where(v => Regex.IsMatch(v ?? "", "^[0-9]{1,20}$")).Distinct().ToList();
+            if (ids.Count == 0) return d;
+            foreach (var chunk in ids.Chunk(500))
+            {
+                string inList = string.Join(",", chunk);
+                var tries = kind == "BU"
+                    ? new[] { "SELECT BU_ID AS ID, BU_NAME AS NAME FROM FUN_ALL_BUSINESS_UNITS_V WHERE BU_ID IN (" + inList + ")",
+                              "SELECT ORGANIZATION_ID AS ID, NAME FROM HR_ORGANIZATION_UNITS_F_TL WHERE LANGUAGE = USERENV('LANG') AND ORGANIZATION_ID IN (" + inList + ")" }
+                    : new[] { "SELECT ORGANIZATION_ID AS ID, ORGANIZATION_NAME AS NAME FROM INV_ORGANIZATION_DEFINITIONS_V WHERE ORGANIZATION_ID IN (" + inList + ")",
+                              "SELECT ORGANIZATION_ID AS ID, NAME FROM HR_ORGANIZATION_UNITS_F_TL WHERE LANGUAGE = USERENV('LANG') AND ORGANIZATION_ID IN (" + inList + ")" };
+                foreach (var sql in tries)
+                {
+                    var r = await run(sql, 5000, ct).ConfigureAwait(false);
+                    if (r == null || !r.Success || r.Rows.Count == 0) continue;
+                    foreach (var row in r.Rows) { var id = S(Get(row, "ID")); var nm = S(Get(row, "NAME")); if (id != null && !string.IsNullOrEmpty(nm)) d[id] = nm; }
+                    break;
+                }
+            }
+            return d;
+        }
+
+        /// <summary>Names of every business unit / organisation in the kept snapshots that has none yet.</summary>
+        public static async Task<object> NamesSyncAsync(FinanceFusion.Runner run, string pod, CancellationToken ct)
+        {
+            int n = 0;
+            foreach (var (kind, sql) in new[] { ("BU", "SELECT DISTINCT bu_id FROM fin_wc_parties WHERE pod = " + Lit(pod ?? "")), ("ORG", "SELECT DISTINCT org_id FROM fin_wc_stock WHERE pod = " + Lit(pod ?? "")) })
+            {
+                var q = FinanceLens.Query(sql, 100000);
+                if (q.Error != null) continue;
+                var known = FinanceLens.WcNames(pod, kind);
+                var todo = q.Rows.Select(z => Convert.ToString(z[0], CultureInfo.InvariantCulture)).Where(v => v != null && !known.ContainsKey(v)).ToList();
+                var nm = await NamesAsync(run, kind, todo, ct).ConfigureAwait(false);
+                if (nm.Count > 0) { FinanceLens.SaveWcNames(pod, kind, nm); n += nm.Count; }
+            }
+            return new { ok = true, named = n };
+        }
+
+        // ═════ item master (EGP_SYSTEM_ITEMS_B with its descriptive flexfield) — synced on its own, joined to the stock on this PC ═════
+        public sealed class ItemOptions
+        {
+            public string Pod { get; set; }
+            /// <summary>Inventory organisation ids; empty = the organisations of the latest stock snapshot.</summary>
+            public List<string> Orgs { get; set; } = new();
+            public int PageSize { get; set; } = 5000;
+        }
+        private static readonly string[] ITEM_BASE = { "INVENTORY_ITEM_ID", "ORGANIZATION_ID", "ITEM_NUMBER", "PRIMARY_UOM_CODE", "ITEM_TYPE", "INVENTORY_ITEM_STATUS_CODE", "LIST_PRICE_PER_UNIT", "ATTRIBUTE_CATEGORY" };
+        public static bool IsDffCol(string c) => Regex.IsMatch(c ?? "", "^ATTRIBUTE([1-9]|[12][0-9]|30)$|^ATTRIBUTE_NUMBER([1-9]|10)$|^ATTRIBUTE_DATE([1-5])$", RegexOptions.IgnoreCase);
+
+        private static async Task<HashSet<string>> ColumnsAsync(FinanceFusion.Runner run, string table, CancellationToken ct)
+        {
+            var r = await run("SELECT column_name FROM all_tab_columns WHERE table_name = " + Lit(table), 2000, ct).ConfigureAwait(false);
+            return new HashSet<string>(r != null && r.Success ? r.Rows.Select(x => S(Get(x, "COLUMN_NAME"))).Where(v => v != null) : Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Reads the item master of some inventory organisations — item number, description, UOM, item type, status, list price and every
+        /// descriptive-flexfield column the pod has (ATTRIBUTE_CATEGORY, ATTRIBUTE1..30, ATTRIBUTE_NUMBER1..10, ATTRIBUTE_DATE1..5) — one
+        /// organisation at a time in keyset pages on INVENTORY_ITEM_ID, into DuckDB fin_items (replaced per organisation).
+        /// </summary>
+        public static async Task<object> ItemsAsync(FinanceFusion.Runner run, ItemOptions o, Action<string> progress, CancellationToken ct)
+        {
+            var sw = Stopwatch.StartNew();
+            var orgs = (o.Orgs ?? new()).Where(v => Regex.IsMatch(v ?? "", "^[0-9]{1,20}$")).Distinct().ToList();
+            if (orgs.Count == 0)
+            {
+                var q = FinanceLens.Query("SELECT DISTINCT org_id FROM fin_wc_stock WHERE pod = " + Lit(o.Pod ?? "") + " AND snapshot_at = (SELECT MAX(snapshot_at) FROM fin_wc_stock WHERE pod = " + Lit(o.Pod ?? "") + ")", 10000);
+                if (q.Error == null) orgs = q.Rows.Select(z => Convert.ToString(z[0], CultureInfo.InvariantCulture)).Where(v => v != null && Regex.IsMatch(v, "^[0-9]{1,20}$")).ToList();
+            }
+            if (orgs.Count == 0) return new { ok = false, error = "No inventory organisations: sync the stock on hand first (Sync from Fusion), or name the organisations in Settings." };
+            var have = await ColumnsAsync(run, "EGP_SYSTEM_ITEMS_B", ct).ConfigureAwait(false);
+            if (have.Count == 0) return new { ok = false, error = "EGP_SYSTEM_ITEMS_B is not readable on this pod (ALL_TAB_COLUMNS returned nothing)." };
+            var cols = ITEM_BASE.Where(have.Contains).Concat(have.Where(IsDffCol).OrderBy(c => c.Length).ThenBy(c => c, StringComparer.Ordinal)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            bool tl = (await ColumnsAsync(run, "EGP_SYSTEM_ITEMS_TL", ct).ConfigureAwait(false)).Contains("DESCRIPTION");
+            int page = Math.Clamp(o.PageSize, 500, 20000);
+            progress?.Invoke("📦 Item master: " + orgs.Count + " organisation(s) · " + cols.Count(IsDffCol) + " flexfield column(s) · pages of " + page.ToString("N0", CultureInfo.InvariantCulture));
+            long total = 0; int reads = 0;
+            foreach (var org in orgs)
+            {
+                ct.ThrowIfCancellationRequested();
+                var rows = new List<Dictionary<string, object>>();
+                long last = -1; var t0 = Stopwatch.StartNew();
+                while (true)
+                {
+                    string inner = "SELECT " + string.Join(", ", cols.Select(c => "i." + c)) +
+                                   (tl ? ", (SELECT t.DESCRIPTION FROM EGP_SYSTEM_ITEMS_TL t WHERE t.INVENTORY_ITEM_ID = i.INVENTORY_ITEM_ID AND t.ORGANIZATION_ID = i.ORGANIZATION_ID AND t.LANGUAGE = USERENV('LANG')) AS DESCRIPTION" : "") +
+                                   " FROM EGP_SYSTEM_ITEMS_B i WHERE i.ORGANIZATION_ID = " + org + " AND i.INVENTORY_ITEM_ID > " + last.ToString(CultureInfo.InvariantCulture) + " ORDER BY i.INVENTORY_ITEM_ID";
+                    string sql = "SELECT * FROM (" + inner + ") WHERE ROWNUM <= " + page;
+                    string id = "it_" + Guid.NewGuid().ToString("N").Substring(0, 6);
+                    progress?.Invoke("\u0001" + JsonSerializer.Serialize(new { t = "sql", id, what = "Items · org " + org + " · page " + (rows.Count / page + 1), sql }));
+                    var ts = Stopwatch.StartNew();
+                    var r = await run(sql, page + 1, ct).ConfigureAwait(false);
+                    reads++;
+                    progress?.Invoke("\u0001" + JsonSerializer.Serialize(new { t = "end", id, ok = r != null && r.Success, rows = r?.Rows?.Count ?? 0, ms = ts.ElapsedMilliseconds, error = r?.Success == true ? null : r?.Error }));
+                    if (r == null || !r.Success) return new { ok = false, error = "Items of organisation " + org + ": " + (r?.Error ?? "cancelled"), sql, reads, items = total };
+                    rows.AddRange(r.Rows);
+                    if (r.Rows.Count < page) break;
+                    var lastId = r.Rows.Select(z => long.TryParse(S(Get(z, "INVENTORY_ITEM_ID")), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : -1).Max();
+                    if (lastId <= last) break;
+                    last = lastId;
+                }
+                FinanceLens.SaveItems(o.Pod, org, rows);
+                total += rows.Count;
+                progress?.Invoke("✔ organisation " + org + ": " + rows.Count.ToString("N0", CultureInfo.InvariantCulture) + " items in " + (t0.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s");
+            }
+            return new { ok = true, orgs, items = total, reads, flexColumns = cols.Where(IsDffCol).ToList(), ms = sw.ElapsedMilliseconds };
+        }
+
+        /// <summary>
+        /// Labels of the item descriptive flexfield: FND_DF_SEGMENTS_VL (segment name per context and column) for the flexfields used on
+        /// EGP_SYSTEM_ITEMS_B (FND_DF_TABLE_USAGES when the pod has it, else codes that look like the item flexfield) → fin_item_dff.
+        /// </summary>
+        public static async Task<object> ItemDffAsync(FinanceFusion.Runner run, string pod, CancellationToken ct)
+        {
+            var seg = await ColumnsAsync(run, "FND_DF_SEGMENTS_VL", ct).ConfigureAwait(false);
+            if (!seg.Contains("COLUMN_NAME") || !seg.Contains("DESCRIPTIVE_FLEXFIELD_CODE")) return new { ok = false, error = "FND_DF_SEGMENTS_VL is not readable on this pod — name the flexfield columns yourself (Item DFF › your label)." };
+            var use = await ColumnsAsync(run, "FND_DF_TABLE_USAGES", ct).ConfigureAwait(false);
+            string nameCol = seg.Contains("NAME") ? "NAME" : seg.Contains("SEGMENT_NAME") ? "SEGMENT_NAME" : "SEGMENT_CODE";
+            string ctxCol = seg.Contains("CONTEXT_CODE") ? "CONTEXT_CODE" : "NULL";
+            string where = use.Contains("TABLE_NAME") && use.Contains("DESCRIPTIVE_FLEXFIELD_CODE")
+                ? "s.DESCRIPTIVE_FLEXFIELD_CODE IN (SELECT u.DESCRIPTIVE_FLEXFIELD_CODE FROM FND_DF_TABLE_USAGES u WHERE u.TABLE_NAME = 'EGP_SYSTEM_ITEMS_B')"
+                : "(s.DESCRIPTIVE_FLEXFIELD_CODE LIKE 'EGP%ITEM%' OR s.DESCRIPTIVE_FLEXFIELD_CODE LIKE 'EGO%ITEM%')";
+            string sql = "SELECT s.DESCRIPTIVE_FLEXFIELD_CODE AS FLEX, " + (ctxCol == "NULL" ? "NULL" : "s." + ctxCol) + " AS CTX, s.COLUMN_NAME AS COL, s." + nameCol + " AS LABEL FROM FND_DF_SEGMENTS_VL s WHERE " + where;
+            var r = await run(sql, 5000, ct).ConfigureAwait(false);
+            if (r == null || !r.Success) return new { ok = false, error = r?.Error ?? "cancelled", sql };
+            var list = r.Rows.Select(z => (Flex: S(Get(z, "FLEX")), Ctx: S(Get(z, "CTX")), Col: S(Get(z, "COL")), Label: S(Get(z, "LABEL")))).Where(z => IsDffCol(z.Col)).ToList();
+            FinanceLens.SaveItemDff(pod, list);
+            return new { ok = true, labels = list.Select(z => new { flex = z.Flex, context = z.Ctx, column = z.Col, label = z.Label }), sql };
         }
     }
 }

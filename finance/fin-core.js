@@ -293,6 +293,64 @@ FL.table = function (cols, rows, opts) {
             return '<tr' + (opts.click ? ' class="click" data-i="' + i + '"' : '') + '>' + cols.map(function (c) { var v = c.get ? c.get(r) : r[c.key]; return '<td class="' + (c.n ? 'n' : '') + '">' + (c.html ? v : esc(v)) + '</td>'; }).join('') + '</tr>';
         }).join('') + '</tbody></table>';
 };
+/** A grid with a filter box under every column header and click-to-sort headers.
+    cols: {label, key | get (display), val (raw value for filter / sort / CSV; default key or get), n (numeric), html}
+    opts: {max (rows shown, default 500), click(row), csv (file name), id (keeps filters when re-rendered), empty}
+    Filters: text = contains, "=x" exact, "!x" not; numbers also ">100", "<=5", "10..20", "=0". */
+FL.gridState = FL.gridState || {};
+FL.gridMatch = function (v, f, num) {
+    f = String(f || '').trim(); if (!f) return true;
+    var neg = false; if (f.charAt(0) === '!') { neg = true; f = f.slice(1).trim(); if (!f) return true; }
+    var ok, m = /^(>=|<=|>|<|=)\s*(-?[\d.,]+)$/.exec(f), rng = /^(-?[\d.,]+)\s*\.\.\s*(-?[\d.,]+)$/.exec(f), nn = function (x) { return +String(x).replace(/,/g, ''); };
+    if (num && (m || rng)) {
+        var x = typeof v === 'number' ? v : nn(v);
+        if (v == null || v === '' || isNaN(x)) ok = false;
+        else if (rng) ok = x >= nn(rng[1]) && x <= nn(rng[2]);
+        else { var y = nn(m[2]); ok = m[1] === '>' ? x > y : m[1] === '<' ? x < y : m[1] === '>=' ? x >= y : m[1] === '<=' ? x <= y : Math.abs(x - y) < 1e-9; }
+    } else if (f.charAt(0) === '=') ok = String(v == null ? '' : v).toLowerCase() === f.slice(1).trim().toLowerCase();
+    else ok = String(v == null ? '' : v).toLowerCase().indexOf(f.toLowerCase()) >= 0;
+    return neg ? !ok : ok;
+};
+FL.grid = function (el, cols, rows, opts) {
+    if (!el) return;
+    opts = opts || {};
+    var key = opts.id || cols.map(function (c) { return c.label; }).join('|');
+    var st = FL.gridState[key] = FL.gridState[key] || { f: {}, sort: null, dir: 1 };
+    if (opts.filters) Object.keys(opts.filters).forEach(function (k) { st.f[k] = opts.filters[k]; });
+    var raw = function (c, r) { return c.val ? c.val(r) : c.key ? r[c.key] : c.get(r); };
+    var shown = [];
+    el.innerHTML = '<div class="fg-bar sm"><span class="fg-count"></span><span class="grow"></span><a class="fg-clear" style="display:none"><i class="fa-solid fa-filter-circle-xmark"></i> clear filters</a>' +
+        (opts.csv ? ' <a class="fg-csv"><i class="fa-solid fa-file-csv"></i> CSV</a>' : '') + '</div>' +
+        '<div class="scroll fg-wrap"' + (opts.height ? ' style="max-height:' + opts.height + '"' : '') + '><table class="t fg"><thead><tr>' + cols.map(function (c, i) {
+            return '<th class="' + (c.n ? 'n' : '') + '" data-c="' + i + '" title="Sort">' + esc(c.label) + '<span class="fg-s"></span></th>'; }).join('') + '</tr><tr class="fg-f">' +
+        cols.map(function (c, i) { return '<th><input data-c="' + i + '" placeholder="' + (c.n ? '>0, 1..9' : 'filter') + '" value="' + esc(st.f[c.label] || '') + '"></th>'; }).join('') +
+        '</tr></thead><tbody></tbody></table></div>';
+    var body = function () {
+        var list = rows.filter(function (r) { return cols.every(function (c) { return FL.gridMatch(raw(c, r), st.f[c.label], c.n); }); });
+        if (st.sort != null && cols[st.sort]) {
+            var c = cols[st.sort];
+            list.sort(function (a, b) { var x = raw(c, a), y = raw(c, b); if (x == null || x === '') return 1; if (y == null || y === '') return -1; return (c.n ? (+x) - (+y) : String(x).localeCompare(String(y), undefined, { numeric: true })) * st.dir; });
+        }
+        shown = list;
+        var max = opts.max || 500, part = list.slice(0, max);
+        el.querySelector('tbody').innerHTML = part.length ? part.map(function (r, i) {
+            return '<tr' + (opts.click ? ' class="click" data-i="' + i + '"' : '') + '>' + cols.map(function (c) { var v = c.get ? c.get(r) : r[c.key]; return '<td class="' + (c.n ? 'n' : '') + '">' + (c.html ? v : esc(v)) + '</td>'; }).join('') + '</tr>';
+        }).join('') : '<tr><td colspan="' + cols.length + '" class="muted">' + esc(opts.empty || 'Nothing matches the filters') + '</td></tr>';
+        var nf = Object.keys(st.f).filter(function (k) { return st.f[k]; }).length;
+        el.querySelector('.fg-count').textContent = list.length.toLocaleString() + (list.length !== rows.length ? ' of ' + rows.length.toLocaleString() : '') + ' row(s)' + (list.length > max ? ' · first ' + max.toLocaleString() + ' shown' : '') + (nf ? ' · ' + nf + ' filter(s)' : '');
+        el.querySelector('.fg-clear').style.display = nf ? '' : 'none';
+        el.querySelectorAll('thead th[data-c]').forEach(function (th) { th.querySelector('.fg-s').textContent = st.sort === +th.dataset.c ? (st.dir > 0 ? ' ▲' : ' ▼') : ''; });
+        if (opts.click) el.querySelectorAll('tbody tr.click').forEach(function (tr) { tr.onclick = function () { opts.click(part[+tr.dataset.i]); }; });
+        if (opts.onFilter) opts.onFilter(list);
+    };
+    var t;
+    el.querySelectorAll('.fg-f input').forEach(function (inp) { inp.oninput = function () { st.f[cols[+inp.dataset.c].label] = inp.value; clearTimeout(t); t = setTimeout(body, 200); }; });
+    el.querySelectorAll('thead th[data-c]').forEach(function (th) { th.onclick = function () { var i = +th.dataset.c; if (st.sort === i) st.dir = -st.dir; else { st.sort = i; st.dir = cols[i].n ? -1 : 1; } body(); }; });
+    el.querySelector('.fg-clear').onclick = function () { st.f = {}; el.querySelectorAll('.fg-f input').forEach(function (i) { i.value = ''; }); body(); };
+    if (opts.csv) el.querySelector('.fg-csv').onclick = function () { FL.csv(opts.csv, cols.map(function (c) { return c.label; }), shown.map(function (r) { return cols.map(function (c) { return raw(c, r); }); })); };
+    body();
+    return { rows: function () { return shown; }, refresh: body };
+};
 FL.wireRows = function (el, rows, fn) { el.querySelectorAll('tr.click').forEach(function (tr) { tr.onclick = function () { fn(rows[+tr.dataset.i]); }; }); };
 FL.csv = function (name, cols, rows) {
     var cell = function (v) { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };

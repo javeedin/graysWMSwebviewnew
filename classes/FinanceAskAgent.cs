@@ -63,6 +63,11 @@ DATA (DuckDB, read-only — use run_sql):
   unit_cost, value (NULL without a cost source), oldest_receipt, age_days), fin_wc_snapshots(pod, kind, snapshot_at, rows,
   total, ms, capped, note). Ages are as of snapshot_at, not the period end; compare with the GL control lines AR / AP / INV
   of the balance sheet and say the difference can be timing. The CONTEXT block has workingCapital with the latest totals.
+- Names and item master: fin_wc_names(pod, kind 'BU' | 'ORG', id, name) for bu_id / org_id; fin_items(pod, org_id, item_id,
+  item_number, description, uom, item_type, status, list_price, attribute_category, attribute1..30, attribute_number1..10,
+  attribute_date1..5) joined to fin_wc_stock on org_id + item_number; fin_item_dff(column_name, label) = what each item
+  flexfield column means (the user's own names are in the CONTEXT under workingCapital.inventory.itemFlexfield). Stock value =
+  fin_wc_stock.value (item cost), else quantity × fin_items.list_price.
 - The CONTEXT block holds what the user is looking at: filter (period, company, cost centre, ledger), statement lines and KPI
   values the page computed with the statement templates. Prefer those numbers for lines like revenue, gross profit, EBITDA,
   net profit, cash, so you agree with the screen; use template_rows to see which accounts a line is made of, then run_sql to

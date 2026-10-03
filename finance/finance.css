@@ -491,3 +491,13 @@ details.lf-card[open] > summary::before { content: '▾'; }
 .ts-ext .chip.fixed { opacity: .75; }
 .ts-ext.flash { animation: tsflash 1.6s ease 2; border-radius: 8px; }
 @keyframes tsflash { 50% { box-shadow: 0 0 0 3px #fde68a; } }
+
+/* FL.grid: filter row under the headers */
+table.t.fg tr.fg-f th { top: 27px; padding: 3px 4px; background: #f1f5f9; }
+table.t.fg tr.fg-f input { width: 100%; min-width: 50px; font-size: .72rem; padding: 2px 5px; border: 1px solid var(--line2); border-radius: 5px; }
+table.t.fg thead th[data-c] { cursor: pointer; }
+.fg-bar { display: flex; gap: 10px; align-items: center; margin: 2px 0 4px; color: var(--ink2); } .fg-bar a { cursor: pointer; }
+/* Working capital: filter bar + checklist */
+.wc-filt { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; }
+.wc-filt select { max-width: 320px; }
+.wc-chip { padding: 2px 9px; border-radius: 999px; background: var(--accent-bg); font-size: .75rem; }

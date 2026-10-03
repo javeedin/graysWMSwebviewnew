@@ -257,6 +257,25 @@ namespace WMSApp
                             AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_wc_detail", Outcome = "OK", Target = kind ?? "", Detail = party ?? "" });
                             break;
                         }
+                    case "finWcItems":          // item master + DFF columns of the stock organisations → fin_items
+                    case "finWcItemDff":        // item DFF labels → fin_item_dff
+                    case "finWcNames":          // business unit / organisation names for the kept snapshots
+                        {
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can load finance data." }; break; }
+                            var cts = FinNewCts(TimeSpan.FromMinutes(action == "finWcItems" ? 60 : 5));
+                            string pod = PipeSrvStr(root, "pod") ?? "";
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            if (action == "finWcItems")
+                            {
+                                var io = JsonSerializer.Deserialize<FinanceWorkingCapital.ItemOptions>(root.TryGetProperty("options", out var oe2) ? oe2.GetRawText() : "{}", new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new FinanceWorkingCapital.ItemOptions();
+                                io.Pod = pod;
+                                data = await Task.Run(() => FinanceWorkingCapital.ItemsAsync(FinRunner(pod), io, FinProgress(wv, requestId), cts.Token));
+                            }
+                            else if (action == "finWcItemDff") data = await Task.Run(() => FinanceWorkingCapital.ItemDffAsync(FinRunner(pod), pod, cts.Token));
+                            else data = await Task.Run(() => FinanceWorkingCapital.NamesSyncAsync(FinRunner(pod), pod, cts.Token));
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = action == "finWcItems" ? "fin_wc_items" : action == "finWcItemDff" ? "fin_wc_item_dff" : "fin_wc_names", Outcome = "OK", DurationMs = sw.ElapsedMilliseconds, Target = pod });
+                            break;
+                        }
                     case "finWcDefaults":
                         data = new { ok = true, ar = FinanceWorkingCapital.AR_DEFAULT, ap = FinanceWorkingCapital.AP_DEFAULT, inv = FinanceWorkingCapital.INV_DEFAULT };
                         break;

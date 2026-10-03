@@ -582,6 +582,71 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
         internal const string WC_PARTIES_TABLE = "CREATE TABLE IF NOT EXISTS fin_wc_parties (pod VARCHAR, kind VARCHAR, snapshot_at TIMESTAMP, bu_id VARCHAR, party_number VARCHAR, party_name VARCHAR, currency VARCHAR, bucket VARCHAR, items BIGINT, amount DOUBLE, amount_entered DOUBLE, oldest_due VARCHAR, on_hold BIGINT)";
         internal const string WC_STOCK_TABLE = "CREATE TABLE IF NOT EXISTS fin_wc_stock (pod VARCHAR, snapshot_at TIMESTAMP, org_id VARCHAR, org_code VARCHAR, item_number VARCHAR, description VARCHAR, subinventory VARCHAR, uom VARCHAR, quantity DOUBLE, unit_cost DOUBLE, value DOUBLE, oldest_receipt VARCHAR, age_days BIGINT)";
         internal const string WC_SNAP_TABLE = "CREATE TABLE IF NOT EXISTS fin_wc_snapshots (pod VARCHAR, kind VARCHAR, snapshot_at TIMESTAMP, rows BIGINT, total DOUBLE, ms BIGINT, capped BOOLEAN, note VARCHAR)";
+        internal const string WC_NAMES_TABLE = "CREATE TABLE IF NOT EXISTS fin_wc_names (pod VARCHAR, kind VARCHAR, id VARCHAR, name VARCHAR, read_at TIMESTAMP)";
+        internal const string ITEMS_TABLE = "CREATE TABLE IF NOT EXISTS fin_items (pod VARCHAR, org_id VARCHAR, item_id BIGINT, item_number VARCHAR, description VARCHAR, uom VARCHAR, item_type VARCHAR, status VARCHAR, list_price DOUBLE, " +
+            "attribute_category VARCHAR, attribute1 VARCHAR, attribute2 VARCHAR, attribute3 VARCHAR, attribute4 VARCHAR, attribute5 VARCHAR, attribute6 VARCHAR, attribute7 VARCHAR, attribute8 VARCHAR, attribute9 VARCHAR, attribute10 VARCHAR, attribute11 VARCHAR, attribute12 VARCHAR, attribute13 VARCHAR, attribute14 VARCHAR, attribute15 VARCHAR, attribute16 VARCHAR, attribute17 VARCHAR, attribute18 VARCHAR, attribute19 VARCHAR, attribute20 VARCHAR, attribute21 VARCHAR, attribute22 VARCHAR, attribute23 VARCHAR, attribute24 VARCHAR, attribute25 VARCHAR, attribute26 VARCHAR, attribute27 VARCHAR, attribute28 VARCHAR, attribute29 VARCHAR, attribute30 VARCHAR, attribute_number1 DOUBLE, attribute_number2 DOUBLE, attribute_number3 DOUBLE, attribute_number4 DOUBLE, attribute_number5 DOUBLE, attribute_number6 DOUBLE, attribute_number7 DOUBLE, attribute_number8 DOUBLE, attribute_number9 DOUBLE, attribute_number10 DOUBLE, attribute_date1 VARCHAR, attribute_date2 VARCHAR, attribute_date3 VARCHAR, attribute_date4 VARCHAR, attribute_date5 VARCHAR, read_at TIMESTAMP)";
+        internal const string ITEM_DFF_TABLE = "CREATE TABLE IF NOT EXISTS fin_item_dff (pod VARCHAR, flex_code VARCHAR, context_code VARCHAR, column_name VARCHAR, label VARCHAR, read_at TIMESTAMP)";
+
+        /// <summary>id → name of business units (BU) or inventory organisations (ORG) kept on this PC.</summary>
+        public static Dictionary<string, string> WcNames(string pod, string kind)
+        {
+            var d = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (!File.Exists(DbPath)) return d;
+            var t = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_wc_names'", 1);
+            if (t.Error != null || t.Rows.Count == 0 || Convert.ToInt64(t.Rows[0][0]) == 0) return d;
+            foreach (var r in Query("SELECT id, name FROM fin_wc_names WHERE pod = " + Lit(pod ?? "") + " AND kind = " + Lit(kind), 100000).Rows) d[Convert.ToString(r[0])] = Convert.ToString(r[1]);
+            return d;
+        }
+        public static void SaveWcNames(string pod, string kind, Dictionary<string, string> names)
+        {
+            if (names.Count == 0) return;
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, WC_NAMES_TABLE);
+                foreach (var ch in names.Keys.Chunk(500)) Exec(conn, "DELETE FROM fin_wc_names WHERE pod = " + Lit(pod ?? "") + " AND kind = " + Lit(kind) + " AND id IN (" + string.Join(",", ch.Select(Lit)) + ")");
+                var now = DateTime.Now;
+                Append(conn, "fin_wc_names", names.Select(kv => new object[] { pod ?? "", kind, kv.Key, kv.Value, now }).ToList());
+                Exec(conn, "CHECKPOINT");
+            }
+        }
+        /// <summary>Replaces the items of one inventory organisation (rows as the Fusion runner returns them: column names upper case).</summary>
+        public static void SaveItems(string pod, string orgId, List<Dictionary<string, object>> rows)
+        {
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, ITEMS_TABLE);
+                Exec(conn, "DELETE FROM fin_items WHERE pod = " + Lit(pod ?? "") + " AND org_id = " + Lit(orgId));
+                var now = DateTime.Now;
+                string Sv(Dictionary<string, object> r, string k) { var v = r.TryGetValue(k, out var x) ? x : null; var sv = v == null ? null : Convert.ToString(v, CultureInfo.InvariantCulture); return string.IsNullOrEmpty(sv) ? null : sv; }
+                object Dv(Dictionary<string, object> r, string k) => double.TryParse(Sv(r, k), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : null;
+                Append(conn, "fin_items", rows.Select(r =>
+                {
+                    var a = new List<object> { pod ?? "", orgId, long.TryParse(Sv(r, "INVENTORY_ITEM_ID"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) ? id : null, Sv(r, "ITEM_NUMBER"), Sv(r, "DESCRIPTION"),
+                                                Sv(r, "PRIMARY_UOM_CODE"), Sv(r, "ITEM_TYPE"), Sv(r, "INVENTORY_ITEM_STATUS_CODE"), Dv(r, "LIST_PRICE_PER_UNIT"), Sv(r, "ATTRIBUTE_CATEGORY") };
+                    for (int i = 1; i <= 30; i++) a.Add(Sv(r, "ATTRIBUTE" + i));
+                    for (int i = 1; i <= 10; i++) a.Add(Dv(r, "ATTRIBUTE_NUMBER" + i));
+                    for (int i = 1; i <= 5; i++) a.Add(Sv(r, "ATTRIBUTE_DATE" + i));
+                    a.Add(now);
+                    return a.ToArray();
+                }).ToList());
+                Exec(conn, "CHECKPOINT");
+            }
+        }
+        public static void SaveItemDff(string pod, IEnumerable<(string Flex, string Ctx, string Col, string Label)> labels)
+        {
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, ITEM_DFF_TABLE);
+                Exec(conn, "DELETE FROM fin_item_dff WHERE pod = " + Lit(pod ?? ""));
+                var now = DateTime.Now;
+                Append(conn, "fin_item_dff", labels.Select(l => new object[] { pod ?? "", l.Flex, l.Ctx, (l.Col ?? "").ToUpperInvariant(), l.Label, now }).ToList());
+                Exec(conn, "CHECKPOINT");
+            }
+        }
+
         /// <summary>Saves one snapshot of a kind (AR | AP | INV) — rows already shaped as the table's columns after pod / kind / snapshot_at;
         /// keeps the last <paramref name="keep"/> snapshots of that kind for the trend.</summary>
         public static void SaveWc(string pod, string kind, DateTime at, List<object[]> rows, double total, long ms, bool capped, string note, int keep = 36)
@@ -845,10 +910,11 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             {
                 Exec(conn, SEGVAL_TABLE); Exec(conn, TB_TABLE); Exec(conn, RAW_SYNC_TABLE); Exec(conn, CCID_TABLE); Exec(conn, ACCT_SYNC_TABLE); Exec(conn, TBP_TABLE); Exec(conn, TBL_TABLE);
                 Exec(conn, WC_PARTIES_TABLE); Exec(conn, WC_STOCK_TABLE); Exec(conn, WC_SNAP_TABLE); Exec(conn, EXT_TABLE); Exec(conn, EXT_SYNC_TABLE);
+                Exec(conn, WC_NAMES_TABLE); Exec(conn, ITEMS_TABLE); Exec(conn, ITEM_DFF_TABLE);
                 Exec(conn, "ATTACH " + Lit(DbPath.Replace('\\', '/')) + " AS prev (READ_ONLY)");
                 try
                 {
-                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances", "fin_gl_balances_acct_sync", "fin_gl_balances_acct", "fin_tb_periods", "fin_tb_ledgers", "fin_wc_parties", "fin_wc_stock", "fin_wc_snapshots", "fin_gl_balances_ext", "fin_gl_balances_ext_sync" })
+                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances", "fin_gl_balances_acct_sync", "fin_gl_balances_acct", "fin_tb_periods", "fin_tb_ledgers", "fin_wc_parties", "fin_wc_stock", "fin_wc_snapshots", "fin_gl_balances_ext", "fin_gl_balances_ext_sync", "fin_wc_names", "fin_items", "fin_item_dff" })
                     {
                         using var c = conn.CreateCommand();
                         c.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog = 'prev' AND table_name = '" + t + "'";
