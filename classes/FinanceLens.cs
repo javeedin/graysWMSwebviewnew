@@ -549,7 +549,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                        "COALESCE(e.begin_balance_dr, 0) - COALESCE(e.begin_balance_cr, 0) AS opening, COALESCE(e.period_net_dr, 0) AS dr, COALESCE(e.period_net_cr, 0) AS cr, " +
                        "COALESCE(e.begin_balance_dr, 0) - COALESCE(e.begin_balance_cr, 0) + COALESCE(e.period_net_dr, 0) - COALESCE(e.period_net_cr, 0) AS closing, e.fetched_at " +
                        "FROM fin_gl_balances_ext e LEFT JOIN (SELECT DISTINCT pod, ledger_id, period_name, period_seq, adj FROM fin_tb_periods) t ON t.pod = e.pod AND t.ledger_id = e.ledger_id AND t.period_name = e.period_name " +
-                       "WHERE COALESCE(e.translated_flag, '') <> 'R'");
+                       "WHERE COALESCE(e.translated_flag, '') <> 'R' AND e.account IS NOT NULL");
         }
 
         /// <summary>period → company → (segments read, rows, when) of one ledger kept on this PC.</summary>
@@ -584,6 +584,8 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 var now = DateTime.Now;
                 string Sv(Dictionary<string, object> row, string k) { if (k == null) return null; var v = row.TryGetValue(k.ToUpperInvariant(), out var x) ? x : row.TryGetValue(k, out x) ? x : null; var sv = v == null ? null : Convert.ToString(v, CultureInfo.InvariantCulture); return string.IsNullOrEmpty(sv) ? null : sv; }
                 object Dv(Dictionary<string, object> row, string k) => double.TryParse(Sv(row, k), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : null;
+                // a row without an account and without amounts is not a balance (an empty runner answer read as a row) - never kept
+                rows = rows.Where(row => Sv(row, accountCol) != null || new[] { "BEGIN_BALANCE_DR", "BEGIN_BALANCE_CR", "PERIOD_NET_DR", "PERIOD_NET_CR" }.Any(k => Sv(row, k) != null)).ToList();
                 Append(conn, "fin_gl_balances_ext", rows.Select(row =>
                 {
                     var a = new List<object> { pod ?? "", ledgerId, period, currency, Sv(row, "TRANSLATED_FLAG"), Sv(row, companyCol) ?? company, Sv(row, accountCol), Sv(row, "ACCOUNT_TYPE") };
