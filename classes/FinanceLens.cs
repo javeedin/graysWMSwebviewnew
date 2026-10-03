@@ -443,6 +443,14 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
         }
 
         /// <summary>Replaces one ledger × period × grain (all companies, or the companies given) of fin_gl_balances_acct with the rows read.</summary>
+        /// <summary>company IN (…) that also matches a code kept with / without its leading zeros ("1" and "01" — lists read before the zeros were kept).</summary>
+        internal static string CoMatch(string col, IEnumerable<string> vals)
+        {
+            var v = vals.Where(x => x != null).Distinct().ToList();
+            var digits = v.Where(x => x.Length > 0 && x.All(char.IsDigit)).Select(x => x.TrimStart('0')).Distinct().ToList();
+            return "(" + col + " IN (" + string.Join(",", v.Select(Lit)) + ")" +
+                   (digits.Count > 0 ? " OR (regexp_full_match(" + col + ", '[0-9]+') AND ltrim(" + col + ", '0') IN (" + string.Join(",", digits.Select(Lit)) + "))" : "") + ")";
+        }
         public static void SaveAcct(string pod, long ledgerId, string period, string currency, string grain, List<string> companies, List<(string Col, string Type)> cols, List<Dictionary<string, object>> rows, long ms)
         {
             lock (_lock)
@@ -464,12 +472,12 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 {   // the period was read for every company before: keep the other companies covered, one sync row each, then drop the '*' row
                     string ws = w + " AND currency = " + Lit(currency);
                     Exec(conn, "INSERT INTO fin_gl_balances_acct_sync SELECT s.pod, s.ledger_id, s.period_name, s.currency, s.grain, a.company, a.n, s.ms, s.fetched_at FROM fin_gl_balances_acct_sync s " +
-                               "JOIN (SELECT company, COUNT(*) n FROM fin_gl_balances_acct WHERE " + w + " AND currency_code = " + Lit(currency) + " AND company IS NOT NULL AND company NOT" + coIn + " GROUP BY company) a ON TRUE " +
+                               "JOIN (SELECT company, COUNT(*) n FROM fin_gl_balances_acct WHERE " + w + " AND currency_code = " + Lit(currency) + " AND company IS NOT NULL AND NOT " + CoMatch("company", companies) + " GROUP BY company) a ON TRUE " +
                                "WHERE s.pod = " + Lit(pod ?? "") + " AND s.ledger_id = " + ledgerId + " AND s.period_name = " + Lit(period) + " AND s.grain = " + Lit(grain) + " AND s.currency = " + Lit(currency) + " AND s.company = '*'");
                     Exec(conn, "DELETE FROM fin_gl_balances_acct_sync WHERE " + ws + " AND company = '*'");
                 }
-                Exec(conn, "DELETE FROM fin_gl_balances_acct WHERE " + w + " AND currency_code = " + Lit(currency) + (companies == null ? "" : " AND company" + coIn));
-                Exec(conn, "DELETE FROM fin_gl_balances_acct_sync WHERE " + w + " AND currency = " + Lit(currency) + (companies == null ? "" : " AND company" + coIn));
+                Exec(conn, "DELETE FROM fin_gl_balances_acct WHERE " + w + " AND currency_code = " + Lit(currency) + (companies == null ? "" : " AND " + CoMatch("company", companies)));
+                Exec(conn, "DELETE FROM fin_gl_balances_acct_sync WHERE " + w + " AND currency = " + Lit(currency) + (companies == null ? "" : " AND " + CoMatch("company", companies)));
                 var now = DateTime.Now;
                 object Val(Dictionary<string, object> row, string name, string type)
                 {
@@ -543,7 +551,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             {
                 using var conn = OpenWrite();
                 Exec(conn, EXT_TABLE); Exec(conn, EXT_SYNC_TABLE);
-                string w = " WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND period_name = " + Lit(period) + " AND company = " + Lit(company);
+                string w = " WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND period_name = " + Lit(period) + " AND " + CoMatch("company", new[] { company });
                 Exec(conn, "DELETE FROM fin_gl_balances_ext" + w + " AND currency_code = " + Lit(currency));
                 Exec(conn, "DELETE FROM fin_gl_balances_ext_sync" + w + " AND currency = " + Lit(currency));
                 var now = DateTime.Now;

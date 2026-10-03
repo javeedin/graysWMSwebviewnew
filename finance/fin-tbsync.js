@@ -56,8 +56,16 @@
         var l = T.ledgerObj(), led = l ? FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)) : {};
         var sq = function (v) { return String(v == null ? '' : v).replace(/'/g, "''"); };
         return q.replace(/\{LEDGER_ID\}/g, l ? l.id : '').replace(/\{PERIOD\}/g, sq(period)).replace(/\{CURRENCY\}/g, sq(l && l.currency))
-            .replace(/\{COMPANY_FILTER\}/g, company ? ' AND c.' + led.company + " = '" + sq(company) + "'" : '')
+            .replace(/\{COMPANY_FILTER\}/g, company ? ' AND ' + T.codeFilter('c.' + led.company, [company]) : '')
             .replace(/\{COMPANY_SEGMENT\}/g, led.company || '').replace(/\{ACCOUNT_SEGMENT\}/g, led.account || '').replace(/\{COST_CENTRE_SEGMENT\}/g, led.costCentre || led.account || '');
+    };
+    /** Same as the host's CodeFilter: plain digits also match the code written with leading zeros (a company list read before the fix says '1' for '01') */
+    T.codeFilter = function (col, vals) {
+        var lit = function (v) { return "'" + String(v == null ? '' : v).replace(/'/g, "''") + "'"; }, list = function (a) { return a.length === 1 ? ' = ' + lit(a[0]) : ' IN (' + a.map(lit).join(', ') + ')'; };
+        var loose = vals.filter(function (v) { return /^[1-9][0-9]*$/.test(String(v)); }), exact = vals.filter(function (v) { return !/^[1-9][0-9]*$/.test(String(v)); }), parts = [];
+        if (exact.length) parts.push(col + list(exact));
+        if (loose.length) { parts.push(col + list(loose)); parts.push('LTRIM(' + col + ", '0')" + list(loose)); }
+        return parts.length === 1 ? parts[0] : '(' + parts.join(' OR ') + ')';
     };
     /** </> The SQL a Sync runs for one period: pick the company, see the exact statement, ▶ Test it in Fusion; for the trial balance also edit the query (kept on this PC) */
     T.sqlDialog = function (seq, kind) {
@@ -376,6 +384,8 @@
             (L.fold ? ' · adjustment periods folded' : '') + ' · ' + L.par + ' in parallel' + (L.opt.perCompany ? ' · one query per company' : '') + (L.query ? ' · your own query' : '');
     };
     /** The companies a period must hold to count as synced */
+    /** company key that survives lost leading zeros ("01" and "1" are the same company) */
+    T.ck = function (v) { v = String(v == null ? '' : v); return /^[0-9]+$/.test(v) ? (v.replace(/^0+/, '') || '0') : v; };
     T.want = function () { var l = T.ledgerObj(); return L.cos.length ? L.cos : (l && l.companies || []).map(function (c) { return c.value; }); };
 
     // ── the year board: one tile per period — ✓ synced, n/m some companies, ✗ not synced, live while syncing ──
@@ -383,11 +393,12 @@
     T.tieSql = function (seq, detail) {
         var l = T.ledgerObj(); if (!l) return null;
         var pod = "'" + String(L.pod || '').replace(/'/g, "''") + "'", id = +l.id;
-        return "WITH tb AS (SELECT t.period_seq AS seq, a.company, a.account, SUM(COALESCE(a.begin_balance_dr, 0) - COALESCE(a.begin_balance_cr, 0)) AS b, SUM(COALESCE(a.period_net_dr, 0)) AS d, SUM(COALESCE(a.period_net_cr, 0)) AS c " +
+        var K = function (c) { return "CASE WHEN regexp_full_match(" + c + ", '[0-9]+') THEN ltrim(" + c + ", '0') ELSE " + c + " END"; };   // 01 = 1
+        return "WITH tb AS (SELECT t.period_seq AS seq, " + K('a.company') + " AS company, " + K('a.account') + " AS account, SUM(COALESCE(a.begin_balance_dr, 0) - COALESCE(a.begin_balance_cr, 0)) AS b, SUM(COALESCE(a.period_net_dr, 0)) AS d, SUM(COALESCE(a.period_net_cr, 0)) AS c " +
             "FROM fin_gl_balances_acct a JOIN (SELECT DISTINCT pod, ledger_id, period_name, period_seq FROM fin_tb_periods) t ON t.pod = a.pod AND t.ledger_id = a.ledger_id AND t.period_name = a.period_name " +
             "WHERE a.ledger_id = " + id + " AND COALESCE(a.pod, '') = " + pod + " AND COALESCE(a.translated_flag, '') <> 'R'" + (seq ? " AND t.period_seq = " + seq : '') +
             " AND a.grain = (SELECT MIN(a2.grain) FROM fin_gl_balances_acct a2 WHERE a2.pod = a.pod AND a2.ledger_id = a.ledger_id AND a2.period_name = a.period_name) GROUP BY 1, 2, 3), " +
-            "ex AS (SELECT period_seq AS seq, company, account, SUM(opening) AS b, SUM(dr) AS d, SUM(cr) AS c FROM fin_gl_ext_v WHERE ledger_id = " + id + " AND COALESCE(pod, '') = " + pod + (seq ? " AND period_seq = " + seq : '') + " GROUP BY 1, 2, 3), " +
+            "ex AS (SELECT period_seq AS seq, " + K('company') + " AS company, " + K('account') + " AS account, SUM(opening) AS b, SUM(dr) AS d, SUM(cr) AS c FROM fin_gl_ext_v WHERE ledger_id = " + id + " AND COALESCE(pod, '') = " + pod + (seq ? " AND period_seq = " + seq : '') + " GROUP BY 1, 2, 3), " +
             "exc AS (SELECT DISTINCT seq, company FROM ex), " +
             "bad AS (SELECT tb.seq, tb.company, tb.account, tb.b AS tb_opening, tb.d AS tb_dr, tb.c AS tb_cr, ex.b AS ext_opening, ex.d AS ext_dr, ex.c AS ext_cr FROM tb JOIN exc ON exc.seq = tb.seq AND exc.company = tb.company " +
             "LEFT JOIN ex ON ex.seq = tb.seq AND ex.company = tb.company AND ex.account = tb.account " +
@@ -408,7 +419,7 @@
             if ((x.pod || '') !== (L.pod || '') || String(x.ledgerId) !== String(l.id) || x.seq == null) return;
             var c = cells[x.seq] = cells[x.seq] || { names: {}, cos: {}, all: false, rows: 0, at: '', grains: {}, adj: [] };
             c.names[x.period] = 1; c.rows += +x.rows || 0; c.grains[x.grain] = 1; if (x.adj) c.adj.push(x.period);
-            if (x.companies === '*') c.all = true; else String(x.companies || '').split(',').forEach(function (v) { if (v) c.cos[v] = 1; });
+            if (x.companies === '*') c.all = true; else String(x.companies || '').split(',').forEach(function (v) { if (v) c.cos[T.ck(v)] = 1; });
             if (String(x.at) > c.at) c.at = String(x.at);
         });
         return cells;
@@ -418,7 +429,7 @@
         var c = cells[p.seq], lv = T.live && T.live.per[p.name];
         if (lv && (lv.state === 'running' || lv.state === 'queued' || lv.state === 'failed')) return lv.state;
         if (!c) return 'none';
-        var have = want.filter(function (v) { return c.all || c.cos[v]; }).length;
+        var have = want.filter(function (v) { return c.all || c.cos[T.ck(v)]; }).length;
         return c.all || !want.length || have >= want.length ? 'done' : 'part';
     };
     T.paintBoard = function () {
@@ -434,7 +445,7 @@
         var ICON = { done: '✓', part: '◐', none: '✗', queued: '⏳', running: '<span class="ts-spin">⟳</span>', failed: '⚠' };
         var tiles = ps.map(function (p) {
             var st = T.stateOf(p, cells, want), c = cells[p.seq], lv = T.live && T.live.per[p.name], future = p.start && p.start > today;
-            var have = c ? want.filter(function (v) { return c.all || c.cos[v]; }).length : 0;
+            var have = c ? want.filter(function (v) { return c.all || c.cos[T.ck(v)]; }).length : 0;
             var line = st === 'running' ? 'syncing · company ' + Math.min(lv.done + 1, lv.total) + ' of ' + lv.total
                 : st === 'queued' ? 'waiting' : st === 'failed' ? 'failed — ' + (lv.error || 'see Details')
                 : st === 'done' ? (c.rows || 0).toLocaleString() + ' rows · ' + String(c.at).slice(5, 16)
@@ -449,9 +460,14 @@
             return '<button data-vw="' + v[0] + '" class="' + (L.view === v[0] ? 'on' : '') + '"><i class="fa-solid ' + v[1] + '"></i> ' + v[2] + '</button>'; }).join('') + '</div>' +
             '<button class="btn sm ghost ts-opentb" title="Statements › Trial balance"><i class="fa-solid fa-arrow-right"></i> Open trial balance</button></div>';
         if (L.view === 'table') tiles = T.table(ps, cells, want, today);
+        if (L.disc && !L.disc.codeVersion && (l.companies || []).some(function (c) { return /^[1-9][0-9]*$/.test(String(c.value)); }))
+            tiles = '<div class="callout warn ts-recode"><b><i class="fa-solid fa-triangle-exclamation"></i> Company codes may have lost their leading zeros</b> — the company list was read before the app kept them ' +
+                '(Fusion <code>01</code> was saved as <code>1</code>). Syncs still match both, but run <b>Discover</b> again in Fusion setup so the codes are exact, then <b>Overwrite</b> the periods synced before. ' +
+                '<button class="btn sm primary" data-redisc><i class="fa-solid fa-magnifying-glass"></i> Fusion setup › Discover</button></div>' + tiles;
         views.forEach(function (x) {
             var box = $(x + '-board'); box.classList.toggle('ts-board-tbl', L.view === 'table'); box.innerHTML = vt + tiles;
             var card = box.closest('.ts-main'); if (card) card.classList.toggle('ts-tblmode', L.view === 'table');   // table: every action is on its row, the bulk bar is hidden
+            box.querySelectorAll('[data-redisc]').forEach(function (b) { b.onclick = function () { FL.dataTab.dataSetup(); }; });
             box.querySelectorAll('.ts-opentb').forEach(function (b) { b.onclick = function () { FL.stmt.tpl = 'TB'; FL.lsSet('stmt.tpl', 'TB'); FL.show('statements'); }; });
             box.querySelectorAll('[data-miss]').forEach(function (b) { b.onclick = function () { var q = b.dataset.q.split(',').map(Number); if (b.dataset.miss === 'tb') T.sync(q, false); else T.extSync(q, false); }; });
             box.querySelectorAll('[data-del]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); T.remove([+b.dataset.del]); }; });
@@ -480,7 +496,7 @@
         var pill = function (cls, ico, txt, tip) { return '<span class="ts-st ' + cls + '" title="' + esc(tip || '') + '">' + ico + ' ' + esc(txt) + '</span>'; };
         var rows = ps.map(function (p) {
             var c = cells[p.seq], future = p.start && p.start > today, st = T.stateOf(p, cells, want), lv = T.live && T.live.per[p.name];
-            var have = c ? want.filter(function (v) { return c.all || c.cos[v]; }).length : 0;
+            var have = c ? want.filter(function (v) { return c.all || c.cos[T.ck(v)]; }).length : 0;
             var tb = st === 'running' ? pill('run', '<i class="fa-solid fa-circle-notch fa-spin"></i>', 'syncing · company ' + Math.min(lv.done + 1, lv.total) + ' of ' + lv.total)
                 : st === 'queued' ? pill('run', '⏳', 'waiting') : st === 'failed' ? pill('bad', '⚠', 'failed', lv && lv.error)
                 : st === 'done' ? pill('ok', '✓', 'Yes · ' + (c.rows || 0).toLocaleString() + ' rows · ' + String(c.at).slice(5, 16), (c.all ? 'every company' : 'companies ' + Object.keys(c.cos).join(', ')) + (c.adj.length ? ' · + ' + c.adj.join(', ') : ''))
@@ -588,8 +604,8 @@
             ['… not zero (opening or movement)', "SELECT COUNT(*) n FROM gl_balances b WHERE " + base + " AND b.template_id IS NULL" + nz],
             ['… joined to their code combinations', "SELECT COUNT(*) n" + j + " AND b.template_id IS NULL" + nz],
             ['… detail combinations (summary_flag = N)', "SELECT COUNT(*) n" + j + " AND b.template_id IS NULL" + nz + " AND c.summary_flag = 'N'"],
-            ['… company ' + co + ' (' + led.company + ')', "SELECT COUNT(*) n" + j + " AND b.template_id IS NULL" + nz + " AND c." + led.company + " = " + lit(co)],
-            ['… of which translated (R) rows', "SELECT COUNT(*) n" + j + " AND b.template_id IS NULL" + nz + " AND c." + led.company + " = " + lit(co) + " AND b.translated_flag = 'R'"],
+            ['… company ' + co + ' (' + led.company + ')', "SELECT COUNT(*) n" + j + " AND b.template_id IS NULL" + nz + " AND " + T.codeFilter('c.' + led.company, [co])],
+            ['… of which translated (R) rows', "SELECT COUNT(*) n" + j + " AND b.template_id IS NULL" + nz + " AND " + T.codeFilter('c.' + led.company, [co]) + " AND b.translated_flag = 'R'"],
             ['Rows of the query (grouped), without the optimizer hint', "SELECT COUNT(*) n FROM (" + sql.replace(/\/\*\+[^*]*\*\//, '') + ")"],
             ['Rows of the query exactly as the sync runs it', "SELECT COUNT(*) n FROM (" + sql + ")"]];
         box.innerHTML = '<table class="t ts-fun"><thead><tr><th>Step</th><th class="n">Rows</th><th class="n">Time</th><th></th></tr></thead><tbody>' + steps.map(function (st, i) {
@@ -781,7 +797,7 @@
             var q = x.seq != null ? +x.seq : seqOf[x.period]; if (q == null) return;
             var c = cells[q] = cells[q] || { cos: {}, rows: 0, at: '' };
             var segs = String(x.segments || '').split(',');
-            c.cos[x.company] = c.cos[x.company] ? c.cos[x.company].filter(function (g) { return segs.indexOf(g) >= 0; }) : segs;   // adjustment periods too: what every part has
+            var kc = T.ck(x.company); c.cos[kc] = c.cos[kc] ? c.cos[kc].filter(function (g) { return segs.indexOf(g) >= 0; }) : segs;   // adjustment periods too: what every part has
             c.rows += +x.rows || 0; if (String(x.at) > c.at) c.at = String(x.at);
         });
         return cells;
@@ -790,7 +806,7 @@
         var ext = T.extCols(), c = T.extCells()[seq]; if (!ext.length || !c) return 'none';
         var l = T.ledgerObj(), led = l ? FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)) : {}, need = [led.company, led.account].concat(ext);
         var cos = want.length ? want : Object.keys(c.cos);
-        var ok = cos.filter(function (co) { var g = c.cos[co]; return g && need.every(function (n) { return !n || g.indexOf(n) >= 0; }); }).length;
+        var ok = cos.filter(function (co) { var g = c.cos[T.ck(co)]; return g && need.every(function (n) { return !n || g.indexOf(n) >= 0; }); }).length;
         return ok >= cos.length ? 'done' : ok ? 'part' : 'none';
     };
     T.extBadge = function (p, want) {

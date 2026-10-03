@@ -38,6 +38,25 @@ namespace WMSApp
         private const int MIN_CHUNK = 250;
 
         // ───────────────────────── small helpers ─────────────────────────
+        /// <summary>A code read before leading zeros were kept ("1" for "01") still matches: digits compare without their leading zeros.</summary>
+        public static bool SameCode(string a, string b) =>
+            string.Equals(a, b, StringComparison.Ordinal) || (a != null && b != null && a.Length > 0 && b.Length > 0 && a.All(char.IsDigit) && b.All(char.IsDigit) && a.TrimStart('0') == b.TrimStart('0'));
+        /// <summary>SQL filter on a segment column for these values; a value of plain digits also matches the same number written with leading zeros
+        /// (a company / account list read before leading zeros were kept says '1' where Fusion holds '01').</summary>
+        public static string CodeFilter(string col, IList<string> vals)
+        {
+            string Lit(string v) => "'" + (v ?? "").Replace("'", "''") + "'";
+            var exact = vals.Where(v => !Regex.IsMatch(v ?? "", "^[1-9][0-9]*$")).ToList();
+            var loose = vals.Where(v => Regex.IsMatch(v ?? "", "^[1-9][0-9]*$")).ToList();
+            var parts = new List<string>();
+            if (exact.Count == 1) parts.Add(col + " = " + Lit(exact[0])); else if (exact.Count > 1) parts.Add(col + " IN (" + string.Join(", ", exact.Select(Lit)) + ")");
+            if (loose.Count > 0)
+            {
+                parts.Add(loose.Count == 1 ? col + " = " + Lit(loose[0]) : col + " IN (" + string.Join(", ", loose.Select(Lit)) + ")");
+                parts.Add(loose.Count == 1 ? "LTRIM(" + col + ", '0') = " + Lit(loose[0]) : "LTRIM(" + col + ", '0') IN (" + string.Join(", ", loose.Select(Lit)) + ")");
+            }
+            return parts.Count == 1 ? parts[0] : "(" + string.Join(" OR ", parts) + ")";
+        }
         private static string Short(string e) => e == null ? "" : e.Length > 300 ? e.Substring(0, 300) + "…" : e;
         private static string S(Dictionary<string, object> r, string k)
         {
@@ -198,6 +217,8 @@ namespace WMSApp
         public sealed class Discovery
         {
             public bool Ok { get; set; } = true;
+            /// <summary>2 = codes read with their leading zeros ("01"); a saved discovery without it may hold "1" for "01" — Discover again.</summary>
+            public int CodeVersion { get; set; } = 2;
             public string Error { get; set; }
             public List<Ledger> Ledgers { get; set; } = new();
             public Dictionary<string, Coa> Coas { get; set; } = new();
@@ -1489,7 +1510,7 @@ namespace WMSApp
             string Lit(string v) => "'" + (v ?? "").Replace("'", "''") + "'";
             string Fill(string period, List<string> companies) => res.Template
                 .Replace("{LEDGER_ID}", led.Id.ToString(CultureInfo.InvariantCulture)).Replace("{PERIOD}", period.Replace("'", "''")).Replace("{CURRENCY}", (led.Currency ?? "").Replace("'", "''"))
-                .Replace("{COMPANY_FILTER}", companies == null ? "" : companies.Count == 1 ? " AND c." + led.Company + " = " + Lit(companies[0]) : " AND c." + led.Company + " IN (" + string.Join(", ", companies.Select(Lit)) + ")")
+                .Replace("{COMPANY_FILTER}", companies == null ? "" : " AND " + CodeFilter("c." + led.Company, companies))
                 .Replace("{COMPANY_SEGMENT}", led.Company).Replace("{ACCOUNT_SEGMENT}", led.Account).Replace("{COST_CENTRE_SEGMENT}", led.CostCentre ?? led.Account);
             string grain = byCc ? "CO,AC,CC" : "CO,AC";
             var all = (o.AllCompanies ?? new()).Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToList();
@@ -1533,7 +1554,7 @@ namespace WMSApp
                     {   // the query has no {COMPANY_FILTER} (e.g. a company written into it): keep only the companies this read is for
                         var want1 = new HashSet<string>(companies, StringComparer.Ordinal);
                         int before = r.Rows.Count;
-                        r.Rows = r.Rows.Where(z => want1.Contains(Convert.ToString(z.TryGetValue("COMPANY", out var cv) ? cv : null, CultureInfo.InvariantCulture) ?? "")).ToList();
+                        r.Rows = r.Rows.Where(z => { var cz = Convert.ToString(z.TryGetValue("COMPANY", out var cv) ? cv : null, CultureInfo.InvariantCulture) ?? ""; return want1.Contains(cz) || want1.Any(w => SameCode(w, cz)); }).ToList();
                         if (r.Rows.Count < before) x.Note("   ⚠ " + label + ": the query has no {COMPANY_FILTER} - " + (before - r.Rows.Count) + " row(s) of other companies left out");
                     }
                     if (r.Rows.Count >= CAP) { r.Success = false; r.Error = label + ": more than " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows - tick fewer companies or turn off by cost centre"; }
@@ -1729,7 +1750,7 @@ namespace WMSApp
                     lock (acctLock)
                     {
                         tbRows ??= FinanceLens.LoadAcct(o.Pod, led.Id, led.Currency, "CO,AC", names).Concat(FinanceLens.LoadAcct(o.Pod, led.Id, led.Currency, "CO,AC,CC", names)).ToList();
-                        var mine = tbRows.Where(r => r.Co == co).ToList();
+                        var mine = tbRows.Where(r => SameCode(r.Co, co)).ToList();
                         var per = mine.Where(r => r.Period == period).Select(r => r.Ac).Distinct().OrderBy(a => a, StringComparer.Ordinal).ToList();
                         if (per.Count > 0) return per;
                         if (mine.Count > 0) return mine.Select(r => r.Ac).Distinct().OrderBy(a => a, StringComparer.Ordinal).ToList();
@@ -1737,7 +1758,7 @@ namespace WMSApp
                         if (acctNames.Count > 0) return acctNames.Keys.OrderBy(a => a, StringComparer.Ordinal).ToList();
                     }
                     // nothing on this PC: ask Fusion for the company's account values (detail combinations only)
-                    var q = "SELECT DISTINCT c." + led.Account + " a FROM gl_code_combinations c WHERE c.chart_of_accounts_id = " + Lit(led.CoaId) + " AND c." + led.Company + " = " + Lit(co) +
+                    var q = "SELECT DISTINCT c." + led.Account + " a FROM gl_code_combinations c WHERE c.chart_of_accounts_id = " + Lit(led.CoaId) +  " AND " + CodeFilter("c." + led.Company, new[] { co }) +
                             (x.Has("GL_CODE_COMBINATIONS", "SUMMARY_FLAG") ? " AND c.summary_flag = 'N'" : "");
                     var r = await RunLive(x, led.Name + " · " + period + " · extended · company " + co + " · account list", q, 50000).ConfigureAwait(false);
                     if (!r.Success) throw new InvalidOperationException("account list of company " + co + ": " + Short(r.Error));
@@ -1772,19 +1793,21 @@ namespace WMSApp
                 }
                 // tie-out: the extended rows of a period × company must add up, per account, to the trial balance already on this PC
                 string ExtTf(Dictionary<string, object> r) => S(r, "TRANSLATED_FLAG");
+                string K(string a) => a != null && a.Length > 0 && a.All(char.IsDigit) ? a.TrimStart('0') : a ?? "";   // account key that survives lost leading zeros
                 List<string> Mismatch(string period, string co, List<Dictionary<string, object>> got, out int tbAccounts)
                 {
                     List<AcctRow> mine;
                     lock (acctLock)
                     {
                         tbRows ??= FinanceLens.LoadAcct(o.Pod, led.Id, led.Currency, "CO,AC", names).Concat(FinanceLens.LoadAcct(o.Pod, led.Id, led.Currency, "CO,AC,CC", names)).ToList();
-                        mine = tbRows.Where(r => r.Co == co && r.Period == period && r.Tf != "R").ToList();
+                        mine = tbRows.Where(r => SameCode(r.Co, co) && r.Period == period && r.Tf != "R").ToList();
                     }
                     var grain = mine.Where(r => r.Cc == null).ToList(); if (grain.Count == 0) grain = mine;   // company × account, else the cost-centre grain summed
                     var tb = grain.GroupBy(r => r.Ac).ToDictionary(g => g.Key, g => (B: g.Sum(r => r.Bdr - r.Bcr), D: g.Sum(r => r.Ndr), C: g.Sum(r => r.Ncr)));
                     tbAccounts = tb.Count;
                     if (tb.Count == 0) return new List<string>();
-                    var ex = got.Where(r => ExtTf(r) != "R").GroupBy(r => S(r, led.Account) ?? "").ToDictionary(g => g.Key, g => (B: g.Sum(r => D(r, "BEGIN_BALANCE_DR") - D(r, "BEGIN_BALANCE_CR")), D: g.Sum(r => D(r, "PERIOD_NET_DR")), C: g.Sum(r => D(r, "PERIOD_NET_CR"))));
+                    tb = tb.GroupBy(kv => K(kv.Key)).ToDictionary(g => g.Key, g => (B: g.Sum(z => z.Value.B), D: g.Sum(z => z.Value.D), C: g.Sum(z => z.Value.C)));
+                    var ex = got.Where(r => ExtTf(r) != "R").GroupBy(r => K(S(r, led.Account))).ToDictionary(g => g.Key, g => (B: g.Sum(r => D(r, "BEGIN_BALANCE_DR") - D(r, "BEGIN_BALANCE_CR")), D: g.Sum(r => D(r, "PERIOD_NET_DR")), C: g.Sum(r => D(r, "PERIOD_NET_CR"))));
                     bool Near(double a, double b) => Math.Abs(a - b) <= 0.5 + Math.Abs(b) * 1e-9;
                     return tb.Where(kv => !(ex.TryGetValue(kv.Key, out var e) && Near(e.B, kv.Value.B) && Near(e.D, kv.Value.D) && Near(e.C, kv.Value.C))
                                           && !(Math.Abs(kv.Value.B) < 0.005 && Math.Abs(kv.Value.D) < 0.005 && Math.Abs(kv.Value.C) < 0.005))
@@ -1823,7 +1846,7 @@ namespace WMSApp
                             x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "split", why = bad.Count + " account(s) differ from the trial balance" });
                             var badSet = new HashSet<string>(bad, StringComparer.Ordinal);
                             var again = await ByAccount(j.Period, j.Co, bad).ConfigureAwait(false);
-                            got = got.Where(r => !badSet.Contains(S(r, led.Account) ?? "")).Concat(again).ToList();
+                            got = got.Where(r => !badSet.Contains(K(S(r, led.Account)))).Concat(again).ToList();
                             reread = bad.Count;
                             bad = Mismatch(j.Period, j.Co, got, out tbAcc);
                         }
@@ -1896,8 +1919,8 @@ namespace WMSApp
                 ", MAX(c.account_type) account_type, SUM(b.begin_balance_dr) begin_balance_dr, SUM(b.begin_balance_cr) begin_balance_cr, SUM(b.period_net_dr) period_net_dr, SUM(b.period_net_cr) period_net_cr" +
                 "\nFROM gl_balances b JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id" +
                 "\nWHERE b.ledger_id = " + led.Id.ToString(CultureInfo.InvariantCulture) + " AND b.period_name = " + Lit(period) + " AND b.currency_code = " + Lit(led.Currency) + " AND b.actual_flag = 'A'" +
-                DefaultFilters(o, have) + (o.SkipZero && (have.Count == 0 || have.Contains("TEMPLATE_ID")) ? "" : " AND c.summary_flag = 'N'") + " AND c." + led.Company + " = " + Lit(co) +
-                (accts == null || accts.Count == 0 ? "" : accts.Count == 1 ? " AND c." + led.Account + " = " + Lit(accts[0]) : " AND c." + led.Account + " IN (" + string.Join(", ", accts.Select(Lit)) + ")") +
+                DefaultFilters(o, have) + (o.SkipZero && (have.Count == 0 || have.Contains("TEMPLATE_ID")) ? "" : " AND c.summary_flag = 'N'") + " AND " + CodeFilter("c." + led.Company, new[] { co }) +
+                (accts == null || accts.Count == 0 ? "" : " AND " + CodeFilter("c." + led.Account, accts)) +
                 "\nGROUP BY b.period_name" + (tf ? ", b.translated_flag" : "") + ", " + string.Join(", ", segs.Select(c => "c." + c));
         }
 

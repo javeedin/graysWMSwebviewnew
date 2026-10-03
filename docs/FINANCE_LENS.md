@@ -158,6 +158,7 @@ Data › Trial balance sync opens as a table (switch to Tiles at the top right).
 - The table has no bulk buttons any more: every action is on its row (Sync / Overwrite, </> SQL, 👁 data, 🗑 delete). The column headers have **Sync n missing** to fill every open period of the year at once. The Tiles view keeps tick-and-act buttons.
 - The extended query names its columns after the segments — `c.SEGMENT1 company, c.SEGMENT4 account, c.SEGMENT10 salesperson, c.SEGMENT15 item_profit_center` — so the SQL and its Test result read in your own words.
 - **Why so few rows?** in the SQL dialog counts the rows kept after each filter (ledger · period · currency, templates, zero rows, the join, summary combinations, the company, translated rows, the grouped query with and without the hint) and points at the step where they disappear. A query that finds nothing now simply shows **0 rows** — the long base64 text was only the runner echoing the query back.
+- **Company 01 read as 1.** Company lists discovered before leading zeros were kept say *1* where Fusion holds *01*, so a filter `c.SEGMENT1 = '1'` found nothing. Every filter and comparison now accepts both (`… OR LTRIM(c.SEGMENT1, '0') = '1'`), and the board asks you to run **Fusion setup › Discover** again; afterwards **Overwrite** the periods synced before so the stored codes are exact.
 
 ## Segment P&L (P&L, pivot and trial balance by extended segments)
 
