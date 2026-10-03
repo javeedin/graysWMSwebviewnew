@@ -162,6 +162,7 @@ namespace WMSApp
                     case "finFusionTb":         // trial balance of one ledger × period live from GL_BALANCES (read-only)
                         {
                             var to = root.GetProperty("options").Deserialize<FinanceFusion.TbOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            to.Pod = PipeSrvStr(root, "pod") ?? "";
                             var cts = FinNewCts(TimeSpan.FromMinutes(30));
                             var sw = System.Diagnostics.Stopwatch.StartNew();
                             data = await Task.Run(() => FinanceFusion.TrialBalanceAsync(FinRunner(PipeSrvStr(root, "pod")), to, FinProgress(wv, requestId), cts.Token));

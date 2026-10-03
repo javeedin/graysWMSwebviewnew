@@ -38,9 +38,11 @@
             '<label class="sm"><input type="checkbox" id="tl-cc"' + (L.byCc ? ' checked' : '') + '> by cost centre</label>' +
             '<label class="sm"><input type="checkbox" id="tl-fold"' + (L.fold ? ' checked' : '') + ' title="Adjustment periods (e.g. Adj-25) are added to the period they close"> fold adjustment periods</label>' +
             '<label class="sm" title="One query per period and company runs at a time per slot; a query that still times out is split by account ranges">Reads in parallel <select id="tl-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + (L.par === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>' +
+            '<label class="sm" title="This PC keeps the GL_BALANCES rows of every ledger and period it has read (DuckDB fin_gl_raw) and builds the trial balance from them. Tick to read the periods from Fusion again, e.g. after postings."><input type="checkbox" id="tl-ref"> read again from Fusion</label>' +
             '<button class="btn primary" id="tl-go"><i class="fa-solid fa-bolt"></i> Fetch from Fusion</button></div>' +
             '<div class="row" style="margin-top:6px"><span class="sm muted">Companies</span><div id="tl-cos" class="tl-cos"></div></div>' +
             '<div id="fu-prog"></div></div><div id="tl-res"></div>' +
+            '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-database"></i> GL balances kept on this PC <small>raw GL_BALANCES rows per ledger and period (DuckDB fin_gl_raw) — a trial balance reads Fusion only for periods missing here</small></h3><div id="tl-raw"></div></div>' +
             '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-box-archive"></i> Saved trial balances <small>open without asking Fusion</small></h3><div id="tl-saved"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div></div>';
         T.wireHead(el);
         FL.fusion.paint();
@@ -90,9 +92,10 @@
         if (!led.company || !led.account) { FL.toast('The company / account segment of chart ' + l.coaId + ' is not set — Data › Fusion setup', 'err'); return; }
         var p = FL.fusion.progress('Trial balance ' + l.name + ' · ' + FL.fusion.calOf(L.disc, l).filter(function (x) { return x.seq === L.seq; }).map(function (x) { return x.name; })[0] + '…', true);
         $('tl-go').disabled = true;
-        FL.call('finFusionTb', { pod: L.pod || '', options: { ledger: led, periodSeq: L.seq || 0, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, parallel: L.par, allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 30 * 60000, p).then(function (r) {
+        FL.call('finFusionTb', { pod: L.pod || '', options: { ledger: led, periodSeq: L.seq || 0, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, parallel: L.par, refresh: !!($('tl-ref') && $('tl-ref').checked), allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 30 * 60000, p).then(function (r) {
             FL.fusion.finish();
-            r.source = 'Fusion · read ' + new Date().toLocaleString(); r.pod = L.pod || ''; r.accountCol = led.account; r.companyCol = led.company; r.costCentreCol = led.costCentre;
+            r.source = (r.sources && r.sources.every(function (z) { return z.from === 'pc'; }) ? 'GL balances kept on this PC' : 'Fusion') + ' · built ' + new Date().toLocaleString();
+            T.listRaw(); r.pod = L.pod || ''; r.accountCol = led.account; r.companyCol = led.company; r.costCentreCol = led.costCentre;
             L.res = r;
             return T.fillNames(r).then(T.show);
         }).catch(function (e) { FL.fusion.finish(e && e.message || e); }).then(function () { if ($('tl-go')) $('tl-go').disabled = false; });
@@ -159,7 +162,7 @@
                 '<div class="row" style="margin:6px 0 10px"><span class="tag ' + (okMove ? 'good' : 'bad') + '">' + (okMove ? '✓ PTD debits = credits' : '✗ PTD debits ≠ credits: ' + f2(tot.ptdDr - tot.ptdCr)) + '</span>' +
                 (all ? '<span class="tag ' + (okBal ? 'good' : 'bad') + '">' + (okBal ? '✓ closing balances net to nil' : '✗ closing balances net to ' + f2(tot.closing)) + '</span>' : '') +
                 (cmp ? '<span class="tag ' + (tot.ndiff ? 'bad' : 'good') + '">' + (tot.ndiff ? '✗ ' + tot.ndiff + ' line(s) differ from this PC' : '✓ same as the data on this PC') + '</span>' : canCmp ? '' : (loaded ? '<span class="sm muted">this ledger / period is not loaded on this PC — no comparison</span>' : '')) +
-                '<span class="sm muted">' + r.rows.length.toLocaleString() + ' lines from Fusion' + (r.reads ? ' (' + r.reads + ' queries)' : '') + (r.ms ? ' in ' + (r.ms / 1000).toFixed(1) + ' s' : '') + ' · names: ' + esc(r.namesFrom || '') + '</span>' + (/^none/.test(r.namesFrom || '') && r.accountCol ? '<button class="btn sm" id="tl-names"><i class="fa-solid fa-tags"></i> Read the account names from Fusion</button>' : '') + '</div>' +
+                '<span class="sm muted">' + r.rows.length.toLocaleString() + ' lines' + (r.ms ? ' in ' + (r.ms / 1000).toFixed(1) + ' s' : '') + (r.sources ? ' · ' + r.sources.map(function (x) { return x.period + (x.from === 'pc' ? ' from this PC (read ' + x.at + ')' : ' read from Fusion now') + ', ' + (+x.rows).toLocaleString() + ' rows'; }).join(' · ') : '') + ' · names: ' + esc(r.namesFrom || '') + '</span>' + (/^none/.test(r.namesFrom || '') && r.accountCol ? '<button class="btn sm" id="tl-names"><i class="fa-solid fa-tags"></i> Read the account names from Fusion</button>' : '') + '</div>' +
                 '<div class="row toolbar" style="margin-bottom:8px"><input id="tl-q" placeholder="Search account, name, company" value="' + esc(L.q) + '" style="min-width:200px">' +
                 '<label class="sm">Show <select id="tl-view">' + [['account', 'by account (companies added up)'], ['line', 'every company × account']].map(function (x) { return '<option value="' + x[0] + '"' + (L.view === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>' +
                 '<label class="sm">Amounts <select id="tl-scale">' + [[1, 'units'], [1000, 'thousands'], [1000000, 'millions']].map(function (x) { return '<option value="' + x[0] + '"' + (L.scale === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>' +
@@ -250,6 +253,7 @@
     /** Saved trial balances: this PC's DuckDB (fin_tb_live) and APEX (WMS_FIN_TB_LIVE) */
     T.listSaved = function () {
         var box = $('tl-saved'); if (!box) return;
+        T.listRaw();
         var duck = FL.call('finQuery', { sql: "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_name = 'fin_tb_live'", maxRows: 1 }).then(function (d) {
             if (!d.rows.length || !d.rows[0][0]) return [];
             return FL.call('finQuery', { sql: 'SELECT pod, ledger, MAX(ledger_name), MAX(currency), period_seq, MAX(period_name), COUNT(*), CAST(MAX(fetched_at) AS VARCHAR), MAX(fetched_by) FROM fin_tb_live GROUP BY pod, ledger, period_seq ORDER BY MAX(fetched_at) DESC', maxRows: 200 })
@@ -264,6 +268,21 @@
             box.innerHTML = '<div class="scroll" style="max-height:260px">' + FL.table([{ label: 'Kept in', key: 'where' }, { label: 'Pod', get: function (x) { return x.pod || 'logged-in'; } }, { label: 'Ledger', get: function (x) { return x.name || x.code; } },
                 { label: 'Period', key: 'period' }, { label: 'Lines', n: 1, get: function (x) { return (+x.lines).toLocaleString(); } }, { label: 'Saved', get: function (x) { return x.at + (x.by ? ' · ' + x.by : ''); } }], list, { click: true }) + '</div>';
             FL.wireRows(box, list, T.openSaved);
+        });
+    };
+    T.listRaw = function () {
+        var box = $('tl-raw'); if (!box) return;
+        FL.call('finQuery', { sql: "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_name = 'fin_gl_raw_sync'", maxRows: 1 }).then(function (d) {
+            if (!d.rows.length || !d.rows[0][0]) return [];
+            return FL.call('finQuery', { sql: "SELECT s.pod, s.ledger_id, s.period_name, s.currency, s.rows_read, s.ms, CAST(s.fetched_at AS VARCHAR) FROM fin_gl_raw_sync s ORDER BY s.fetched_at DESC", maxRows: 500 }).then(function (q) { return q.rows; });
+        }).catch(function () { return []; }).then(function (rows) {
+            if (!$('tl-raw')) return;
+            var leds = {}; ((L.disc && L.disc.ledgers) || []).forEach(function (l) { leds[String(l.id)] = l.name; });
+            box.innerHTML = rows.length ? '<div class="scroll" style="max-height:220px">' + FL.table([{ label: 'Pod', get: function (x) { return x[0] || 'logged-in'; } }, { label: 'Ledger', get: function (x) { return leds[String(x[1])] || x[1]; } },
+                { label: 'Period', get: function (x) { return x[2]; } }, { label: 'Currency', get: function (x) { return x[3]; } }, { label: 'Rows', n: 1, get: function (x) { return (+x[4]).toLocaleString(); } },
+                { label: 'Read in', n: 1, get: function (x) { return ((+x[5] || 0) / 1000).toFixed(1) + ' s'; } }, { label: 'Read at', get: function (x) { return String(x[6] || '').slice(0, 16); } }], rows) + '</div>' +
+                '<p class="sm muted">Query them in Data › SQL explorer: <code>fin_gl_raw</code> joined to <code>fin_ccid</code> (segments of every code combination read so far).</p>'
+                : '<p class="sm muted">None yet — the first trial balance of a ledger and period reads its GL_BALANCES rows from Fusion and keeps them here.</p>';
         });
     };
     T.openSaved = function (x) {

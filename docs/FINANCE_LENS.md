@@ -160,10 +160,12 @@ for the accounts mapped to it.
 Statements › Trial balance › **Live from Fusion** (also before anything is loaded — the other statements need a load):
 pod, ledger, period, companies (all or some), optional cost centre, *Fetch from Fusion*. One read of `GL_BALANCES` (ledger
 currency, actuals, no translated / summary rows) joined only to `GL_CODE_COMBINATIONS`, grouped by company × account
-(× cost centre). On a big pod every query that filters GL_CODE_COMBINATIONS by a segment scans that table (minutes), so
-GL_BALANCES is read **on its own** — one period per query, pages of 5,000 code combinations, no join — and the segments of each
-combination come from a map kept on this PC (`ccid-cache\coa_{chart}.tsv`), looked up in Fusion by primary key only for
-combinations it has not seen before; the next trial balance needs no lookups at all. All shown in the live monitor: **opening, PTD debits / credits / net, QTD, YTD, closing** (QTD / YTD
+(× cost centre). The **raw GL_BALANCES rows** of each period it needs (the period, its adjustment period, the start of the quarter
+and of the year) are read **once** with the simplest query — ledger, period, currency, actual, non-zero; no ORDER BY, no join — and
+kept on this PC (DuckDB `fin_gl_raw`, listed under *GL balances kept on this PC*); after that the trial balance is built from this
+copy in a fraction of a second. Tick *read again from Fusion* after postings. A period with more than 50,000 rows, or one that times
+out, is read in ranges of code_combination_id. The segments of each combination come from a map on this PC (`ccid-cache`, also
+`fin_ccid`), looked up in Fusion by primary key only for new combinations. All shown in the live monitor: **opening, PTD debits / credits / net, QTD, YTD, closing** (QTD / YTD
 = closing − the balance at the start of the quarter / fiscal year; adjustment periods folded into the period they close).
 Names are not read from the value sets (keeps the Fusion query small): they come from this PC (DuckDB accounts or segment
 values), else APEX; if there are none yet, *Read the account names from Fusion* reads the account segment once and keeps it.
