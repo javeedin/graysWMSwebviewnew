@@ -164,6 +164,15 @@ FL.saveConfig = function () { return FL.call('finDocSave', { name: 'config', jso
 // ── start ──
 FL.init = function () {
     document.querySelectorAll('#tabs button[data-tab]').forEach(function (b) { b.onclick = function () { FL.show(b.dataset.tab); }; });
+    // left menu: collapsible to icons (remembered per PC; collapsed by default on a narrow screen); labels become tooltips
+    document.querySelectorAll('#tabs button[data-tab]').forEach(function (b) { b.title = b.textContent.trim(); });
+    var navMin = FL.ls('nav.min', null); if (navMin === null) navMin = window.innerWidth < 900;
+    var setNav = function (min) {
+        document.body.classList.toggle('nav-min', !!min);
+        var t = $('nav-tg'); if (t) { t.title = min ? 'Expand the menu' : 'Collapse the menu'; t.innerHTML = '<i class="fa-solid fa-angles-' + (min ? 'right' : 'left') + '"></i>' + (min ? 'Expand' : 'Collapse'); }
+    };
+    setNav(navMin);
+    if ($('nav-tg')) $('nav-tg').onclick = function () { navMin = !document.body.classList.contains('nav-min'); FL.lsSet('nav.min', navMin); setNav(navMin); setTimeout(function () { window.dispatchEvent(new Event('resize')); }, 200); };
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') FL.closeModal(); });
     $('b-pack').onclick = function () { FL.packDialog(); };
     $('b-ask').onclick = function () { FL.copilot.toggle(); };
@@ -291,7 +300,9 @@ FL.busy = {
     box: function () {
         var b = $('fl-busy'); if (b) return b;
         b = document.createElement('div'); b.id = 'fl-busy'; b.className = 'fl-busy';
-        var tabs = $('tabs'); if (tabs && tabs.parentNode) tabs.parentNode.insertBefore(b, tabs.nextSibling); else document.body.insertBefore(b, document.body.firstChild);
+        var pane = $('pane'), tabs = $('tabs');
+        if (pane) pane.insertBefore(b, pane.firstChild);   // above the page, beside the menu
+        else if (tabs && tabs.parentNode) tabs.parentNode.insertBefore(b, tabs.nextSibling); else document.body.insertBefore(b, document.body.firstChild);
         return b;
     },
     /** Starts an item; returns its id. label = what is running ("Syncing debtors…") */

@@ -27,21 +27,29 @@
             <button class="btn primary" id="b-pack" title="One-click board pack: statements, KPIs, charts and commentary, ready to print or save as PDF"><i class="fa-solid fa-book-open"></i> Board pack</button>
         </div>
     </header>
-    <nav class="tabs" id="tabs">
+    <div class="shell">
+    <nav class="tabs side" id="tabs">
+        <button class="nav-tg" id="nav-tg" title="Collapse the menu"><i class="fa-solid fa-angles-left"></i>Collapse</button>
+        <div class="nav-h">Reports</div>
         <button data-tab="overview" class="on"><i class="fa-solid fa-gauge-high"></i>Overview</button>
         <button data-tab="statements"><i class="fa-solid fa-file-invoice-dollar"></i>Statements</button>
         <button data-tab="analytics"><i class="fa-solid fa-chart-line"></i>Analytics</button>
         <button data-tab="monitor"><i class="fa-solid fa-heart-pulse"></i>KPIs &amp; monitor</button>
         <button data-tab="segpl"><i class="fa-solid fa-layer-group"></i>Segment P&amp;L</button>
         <button data-tab="wc"><i class="fa-solid fa-scale-unbalanced"></i>Working capital</button>
+        <div class="nav-h">Control &amp; close</div>
         <button data-tab="journals"><i class="fa-solid fa-user-secret"></i>Journal risk</button>
         <button data-tab="closing"><i class="fa-solid fa-file-signature"></i>Close &amp; reconcile</button>
         <button data-tab="close"><i class="fa-solid fa-list-check"></i>Close checks</button>
+        <div class="nav-h">Setup</div>
         <button data-tab="builder"><i class="fa-solid fa-sitemap"></i>Statement builder</button>
         <button data-tab="data"><i class="fa-solid fa-database"></i>Data</button>
         <span class="grow"></span><span class="datachip" id="datachip">…</span>
     </nav>
+    <div class="pane" id="pane">
     <main id="main"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i>Loading…</div></main>
+    </div>
+    </div>
 
     <div class="modal" id="modal"><div class="box"><div class="mh"><h3 id="m-title"></h3><span id="m-acts"></span><button class="icon" onclick="FL.closeModal()" title="Close (Esc)"><i class="fa-solid fa-xmark"></i></button></div><div class="mb" id="m-body"></div></div></div>
     <div id="toasts"></div>
