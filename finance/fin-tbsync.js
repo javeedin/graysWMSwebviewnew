@@ -8,7 +8,7 @@
 (function () {
     var T = FL.tbsync = {};
     var L = T.st = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), year: FL.ls('tbl.year', null), cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2),
-        opt: Object.assign({ skipZero: true, allSums: false, hint: true, perCompany: true }, FL.ls('tbl.opt', {})), query: '', defaultQuery: '', sel: {}, status: null, extBy: FL.ls('tbl.extBy', 'auto'), extBatch: FL.ls('tbl.extBatch', 1) };
+        opt: Object.assign({ skipZero: true, allSums: false, hint: true, perCompany: true }, FL.ls('tbl.opt', {})), query: '', defaultQuery: '', sel: {}, status: null, extBy: FL.ls('tbl.extBy', 'ccid'), extBatch: FL.ls('tbl.extBatch', 20) };
     T.qKey = function () { return 'account' + (L.byCc ? '.cc' : '') + '.' + (L.opt.skipZero ? 'z' : '') + (L.opt.allSums ? 'a' : '') + (L.opt.hint ? 'h' : ''); };
     T.loadQ = function () { L.query = FL.ls('tbl.query.account', ''); L.defaultQuery = FL.ls('tbl.dq.' + T.qKey(), ''); };
     T.loadQ();
@@ -146,8 +146,9 @@
         });
         var cls = st.loaded ? FL.rows('SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE class IS NULL OR class = \'\') AS nocls, COUNT(*) FILTER (WHERE account_type IS NULL) AS notype, COUNT(*) FILTER (WHERE name IS NULL OR name = code) AS noname FROM fin_accounts', 1).then(function (r) { return r[0]; }).catch(function () { return null; }) : Promise.resolve(null);
         var bud = st.loaded ? FL.rows("SELECT COUNT(*) AS n FROM fin_balances WHERE scenario = 'BUDGET'", 1).then(function (r) { return r[0].n; }).catch(function () { return 0; }) : Promise.resolve(0);
-        Promise.all(reads.concat([bud, cls])).then(function (res) {
-            var acc = res[res.length - 1], nBud = res[res.length - 2], cells = T.cells(), nSync = Object.keys(cells).length, cal = T.cal();
+        var ccidP = FL.call('finCcidStatus', { coaId: coa }).catch(function () { return { rows: 0 }; });
+        Promise.all(reads.concat([ccidP, bud, cls])).then(function (res) {
+            var acc = res[res.length - 1], nBud = res[res.length - 2], ccs = res[res.length - 3] || {}, cells = T.cells(), nSync = Object.keys(cells).length, cal = T.cal();
             var items = [
                 { k: 'ledgers', label: 'Ledgers & calendar', ok: !!L.disc, info: (L.disc ? (L.disc.ledgers || []).length + ' ledger(s) · ' + cal.length + ' periods in ' + l.name + "'s calendar" : 'not discovered'), act: '<button class="btn sm" data-md="setup">Fusion setup</button>' },
                 { k: 'roles', label: 'Segment roles', ok: !!(led.company && led.account), info: 'company ' + (led.company || '?') + ' · account ' + (led.account || '?') + ' · cost centre ' + (led.costCentre || 'none'), act: '<button class="btn sm" data-md="setup">Change</button>' }
@@ -166,6 +167,12 @@
             // extended segments: the synced trial balance periods must also have the balances by the chosen extra segments (fin_gl_balances_ext)
             var ext = T.extCols(), want0 = T.want(), extMiss = Object.keys(cells).map(Number).filter(function (q) { return T.extState(q, want0) !== 'done'; }).sort();
             var extNames = ext.map(T.segName);
+            var nCc = +ccs.rows || 0, lastCc = ccs.last || null;
+            items.push({ k: 'ccid', adm: true, label: 'Code combinations — chart ' + coa + ' (for the fast extended sync)', ok: nCc > 0 && !!ccs.everFull, part: nCc > 0 && !ccs.everFull,
+                info: nCc ? nCc.toLocaleString() + ' combination(s) on this PC (fin_ccid)' + (ccs.summary ? ' · ' + (+ccs.summary).toLocaleString() + ' summary' : '') + (lastCc ? ' · last sync ' + String(lastCc.at || '').slice(0, 16) + (lastCc.complete ? '' : ' (stopped part way — Sync goes on from there)') : '') + (ccs.everFull ? '' : ' · not every combination read yet')
+                    : 'none on this PC — Sync reads every code combination of the chart page by page (saved as it arrives); the extended trial balance by code combination needs them',
+                act: '<button class="btn sm' + (nCc && ccs.everFull ? '' : ' primary') + '" data-md="ccid" title="' + (nCc ? 'Read the combinations newer than the highest on this PC (and go on after a stop)' : 'Read every code combination of the chart') + '"><i class="fa-solid fa-cloud-arrow-down"></i> ' + (nCc ? 'Sync new' : 'Sync') + '</button>' +
+                    (nCc ? '<button class="btn sm" data-md="ccidall" title="Read every combination again (types / segments that changed)"><i class="fa-solid fa-rotate"></i> Sync all</button>' : '') });
             items.push({ k: 'ext', adm: true, label: 'Extended segments' + (ext.length ? ' — ' + extNames.join(', ') : ''), ok: ext.length > 0 && nSync > 0 && !extMiss.length, part: ext.length > 0 && extMiss.length > 0 && extMiss.length < nSync,
                 info: !ext.length ? 'none chosen — pick the extra segments (cost centre, analysis, salesperson …) to report balances by them (table fin_gl_balances_ext)'
                     : !nSync ? 'sync trial balance periods first' : extMiss.length ? extMiss.length + ' of ' + nSync + ' synced period(s) still without the extended balances' : 'all ' + nSync + ' synced period(s) have balances by ' + extNames.join(' × ') + ' — query fin_gl_ext_v',
@@ -198,7 +205,8 @@
                         if (a === 'mapping') return FL.dataTab.go('mapping');
                         if (a === 'status') return FL.dataTab.go('status');
                         if (a === 'seqs') return T.sync(btn.dataset.seqs.split(',').map(Number), false);
-                        if (a === 'extpick') { if (!$('ts-ext')) FL.dataTab.go('tbsync'); setTimeout(function () { if ($('ts-set')) { $('ts-set').open = true; $('ts-ext').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('ts-ext').classList.add('flash'); } }, 300); return; }
+                        if (a === 'extpick') return T.extDialog();
+                        if (a === 'ccid' || a === 'ccidall') return T.ccidSync(a === 'ccidall', btn);
                         if (a === 'extsync') return T.extSync(btn.dataset.seqs.split(',').map(Number), false);
                         var cols = a === 'all' ? missing.map(function (x) { return x.col; }) : [btn.dataset.col];
                         T.mdSync(a === 'apex' ? 'apex' : 'fusion', cols, btn);
@@ -206,6 +214,17 @@
                 });
             });
         });
+    };
+    /** Every code combination of the ledger's chart → fin_ccid, page by page (saved as it arrives); full = from the start */
+    T.ccidSync = function (full, btn) {
+        var l = T.ledgerObj(); if (!l) return;
+        if (full && !confirm('Read every code combination of chart ' + l.coaId + ' again? (Sync new only reads the ones newer than this PC has.)')) return;
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> syncing…'; }
+        var p = FL.fusion.progress('Code combinations · chart ' + l.coaId + (full ? ' · all' : ' · new') + '…', true);
+        FL.fusion.run.pod = L.pod || '';
+        return FL.call('finCcidSync', { pod: L.pod || '', coaId: String(l.coaId), full: !!full, pageSize: 20000 }, 4 * 3600000, p).then(function (r) {
+            FL.fusion.finish(); FL.toast((r.rows || 0).toLocaleString() + ' code combination(s) saved in ' + (r.pages || 0) + ' page(s)', 'ok');
+        }).catch(function (e) { var m = String(e && e.message || e); FL.fusion.finish(m); FL.toast(m, 'err'); }).then(function () { T.md(); });
     };
     /** After a sync: segment values this PC does not have yet (names, account types) come along — from APEX when it has them, else from Fusion */
     T.autoMd = function () {
@@ -852,8 +871,9 @@
                 return '<label class="chip' + (fixed ? ' fixed' : '') + '" title="' + esc(fixed ? 'always included' : (sg.qualifiers || []).join(' ')) + '"><input type="checkbox" class="ts-xs" value="' + esc(sg.col) + '"' + (fixed || ext.indexOf(sg.col) >= 0 ? ' checked' : '') + (fixed || !admin ? ' disabled' : '') + '> ' + esc(sg.name) + ' <span class="muted">' + esc(sg.col.replace('SEGMENT', 'S')) + '</span></label>';
             }).join('') + '</div>' +
             '<div class="row sm" style="margin-top:4px"><span>Read</span><select id="ts-xby" title="A company whose query times out is read again account by account">' +
-            [['auto', 'per company — account by account when it times out'], ['account', 'always account by account'], ['company', 'per company only']].map(function (o) { return '<option value="' + o[0] + '"' + (L.extBy === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
-            '<span id="ts-xbw"' + (L.extBy === 'company' ? ' hidden' : '') + '>accounts per query <input type="number" id="ts-xbatch" min="1" max="50" value="' + L.extBatch + '" style="width:56px" title="A batch that fails is split in half, down to one account"></span></div>' +
+            [['ccid', 'by code combination — fastest (GL_BALANCES alone + the code combinations on this PC)'], ['auto', 'per company — account by account when it times out'], ['account', 'always account by account'], ['company', 'per company only']].map(function (o) { return '<option value="' + o[0] + '"' + (L.extBy === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
+            '<span id="ts-xbw"' + (L.extBy === 'company' || L.extBy === 'ccid' ? ' hidden' : '') + '>accounts per query <input type="number" id="ts-xbatch" min="1" max="200" value="' + L.extBatch + '" style="width:64px" title="A batch that fails is split in half, down to one account"></span></div>' +
+            (L.extBy === 'ccid' ? '<div class="sm muted" style="margin-top:2px">Each period: GL_BALANCES read alone in pages (no join, all companies at once) and saved as it arrives; the segments come from the code combinations on this PC (Master data › <b>Code combinations</b> — new ones are looked up on the way); the extended trial balance is then built here.</div>' : '') +
             '<div class="row sm" style="margin-top:4px"><label><input type="checkbox" id="ts-xauto"' + (L.extAuto ? ' checked' : '') + '> sync them after every trial balance sync</label>' +
             '<span class="muted">' + (ext.length ? done + ' of ' + n + ' synced period(s) have them · ' + Object.keys(cells).length + ' period(s) on this PC' : 'nothing chosen') + '</span><span class="grow"></span>' +
             (ext.length && Object.keys(cells).length ? '<button class="btn sm" id="ts-xopen" title="P&L, pivot and trial balance by these segments"><i class="fa-solid fa-layer-group"></i> Open Segment P&amp;L</button>' : '') + (admin ? '<button class="btn sm primary" id="ts-xsave" disabled><i class="fa-solid fa-floppy-disk"></i> Save choice</button>' : '') + '</div>';
@@ -861,8 +881,8 @@
         box.querySelectorAll('.ts-xs').forEach(function (i) { i.onchange = function () { if ($('ts-xsave')) $('ts-xsave').disabled = chosen().join() === ext.join(); }; });
         if ($('ts-xopen')) $('ts-xopen').onclick = function () { FL.closeModal(); FL.show('segpl'); };
         $('ts-xauto').onchange = function () { L.extAuto = this.checked; FL.lsSet('tbl.extAuto', L.extAuto); };
-        $('ts-xby').onchange = function () { L.extBy = this.value; FL.lsSet('tbl.extBy', L.extBy); $('ts-xbw').hidden = L.extBy === 'company'; };
-        $('ts-xbatch').onchange = function () { L.extBatch = Math.max(1, Math.min(50, parseInt(this.value, 10) || 1)); this.value = L.extBatch; FL.lsSet('tbl.extBatch', L.extBatch); };
+        $('ts-xby').onchange = function () { L.extBy = this.value; FL.lsSet('tbl.extBy', L.extBy); $('ts-xbw').hidden = L.extBy === 'company' || L.extBy === 'ccid'; T.paintExt(); };
+        $('ts-xbatch').onchange = function () { L.extBatch = Math.max(1, Math.min(200, parseInt(this.value, 10) || 20)); this.value = L.extBatch; FL.lsSet('tbl.extBatch', L.extBatch); };
         if ($('ts-xsave')) $('ts-xsave').onclick = function () {
             FL.config.tbsync = FL.config.tbsync || {}; FL.config.tbsync.ext = FL.config.tbsync.ext || {}; FL.config.tbsync.ext[String(l.coaId)] = chosen();
             FL.saveConfig().then(function () { FL.toast('Extended segments saved — ' + (chosen().length ? 'Sync them on the period rows' : 'none'), 'ok'); FL.closeModal(); T.board(); T.md(); });

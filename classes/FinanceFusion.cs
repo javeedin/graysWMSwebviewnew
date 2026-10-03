@@ -1172,8 +1172,8 @@ namespace WMSApp
             /// <summary>Extended segments sync: "auto" (one query per period × company; when it fails or times out that company is read
             /// account by account), "account" (always account by account), "company" (never split).</summary>
             public string ExtBy { get; set; } = "auto";
-            /// <summary>Accounts per query when reading account by account (1-50); a batch that fails is split in half down to one account.</summary>
-            public int ExtAccountBatch { get; set; } = 1;
+            /// <summary>Accounts per query when reading account by account (1-200, default 20); a batch that fails is split in half down to one account.</summary>
+            public int ExtAccountBatch { get; set; } = 20;
             /// <summary>Extended segments: the segment names (SEGMENTn → e.g. "Salesperson") so the SQL reads `c.SEGMENT10 salesperson`; rows are mapped back to SEGMENTn.</summary>
             public Dictionary<string, string> ExtNames { get; set; } = new();
             /// <summary>Extended segments: read only these accounts (retry of failed accounts) and replace only their rows.</summary>
@@ -1737,7 +1737,8 @@ namespace WMSApp
                 if (skipped > 0) x.Note(skipped + " period × company read(s) already on this PC with these segments - not asked again");
                 const int CAP = 100000;
                 string by = (o.ExtBy ?? "auto").Trim().ToLowerInvariant();
-                int batch = Math.Clamp(o.ExtAccountBatch <= 0 ? 1 : o.ExtAccountBatch, 1, 50);
+                int batch = Math.Clamp(o.ExtAccountBatch <= 0 ? 20 : o.ExtAccountBatch, 1, 200);
+                string segKey = string.Join(",", segs);
                 var gate = new SemaphoreSlim(Math.Clamp(o.Parallel, 1, 4));
                 int reads = 0; long rows = 0; bool sampled = false;
                 var sources = new List<object>();
@@ -1768,9 +1769,15 @@ namespace WMSApp
                 }
                 string K(string a) => a != null && a.Length > 0 && a.All(char.IsDigit) ? a.TrimStart('0') : a ?? "";   // account key that survives lost leading zeros
                 // one status per account read on its own: ok (rows) / empty (Fusion has none) / failed (error) — a failing account never stops the others
-                async Task<List<Dictionary<string, object>>> ByAccount(string period, string co, List<string> only, List<(string Account, string State, int Rows, string Error, long Ms)> stat, bool failIfAll = true)
+                async Task<List<Dictionary<string, object>>> ByAccount(string period, string co, List<string> only, List<(string Account, string State, int Rows, string Error, long Ms)> stat, bool failIfAll = true, HashSet<string> skip = null)
                 {
                     var accts = only ?? await AccountsFor(period, co).ConfigureAwait(false);
+                    if (skip != null && skip.Count > 0)
+                    {   // an earlier read of this period × company stopped part way: those accounts are on this PC already
+                        int before = accts.Count;
+                        accts = accts.Where(a => !skip.Contains(a) && !skip.Any(sk => SameCode(sk, a))).ToList();
+                        x.Note("   " + period + " · company " + co + ": going on from the last read - " + (before - accts.Count) + " account(s) already on this PC");
+                    }
                     int failedHere = 0; string firstAcctErr = null;
                     x.Note("   " + period + " · company " + co + ": reading " + accts.Count + " account(s) " + (batch == 1 ? "one by one" : batch + " per query"));
                     var all = new List<Dictionary<string, object>>();
@@ -1786,12 +1793,17 @@ namespace WMSApp
                         if (r.Success && r.Rows.Count < CAP)
                         {
                             all.AddRange(r.Rows);
+                            var bst = new List<(string Account, string State, int Rows, string Error, long Ms)>();
                             foreach (var a in list)
                             {
                                 int n = r.Rows.Count(z => K(S(z, led.Account)) == K(a));
-                                stat.Add((a, n > 0 ? "ok" : "empty", n, null, ta.ElapsedMilliseconds));
+                                bst.Add((a, n > 0 ? "ok" : "empty", n, null, ta.ElapsedMilliseconds));
                                 x.Live(new { t = "ext", period, company = co, state = "acct", account = a, ok = true, rows = n });
                             }
+                            stat.AddRange(bst);
+                            // saved as it arrives: only these accounts' rows are replaced; the read is sealed when the company is complete
+                            FinanceLens.SaveExt(o.Pod, led.Id, period, led.Currency, co, led.Company, led.Account, segs, r.Rows, ta.ElapsedMilliseconds, list, partial: true);
+                            FinanceLens.SaveExtAcctStatus(o.Pod, led.Id, period, co, bst, false, segKey);
                             continue;
                         }
                         if (list.Count > 1)
@@ -1805,6 +1817,7 @@ namespace WMSApp
                         }
                         string aerr = r.Success ? "more than " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows" : Short(r.Error);
                         stat.Add((list[0], "failed", 0, aerr, ta.ElapsedMilliseconds));
+                        FinanceLens.SaveExtAcctStatus(o.Pod, led.Id, period, co, new List<(string, string, int, string, long)> { (list[0], "failed", 0, aerr, ta.ElapsedMilliseconds) }, false, segKey);
                         failedHere++; firstAcctErr ??= "account " + list[0] + ": " + aerr;
                         x.Note("   ✖ " + period + " · company " + co + " · account " + list[0] + ": " + aerr + " - carrying on with the next account");
                         x.Live(new { t = "ext", period, company = co, state = "acct", account = list[0], ok = false, error = aerr });
@@ -1834,7 +1847,102 @@ namespace WMSApp
                                           && !(Math.Abs(kv.Value.B) < 0.005 && Math.Abs(kv.Value.D) < 0.005 && Math.Abs(kv.Value.C) < 0.005))
                              .Select(kv => kv.Key).OrderBy(a => a, StringComparer.Ordinal).ToList();
                 }
-                await Task.WhenAll(jobs.Select(async j =>
+                // ── by code combination: GL_BALANCES alone per period (all companies, no join, no GROUP BY in Fusion), saved page by page in
+                //    fin_gl_ccid_bal; combinations missing from fin_ccid looked up by primary key; the extended trial balance built in DuckDB ──
+                bool ccidMode = by == "ccid" && (o.ExtAccounts == null || !o.ExtAccounts.Any(a => !string.IsNullOrWhiteSpace(a)));
+                if (ccidMode && jobs.Count > 0)
+                {
+                    var glb = new HashSet<string>(x.Types.TryGetValue("GL_BALANCES", out var gt2) ? gt2.Select(c => c.Col) : Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+                    bool hasTf = glb.Count == 0 || glb.Contains("TRANSLATED_FLAG");
+                    async Task<long> ReadPeriod(string period)
+                    {
+                        FinanceLens.CcidBalStart(o.Pod, led.Id, period, led.Currency);
+                        long last = long.MinValue, total = 0; int size = 20000, n = 0, retries = 0;
+                        while (true)
+                        {
+                            x.Ct.ThrowIfCancellationRequested();
+                            string sql = "SELECT * FROM (SELECT b.code_combination_id ccid" + (hasTf ? ", b.translated_flag tf" : "") +
+                                         ", b.begin_balance_dr bdr, b.begin_balance_cr bcr, b.period_net_dr ndr, b.period_net_cr ncr FROM gl_balances b WHERE b.ledger_id = " + led.Id.ToString(CultureInfo.InvariantCulture) +
+                                         " AND b.period_name = " + Lit(period) + " AND b.currency_code = " + Lit(led.Currency) + " AND b.actual_flag = 'A'" + DefaultFilters(o, glb) +
+                                         (last == long.MinValue ? "" : " AND b.code_combination_id > " + last.ToString(CultureInfo.InvariantCulture)) + " ORDER BY b.code_combination_id) WHERE ROWNUM <= " + size;
+                            string label = led.Name + " · " + period + " · extended · combinations page " + (n + 1);
+                            if (x.LogSql && n == 0) x.Note("   SQL: " + sql);
+                            var tp = Stopwatch.StartNew();
+                            var r = await RunLive(x, label, sql, size).ConfigureAwait(false);
+                            Interlocked.Increment(ref reads);
+                            if (!r.Success)
+                            {
+                                if (size > 1000 && retries < 4) { size /= 2; retries++; x.Note("   ⚠ " + label + ": " + Short(r.Error) + " - again with " + size.ToString("N0", CultureInfo.InvariantCulture) + " rows"); continue; }
+                                throw new InvalidOperationException(label + ": " + Short(r.Error));
+                            }
+                            n++;
+                            var page = r.Rows;
+                            bool full = page.Count >= size;
+                            if (full)
+                            {   // never end a page inside one combination (a total and an 'R' row): its rows come whole with the next page
+                                long tail = L(page[^1], "CCID");
+                                page = page.Where(z => L(z, "CCID") != tail).ToList();
+                                if (page.Count == 0) throw new InvalidOperationException(label + ": one combination fills a whole page");
+                            }
+                            FinanceLens.CcidBalPage(o.Pod, led.Id, period, led.Currency, page.Select(z => (L(z, "CCID"), S(z, "TF"), D(z, "BDR"), D(z, "BCR"), D(z, "NDR"), D(z, "NCR"))));   // saved as it arrives
+                            total += page.Count;
+                            x.Note("   " + label + " · " + page.Count.ToString("N0", CultureInfo.InvariantCulture) + " rows (" + total.ToString("N0", CultureInfo.InvariantCulture) + " so far) · " + (tp.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s · saved");
+                            if (!full) break;
+                            long next = L(page[^1], "CCID");
+                            if (next <= last) throw new InvalidOperationException(label + ": code_combination_id did not move forward");
+                            last = next;
+                            if (n > 5000) throw new InvalidOperationException(label + ": more than 5,000 pages - stopped");
+                        }
+                        return total;
+                    }
+                    await Task.WhenAll(jobs.GroupBy(j => j.Period).Select(async g =>
+                    {
+                        await gate.WaitAsync(x.Ct).ConfigureAwait(false);
+                        var t0 = Stopwatch.StartNew();
+                        try
+                        {
+                            var kept2 = o.Refresh ? null : FinanceLens.CcidBalComplete(o.Pod, led.Id, g.Key, led.Currency);
+                            if (kept2 != null) x.Note("   " + g.Key + ": balances by code combination already on this PC (" + kept2.Value.Rows.ToString("N0", CultureInfo.InvariantCulture) + " rows, read " + kept2.Value.At + ") - built from them");
+                            else
+                            {
+                                long nb = await ReadPeriod(g.Key).ConfigureAwait(false);
+                                FinanceLens.CcidBalDone(o.Pod, led.Id, g.Key, led.Currency, t0.ElapsedMilliseconds);
+                                x.Note("✓ " + g.Key + ": " + nb.ToString("N0", CultureInfo.InvariantCulture) + " GL_BALANCES rows by code combination in " + (t0.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s (fin_gl_ccid_bal)");
+                            }
+                            var missing = FinanceLens.CcidMissing(o.Pod, led.Id, g.Key, led.Currency, led.CoaId);
+                            if (missing.Count > 0)
+                            {   // new combinations (not in fin_ccid yet): primary-key lookups, then kept
+                                x.Note("   " + g.Key + ": " + missing.Count.ToString("N0", CultureInfo.InvariantCulture) + " combination(s) not on this PC yet - looked up in Fusion");
+                                var map = await CcidMapAsync(x, led.CoaId, missing, segs, Math.Clamp(o.Parallel, 1, 4)).ConfigureAwait(false);
+                                FinanceLens.SaveCcids(led.CoaId, missing.Where(map.ContainsKey).Select(id => (id, map[id].Type, map[id].Summary, map[id].Segs)));
+                            }
+                            var built = FinanceLens.BuildExtFromCcid(o.Pod, led.Id, g.Key, led.Currency, led.CoaId, led.Company, led.Account, segs, g.Select(j => j.Co), t0.ElapsedMilliseconds);
+                            foreach (var b in built)
+                            {
+                                var got = FinanceLens.LoadExtRows(o.Pod, led.Id, g.Key, led.Currency, b.Company, led.Account);
+                                var bad = Mismatch(g.Key, b.Company, got, out int tbAcc);
+                                string tie = tbAcc == 0 ? "no-tb" : bad.Count == 0 ? "ok" : "diff";
+                                Interlocked.Add(ref rows, b.Rows);
+                                x.Note("✓ " + g.Key + " · company " + b.Company + ": " + b.Rows.ToString("N0", CultureInfo.InvariantCulture) + " rows built from code combinations" + (b.Unknown > 0 ? " · " + b.Unknown + " combination(s) without segments left out" : "") +
+                                       (tie == "ok" ? " · ties to the trial balance (" + tbAcc + " accounts)" : tie == "diff" ? " · " + bad.Count + " account(s) differ from the trial balance (" + string.Join(", ", bad.Take(12)) + ")" : ""));
+                                x.Live(new { t = "ext", period = g.Key, company = b.Company, state = "done", rows = b.Rows, how = "ccid", tie, differ = bad.Count, failedAccounts = 0 });
+                                lock (sources) sources.Add(new { period = g.Key, company = b.Company, rows = b.Rows, ms = t0.ElapsedMilliseconds, how = "ccid", tie, differ = bad, reread = 0, failedAccounts = 0 });
+                            }
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex)
+                        {
+                            x.Note("✖ " + g.Key + ": " + ex.Message);
+                            foreach (var j in g)
+                            {
+                                x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "failed", error = ex.Message });
+                                lock (failed) { failed.Add(new { period = j.Period, company = j.Co, error = ex.Message }); firstErr ??= ex.Message; }
+                            }
+                        }
+                        finally { gate.Release(); }
+                    })).ConfigureAwait(false);
+                }
+                await Task.WhenAll((ccidMode ? new List<(string Period, string Co)>() : jobs).Select(async j =>
                 {
                     await gate.WaitAsync(x.Ct).ConfigureAwait(false);
                     try
@@ -1848,7 +1956,7 @@ namespace WMSApp
                         {   // Retry: only these accounts, their rows replaced, the other accounts of the read stay
                             var part = await ByAccount(j.Period, j.Co, retry, stat, false).ConfigureAwait(false);
                             FinanceLens.SaveExt(o.Pod, led.Id, j.Period, led.Currency, j.Co, led.Company, led.Account, segs, part, t0.ElapsedMilliseconds, retry);
-                            FinanceLens.SaveExtAcctStatus(o.Pod, led.Id, j.Period, j.Co, stat, false);
+                            FinanceLens.SaveExtAcctStatus(o.Pod, led.Id, j.Period, j.Co, stat, false, segKey);
                             Interlocked.Add(ref rows, part.Count);
                             int nf = stat.Count(z => z.State == "failed");
                             x.Note("✓ " + j.Period + " · company " + j.Co + ": " + retry.Count + " account(s) read again · " + part.Count + " rows" + (nf > 0 ? " · " + nf + " still failing" : ""));
@@ -1871,7 +1979,14 @@ namespace WMSApp
                                 x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "split", why });
                             }
                         }
-                        if (got == null) { got = await ByAccount(j.Period, j.Co, null, stat).ConfigureAwait(false); how = "account"; }
+                        if (got == null)
+                        {   // account by account, saved as it arrives; an unfinished earlier read goes on where it stopped (not with Overwrite)
+                            var done = o.Refresh ? new HashSet<string>() : FinanceLens.ExtAcctDone(o.Pod, led.Id, j.Period, j.Co, segKey);
+                            if (done.Count == 0) FinanceLens.ClearExt(o.Pod, led.Id, j.Period, led.Currency, j.Co);
+                            await ByAccount(j.Period, j.Co, null, stat, true, done).ConfigureAwait(false);
+                            got = FinanceLens.LoadExtRows(o.Pod, led.Id, j.Period, led.Currency, j.Co, led.Account);
+                            how = "account";
+                        }
                         // tie-out with the trial balance; accounts missing or different are read again one by one and replaced
                         var bad = Mismatch(j.Period, j.Co, got, out int tbAcc);
                         int reread = 0;
@@ -1883,7 +1998,8 @@ namespace WMSApp
                             x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "split", why = bad.Count + " account(s) differ from the trial balance" });
                             var badSet = new HashSet<string>(bad, StringComparer.Ordinal);
                             var again = await ByAccount(j.Period, j.Co, bad, stat, false).ConfigureAwait(false);
-                            got = got.Where(r => !badSet.Contains(K(S(r, led.Account)))).Concat(again).ToList();
+                            got = how == "account" ? FinanceLens.LoadExtRows(o.Pod, led.Id, j.Period, led.Currency, j.Co, led.Account)
+                                                   : got.Where(r => !badSet.Contains(K(S(r, led.Account)))).Concat(again).ToList();
                             reread = bad.Count;
                             bad = Mismatch(j.Period, j.Co, got, out tbAcc);
                         }
@@ -1891,8 +2007,12 @@ namespace WMSApp
                         if (tie == "diff") x.Note("⚠ " + j.Period + " · company " + j.Co + ": still " + bad.Count + " account(s) differ from the trial balance (" + string.Join(", ", bad.Take(12)) + ") - Fusion returns them this way; compare in the 👁 view");
                         else if (tie == "ok") x.Note("   " + j.Period + " · company " + j.Co + ": ties to the trial balance (" + tbAcc + " accounts)" + (reread > 0 ? " after reading " + reread + " again" : ""));
                         lock (gate) if (!sampled && got.Count > 0) { sampled = true; LiveSample(x, label, got); }
-                        FinanceLens.SaveExt(o.Pod, led.Id, j.Period, led.Currency, j.Co, led.Company, led.Account, segs, got, t0.ElapsedMilliseconds);
-                        FinanceLens.SaveExtAcctStatus(o.Pod, led.Id, j.Period, j.Co, stat, true);
+                        if (how == "account") FinanceLens.SealExt(o.Pod, led.Id, j.Period, led.Currency, j.Co, segs, t0.ElapsedMilliseconds);   // rows were saved as they came
+                        else
+                        {
+                            FinanceLens.SaveExt(o.Pod, led.Id, j.Period, led.Currency, j.Co, led.Company, led.Account, segs, got, t0.ElapsedMilliseconds);
+                            FinanceLens.SaveExtAcctStatus(o.Pod, led.Id, j.Period, j.Co, stat.Where(z => true).ToList(), true, segKey);   // a per-company read: only accounts re-read by the tie-out
+                        }
                         int failedAccts = stat.Count(z => z.State == "failed");
                         Interlocked.Add(ref rows, got.Count);
                         x.Note("✓ " + j.Period + " · company " + j.Co + ": " + got.Count.ToString("N0", CultureInfo.InvariantCulture) + " rows in " + (t0.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" + (how == "account" ? " (account by account)" : "") + " (fin_gl_balances_ext)");
@@ -1963,6 +2083,80 @@ namespace WMSApp
                 "\nGROUP BY b.period_name" + (tf ? ", b.translated_flag" : "") + ", " + string.Join(", ", segs.Select(c => "c." + c));
         }
 
+        /// <summary>
+        /// Every code combination of a chart of accounts into DuckDB fin_ccid (id, account type, summary flag, SEGMENT1..30): pages of `pageSize`
+        /// ordered by code_combination_id (keyset — each page continues after the last id), each page saved as it arrives, so a stop keeps what
+        /// was read and the next run goes on from the highest id on this PC. full = from the start (refreshes changed types / segments too).
+        /// </summary>
+        public static async Task<object> SyncCcidAsync(Runner run, string coaId, bool full, int pageSize, Action<string> progress, CancellationToken ct)
+        {
+            var x = new Ctx { Run = run, Ct = ct, Progress = progress };
+            var sw = Stopwatch.StartNew();
+            long saved = 0, maxId = long.MinValue; int pages = 0;
+            bool complete = false;
+            try
+            {
+                if (string.IsNullOrWhiteSpace(coaId)) return new { ok = false, error = "No chart of accounts - run Discover in Fusion setup." };
+                await Probe(x).ConfigureAwait(false);
+                var segCols = Enumerable.Range(1, 30).Select(i => "SEGMENT" + i).Where(c => !x.HasTable("GL_CODE_COMBINATIONS") || x.Has("GL_CODE_COMBINATIONS", c)).ToList();
+                bool hasType = !x.HasTable("GL_CODE_COMBINATIONS") || x.Has("GL_CODE_COMBINATIONS", "ACCOUNT_TYPE"), hasSumm = !x.HasTable("GL_CODE_COMBINATIONS") || x.Has("GL_CODE_COMBINATIONS", "SUMMARY_FLAG");
+                string coa = Regex.IsMatch(coaId, "^[0-9]+$") ? coaId : Q(coaId);
+                long start = full ? long.MinValue : FinanceLens.CcidMax(coaId);
+                full = full || start == long.MinValue;   // nothing on this PC yet = a full read
+                string after(long id) => id == long.MinValue ? "" : " AND c.code_combination_id > " + id.ToString(CultureInfo.InvariantCulture);
+                long total = -1;
+                var cr = await RunLive(x, "code combinations · how many", "SELECT COUNT(*) n FROM gl_code_combinations c WHERE c.chart_of_accounts_id = " + coa + after(start), 1).ConfigureAwait(false);
+                if (cr.Success && cr.Rows.Count > 0) total = L(cr.Rows[0], "N");
+                x.Note("Code combinations of chart " + coaId + ": " + (total >= 0 ? total.ToString("N0", CultureInfo.InvariantCulture) : "?") + (start == long.MinValue ? " to read" : " newer than " + start.ToString(CultureInfo.InvariantCulture) + " (the highest on this PC)") +
+                       " · pages of " + pageSize.ToString("N0", CultureInfo.InvariantCulture));
+                if (total == 0) { complete = true; FinanceLens.LogCcidSync(coaId, 0, FinanceLens.CcidMax(coaId), 0, sw.ElapsedMilliseconds, full, true); return new { ok = true, rows = 0, pages = 0, total, ms = sw.ElapsedMilliseconds, log = x.Log }; }
+                long last = start; int size = Math.Clamp(pageSize <= 0 ? 20000 : pageSize, 1000, 50000), retries = 0;
+                int estPages = total > 0 ? (int)Math.Ceiling(total / (double)size) : 0;
+                while (true)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    string sql = "SELECT * FROM (SELECT c.code_combination_id ccid" + (hasType ? ", c.account_type atype" : "") + (hasSumm ? ", c.summary_flag sflag" : "") + string.Concat(segCols.Select(sc => ", c." + sc)) +
+                                 " FROM gl_code_combinations c WHERE c.chart_of_accounts_id = " + coa + after(last) + " ORDER BY c.code_combination_id) WHERE ROWNUM <= " + size;
+                    string label = "code combinations · page " + (pages + 1) + (estPages > 0 ? " of ~" + estPages : "");
+                    var tp = Stopwatch.StartNew();
+                    var r = await RunLive(x, label, sql, size).ConfigureAwait(false);
+                    if (!r.Success)
+                    {
+                        if (size > 1000 && retries < 4) { size /= 2; retries++; x.Note("   ⚠ " + label + ": " + Short(r.Error) + " - again with " + size.ToString("N0", CultureInfo.InvariantCulture) + " rows"); continue; }
+                        throw new InvalidOperationException(label + ": " + Short(r.Error));
+                    }
+                    pages++;
+                    var items = r.Rows.Select(z =>
+                    {
+                        var segs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var sc in segCols) { var v = S(z, sc); if (v != null) segs[sc] = v; }
+                        return (L(z, "CCID"), S(z, "ATYPE"), S(z, "SFLAG") == "Y", segs);
+                    }).ToList();
+                    FinanceLens.SaveCcids(coaId, items);   // saved as it arrives
+                    saved += items.Count;
+                    if (items.Count > 0) maxId = Math.Max(maxId, items.Max(i => i.Item1));
+                    x.Note("   " + label + " · " + items.Count.ToString("N0", CultureInfo.InvariantCulture) + " · " + saved.ToString("N0", CultureInfo.InvariantCulture) + (total > 0 ? " of " + total.ToString("N0", CultureInfo.InvariantCulture) : "") +
+                           " · " + (tp.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s · saved");
+                    x.Live(new { t = "ccid", saved, total, pages });
+                    if (items.Count < size) break;
+                    long next = items.Max(i => i.Item1);
+                    if (next <= last) throw new InvalidOperationException(label + ": code_combination_id did not move forward");
+                    last = next;
+                }
+                complete = true;
+                FinanceLens.LogCcidSync(coaId, saved, FinanceLens.CcidMax(coaId), pages, sw.ElapsedMilliseconds, full, true);
+                x.Note("✓ " + saved.ToString("N0", CultureInfo.InvariantCulture) + " code combination(s) in " + pages + " page(s), " + (sw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s (fin_ccid)");
+                return new { ok = true, rows = saved, pages, total, ms = sw.ElapsedMilliseconds, log = x.Log };
+            }
+            catch (OperationCanceledException) { if (saved > 0) FinanceLens.LogCcidSync(coaId, saved, FinanceLens.CcidMax(coaId), pages, sw.ElapsedMilliseconds, full, false); return new { ok = false, error = "Cancelled - " + saved.ToString("N0", CultureInfo.InvariantCulture) + " combination(s) kept; Sync goes on from there.", rows = saved, log = x.Log }; }
+            catch (Exception ex)
+            {
+                if (!complete && saved > 0) FinanceLens.LogCcidSync(coaId, saved, FinanceLens.CcidMax(coaId), pages, sw.ElapsedMilliseconds, full, false);
+                x.Note("✖ " + ex.Message);
+                return new { ok = false, error = ex.Message + (saved > 0 ? " - " + saved.ToString("N0", CultureInfo.InvariantCulture) + " combination(s) kept; Sync goes on from there." : ""), rows = saved, log = x.Log };
+            }
+        }
+
         /// <summary>The periods synced on this PC per pod × ledger (for the Data page): companies, rows, when.</summary>
         public static object TbSyncStatus() => FinanceLens.TbSyncStatus();
 
@@ -1997,6 +2191,11 @@ namespace WMSApp
                     }
             }
             cols = cols.Select(SegCol).Where(c => c != null).Distinct().ToList();
+            // the code combinations synced on this PC (fin_ccid, every segment) answer first
+            var notInFile = ids.Where(id => !map.TryGetValue(id, out var c0) || cols.Any(k => !c0.Segs.ContainsKey(k))).Distinct().ToList();
+            if (notInFile.Count > 0)
+                try { foreach (var kv in FinanceLens.LoadCcids(coaId, notInFile)) map[kv.Key] = new CcidInfo { Type = kv.Value.Type, Summary = kv.Value.Summary, Segs = kv.Value.Segs }; }
+                catch (Exception ex) { x.Note("⚠ fin_ccid not read: " + ex.Message); }
             var missing = ids.Where(id => !map.TryGetValue(id, out var c) || cols.Any(k => !c.Segs.ContainsKey(k))).Distinct().OrderBy(i => i).ToList();
             x.Note("Code combinations: " + (ids.Count - missing.Count).ToString("N0", CultureInfo.InvariantCulture) + " known on this PC, " + missing.Count.ToString("N0", CultureInfo.InvariantCulture) + " to look up in Fusion");
             if (missing.Count == 0) return map;

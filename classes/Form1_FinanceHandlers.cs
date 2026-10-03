@@ -197,6 +197,23 @@ namespace WMSApp
                                          sqlAccount = FinanceFusion.ExtSql(led, segs, to, null, per, co, new List<string> { string.IsNullOrEmpty(ac) ? "ACCOUNT" : ac }) };
                             break;
                         }
+                    case "finCcidSync":         // every code combination of a chart → DuckDB fin_ccid, page by page (saved as it arrives, goes on from the highest id)
+                        {
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can load finance data." }; break; }
+                            string coaC = PipeSrvStr(root, "coaId") ?? "";
+                            bool fullC = root.TryGetProperty("full", out var fC) && fC.ValueKind == JsonValueKind.True;
+                            int pageC = root.TryGetProperty("pageSize", out var pC) && pC.TryGetInt32(out var pv) ? pv : 20000;
+                            var cts = FinNewCts(TimeSpan.FromHours(4));
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            data = await Task.Run(() => FinanceFusion.SyncCcidAsync(FinRunner(PipeSrvStr(root, "pod")), coaC, fullC, pageC, FinProgress(wv, requestId), cts.Token));
+                            bool okC = JsonSerializer.SerializeToElement(data).TryGetProperty("ok", out var okc) && okc.ValueKind == JsonValueKind.True;
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_ccid_sync", Outcome = okC ? "OK" : "FAILED", DurationMs = sw.ElapsedMilliseconds,
+                                Target = (PipeSrvStr(root, "pod") ?? "") + " · chart " + coaC, Detail = fullC ? "full" : "new only" });
+                            break;
+                        }
+                    case "finCcidStatus":
+                        data = await Task.Run(() => FinanceLens.CcidStatus(PipeSrvStr(root, "coaId") ?? ""));
+                        break;
                     case "finTbExtAcctStatus":   // per-account results of the account-by-account extended reads (ok / empty / failed)
                         data = await Task.Run(() => FinanceLens.ExtAcctStatus(PipeSrvStr(root, "pod") ?? "", root.TryGetProperty("ledgerId", out var lidE) && lidE.TryGetInt64(out var lidV) ? lidV : 0));
                         break;

@@ -512,19 +512,19 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
         internal const string EXT_TABLE = "CREATE TABLE IF NOT EXISTS fin_gl_balances_ext (pod VARCHAR, ledger_id BIGINT, period_name VARCHAR, currency_code VARCHAR, translated_flag VARCHAR, " +
             "company VARCHAR, account VARCHAR, account_type VARCHAR, segment1 VARCHAR, segment2 VARCHAR, segment3 VARCHAR, segment4 VARCHAR, segment5 VARCHAR, segment6 VARCHAR, segment7 VARCHAR, segment8 VARCHAR, segment9 VARCHAR, segment10 VARCHAR, segment11 VARCHAR, segment12 VARCHAR, segment13 VARCHAR, segment14 VARCHAR, segment15 VARCHAR, segment16 VARCHAR, segment17 VARCHAR, segment18 VARCHAR, segment19 VARCHAR, segment20 VARCHAR, segment21 VARCHAR, segment22 VARCHAR, segment23 VARCHAR, segment24 VARCHAR, segment25 VARCHAR, segment26 VARCHAR, segment27 VARCHAR, segment28 VARCHAR, segment29 VARCHAR, segment30 VARCHAR, begin_balance_dr DOUBLE, begin_balance_cr DOUBLE, period_net_dr DOUBLE, period_net_cr DOUBLE, fetched_at TIMESTAMP)";
         internal const string EXT_ACCT_TABLE = "CREATE TABLE IF NOT EXISTS fin_gl_ext_acct_status (pod VARCHAR, ledger_id BIGINT, period_name VARCHAR, company VARCHAR, account VARCHAR, " +
-            "state VARCHAR, rows_read BIGINT, error VARCHAR, ms BIGINT, fetched_at TIMESTAMP)";
+            "state VARCHAR, rows_read BIGINT, error VARCHAR, ms BIGINT, fetched_at TIMESTAMP, segments VARCHAR)";
         /// <summary>How each account of an account-by-account extended read went (ok / empty / failed); all = the whole period × company was read again.</summary>
-        public static void SaveExtAcctStatus(string pod, long ledgerId, string period, string company, IList<(string Account, string State, int Rows, string Error, long Ms)> list, bool all)
+        public static void SaveExtAcctStatus(string pod, long ledgerId, string period, string company, IList<(string Account, string State, int Rows, string Error, long Ms)> list, bool all, string segments = null)
         {
             lock (_lock)
             {
                 list = list.GroupBy(z => z.Account).Select(g => g.Last()).ToList();   // an account read twice (tie-out) keeps its last result
                 using var conn = OpenWrite();
-                Exec(conn, EXT_ACCT_TABLE);
+                Exec(conn, EXT_ACCT_TABLE); Exec(conn, "ALTER TABLE fin_gl_ext_acct_status ADD COLUMN IF NOT EXISTS segments VARCHAR");
                 string w = " WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND period_name = " + Lit(period) + " AND " + CoMatch("company", new[] { company });
                 Exec(conn, "DELETE FROM fin_gl_ext_acct_status" + w + (all || list.Count == 0 ? "" : " AND " + CoMatch("account", list.Select(z => z.Account))));
                 var now = DateTime.Now;
-                if (list.Count > 0) Append(conn, "fin_gl_ext_acct_status", list.Select(z => new object[] { pod ?? "", ledgerId, period, company, z.Account, z.State, (long)z.Rows, z.Error, z.Ms, now }).ToList());
+                if (list.Count > 0) Append(conn, "fin_gl_ext_acct_status", list.Select(z => new object[] { pod ?? "", ledgerId, period, company, z.Account, z.State, (long)z.Rows, z.Error, z.Ms, now, segments }).ToList());
                 Exec(conn, "CHECKPOINT");
             }
         }
@@ -536,6 +536,224 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             var r = Query("SELECT period_name, company, account, state, rows_read, error, ms, CAST(fetched_at AS VARCHAR) FROM fin_gl_ext_acct_status WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " ORDER BY 1, 2, 3", 500000);
             if (r.Error != null) return new { ok = false, error = r.Error };
             return new { ok = true, rows = r.Rows.Select(z => new { period = z[0], company = z[1], account = z[2], state = z[3], rows = z[4], error = z[5], ms = z[6], at = z[7] }) };
+        }
+        /// <summary>Starts an account-by-account read of one period × company afresh: its rows, sync row and account results go.</summary>
+        public static void ClearExt(string pod, long ledgerId, string period, string currency, string company)
+        {
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, EXT_TABLE); Exec(conn, EXT_SYNC_TABLE); Exec(conn, EXT_ACCT_TABLE);
+                string w = " WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND period_name = " + Lit(period) + " AND " + CoMatch("company", new[] { company });
+                Exec(conn, "DELETE FROM fin_gl_balances_ext" + w + " AND currency_code = " + Lit(currency));
+                Exec(conn, "DELETE FROM fin_gl_balances_ext_sync" + w + " AND currency = " + Lit(currency));
+                Exec(conn, "DELETE FROM fin_gl_ext_acct_status" + w);
+                Exec(conn, "CHECKPOINT");
+            }
+        }
+        /// <summary>Marks an account-by-account read complete: the sync row with the rows now kept for the period × company.</summary>
+        public static long SealExt(string pod, long ledgerId, string period, string currency, string company, List<string> segs, long ms)
+        {
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, EXT_TABLE); Exec(conn, EXT_SYNC_TABLE);
+                string w = " WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND period_name = " + Lit(period) + " AND " + CoMatch("company", new[] { company });
+                long n;
+                using (var c = conn.CreateCommand()) { c.CommandText = "SELECT COUNT(*) FROM fin_gl_balances_ext" + w + " AND currency_code = " + Lit(currency); n = Convert.ToInt64(c.ExecuteScalar()); }
+                Exec(conn, "DELETE FROM fin_gl_balances_ext_sync" + w + " AND currency = " + Lit(currency));
+                Append(conn, "fin_gl_balances_ext_sync", new List<object[]> { new object[] { pod ?? "", ledgerId, period, currency, company, string.Join(",", segs), n, ms, DateTime.Now } });
+                EnsureExtView(conn);
+                Exec(conn, "CHECKPOINT");
+                return n;
+            }
+        }
+        /// <summary>Accounts an earlier, unfinished account-by-account read of this period × company already brought (ok / empty) with the same segments — a new Sync goes on from there.</summary>
+        public static HashSet<string> ExtAcctDone(string pod, long ledgerId, string period, string company, string segments)
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            if (!File.Exists(DbPath)) return set;
+            var t = Query("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'fin_gl_ext_acct_status' AND column_name = 'segments'", 1);
+            if (t.Error != null || t.Rows.Count == 0 || Convert.ToInt64(t.Rows[0][0]) == 0) return set;
+            var r = Query("SELECT account FROM fin_gl_ext_acct_status WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND period_name = " + Lit(period) + " AND " + CoMatch("company", new[] { company }) +
+                          " AND state IN ('ok', 'empty') AND segments = " + Lit(segments), 500000);
+            if (r.Error == null) foreach (var z in r.Rows) if (z[0] != null) set.Add(Convert.ToString(z[0], CultureInfo.InvariantCulture));
+            return set;
+        }
+        /// <summary>The extended rows kept for a period × company, shaped like the extended query's rows (for the tie-out).</summary>
+        public static List<Dictionary<string, object>> LoadExtRows(string pod, long ledgerId, string period, string currency, string company, string accountCol)
+        {
+            var list = new List<Dictionary<string, object>>();
+            if (!File.Exists(DbPath)) return list;
+            var r = Query("SELECT translated_flag, account, begin_balance_dr, begin_balance_cr, period_net_dr, period_net_cr FROM fin_gl_balances_ext WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId +
+                          " AND period_name = " + Lit(period) + " AND currency_code = " + Lit(currency) + " AND " + CoMatch("company", new[] { company }), 2000000);
+            if (r.Error != null) return list;
+            foreach (var z in r.Rows)
+            {
+                var d = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { [accountCol.ToUpperInvariant()] = z[1], ["BEGIN_BALANCE_DR"] = z[2], ["BEGIN_BALANCE_CR"] = z[3], ["PERIOD_NET_DR"] = z[4], ["PERIOD_NET_CR"] = z[5] };
+                if (z[0] != null) d["TRANSLATED_FLAG"] = z[0];
+                list.Add(d);
+            }
+            return list;
+        }
+
+        // ── all code combinations of a chart kept on this PC (fin_ccid) + the log of their syncs ──
+        internal const string CCID_SYNC_TABLE = "CREATE TABLE IF NOT EXISTS fin_ccid_sync (coa_id VARCHAR, rows_read BIGINT, max_ccid BIGINT, pages INTEGER, ms BIGINT, full_read BOOLEAN, complete BOOLEAN, fetched_at TIMESTAMP)";
+        public static long CcidMax(string coaId)
+        {
+            if (!File.Exists(DbPath)) return long.MinValue;
+            var t = Query("SELECT MAX(ccid) FROM fin_ccid WHERE coa_id = " + Lit(coaId ?? ""), 1);
+            return t.Error == null && t.Rows.Count > 0 && t.Rows[0][0] != null ? Convert.ToInt64(t.Rows[0][0]) : long.MinValue;
+        }
+        public static void LogCcidSync(string coaId, long rows, long maxCcid, int pages, long ms, bool full, bool complete)
+        {
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, CCID_SYNC_TABLE);
+                Append(conn, "fin_ccid_sync", new List<object[]> { new object[] { coaId ?? "", rows, maxCcid, pages, ms, full, complete, DateTime.Now } });
+                Exec(conn, "CHECKPOINT");
+            }
+        }
+        public static object CcidStatus(string coaId)
+        {
+            if (!File.Exists(DbPath)) return new { ok = true, rows = 0L };
+            var t = Query("SELECT table_name FROM information_schema.tables WHERE table_name IN ('fin_ccid', 'fin_ccid_sync')", 5);
+            var have = new HashSet<string>(t.Error == null ? t.Rows.Select(z => Convert.ToString(z[0])) : Enumerable.Empty<string>());
+            if (!have.Contains("fin_ccid")) return new { ok = true, rows = 0L };
+            var c = Query("SELECT COUNT(*), MAX(ccid), COUNT(*) FILTER (WHERE summary_flag = 'Y') FROM fin_ccid WHERE coa_id = " + Lit(coaId ?? ""), 1);
+            object last = null;
+            if (have.Contains("fin_ccid_sync"))
+            {
+                var l = Query("SELECT rows_read, max_ccid, pages, ms, full_read, complete, CAST(fetched_at AS VARCHAR) FROM fin_ccid_sync WHERE coa_id = " + Lit(coaId ?? "") + " ORDER BY fetched_at DESC LIMIT 1", 1);
+                if (l.Error == null && l.Rows.Count > 0) { var z = l.Rows[0]; last = new { rows = z[0], max = z[1], pages = z[2], ms = z[3], full = z[4], complete = z[5], at = z[6] }; }
+                var fullDone = Query("SELECT COUNT(*) FROM fin_ccid_sync WHERE coa_id = " + Lit(coaId ?? "") + " AND full_read AND complete", 1);
+                bool everFull = fullDone.Error == null && fullDone.Rows.Count > 0 && Convert.ToInt64(fullDone.Rows[0][0]) > 0;
+                return new { ok = true, rows = c.Rows[0][0], max = c.Rows[0][1], summary = c.Rows[0][2], last, everFull };
+            }
+            return new { ok = true, rows = c.Rows[0][0], max = c.Rows[0][1], summary = c.Rows[0][2], last, everFull = false };
+        }
+        /// <summary>Code combinations of these ids from fin_ccid (type, summary flag, SEGMENTn values).</summary>
+        public static Dictionary<long, (string Type, bool Summary, Dictionary<string, string> Segs)> LoadCcids(string coaId, IEnumerable<long> ids)
+        {
+            var d = new Dictionary<long, (string, bool, Dictionary<string, string>)>();
+            if (!File.Exists(DbPath)) return d;
+            var t = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_ccid'", 1);
+            if (t.Error != null || t.Rows.Count == 0 || Convert.ToInt64(t.Rows[0][0]) == 0) return d;
+            foreach (var chunk in ids.Distinct().Chunk(5000))
+            {
+                var r = Query("SELECT ccid, account_type, summary_flag, " + string.Join(", ", Enumerable.Range(1, 30).Select(i => "segment" + i)) + " FROM fin_ccid WHERE coa_id = " + Lit(coaId ?? "") +
+                              " AND ccid IN (" + string.Join(",", chunk.Select(i => i.ToString(CultureInfo.InvariantCulture))) + ")", chunk.Length + 10);
+                if (r.Error != null) break;
+                foreach (var z in r.Rows)
+                {
+                    var segs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    for (int i = 1; i <= 30; i++) if (z[2 + i] != null) segs["SEGMENT" + i] = Convert.ToString(z[2 + i], CultureInfo.InvariantCulture);
+                    d[Convert.ToInt64(z[0])] = (z[1] == null ? null : Convert.ToString(z[1]), Convert.ToString(z[2]) == "Y", segs);
+                }
+            }
+            return d;
+        }
+
+        // ── GL_BALANCES of a period by code combination (all companies), saved page by page; the extended trial balance is built from it here ──
+        internal const string CCB_TABLE = "CREATE TABLE IF NOT EXISTS fin_gl_ccid_bal (pod VARCHAR, ledger_id BIGINT, period_name VARCHAR, currency_code VARCHAR, ccid BIGINT, translated_flag VARCHAR, " +
+            "begin_balance_dr DOUBLE, begin_balance_cr DOUBLE, period_net_dr DOUBLE, period_net_cr DOUBLE, fetched_at TIMESTAMP)";
+        internal const string CCB_SYNC_TABLE = "CREATE TABLE IF NOT EXISTS fin_gl_ccid_bal_sync (pod VARCHAR, ledger_id BIGINT, period_name VARCHAR, currency VARCHAR, rows_read BIGINT, complete BOOLEAN, ms BIGINT, fetched_at TIMESTAMP)";
+        private static string CcbWhere(string pod, long ledgerId, string period, string currency, string cur = "currency_code") =>
+            " WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND period_name = " + Lit(period) + " AND " + cur + " = " + Lit(currency);
+        /// <summary>(rows, read at) when the period's balances are complete on this PC, else null.</summary>
+        public static (long Rows, string At)? CcidBalComplete(string pod, long ledgerId, string period, string currency)
+        {
+            if (!File.Exists(DbPath)) return null;
+            var t = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_gl_ccid_bal_sync'", 1);
+            if (t.Error != null || t.Rows.Count == 0 || Convert.ToInt64(t.Rows[0][0]) == 0) return null;
+            var r = Query("SELECT rows_read, CAST(fetched_at AS VARCHAR) FROM fin_gl_ccid_bal_sync" + CcbWhere(pod, ledgerId, period, currency, "currency") + " AND complete", 1);
+            return r.Error == null && r.Rows.Count > 0 ? (Convert.ToInt64(r.Rows[0][0]), Convert.ToString(r.Rows[0][1])) : null;
+        }
+        public static void CcidBalStart(string pod, long ledgerId, string period, string currency)
+        {
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, CCB_TABLE); Exec(conn, CCB_SYNC_TABLE);
+                Exec(conn, "DELETE FROM fin_gl_ccid_bal" + CcbWhere(pod, ledgerId, period, currency));
+                Exec(conn, "DELETE FROM fin_gl_ccid_bal_sync" + CcbWhere(pod, ledgerId, period, currency, "currency"));
+                Append(conn, "fin_gl_ccid_bal_sync", new List<object[]> { new object[] { pod ?? "", ledgerId, period, currency, 0L, false, 0L, DateTime.Now } });
+                Exec(conn, "CHECKPOINT");
+            }
+        }
+        public static void CcidBalPage(string pod, long ledgerId, string period, string currency, IEnumerable<(long Ccid, string Tf, double Bdr, double Bcr, double Ndr, double Ncr)> rows)
+        {
+            var now = DateTime.Now;
+            var list = rows.Select(z => new object[] { pod ?? "", ledgerId, period, currency, z.Ccid, z.Tf, z.Bdr, z.Bcr, z.Ndr, z.Ncr, now }).ToList();
+            if (list.Count == 0) return;
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, CCB_TABLE);
+                Append(conn, "fin_gl_ccid_bal", list);
+                Exec(conn, "UPDATE fin_gl_ccid_bal_sync SET rows_read = rows_read + " + list.Count + CcbWhere(pod, ledgerId, period, currency, "currency"));
+                Exec(conn, "CHECKPOINT");
+            }
+        }
+        public static void CcidBalDone(string pod, long ledgerId, string period, string currency, long ms)
+        {
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, "UPDATE fin_gl_ccid_bal_sync SET complete = TRUE, ms = " + ms + ", fetched_at = now()" + CcbWhere(pod, ledgerId, period, currency, "currency"));
+                Exec(conn, "CHECKPOINT");
+            }
+        }
+        /// <summary>Combinations of a period's balances that fin_ccid does not hold yet (they are looked up in Fusion by primary key).</summary>
+        public static List<long> CcidMissing(string pod, long ledgerId, string period, string currency, string coaId)
+        {
+            var r = Query("SELECT DISTINCT b.ccid FROM fin_gl_ccid_bal b" + CcbWhere(pod, ledgerId, period, currency).Replace(" WHERE pod", " WHERE b.pod").Replace(" AND ledger_id", " AND b.ledger_id").Replace(" AND period_name", " AND b.period_name").Replace(" AND currency_code", " AND b.currency_code") +
+                          " AND NOT EXISTS (SELECT 1 FROM fin_ccid c WHERE c.coa_id = " + Lit(coaId ?? "") + " AND c.ccid = b.ccid)", 5000000);
+            if (r.Error != null && r.Error.Contains("fin_ccid")) r = Query("SELECT DISTINCT ccid FROM fin_gl_ccid_bal" + CcbWhere(pod, ledgerId, period, currency), 5000000);
+            return r.Error == null ? r.Rows.Select(z => Convert.ToInt64(z[0])).ToList() : new List<long>();
+        }
+        /// <summary>
+        /// The extended trial balance of a period from the balances by code combination × fin_ccid, for each company: grouped by company × account ×
+        /// the chosen segments (summary combinations left out), written to fin_gl_balances_ext + its sync row. Returns (company, rows, combinations without segments).
+        /// </summary>
+        public static List<(string Company, long Rows, long Unknown)> BuildExtFromCcid(string pod, long ledgerId, string period, string currency, string coaId, string companyCol, string accountCol, List<string> segs, IEnumerable<string> companies, long ms)
+        {
+            var res = new List<(string, long, long)>();
+            string cc = "c." + companyCol.ToLowerInvariant(), ac = "c." + accountCol.ToLowerInvariant();
+            string segSel = string.Join(", ", Enumerable.Range(1, 30).Select(i => segs.Contains("SEGMENT" + i, StringComparer.OrdinalIgnoreCase) ? "c.segment" + i : "NULL"));
+            string segGrp = string.Join(", ", Enumerable.Range(1, 30).Where(i => segs.Contains("SEGMENT" + i, StringComparer.OrdinalIgnoreCase)).Select(i => "c.segment" + i));
+            string bw = " WHERE b.pod = " + Lit(pod ?? "") + " AND b.ledger_id = " + ledgerId + " AND b.period_name = " + Lit(period) + " AND b.currency_code = " + Lit(currency);
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, EXT_TABLE); Exec(conn, EXT_SYNC_TABLE); Exec(conn, EXT_ACCT_TABLE); Exec(conn, CCID_TABLE); Exec(conn, CCB_TABLE);
+                foreach (var co in companies.Distinct())
+                {
+                    string w = " WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND period_name = " + Lit(period) + " AND " + CoMatch("company", new[] { co });
+                    Exec(conn, "DELETE FROM fin_gl_balances_ext" + w + " AND currency_code = " + Lit(currency));
+                    Exec(conn, "DELETE FROM fin_gl_balances_ext_sync" + w + " AND currency = " + Lit(currency));
+                    Exec(conn, "DELETE FROM fin_gl_ext_acct_status" + w);
+                    Exec(conn, "INSERT INTO fin_gl_balances_ext (pod, ledger_id, period_name, currency_code, translated_flag, company, account, account_type, " + string.Join(", ", Enumerable.Range(1, 30).Select(i => "segment" + i)) +
+                               ", begin_balance_dr, begin_balance_cr, period_net_dr, period_net_cr, fetched_at) " +
+                               "SELECT " + Lit(pod ?? "") + ", " + ledgerId + ", " + Lit(period) + ", " + Lit(currency) + ", b.translated_flag, " + cc + ", " + ac + ", MAX(c.account_type), " + segSel +
+                               ", SUM(b.begin_balance_dr), SUM(b.begin_balance_cr), SUM(b.period_net_dr), SUM(b.period_net_cr), now() " +
+                               "FROM fin_gl_ccid_bal b JOIN fin_ccid c ON c.coa_id = " + Lit(coaId ?? "") + " AND c.ccid = b.ccid" + bw + " AND COALESCE(c.summary_flag, 'N') <> 'Y' AND " + CoMatch(cc, new[] { co }) +
+                               " GROUP BY b.translated_flag, " + cc + ", " + ac + (segGrp.Length > 0 ? ", " + segGrp : ""));
+                    long n, unknown;
+                    using (var c = conn.CreateCommand()) { c.CommandText = "SELECT COUNT(*) FROM fin_gl_balances_ext" + w + " AND currency_code = " + Lit(currency); n = Convert.ToInt64(c.ExecuteScalar()); }
+                    using (var c = conn.CreateCommand())
+                    {
+                        c.CommandText = "SELECT COUNT(DISTINCT b.ccid) FROM fin_gl_ccid_bal b" + bw + " AND NOT EXISTS (SELECT 1 FROM fin_ccid c WHERE c.coa_id = " + Lit(coaId ?? "") + " AND c.ccid = b.ccid)";
+                        unknown = Convert.ToInt64(c.ExecuteScalar());
+                    }
+                    Append(conn, "fin_gl_balances_ext_sync", new List<object[]> { new object[] { pod ?? "", ledgerId, period, currency, co, string.Join(",", segs), n, ms, DateTime.Now } });
+                    res.Add((co, n, unknown));
+                }
+                EnsureExtView(conn);
+                Exec(conn, "CHECKPOINT");
+            }
+            return res;
         }
         internal const string EXT_SYNC_TABLE = "CREATE TABLE IF NOT EXISTS fin_gl_balances_ext_sync (pod VARCHAR, ledger_id BIGINT, period_name VARCHAR, currency VARCHAR, company VARCHAR, " +
             "segments VARCHAR, rows_read BIGINT, ms BIGINT, fetched_at TIMESTAMP)";
@@ -571,7 +789,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
         }
 
         /// <summary>Replaces one ledger × period × company of fin_gl_balances_ext with the rows read (columns SEGMENTn as Fusion names them).</summary>
-        public static void SaveExt(string pod, long ledgerId, string period, string currency, string company, string companyCol, string accountCol, List<string> segs, List<Dictionary<string, object>> rows, long ms, IList<string> onlyAccounts = null)
+        public static void SaveExt(string pod, long ledgerId, string period, string currency, string company, string companyCol, string accountCol, List<string> segs, List<Dictionary<string, object>> rows, long ms, IList<string> onlyAccounts = null, bool partial = false)
         {
             lock (_lock)
             {
@@ -581,6 +799,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 bool merge = onlyAccounts != null && onlyAccounts.Count > 0;   // retry of some accounts: replace only their rows, keep the read's sync row
                 Exec(conn, "DELETE FROM fin_gl_balances_ext" + w + " AND currency_code = " + Lit(currency) + (merge ? " AND " + CoMatch("account", onlyAccounts) : ""));
                 if (!merge) Exec(conn, "DELETE FROM fin_gl_balances_ext_sync" + w + " AND currency = " + Lit(currency));
+                // partial = one batch of an account-by-account read saved as it arrives: rows only, the read is sealed (sync row) when complete
                 var now = DateTime.Now;
                 string Sv(Dictionary<string, object> row, string k) { if (k == null) return null; var v = row.TryGetValue(k.ToUpperInvariant(), out var x) ? x : row.TryGetValue(k, out x) ? x : null; var sv = v == null ? null : Convert.ToString(v, CultureInfo.InvariantCulture); return string.IsNullOrEmpty(sv) ? null : sv; }
                 object Dv(Dictionary<string, object> row, string k) => double.TryParse(Sv(row, k), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : null;
@@ -594,7 +813,8 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                     a.Add(now);
                     return a.ToArray();
                 }).ToList());
-                if (!merge) Append(conn, "fin_gl_balances_ext_sync", new List<object[]> { new object[] { pod ?? "", ledgerId, period, currency, company, string.Join(",", segs), (long)rows.Count, ms, now } });
+                if (partial) { }
+                else if (!merge) Append(conn, "fin_gl_balances_ext_sync", new List<object[]> { new object[] { pod ?? "", ledgerId, period, currency, company, string.Join(",", segs), (long)rows.Count, ms, now } });
                 else Exec(conn, "UPDATE fin_gl_balances_ext_sync SET rows_read = (SELECT COUNT(*) FROM fin_gl_balances_ext" + w + " AND currency_code = " + Lit(currency) + "), fetched_at = now()" + w + " AND currency = " + Lit(currency));
                 EnsureExtView(conn);
                 Exec(conn, "CHECKPOINT");
@@ -914,6 +1134,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 Exec(conn, EXT_TABLE); Exec(conn, EXT_SYNC_TABLE);
                 Exec(conn, "DELETE FROM fin_gl_balances_ext" + w); Exec(conn, "DELETE FROM fin_gl_balances_ext_sync" + w);
                 Exec(conn, EXT_ACCT_TABLE); Exec(conn, "DELETE FROM fin_gl_ext_acct_status" + w);
+                Exec(conn, CCB_TABLE); Exec(conn, CCB_SYNC_TABLE); Exec(conn, "DELETE FROM fin_gl_ccid_bal" + w); Exec(conn, "DELETE FROM fin_gl_ccid_bal_sync" + w);
                 using (var c = conn.CreateCommand()) { c.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_gl_balances_acct'"; if (Convert.ToInt64(c.ExecuteScalar()) > 0) Exec(conn, "DELETE FROM fin_gl_balances_acct" + w); }
                 Exec(conn, "CHECKPOINT");
             }
@@ -948,19 +1169,23 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             try
             {
                 Exec(conn, SEGVAL_TABLE); Exec(conn, TB_TABLE); Exec(conn, RAW_SYNC_TABLE); Exec(conn, CCID_TABLE); Exec(conn, ACCT_SYNC_TABLE); Exec(conn, TBP_TABLE); Exec(conn, TBL_TABLE);
-                Exec(conn, WC_PARTIES_TABLE); Exec(conn, WC_STOCK_TABLE); Exec(conn, WC_SNAP_TABLE); Exec(conn, EXT_TABLE); Exec(conn, EXT_SYNC_TABLE); Exec(conn, EXT_ACCT_TABLE);
+                Exec(conn, WC_PARTIES_TABLE); Exec(conn, WC_STOCK_TABLE); Exec(conn, WC_SNAP_TABLE); Exec(conn, EXT_TABLE); Exec(conn, EXT_SYNC_TABLE); Exec(conn, EXT_ACCT_TABLE); Exec(conn, CCID_SYNC_TABLE); Exec(conn, CCB_TABLE); Exec(conn, CCB_SYNC_TABLE);
                 Exec(conn, WC_NAMES_TABLE); Exec(conn, ITEMS_TABLE); Exec(conn, ITEM_DFF_TABLE);
                 Exec(conn, "ATTACH " + Lit(DbPath.Replace('\\', '/')) + " AS prev (READ_ONLY)");
                 try
                 {
-                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances", "fin_gl_balances_acct_sync", "fin_gl_balances_acct", "fin_tb_periods", "fin_tb_ledgers", "fin_wc_parties", "fin_wc_stock", "fin_wc_snapshots", "fin_gl_balances_ext", "fin_gl_balances_ext_sync", "fin_gl_ext_acct_status", "fin_wc_names", "fin_items", "fin_item_dff" })
+                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances", "fin_gl_balances_acct_sync", "fin_gl_balances_acct", "fin_tb_periods", "fin_tb_ledgers", "fin_wc_parties", "fin_wc_stock", "fin_wc_snapshots", "fin_gl_balances_ext", "fin_gl_balances_ext_sync", "fin_gl_ext_acct_status", "fin_ccid_sync", "fin_gl_ccid_bal", "fin_gl_ccid_bal_sync", "fin_wc_names", "fin_items", "fin_item_dff" })
                     {
                         using var c = conn.CreateCommand();
                         c.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog = 'prev' AND table_name = '" + t + "'";
                         if (Convert.ToInt64(c.ExecuteScalar()) == 0) continue;
                         // fin_gl_balances has the pod's own columns: copied whole (its layout comes with it)
                         if (t == "fin_gl_balances" || t == "fin_gl_balances_acct") Exec(conn, "CREATE TABLE " + t + " AS SELECT * FROM prev." + t);
-                        else Exec(conn, "INSERT INTO " + t + " SELECT * FROM prev." + t);
+                        else
+                        {   // by name: a table that gained a column since (e.g. segments) still copies; one table failing never stops the others
+                            try { Exec(conn, "INSERT INTO " + t + " BY NAME SELECT * FROM prev." + t); }
+                            catch (Exception ex1) { note?.Invoke("⚠ " + t + " not kept: " + ex1.Message); }
+                        }
                     }
                 }
                 finally { Exec(conn, "DETACH prev"); }

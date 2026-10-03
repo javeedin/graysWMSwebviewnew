@@ -162,6 +162,8 @@ Data › Trial balance sync opens as a table (switch to Tiles at the top right).
 - **Companies** are picked right under the ledger (not in Settings). The first time, the company of the header filter is ticked — else the ledger's first company — instead of all; your choice is kept per ledger.
 - **Extended segments: …** (beside Table / Tiles) opens the segment choice in a dialog: tick the segments, how they are read, *Save choice*. The rows then offer Sync for every period that lacks them.
 - **Accounts read one by one** each get a result: ✓ synced, ○ no data in Fusion, ✗ failed. A failing account no longer stops the others. The icon beside the extended status (*✗ 2 failed* in red, or *✓ 160* in green) opens the list of accounts with their error and **Retry n failed**, which reads only those accounts again and keeps the rest.
+- **Fastest: by code combination** (Extended segments › *Read*, now the default). Each period reads GL_BALANCES on its own — no join and no grouping in Fusion, all companies at once — in pages saved as they arrive; the segments come from the code combinations kept on this PC, and the extended trial balance is built on the PC. Sync the code combinations once in the master data checklist (**Code combinations › Sync**, page by page; later **Sync new** only reads the new ones).
+- **Saved while fetching.** Account-by-account reads save each batch as it comes (20 accounts per query by default); if a read stops, the next Sync goes on with the accounts still missing.
 
 ## Segment P&L (P&L, pivot and trial balance by extended segments)
 
