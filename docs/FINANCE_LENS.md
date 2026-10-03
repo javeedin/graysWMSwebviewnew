@@ -157,6 +157,7 @@ Data › Trial balance sync opens as a table (switch to Tiles at the top right).
 - Codes with a leading zero (*000*, *03*, *0101*) are now kept as text; before, Fusion values such as salesperson or profit centre *000* were stored as *0*. Press **Overwrite** on periods synced before this fix.
 - The table has no bulk buttons any more: every action is on its row (Sync / Overwrite, </> SQL, 👁 data, 🗑 delete). The column headers have **Sync n missing** to fill every open period of the year at once. The Tiles view keeps tick-and-act buttons.
 - The extended query names its columns after the segments — `c.SEGMENT1 company, c.SEGMENT4 account, c.SEGMENT10 salesperson, c.SEGMENT15 item_profit_center` — so the SQL and its Test result read in your own words.
+- **Why so few rows?** in the SQL dialog counts the rows kept after each filter (ledger · period · currency, templates, zero rows, the join, summary combinations, the company, translated rows, the grouped query with and without the hint) and points at the step where they disappear. A query that finds nothing now simply shows **0 rows** — the long base64 text was only the runner echoing the query back.
 
 ## Segment P&L (P&L, pivot and trial balance by extended segments)
 

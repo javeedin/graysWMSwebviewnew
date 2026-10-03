@@ -797,10 +797,12 @@ $@"<?xml version = '1.0' encoding = 'utf-8'?>
             try { var d = XDocument.Parse(t); if (d.Root != null) generic = ParseGenericXml(d.Root); }
             catch { generic = ParseCsv(t); }
             if (generic == null || generic.Count == 0) return generic;
+            // RESULT blank everywhere (only the echoed P_QRY_STMT came back) = DBMS_XMLGEN gave NULL = no rows
+            bool resultText = generic.Any(r => r.Any(kv => IsEnvelopeKey(kv.Key) && kv.Key.Trim().Trim('"', '\uFEFF', '\r').Trim().Equals("RESULT", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(Convert.ToString(kv.Value, System.Globalization.CultureInfo.InvariantCulture))));
             foreach (var row in generic)
                 foreach (var k in row.Keys.Where(IsEnvelopeKey).ToList()) row.Remove(k);
             generic.RemoveAll(r => r.Count == 0);
-            return generic.Count == 0 ? null : generic;
+            return generic.Count > 0 ? generic : resultText ? null : new List<Dictionary<string, object>>();
         }
 
         private static List<Dictionary<string, object>> ExtractRowset(string t)
@@ -884,7 +886,8 @@ $@"<?xml version = '1.0' encoding = 'utf-8'?>
         public static string Diagnose(string decoded)
         {
             if (string.IsNullOrWhiteSpace(decoded)) return null;
-            string t = decoded;
+            // the runner echoes the statement (base64) in P_QRY_STMT - never a reason
+            string t = Regex.Replace(decoded, @"<P_QRY_STMT>[^<]*</P_QRY_STMT>|<P_QRY_STMT\s*/>", "", RegexOptions.IgnoreCase);
             for (int i = 0; i < 2 && t.IndexOf("lt;", StringComparison.Ordinal) >= 0; i++) t = XmlUnescapeOnce(t);
             var ora = Regex.Match(t, @"ORA-\d{5}:[^<\r\n""]{0,300}");
             if (ora.Success) return "Fusion answered with an Oracle error: " + ora.Value.Trim();
@@ -893,6 +896,7 @@ $@"<?xml version = '1.0' encoding = 'utf-8'?>
             string text = Regex.Replace(Regex.Replace(t, "<[^>]+>", " "), @"\s+", " ").Trim();
             if (text.Equals("RESULT", StringComparison.OrdinalIgnoreCase) || text.Length == 0) return null;
             if (text.StartsWith("RESULT ", StringComparison.OrdinalIgnoreCase)) text = text.Substring(7);
+            if (Regex.IsMatch(text, @"^(P_QRY_STMT[ ,]*)?(RESULT[ ,]*)?[A-Za-z0-9+/=\s,""]*$") && !Regex.IsMatch(text, @"\b(ORA|error|exception)\b", RegexOptions.IgnoreCase)) return null;   // only the echoed base64 statement
             return "Fusion answered without rows: " + (text.Length > 300 ? text.Substring(0, 300) + "…" : text);
         }
 

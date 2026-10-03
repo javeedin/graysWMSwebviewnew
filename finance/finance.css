@@ -562,3 +562,5 @@ td.sp-tc, th.sp-tc { background: #f1f5f9; font-weight: 700; }
 .ts-tblmode .ts-bulk { display: none !important; }
 .ts-vt { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
 .ts-del:hover { background: #fee2e2; color: #b91c1c; }
+.ts-fun td, .ts-fun th { padding: 4px 8px; }
+.ts-fun-drop td { background: #fee2e2; font-weight: 600; }

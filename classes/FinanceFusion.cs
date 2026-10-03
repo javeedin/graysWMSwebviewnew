@@ -1896,7 +1896,7 @@ namespace WMSApp
                 ", MAX(c.account_type) account_type, SUM(b.begin_balance_dr) begin_balance_dr, SUM(b.begin_balance_cr) begin_balance_cr, SUM(b.period_net_dr) period_net_dr, SUM(b.period_net_cr) period_net_cr" +
                 "\nFROM gl_balances b JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id" +
                 "\nWHERE b.ledger_id = " + led.Id.ToString(CultureInfo.InvariantCulture) + " AND b.period_name = " + Lit(period) + " AND b.currency_code = " + Lit(led.Currency) + " AND b.actual_flag = 'A'" +
-                DefaultFilters(o, have) + (o.SkipZero && have.Contains("TEMPLATE_ID") ? "" : " AND c.summary_flag = 'N'") + " AND c." + led.Company + " = " + Lit(co) +
+                DefaultFilters(o, have) + (o.SkipZero && (have.Count == 0 || have.Contains("TEMPLATE_ID")) ? "" : " AND c.summary_flag = 'N'") + " AND c." + led.Company + " = " + Lit(co) +
                 (accts == null || accts.Count == 0 ? "" : accts.Count == 1 ? " AND c." + led.Account + " = " + Lit(accts[0]) : " AND c." + led.Account + " IN (" + string.Join(", ", accts.Select(Lit)) + ")") +
                 "\nGROUP BY b.period_name" + (tf ? ", b.translated_flag" : "") + ", " + string.Join(", ", segs.Select(c => "c." + c));
         }

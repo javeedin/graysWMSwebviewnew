@@ -70,7 +70,7 @@
             '<div class="row sm"><label>Company <select id="tq-co">' + cos.map(function (v) { return '<option value="' + esc(v) + '">' + esc(coName(v)) + '</option>'; }).join('') + '</select></label>' +
             (ext ? '<span class="muted">by ' + esc([led.company, led.account].concat(T.extCols()).map(T.segName).map(function (n) { return n.replace(/ \(SEGMENT\d+\)$/, ''); }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(' × ')) + '</span>'
                 : '<span class="ts-st ' + (L.query ? 'part' : 'ok') + '">' + (L.query ? 'your own query' : 'default query') + '</span>') +
-            '<span class="grow"></span><button class="btn sm primary" id="tq-test"><i class="fa-solid fa-play"></i> Test in Fusion</button><button class="btn sm" id="tq-copy"><i class="fa-regular fa-copy"></i> Copy</button>' +
+            '<span class="grow"></span><button class="btn sm primary" id="tq-test"><i class="fa-solid fa-play"></i> Test in Fusion</button><button class="btn sm" id="tq-why" title="Counts the rows each filter keeps, one small query per step, to show where rows disappear"><i class="fa-solid fa-filter-circle-xmark"></i> Why so few rows?</button><button class="btn sm" id="tq-copy"><i class="fa-regular fa-copy"></i> Copy</button>' +
             (ext ? '' : '<button class="btn sm" id="tq-edit"><i class="fa-solid fa-pen"></i> Edit query</button>') + '</div>' +
             '<pre class="mon-sql" id="tq-sql" style="max-height:34vh;overflow:auto;margin-top:8px"></pre><div class="sm muted" id="tq-note"></div>' +
             (ext ? '' : '<div id="tq-ed" hidden><div class="row sm" id="tl-qopts">' + opts.map(function (x) { return '<label><input type="checkbox" data-o="' + x[0] + '"' + (L.opt[x[0]] ? ' checked' : '') + '> ' + x[1] + '</label>'; }).join('') + '</div>' +
@@ -100,6 +100,7 @@
         $('tq-co').onchange = paint;
         $('tq-copy').onclick = function () { try { navigator.clipboard.writeText(cur); FL.toast('SQL copied', 'ok'); } catch (x) { /* no clipboard */ } };
         $('tq-test').onclick = function () { if (cur) FL.fusion.runSql(cur, L.pod || '', $('tq-res')); };
+        $('tq-why').onclick = function () { if (cur) T.funnel(l, led, per, $('tq-co').value, cur, $('tq-res')); };
         if (!ext) {
             $('tq-edit').onclick = function () { var ed = $('tq-ed'); ed.hidden = !ed.hidden; if (!ed.hidden) { $('tl-qtext').value = tbTemplate(); T.qCheck(false); } paint(); };
             $('tl-qtext').oninput = function () { T.qCheck(false); paint(); };
@@ -574,6 +575,52 @@
                 $('ts-vsql').onclick = function (e) { e.preventDefault(); try { navigator.clipboard.writeText(sql); FL.toast('SQL copied — paste it in Data › SQL explorer', 'ok'); } catch (x) { /* no clipboard */ } };
             });
         }).catch(function (e) { $('m-body').innerHTML = '<div class="callout bad">' + esc(String(e && e.message || e)) + '</div>'; });
+    };
+    /** Where do the rows go? COUNT(*) after each filter of the sync's query, run one after the other in Fusion; the step that drops to 0 is marked */
+    T.funnel = function (l, led, per, co, sql, box) {
+        var lit = function (v) { return "'" + String(v == null ? '' : v).replace(/'/g, "''") + "'"; };
+        var base = "b.ledger_id = " + l.id + " AND b.period_name = " + lit(per.name) + " AND b.currency_code = " + lit(l.currency) + " AND b.actual_flag = 'A'";
+        var nz = " AND (NVL(b.begin_balance_dr, 0) <> NVL(b.begin_balance_cr, 0) OR NVL(b.period_net_dr, 0) <> 0 OR NVL(b.period_net_cr, 0) <> 0)";
+        var j = " FROM gl_balances b JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id WHERE " + base;
+        var steps = [
+            ['Balances of ' + l.name + ' · ' + per.name + ' · ' + l.currency + ' · actual', "SELECT COUNT(*) n FROM gl_balances b WHERE " + base],
+            ['… not summary templates (template_id IS NULL)', "SELECT COUNT(*) n FROM gl_balances b WHERE " + base + " AND b.template_id IS NULL"],
+            ['… not zero (opening or movement)', "SELECT COUNT(*) n FROM gl_balances b WHERE " + base + " AND b.template_id IS NULL" + nz],
+            ['… joined to their code combinations', "SELECT COUNT(*) n" + j + " AND b.template_id IS NULL" + nz],
+            ['… detail combinations (summary_flag = N)', "SELECT COUNT(*) n" + j + " AND b.template_id IS NULL" + nz + " AND c.summary_flag = 'N'"],
+            ['… company ' + co + ' (' + led.company + ')', "SELECT COUNT(*) n" + j + " AND b.template_id IS NULL" + nz + " AND c." + led.company + " = " + lit(co)],
+            ['… of which translated (R) rows', "SELECT COUNT(*) n" + j + " AND b.template_id IS NULL" + nz + " AND c." + led.company + " = " + lit(co) + " AND b.translated_flag = 'R'"],
+            ['Rows of the query (grouped), without the optimizer hint', "SELECT COUNT(*) n FROM (" + sql.replace(/\/\*\+[^*]*\*\//, '') + ")"],
+            ['Rows of the query exactly as the sync runs it', "SELECT COUNT(*) n FROM (" + sql + ")"]];
+        box.innerHTML = '<table class="t ts-fun"><thead><tr><th>Step</th><th class="n">Rows</th><th class="n">Time</th><th></th></tr></thead><tbody>' + steps.map(function (st, i) {
+            return '<tr data-i="' + i + '"><td>' + esc(st[0]) + '</td><td class="n" data-n>…</td><td class="n" data-t></td><td><button class="ts-eye" data-fs="' + i + '" title="Copy this step\'s SQL"><i class="fa-regular fa-copy"></i></button></td></tr>'; }).join('') +
+            '</tbody></table><div class="sm muted" id="tq-funv" style="margin-top:6px">Running one step after the other…</div>';
+        box.querySelectorAll('[data-fs]').forEach(function (b) { b.onclick = function () { try { navigator.clipboard.writeText(steps[+b.dataset.fs][1]); FL.toast('Step SQL copied', 'ok'); } catch (x) { /* no clipboard */ } }; });
+        var got = [], i = 0;
+        var next = function () {
+            if (i >= steps.length || !box.isConnected) return verdict();
+            var k = i++, row = box.querySelector('tr[data-i="' + k + '"]'), t0 = Date.now();
+            row.querySelector('[data-n]').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
+            return FL.call('finFusionRun', { pod: L.pod || '', sql: steps[k][1] }, 6 * 60000).then(function (r) {
+                var n = r.ok && r.sample && r.sample[0] ? +r.sample[0][0] : r.ok ? 0 : null;
+                got[k] = n;
+                row.querySelector('[data-n]').innerHTML = n == null ? '<span class="neg" title="' + esc(r.error || '') + '">failed</span>' : n.toLocaleString();
+                row.querySelector('[data-t]').textContent = FL.fusion.secs(r.ms || (Date.now() - t0));
+                if (k > 0 && k < 6 && got[k] === 0 && got[k - 1] > 0) row.classList.add('ts-fun-drop');
+            }).catch(function (e) { got[k] = null; row.querySelector('[data-n]').innerHTML = '<span class="neg">' + esc(String(e && e.message || e)).slice(0, 120) + '</span>'; }).then(next);
+        };
+        var verdict = function () {
+            var v = $('tq-funv'); if (!v) return;
+            var msg = got[0] === 0 ? 'GL_BALANCES has no actual rows for this ledger, period and currency — check the period name and the ledger currency.'
+                : got[5] === 0 && got[4] > 0 ? 'Company ' + co + ' has no balances in ' + led.company + ' — is ' + led.company + ' really the company segment, and the value written like that (leading zeros)?'
+                : got[4] === 0 && got[3] > 0 ? 'Every balance sits on summary combinations — summary_flag filters them all.'
+                : got[3] === 0 && got[2] > 0 ? 'The join to GL_CODE_COMBINATIONS loses every row — the report user may not see GL_CODE_COMBINATIONS.'
+                : got[8] === 0 && got[7] > 0 ? 'The query returns rows WITHOUT the optimizer hint but none with it — turn the hint off (Settings › Extended segments / Edit query).'
+                : got[8] != null && got[5] > 0 && got[8] === 0 ? 'Balances exist for company ' + co + ' but the grouped query returns none — the runner may drop the answer; copy step 9 and run it in Fusion SQL.'
+                : 'Each step keeps rows — the query returns ' + (got[8] == null ? '?' : got[8].toLocaleString()) + ' grouped row(s) from ' + (got[5] == null ? '?' : got[5].toLocaleString()) + ' balance row(s).';
+            v.innerHTML = '<b>' + esc(msg) + '</b>';
+        };
+        next();
     };
     T.viewBar = function (seq, kind, mode) {
         return '<div class="seg ts-vbar" style="margin-bottom:8px">' + [['raw', 'fa-table-cells', 'Raw rows from Fusion'], ['bal', 'fa-scale-balanced', 'Balances (opening · debit · credit · closing)']].map(function (m) {
