@@ -478,6 +478,8 @@
         var per = FL.filter.period;
         var samples = [['Trial balance', "SELECT b.account, a.name, a.account_type, ROUND(SUM(b.end_bal), 2) AS balance FROM fin_balances b JOIN fin_accounts a ON a.code = b.account WHERE b.scenario = 'ACTUAL' AND b.period_seq = " + per + ' GROUP BY ALL ORDER BY 1'],
             ['TB sync status', "SELECT l.name AS ledger, s.period_name, p.period_seq, s.grain, s.company, s.rows_read, CAST(s.fetched_at AS VARCHAR) AS read_at, s.ms FROM fin_gl_balances_acct_sync s LEFT JOIN fin_tb_ledgers l ON l.pod = s.pod AND l.ledger_id = s.ledger_id LEFT JOIN fin_tb_periods p ON p.pod = s.pod AND p.ledger_id = s.ledger_id AND p.period_name = s.period_name ORDER BY 1, 3 DESC, 2, 5"],
+            ['Extended segments sync', "SELECT s.pod, s.ledger_id, s.period_name, s.company, s.segments, s.rows_read, CAST(s.fetched_at AS VARCHAR) AS read_at, s.ms FROM fin_gl_balances_ext_sync s ORDER BY 2, 3, 4"],
+            ['Balances by extended segments', "SELECT period_seq, company, account, segment3, segment8, segment10, segment15, ROUND(SUM(dr), 2) AS dr, ROUND(SUM(cr), 2) AS cr, ROUND(SUM(dr - cr), 2) AS net FROM fin_gl_ext_v GROUP BY ALL ORDER BY 1 DESC, 2, 3 LIMIT 500"],
             ['TB by period', "SELECT b.ledger, b.period_name, COUNT(*) AS lines, ROUND(SUM(b.period_dr), 2) AS debits, ROUND(SUM(b.period_cr), 2) AS credits, ROUND(SUM(b.end_bal), 2) AS closing_net FROM fin_balances b WHERE b.scenario = 'ACTUAL' GROUP BY ALL ORDER BY 1, MIN(b.period_seq)"],
             ['Full load sync status', 'SELECT ledger, period_name, kind, rows_read, dr, cr, synced_at, ms, split FROM fin_sync_periods ORDER BY ledger, period_seq, kind'],
             ['COA segments', 'SELECT * FROM fin_coa_segments ORDER BY coa_id, segment_num'],

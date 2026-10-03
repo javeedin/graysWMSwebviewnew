@@ -33,6 +33,7 @@
             '<div class="row" style="margin-top:6px"><label class="sm"><input type="checkbox" id="ts-cc"' + (L.byCc ? ' checked' : '') + '> by cost centre</label>' +
             '<label class="sm"><input type="checkbox" id="ts-fold"' + (L.fold ? ' checked' : '') + ' title="Adjustment periods (e.g. Adj-25) are read too and added to the period they close"> fold adjustment periods</label>' +
             '<label class="sm" title="Queries to Fusion at the same time (one per company and period)">Reads in parallel <select id="ts-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + (L.par === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label></div>' +
+            '<div class="ts-ext" id="ts-ext"></div>' +
             '<details class="tl-q" id="tl-qbox"' + (L.query ? ' open' : '') + '><summary><b><i class="fa-solid fa-code"></i> GL_BALANCES query</b> <span class="sm muted" id="tl-qstate">' + (L.query ? 'your own query' : 'default') + '</span></summary>' +
             '<p class="sm muted">One query per company and period. <code>{LEDGER_ID}</code>, <code>{PERIOD}</code>, <code>{CURRENCY}</code>, <code>{COMPANY_SEGMENT}</code>, <code>{ACCOUNT_SEGMENT}</code>, <code>{COST_CENTRE_SEGMENT}</code> and ' +
             '<code>{COMPANY_FILTER}</code> (<code>AND c.SEGMENTn = \'01\'</code>) are filled in. It must return COMPANY, ACCOUNT, BEGIN_BALANCE_DR, BEGIN_BALANCE_CR, PERIOD_NET_DR and PERIOD_NET_CR (ACCOUNT_TYPE and COST_CENTRE when it has them); ' +
@@ -104,6 +105,7 @@
         var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), coa = l.coaId, st = FL.status || {};
         var segs = [['co', 'Company values & names', led.company, false], ['ac', 'Account values, names & types', led.account, true]];
         if (led.costCentre) segs.push(['cc', 'Cost centre values & names', led.costCentre, false]);
+        T.extCols().forEach(function (col) { if (col !== led.company && col !== led.account && col !== led.costCentre) segs.push(['x' + col, T.segName(col).replace(/ \(SEGMENT\d+\)$/, '') + ' values & names', col, false]); });
         var reads = segs.map(function (g) {
             return FL.call('finSegValues', { coaId: coa, column: g[2] }).then(function (r) { return r; }).catch(function () { return { values: [] }; });
         });
@@ -126,6 +128,13 @@
                 info: acc.n.toLocaleString() + ' accounts · ' + (acc.n - acc.nocls).toLocaleString() + ' with a class' + (acc.notype ? ' · ' + acc.notype + ' without a type' : '') + (acc.noname ? ' · ' + acc.noname + ' without a name' : ''),
                 act: '<button class="btn sm" data-md="mapping">Account mapping</button>' });
             items.push({ k: 'tb', label: 'Trial balance periods', ok: nSync > 0, info: nSync ? nSync + ' period(s) of ' + l.name + ' synced' : 'none yet — tick periods on the board and press Sync', act: '' });
+            // extended segments: the synced trial balance periods must also have the balances by the chosen extra segments (fin_gl_balances_ext)
+            var ext = T.extCols(), want0 = T.want(), extMiss = Object.keys(cells).map(Number).filter(function (q) { return T.extState(q, want0) !== 'done'; }).sort();
+            var extNames = ext.map(T.segName);
+            items.push({ k: 'ext', adm: true, label: 'Extended segments' + (ext.length ? ' — ' + extNames.join(', ') : ''), ok: ext.length > 0 && nSync > 0 && !extMiss.length, part: ext.length > 0 && extMiss.length > 0 && extMiss.length < nSync,
+                info: !ext.length ? 'none chosen — pick the extra segments (cost centre, analysis, salesperson …) to report balances by them (table fin_gl_balances_ext)'
+                    : !nSync ? 'sync trial balance periods first' : extMiss.length ? extMiss.length + ' of ' + nSync + ' synced period(s) still without the extended balances' : 'all ' + nSync + ' synced period(s) have balances by ' + extNames.join(' × ') + ' — query fin_gl_ext_v',
+                act: '<button class="btn sm" data-md="extpick">' + (ext.length ? 'Change' : 'Choose segments') + '</button>' + (ext.length && extMiss.length ? '<button class="btn sm primary" data-md="extsync" data-seqs="' + extMiss.join(',') + '"><i class="fa-solid fa-cloud-arrow-down"></i> Sync ' + extMiss.length + ' period(s)</button>' : '') });
             // what the KPIs and the company health need besides the current months
             var seqsOn = Object.keys(cells).map(Number), latest = seqsOn.length ? Math.max.apply(null, seqsOn) : null, lp = cal.filter(function (p) { return p.seq === latest; })[0];
             var syncBtn = function (k, list, label) { return list.length ? '<button class="btn sm primary" data-md="seqs" data-seqs="' + list.join(',') + '" title="' + esc(list.length + ' period(s): ' + cal.filter(function (p) { return list.indexOf(p.seq) >= 0; }).map(function (p) { return p.name; }).join(', ')) + '"><i class="fa-solid fa-cloud-arrow-down"></i> ' + esc(label) + '</button>' : ''; };
@@ -154,6 +163,8 @@
                         if (a === 'mapping') return FL.dataTab.go('mapping');
                         if (a === 'status') return FL.dataTab.go('status');
                         if (a === 'seqs') return T.sync(btn.dataset.seqs.split(',').map(Number), false);
+                        if (a === 'extpick') { if (!$('ts-ext')) FL.dataTab.go('tbsync'); setTimeout(function () { if ($('ts-set')) { $('ts-set').open = true; $('ts-ext').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('ts-ext').classList.add('flash'); } }, 300); return; }
+                        if (a === 'extsync') return T.extSync(btn.dataset.seqs.split(',').map(Number), false);
                         var cols = a === 'all' ? missing.map(function (x) { return x.col; }) : [btn.dataset.col];
                         T.mdSync(a === 'apex' ? 'apex' : 'fusion', cols, btn);
                     };
@@ -164,7 +175,7 @@
     /** After a sync: segment values this PC does not have yet (names, account types) come along — from APEX when it has them, else from Fusion */
     T.autoMd = function () {
         var l = T.ledgerObj(); if (!l || !(FL.who && FL.who.admin)) return;
-        var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), cols = [led.account, led.company, led.costCentre].filter(function (c, i, a) { return c && a.indexOf(c) === i; });
+        var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), cols = [led.account, led.company, led.costCentre].concat(T.extCols()).filter(function (c, i, a) { return c && a.indexOf(c) === i; });
         return Promise.all(cols.map(function (c) { return FL.call('finSegValues', { coaId: l.coaId, column: c }).then(function (r) { return (r.values || []).length ? null : c; }).catch(function () { return c; }); }))
             .then(function (miss) {
                 miss = miss.filter(Boolean); if (!miss.length) return;
@@ -341,7 +352,7 @@
 
     // ── the year board: one tile per period — ✓ synced, n/m some companies, ✗ not synced, live while syncing ──
     T.board = function () {
-        return FL.call('finTbSyncStatus').then(function (r) { L.status = r; T.paintBoard(); }).catch(function (e) { if ($('ts-board')) $('ts-board').innerHTML = '<div class="callout bad">' + esc(e) + '</div>'; });
+        return Promise.all([FL.call('finTbSyncStatus'), FL.call('finTbExtStatus').catch(function () { return { rows: [] }; })]).then(function (rr) { L.status = rr[0]; L.ext = rr[1]; T.paintBoard(); T.paintExt(); }).catch(function (e) { if ($('ts-board')) $('ts-board').innerHTML = '<div class="callout bad">' + esc(e) + '</div>'; });
     };
     T.cells = function () {
         var cells = {}, l = T.ledgerObj(); if (!l || !L.status) return cells;
@@ -384,7 +395,7 @@
                 (c.grains['CO,AC,CC'] ? ' · by cost centre' : '') : '\nnot on this PC yet') + (lv && lv.error ? '\n' + lv.error : '');
             return '<div class="ts-tile ' + st + (L.sel[p.seq] ? ' sel' : '') + (future ? ' future' : '') + '" data-s="' + p.seq + '" title="' + esc(tip) + '">' +
                 '<div class="ts-tn"><input type="checkbox"' + (L.sel[p.seq] ? ' checked' : '') + ' tabindex="-1"> ' + esc(p.name) + '</div><div class="ts-ti">' + ICON[st] + '</div><div class="ts-tl">' + esc(line) + '</div>' +
-                (c && c.grains['CO,AC,CC'] ? '<span class="ts-cc">cc</span>' : '') + '</div>';
+                (c && c.grains['CO,AC,CC'] ? '<span class="ts-cc">cc</span>' : '') + T.extBadge(p, want) + '</div>';
         }).join('') || '<p class="sm muted">No periods in this year.</p>';
         views.forEach(function (x) {
             var box = $(x + '-board'); box.innerHTML = tiles;
@@ -467,6 +478,82 @@
         clearTimeout(T._pt); T._pt = setTimeout(function () { T.paintLive(); T.paintBoard(); }, 150);
     };
 
+    // ── extended segments: balances by company × account × extra segments (cost centre, analysis, salesperson …) in fin_gl_balances_ext ──
+    L.extAuto = FL.ls('tbl.extAuto', true);
+    T.coaOf = function () { var l = T.ledgerObj(); return l && L.disc && (L.disc.coas || {})[String(l.coaId)]; };
+    T.segName = function (col) { var c = T.coaOf(), sg = c && (c.segments || []).filter(function (x) { return x.col === col; })[0]; return sg ? sg.name + ' (' + col + ')' : col; };
+    /** The extra segments chosen for this ledger's chart of accounts (config.json tbsync.ext[coaId]) */
+    T.extCols = function () { var l = T.ledgerObj(); if (!l) return []; var e = ((FL.config || {}).tbsync || {}).ext || {}; return (e[String(l.coaId)] || []).slice(); };
+    /** period seq → {cos: {company: segments}, rows, at} of this pod × ledger */
+    T.extCells = function () {
+        var cells = {}, l = T.ledgerObj(); if (!l || !L.ext) return cells;
+        var cal = T.cal(), seqOf = {}; cal.forEach(function (p) { seqOf[p.name] = p.seq; });
+        (L.ext.rows || []).forEach(function (x) {
+            if ((x.pod || '') !== (L.pod || '') || String(x.ledgerId) !== String(l.id)) return;
+            var q = x.seq != null ? +x.seq : seqOf[x.period]; if (q == null) return;
+            var c = cells[q] = cells[q] || { cos: {}, rows: 0, at: '' };
+            var segs = String(x.segments || '').split(',');
+            c.cos[x.company] = c.cos[x.company] ? c.cos[x.company].filter(function (g) { return segs.indexOf(g) >= 0; }) : segs;   // adjustment periods too: what every part has
+            c.rows += +x.rows || 0; if (String(x.at) > c.at) c.at = String(x.at);
+        });
+        return cells;
+    };
+    T.extState = function (seq, want) {
+        var ext = T.extCols(), c = T.extCells()[seq]; if (!ext.length || !c) return 'none';
+        var l = T.ledgerObj(), led = l ? FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)) : {}, need = [led.company, led.account].concat(ext);
+        var cos = want.length ? want : Object.keys(c.cos);
+        var ok = cos.filter(function (co) { var g = c.cos[co]; return g && need.every(function (n) { return !n || g.indexOf(n) >= 0; }); }).length;
+        return ok >= cos.length ? 'done' : ok ? 'part' : 'none';
+    };
+    T.extBadge = function (p, want) {
+        if (!T.extCols().length) return '';
+        var st = T.extState(p.seq, want), c = T.extCells()[p.seq];
+        return st === 'none' ? '' : '<span class="ts-ext-b ' + st + '" title="' + esc('Extended segments ' + (st === 'done' ? 'synced' : 'partly synced') + (c ? ' · ' + c.rows.toLocaleString() + ' rows · read ' + String(c.at).slice(0, 16) : '')) + '">ext' + (st === 'done' ? ' ✓' : ' ◐') + '</span>';
+    };
+    /** Settings › Extended segments: chips for every segment of the chart (company and account are always in) */
+    T.paintExt = function () {
+        var box = $('ts-ext'), c = T.coaOf(), l = T.ledgerObj(); if (!box) return;
+        if (!c || !l) { box.innerHTML = ''; return; }
+        var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), ext = T.extCols(), admin = FL.who && FL.who.admin;
+        var cells = T.extCells(), n = Object.keys(T.cells()).length, done = Object.keys(T.cells()).filter(function (q) { return T.extState(+q, T.want()) === 'done'; }).length;
+        box.innerHTML = '<div class="row" style="margin-top:10px"><b class="sm"><i class="fa-solid fa-layer-group"></i> Extended segments</b><span class="sm muted">balances by company × account × these segments, kept in their own table (fin_gl_balances_ext, view fin_gl_ext_v) — the trial balance stays fast</span></div>' +
+            '<div class="tl-cos" style="margin-top:4px">' + (c.segments || []).map(function (sg) {
+                var fixed = sg.col === led.company || sg.col === led.account;
+                return '<label class="chip' + (fixed ? ' fixed' : '') + '" title="' + esc(fixed ? 'always included' : (sg.qualifiers || []).join(' ')) + '"><input type="checkbox" class="ts-xs" value="' + esc(sg.col) + '"' + (fixed || ext.indexOf(sg.col) >= 0 ? ' checked' : '') + (fixed || !admin ? ' disabled' : '') + '> ' + esc(sg.name) + ' <span class="muted">' + esc(sg.col.replace('SEGMENT', 'S')) + '</span></label>';
+            }).join('') + '</div>' +
+            '<div class="row sm" style="margin-top:4px"><label><input type="checkbox" id="ts-xauto"' + (L.extAuto ? ' checked' : '') + '> sync them after every trial balance sync</label>' +
+            '<span class="muted">' + (ext.length ? done + ' of ' + n + ' synced period(s) have them · ' + Object.keys(cells).length + ' period(s) on this PC' : 'nothing chosen') + '</span><span class="grow"></span>' +
+            (admin ? '<button class="btn sm" id="ts-xsave" disabled><i class="fa-solid fa-floppy-disk"></i> Save choice</button><button class="btn sm primary" id="ts-xgo"' + (ext.length ? '' : ' disabled') + ' title="For the ticked periods, or every synced period that lacks them"><i class="fa-solid fa-cloud-arrow-down"></i> Sync extended</button>' : '') + '</div>';
+        var chosen = function () { return [].map.call(box.querySelectorAll('.ts-xs:checked:not([disabled])'), function (i) { return i.value; }); };
+        box.querySelectorAll('.ts-xs').forEach(function (i) { i.onchange = function () { if ($('ts-xsave')) $('ts-xsave').disabled = chosen().join() === ext.join(); }; });
+        $('ts-xauto').onchange = function () { L.extAuto = this.checked; FL.lsSet('tbl.extAuto', L.extAuto); };
+        if ($('ts-xsave')) $('ts-xsave').onclick = function () {
+            FL.config.tbsync = FL.config.tbsync || {}; FL.config.tbsync.ext = FL.config.tbsync.ext || {}; FL.config.tbsync.ext[String(l.coaId)] = chosen();
+            FL.saveConfig().then(function () { FL.toast('Extended segments saved — ' + (chosen().length ? 'press Sync extended' : 'none'), 'ok'); T.paintExt(); T.paintBoard(); T.md(); });
+        };
+        if ($('ts-xgo')) $('ts-xgo').onclick = function () {
+            var sel = T.selSeqs(), cellsTb = T.cells();
+            var list = sel.length ? sel : Object.keys(cellsTb).map(Number).filter(function (q) { return T.extState(q, T.want()) !== 'done'; });
+            if (!list.length) { FL.toast('Every synced period already has the extended segments — tick periods to read them again', 'info'); return; }
+            T.extSync(list, false);
+        };
+    };
+    /** Reads the extended-segment balances of some periods (only what this PC lacks unless refresh) */
+    T.extSync = function (seqs, refresh, quiet) {
+        var l = T.ledgerObj(), ext = T.extCols(); if (!l || !ext.length || !seqs.length) return Promise.resolve();
+        var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc));
+        var names = T.cal().filter(function (p) { return seqs.indexOf(p.seq) >= 0; }).map(function (p) { return p.name; });
+        var p = FL.fusion.progress('Extended segments ' + ext.join(', ') + ' · ' + names[0] + (names.length > 1 ? ' – ' + names[names.length - 1] : '') + '…', true);
+        FL.fusion.run.pod = L.pod || '';
+        T.pfx().forEach(function (x) { if ($(x + '-md')) $(x + '-md').querySelectorAll('button').forEach(function (b) { b.disabled = true; }); });
+        if ($('ts-xgo')) { $('ts-xgo').disabled = true; $('ts-xgo').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Syncing…'; }
+        return FL.call('finTbExtSync', { pod: L.pod || '', options: { ledger: led, periodSeqs: seqs, foldAdjustments: L.fold, companies: L.cos, parallel: L.par, refresh: !!refresh, extSegments: ext,
+            skipZero: !!L.opt.skipZero, hint: !!L.opt.hint, allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 90 * 60000, p).then(function (r) {
+            FL.fusion.finish();
+            FL.toast('Extended segments: ' + (r.rows || 0).toLocaleString() + ' rows from ' + r.reads + ' quer' + (r.reads === 1 ? 'y' : 'ies') + (r.skipped ? ' · ' + r.skipped + ' already on this PC' : '') + ' — query fin_gl_ext_v', 'ok');
+        }).catch(function (e) { var m = String(e && e.message || e); FL.fusion.finish(m); if (!quiet) FL.toast(m, 'err'); }).then(T.board).then(function () { T.md(); });
+    };
+
     // ── sync ──
     /** seqs: the periods to sync (default = From–To); refresh: read again even when this PC has them */
     T.sync = function (seqs, refresh) {
@@ -502,7 +589,7 @@
             if (r.defaultTemplate) { L.defaultQuery = r.defaultTemplate; FL.lsSet('tbl.dq.' + T.qKey(), r.defaultTemplate); if ($('tl-qtext') && !L.query) $('tl-qtext').value = r.defaultTemplate; }
             var b = r.built || {};
             FL.toast(names.length + ' period(s) synced' + (b.built ? ' — the statements now use ' + b.periods + ' synced period(s)' : b.reason === 'full load' ? ' — kept beside the full load the statements use' : ''), 'ok');
-            return FL.refresh().then(function () { return T.autoMd(); });
+            return FL.refresh().then(function () { return T.autoMd(); }).then(function () { if (L.extAuto && T.extCols().length) return T.extSync(list, !!refresh, true); });
         }).catch(function (e) {
             var msg = String(e && e.message || e); FL.fusion.finish(msg);
             if (T.live) { T.live.running = false; T.live.end = Date.now(); T.live.error = msg; Object.keys(T.live.per).forEach(function (n) { var x = T.live.per[n]; if (x.state === 'running' || x.state === 'queued') { x.state = 'failed'; x.error = x.error || msg; } }); }

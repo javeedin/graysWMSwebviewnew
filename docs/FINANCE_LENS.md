@@ -136,6 +136,24 @@ mapped to receivables / inventory / payables / cash / finance costs / cost of sa
 lines. The master data checklist (Data › Trial balance sync and SQL explorer) has the same items — *12 months in a row* and *Last year* with a
 Sync button for exactly the missing periods, and *Budget*.
 
+## Extended segments (cost centre, analysis, salesperson, profit centre …)
+
+The trial balance sync reads balances by company × account (× cost centre) — small and fast. To report by more segments,
+pick them in Data › Trial balance sync › Settings › **Extended segments** (chips for every segment of the chart of
+accounts; company and account are always included), press *Save choice*, then **Sync extended** — or tick *sync them after
+every trial balance sync*.
+
+- One query per period × company: GL_BALANCES joined to GL_CODE_COMBINATIONS, grouped by company × account × the chosen
+  segments, zero and summary rows skipped. A period × company already read with these segments is not asked again
+  (Overwrite reads again); choosing an extra segment later re-reads only what lacks it.
+- Kept in its own table **fin_gl_balances_ext** (columns segment1 … segment30, only the chosen ones filled) with
+  **fin_gl_balances_ext_sync** (what was read, with which segments, when). Query **fin_gl_ext_v** in the SQL explorer:
+  period_seq, company, account, segmentN, opening, dr, cr, closing (translated 'R' rows left out). It totals exactly to
+  the trial balance per account.
+- The period tiles show **ext ✓** (every company has them) or **ext ◐**; the master data checklist has an
+  *Extended segments* row (Sync n period(s) / Choose segments) and a values & names row per chosen segment.
+- The CFO Copilot knows fin_gl_ext_v, so you can ask "expenses by salesperson last quarter".
+
 ## Chart of accounts — which segments are synced
 
 Data › Chart of accounts marks every segment card: a solid green tick when its values (codes, names, account types) are

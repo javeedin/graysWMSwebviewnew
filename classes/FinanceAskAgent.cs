@@ -51,6 +51,11 @@ DATA (DuckDB, read-only — use run_sql):
   fin_ledgers(code, name, currency, coa_id, company_segment, cost_centre_segment, account_segment), fin_meta(key, value),
   fin_coa_segments(pod, coa_id, column_name, segment_name, qualifiers, distinct_values, purity, role COMPANY/COST_CENTRE/ACCOUNT/
   INTERCOMPANY, evidence) — the Fusion chart of accounts structure.
+- Extended segments (when synced): fin_gl_ext_v(pod, ledger_id, period_seq, period_name, adj, currency_code, company, account,
+  account_type, segment1 .. segment30 (only the segments chosen in Trial balance sync › Extended segments are filled — see
+  fin_gl_balances_ext_sync.segments and fin_coa_segments for their names), opening, dr, cr, closing) — period balances by company ×
+  account × e.g. cost centre, analysis, salesperson, profit centre. Movement of a period = SUM(dr - cr); names of the values in
+  fin_segment_values(coa_id, column_name, value, description).
 - Working capital subledger snapshots (each Sync on the Working capital tab adds one; use the latest snapshot_at per kind):
   fin_wc_parties(pod, kind 'AR' debtors | 'AP' creditors, snapshot_at, bu_id, party_number, party_name, currency, bucket
   'Current' | '1-30' | ... | '>180' days past due, items, amount (ledger currency, open amount), amount_entered, oldest_due,

@@ -1145,6 +1145,8 @@ namespace WMSApp
             public bool PerCompany { get; set; } = true;
             /// <summary>Trial balance sync: these normal periods (period_seq), each with the adjustment periods it closes; empty = PeriodSeq.</summary>
             public List<int> PeriodSeqs { get; set; } = new();
+            /// <summary>Extended segments sync: the extra SEGMENTn columns to group by besides company and account (cost centre, analysis …).</summary>
+            public List<string> ExtSegments { get; set; } = new();
         }
 
         /// <summary>
@@ -1634,6 +1636,94 @@ namespace WMSApp
                 var built = FinanceLens.BuildFromTb(o.Pod, x.Note);
                 x.Note("✓ Trial balance sync done in " + (sw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s · " + reads + " quer" + (reads == 1 ? "y" : "ies") + " to Fusion");
                 return new { ok = true, periods = pick.Select(p => new { name = p.Name, seq = p.Seq }).ToList(), reads, rows, sources, built, queryTemplate = rr.Template, defaultTemplate = rr.Default, customQuery = rr.Custom, ms = sw.ElapsedMilliseconds, log = x.Log };
+            }
+            catch (OperationCanceledException) { return new { ok = false, error = "Cancelled.", log = x.Log }; }
+            catch (Exception ex) { x.Note("✖ " + ex.Message); return new { ok = false, error = ex.Message, log = x.Log }; }
+        }
+
+        /// <summary>
+        /// Extended segments sync: the chosen normal periods of one ledger (+ the adjustment periods they close) read from GL_BALANCES joined
+        /// to GL_CODE_COMBINATIONS and grouped by company × account × the extra segments the admin picked (e.g. cost centre, sub account,
+        /// warehouse, analysis, salesperson, item profit centre) — one query per company and period, kept on this PC in its own table
+        /// fin_gl_balances_ext (+ fin_gl_balances_ext_sync, view fin_gl_ext_v) so the trial balance stays small. A period × company is read
+        /// again only when it was read with fewer segments, or with Refresh.
+        /// </summary>
+        public static async Task<object> SyncTbExtAsync(Runner run, TbOptions o, Action<string> progress, CancellationToken ct)
+        {
+            var x = new Ctx { Run = run, Ct = ct, Progress = progress, LogSql = o.LogSql };
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                var led = o.Ledger;
+                if (led == null) return new { ok = false, error = "Pick a ledger." };
+                led.Company = SegCol(led.Company); led.Account = SegCol(led.Account); led.CostCentre = SegCol(led.CostCentre);
+                if (led.Company == null || led.Account == null || string.IsNullOrEmpty(led.Currency) || string.IsNullOrEmpty(led.PeriodSet))
+                    return new { ok = false, error = "Ledger " + led.Name + ": the company / account segment or the calendar is missing — run Discover in Fusion setup." };
+                var extra = (o.ExtSegments ?? new()).Select(SegCol).Where(c => c != null).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                if (extra.Count == 0) return new { ok = false, error = "Pick the extended segments first (Settings › Extended segments)." };
+                var segs = new List<string> { led.Company, led.Account }.Concat(extra).Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(c => int.Parse(c.Substring(7), CultureInfo.InvariantCulture)).ToList();
+                await Probe(x).ConfigureAwait(false);
+                var calr = await CalendarAsync(x, led, o.FoldAdjustments).ConfigureAwait(false);
+                if (calr == null) return new { ok = false, error = "Could not read GL_PERIODS.", log = x.Log };
+                var (cal, normal, target) = calr.Value;
+                var seqs = new HashSet<int>((o.PeriodSeqs ?? new()).Where(v => v > 0)); if (seqs.Count == 0 && o.PeriodSeq > 0) seqs.Add(o.PeriodSeq);
+                var pick = normal.Where(p => seqs.Contains(p.Seq)).OrderBy(p => p.Seq).ToList();
+                if (pick.Count == 0) return new { ok = false, error = "Pick the periods to sync.", log = x.Log };
+                var names = target.Where(kv => pick.Contains(kv.Value)).Select(kv => kv.Key).Distinct().ToList();
+                var cos = (o.Companies ?? new()).Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToList();
+                if (cos.Count == 0) cos = (o.AllCompanies ?? new()).Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToList();
+                if (cos.Count == 0) return new { ok = false, error = "No companies for " + led.Name + " — run Discover in Fusion setup.", log = x.Log };
+                x.Note("Extended segments sync " + led.Name + " · " + pick.Count + " period(s) " + pick[0].Name + (pick.Count > 1 ? " – " + pick[^1].Name : "") + " · " + cos.Count + " compan" + (cos.Count == 1 ? "y" : "ies") +
+                       " · by " + string.Join(" × ", segs) + (o.Refresh ? " · read again" : " · only what this PC is missing"));
+                var have = new HashSet<string>(x.Types.TryGetValue("GL_BALANCES", out var gt) ? gt.Select(c => c.Col) : Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+                bool tf = have.Count == 0 || have.Contains("TRANSLATED_FLAG");
+                string Lit(string v) => "'" + (v ?? "").Replace("'", "''") + "'";
+                string Sql(string period, string co) =>
+                    "SELECT " + (o.Hint ? "/*+ LEADING(b) USE_HASH(c) PARALLEL(4) */ " : "") + "b.period_name" + (tf ? ", b.translated_flag" : "") + ", " + string.Join(", ", segs.Select(c => "c." + c + " " + c)) +
+                    ", MAX(c.account_type) account_type, SUM(b.begin_balance_dr) begin_balance_dr, SUM(b.begin_balance_cr) begin_balance_cr, SUM(b.period_net_dr) period_net_dr, SUM(b.period_net_cr) period_net_cr" +
+                    "\nFROM gl_balances b JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id" +
+                    "\nWHERE b.ledger_id = " + led.Id.ToString(CultureInfo.InvariantCulture) + " AND b.period_name = " + Lit(period) + " AND b.currency_code = " + Lit(led.Currency) + " AND b.actual_flag = 'A'" +
+                    DefaultFilters(o, have) + (o.SkipZero && have.Contains("TEMPLATE_ID") ? "" : " AND c.summary_flag = 'N'") + " AND c." + led.Company + " = " + Lit(co) +
+                    "\nGROUP BY b.period_name" + (tf ? ", b.translated_flag" : "") + ", " + string.Join(", ", segs.Select(c => "c." + c));
+                var kept = FinanceLens.ExtPeriods(o.Pod, led.Id, led.Currency);
+                var jobs = new List<(string Period, string Co)>();
+                int skipped = 0;
+                foreach (var n in names)
+                    foreach (var co in cos)
+                    {
+                        if (!o.Refresh && kept.TryGetValue(n, out var m) && m.TryGetValue(co, out var k) && segs.All(k.Segs.Contains)) { skipped++; continue; }
+                        jobs.Add((n, co));
+                    }
+                if (skipped > 0) x.Note(skipped + " period × company read(s) already on this PC with these segments - not asked again");
+                const int CAP = 100000;
+                var gate = new SemaphoreSlim(Math.Clamp(o.Parallel, 1, 4));
+                int reads = 0; long rows = 0; bool sampled = false;
+                var sources = new List<object>();
+                await Task.WhenAll(jobs.Select(async j =>
+                {
+                    await gate.WaitAsync(x.Ct).ConfigureAwait(false);
+                    try
+                    {
+                        string label = led.Name + " · " + j.Period + " · extended · company " + j.Co;
+                        string sql = Sql(j.Period, j.Co);
+                        if (x.LogSql) x.Note("   SQL: " + sql);
+                        var t0 = Stopwatch.StartNew();
+                        var r = await RunLive(x, label, sql, CAP).ConfigureAwait(false);
+                        Interlocked.Increment(ref reads);
+                        if (!r.Success) throw new InvalidOperationException(label + ": " + r.Error);
+                        if (r.Rows.Count >= CAP) throw new InvalidOperationException(label + ": more than " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows - pick fewer extended segments");
+                        lock (gate) if (!sampled && r.Rows.Count > 0) { sampled = true; LiveSample(x, label, r.Rows); }
+                        FinanceLens.SaveExt(o.Pod, led.Id, j.Period, led.Currency, j.Co, led.Company, led.Account, segs, r.Rows, t0.ElapsedMilliseconds);
+                        Interlocked.Add(ref rows, r.Rows.Count);
+                        x.Note("✓ " + j.Period + " · company " + j.Co + ": " + r.Rows.Count.ToString("N0", CultureInfo.InvariantCulture) + " rows in " + (t0.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s (fin_gl_balances_ext)");
+                        lock (sources) sources.Add(new { period = j.Period, company = j.Co, rows = r.Rows.Count, ms = t0.ElapsedMilliseconds });
+                    }
+                    finally { gate.Release(); }
+                })).ConfigureAwait(false);
+                FinanceLens.SaveTbCalendar(o.Pod, led, cal.Where(c => names.Contains(c.Name)).Select(c => (c.Name, target[c.Name].Seq, c.Year, c.Num, c.Quarter, c.Start, c.End, c.Adj)));
+                x.Note("✓ Extended segments sync done in " + (sw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s · " + reads + " quer" + (reads == 1 ? "y" : "ies") + " · " + rows.ToString("N0", CultureInfo.InvariantCulture) + " rows · query fin_gl_ext_v in the SQL explorer");
+                return new { ok = true, periods = pick.Select(p => new { name = p.Name, seq = p.Seq }).ToList(), segments = segs, reads, rows, skipped, sources, sample = jobs.Count > 0 ? Sql(jobs[0].Period, jobs[0].Co) : Sql(names[0], cos[0]), ms = sw.ElapsedMilliseconds, log = x.Log };
             }
             catch (OperationCanceledException) { return new { ok = false, error = "Cancelled.", log = x.Log }; }
             catch (Exception ex) { x.Note("✖ " + ex.Message); return new { ok = false, error = ex.Message, log = x.Log }; }

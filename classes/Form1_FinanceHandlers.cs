@@ -171,6 +171,22 @@ namespace WMSApp
                                 Target = (PipeSrvStr(root, "pod") ?? "") + " · " + to.Ledger?.Name, Detail = to.PeriodSeq + (to.Companies?.Count > 0 ? " · " + string.Join(",", to.Companies) : "") });
                             break;
                         }
+                    case "finTbExtSync":        // Data › Trial balance sync › Extended segments: company × account × the chosen segments → fin_gl_balances_ext
+                        {
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can load finance data." }; break; }
+                            var to = root.GetProperty("options").Deserialize<FinanceFusion.TbOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            to.Pod = PipeSrvStr(root, "pod") ?? "";
+                            var cts = FinNewCts(TimeSpan.FromMinutes(90));
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            data = await Task.Run(() => FinanceFusion.SyncTbExtAsync(FinRunner(PipeSrvStr(root, "pod")), to, FinProgress(wv, requestId), cts.Token));
+                            bool okE = JsonSerializer.SerializeToElement(data).TryGetProperty("ok", out var oke) && oke.ValueKind == JsonValueKind.True;
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_tb_ext_sync", Outcome = okE ? "OK" : "FAILED", DurationMs = sw.ElapsedMilliseconds,
+                                Target = (PipeSrvStr(root, "pod") ?? "") + " · " + to.Ledger?.Name, Detail = string.Join(",", to.PeriodSeqs ?? new()) + " · " + string.Join(",", to.ExtSegments ?? new()) });
+                            break;
+                        }
+                    case "finTbExtStatus":
+                        data = await Task.Run(() => FinanceLens.ExtStatus());
+                        break;
                     case "finTbSync":           // Data › Trial balance sync: periods of one ledger grouped by company × account → DuckDB, statements rebuilt from them
                         {
                             if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can load finance data." }; break; }
