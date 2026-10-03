@@ -360,6 +360,18 @@ namespace WMSApp.FusionSql
                 else if (xml.Bytes == null)
                     return Timed(FusionQueryResult.Fail(csv.Fault ?? "HTTP " + csv.Status, csv.Raw), sw);
             }
+            if (rows != null && rows.Count > 0 && rows.All(r => r.Keys.All(RowsetParser.IsEnvelopeKey)))
+            {   // only the runner's envelope came back (e.g. an error text in RESULT) - never pass it on as data
+                var bad = FusionQueryResult.Fail(RowsetParser.Diagnose(decoded) ?? "Fusion answered with the runner's RESULT text instead of rows.", xml.Raw);
+                bad.Decoded = Truncate(decoded, 3000);
+                return Timed(bad, sw);
+            }
+            if (rows == null && xml.Fault == null && RowsetParser.Diagnose(decoded) is string why)
+            {
+                var cut = FusionQueryResult.Fail(why, xml.Raw);
+                cut.Decoded = Truncate(decoded, 3000);
+                return Timed(cut, sw);
+            }
             if (rows == null)
             {
                 var fail = FusionQueryResult.Fail(Hint(xml.Fault ?? (decoded != null
@@ -786,7 +798,7 @@ $@"<?xml version = '1.0' encoding = 'utf-8'?>
             catch { generic = ParseCsv(t); }
             if (generic == null || generic.Count == 0) return generic;
             foreach (var row in generic)
-                foreach (var k in row.Keys.Where(k => EnvelopeKeys.Contains(k)).ToList()) row.Remove(k);
+                foreach (var k in row.Keys.Where(IsEnvelopeKey).ToList()) row.Remove(k);
             generic.RemoveAll(r => r.Count == 0);
             return generic.Count == 0 ? null : generic;
         }
@@ -862,6 +874,27 @@ $@"<?xml version = '1.0' encoding = 'utf-8'?>
             XmlNameEscape.Replace(tag, m => ((char)Convert.ToInt32(m.Groups[1].Value, 16)).ToString());
 
         private static readonly HashSet<string> EnvelopeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "RESULT", "P_QRY_STMT" };
+        /// <summary>RESULT / P_QRY_STMT also when the CSV header carries quotes, a BOM or a trailing CR.</summary>
+        public static bool IsEnvelopeKey(string k) => k != null && EnvelopeKeys.Contains(k.Trim().Trim('"', '\uFEFF', '\r').Trim());
+
+        /// <summary>
+        /// Why the runner's answer holds no rows: BI Publisher cut the output short (a ROWSET without its end), an Oracle error the
+        /// report put into RESULT, or the first words of whatever came back. Null when there is nothing to say.
+        /// </summary>
+        public static string Diagnose(string decoded)
+        {
+            if (string.IsNullOrWhiteSpace(decoded)) return null;
+            string t = decoded;
+            for (int i = 0; i < 2 && t.IndexOf("lt;", StringComparison.Ordinal) >= 0; i++) t = XmlUnescapeOnce(t);
+            var ora = Regex.Match(t, @"ORA-\d{5}:[^<\r\n""]{0,300}");
+            if (ora.Success) return "Fusion answered with an Oracle error: " + ora.Value.Trim();
+            if (t.IndexOf("<ROWSET", StringComparison.Ordinal) >= 0 && t.IndexOf("</ROWSET>", StringComparison.Ordinal) < 0)
+                return "BI Publisher cut the answer short (" + t.Length.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) + " characters, no end of the row set) - the result is too long for one read: read fewer companies / columns per query.";
+            string text = Regex.Replace(Regex.Replace(t, "<[^>]+>", " "), @"\s+", " ").Trim();
+            if (text.Equals("RESULT", StringComparison.OrdinalIgnoreCase) || text.Length == 0) return null;
+            if (text.StartsWith("RESULT ", StringComparison.OrdinalIgnoreCase)) text = text.Substring(7);
+            return "Fusion answered without rows: " + (text.Length > 300 ? text.Substring(0, 300) + "…" : text);
+        }
 
         private static List<Dictionary<string, object>> ParseRowsetText(string xml)
         {

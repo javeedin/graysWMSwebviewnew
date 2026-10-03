@@ -557,3 +557,5 @@ td.sp-tc, th.sp-tc { background: #f1f5f9; font-weight: 700; }
 .ts-vsum { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; font-size: 13px; }
 .ts-vtie { margin: 6px 0 10px; }
 .ts-vtie summary { cursor: pointer; }
+.ts-btns { white-space: nowrap; }
+.ts-btns .ts-sqlb { margin-left: 4px; }

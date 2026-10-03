@@ -1269,7 +1269,7 @@ namespace WMSApp
                 if (custom) x.Note("Using your own GL_BALANCES query: " + template);
                 string Fill(string period) => template.Replace("{LEDGER_ID}", led.Id.ToString(CultureInfo.InvariantCulture)).Replace("{PERIOD}", period.Replace("'", "''")).Replace("{CURRENCY}", (led.Currency ?? "").Replace("'", "''"));
                 int page = Math.Clamp(o.ChunkSize <= 0 ? 5000 : o.ChunkSize, 100, 50000);
-                bool Slow(string e) => e != null && (e.IndexOf("timed out", StringComparison.OrdinalIgnoreCase) >= 0 || e.IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0 || e.Contains("ORA-01013"));
+                bool Slow(string e) => e != null && (e.IndexOf("timed out", StringComparison.OrdinalIgnoreCase) >= 0 || e.IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0 || e.Contains("ORA-01013") || e.IndexOf("cut the answer short", StringComparison.OrdinalIgnoreCase) >= 0);
 
                 // A period is read in pages of `page` rows: first COUNT(*) (so the monitor shows page i of N), then
                 //   SELECT * FROM (SELECT q.* FROM (query) q WHERE q.code_combination_id > <last id read> ORDER BY q.code_combination_id) WHERE ROWNUM <= page
@@ -1685,14 +1685,7 @@ namespace WMSApp
                 var have = new HashSet<string>(x.Types.TryGetValue("GL_BALANCES", out var gt) ? gt.Select(c => c.Col) : Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
                 bool tf = have.Count == 0 || have.Contains("TRANSLATED_FLAG");
                 string Lit(string v) => "'" + (v ?? "").Replace("'", "''") + "'";
-                string Sql(string period, string co, IList<string> accts = null) =>
-                    "SELECT " + (o.Hint ? "/*+ LEADING(b) USE_HASH(c) PARALLEL(4) */ " : "") + "b.period_name" + (tf ? ", b.translated_flag" : "") + ", " + string.Join(", ", segs.Select(c => "c." + c + " " + c)) +
-                    ", MAX(c.account_type) account_type, SUM(b.begin_balance_dr) begin_balance_dr, SUM(b.begin_balance_cr) begin_balance_cr, SUM(b.period_net_dr) period_net_dr, SUM(b.period_net_cr) period_net_cr" +
-                    "\nFROM gl_balances b JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id" +
-                    "\nWHERE b.ledger_id = " + led.Id.ToString(CultureInfo.InvariantCulture) + " AND b.period_name = " + Lit(period) + " AND b.currency_code = " + Lit(led.Currency) + " AND b.actual_flag = 'A'" +
-                    DefaultFilters(o, have) + (o.SkipZero && have.Contains("TEMPLATE_ID") ? "" : " AND c.summary_flag = 'N'") + " AND c." + led.Company + " = " + Lit(co) +
-                    (accts == null || accts.Count == 0 ? "" : accts.Count == 1 ? " AND c." + led.Account + " = " + Lit(accts[0]) : " AND c." + led.Account + " IN (" + string.Join(", ", accts.Select(Lit)) + ")") +
-                    "\nGROUP BY b.period_name" + (tf ? ", b.translated_flag" : "") + ", " + string.Join(", ", segs.Select(c => "c." + c));
+                string Sql(string period, string co, IList<string> accts = null) => ExtSql(led, segs, o, have, period, co, accts);
                 var kept = FinanceLens.ExtPeriods(o.Pod, led.Id, led.Currency);
                 var jobs = new List<(string Period, string Co)>();
                 int skipped = 0;
@@ -1846,6 +1839,28 @@ namespace WMSApp
             }
             catch (OperationCanceledException) { return new { ok = false, error = "Cancelled.", log = x.Log }; }
             catch (Exception ex) { x.Note("✖ " + ex.Message); return new { ok = false, error = ex.Message, log = x.Log }; }
+        }
+
+        /// <summary>The columns an extended-segments read groups by: company, account and the chosen SEGMENTn, in segment order.</summary>
+        public static List<string> ExtSegs(SyncLedger led, IEnumerable<string> ext) =>
+            new List<string> { SegCol(led.Company), SegCol(led.Account) }.Concat((ext ?? Enumerable.Empty<string>()).Select(SegCol)).Where(c => c != null).Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(c => int.Parse(c.Substring(7), CultureInfo.InvariantCulture)).ToList();
+
+        /// <summary>The SQL of one extended-segments read (one period × company, optionally only some accounts) — what the sync runs and the page shows.
+        /// `have` = the GL_BALANCES columns of the pod (empty = assume TRANSLATED_FLAG and TEMPLATE_ID exist).</summary>
+        public static string ExtSql(SyncLedger led, List<string> segs, TbOptions o, HashSet<string> have, string period, string co, IList<string> accts = null)
+        {
+            have ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            bool tf = have.Count == 0 || have.Contains("TRANSLATED_FLAG");
+            string Lit(string v) => "'" + (v ?? "").Replace("'", "''") + "'";
+            return
+                "SELECT " + (o.Hint ? "/*+ LEADING(b) USE_HASH(c) PARALLEL(4) */ " : "") + "b.period_name" + (tf ? ", b.translated_flag" : "") + ", " + string.Join(", ", segs.Select(c => "c." + c + " " + c)) +
+                ", MAX(c.account_type) account_type, SUM(b.begin_balance_dr) begin_balance_dr, SUM(b.begin_balance_cr) begin_balance_cr, SUM(b.period_net_dr) period_net_dr, SUM(b.period_net_cr) period_net_cr" +
+                "\nFROM gl_balances b JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id" +
+                "\nWHERE b.ledger_id = " + led.Id.ToString(CultureInfo.InvariantCulture) + " AND b.period_name = " + Lit(period) + " AND b.currency_code = " + Lit(led.Currency) + " AND b.actual_flag = 'A'" +
+                DefaultFilters(o, have) + (o.SkipZero && have.Contains("TEMPLATE_ID") ? "" : " AND c.summary_flag = 'N'") + " AND c." + led.Company + " = " + Lit(co) +
+                (accts == null || accts.Count == 0 ? "" : accts.Count == 1 ? " AND c." + led.Account + " = " + Lit(accts[0]) : " AND c." + led.Account + " IN (" + string.Join(", ", accts.Select(Lit)) + ")") +
+                "\nGROUP BY b.period_name" + (tf ? ", b.translated_flag" : "") + ", " + string.Join(", ", segs.Select(c => "c." + c));
         }
 
         /// <summary>The periods synced on this PC per pod × ledger (for the Data page): companies, rows, when.</summary>

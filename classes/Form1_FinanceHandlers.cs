@@ -184,6 +184,19 @@ namespace WMSApp
                                 Target = (PipeSrvStr(root, "pod") ?? "") + " · " + to.Ledger?.Name, Detail = string.Join(",", to.PeriodSeqs ?? new()) + " · " + string.Join(",", to.ExtSegments ?? new()) });
                             break;
                         }
+                    case "finTbExtSql":         // Data › Trial balance sync › SQL dialog: the extended-segments query one period × company runs (nothing is sent to Fusion)
+                        {
+                            var to = root.GetProperty("options").Deserialize<FinanceFusion.TbOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            var led = to.Ledger;
+                            if (led == null) { data = new { ok = false, error = "Pick a ledger." }; break; }
+                            var segs = FinanceFusion.ExtSegs(led, to.ExtSegments);
+                            led.Company = segs.FirstOrDefault(c => string.Equals(c, led.Company, StringComparison.OrdinalIgnoreCase)) ?? led.Company;
+                            led.Account = segs.FirstOrDefault(c => string.Equals(c, led.Account, StringComparison.OrdinalIgnoreCase)) ?? led.Account;
+                            string per = PipeSrvStr(root, "period") ?? "", co = PipeSrvStr(root, "company") ?? "", ac = PipeSrvStr(root, "account");
+                            data = new { ok = true, segments = segs, sql = FinanceFusion.ExtSql(led, segs, to, null, per, co),
+                                         sqlAccount = FinanceFusion.ExtSql(led, segs, to, null, per, co, new List<string> { string.IsNullOrEmpty(ac) ? "ACCOUNT" : ac }) };
+                            break;
+                        }
                     case "finTbExtStatus":
                         data = await Task.Run(() => FinanceLens.ExtStatus());
                         break;

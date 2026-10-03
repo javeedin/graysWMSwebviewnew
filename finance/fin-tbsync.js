@@ -34,27 +34,14 @@
             '<label class="sm"><input type="checkbox" id="ts-fold"' + (L.fold ? ' checked' : '') + ' title="Adjustment periods (e.g. Adj-25) are read too and added to the period they close"> fold adjustment periods</label>' +
             '<label class="sm" title="Queries to Fusion at the same time (one per company and period)">Reads in parallel <select id="ts-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + (L.par === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label></div>' +
             '<div class="ts-ext" id="ts-ext"></div>' +
-            '<details class="tl-q" id="tl-qbox"' + (L.query ? ' open' : '') + '><summary><b><i class="fa-solid fa-code"></i> GL_BALANCES query</b> <span class="sm muted" id="tl-qstate">' + (L.query ? 'your own query' : 'default') + '</span></summary>' +
-            '<p class="sm muted">One query per company and period. <code>{LEDGER_ID}</code>, <code>{PERIOD}</code>, <code>{CURRENCY}</code>, <code>{COMPANY_SEGMENT}</code>, <code>{ACCOUNT_SEGMENT}</code>, <code>{COST_CENTRE_SEGMENT}</code> and ' +
-            '<code>{COMPANY_FILTER}</code> (<code>AND c.SEGMENTn = \'01\'</code>) are filled in. It must return COMPANY, ACCOUNT, BEGIN_BALANCE_DR, BEGIN_BALANCE_CR, PERIOD_NET_DR and PERIOD_NET_CR (ACCOUNT_TYPE and COST_CENTRE when it has them); ' +
-            'it is read in one go — no ROWNUM / ROW_NUMBER. A query pasted with real values gets its placeholders back.</p>' +
-            '<div class="row sm" id="tl-qopts">' +
-            [['skipZero', 'skip zero & summary rows', 'Leaves out rows with no opening balance and no movement, and summary-template rows, while GL_BALANCES is scanned — before the join and the grouping. They add nothing to a trial balance.'],
-             ['allSums', 'all balance columns', 'SUM() every _DR / _CR / _ADB (_BEQ) column, not only the four a trial balance needs — slower'],
-             ['perCompany', 'one query per company', 'One query per company and period (c.SEGMENTn = \'01\'), Reads in parallel at a time; companies already on this PC are not read again'],
-             ['hint', 'optimizer hint', 'LEADING(b) USE_HASH(c) PARALLEL(4): scan GL_BALANCES first, hash join to GL_CODE_COMBINATIONS, in parallel']].map(function (x) {
-                return '<label title="' + esc(x[2]) + '"><input type="checkbox" data-o="' + x[0] + '"' + (L.opt[x[0]] ? ' checked' : '') + '> ' + x[1] + '</label>'; }).join('') + '</div>' +
-            '<textarea id="tl-qtext" spellcheck="false" rows="7">' + esc(L.query || L.defaultQuery || T.defaultQ()) + '</textarea>' +
-            '<div class="row"><button class="btn sm" id="ts-test" title="Runs this query in Fusion now for the first selected period (or the latest) and the first company — rows, time and the first rows"><i class="fa-solid fa-play"></i> Test query</button>' +
-            '<button class="btn sm" id="tl-qreset"><i class="fa-solid fa-rotate-left"></i> Default query</button><div id="tl-qfix"></div>' +
-            '<span class="sm muted">Sync uses this query; your own query is kept on this PC.</span></div><div id="ts-testres"></div></details></details>' +
+            '<div class="row sm" style="margin-top:8px"><i class="fa-solid fa-code"></i> <span class="muted">The query each Sync runs: the <b>&lt;/&gt;</b> button on a period row (view, test, edit) — ' + (L.query ? '<b>your own trial balance query</b>' : 'default trial balance query') + '</span></div></details>' +
             '<div class="card" style="margin-top:12px" id="ts-md"></div>';
         FL.fusion.paint();
         T.paintLive();
         $('ts-det').ontoggle = function () { FL.lsSet('tbl.det', this.open); if (this.open) FL.fusion.paint(); };
         $('ts-set').ontoggle = function () { FL.lsSet('tbl.setOpen', this.open); };
         $('ts-pod').onchange = function () { L.pod = this.value; FL.lsSet('tbl.pod', L.pod); L.ledger = null; L.sel = {}; T.fillLedgers(); };
-        $('ts-cc').onchange = function () { L.byCc = this.checked; FL.lsSet('tbl.byCc', L.byCc); T.loadQ(); if (!L.query) $('tl-qtext').value = L.defaultQuery || T.defaultQ(); T.setSum(); };
+        $('ts-cc').onchange = function () { L.byCc = this.checked; FL.lsSet('tbl.byCc', L.byCc); T.loadQ(); T.setSum(); };
         $('ts-fold').onchange = function () { L.fold = this.checked; T.setSum(); };
         $('ts-par').onchange = function () { L.par = +this.value; FL.lsSet('tbl.par', L.par); T.setSum(); };
         T.wireActs('ts');
@@ -62,19 +49,6 @@
         $('ts-selmiss').onclick = function () { T.select('missing'); };
         $('ts-selall').onclick = function () { T.select('all'); };
         $('ts-selnone').onclick = function () { T.select('none'); };
-        $('tl-qtext').oninput = function () { T.qCheck(false); };
-        $('ts-test').onclick = function () { T.test(); };
-        [].forEach.call(document.querySelectorAll('#tl-qopts input'), function (cb) {
-            cb.onchange = function () {
-                L.opt[cb.dataset.o] = cb.checked; FL.lsSet('tbl.opt', L.opt); T.setSum();
-                if (cb.dataset.o === 'perCompany') return;   // how the query is run, not the query
-                var q = L.query; T.loadQ(); L.query = q;
-                if (!L.query) { $('tl-qtext').value = L.defaultQuery || T.defaultQ(); T.qCheck(false); }
-                else FL.toast('Your own query is used — press Default query to get the default with these options', 'info');
-            };
-        });
-        $('tl-qreset').onclick = function () { L.query = ''; FL.lsSet('tbl.query.account', ''); $('tl-qtext').value = L.defaultQuery || T.defaultQ(); $('tl-qstate').textContent = 'default'; T.qCheck(false); };
-        T.qCheck(false);
         T.fillLedgers();
         if (running) $('ts-go').disabled = true;
     };
@@ -87,14 +61,67 @@
             .replace(/\{COMPANY_FILTER\}/g, company ? ' AND c.' + led.company + " = '" + sq(company) + "'" : '')
             .replace(/\{COMPANY_SEGMENT\}/g, led.company || '').replace(/\{ACCOUNT_SEGMENT\}/g, led.account || '').replace(/\{COST_CENTRE_SEGMENT\}/g, led.costCentre || led.account || '');
     };
-    /** Test query: the To period, the first ticked company (or the ledger's first) — straight to Fusion, rows / time / first rows */
-    T.test = function () {
+    /** </> The SQL a Sync runs for one period: pick the company, see the exact statement, ▶ Test it in Fusion; for the trial balance also edit the query (kept on this PC) */
+    T.sqlDialog = function (seq, kind) {
         var l = T.ledgerObj(); if (!l) { FL.toast('Pick a ledger', 'err'); return; }
-        var cal = T.cal(), sel = T.selSeqs(), per = cal.filter(function (p) { return p.seq === sel[0]; })[0] || T.latest(); if (!per) return;
-        var co = L.cos[0] || ((l.companies || [])[0] || {}).value;
-        var sql = T.fill($('tl-qtext').value.trim(), per.name, co);
-        $('ts-testres').innerHTML = '<div class="sm muted" style="margin-top:6px">' + esc(per.name + (co ? ' · company ' + co : '')) + '</div><div class="fu-runres"></div><pre class="mon-sql">' + esc(sql) + '</pre>';
-        FL.fusion.runSql(sql, L.pod || '', $('ts-testres').querySelector('.fu-runres'));
+        var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), per = T.cal().filter(function (p) { return p.seq === seq; })[0]; if (!per) return;
+        var ext = kind === 'ext', cos = T.want().length ? T.want() : (l.companies || []).map(function (c) { return c.value; });
+        var coName = function (v) { var c = (l.companies || []).filter(function (x) { return String(x.value) === String(v); })[0]; return c && c.name ? v + ' · ' + c.name : v; };
+        var opts = [['skipZero', 'skip zero & summary rows'], ['allSums', 'all balance columns'], ['perCompany', 'one query per company'], ['hint', 'optimizer hint']];
+        FL.modal('<i class="fa-solid fa-code"></i> ' + esc(per.name) + ' · ' + (ext ? 'extended segments' : 'trial balance') + ' query',
+            '<div class="row sm"><label>Company <select id="tq-co">' + cos.map(function (v) { return '<option value="' + esc(v) + '">' + esc(coName(v)) + '</option>'; }).join('') + '</select></label>' +
+            (ext ? '<span class="muted">by ' + esc([led.company, led.account].concat(T.extCols()).map(T.segName).map(function (n) { return n.replace(/ \(SEGMENT\d+\)$/, ''); }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(' × ')) + '</span>'
+                : '<span class="ts-st ' + (L.query ? 'part' : 'ok') + '">' + (L.query ? 'your own query' : 'default query') + '</span>') +
+            '<span class="grow"></span><button class="btn sm primary" id="tq-test"><i class="fa-solid fa-play"></i> Test in Fusion</button><button class="btn sm" id="tq-copy"><i class="fa-regular fa-copy"></i> Copy</button>' +
+            (ext ? '' : '<button class="btn sm" id="tq-edit"><i class="fa-solid fa-pen"></i> Edit query</button>') + '</div>' +
+            '<pre class="mon-sql" id="tq-sql" style="max-height:34vh;overflow:auto;margin-top:8px"></pre><div class="sm muted" id="tq-note"></div>' +
+            (ext ? '' : '<div id="tq-ed" hidden><div class="row sm" id="tl-qopts">' + opts.map(function (x) { return '<label><input type="checkbox" data-o="' + x[0] + '"' + (L.opt[x[0]] ? ' checked' : '') + '> ' + x[1] + '</label>'; }).join('') + '</div>' +
+                '<p class="sm muted" style="margin:4px 0">Placeholders: <code>{LEDGER_ID}</code> <code>{PERIOD}</code> <code>{CURRENCY}</code> <code>{COMPANY_SEGMENT}</code> <code>{ACCOUNT_SEGMENT}</code> <code>{COST_CENTRE_SEGMENT}</code> <code>{COMPANY_FILTER}</code> · it must return COMPANY, ACCOUNT, BEGIN_BALANCE_DR, BEGIN_BALANCE_CR, PERIOD_NET_DR, PERIOD_NET_CR.</p>' +
+                '<textarea id="tl-qtext" spellcheck="false" rows="9" style="width:100%"></textarea><div id="tl-qfix"></div>' +
+                '<div class="row"><button class="btn sm primary" id="tq-save"><i class="fa-solid fa-floppy-disk"></i> Use this query</button><button class="btn sm" id="tl-qreset"><i class="fa-solid fa-rotate-left"></i> Default query</button><span class="sm muted">kept on this PC</span></div></div>') +
+            '<div id="tq-res" style="margin-top:8px"></div>');
+        var cur = '';
+        var tbTemplate = function () { return L.query || L.defaultQuery || T.defaultQ(); };
+        var paint = function () {
+            var co = $('tq-co').value;
+            $('tq-res').innerHTML = '';
+            if (!ext) {
+                var q = $('tl-qtext') && !$('tq-ed').hidden ? $('tl-qtext').value : tbTemplate();
+                cur = T.fill(q, per.name, L.opt.perCompany !== false || /\{COMPANY_FILTER\}/.test(q) ? co : null);
+                $('tq-sql').textContent = cur;
+                $('tq-note').textContent = (L.opt.perCompany !== false ? 'One query like this per company' : 'One query for all companies') + ' · ' + per.name + (L.fold ? ' — adjustment periods it closes are read the same way' : '') + '.';
+                return;
+            }
+            $('tq-sql').textContent = 'Building…';
+            FL.call('finTbExtSql', { period: per.name, company: co, options: { ledger: led, extSegments: T.extCols(), skipZero: !!L.opt.skipZero, hint: !!L.opt.hint } }).then(function (r) {
+                cur = r.sql; $('tq-sql').textContent = r.sql;
+                $('tq-note').innerHTML = esc('One query per company · ' + (L.extBy === 'company' ? 'never split' : L.extBy === 'account' ? 'always read account by account' : 'when it times out, or accounts do not tie to the trial balance, each account is read with') + ' ') +
+                    (L.extBy === 'company' ? '' : '<code>' + esc((/AND c\.SEGMENT\d+ = 'ACCOUNT'/.exec(r.sqlAccount) || [''])[0]) + '</code>');
+            }).catch(function (e) { $('tq-sql').textContent = String(e && e.message || e); });
+        };
+        $('tq-co').onchange = paint;
+        $('tq-copy').onclick = function () { try { navigator.clipboard.writeText(cur); FL.toast('SQL copied', 'ok'); } catch (x) { /* no clipboard */ } };
+        $('tq-test').onclick = function () { if (cur) FL.fusion.runSql(cur, L.pod || '', $('tq-res')); };
+        if (!ext) {
+            $('tq-edit').onclick = function () { var ed = $('tq-ed'); ed.hidden = !ed.hidden; if (!ed.hidden) { $('tl-qtext').value = tbTemplate(); T.qCheck(false); } paint(); };
+            $('tl-qtext').oninput = function () { T.qCheck(false); paint(); };
+            [].forEach.call(document.querySelectorAll('#tl-qopts input'), function (cb) {
+                cb.onchange = function () {
+                    L.opt[cb.dataset.o] = cb.checked; FL.lsSet('tbl.opt', L.opt); T.setSum();
+                    if (cb.dataset.o !== 'perCompany') { var q = L.query; T.loadQ(); L.query = q; if (!L.query) $('tl-qtext').value = L.defaultQuery || T.defaultQ(); }
+                    T.qCheck(false); paint();
+                };
+            });
+            $('tl-qreset').onclick = function () { L.query = ''; FL.lsSet('tbl.query.account', ''); $('tl-qtext').value = L.defaultQuery || T.defaultQ(); T.qCheck(false); paint(); FL.toast('Default query — used by the next Sync', 'ok'); };
+            $('tq-save').onclick = function () {
+                var q = $('tl-qtext').value.trim();
+                if (!/^\s*(select|with)\b/i.test(q)) { FL.toast('The query must start with SELECT or WITH', 'err'); return; }
+                if (T.qCheck(false)) { FL.toast('Fix the points above first (or keep the default)', 'err'); return; }
+                L.query = (L.defaultQuery && q === L.defaultQuery.trim()) || q === T.defaultQ().trim() ? '' : q;
+                FL.lsSet('tbl.query.account', L.query); paint(); FL.toast(L.query ? 'Your query is used by the next Sync' : 'Default query', 'ok');
+            };
+        }
+        paint();
     };
 
     // ── master data checklist: what the trial balance and the statements need besides the balances, with its status and a sync button ──
@@ -432,6 +459,7 @@
                     if (a === 'tb') T.sync([q], false); else if (a === 'tbo') T.sync([q], true); else if (a === 'ext') T.extSync([q], false); else if (a === 'exto') T.extSync([q], true);
                 };
             });
+            box.querySelectorAll('[data-sql]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); T.sqlDialog(+b.dataset.s, b.dataset.sql); }; });
             box.querySelectorAll('[data-view]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); T.view(+b.dataset.s, b.dataset.view); }; });
             box.querySelectorAll('.ts-tr').forEach(function (tr) {
                 tr.onclick = function (ev) { if (ev.target.closest('button') || (T.live && T.live.running)) return; var q = +tr.dataset.s; if (L.sel[q]) delete L.sel[q]; else L.sel[q] = 1; T.paintBoard(); };
@@ -456,6 +484,7 @@
                 : st === 'queued' ? pill('run', '⏳', 'waiting') : st === 'failed' ? pill('bad', '⚠', 'failed', lv && lv.error)
                 : st === 'done' ? pill('ok', '✓', 'Yes · ' + (c.rows || 0).toLocaleString() + ' rows · ' + String(c.at).slice(5, 16), (c.all ? 'every company' : 'companies ' + Object.keys(c.cos).join(', ')) + (c.adj.length ? ' · + ' + c.adj.join(', ') : ''))
                 : st === 'part' ? pill('part', '◐', have + ' of ' + cos + ' companies') : future ? pill('off', '–', 'not open yet') : pill('no', '✗', 'No');
+            var sqlBtn = function (k) { return future ? '' : '<button class="ts-eye ts-sqlb" data-sql="' + k + '" data-s="' + p.seq + '" title="The SQL this Sync runs for ' + esc(p.name) + ' — view, test' + (k === 'tb' ? ', edit' : '') + '"><i class="fa-solid fa-code"></i></button>'; };
             var tbBtn = future || !admin ? '' : st === 'done' ? '<button class="btn sm" data-row="tbo" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + ' title="Read again from Fusion and replace"><i class="fa-solid fa-rotate"></i> Overwrite</button>'
                 : '<button class="btn sm primary" data-row="tb" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + '><i class="fa-solid fa-cloud-arrow-down"></i> Sync</button>';
             var xs = T.extState(p.seq, want), xl = T.xlive && T.xlive.per[p.name], x = xc[p.seq];
@@ -473,7 +502,7 @@
                 : '<button class="btn sm' + (st === 'done' ? ' primary' : '') + '" data-row="ext" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + ' title="' + esc(st === 'done' ? 'Read the extended segments for this period' : 'Works on its own, but sync the trial balance too') + '"><i class="fa-solid fa-cloud-arrow-down"></i> Sync</button>';
             return '<tr class="ts-tr' + (L.sel[p.seq] ? ' sel' : '') + (future ? ' future' : '') + '" data-s="' + p.seq + '"><td><input type="checkbox"' + (L.sel[p.seq] ? ' checked' : '') + ' tabindex="-1"></td><td><b>' + esc(p.name) + '</b>' +
                 (c && c.adj.length ? ' <span class="muted sm">+ ' + esc(c.adj.join(', ')) + '</span>' : '') + (future ? ' <span class="muted sm">not open yet</span>' : '') + '</td><td>' + tb +
-                    (st === 'done' || st === 'part' ? ' <button class="ts-eye" data-view="tb" data-s="' + p.seq + '" title="View the trial balance rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td>' + tbBtn + '</td><td class="ts-xc">' + ex + (ext.length && x && (xs === 'done' || xs === 'part') ? ' <button class="ts-eye" data-view="ext" data-s="' + p.seq + '" title="View the extended-segment rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td>' + exBtn + '</td></tr>';
+                    (st === 'done' || st === 'part' ? ' <button class="ts-eye" data-view="tb" data-s="' + p.seq + '" title="View the trial balance rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td class="ts-btns">' + tbBtn + sqlBtn('tb') + '</td><td class="ts-xc">' + ex + (ext.length && x && (xs === 'done' || xs === 'part') ? ' <button class="ts-eye" data-view="ext" data-s="' + p.seq + '" title="View the extended-segment rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td class="ts-btns">' + exBtn + (ext.length ? sqlBtn('ext') : '') + '</td></tr>';
         }).join('');
         return '<table class="t ts-table"><thead><tr><th style="width:28px"></th><th>Period</th><th>Trial balance</th><th></th><th class="ts-xc">Extended segments' + (ext.length ? ' <span class="muted">(' + esc(ext.map(T.segName).map(function (n) { return n.replace(/ \(SEGMENT\d+\)$/, ''); }).join(', ')) + ')</span>' : '') + '</th><th></th></tr></thead><tbody>' +
             (rows || '<tr><td colspan="6" class="muted">No periods in this year.</td></tr>') + '</tbody></table>';
@@ -741,15 +770,6 @@
         var today0 = new Date().toISOString().slice(0, 10), fut = T.cal().filter(function (p) { return list.indexOf(p.seq) >= 0 && p.start && p.start > today0; });
         if (fut.length) { list = list.filter(function (q) { return !fut.some(function (p) { return p.seq === q; }); }); FL.toast(fut.length + ' period(s) not open yet left out', 'info'); }
         if (!list.length) { FL.toast('Tick the periods to sync (open periods only)', 'err'); return; }
-        var q = $('tl-qtext') ? $('tl-qtext').value.trim() : '';
-        if (q) {
-            if (!/^\s*(select|with)\b/i.test(q)) { FL.toast('The query must start with SELECT or WITH', 'err'); return; }
-            T._pending = seqs; T._pendingRefresh = refresh;
-            if (!T._asIs && T.qCheck(true)) { $('tl-qbox').open = true; return; }
-            T._asIs = false;
-            L.query = (L.defaultQuery && q === L.defaultQuery.trim()) || q === T.defaultQ().trim() ? '' : q;
-            FL.lsSet('tbl.query.account', L.query); if ($('tl-qstate')) $('tl-qstate').textContent = L.query ? 'your own query' : 'default';
-        }
         var names = T.cal().filter(function (p) { return list.indexOf(p.seq) >= 0; }).map(function (p) { return p.name; });
         var base = FL.fusion.progress('Trial balance sync ' + l.name + ' · ' + names[0] + (names.length > 1 ? ' – ' + names[names.length - 1] : '') + '…', true);
         FL.fusion.run.pod = L.pod || '';
@@ -765,7 +785,7 @@
             FL.fusion.finish();
             Object.keys(T.live.per).forEach(function (n) { var x = T.live.per[n]; if (x.state !== 'failed') { x.state = 'done'; x.done = x.total; } });
             T.live.running = false; T.live.end = Date.now();
-            if (r.defaultTemplate) { L.defaultQuery = r.defaultTemplate; FL.lsSet('tbl.dq.' + T.qKey(), r.defaultTemplate); if ($('tl-qtext') && !L.query) $('tl-qtext').value = r.defaultTemplate; }
+            if (r.defaultTemplate) { L.defaultQuery = r.defaultTemplate; FL.lsSet('tbl.dq.' + T.qKey(), r.defaultTemplate); }
             var b = r.built || {};
             FL.toast(names.length + ' period(s) synced' + (b.built ? ' — the statements now use ' + b.periods + ' synced period(s)' : b.reason === 'full load' ? ' — kept beside the full load the statements use' : ''), 'ok');
             return FL.refresh().then(function () { return T.autoMd(); }).then(function () { if (L.extAuto && T.extCols().length) return T.extSync(list, !!refresh, true); });
