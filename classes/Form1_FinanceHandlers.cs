@@ -8,7 +8,7 @@ namespace WMSApp
 {
     /// <summary>
     /// Finance Lens IPC (finance/index.html, classes/FinanceLens.cs): fin* actions, reply finResponse.
-    /// finStatus, finQuery (one read-only SELECT on the finance DuckDB file), finLoadSample, finDocGet / finDocSave
+    /// finStatus, finQuery (one read-only SELECT on the finance DuckDB file), finClearData, finDocGet / finDocSave
     /// (templates.json, config.json, notes.json next to the data), finSetRoot, finFusionDiscover / finFusionSync (Fusion GL
     /// through the Fusion SQL runner, classes/FinanceFusion.cs, progress finProgress, finCancel) and finAsk / finAskCancel
     /// (CFO Copilot, classes/FinanceAskAgent.cs: kill switch, audited with cost). Loading data and changing the folder are
@@ -86,15 +86,12 @@ namespace WMSApp
                                 results = res.Select(r => new { columns = r.Columns, rows = r.Rows, truncated = r.Truncated, ms = r.Ms, error = r.Error }) };
                             break;
                         }
-                    case "finLoadSample":
-                        if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can load finance data." }; break; }
-                        {
-                            int year = root.TryGetProperty("startYear", out var y) && y.TryGetInt32(out var yy) ? yy : DateTime.Now.Year - 1;
-                            int months = root.TryGetProperty("months", out var mo) && mo.TryGetInt32(out var mm) ? mm : 24;
-                            data = await Task.Run(() => FinanceLens.LoadSample(year, months));
-                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_load_sample", Outcome = "OK", Target = year + " · " + months + " months" });
-                            break;
-                        }
+                    case "finClearData":
+                        if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can remove the finance data." }; break; }
+                        await Task.Run(() => FinanceLens.ClearData());
+                        AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_clear_data", Outcome = "OK", Target = FinanceLens.Root });
+                        data = new { ok = true };
+                        break;
                     case "finDocGet":
                         data = new { ok = true, json = FinanceLens.ReadDoc(PipeSrvStr(root, "name")) };
                         break;

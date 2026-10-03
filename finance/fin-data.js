@@ -15,7 +15,7 @@
         ['bicc', 'fa-boxes-stacked', 'BICC bulk extracts', 'all balances & journals at once'],
         ['mapping', 'fa-diagram-project', 'Account mapping', 'account → statement line'],
         ['sql', 'fa-terminal', 'SQL explorer', 'read-only DuckDB SQL'],
-        ['settings', 'fa-gear', 'Data & folder', 'file, sample, folder']
+        ['settings', 'fa-gear', 'Data & folder', 'file, folder, remove']
     ];
     var ST = {
         OK: ['ok', 'In sync', 'Same as Fusion: nothing posted since it was read, debits and credits tie to the cent'],
@@ -408,11 +408,12 @@
     D.settings = function (el) {
         var st = FL.status || {}, m = st.meta || {}, c = st.counts || {}, admin = FL.who && FL.who.admin;
         el.innerHTML = '<div class="card"><h3><i class="fa-solid fa-database"></i> Finance data on this PC</h3>' +
+            (st.oldSample ? '<div class="callout warn sm">This PC still holds the old built-in sample data — it is not shown. <a onclick="FL.clearData()">Remove it</a></div>' : '') +
             (st.loaded ? '<table class="t"><tbody>' + [['Source', m.source + (m.loader ? ' · ' + m.loader : '')], ['Loaded', m.loaded_at], ['Description', m.description], ['Periods', (c.first_period || '') + ' – ' + (c.last_period || '')],
                 ['Companies · cost centres · accounts', (c.companies || 0) + ' · ' + (c.cost_centres || 0) + ' · ' + (c.accounts || 0)], ['Balances', (c.balances || 0).toLocaleString()], ['Journal lines', (c.journals || 0).toLocaleString()],
                 ['File', st.root + ' (' + st.sizeMb + ' MB)'], ['Also kept there', 'templates.json, config.json (setup, mapping), fusion-sync.log, bicc\\ (extract files)']]
                 .map(function (r) { return '<tr><td class="muted">' + esc(r[0]) + '</td><td>' + esc(r[1] == null ? '' : r[1]) + '</td></tr>'; }).join('') + '</tbody></table>' : '<p>No data yet.</p>') +
-            '<div class="row" style="margin-top:10px">' + (admin ? '<button class="btn" onclick="FL.loadSample()"><i class="fa-solid fa-flask"></i> Load sample data</button><button class="btn" id="d-root"><i class="fa-regular fa-folder"></i> Folder…</button>' : '<span class="sm muted">An AI admin loads data and sets the folder.</span>') +
+            '<div class="row" style="margin-top:10px">' + (admin ? (st.loaded ? '<button class="btn" onclick="FL.clearData()"><i class="fa-solid fa-trash-can"></i> Remove the data on this PC</button>' : '') + '<button class="btn" id="d-root"><i class="fa-regular fa-folder"></i> Folder…</button>' : '<span class="sm muted">An AI admin loads data and sets the folder.</span>') +
             '<button class="btn" onclick="FL.refresh()"><i class="fa-solid fa-rotate"></i> Reload</button></div></div>' +
             (st.loaded ? '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-sitemap"></i> Accounts <small>' + FL.dims.accounts.length + '</small></h3><div class="scroll" style="max-height:320px">' +
                 FL.table([{ label: 'Account', key: 'code' }, { label: 'Name', key: 'name' }, { label: 'Type', key: 'account_type' }, { label: 'Class', key: 'class' }], FL.dims.accounts.slice(0, 2000)) + '</div></div>' : '');

@@ -1,26 +1,17 @@
 # Finance Lens — guide
 
-Finance Lens turns general-ledger **journal balances** (company × cost centre × account × period, actual and budget) into
+Finance Lens turns Oracle Fusion general-ledger **journal balances** (ledger × company × cost centre × account × period, actual and budget) into
 formatted financial statements, KPIs, monitoring, analytics, journal-risk tests, close checks and a one-click board pack.
 The data sits in one DuckDB file on the PC (`C:\fusion\finance\finance.duckdb`), so every screen answers in well under a
 second even with millions of rows.
 
-## Start with the sample
+## Start: connect Oracle Fusion
 
-Home › **Finance Lens** › *Load the sample data* (AI admins). It builds two companies (Grays Mauritius Ltd, Grays
-Distribution Ltd), six cost centres and ~50 accounts with 24 months of balanced journals (≈ 13,600 lines) and a
-budget. A few things are planted for you to find:
-
-| What | Where it shows |
-|---|---|
-| Freight spike in August of year 2 | Overview › What happened, Analytics › Anomalies, the variance bridge |
-| One-off advisory fee in March of year 2 | Anomalies, Administration over budget (cost-centre heat map) |
-| Customer insolvency write-off in November of year 1 | Anomalies (Nov), bad debt line |
-| Household sales slowing in the second half of year 2 | Month vs budget commentary, movers |
-| Intercompany fee booked short (550 K instead of 600 K) | Close checks › intercompany income = expense |
-| Unreconciled bank difference parked in suspense | Close checks, monitors (critical), journal risk |
-| Round-amount accruals posted at the weekend by one user | Journal risk › riskiest journals |
-| A supplier invoice entered twice | Journal risk › possible duplicates |
+Finance Lens holds Oracle Fusion data only. Home › **Finance Lens** › *Connect to Fusion* (AI admins) opens Data › Fusion setup:
+*Discover* finds the ledgers, the chart of accounts segments and the account types, then *Load* reads the GL balances and
+journals (or use BICC bulk extracts). The statements are built from your accounts by class at once; adjust them in Data ›
+Account mapping and the Template designer. Data › Data & folder › *Remove the data on this PC* clears the file (setup,
+templates and mapping stay).
 
 ## The screens
 
@@ -44,7 +35,7 @@ budget. A few things are planted for you to find:
   bank, suspense cleared, intercompany balances and income/expense agree, abnormal balance signs, budget loaded,
   clean year-end roll-over, late manual journals, unusual movements reviewed.
 - **Template designer** — see below.
-- **Data** — what is loaded, the folder, a read-only SQL explorer and the chart of accounts.
+- **Data** — sync status against Fusion, chart of accounts and segment values, Fusion setup, BICC, account mapping, SQL explorer, folder.
 - **Board pack** (header button) — title, sections, statements and an editable commentary → a print-ready pack
   (cover, executive summary with KPI tiles and attention points, KPI table, charts, statements, cost centres,
   monitors, risk highlights). Print / save as PDF, or save the HTML.

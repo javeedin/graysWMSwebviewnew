@@ -1,6 +1,6 @@
 /* Finance Lens — KPIs & monitor (rules, 12-month status, KPI library editor), Journal risk (Benford, timing, round
    amounts, manual journals, duplicates, suspense, rare users, late postings, a risk score per journal), Close checks
-   (period readiness) and Data (status, sample load, folder, read-only SQL explorer, chart of accounts). */
+   (period readiness). The Data tab is fin-data.js. */
 (function () {
     var T = function () { return FL.tplMap(); };
 

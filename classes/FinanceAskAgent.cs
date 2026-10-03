@@ -50,7 +50,7 @@ DATA (DuckDB, read-only — use run_sql):
   fin_cost_centres(code, name, parent), fin_periods(period_name, period_seq, fiscal_year, period_num, quarter, start_date, end_date),
   fin_ledgers(code, name, currency, coa_id, company_segment, cost_centre_segment, account_segment), fin_meta(key, value),
   fin_coa_segments(pod, coa_id, column_name, segment_name, qualifiers, distinct_values, purity, role COMPANY/COST_CENTRE/ACCOUNT/
-  INTERCOMPANY, evidence) — the Fusion chart of accounts structure (may be missing for the sample data).
+  INTERCOMPANY, evidence) — the Fusion chart of accounts structure.
 - The CONTEXT block holds what the user is looking at: filter (period, company, cost centre, ledger), statement lines and KPI
   values the page computed with the statement templates. Prefer those numbers for lines like revenue, gross profit, EBITDA,
   net profit, cash, so you agree with the screen; use template_rows to see which accounts a line is made of, then run_sql to
@@ -131,7 +131,7 @@ RULES:
                     {
                         string id = (Arg(input, "template") ?? "").Trim();
                         string json = FinanceLens.ReadDoc("templates");
-                        if (json == null) return "No saved templates yet - the page uses its starter templates PL, PLS, BS, CF (sample chart: 4xxx revenue, 5xxx cost of sales, 6xxx opex, 69xx D&A, 7xxx finance, 8xxx tax, 1xxx assets, 2xxx liabilities, 3xxx equity).";
+                        if (json == null) return "No saved templates yet - the page builds PL, PLS, BS and CF from the account classes (fin_accounts.class: Revenue, Cost of sales, Staff costs, Cash, Receivables …), with account_type R/E for the income statement and A/L/O for the balance sheet.";
                         using var d = JsonDocument.Parse(json);
                         if (!d.RootElement.TryGetProperty("templates", out var ts)) return "ERROR: templates.json has no templates";
                         foreach (var t in ts.EnumerateArray())

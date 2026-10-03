@@ -1,15 +1,16 @@
-/* node finance/tests/engine.test.js — the Finance Lens engine on the sample data (finance/tests/sample-data.json,
-   exported from FinanceLens.LoadSample) and on hand-made facts. */
+/* node finance/tests/engine.test.js — the Finance Lens engine on a test fixture (finance/tests/fixture-gl.json: two
+   companies, 24 months of generated balances; fixture-templates.js: statements on its account ranges) and on hand-made facts.
+   The app itself only loads Oracle Fusion data. */
 'use strict';
 var assert = require('assert'), path = require('path'), fs = require('fs');
 var FINE = require('../fin-engine.js');
-global.window = global; require('../fin-seed.js');
-var SEED = global.FIN_SEED, T = {}; SEED.templates.forEach(function (t) { T[t.id] = t; });
+global.window = global; global.FINE = FINE; require('../fin-seed.js');
+var SEED = global.FIN_SEED, T = {}; require('./fixture-templates.js').forEach(function (t) { T[t.id] = t; });
 var n = 0, fail = 0;
 function test(name, fn) { n++; try { fn(); console.log('ok   ' + name); } catch (e) { fail++; console.log('FAIL ' + name + '\n     ' + (e && e.stack || e)); } }
 var near = function (a, b, tol, msg) { assert.ok(Math.abs(a - b) <= (tol || 0.01), (msg || '') + ' ' + a + ' vs ' + b); };
 
-var raw = JSON.parse(fs.readFileSync(path.join(__dirname, 'sample-data.json'), 'utf8'));
+var raw = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixture-gl.json'), 'utf8'));
 var data = { accounts: raw.accounts, periods: raw.periods, facts: FINE.factsFrom(raw.facts) };
 var last = data.periods[data.periods.length - 1].period_seq;     // 202612
 

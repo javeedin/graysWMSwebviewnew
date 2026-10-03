@@ -148,10 +148,7 @@ FL.refresh = function () {
         ]).then(function (r) {
             FL.dims = { companies: r[0], ccs: r[1], accounts: r[2], periods: r[3], ledgers: r[5], ledgerCompanies: r[6] };
             FL.classifyAccounts();
-            if (!FL.templatesSaved && (st.meta || {}).source === 'FUSION') {
-                FL.templates = FINE.autoTemplates();
-                FL.toast('Statements built from your chart of accounts by account class — adjust in Data › Account mapping or the Template designer.', 'ok');
-            }
+            if (!FL.templatesSaved) FL.toast('Statements built from your chart of accounts by account class — adjust in Data › Account mapping or the Template designer.', 'ok');
             FL.fillFilters();
             FL.dataChip();
             FL.show(FL.ls('tab', 'overview'));
@@ -215,23 +212,21 @@ FL.render = function () {
     }).catch(function (e) { console.error(e); el.innerHTML = '<div class="callout bad"><b>Could not show this view.</b><br>' + esc(e && e.message || e) + '</div>'; });
 };
 FL.welcome = function () {
-    var admin = FL.who && FL.who.admin;
-    $('main').innerHTML = '<div class="hero"><div><h2>Finance Lens</h2><div>Financial statements, KPIs, monitoring, analytics and board packs — built on your general ledger balances (company × cost centre × account × period), stored in a fast DuckDB file on this PC.</div>' +
-        '<ul><li>Statement templates you design: sections, groups, account ranges, formulas, checks, styles</li><li>Income statement, balance sheet, cash flow (indirect) — every number drills to accounts, cost centres and journal lines</li>' +
-        '<li>40 KPIs and ratios with trends, covenant monitors, anomaly detection, Benford and journal-risk tests, close checks</li><li>One-click board pack with commentary, printable or saved as PDF</li></ul></div>' +
-        '<div class="card" style="color:var(--ink)"><h3><i class="fa-solid fa-flask"></i> Start with the sample</h3><p class="sm">Two companies, six cost centres and about 50 accounts — 24 months of balanced journals with a budget, and a few surprises to find (a freight spike, a one-off fee, a bad debt, a suspense balance, a duplicate invoice, weekend manual journals).</p>' +
-        (admin ? '<button class="btn primary" onclick="FL.loadSample()"><i class="fa-solid fa-wand-magic-sparkles"></i> Load the sample data</button>' : '<div class="callout warn">An AI admin loads the data on this PC.</div>') +
-        (admin ? '<p class="sm" style="margin-top:12px"><b>Or connect your Oracle Fusion general ledger:</b> ledgers, balancing / account / cost centre segments and account types are found for you.</p><button class="btn" onclick="FL.show(\'data\')"><i class="fa-solid fa-cloud-arrow-down"></i> Connect to Fusion</button>' : '') + '</div></div>';
+    var admin = FL.who && FL.who.admin, old = FL.status && FL.status.oldSample;
+    $('main').innerHTML = '<div class="hero"><div><h2>Finance Lens</h2><div>Financial statements, KPIs, monitoring, analytics and board packs — built on your Oracle Fusion general ledger balances (ledger × company × cost centre × account × period), stored in a fast DuckDB file on this PC.</div>' +
+        '<ul><li>Ledgers, chart of accounts segments (balancing, natural account, cost centre) and account types found for you</li><li>Income statement, balance sheet, cash flow and trial balance — every number drills to accounts, cost centres and journal lines</li>' +
+        '<li>40 KPIs and ratios with trends, covenant monitors, anomaly detection, Benford and journal-risk tests, close checks</li><li>Month-by-month sync status against Fusion, one-click board pack, CFO Copilot</li></ul></div>' +
+        '<div class="card" style="color:var(--ink)"><h3><i class="fa-solid fa-cloud-arrow-down"></i> Connect your Oracle Fusion general ledger</h3>' +
+        '<p class="sm">Discover finds the ledgers, the chart of accounts segments and the account types; then load the GL balances and journals — month by month through Fusion SQL, or everything at once from BICC extracts.</p>' +
+        (old ? '<div class="callout warn sm">This PC still holds the old built-in sample data — it is not shown.' + (admin ? ' <a onclick="FL.clearData()">Remove it</a>' : '') + '</div>' : '') +
+        (admin ? '<button class="btn primary" onclick="FL.dataTab && (FL.dataTab.view = \'setup\'); FL.show(\'data\')"><i class="fa-solid fa-plug"></i> Connect to Fusion</button>'
+            : '<div class="callout warn">An AI admin connects Finance Lens to Fusion on this PC.</div>') + '</div></div>';
 };
-FL.loadSample = function () {
-    var y = new Date().getFullYear() - 1;
-    if (!confirm('Load 24 months of sample journal balances (' + y + '–' + (y + 1) + ')? This replaces the finance data on this PC.')) return;
-    FL.toast('Building the sample…');
-    FL.call('finLoadSample', { startYear: y, months: 24 }, 300000).then(function (d) {
-        FL.toast('Loaded ' + d.balances.toLocaleString() + ' balances and ' + d.journals.toLocaleString() + ' journal lines in ' + (d.ms / 1000).toFixed(1) + ' s', 'ok');
-        FL.lsSet('filter', {});
-        return FL.refresh();
-    }).catch(function (e) { FL.toast(String(e), 'err'); });
+/** Removes the finance data file (setup, templates and mapping stay) */
+FL.clearData = function () {
+    if (!confirm('Remove the finance data on this PC? Your Fusion setup, statement templates and account mapping stay; load again from Fusion afterwards.')) return;
+    FL.call('finClearData').then(function () { FL.toast('Finance data removed', 'ok'); FL.lsSet('filter', {}); FL.lsSet('fusion.check', null); if (FL.dataTab) FL.dataTab.check = null; return FL.refresh(); })
+        .catch(function (e) { FL.toast(String(e), 'err'); });
 };
 
 // ── modal ──
