@@ -1192,8 +1192,19 @@ namespace WMSApp
                     .Where(c => Regex.IsMatch(c.Col, "^[A-Z][A-Z0-9_$#]*$", RegexOptions.IgnoreCase)).ToList();
                 if (glbCols.Count == 0) glbCols = new[] { "LEDGER_ID", "CODE_COMBINATION_ID", "CURRENCY_CODE", "PERIOD_NAME", "ACTUAL_FLAG", "TRANSLATED_FLAG", "BEGIN_BALANCE_DR", "BEGIN_BALANCE_CR", "PERIOD_NET_DR", "PERIOD_NET_CR" }
                     .Select(c => (c, c.EndsWith("_DR") || c.EndsWith("_CR") || c.EndsWith("_ID") ? "NUMBER" : "VARCHAR2")).ToList();
-                string selectCols = string.Join(", ", glbCols.Select(c => "b." + c.Col));
-                string defaultTemplate = "SELECT " + selectCols + " FROM gl_balances b WHERE b.ledger_id = {LEDGER_ID} AND b.period_name = '{PERIOD}' AND b.currency_code = '{CURRENCY}' AND b.actual_flag = 'A'";
+                // default query = one row per combination: the key columns + SUM() of every balance column (_DR / _CR / _ADB, also _BEQ) —
+                // the other GL_BALANCES columns (who/when, partition, template …) are left out; translated_flag stays a key so the
+                // ledger-currency part ('R') is never added to the total
+                var glbSet = new HashSet<string>(glbCols.Select(c => c.Col), StringComparer.OrdinalIgnoreCase);
+                var groupCols = new[] { "LEDGER_ID", "PERIOD_NAME", "PERIOD_YEAR", "CURRENCY_CODE", "ACTUAL_FLAG", "CODE_COMBINATION_ID", "TRANSLATED_FLAG" }
+                    .Where(c => glbSet.Contains(c) || c == "LEDGER_ID" || c == "PERIOD_NAME" || c == "CODE_COMBINATION_ID").ToList();
+                var sumCols = glbCols.Where(c => (c.Type ?? "").StartsWith("NUMBER", StringComparison.OrdinalIgnoreCase) && Regex.IsMatch(c.Col, "_(DR|CR|ADB)(_BEQ)?$", RegexOptions.IgnoreCase)).Select(c => c.Col.ToUpperInvariant()).ToList();
+                foreach (var c in new[] { "BEGIN_BALANCE_DR", "BEGIN_BALANCE_CR", "PERIOD_NET_DR", "PERIOD_NET_CR" }) if (!sumCols.Contains(c)) sumCols.Add(c);
+                glbCols = groupCols.Select(c => (c, glbCols.FirstOrDefault(g => g.Col.Equals(c, StringComparison.OrdinalIgnoreCase)).Type ?? (c.EndsWith("_ID") || c == "PERIOD_YEAR" ? "NUMBER" : "VARCHAR2")))
+                    .Concat(sumCols.Select(c => (c, "NUMBER"))).ToList();
+                string groupBy = string.Join(", ", groupCols.Select(c => "b." + c.ToLowerInvariant()));
+                string defaultTemplate = "SELECT " + groupBy + ", " + string.Join(", ", sumCols.Select(c => "SUM(b." + c.ToLowerInvariant() + ") " + c.ToLowerInvariant())) +
+                                         " FROM gl_balances b WHERE b.ledger_id = {LEDGER_ID} AND b.period_name = '{PERIOD}' AND b.currency_code = '{CURRENCY}' AND b.actual_flag = 'A' GROUP BY " + groupBy;
                 string template = string.IsNullOrWhiteSpace(o.QueryTemplate) ? defaultTemplate : o.QueryTemplate.Trim().TrimEnd(';');
                 bool custom = !string.IsNullOrWhiteSpace(o.QueryTemplate) && template != defaultTemplate;
                 if (custom && !Regex.IsMatch(template, @"^\s*(SELECT|WITH)\b", RegexOptions.IgnoreCase)) return new { ok = false, error = "The query must start with SELECT or WITH." };
@@ -1275,9 +1286,11 @@ namespace WMSApp
                     }
                     // the columns kept = what the query returned (types from the data dictionary when it is a GL_BALANCES column)
                     var typeOf = glbCols.ToDictionary(c => c.Col, c => c.Type, StringComparer.OrdinalIgnoreCase);
-                    var keep = custom && rows.Count > 0
-                        ? rows[0].Keys.Where(k2 => Regex.IsMatch(k2, "^[A-Z][A-Z0-9_$#]*$", RegexOptions.IgnoreCase)).Select(k2 => (k2, typeOf.TryGetValue(k2, out var t2) ? t2 : rows.Take(50).All(r2 => r2[k2] == null || double.TryParse(Convert.ToString(r2[k2], CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out _)) ? "NUMBER" : "VARCHAR2")).ToList()
-                        : glbCols;
+                    // (every row's keys: the runner leaves NULL values out of a row, so one row does not list every column)
+                    var seen = new List<string>(); var seenSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    if (!custom) foreach (var c in glbCols) if (seenSet.Add(c.Col)) seen.Add(c.Col);
+                    foreach (var r2 in rows) foreach (var k2 in r2.Keys) if (Regex.IsMatch(k2, "^[A-Z][A-Z0-9_$#]*$", RegexOptions.IgnoreCase) && seenSet.Add(k2)) seen.Add(k2);
+                    var keep = seen.Select(k2 => (k2, typeOf.TryGetValue(k2, out var t2) ? t2 : rows.Take(200).All(r2 => !r2.TryGetValue(k2, out var v2) || v2 == null || double.TryParse(Convert.ToString(v2, CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out _)) ? "NUMBER" : "VARCHAR2")).ToList();
                     FinanceLens.SaveRaw(o.Pod, led.Id, n, led.Currency, keep, rows, tw.ElapsedMilliseconds, null);
                     x.Note("✓ " + n + ": " + rows.Count.ToString("N0", CultureInfo.InvariantCulture) + " GL_BALANCES rows (" + glbCols.Count + " columns) read in " + (tw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s and kept on this PC (fin_gl_balances)");
                     lock (sources) sources.Add(new { period = n, from = "fusion", rows = (long)rows.Count, at = DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) });

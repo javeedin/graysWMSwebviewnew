@@ -160,10 +160,22 @@ for the accounts mapped to it.
 Statements › Trial balance › **Live from Fusion** (also before anything is loaded — the other statements need a load):
 pod, ledger, period, companies (all or some), optional cost centre, *Fetch from Fusion*. One read of `GL_BALANCES` (ledger
 currency, actuals, no translated / summary rows) joined only to `GL_CODE_COMBINATIONS`, grouped by company × account
-(× cost centre). The **GL_BALANCES rows, with every column of the table**, of each period it needs (the period, its adjustment
-period, the start of the quarter and of the year) are read **once**, one query per period filtered only on ledger, period, currency and actual flag (no ORDER BY, no join, no
-expression filters), and kept on this PC (DuckDB `fin_gl_balances`, same column names as Fusion, listed under *GL
-balances kept on this PC*), so any other column is there for later reports; after that the trial balance is built from this
+(× cost centre). The **GL_BALANCES balances** of each period it needs (the period, its adjustment
+period, the start of the quarter and of the year) are read **once**, one query per period filtered only on ledger, period, currency and actual flag (no join, no
+expression filters). The default query keeps only what a balance needs — one row per combination:
+
+```sql
+SELECT b.ledger_id, b.period_name, b.period_year, b.currency_code, b.actual_flag, b.code_combination_id, b.translated_flag,
+       SUM(b.begin_balance_dr) begin_balance_dr, SUM(b.begin_balance_cr) begin_balance_cr,
+       SUM(b.period_net_dr) period_net_dr, SUM(b.period_net_cr) period_net_cr, ... -- every _DR / _CR / _ADB (_BEQ) column
+FROM gl_balances b
+WHERE b.ledger_id = {LEDGER_ID} AND b.period_name = '{PERIOD}' AND b.currency_code = '{CURRENCY}' AND b.actual_flag = 'A'
+GROUP BY b.ledger_id, b.period_name, b.period_year, b.currency_code, b.actual_flag, b.code_combination_id, b.translated_flag
+```
+
+(code_combination_id maps a row to company / account; translated_flag stays a key so the 'R' part is never added to the
+total). The rows are kept on this PC (DuckDB `fin_gl_balances`, the columns the query returns with Fusion's names, listed under *GL
+balances kept on this PC*); after that the trial balance is built from this
 copy in a fraction of a second. Tick *read again from Fusion* after postings. Every period is read **page by page**: its rows are counted
 first (the monitor shows *page i of N*), then *Rows per fetch* rows at a time in code_combination_id order, each page after the
 last id read (a page never ends inside one combination; a page that times out is asked again at half the size). **GL_BALANCES query** (fold-out under the fetch button): change
