@@ -18,21 +18,22 @@
         if (L.pod == null) L.pod = (s.setup && s.setup.pod) || s.pod || '';
         var running = T.live && T.live.running;
         el.innerHTML = '<div class="card ts-main"><div class="row"><h3 style="margin:0"><i class="fa-solid fa-scale-balanced"></i> Trial balance sync</h3>' +
-            '<span class="sm muted">pick a ledger and a year — each period has its own Sync, Overwrite, 👁 data and pick a ledger and a year, tick the periods, press Sync — Statements use what is syncedlt;/pick a ledger and a year, tick the periods, press Sync — Statements use what is syncedgt; SQL; Statements use what is synced</span></div>' +
+            '<span class="sm muted">pick a ledger, the companies and a year — each period has its own Sync / Overwrite, 👁 data and &lt;/&gt; SQL; Statements use what is synced</span></div>' +
             (admin ? '' : '<div class="callout warn sm" style="margin-top:8px">An AI admin syncs the finance data on this PC.</div>') +
             '<div class="row" style="margin-top:10px"><label class="sm">Pod <select id="ts-pod"><option value="">Logged-in pod</option><option value="PROD"' + (L.pod === 'PROD' ? ' selected' : '') + '>PROD</option><option value="TEST"' + (L.pod === 'TEST' ? ' selected' : '') + '>TEST</option></select></label>' +
             '<label class="sm">Ledger <select id="ts-led"><option>…</option></select></label><div class="seg" id="ts-years"></div></div>' +
+            '<div class="row ts-corow"><span class="sm muted"><i class="fa-solid fa-building"></i> Companies</span><div id="ts-cos" class="tl-cos"></div></div>' +
             '<div id="ts-board" class="ts-board"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div>' +
             '<div class="row ts-acts ts-bulk"><button class="btn sm" id="ts-selmiss"><i class="fa-regular fa-square-check"></i> Select not synced</button><button class="btn sm" id="ts-selall">Select all</button><button class="btn sm" id="ts-selnone">Clear</button>' +
             '<span class="grow"></span>' + T.actBtns('ts') + '</div>' +
             '<div id="ts-live"></div>' +
             '<details class="ts-det" id="ts-det"' + (FL.ls('tbl.det', false) ? ' open' : '') + '><summary class="sm"><i class="fa-solid fa-list-check"></i> Details — every query, its SQL, sample rows and the log</summary><div id="fu-prog"></div></details></div>' +
             '<details class="card ts-set" id="ts-set" style="margin-top:12px"' + (FL.ls('tbl.setOpen', false) ? ' open' : '') + '><summary><b><i class="fa-solid fa-sliders"></i> Settings</b> <span class="sm muted" id="ts-setsum"></span></summary>' +
-            '<div class="row" style="margin-top:8px"><span class="sm muted">Companies</span><div id="ts-cos" class="tl-cos"></div></div>' +
+
             '<div class="row" style="margin-top:6px"><label class="sm"><input type="checkbox" id="ts-cc"' + (L.byCc ? ' checked' : '') + '> by cost centre</label>' +
             '<label class="sm"><input type="checkbox" id="ts-fold"' + (L.fold ? ' checked' : '') + ' title="Adjustment periods (e.g. Adj-25) are read too and added to the period they close"> fold adjustment periods</label>' +
             '<label class="sm" title="Queries to Fusion at the same time (one per company and period)">Reads in parallel <select id="ts-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + (L.par === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label></div>' +
-            '<div class="ts-ext" id="ts-ext"></div>' +
+
             '<div class="row sm" style="margin-top:8px"><i class="fa-solid fa-code"></i> <span class="muted">The query each Sync runs: the <b>&lt;/&gt;</b> button on a period row (view, test, edit) — ' + (L.query ? '<b>your own trial balance query</b>' : 'default trial balance query') + '</span></div></details>' +
             '<div class="card" style="margin-top:12px" id="ts-md"></div>';
         FL.fusion.paint();
@@ -367,14 +368,20 @@
         cal.forEach(function (p) { var y = Math.floor(p.seq / 100); if (years.indexOf(y) < 0) years.push(y); });
         if (years.indexOf(L.year) < 0) { var lt = T.latest(); L.year = lt ? Math.floor(lt.seq / 100) : years[years.length - 1]; }
         L.years = years;
-        // companies (Settings, full page only)
+        // companies (under the ledger): remembered per ledger; first time = the header's company, else the ledger's first ([] = all)
         var cos = l.companies || [];
+        if (L.cosLedger !== String(l.id)) {
+            L.cosLedger = String(l.id);
+            var kept = FL.ls('tbl.cos.' + l.id, null);
+            var hdr = FL.filter && FL.filter.company ? cos.filter(function (c) { return T.ck(c.value) === T.ck(FL.filter.company); })[0] : null;
+            L.cos = Array.isArray(kept) ? kept.filter(function (v) { return cos.some(function (c) { return c.value === v; }); }) : hdr ? [hdr.value] : cos.length ? [cos[0].value] : [];
+        }
         if ($('ts-cos')) $('ts-cos').innerHTML = cos.length ? '<label class="chip"><input type="checkbox" id="ts-all"' + (L.cos.length ? '' : ' checked') + '> all ' + cos.length + '</label>' + cos.map(function (c) {
-            return '<label class="chip"><input type="checkbox" class="ts-co" value="' + esc(c.value) + '"' + (L.cos.indexOf(c.value) >= 0 ? ' checked' : '') + '> ' + esc(c.value) + (c.legalEntity ? ' <span class="muted">' + esc(c.legalEntity) + '</span>' : '') + '</label>';
+            return '<label class="chip' + (L.cos.indexOf(c.value) >= 0 ? ' on' : '') + '"><input type="checkbox" class="ts-co" value="' + esc(c.value) + '"' + (L.cos.indexOf(c.value) >= 0 ? ' checked' : '') + '> <b>' + esc(c.value) + '</b> ' + esc(c.legalEntity || c.name || '') + '</label>';
         }).join('') : '<span class="sm muted">every company of the ledger</span>';
-        var pick = function () { L.cos = Array.prototype.map.call(document.querySelectorAll('.ts-co:checked'), function (c) { return c.value; }); if ($('ts-all')) $('ts-all').checked = !L.cos.length; T.setSum(); T.paintBoard(); };
+        var pick = function () { L.cos = Array.prototype.map.call(document.querySelectorAll('.ts-co:checked'), function (c) { return c.value; }); if ($('ts-all')) $('ts-all').checked = !L.cos.length; FL.lsSet('tbl.cos.' + l.id, L.cos); T.setSum(); T.board(); };
         document.querySelectorAll('.ts-co').forEach(function (c) { c.onchange = pick; });
-        if ($('ts-all')) $('ts-all').onchange = function () { if (this.checked) { document.querySelectorAll('.ts-co').forEach(function (c) { c.checked = false; }); L.cos = []; } else this.checked = !L.cos.length; T.setSum(); T.paintBoard(); };
+        if ($('ts-all')) $('ts-all').onchange = function () { if (this.checked) { document.querySelectorAll('.ts-co').forEach(function (c) { c.checked = false; }); L.cos = []; FL.lsSet('tbl.cos.' + l.id, []); } else this.checked = !L.cos.length; T.setSum(); T.board(); };
         T.setSum();
         T.board().then(function () { T.md(); });
     };
@@ -458,6 +465,8 @@
         }).join('') || '<p class="sm muted">No periods in this year.</p>';
         var vt = '<div class="ts-vt"><div class="seg sm">' + [['table', 'fa-table-list', 'Table'], ['tiles', 'fa-table-cells', 'Tiles']].map(function (v) {
             return '<button data-vw="' + v[0] + '" class="' + (L.view === v[0] ? 'on' : '') + '"><i class="fa-solid ' + v[1] + '"></i> ' + v[2] + '</button>'; }).join('') + '</div>' +
+            '<button class="btn sm ts-extbtn" title="Choose the segments the extended trial balance is grouped by"><i class="fa-solid fa-layer-group"></i> Extended segments: ' +
+            esc(T.extCols().length ? T.extCols().map(function (c) { return T.segName(c).replace(/ \(SEGMENT\d+\)$/, ''); }).join(', ') : 'choose…') + '</button>' +
             '<button class="btn sm ghost ts-opentb" title="Statements › Trial balance"><i class="fa-solid fa-arrow-right"></i> Open trial balance</button></div>';
         if (L.view === 'table') tiles = T.table(ps, cells, want, today);
         if (L.disc && !L.disc.codeVersion && (l.companies || []).some(function (c) { return /^[1-9][0-9]*$/.test(String(c.value)); }))
@@ -467,6 +476,7 @@
         views.forEach(function (x) {
             var box = $(x + '-board'); box.classList.toggle('ts-board-tbl', L.view === 'table'); box.innerHTML = vt + tiles;
             var card = box.closest('.ts-main'); if (card) card.classList.toggle('ts-tblmode', L.view === 'table');   // table: every action is on its row, the bulk bar is hidden
+            box.querySelectorAll('.ts-extbtn').forEach(function (b) { b.onclick = function () { T.extDialog(); }; });
             box.querySelectorAll('[data-redisc]').forEach(function (b) { b.onclick = function () { FL.dataTab.dataSetup(); }; });
             box.querySelectorAll('.ts-opentb').forEach(function (b) { b.onclick = function () { FL.stmt.tpl = 'TB'; FL.lsSet('stmt.tpl', 'TB'); FL.show('statements'); }; });
             box.querySelectorAll('[data-miss]').forEach(function (b) { b.onclick = function () { var q = b.dataset.q.split(',').map(Number); if (b.dataset.miss === 'tb') T.sync(q, false); else T.extSync(q, false); }; });
@@ -830,16 +840,16 @@
             '<span id="ts-xbw"' + (L.extBy === 'company' ? ' hidden' : '') + '>accounts per query <input type="number" id="ts-xbatch" min="1" max="50" value="' + L.extBatch + '" style="width:56px" title="A batch that fails is split in half, down to one account"></span></div>' +
             '<div class="row sm" style="margin-top:4px"><label><input type="checkbox" id="ts-xauto"' + (L.extAuto ? ' checked' : '') + '> sync them after every trial balance sync</label>' +
             '<span class="muted">' + (ext.length ? done + ' of ' + n + ' synced period(s) have them · ' + Object.keys(cells).length + ' period(s) on this PC' : 'nothing chosen') + '</span><span class="grow"></span>' +
-            (ext.length && Object.keys(cells).length ? '<button class="btn sm" id="ts-xopen" title="P&L, pivot and trial balance by these segments"><i class="fa-solid fa-layer-group"></i> Open Segment P&amp;L</button>' : '') + (admin ? '<button class="btn sm" id="ts-xsave" disabled><i class="fa-solid fa-floppy-disk"></i> Save choice</button><button class="btn sm primary" id="ts-xgo"' + (ext.length ? '' : ' disabled') + ' title="For the ticked periods, or every synced period that lacks them"><i class="fa-solid fa-cloud-arrow-down"></i> Sync extended</button>' : '') + '</div>';
+            (ext.length && Object.keys(cells).length ? '<button class="btn sm" id="ts-xopen" title="P&L, pivot and trial balance by these segments"><i class="fa-solid fa-layer-group"></i> Open Segment P&amp;L</button>' : '') + (admin ? '<button class="btn sm primary" id="ts-xsave" disabled><i class="fa-solid fa-floppy-disk"></i> Save choice</button>' : '') + '</div>';
         var chosen = function () { return [].map.call(box.querySelectorAll('.ts-xs:checked:not([disabled])'), function (i) { return i.value; }); };
         box.querySelectorAll('.ts-xs').forEach(function (i) { i.onchange = function () { if ($('ts-xsave')) $('ts-xsave').disabled = chosen().join() === ext.join(); }; });
-        if ($('ts-xopen')) $('ts-xopen').onclick = function () { FL.show('segpl'); };
+        if ($('ts-xopen')) $('ts-xopen').onclick = function () { FL.closeModal(); FL.show('segpl'); };
         $('ts-xauto').onchange = function () { L.extAuto = this.checked; FL.lsSet('tbl.extAuto', L.extAuto); };
         $('ts-xby').onchange = function () { L.extBy = this.value; FL.lsSet('tbl.extBy', L.extBy); $('ts-xbw').hidden = L.extBy === 'company'; };
         $('ts-xbatch').onchange = function () { L.extBatch = Math.max(1, Math.min(50, parseInt(this.value, 10) || 1)); this.value = L.extBatch; FL.lsSet('tbl.extBatch', L.extBatch); };
         if ($('ts-xsave')) $('ts-xsave').onclick = function () {
             FL.config.tbsync = FL.config.tbsync || {}; FL.config.tbsync.ext = FL.config.tbsync.ext || {}; FL.config.tbsync.ext[String(l.coaId)] = chosen();
-            FL.saveConfig().then(function () { FL.toast('Extended segments saved — ' + (chosen().length ? 'press Sync extended' : 'none'), 'ok'); T.paintExt(); T.paintBoard(); T.md(); });
+            FL.saveConfig().then(function () { FL.toast('Extended segments saved — ' + (chosen().length ? 'Sync them on the period rows' : 'none'), 'ok'); FL.closeModal(); T.board(); T.md(); });
         };
         if ($('ts-xgo')) $('ts-xgo').onclick = function () {
             var sel = T.selSeqs(), cellsTb = T.cells();
@@ -847,6 +857,11 @@
             if (!list.length) { FL.toast('Every synced period already has the extended segments — tick periods to read them again', 'info'); return; }
             T.extSync(list, false);
         };
+    };
+    /** The extended-segments choice in a dialog (segments, how they are read, sync after the trial balance) */
+    T.extDialog = function () {
+        FL.modal('<i class="fa-solid fa-layer-group"></i> Extended trial balance — segments', '<p class="sm muted" style="margin-top:0">Company and account are always in. Tick the segments the extended trial balance is grouped by (e.g. salesperson, item profit centre), then <b>Save choice</b>; the table then shows Sync for every period that lacks them.</p><div class="ts-ext" id="ts-ext"></div>');
+        T.paintExt();
     };
     /** Reads the extended-segment balances of some periods (only what this PC lacks unless refresh) */
     T.extSync = function (seqs, refresh, quiet) {

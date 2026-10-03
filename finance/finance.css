@@ -564,3 +564,5 @@ td.sp-tc, th.sp-tc { background: #f1f5f9; font-weight: 700; }
 .ts-del:hover { background: #fee2e2; color: #b91c1c; }
 .ts-fun td, .ts-fun th { padding: 4px 8px; }
 .ts-fun-drop td { background: #fee2e2; font-weight: 600; }
+.ts-corow { margin-top: 8px; align-items: flex-start; }
+.ts-corow .tl-cos .chip.on { border-color: var(--accent); background: #eef2ff; }
