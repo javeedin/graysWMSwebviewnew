@@ -177,7 +177,7 @@ currency, actuals, no translated / summary rows) joined only to `GL_CODE_COMBINA
 Options under the query (they change the default query; kept per PC): **skip zero & summary rows** (on — `b.template_id IS NULL
 AND (begin dr <> begin cr OR period net dr <> 0 OR period net cr <> 0)`, applied while GL_BALANCES is scanned, before the join
 and the grouping — those rows add nothing to a trial balance), **all balance columns** (off — only BEGIN_BALANCE_DR / _CR and
-PERIOD_NET_DR / _CR are summed), **optimizer hint** (on — `/*+ LEADING(b) USE_HASH(c) PARALLEL(4) */`). The account type is not
+PERIOD_NET_DR / _CR are summed), **one query per company** (on — company × account: `AND c.SEGMENTn = '01'`, one query per company and period, *Reads in parallel* at a time; companies already kept on this PC are not read again; the result is a few thousand rows, read in one go — no ROW_NUMBER paging, which would repeat the join and grouping for every page), **optimizer hint** (on — `/*+ LEADING(b) USE_HASH(c) PARALLEL(4) */`). The account type is not
 read from Fusion (it would need MAX() per account): it comes from this PC (`FinanceLens.AccountTypes` — fin_ccid, fin_accounts).
 
 The query box warns about fixed values (`ledger_id = 300000003236002`, `period_name = 'Oct-26'` … → *Use placeholders & run*) and

@@ -7,7 +7,7 @@
    compared line by line with the balances loaded on this PC when that ledger and period are loaded. */
 (function () {
     var T = FL.tb;
-    var L = T.live = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), seq: null, cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2), page: FL.ls('tbl.page', 5000), grp: FL.ls('tbl.grp', 'account'), opt: FL.ls('tbl.opt', { skipZero: true, allSums: false, hint: true }), query: '', defaultQuery: '',
+    var L = T.live = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), seq: null, cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2), page: FL.ls('tbl.page', 5000), grp: FL.ls('tbl.grp', 'account'), opt: Object.assign({ skipZero: true, allSums: false, hint: true, perCompany: true }, FL.ls('tbl.opt', {})), query: '', defaultQuery: '',
         view: FL.ls('tbl.view', 'account'), q: '', zero: true, scale: FL.ls('tbl.scale', 1), compare: FL.ls('tbl.compare', true), res: null };
     // the query box per way of grouping (and, grouped by account, with / without cost centre — the default differs)
     T.qKey = function () { return L.grp + (L.grp === 'account' && L.byCc ? '.cc' : '') + '.' + (L.opt.skipZero ? 'z' : '') + (L.opt.allSums ? 'a' : '') + (L.opt.hint && L.grp === 'account' ? 'h' : ''); };
@@ -61,6 +61,7 @@
             '<div class="row sm" id="tl-qopts">' +
             [['skipZero', 'skip zero & summary rows', 'Leaves out rows with no opening balance and no movement, and summary-template rows, while GL_BALANCES is scanned — before the join and the grouping. They add nothing to a trial balance.'],
              ['allSums', 'all balance columns', 'SUM() every _DR / _CR / _ADB (_BEQ) column (QTD, PTD average balances …), not only the four a trial balance needs — slower'],
+             ['perCompany', 'one query per company', 'Company × account: one query per company (c.SEGMENTn = \'01\'), Reads in parallel at a time, instead of one query for every company that may time out; companies already on this PC are not read again'],
              ['hint', 'optimizer hint', 'LEADING(b) USE_HASH(c) PARALLEL(4): scan GL_BALANCES first, hash join to GL_CODE_COMBINATIONS, in parallel (company × account only)']].map(function (x) {
                 return '<label title="' + esc(x[2]) + '"><input type="checkbox" data-o="' + x[0] + '"' + (L.opt[x[0]] ? ' checked' : '') + '> ' + x[1] + '</label>'; }).join('') +
             '<span class="muted">changes the default query</span></div>' +
@@ -96,6 +97,7 @@
         [].forEach.call(document.querySelectorAll('#tl-qopts input'), function (cb) {
             cb.onchange = function () {
                 L.opt[cb.dataset.o] = cb.checked; FL.lsSet('tbl.opt', L.opt);
+                if (cb.dataset.o === 'perCompany') return;   // how the query is run, not the query
                 var q = L.query; T.loadQ(); L.query = q;
                 if (!L.query) { $('tl-qtext').value = L.defaultQuery || T.defaultQ(); T.qCheck(false); }
                 else FL.toast('Your own query is used — press Default query to get the default with these options', 'info');
@@ -189,7 +191,7 @@
         if (!led.company || !led.account) { FL.toast('The company / account segment of chart ' + l.coaId + ' is not set — Data › Fusion setup', 'err'); return; }
         var p = FL.fusion.progress('Trial balance ' + l.name + ' · ' + FL.fusion.calOf(L.disc, l).filter(function (x) { return x.seq === L.seq; }).map(function (x) { return x.name; })[0] + '…', true);
         $('tl-go').disabled = true;
-        FL.call('finFusionTb', { pod: L.pod || '', options: { ledger: led, periodSeq: L.seq || 0, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, parallel: L.par, chunkSize: L.page, refresh: !!forceRefresh || !!($('tl-ref') && $('tl-ref').checked), queryTemplate: L.query || '', groupIn: L.grp, skipZero: !!L.opt.skipZero, allSums: !!L.opt.allSums, hint: !!L.opt.hint, allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 30 * 60000, p).then(function (r) {
+        FL.call('finFusionTb', { pod: L.pod || '', options: { ledger: led, periodSeq: L.seq || 0, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, parallel: L.par, chunkSize: L.page, refresh: !!forceRefresh || !!($('tl-ref') && $('tl-ref').checked), queryTemplate: L.query || '', groupIn: L.grp, skipZero: !!L.opt.skipZero, allSums: !!L.opt.allSums, hint: !!L.opt.hint, perCompany: L.opt.perCompany !== false, allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 30 * 60000, p).then(function (r) {
             FL.fusion.finish();
             r.source = (r.sources && r.sources.every(function (z) { return z.from === 'pc'; }) ? 'GL balances kept on this PC' : 'Fusion') + ' · built ' + new Date().toLocaleString();
             T.listRaw(); r.pod = L.pod || ''; r.accountCol = led.account; r.companyCol = led.company; r.costCentreCol = led.costCentre;

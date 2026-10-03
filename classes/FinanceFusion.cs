@@ -1141,6 +1141,8 @@ namespace WMSApp
             public bool AllSums { get; set; }
             /// <summary>Default query: optimizer hint (GL_BALANCES first, hash join, parallel 4).</summary>
             public bool Hint { get; set; } = true;
+            /// <summary>Company × account: one query per company (c.SEGMENTn = 'x'), Reads in parallel at a time — instead of one query for all companies first.</summary>
+            public bool PerCompany { get; set; } = true;
         }
 
         /// <summary>
@@ -1475,7 +1477,7 @@ namespace WMSApp
             string Lit(string v) => "'" + (v ?? "").Replace("'", "''") + "'";
             string Fill(string period, List<string> companies) => res.Template
                 .Replace("{LEDGER_ID}", led.Id.ToString(CultureInfo.InvariantCulture)).Replace("{PERIOD}", period.Replace("'", "''")).Replace("{CURRENCY}", (led.Currency ?? "").Replace("'", "''"))
-                .Replace("{COMPANY_FILTER}", companies == null ? "" : " AND c." + led.Company + " IN (" + string.Join(", ", companies.Select(Lit)) + ")")
+                .Replace("{COMPANY_FILTER}", companies == null ? "" : companies.Count == 1 ? " AND c." + led.Company + " = " + Lit(companies[0]) : " AND c." + led.Company + " IN (" + string.Join(", ", companies.Select(Lit)) + ")")
                 .Replace("{COMPANY_SEGMENT}", led.Company).Replace("{ACCOUNT_SEGMENT}", led.Account).Replace("{COST_CENTRE_SEGMENT}", led.CostCentre ?? led.Account);
             string grain = byCc ? "CO,AC,CC" : "CO,AC";
             var all = (o.AllCompanies ?? new()).Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToList();
@@ -1531,8 +1533,26 @@ namespace WMSApp
                 {
                     var tw = Stopwatch.StartNew();
                     var first = cos.Count > 0 ? cos.OrderBy(v => v, StringComparer.Ordinal).ToList() : null;
-                    var r = await One(n, first).ConfigureAwait(false);
                     long rowsRead;
+                    var listCos = (first ?? all).OrderBy(v => v, StringComparer.Ordinal).ToList();
+                    if (o.PerCompany && listCos.Count > 0)
+                    {   // one query per company (c.SEGMENTn = one value), a few at a time; companies already on this PC are not read again
+                        var done = !o.Refresh && kept.TryGetValue(n, out var kn) ? kn.Companies : new HashSet<string>();
+                        var miss = listCos.Where(co => !done.Contains(co)).ToList();
+                        if (miss.Count < listCos.Count) x.Note("   " + n + ": " + (listCos.Count - miss.Count) + " compan" + (listCos.Count - miss.Count == 1 ? "y" : "ies") + " already on this PC - reading " + miss.Count);
+                        var parts = await Task.WhenAll(miss.Select(async co =>
+                        {
+                            var t1 = Stopwatch.StartNew();
+                            var r1 = await One(n, new List<string> { co }).ConfigureAwait(false);
+                            if (!r1.Success) throw new InvalidOperationException(r1.Error);
+                            Keep(n, new List<string> { co }, r1.Rows, t1.ElapsedMilliseconds);
+                            return (long)r1.Rows.Count;
+                        })).ConfigureAwait(false);
+                        rowsRead = parts.Sum();
+                    }
+                    else
+                    {
+                    var r = await One(n, first).ConfigureAwait(false);
                     if (r.Success) { Keep(n, first, r.Rows, tw.ElapsedMilliseconds); rowsRead = r.Rows.Count; }
                     else
                     {
@@ -1548,6 +1568,7 @@ namespace WMSApp
                             return (long)r1.Rows.Count;
                         })).ConfigureAwait(false);
                         rowsRead = parts.Sum();
+                    }
                     }
                     x.Note("✓ " + n + ": " + rowsRead.ToString("N0", CultureInfo.InvariantCulture) + " account rows in " + (tw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s, kept on this PC (fin_gl_balances_acct)");
                     lock (sources) sources.Add(new { period = n, from = "fusion", rows = rowsRead, at = DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) });

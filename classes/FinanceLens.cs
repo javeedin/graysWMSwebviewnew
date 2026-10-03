@@ -460,6 +460,14 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 have = TableColumns(conn, "fin_gl_balances_acct");
                 string w = "pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND period_name = " + Lit(period) + " AND grain = " + Lit(grain);
                 string coIn = companies == null ? "" : " IN (" + string.Join(",", companies.Select(Lit)) + ")";
+                if (companies != null)
+                {   // the period was read for every company before: keep the other companies covered, one sync row each, then drop the '*' row
+                    string ws = w + " AND currency = " + Lit(currency);
+                    Exec(conn, "INSERT INTO fin_gl_balances_acct_sync SELECT s.pod, s.ledger_id, s.period_name, s.currency, s.grain, a.company, a.n, s.ms, s.fetched_at FROM fin_gl_balances_acct_sync s " +
+                               "JOIN (SELECT company, COUNT(*) n FROM fin_gl_balances_acct WHERE " + w + " AND currency_code = " + Lit(currency) + " AND company IS NOT NULL AND company NOT" + coIn + " GROUP BY company) a ON TRUE " +
+                               "WHERE s.pod = " + Lit(pod ?? "") + " AND s.ledger_id = " + ledgerId + " AND s.period_name = " + Lit(period) + " AND s.grain = " + Lit(grain) + " AND s.currency = " + Lit(currency) + " AND s.company = '*'");
+                    Exec(conn, "DELETE FROM fin_gl_balances_acct_sync WHERE " + ws + " AND company = '*'");
+                }
                 Exec(conn, "DELETE FROM fin_gl_balances_acct WHERE " + w + " AND currency_code = " + Lit(currency) + (companies == null ? "" : " AND company" + coIn));
                 Exec(conn, "DELETE FROM fin_gl_balances_acct_sync WHERE " + w + " AND currency = " + Lit(currency) + (companies == null ? "" : " AND company" + coIn));
                 var now = DateTime.Now;
