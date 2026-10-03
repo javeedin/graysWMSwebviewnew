@@ -149,6 +149,8 @@ Data › Trial balance sync opens as a table (switch to Tiles at the top right).
 - *Sync extended* syncs the extended segments for every ticked row.
 - Periods that are not open yet are marked *not open yet* and are never synced.
 - **When a company times out**, the extended segments of that company are read **account by account** (Settings › Extended segments › *Read*: per company with the account fallback (default), always account by account, or per company only; *accounts per query* 1–50 — a batch that fails is split in half). The account list comes from the trial balance already synced for that period, so sync the trial balance first. The row shows *company 01 · account 12 of 80* while it runs; a company that still fails is listed with ⚠ and the other companies are kept.
+- **Ties to the trial balance.** Every extended read is checked against the trial balance already synced: per account, opening, debits and credits must match. Accounts that are missing or different are read again account by account straight away. The row shows *ties to TB* or *n accounts differ from TB* (hover for the list).
+- **👁 View** next to each status shows the rows kept on this PC for that period — trial balance or extended segments, with names, totals, the debits = credits check, filters per column and CSV. The extended view lists first the accounts that do not add up to the trial balance (TB vs extended, *missing* when Fusion returned nothing).
 
 ## Segment P&L (P&L, pivot and trial balance by extended segments)
 

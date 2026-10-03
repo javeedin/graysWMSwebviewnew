@@ -1734,9 +1734,9 @@ namespace WMSApp
                     if (!r.Success) throw new InvalidOperationException("account list of company " + co + ": " + Short(r.Error));
                     return r.Rows.Select(z => S(z, "A")).Where(v => !string.IsNullOrEmpty(v)).Distinct().OrderBy(a => a, StringComparer.Ordinal).ToList();
                 }
-                async Task<List<Dictionary<string, object>>> ByAccount(string period, string co)
+                async Task<List<Dictionary<string, object>>> ByAccount(string period, string co, List<string> only = null)
                 {
-                    var accts = await AccountsFor(period, co).ConfigureAwait(false);
+                    var accts = only ?? await AccountsFor(period, co).ConfigureAwait(false);
                     x.Note("   " + period + " · company " + co + ": reading " + accts.Count + " account(s) " + (batch == 1 ? "one by one" : batch + " per query"));
                     var all = new List<Dictionary<string, object>>();
                     var queue = new Queue<(int At, List<string> Accts)>(accts.Select((a, i) => (i, a)).Chunk(batch).Select(c => (c[0].i, c.Select(z => z.a).ToList())));
@@ -1760,6 +1760,26 @@ namespace WMSApp
                         throw new InvalidOperationException("account " + list[0] + ": " + (r.Success ? "more than " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows" : Short(r.Error)));
                     }
                     return all;
+                }
+                // tie-out: the extended rows of a period × company must add up, per account, to the trial balance already on this PC
+                string ExtTf(Dictionary<string, object> r) => S(r, "TRANSLATED_FLAG");
+                List<string> Mismatch(string period, string co, List<Dictionary<string, object>> got, out int tbAccounts)
+                {
+                    List<AcctRow> mine;
+                    lock (acctLock)
+                    {
+                        tbRows ??= FinanceLens.LoadAcct(o.Pod, led.Id, led.Currency, "CO,AC", names).Concat(FinanceLens.LoadAcct(o.Pod, led.Id, led.Currency, "CO,AC,CC", names)).ToList();
+                        mine = tbRows.Where(r => r.Co == co && r.Period == period && r.Tf != "R").ToList();
+                    }
+                    var grain = mine.Where(r => r.Cc == null).ToList(); if (grain.Count == 0) grain = mine;   // company × account, else the cost-centre grain summed
+                    var tb = grain.GroupBy(r => r.Ac).ToDictionary(g => g.Key, g => (B: g.Sum(r => r.Bdr - r.Bcr), D: g.Sum(r => r.Ndr), C: g.Sum(r => r.Ncr)));
+                    tbAccounts = tb.Count;
+                    if (tb.Count == 0) return new List<string>();
+                    var ex = got.Where(r => ExtTf(r) != "R").GroupBy(r => S(r, led.Account) ?? "").ToDictionary(g => g.Key, g => (B: g.Sum(r => D(r, "BEGIN_BALANCE_DR") - D(r, "BEGIN_BALANCE_CR")), D: g.Sum(r => D(r, "PERIOD_NET_DR")), C: g.Sum(r => D(r, "PERIOD_NET_CR"))));
+                    bool Near(double a, double b) => Math.Abs(a - b) <= 0.5 + Math.Abs(b) * 1e-9;
+                    return tb.Where(kv => !(ex.TryGetValue(kv.Key, out var e) && Near(e.B, kv.Value.B) && Near(e.D, kv.Value.D) && Near(e.C, kv.Value.C))
+                                          && !(Math.Abs(kv.Value.B) < 0.005 && Math.Abs(kv.Value.D) < 0.005 && Math.Abs(kv.Value.C) < 0.005))
+                             .Select(kv => kv.Key).OrderBy(a => a, StringComparer.Ordinal).ToList();
                 }
                 await Task.WhenAll(jobs.Select(async j =>
                 {
@@ -1785,12 +1805,28 @@ namespace WMSApp
                             }
                         }
                         if (got == null) { got = await ByAccount(j.Period, j.Co).ConfigureAwait(false); how = "account"; }
+                        // tie-out with the trial balance; accounts missing or different are read again one by one and replaced
+                        var bad = Mismatch(j.Period, j.Co, got, out int tbAcc);
+                        int reread = 0;
+                        if (bad.Count > 0 && by != "company")
+                        {
+                            x.Note("⚠ " + j.Period + " · company " + j.Co + ": " + bad.Count + " of " + tbAcc + " account(s) do not match the trial balance on this PC (" + string.Join(", ", bad.Take(12)) + (bad.Count > 12 ? " …" : "") + ") - reading them account by account");
+                            x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "split", why = bad.Count + " account(s) differ from the trial balance" });
+                            var badSet = new HashSet<string>(bad, StringComparer.Ordinal);
+                            var again = await ByAccount(j.Period, j.Co, bad).ConfigureAwait(false);
+                            got = got.Where(r => !badSet.Contains(S(r, led.Account) ?? "")).Concat(again).ToList();
+                            reread = bad.Count;
+                            bad = Mismatch(j.Period, j.Co, got, out tbAcc);
+                        }
+                        string tie = tbAcc == 0 ? "no-tb" : bad.Count == 0 ? "ok" : "diff";
+                        if (tie == "diff") x.Note("⚠ " + j.Period + " · company " + j.Co + ": still " + bad.Count + " account(s) differ from the trial balance (" + string.Join(", ", bad.Take(12)) + ") - Fusion returns them this way; compare in the 👁 view");
+                        else if (tie == "ok") x.Note("   " + j.Period + " · company " + j.Co + ": ties to the trial balance (" + tbAcc + " accounts)" + (reread > 0 ? " after reading " + reread + " again" : ""));
                         lock (gate) if (!sampled && got.Count > 0) { sampled = true; LiveSample(x, label, got); }
                         FinanceLens.SaveExt(o.Pod, led.Id, j.Period, led.Currency, j.Co, led.Company, led.Account, segs, got, t0.ElapsedMilliseconds);
                         Interlocked.Add(ref rows, got.Count);
                         x.Note("✓ " + j.Period + " · company " + j.Co + ": " + got.Count.ToString("N0", CultureInfo.InvariantCulture) + " rows in " + (t0.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s" + (how == "account" ? " (account by account)" : "") + " (fin_gl_balances_ext)");
-                        x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "done", rows = got.Count, how });
-                        lock (sources) sources.Add(new { period = j.Period, company = j.Co, rows = got.Count, ms = t0.ElapsedMilliseconds, how });
+                        x.Live(new { t = "ext", period = j.Period, company = j.Co, state = "done", rows = got.Count, how, tie, differ = bad.Count });
+                        lock (sources) sources.Add(new { period = j.Period, company = j.Co, rows = got.Count, ms = t0.ElapsedMilliseconds, how, tie, differ = bad, reread });
                     }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex)

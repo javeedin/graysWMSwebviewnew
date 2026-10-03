@@ -353,8 +353,28 @@
     T.want = function () { var l = T.ledgerObj(); return L.cos.length ? L.cos : (l && l.companies || []).map(function (c) { return c.value; }); };
 
     // ── the year board: one tile per period — ✓ synced, n/m some companies, ✗ not synced, live while syncing ──
+    /** Extended segments vs the trial balance on this PC, per period × company × account (opening, debits, credits); seq → null = all periods */
+    T.tieSql = function (seq, detail) {
+        var l = T.ledgerObj(); if (!l) return null;
+        var pod = "'" + String(L.pod || '').replace(/'/g, "''") + "'", id = +l.id;
+        return "WITH tb AS (SELECT t.period_seq AS seq, a.company, a.account, SUM(COALESCE(a.begin_balance_dr, 0) - COALESCE(a.begin_balance_cr, 0)) AS b, SUM(COALESCE(a.period_net_dr, 0)) AS d, SUM(COALESCE(a.period_net_cr, 0)) AS c " +
+            "FROM fin_gl_balances_acct a JOIN (SELECT DISTINCT pod, ledger_id, period_name, period_seq FROM fin_tb_periods) t ON t.pod = a.pod AND t.ledger_id = a.ledger_id AND t.period_name = a.period_name " +
+            "WHERE a.ledger_id = " + id + " AND COALESCE(a.pod, '') = " + pod + " AND COALESCE(a.translated_flag, '') <> 'R'" + (seq ? " AND t.period_seq = " + seq : '') +
+            " AND a.grain = (SELECT MIN(a2.grain) FROM fin_gl_balances_acct a2 WHERE a2.pod = a.pod AND a2.ledger_id = a.ledger_id AND a2.period_name = a.period_name) GROUP BY 1, 2, 3), " +
+            "ex AS (SELECT period_seq AS seq, company, account, SUM(opening) AS b, SUM(dr) AS d, SUM(cr) AS c FROM fin_gl_ext_v WHERE ledger_id = " + id + " AND COALESCE(pod, '') = " + pod + (seq ? " AND period_seq = " + seq : '') + " GROUP BY 1, 2, 3), " +
+            "exc AS (SELECT DISTINCT seq, company FROM ex), " +
+            "bad AS (SELECT tb.seq, tb.company, tb.account, tb.b AS tb_opening, tb.d AS tb_dr, tb.c AS tb_cr, ex.b AS ext_opening, ex.d AS ext_dr, ex.c AS ext_cr FROM tb JOIN exc ON exc.seq = tb.seq AND exc.company = tb.company " +
+            "LEFT JOIN ex ON ex.seq = tb.seq AND ex.company = tb.company AND ex.account = tb.account " +
+            "WHERE NOT (ABS(tb.b) < 0.005 AND ABS(tb.d) < 0.005 AND ABS(tb.c) < 0.005) AND (ex.account IS NULL OR ABS(tb.b - ex.b) > 0.5 OR ABS(tb.d - ex.d) > 0.5 OR ABS(tb.c - ex.c) > 0.5)) " +
+            (detail ? "SELECT * FROM bad ORDER BY company, account" : "SELECT seq, COUNT(*) AS n, STRING_AGG(company || ':' || account, ', ' ORDER BY company, account) AS accts FROM bad GROUP BY seq");
+    };
+    T.loadTies = function () {
+        var q = T.tieSql(null, false); L.ties = {};
+        if (!q || !L.ext || !(L.ext.rows || []).length) return Promise.resolve();
+        return FL.sql(q, 5000).then(function (d) { d.rows.forEach(function (r) { L.ties[+r[0]] = { n: +r[1], accts: String(r[2] || '') }; }); }).catch(function () { L.ties = null; });
+    };
     T.board = function () {
-        return Promise.all([FL.call('finTbSyncStatus'), FL.call('finTbExtStatus').catch(function () { return { rows: [] }; })]).then(function (rr) { L.status = rr[0]; L.ext = rr[1]; T.paintBoard(); T.paintExt(); }).catch(function (e) { if ($('ts-board')) $('ts-board').innerHTML = '<div class="callout bad">' + esc(e) + '</div>'; });
+        return Promise.all([FL.call('finTbSyncStatus'), FL.call('finTbExtStatus').catch(function () { return { rows: [] }; })]).then(function (rr) { L.status = rr[0]; L.ext = rr[1]; return T.loadTies(); }).then(function () { T.paintBoard(); T.paintExt(); }).catch(function (e) { if ($('ts-board')) $('ts-board').innerHTML = '<div class="callout bad">' + esc(e) + '</div>'; });
     };
     T.cells = function () {
         var cells = {}, l = T.ledgerObj(); if (!l || !L.status) return cells;
@@ -412,6 +432,7 @@
                     if (a === 'tb') T.sync([q], false); else if (a === 'tbo') T.sync([q], true); else if (a === 'ext') T.extSync([q], false); else if (a === 'exto') T.extSync([q], true);
                 };
             });
+            box.querySelectorAll('[data-view]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); T.view(+b.dataset.s, b.dataset.view); }; });
             box.querySelectorAll('.ts-tr').forEach(function (tr) {
                 tr.onclick = function (ev) { if (ev.target.closest('button') || (T.live && T.live.running)) return; var q = +tr.dataset.s; if (L.sel[q]) delete L.sel[q]; else L.sel[q] = 1; T.paintBoard(); };
             });
@@ -443,16 +464,79 @@
                 : xl && xl.state === 'running' ? pill('run', '<i class="fa-solid fa-circle-notch fa-spin"></i>', xl.acct ? 'company ' + xl.acct.co + ' · account ' + xl.acct.i + ' of ' + xl.acct.n
                     : 'syncing · ' + xl.done + ' of ' + xl.total + ' compan' + (xl.total === 1 ? 'y' : 'ies'), xl.acct ? 'Timed out per company - reading it account by account (now ' + xl.acct.name + ')' : '') + (xl.fails ? ' ' + pill('bad', '⚠', xl.fails.length + ' failed', xl.error) : '')
                 : xl && xl.state === 'queued' ? pill('run', '⏳', 'waiting') : xl && xl.state === 'failed' ? pill('bad', '⚠', 'failed', xl.error)
-                : xs === 'done' ? pill('ok', '✓', 'Yes · ' + (x.rows || 0).toLocaleString() + ' rows · ' + String(x.at).slice(5, 16), Object.keys(x.cos).length + ' compan(ies) · ' + need.join(', '))
+                : xs === 'done' && L.ties && L.ties[p.seq] ? pill('part', '◐', 'Yes · ' + (x.rows || 0).toLocaleString() + ' rows · ' + L.ties[p.seq].n + ' account' + (L.ties[p.seq].n === 1 ? '' : 's') + ' differ from TB',
+                    'Accounts whose extended rows do not add up to the trial balance (company:account): ' + L.ties[p.seq].accts.slice(0, 600) + ' — press Overwrite to read them again, or 👁 to compare')
+                : xs === 'done' ? pill('ok', '✓', 'Yes · ' + (x.rows || 0).toLocaleString() + ' rows' + (L.ties ? ' · ties to TB' : '') + ' · ' + String(x.at).slice(5, 16), Object.keys(x.cos).length + ' compan(ies) · ' + need.join(', ') + (L.ties ? ' · every account adds up to the trial balance' : ''))
                 : xs === 'part' ? pill('part', '◐', miss.length ? 'missing ' + miss.join(', ') : 'some companies', 'Sync to complete it')
                 : future ? pill('off', '–', 'not open yet') : pill('no', '✗', 'No');
             var exBtn = !ext.length || future || !admin ? '' : xs === 'done' ? '<button class="btn sm" data-row="exto" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + '><i class="fa-solid fa-rotate"></i> Overwrite</button>'
                 : '<button class="btn sm' + (st === 'done' ? ' primary' : '') + '" data-row="ext" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + ' title="' + esc(st === 'done' ? 'Read the extended segments for this period' : 'Works on its own, but sync the trial balance too') + '"><i class="fa-solid fa-cloud-arrow-down"></i> Sync</button>';
             return '<tr class="ts-tr' + (L.sel[p.seq] ? ' sel' : '') + (future ? ' future' : '') + '" data-s="' + p.seq + '"><td><input type="checkbox"' + (L.sel[p.seq] ? ' checked' : '') + ' tabindex="-1"></td><td><b>' + esc(p.name) + '</b>' +
-                (c && c.adj.length ? ' <span class="muted sm">+ ' + esc(c.adj.join(', ')) + '</span>' : '') + (future ? ' <span class="muted sm">not open yet</span>' : '') + '</td><td>' + tb + '</td><td>' + tbBtn + '</td><td class="ts-xc">' + ex + '</td><td>' + exBtn + '</td></tr>';
+                (c && c.adj.length ? ' <span class="muted sm">+ ' + esc(c.adj.join(', ')) + '</span>' : '') + (future ? ' <span class="muted sm">not open yet</span>' : '') + '</td><td>' + tb +
+                    (st === 'done' || st === 'part' ? ' <button class="ts-eye" data-view="tb" data-s="' + p.seq + '" title="View the trial balance rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td>' + tbBtn + '</td><td class="ts-xc">' + ex + (ext.length && x && (xs === 'done' || xs === 'part') ? ' <button class="ts-eye" data-view="ext" data-s="' + p.seq + '" title="View the extended-segment rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td>' + exBtn + '</td></tr>';
         }).join('');
         return '<table class="t ts-table"><thead><tr><th style="width:28px"></th><th>Period</th><th>Trial balance</th><th></th><th class="ts-xc">Extended segments' + (ext.length ? ' <span class="muted">(' + esc(ext.map(T.segName).map(function (n) { return n.replace(/ \(SEGMENT\d+\)$/, ''); }).join(', ')) + ')</span>' : '') + '</th><th></th></tr></thead><tbody>' +
             (rows || '<tr><td colspan="6" class="muted">No periods in this year.</td></tr>') + '</tbody></table>';
+    };
+    /** 👁 The rows this PC holds for one period: trial balance (fin_gl_balances_acct) or extended segments (fin_gl_ext_v), with names and totals */
+    T.view = function (seq, kind) {
+        var l = T.ledgerObj(); if (!l) return;
+        var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), per = T.cal().filter(function (p) { return p.seq === seq; })[0] || { name: String(seq) };
+        var ext = kind === 'ext', segs = ext ? T.extCols().filter(function (c) { return c !== led.company && c !== led.account; }) : [];
+        var lit = function (v) { return "'" + String(v == null ? '' : v).replace(/'/g, "''") + "'"; };
+        var short = function (c) { return T.segName(c).replace(/ \(SEGMENT\d+\)$/, ''); };
+        FL.modal('<i class="fa-solid fa-eye"></i> ' + esc(per.name) + ' · ' + (ext ? 'extended segments' : 'trial balance') + ' · ' + esc(l.name || ''), '<div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i> Reading this PC…</div>');
+        FL.sql("SELECT table_name FROM information_schema.tables WHERE table_name IN ('fin_segment_values', 'fin_tb_periods')", 10).then(function (t) {
+            var have = t.rows.map(function (r) { return r[0]; }), names = have.indexOf('fin_segment_values') >= 0;
+            var nm = function (col, expr, al) { return names ? "(SELECT MAX(sv.description) FROM fin_segment_values sv WHERE sv.coa_id = " + lit(l.coaId) + " AND UPPER(sv.column_name) = " + lit(col) + " AND sv.value = " + expr + ") AS " + al : "NULL AS " + al; };
+            var sql;
+            if (ext) {
+                sql = "SELECT e.period_name, e.company, " + nm(led.company, 'e.company', 'company_name') + ", e.account, " + nm(led.account, 'e.account', 'account_name') + ", e.account_type" +
+                    segs.map(function (c, i) { var col = 'e.' + c.toLowerCase(); return ", " + col + " AS s" + i + ", " + nm(c, col, 'n' + i); }).join('') +
+                    ", e.opening, e.dr, e.cr, e.closing FROM fin_gl_ext_v e WHERE e.ledger_id = " + (+l.id) + " AND e.period_seq = " + seq + " AND COALESCE(e.pod, '') = " + lit(L.pod || '') +
+                    " ORDER BY e.company, e.account" + segs.map(function (c) { return ', e.' + c.toLowerCase(); }).join('');
+            } else {
+                var inP = have.indexOf('fin_tb_periods') >= 0 ? "a.period_name IN (SELECT period_name FROM fin_tb_periods WHERE ledger_id = " + (+l.id) + " AND period_seq = " + seq + " AND COALESCE(pod, '') = " + lit(L.pod || '') + ")" : "a.period_name = " + lit(per.name);
+                sql = "SELECT a.period_name, a.company, " + nm(led.company, 'a.company', 'company_name') + ", a.account, " + nm(led.account, 'a.account', 'account_name') + ", a.account_type, a.cost_centre, a.grain, " +
+                    "COALESCE(a.begin_balance_dr, 0) - COALESCE(a.begin_balance_cr, 0) AS opening, COALESCE(a.period_net_dr, 0) AS dr, COALESCE(a.period_net_cr, 0) AS cr, " +
+                    "COALESCE(a.begin_balance_dr, 0) - COALESCE(a.begin_balance_cr, 0) + COALESCE(a.period_net_dr, 0) - COALESCE(a.period_net_cr, 0) AS closing " +
+                    "FROM fin_gl_balances_acct a WHERE a.ledger_id = " + (+l.id) + " AND COALESCE(a.pod, '') = " + lit(L.pod || '') + " AND " + inP + " AND COALESCE(a.translated_flag, '') <> 'R' ORDER BY a.grain, a.company, a.account, a.cost_centre";
+            }
+            return FL.sql(sql, 200000).then(function (d) {
+                var ix = {}; d.columns.forEach(function (c, i) { ix[c.toLowerCase()] = i; });
+                var rows = d.rows, sum = function (k) { return rows.reduce(function (a, r) { return a + (+r[ix[k]] || 0); }, 0); };
+                var grains = {}; if (!ext) rows.forEach(function (r) { grains[r[ix.grain]] = 1; });
+                var mixed = Object.keys(grains).length > 1;
+                var tot = { o: sum('opening'), d: sum('dr'), c: sum('cr'), cl: sum('closing') };
+                var f2 = function (v) { return FINE.fmt(v, 'num', { decimals: 2 }); };
+                var ok = Math.abs(tot.d - tot.c) < 0.5 && Math.abs(tot.cl) < 0.5;
+                var cols = [{ label: 'Period', get: function (r) { return r[ix.period_name]; } },
+                    { label: 'Company', get: function (r) { return r[ix.company] + (r[ix.company_name] ? ' · ' + r[ix.company_name] : ''); } },
+                    { label: 'Account', get: function (r) { return r[ix.account]; } },
+                    { label: 'Account name', get: function (r) { return r[ix.account_name] || ''; } },
+                    { label: 'Type', get: function (r) { return r[ix.account_type] || ''; } }];
+                if (ext) segs.forEach(function (c, i) { cols.push({ label: short(c), get: function (r) { var v = r[ix['s' + i]]; return v == null ? '' : v + (r[ix['n' + i]] ? ' · ' + r[ix['n' + i]] : ''); } }); });
+                else if (rows.some(function (r) { return r[ix.cost_centre]; })) cols.push({ label: 'Cost centre', get: function (r) { return r[ix.cost_centre] || ''; } });
+                if (mixed) cols.push({ label: 'Grain', get: function (r) { return r[ix.grain]; } });
+                ['opening', 'dr', 'cr', 'closing'].forEach(function (k, i) { cols.push({ label: ['Opening', 'Debit', 'Credit', 'Closing'][i], n: 1, get: function (r) { return f2(+r[ix[k]] || 0); }, val: function (r) { return +r[ix[k]] || 0; } }); });
+                $('m-body').innerHTML = '<div class="ts-vsum">' +
+                    '<span><b>' + rows.length.toLocaleString() + '</b> rows</span><span>Opening <b>' + f2(tot.o) + '</b></span><span>Debit <b>' + f2(tot.d) + '</b></span><span>Credit <b>' + f2(tot.c) + '</b></span><span>Closing <b>' + f2(tot.cl) + '</b></span>' +
+                    (mixed ? '<span class="ts-st part">◐ two grains kept — company × account and × cost centre; totals count both</span>' : '<span class="ts-st ' + (ok ? 'ok' : 'part') + '">' + (ok ? '✓ debits = credits, closing nets to nil' : '◐ does not net — normal when only some companies are synced') + '</span>') +
+                    '</div><p class="sm muted" style="margin:4px 0 8px">Kept on this PC (' + (ext ? 'fin_gl_ext_v' : 'fin_gl_balances_acct') + ') · type in any column header box to filter (=, !, >, <, a..b) · ' +
+                    '<a href="#" id="ts-vsql">Copy SQL</a></p><div id="ts-vgrid"></div>';
+                FL.grid($('ts-vgrid'), cols, rows, { id: 'tsv-' + kind, height: '58vh', csv: (ext ? 'extended-' : 'tb-') + per.name + '.csv', max: 5000 });
+                if (ext && T.tieSql(seq, true)) FL.sql(T.tieSql(seq, true), 5000).then(function (dd) {
+                    var box = document.createElement('div'); box.className = 'ts-vtie';
+                    if (!dd.rows.length) { box.innerHTML = '<span class="ts-st ok">✓ every account adds up to the trial balance of ' + esc(per.name) + '</span>'; $('ts-vgrid').parentNode.insertBefore(box, $('ts-vgrid')); return; }
+                    var jx = {}; dd.columns.forEach(function (c, i) { jx[c.toLowerCase()] = i; });
+                    box.innerHTML = '<details open><summary><span class="ts-st part">◐ ' + dd.rows.length + ' account(s) differ from the trial balance</span> <span class="sm muted">missing = Fusion returned no extended rows for it · press Overwrite on the row to read them again (they are re-read account by account)</span></summary><div id="ts-vtg"></div></details>';
+                    $('ts-vgrid').parentNode.insertBefore(box, $('ts-vgrid'));
+                    var m = function (k) { return { label: k.replace('tb_', 'TB ').replace('ext_', 'Ext ').replace('opening', 'opening').replace('dr', 'debit').replace('cr', 'credit'), n: 1, get: function (r) { return r[jx[k]] == null ? 'missing' : f2(+r[jx[k]]); }, val: function (r) { return r[jx[k]] == null ? null : +r[jx[k]]; } }; };
+                    FL.grid($('ts-vtg'), [{ label: 'Company', get: function (r) { return r[jx.company]; } }, { label: 'Account', get: function (r) { return r[jx.account]; } }, m('tb_opening'), m('ext_opening'), m('tb_dr'), m('ext_dr'), m('tb_cr'), m('ext_cr')], dd.rows, { id: 'tsv-tie', height: '26vh', csv: 'extended-vs-tb-' + per.name + '.csv' });
+                }).catch(function () { /* tables not there */ });
+                $('ts-vsql').onclick = function (e) { e.preventDefault(); try { navigator.clipboard.writeText(sql); FL.toast('SQL copied — paste it in Data › SQL explorer', 'ok'); } catch (x) { /* no clipboard */ } };
+            });
+        }).catch(function (e) { $('m-body').innerHTML = '<div class="callout bad">' + esc(String(e && e.message || e)) + '</div>'; });
     };
     /** Live per-period state of an extended-segments sync from its progress events */
     T.extTrack = function (msg) {
