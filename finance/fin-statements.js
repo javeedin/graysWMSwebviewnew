@@ -78,6 +78,7 @@
 
     FL.TABS.statements = {
         render: function (el) {
+            if (S.tpl === 'TB' && FL.tb) return FL.tb.render(el);
             var tpl = FL.tpl(S.tpl) || FL.templates[0];
             if (!tpl) { el.innerHTML = '<div class="empty">No templates — open the Template designer.</div>'; return; }
             S.tpl = tpl.id;
@@ -86,7 +87,8 @@
                 S.last = { tpl: tpl, st: st, opts: opts };
                 var sub = S.detail ? subRows(tpl, data, opts, st) : null;
                 el.innerHTML = '<div class="row toolbar" style="margin-bottom:10px"><div class="seg" id="st-tpls">' +
-                    FL.templates.map(function (t) { return '<button data-t="' + esc(t.id) + '" class="' + (t.id === tpl.id ? 'on' : '') + '" title="' + esc(t.description || '') + '">' + esc(t.name) + '</button>'; }).join('') + '</div>' +
+                    FL.templates.map(function (t) { return '<button data-t="' + esc(t.id) + '" class="' + (t.id === tpl.id ? 'on' : '') + '" title="' + esc(t.description || '') + '">' + esc(t.name) + '</button>'; }).join('') +
+                    '<button data-t="TB" title="Every account: opening, debits, credits, closing — debits must equal credits"><i class="fa-solid fa-scale-balanced"></i> Trial balance</button></div>' +
                     '<span class="grow"></span>' +
                     '<label class="sm"><input type="checkbox" id="st-zero"' + (S.hideZero ? ' checked' : '') + '> hide empty lines</label>' +
                     '<label class="sm"><input type="checkbox" id="st-det"' + (S.detail ? ' checked' : '') + '> account detail</label>' +

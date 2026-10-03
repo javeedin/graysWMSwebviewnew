@@ -209,56 +209,5 @@
         }
     };
 
-    // ═════════ Data ═════════
-    FL.TABS.data = {
-        render: function (el) {
-            var st = FL.status || {}, m = st.meta || {}, c = st.counts || {}, admin = FL.who && FL.who.admin;
-            el.innerHTML = '<div class="grid g2"><div class="card"><h3><i class="fa-solid fa-database"></i> Finance data on this PC</h3>' +
-                (st.loaded ? '<table class="t"><tbody>' + [['Source', m.source], ['Loaded', m.loaded_at], ['Description', m.description], ['Periods', (c.first_period || '') + ' – ' + (c.last_period || '')],
-                    ['Companies · cost centres · accounts', (c.companies || 0) + ' · ' + (c.cost_centres || 0) + ' · ' + (c.accounts || 0)], ['Balances', (c.balances || 0).toLocaleString()], ['Journal lines', (c.journals || 0).toLocaleString()],
-                    ['File', st.root + ' (' + st.sizeMb + ' MB)']].map(function (r) { return '<tr><td class="muted">' + esc(r[0]) + '</td><td>' + esc(r[1] == null ? '' : r[1]) + '</td></tr>'; }).join('') + '</tbody></table>'
-                    : '<p>No data yet.</p>') +
-                '<div class="row" style="margin-top:10px">' + (admin ? '<button class="btn" onclick="FL.loadSample()"><i class="fa-solid fa-flask"></i> Load sample data</button>' +
-                    '<button class="btn" id="d-root"><i class="fa-regular fa-folder"></i> Folder…</button>' : '<span class="sm muted">An AI admin loads data and sets the folder.</span>') +
-                '<button class="btn" onclick="FL.refresh()"><i class="fa-solid fa-rotate"></i> Reload</button></div></div>' +
-                '<div class="card" id="fus-card"></div></div>' +
-                (st.loaded ? '<div class="card" id="map-card" style="margin-top:12px"></div>' : '') +
-                (st.loaded ? '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-terminal"></i> SQL explorer <small>read-only DuckDB SQL over fin_balances, fin_journals, fin_accounts, fin_periods, fin_companies, fin_cost_centres</small></h3>' +
-                    '<div class="row" style="margin-bottom:6px">' + [['Trial balance', "SELECT b.account, a.name, a.account_type, ROUND(SUM(b.end_bal), 2) AS balance FROM fin_balances b JOIN fin_accounts a ON a.code = b.account WHERE b.scenario = 'ACTUAL' AND b.period_seq = " + FL.filter.period + ' GROUP BY ALL ORDER BY 1'],
-                        ['Revenue by month', "SELECT period_name, period_seq, -SUM(period_net) AS revenue FROM fin_balances WHERE scenario = 'ACTUAL' AND account LIKE '4%' GROUP BY ALL ORDER BY period_seq"],
-                        ['Manual journals', "SELECT je_name, created_by, CAST(accounting_date AS VARCHAR) AS date, SUM(dr) AS amount FROM fin_journals WHERE je_source = 'Manual' GROUP BY ALL ORDER BY amount DESC LIMIT 100"],
-                        ['Budget vs actual by account', "SELECT account, SUM(period_net) FILTER (WHERE scenario = 'ACTUAL') AS actual, SUM(period_net) FILTER (WHERE scenario = 'BUDGET') AS budget FROM fin_balances WHERE account >= '4' GROUP BY 1 ORDER BY 1"]]
-                        .map(function (x, i) { return '<button class="btn sm" data-q="' + i + '">' + esc(x[0]) + '</button>'; }).join('') + '</div>' +
-                    '<textarea class="sql" id="d-sql">' + esc(FL.ls('sql', "SELECT company, account, ROUND(SUM(end_bal), 2) AS balance FROM fin_balances WHERE scenario = 'ACTUAL' AND period_seq = " + FL.filter.period + ' GROUP BY ALL ORDER BY 1, 2')) + '</textarea>' +
-                    '<div class="row" style="margin:6px 0"><button class="btn primary sm" id="d-run"><i class="fa-solid fa-play"></i> Run (Ctrl+Enter)</button><button class="btn sm" id="d-csv"><i class="fa-solid fa-file-csv"></i> CSV</button><span class="sm muted" id="d-info"></span></div><div class="scroll" id="d-res"></div></div>' +
-                    '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-sitemap"></i> Chart of accounts <small>' + FL.dims.accounts.length + ' accounts</small></h3><div class="scroll" style="max-height:300px">' +
-                    FL.table([{ label: 'Account', key: 'code' }, { label: 'Name', key: 'name' }, { label: 'Type', get: function (a) { return { A: 'Asset', L: 'Liability', O: 'Equity', R: 'Revenue', E: 'Expense' }[a.account_type] || a.account_type; } }, { label: 'Class', key: 'class' }], FL.dims.accounts) + '</div></div>' : '');
-            if ($('d-root')) $('d-root').onclick = function () {
-                var r = prompt('Folder for the finance data (DuckDB file, templates.json, config.json):', st.root || 'C:\\fusion\\finance');
-                if (r) FL.call('finSetRoot', { root: r }).then(function () { FL.toast('Folder set', 'ok'); FL.refresh(); }).catch(function (e) { FL.toast(String(e), 'err'); });
-            };
-            FL.fusion.render($('fus-card'));
-            if ($('map-card')) FL.mapping.render($('map-card'));
-            if (!st.loaded) return;
-            var QS = el.querySelectorAll('[data-q]');
-            var samples = [["SELECT b.account, a.name, a.account_type, ROUND(SUM(b.end_bal), 2) AS balance FROM fin_balances b JOIN fin_accounts a ON a.code = b.account WHERE b.scenario = 'ACTUAL' AND b.period_seq = " + FL.filter.period + ' GROUP BY ALL ORDER BY 1'],
-                ["SELECT period_name, period_seq, -SUM(period_net) AS revenue FROM fin_balances WHERE scenario = 'ACTUAL' AND account LIKE '4%' GROUP BY ALL ORDER BY period_seq"],
-                ["SELECT je_name, created_by, CAST(accounting_date AS VARCHAR) AS date, SUM(dr) AS amount FROM fin_journals WHERE je_source = 'Manual' GROUP BY ALL ORDER BY amount DESC LIMIT 100"],
-                ["SELECT account, SUM(period_net) FILTER (WHERE scenario = 'ACTUAL') AS actual, SUM(period_net) FILTER (WHERE scenario = 'BUDGET') AS budget FROM fin_balances WHERE account >= '4' GROUP BY 1 ORDER BY 1"]];
-            QS.forEach(function (b, i) { b.onclick = function () { $('d-sql').value = samples[i][0]; run(); }; });
-            var last = null;
-            var run = function () {
-                var sql = $('d-sql').value; FL.lsSet('sql', sql); $('d-info').textContent = 'running…';
-                FL.sql(sql, 5000).then(function (d) {
-                    last = d;
-                    $('d-info').textContent = d.rows.length.toLocaleString() + ' row(s)' + (d.truncated ? ' (first 5,000)' : '') + ' · ' + d.ms + ' ms';
-                    $('d-res').innerHTML = '<table class="t"><thead><tr>' + d.columns.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-                        d.rows.slice(0, 2000).map(function (r) { return '<tr>' + r.map(function (v) { return '<td class="' + (typeof v === 'number' ? 'n' : '') + '">' + esc(typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(2)) : v) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>';
-                }).catch(function (e) { $('d-info').innerHTML = '<span class="neg">' + esc(e) + '</span>'; });
-            };
-            $('d-run').onclick = run;
-            $('d-sql').onkeydown = function (e) { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); run(); } };
-            $('d-csv').onclick = function () { if (last) FL.csv('query.csv', last.columns, last.rows); };
-        }
-    };
+    // the Data tab lives in fin-data.js
 })();

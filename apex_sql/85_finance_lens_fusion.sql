@@ -54,6 +54,34 @@ CREATE TABLE wms_fin_ledgers (
     CONSTRAINT wms_fin_ledgers_pk PRIMARY KEY (pod, ledger_id)
 );
 
+-- Account mapping: the class (statement line group) of each natural account, per chart; SOURCE = USER (chosen in
+-- Data › Account mapping, wins on every PC and every load) or AUTO (the page's guess from type + name).
+CREATE TABLE wms_fin_account_map (
+    coa_id        VARCHAR2(30) NOT NULL,
+    account_code  VARCHAR2(60) NOT NULL,
+    account_name  VARCHAR2(400),
+    account_type  VARCHAR2(5),
+    class         VARCHAR2(100),
+    source        VARCHAR2(10),
+    changed_by    VARCHAR2(100),
+    changed_at    DATE DEFAULT SYSDATE,
+    CONSTRAINT wms_fin_account_map_pk PRIMARY KEY (coa_id, account_code)
+);
+
+-- Every value of a segment (Data › Chart of accounts › Read from Fusion): description, how many account combinations use it,
+-- the account type of natural account values.
+CREATE TABLE wms_fin_segment_values (
+    pod           VARCHAR2(20) NOT NULL,
+    coa_id        VARCHAR2(30) NOT NULL,
+    column_name   VARCHAR2(30) NOT NULL,
+    value         VARCHAR2(150) NOT NULL,
+    description   VARCHAR2(400),
+    combinations  NUMBER,
+    account_type  VARCHAR2(10),
+    fetched_at    DATE DEFAULT SYSDATE,
+    CONSTRAINT wms_fin_segment_values_pk PRIMARY KEY (pod, coa_id, column_name, value)
+);
+
 -- Which segment is what, per pod:
 -- SELECT pod, coa_id, column_name, segment_name, role, ROUND(purity * 100) purity_pct, evidence
 --   FROM wms_fin_coa_segments ORDER BY pod, coa_id, segment_num;

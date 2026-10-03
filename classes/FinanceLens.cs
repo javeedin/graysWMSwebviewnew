@@ -222,7 +222,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
         }
 
         /// <summary>Writes account classes (the page classifies Fusion accounts by type and name; the user's mapping wins).</summary>
-        public static int SetClasses(Dictionary<string, string> classes)
+        public static int SetClasses(Dictionary<string, string> classes, string user = null, string source = "AUTO")
         {
             if (classes == null || classes.Count == 0 || !File.Exists(DbPath)) return 0;
             if (classes.Count > 200000) throw new ArgumentException("too many accounts");
@@ -234,6 +234,11 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 Exec(conn, "CREATE TEMP TABLE cls (code VARCHAR, class VARCHAR)");
                 Append(conn, "cls", classes.Where(kv => kv.Key != null).Select(kv => new object[] { kv.Key, string.IsNullOrWhiteSpace(kv.Value) ? null : kv.Value.Trim() }).ToList());
                 Exec(conn, "UPDATE fin_accounts SET class = cls.class FROM cls WHERE fin_accounts.code = cls.code");
+                // the mapping itself, kept apart from the data rows: who chose which class (USER) or the page's guess (AUTO)
+                Exec(conn, "CREATE TABLE IF NOT EXISTS fin_account_map (code VARCHAR, class VARCHAR, source VARCHAR, changed_by VARCHAR, changed_at TIMESTAMP)");
+                Exec(conn, "DELETE FROM fin_account_map WHERE code IN (SELECT code FROM cls)" + (source == "AUTO" ? " AND source = 'AUTO'" : ""));
+                Exec(conn, "INSERT INTO fin_account_map SELECT code, class, " + Lit(source) + ", " + Lit(user ?? "") + ", now() FROM cls" +
+                           (source == "AUTO" ? " WHERE code NOT IN (SELECT code FROM fin_account_map WHERE source = 'USER')" : ""));
                 Exec(conn, "CHECKPOINT");
             }
             return classes.Count;
@@ -254,6 +259,24 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             }
             return true;
         }
+
+        /// <summary>Saves the values of one segment (fin_segment_values) when the finance file exists.</summary>
+        public static bool SaveSegmentValues(string coaId, string column, List<FinanceFusion.SegValue> values)
+        {
+            if (!File.Exists(DbPath)) return false;
+            lock (_lock)
+            {
+                ResetSessionNoLock();
+                using var conn = new DuckDBConnection("Data Source=" + DbPath);
+                conn.Open();
+                Exec(conn, SEGVAL_TABLE);
+                Exec(conn, "DELETE FROM fin_segment_values WHERE coa_id = " + Lit(coaId) + " AND column_name = " + Lit(column));
+                Append(conn, "fin_segment_values", values.Select(v => new object[] { coaId, column, v.Value, v.Description, v.Combinations, v.AccountType, DateTime.Now }).ToList());
+                Exec(conn, "CHECKPOINT");
+            }
+            return true;
+        }
+        internal const string SEGVAL_TABLE = "CREATE TABLE IF NOT EXISTS fin_segment_values (coa_id VARCHAR, column_name VARCHAR, value VARCHAR, description VARCHAR, combinations BIGINT, account_type VARCHAR, fetched_at TIMESTAMP)";
 
         /// <summary>The saved discovery of a pod ("" = logged-in pod) from the finance file: (json, discovered_at, by) or null.</summary>
         public static (string Json, string At, string By)? LoadDiscovery(string pod)

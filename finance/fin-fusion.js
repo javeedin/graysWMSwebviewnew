@@ -174,6 +174,9 @@
             '<div class="row" style="margin-top:6px"><label class="sm" title="Each read is ranked with ROW_NUMBER over its key and limited to this many rows; the next read starts after the last key. A read that times out is repeated at half the size.">Rows per chunk <select id="fu-chunk">' +
             [500, 1000, 2000, 5000, 10000].map(function (n) { return '<option value="' + n + '"' + ((sv.chunkSize || 2000) === n ? ' selected' : '') + '>' + n.toLocaleString() + '</option>'; }).join('') + '</select></label>' +
             '<label class="sm">Reads in parallel <select id="fu-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + ((sv.parallel || 2) === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>' +
+            '<label class="sm" title="Each period is read in several smaller queries, one per range of natural account (or company) values, so no single query is big enough to time out.">Split each period <select id="fu-split">' +
+            [['none', 'no'], ['account', 'by GL account ranges'], ['company', 'by company']].map(function (x) { return '<option value="' + x[0] + '"' + ((sv.splitBy || 'none') === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>' +
+            '<label class="sm">values per range <input type="number" id="fu-splitn" min="5" max="2000" value="' + (sv.splitSize || 100) + '" style="width:64px"></label>' +
             '<label class="sm"><input type="checkbox" id="fu-sqllog"> show the SQL in the log</label></div>' +
             (warns.length ? '<details class="sm" style="margin-top:8px"><summary>' + warns.length + ' Fusion object(s) not available on this pod (other ways were used)</summary>' + warns.map(esc).join('<br>') + '</details>' : '') +
             '<div class="row" style="margin-top:12px"><button class="btn primary" id="fu-sync"><i class="fa-solid fa-cloud-arrow-down"></i> Load into Finance Lens</button><span class="sm muted">Replaces the finance data on this PC · discovered in ' + ((d.ms || 0) / 1000).toFixed(1) + ' s</span></div>';
@@ -199,7 +202,7 @@
             if (bad.length) { FL.toast('Choose the company and the natural account segment for ' + bad[0].name, 'err'); return; }
             var b = $('fu-bud').value === '' ? null : d.budgets[+$('fu-bud').value];
             var o = { pod: d.pod || '', ledgers: ledgers, fromSeq: +$('fu-from').value, toSeq: +$('fu-to').value, budgetSource: b ? b.source : '', budgetId: b ? b.id : '', budgetName: b ? b.name : '',
-                journalMonths: +$('fu-jm').value, foldAdjustments: $('fu-fold').checked, incremental: false, chunkSize: +$('fu-chunk').value, parallel: +$('fu-par').value, logSql: $('fu-sqllog').checked,
+                journalMonths: +$('fu-jm').value, foldAdjustments: $('fu-fold').checked, incremental: false, chunkSize: +$('fu-chunk').value, parallel: +$('fu-par').value, logSql: $('fu-sqllog').checked, splitBy: $('fu-split').value, splitSize: +$('fu-splitn').value || 100,
                 discoveredAt: d.discoveredAt };
             if (o.toSeq < o.fromSeq) { FL.toast('"From" is after "To"', 'err'); return; }
             if (!confirm('Load ' + ledgers.length + ' ledger(s), ' + F.pname(o.fromSeq) + ' – ' + F.pname(o.toSeq) + ', from Fusion? This replaces the finance data on this PC.')) return;
@@ -215,19 +218,21 @@
         F.busy = true;
         var p = F.progress('Loading from Fusion…', true), t0 = Date.now();
         var opts = { pod: o.pod, ledgers: o.ledgers, fromSeq: o.fromSeq, toSeq: o.toSeq, budgetSource: o.budgetSource || '', budgetId: o.budgetId || '', journalMonths: o.journalMonths || 0,
-            foldAdjustments: o.foldAdjustments !== false, incremental: !!o.incremental, chunkSize: o.chunkSize || 2000, parallel: o.parallel || 2, logSql: !!o.logSql };
+            foldAdjustments: o.foldAdjustments !== false, incremental: !!o.incremental, chunkSize: o.chunkSize || 2000, parallel: o.parallel || 2, logSql: !!o.logSql,
+            splitBy: o.splitBy || 'none', splitSize: o.splitSize || 100, periodSeqs: o.periodSeqs || [], kinds: o.kinds || [] };
         if (disc) opts.discovery = disc;
         FL.call('finFusionSync', { options: opts }, 6 * 3600000, p).then(function (r) {
             F.busy = false; F.keepLog();
             var base = F.saved() || {};
             FL.config.fusion = o.incremental ? Object.assign({}, base, { toSeq: Math.max(base.toSeq || 0, o.toSeq) }) : Object.assign({}, base, o);
-            delete FL.config.fusion.incremental;
+            delete FL.config.fusion.incremental; delete FL.config.fusion.periodSeqs; delete FL.config.fusion.kinds;
             FL.config.fusion.lastSync = new Date().toISOString();
             FL.config.fusion.lastResult = { balances: r.balances, journals: r.journals, mode: r.mode };
             F.editing = false; F.disc = null;
             return FL.saveConfig().then(function () {
                 FL.toast('Loaded ' + r.balances.toLocaleString() + ' balances and ' + r.journals.toLocaleString() + ' journal lines (' + r.mode.toLowerCase() + ') in ' + Math.round((Date.now() - t0) / 1000) + ' s', 'ok');
-                FL.lsSet('filter', {});
+                if (!o.periodSeqs || !o.periodSeqs.length) FL.lsSet('filter', {});
+                if (F.afterSync) { var cb = F.afterSync; F.afterSync = null; setTimeout(cb, 300); }
                 return FL.refresh();
             });
         }).catch(function (e) {
@@ -235,6 +240,36 @@
             if ($('fu-pt')) $('fu-pt').innerHTML = '<i class="fa-solid fa-circle-xmark neg"></i> Load stopped';
             if ($('fu-prog')) $('fu-prog').insertAdjacentHTML('beforeend', '<div class="callout bad">' + esc(e) + '<div class="sm">The log above shows every chunk; it is also saved next to the data as <code>fusion-sync.log</code>. Try fewer rows per chunk or fewer reads in parallel.</div></div>');
         });
+    };
+
+    /** Sync chosen periods only (from the status grid): kinds = ['bal'] / ['jnl'] / both; split = 'none' | 'account' | 'company'. */
+    F.syncPeriods = function (seqs, kinds, split) {
+        var sv = F.saved();
+        if (!sv || !sv.ledgers) { FL.toast('Set up the Fusion load first (Data › Sync setup)', 'err'); return; }
+        var o = JSON.parse(JSON.stringify(sv));
+        o.periodSeqs = seqs; o.kinds = kinds; o.incremental = true;
+        if (split) o.splitBy = split;
+        F.sync(o);
+    };
+    /** The classes people chose (APEX, shared) win over this PC's: pulled at start, pushed on every change. */
+    F.coaOf = function () { var l = (FL.dims.ledgers || [])[0]; return l && l.coa_id ? String(l.coa_id) : '-'; };
+    F.pullMapping = function () {
+        if (!FL.apexStore || !FL.dims.accounts.length) return Promise.resolve();
+        return FL.apexStore.loadClasses(F.coaOf()).then(function (m) {
+            var over = FL.config.accountClass = FL.config.accountClass || {}, changed = {}, n = 0;
+            Object.keys(m).forEach(function (code) {
+                if (m[code].source !== 'USER' || !m[code].cls) return;
+                if (over[code] !== m[code].cls) { over[code] = m[code].cls; n++; }
+            });
+            FL.apexMap = m;
+            if (!n) return;
+            FL.dims.accounts.forEach(function (a) { if (over[a.code] && a.class !== over[a.code]) { a.class = over[a.code]; changed[a.code] = a.class; } });
+            FL.cache = {};
+            return Promise.all([FL.saveConfig(), Object.keys(changed).length ? FL.call('finSetClasses', { classes: changed, source: 'USER' }) : null]).then(function () {
+                FL.toast(n + ' account class(es) taken from the shared mapping (APEX)', 'ok');
+                if (FL.tab !== 'data') FL.render();
+            });
+        }).catch(function (e) { console.warn('[Finance] shared mapping not read', e); });
     };
 
     // ═════ account mapping: class per account → statement lines ═════
@@ -269,7 +304,9 @@
         el.innerHTML = '<h3><i class="fa-solid fa-diagram-project"></i> Account mapping <small>' + accs.length.toLocaleString() + ' accounts → statement lines' + (auto ? ' by class' : ' by account ranges') + '</small></h3>' +
             '<div class="row" style="margin-bottom:8px"><input id="mp-q" placeholder="Search account, name or class" value="' + esc(M.q) + '" style="flex:1;min-width:180px">' +
             '<div class="seg" id="mp-only">' + [['all', 'All'], ['none', 'In no line (' + probs.none + ')'], ['dbl', 'In two lines (' + probs.dbl + ')']].map(function (x) { return '<button data-o="' + x[0] + '" class="' + (M.only === x[0] ? 'on' : '') + '">' + esc(x[1]) + '</button>'; }).join('') + '</div>' +
-            '<button class="btn sm" id="mp-rebuild" title="Replace PL, PLS, BS and CF with statements built on the account classes (your other templates stay)"><i class="fa-solid fa-wand-magic-sparkles"></i> Build statements from classes</button></div>' +
+            '<button class="btn sm" id="mp-rebuild" title="Replace PL, PLS, BS and CF with statements built on the account classes (your other templates stay)"><i class="fa-solid fa-wand-magic-sparkles"></i> Build statements from classes</button>' +
+            '<button class="btn sm" id="mp-apex" title="Store the class of every account in APEX (WMS_FIN_ACCOUNT_MAP) so other PCs and the next load use the same mapping"><i class="fa-solid fa-cloud-arrow-up"></i> Save all to APEX</button></div>' +
+            '<p class="sm muted">Saved: your choices in APEX <code>WMS_FIN_ACCOUNT_MAP</code> (shared, by chart ' + esc(F.coaOf()) + '), DuckDB <code>fin_account_map</code> + <code>fin_accounts.class</code>, and config.json — every load keeps them.</p>' +
             (!auto ? '<p class="sm muted">These templates pick accounts by ranges — a class change here moves an account only in templates built from classes.</p>' : '') +
             '<div class="scroll" style="max-height:420px"><table class="t"><thead><tr><th>Account</th><th>Name</th><th>Type</th><th>Class</th><th>Income statement / balance sheet line</th></tr></thead><tbody>' +
             shown.map(function (a) {
@@ -283,6 +320,12 @@
         el.querySelectorAll('#mp-only button').forEach(function (b) { b.onclick = function () { M.only = b.dataset.o; M.render(el); }; });
         el.querySelectorAll('.mp-cls').forEach(function (s) { s.onchange = function () { M.setClass(s.dataset.code, s.value); }; });
         el.querySelectorAll('.mp-line').forEach(function (a) { a.onclick = function () { FL.rowMap(FL.tpl(a.dataset.t), a.dataset.r); }; });
+        $('mp-apex').onclick = function () {
+            var btn = this; btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving…';
+            FL.apexStore.saveClasses(F.coaOf(), accs.map(function (a) { return { code: a.code, name: a.name, type: a.account_type, cls: a.class, source: over[a.code] ? 'USER' : 'AUTO' }; }))
+                .then(function () { FL.toast(accs.length + ' account classes saved in APEX', 'ok'); }).catch(function (e) { FL.toast('APEX: ' + (e.message || e), 'err'); })
+                .then(function () { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Save all to APEX'; });
+        };
         $('mp-rebuild').onclick = function () {
             if (!confirm('Replace the PL, PLS, BS and CF templates with statements built from the account classes? Your other templates stay.')) return;
             var fresh = FINE.autoTemplates(), ids = fresh.map(function (t) { return t.id; });
@@ -295,7 +338,9 @@
         FL.config.accountClass[code] = cls;
         FL.dims.accounts.forEach(function (a) { if (a.code === code) a.class = cls; });
         var ch = {}; ch[code] = cls;
-        Promise.all([FL.saveConfig(), FL.call('finSetClasses', { classes: ch })]).then(function () { FL.cache = {}; FL.toast(code + ' → ' + cls, 'ok'); if (M.el && document.body.contains(M.el)) M.render(M.el); })
+        var acc = FL.dims.accounts.filter(function (a) { return a.code === code; })[0] || {};
+        var apex = FL.apexStore ? FL.apexStore.saveClasses(F.coaOf(), [{ code: code, name: acc.name, type: acc.account_type, cls: cls, source: 'USER' }]).then(function () { return 'APEX'; }).catch(function (e) { console.warn(e); return 'not APEX (' + (e.message || e) + ')'; }) : Promise.resolve('');
+        Promise.all([FL.saveConfig(), FL.call('finSetClasses', { classes: ch, source: 'USER' }), apex]).then(function (r) { FL.cache = {}; FL.toast(code + ' → ' + cls + ' · saved on this PC, in DuckDB and ' + r[2], 'ok'); if (M.el && document.body.contains(M.el)) M.render(M.el); })
             .catch(function (e) { FL.toast(String(e), 'err'); });
     };
 

@@ -41,12 +41,16 @@
             'discovered_at DATE DEFAULT SYSDATE, discovered_by VARCHAR2(100), CONSTRAINT wms_fin_coa_segments_pk PRIMARY KEY (pod, coa_id, column_name))',
         WMS_FIN_LEDGERS: 'CREATE TABLE wms_fin_ledgers (pod VARCHAR2(20) NOT NULL, ledger_id NUMBER NOT NULL, ledger_name VARCHAR2(200), short_name VARCHAR2(100), currency VARCHAR2(15), ' +
             'coa_id VARCHAR2(30), period_set VARCHAR2(100), period_type VARCHAR2(60), category VARCHAR2(60), bal_seg_column VARCHAR2(30), companies VARCHAR2(4000), ' +
-            'selected CHAR(1) DEFAULT \'N\', discovered_at DATE DEFAULT SYSDATE, discovered_by VARCHAR2(100), CONSTRAINT wms_fin_ledgers_pk PRIMARY KEY (pod, ledger_id))'
+            'selected CHAR(1) DEFAULT \'N\', discovered_at DATE DEFAULT SYSDATE, discovered_by VARCHAR2(100), CONSTRAINT wms_fin_ledgers_pk PRIMARY KEY (pod, ledger_id))',
+        WMS_FIN_ACCOUNT_MAP: 'CREATE TABLE wms_fin_account_map (coa_id VARCHAR2(30) NOT NULL, account_code VARCHAR2(60) NOT NULL, account_name VARCHAR2(400), account_type VARCHAR2(5), ' +
+            'class VARCHAR2(100), source VARCHAR2(10), changed_by VARCHAR2(100), changed_at DATE DEFAULT SYSDATE, CONSTRAINT wms_fin_account_map_pk PRIMARY KEY (coa_id, account_code))',
+        WMS_FIN_SEGMENT_VALUES: 'CREATE TABLE wms_fin_segment_values (pod VARCHAR2(20) NOT NULL, coa_id VARCHAR2(30) NOT NULL, column_name VARCHAR2(30) NOT NULL, value VARCHAR2(150) NOT NULL, ' +
+            'description VARCHAR2(400), combinations NUMBER, account_type VARCHAR2(10), fetched_at DATE DEFAULT SYSDATE, CONSTRAINT wms_fin_segment_values_pk PRIMARY KEY (pod, coa_id, column_name, value))'
     };
     var ready = null;
     A.ensure = function () {
         if (ready) return ready;
-        ready = A.read("SELECT table_name FROM user_tables WHERE table_name IN ('WMS_FIN_DISCOVERY', 'WMS_FIN_COA_SEGMENTS', 'WMS_FIN_LEDGERS')").then(function (rows) {
+        ready = A.read("SELECT table_name FROM user_tables WHERE table_name IN ('WMS_FIN_DISCOVERY', 'WMS_FIN_COA_SEGMENTS', 'WMS_FIN_LEDGERS', 'WMS_FIN_ACCOUNT_MAP', 'WMS_FIN_SEGMENT_VALUES')").then(function (rows) {
             var have = {}; rows.forEach(function (r) { have[r.TABLE_NAME] = 1; });
             return Object.keys(TABLES).filter(function (t) { return !have[t]; }).reduce(function (p, t) { return p.then(function () { return A.write(TABLES[t]); }); }, Promise.resolve());
         }).catch(function (e) { ready = null; throw e; });
@@ -111,6 +115,53 @@
         (c.ledgers || []).forEach(function (l) { var o = {}; Object.keys(l.periodStatus || {}).forEach(function (k) { if (l.periodStatus[k] === 'O') o[k] = 'O'; }); l.periodStatus = o; });
         return c;
     }
+
+    /** Account mapping (class per natural account of a chart) — shared by every PC. rows = [{code, name, type, cls, source}] */
+    A.saveClasses = function (coa, rows) {
+        if (!rows.length) return Promise.resolve();
+        var by = (FL.who || {}).user || appUser() || 'WMS', p = A.ensure();
+        for (var i = 0; i < rows.length; i += 40) {
+            (function (chunk) {
+                p = p.then(function () {
+                    return A.write('MERGE INTO wms_fin_account_map t USING (' + chunk.map(function (r) {
+                        return 'SELECT ' + lit(coa || '-') + ' coa_id, ' + lit(cut(r.code, 60)) + ' account_code, ' + lit(cut(r.name, 400)) + ' account_name, ' + lit(r.type) + ' account_type, ' +
+                            lit(cut(r.cls, 100)) + ' class, ' + lit(r.source || 'USER') + ' source FROM dual';
+                    }).join(' UNION ALL ') + ') s ' +
+                    'ON (t.coa_id = s.coa_id AND t.account_code = s.account_code) WHEN MATCHED THEN UPDATE SET account_name = s.account_name, account_type = s.account_type, class = s.class, source = s.source, ' +
+                    'changed_by = ' + lit(by) + ', changed_at = SYSDATE WHEN NOT MATCHED THEN INSERT (coa_id, account_code, account_name, account_type, class, source, changed_by, changed_at) ' +
+                    'VALUES (s.coa_id, s.account_code, s.account_name, s.account_type, s.class, s.source, ' + lit(by) + ', SYSDATE)');
+                });
+            })(rows.slice(i, i + 40));
+        }
+        return p;
+    };
+    /** {code: {cls, source, by, at}} for a chart */
+    A.loadClasses = function (coa) {
+        return A.ensure().then(function () {
+            return A.read("SELECT account_code, class, source, changed_by, TO_CHAR(changed_at, 'YYYY-MM-DD HH24:MI') changed_on FROM wms_fin_account_map WHERE coa_id = " + lit(coa || '-'), 100000);
+        }).then(function (rows) { var m = {}; rows.forEach(function (r) { m[r.ACCOUNT_CODE] = { cls: r.CLASS, source: r.SOURCE, by: r.CHANGED_BY, at: r.CHANGED_ON }; }); return m; });
+    };
+    /** Segment values: replaces what APEX holds for that pod × chart × column. onStep(done, total) */
+    A.saveSegValues = function (pod, coa, col, values, onStep) {
+        var key = podKey(pod), p = A.ensure().then(function () { return A.write('DELETE FROM wms_fin_segment_values WHERE pod = ' + lit(key) + ' AND coa_id = ' + lit(coa) + ' AND column_name = ' + lit(col)); });
+        for (var i = 0; i < values.length; i += 50) {
+            (function (chunk, at) {
+                p = p.then(function () {
+                    if (onStep) onStep(at, values.length);
+                    return A.write('INSERT INTO wms_fin_segment_values (pod, coa_id, column_name, value, description, combinations, account_type, fetched_at) ' + chunk.map(function (v) {
+                        return 'SELECT ' + [lit(key), lit(coa), lit(col), lit(cut(v.value, 150)), lit(cut(v.description, 400)), num(v.combinations || 0), lit(cut(v.accountType, 10)), 'SYSDATE'].join(', ') + ' FROM dual';
+                    }).join(' UNION ALL '));
+                });
+            })(values.slice(i, i + 50), i);
+        }
+        return p;
+    };
+    A.loadSegValues = function (pod, coa, col) {
+        return A.ensure().then(function () {
+            return A.read("SELECT value, description, combinations, account_type, TO_CHAR(fetched_at, 'YYYY-MM-DD HH24:MI') fetched_on FROM wms_fin_segment_values WHERE pod = " + lit(podKey(pod)) +
+                ' AND coa_id = ' + lit(coa) + ' AND column_name = ' + lit(col) + ' ORDER BY value', 100000);
+        }).then(function (rows) { return rows.map(function (r) { return { value: r.VALUE, description: r.DESCRIPTION, combinations: r.COMBINATIONS, accountType: r.ACCOUNT_TYPE, fetchedAt: r.FETCHED_ON }; }); });
+    };
 
     /** The saved discovery of a pod: {disc, at, by, where: 'APEX' | 'DuckDB'} or null — APEX first (shared), then this PC's DuckDB file. */
     A.loadDiscovery = function (pod) {

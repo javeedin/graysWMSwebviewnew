@@ -42,6 +42,20 @@ namespace WMSApp
             return (sql, cap, ct) => svc.ExecuteAsync(sql, cap, ct);
         }
 
+        /// <summary>Origin and credentials of a pod for UCM (kept in the host; the page never sees the password).</summary>
+        private async Task<(string Origin, string User, string Password)> FinPodLogin(string pod)
+        {
+            var svc = string.IsNullOrWhiteSpace(pod) ? GetFusionSqlService() : new WMSApp.FusionSql.FusionSqlService(async () =>
+            {
+                if (!_fusionCredentialsLoaded || string.IsNullOrEmpty(_fusionUsername) || string.IsNullOrEmpty(_fusionPassword))
+                    await FetchFusionCredentialsOnStartup();
+                return (_fusionUsername, _fusionPassword);
+            }, () => pod.Trim().ToUpperInvariant() == "TEST" ? "TEST" : "PROD");
+            var cfg = WMSApp.FusionSql.FusionSqlStore.LoadConfig();
+            var cred = await svc.GetCredentialsAsync(cfg);
+            return (svc.ResolveOrigin(cfg), cred.Username, cred.Password);
+        }
+
         private static bool IsFinanceAction(string action) =>
             action != null && action.Length > 3 && action.StartsWith("fin", StringComparison.Ordinal) && char.IsUpper(action[3]);
 
@@ -124,7 +138,8 @@ namespace WMSApp
                             var map = new System.Collections.Generic.Dictionary<string, string>();
                             if (root.TryGetProperty("classes", out var cl) && cl.ValueKind == JsonValueKind.Object)
                                 foreach (var p in cl.EnumerateObject()) map[p.Name] = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : null;
-                            data = new { ok = true, updated = await Task.Run(() => FinanceLens.SetClasses(map)) };
+                            string src = PipeSrvStr(root, "source") == "USER" ? "USER" : "AUTO";
+                            data = new { ok = true, updated = await Task.Run(() => FinanceLens.SetClasses(map, user, src)) };
                             break;
                         }
                     case "finDiscoveryGet":     // the discovery saved in the finance file (the page tries APEX first)
@@ -138,6 +153,63 @@ namespace WMSApp
                         {
                             var roles = root.TryGetProperty("roles", out var rl) ? rl.Deserialize<System.Collections.Generic.Dictionary<string, System.Collections.Generic.Dictionary<string, string>>>() : null;
                             data = new { ok = true, savedDuck = await Task.Run(() => FinanceLens.SaveDiscovery(PipeSrvStr(root, "pod") ?? "", PipeSrvStr(root, "json"), user, roles)) };
+                            break;
+                        }
+                    case "finFusionCheck":      // which months are in sync: Fusion fingerprints against this PC
+                        {
+                            var co = root.GetProperty("options").Deserialize<FinanceFusion.CheckOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            var cts = FinNewCts(TimeSpan.FromMinutes(30));
+                            data = await Task.Run(() => FinanceFusion.CheckAsync(FinRunner(PipeSrvStr(root, "pod")), co, FinProgress(wv, requestId), cts.Token));
+                            break;
+                        }
+                    case "finFusionSegValues":  // all values of one segment (value set + use in GL_CODE_COMBINATIONS)
+                        {
+                            var cts = FinNewCts(TimeSpan.FromMinutes(20));
+                            data = await Task.Run(() => FinanceFusion.SegmentValuesAsync(FinRunner(PipeSrvStr(root, "pod")), PipeSrvStr(root, "coaId"), PipeSrvStr(root, "column"), FinProgress(wv, requestId), cts.Token));
+                            break;
+                        }
+                    case "finSegValues":        // the values saved in the finance file
+                        data = await Task.Run(() =>
+                        {
+                            var t = FinanceLens.Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_segment_values'", 1);
+                            if (t.Error != null || t.Rows.Count == 0 || Convert.ToInt64(t.Rows[0][0]) == 0) return (object)new { ok = true, values = Array.Empty<object>() };
+                            var r = FinanceLens.Query("SELECT value, description, combinations, account_type, CAST(fetched_at AS VARCHAR) FROM fin_segment_values WHERE coa_id = " + FinanceLens.Lit(PipeSrvStr(root, "coaId")) +
+                                                      " AND column_name = " + FinanceLens.Lit(PipeSrvStr(root, "column")) + " ORDER BY value", 200000);
+                            return new { ok = r.Error == null, error = r.Error, values = r.Rows.Select(z => new { value = z[0], description = z[1], combinations = z[2], accountType = z[3], fetchedAt = z[4] }) };
+                        });
+                        break;
+                    case "finBiccInspect":
+                        {
+                            var ov = root.TryGetProperty("map", out var mp) && mp.ValueKind == JsonValueKind.Object ? mp.Deserialize<System.Collections.Generic.Dictionary<string, string>>() : null;
+                            data = await Task.Run(() => FinanceBicc.Inspect(PipeSrvStr(root, "folder"), ov));
+                            break;
+                        }
+                    case "finBiccLoad":
+                        if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can load finance data." }; break; }
+                        {
+                            var bo = root.GetProperty("options").Deserialize<FinanceBicc.LoadOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            bo.User = user;
+                            var cts = FinNewCts(TimeSpan.FromHours(3));
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            data = await Task.Run(() => FinanceBicc.Load(bo, FinProgress(wv, requestId), cts.Token));
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_bicc_load", Outcome = JsonSerializer.SerializeToElement(data).GetProperty("ok").GetBoolean() ? "OK" : "FAILED",
+                                DurationMs = sw.ElapsedMilliseconds, Target = string.Join(", ", bo.Ledgers.Select(l => l.Name)) });
+                            break;
+                        }
+                    case "finUcmList":
+                    case "finUcmDownload":
+                        if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can read BICC files from UCM." }; break; }
+                        {
+                            var (origin, u, pw) = await FinPodLogin(PipeSrvStr(root, "pod"));
+                            if (string.IsNullOrEmpty(pw)) { data = new { ok = false, error = "The Fusion credentials are not available." }; break; }
+                            var cts = FinNewCts(TimeSpan.FromHours(1));
+                            if (action == "finUcmList") data = await FinanceBicc.UcmListAsync(origin, u, pw, cts.Token);
+                            else
+                            {
+                                var docs = root.GetProperty("docs").EnumerateArray().Select(d => (d.GetProperty("id").GetString(), d.TryGetProperty("title", out var tt) ? tt.GetString() : null)).ToList();
+                                data = await FinanceBicc.UcmDownloadAsync(origin, u, pw, docs, PipeSrvStr(root, "folder"), FinProgress(wv, requestId), cts.Token);
+                                AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_ucm_download", Outcome = "OK", Target = docs.Count + " file(s)" });
+                            }
                             break;
                         }
                     case "finCancel":

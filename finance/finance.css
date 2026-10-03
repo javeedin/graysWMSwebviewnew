@@ -243,3 +243,32 @@ body.cop-on main, body.cop-on .top, body.cop-on .tabs { margin-right: min(480px,
 .fu-log .warn { color: var(--warn); } .fu-log .pos { color: var(--good); font-weight: 600; } .fu-log .step { color: var(--accent); font-weight: 600; }
 .fu-log .chunk { color: var(--muted); } .fu-log .sql { color: #7c3aed; white-space: pre-wrap; word-break: break-all; }
 .fu-log.nochunks .chunk { display: none; }
+
+/* Data workspace: sync status grid, chart of accounts */
+.cell { display: inline-block; width: 16px; height: 16px; border-radius: 4px; background: #e2e8f0; cursor: pointer; vertical-align: middle; border: 1px solid transparent; }
+.cell.ok { background: #16a34a; } .cell.chg { background: #f59e0b; } .cell.new { background: #2563eb; } .cell.diff { background: #dc2626; }
+.cell.none0 { background: #f1f5f9; border-color: #e2e8f0; } .cell.nl { background: #fff; border: 1px dashed #cbd5e1; } .cell.loaded { background: #93c5fd; }
+.cell:hover { outline: 2px solid #0f172a; outline-offset: 1px; }
+.lg { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; font-size: .75rem; color: var(--ink2); }
+.lg .cell { width: 11px; height: 11px; cursor: default; }
+table.sgrid { border-collapse: collapse; font-size: 12px; }
+table.sgrid th, table.sgrid td { padding: 3px 2px; text-align: center; }
+table.sgrid th.yr { border-bottom: 1px solid var(--line); color: var(--ink2); }
+table.sgrid th.mo { font-weight: 500; color: var(--muted); font-size: .7rem; }
+table.sgrid th.mo.open { color: var(--accent); text-decoration: underline; text-decoration-thickness: 2px; }
+table.sgrid td.ln { text-align: left; padding-right: 12px; white-space: nowrap; border-top: 1px solid var(--line); }
+table.sgrid td.kd { text-align: left; color: var(--muted); padding-right: 8px; white-space: nowrap; }
+.segflow { display: flex; align-items: stretch; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+.segflow .sep { align-self: center; color: var(--line2); }
+.segbox { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-width: 130px; cursor: pointer; background: #fff; }
+.segbox:hover { border-color: var(--accent); }
+.segbox.on { box-shadow: 0 0 0 2px var(--accent); }
+.segbox .sn { font-weight: 700; } .segbox .sc { font: 11px var(--mono); color: var(--muted); }
+.segbox .sr { font-size: .72rem; font-weight: 700; margin-top: 4px; } .segbox .sv { font-size: .72rem; color: var(--muted); }
+.segbox .sq { font-size: .65rem; color: #7c3aed; margin-top: 2px; }
+.segbox.r-company { border-top: 4px solid #1d4ed8; } .segbox.r-company .sr { color: #1d4ed8; }
+.segbox.r-account { border-top: 4px solid #16a34a; } .segbox.r-account .sr { color: #16a34a; }
+.segbox.r-cc { border-top: 4px solid #f59e0b; } .segbox.r-cc .sr { color: #b45309; }
+.segbox.r-ic { border-top: 4px solid #7c3aed; } .segbox.r-ic .sr { color: #7c3aed; }
+.side .item > div { line-height: 1.2; }
+table.t.tb tfoot td { border-top: 2px solid var(--ink); background: #f8fafc; }

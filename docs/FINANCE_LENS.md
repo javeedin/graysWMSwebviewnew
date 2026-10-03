@@ -84,71 +84,79 @@ OPEN PM PMBAL PY PYYTD PYLTM PYBAL PYE BUD BUDYTD BUDFY FY`; and to earlier KPIs
 starters cover profitability, cost control, budget, liquidity, efficiency (DSO / DIO / DPO / cash conversion cycle),
 returns & leverage (ROE, ROCE, net debt / EBITDA, interest cover), cash flow and control (suspense, balance check).
 
-## Your own data: Oracle Fusion
+## Your own data: Oracle Fusion — the Data workspace
 
-Data › **Oracle Fusion general ledger** (AI admins). Everything runs read-only through the Fusion SQL runner (BI Publisher),
-for the logged-in pod or PROD / TEST; the Fusion password stays in the app.
+Data has seven views (side menu): **Sync status**, **Chart of accounts**, **Fusion setup**, **BICC bulk extracts**,
+**Account mapping**, **SQL explorer**, **Data & folder**. Everything reads Fusion read-only; the Fusion password stays in the app.
 
-1. **Discover** — reads the data dictionary first (`ALL_TAB_COLUMNS`), so every later query only names columns that exist
-   on your pod, then finds:
-   - **Ledgers** (`GL_LEDGERS`: currency, chart of accounts, calendar, primary / secondary) with their **companies** —
-     the balancing values and their legal entities (`GL_LEDGER_NORM_SEG_VALS` + `XLE_ENTITY_PROFILES`) — and open periods.
-     Dashboards by company need the ledger of each company: tick the primary ledgers (secondary and reporting ledgers
-     repeat the same companies).
-   - The **segments** of each chart of accounts and their qualifiers (`FND_ID_FLEX_SEGMENTS` + `FND_SEGMENT_ATTRIBUTE_VALUES`,
-     or the Fusion key-flexfield tables `FND_KF_*`).
-   - The **balancing segment** (`GL_LEDGERS.BAL_SEG_COLUMN_NAME`, else the balancing qualifier, else its name), the
-     **natural account segment** (the account qualifier, else *measured*: the segment whose values each carry exactly one
-     `ACCOUNT_TYPE` in `GL_CODE_COMBINATIONS` — shown as "one type per value"), the **cost centre segment** (cost centre
-     qualifier or its name) and the intercompany segment. Every choice says why; change a role if Fusion is set up differently.
-   - The **account type** of every account (the most common `ACCOUNT_TYPE` of its combinations), the calendar (`GL_PERIODS`,
-     adjustment periods marked) and the **budgets** (`GL_BUDGET_BALANCES` names, or `GL_BALANCES` budget versions).
-2. **Load** — per ledger and period, `GL_BALANCES` × `GL_CODE_COMBINATIONS` summed to company × cost centre × account (ledger
-   currency, no entered-currency / translated rows, no summary accounts, no templates), **adjustment periods folded** into the
-   period they close (Adj-25 → Dec-25), the chosen budget (as running balances, income statement restarting each year) and the
-   **posted journal lines** of the last N months (`GL_JE_HEADERS` / `_LINES` / `_BATCHES`, paged by journal id). Big periods
-   are split by company, then by account, when the runner's row cap is reached. The new file is swapped in when it is complete.
-   Every read is **ranked in small chunks**: `ROW_NUMBER()` over the read's key (balances: code combination + period;
-   journals: journal id + line number), at most *Rows per chunk* rows per call (default 2,000; 500 – 10,000), and the next
-   chunk starts after the last key read — so every chunk costs the same however deep it is, and no BI Publisher reply is
-   large enough to time out. A chunk that times out is read again at half the size (down to 250). *Reads in parallel*
-   (default 2) sets how many periods are read at once. The first real error stops the other reads and nothing is changed.
+### Fusion setup (once)
+*Discover* reads the data dictionary first (`ALL_TAB_COLUMNS`, so every query only names columns your pod has), then the
+**ledgers** (`GL_LEDGERS`, companies = balancing values + legal entities, open periods), the **segments** of each chart of
+accounts with their qualifiers, the **balancing segment** (`BAL_SEG_COLUMN_NAME` / qualifier), the **natural account segment**
+(qualifier, else *measured*: the segment whose values each carry one `ACCOUNT_TYPE` in `GL_CODE_COMBINATIONS`), the **cost
+centre** segment, account types, the calendar and the budgets. Tick the primary ledgers (secondary / reporting ledgers repeat
+the same companies), check the segment roles, choose the months, budget and journal months, and *Load*.
 
-   **Detailed log**: every step (▶), every chunk (rows from – to, seconds, rows/s), time-outs and retries (⚠), totals and
-   errors (✖), with a timestamp; *show the SQL in the log* adds each step's SQL. Copy or save it from the panel; the last
-   log is kept on this PC (*Last sync log*) and written next to the data as `fusion-sync.log`.
-3. **Sync again** — one click reloads only the last *n* periods (incremental: the file is copied and those periods replaced);
-   it runs a full load when the ledgers or segments changed.
+Read options: *Rows per chunk* (default 2,000 — every read is ranked with `ROW_NUMBER()` and the next chunk starts after the
+last key; a chunk that times out is read again at half the size), *Reads in parallel* (default 2) and **Split each period**
+— *by GL account ranges* (the sorted natural account values cut into ranges of *n* values, with no gap) or *by company* — so
+no single query is big enough to time out. *Show the SQL in the log* adds each step's SQL to the detailed log.
 
-**Where the chart of accounts is kept.** Discover runs once; its result is stored and reused:
-- **APEX** (shared by every PC, created by the page — `apex_sql/85_finance_lens_fusion.sql`): `WMS_FIN_DISCOVERY` (the whole
-  discovery per pod, so the Data tab restores it without asking Fusion), `WMS_FIN_COA_SEGMENTS` (one row per pod × chart ×
-  segment: name, qualifiers, values, purity, **role** COMPANY / COST_CENTRE / ACCOUNT / INTERCOMPANY and why — the roles you
-  chose for the load win) and `WMS_FIN_LEDGERS` (ledgers with currency, chart, calendar, companies, *selected*).
-- **DuckDB** (this PC, with the data): `fin_coa_segments`, `fin_fusion_discovery` (written by Discover when the file exists and
-  by every load) and `fin_ledgers` / `fin_segments` (the segments each loaded ledger uses).
-The Data tab shows the saved discovery (APEX first, then DuckDB) with its date and who ran it; press Discover only when the
-chart of accounts changed.
+### Sync status — which months match Fusion
+A grid of ledger × month, one square for balances and one for journals. **Check Fusion now** runs one small aggregate per
+ledger and year — rows, debits, credits and last update of every month in `GL_BALANCES` and of the posted journal headers —
+and compares it with what this PC holds:
 
-Names: account, company and cost centre descriptions come from the value sets (`FND_FLEX_VALUES_VL` or `FND_VS_VALUES_B/_TL`);
-companies take the legal entity name when Fusion has one.
+| Square | Meaning |
+|---|---|
+| green — In sync | the Fusion fingerprint is the one recorded when the month was read, and debits / credits tie to the cent |
+| amber — Changed in Fusion | something was posted or changed since — sync it again |
+| blue — New in Fusion | Fusion has balances for the month, this PC has none (a new period) |
+| red — Does not tie | the totals here differ from Fusion |
+| grey / dashed | nothing in Fusion / journals not loaded |
 
-**Statements on any chart of accounts.** After a Fusion load every account gets a **class** from its type and name (Cash,
-Receivables, Inventory, Fixed assets, Accumulated depreciation, Payables, Borrowings, Revenue, Cost of sales, Staff costs,
-Premises, Distribution, Selling, Depreciation & amortisation, Finance costs, Tax …) and the statements are built on those
-classes with the same line ids as the starters, so all KPIs, monitors, analytics and the board pack work at once. The
-classes are written to `fin_accounts.class`.
+**Sync changed & new months** reloads only those months, **Sync open periods** the periods that are open in Fusion, **Sync one
+period…** any month; click a square for the numbers (Fusion vs this PC, rows read, time, split) and to sync just that month
+(balances, journals or both) or open its trial balance. After a sync the check runs again. Each month's record is kept in
+`fin_sync_periods` (rows read, debits, credits, Fusion fingerprint, time, split).
 
-**Account mapping** (Data tab) lists every account with its class and the income statement / balance sheet line it lands
-in; filter the accounts that are **in no line** (left out of the totals) or **in two lines** (double counted), change a class
-in place (kept in `config.json` → `accountClass`, so it survives the next load) and *Build statements from classes* again.
+### Chart of accounts
+Every chart with its segments as a strip (company / cost centre / natural account / intercompany marked, values, "one type per
+value", qualifiers, why each role was chosen). Click a segment for **all its values**: description (value set), how many
+account combinations use it, account type, and for the natural account its class in the mapping. *Read from Fusion* (ranked
+chunks) saves them in DuckDB (`fin_segment_values`) and APEX (`WMS_FIN_SEGMENT_VALUES`); later they open from there.
 
-**Drill to the mapped accounts.** In Statements, click a line *name*: the mapping (classes / ranges, basis, sign), the
-accounts mapped to it with their amounts for the statement's columns, and from an account its companies, cost centres,
-months and journal lines. A total line shows the lines it is made of.
+### BICC bulk extracts — every balance and journal at once
+For large ledgers: BI Cloud Connector extracts the GL view objects (`…GlBiccExtractAM.BalanceExtractPVO`,
+`CodeCombinationExtractPVO`, `JournalHeaderExtractPVO`, `JournalLineExtractPVO`, `JournalBatchExtractPVO`) to UCM or OCI.
+*Download from UCM* lists them in the pod's UCM (`/cs/idcplg` search, the app's Fusion user) and downloads the new ones; or
+copy them into the folder yourself. *Look at the files* shows what each PVO has and which column feeds which attribute (found by
+the attribute name a column ends with; pick it when one is missing). *Load from the BICC files* reads every file with DuckDB
+in one pass (zips unpacked once), keeps the newest version of every row (full + incremental extracts can sit together), and
+builds the same tables as the SQL load — millions of rows in seconds, no month-by-month queries. Plan: a full extract once,
+then daily incremental extracts, then *Load* (it rebuilds from all files, so nothing is missed).
 
-**Ledgers in the header.** With more than one ledger a Ledger filter appears; the company list follows it. Ledgers in
-different currencies are never added up by default (the first ledger is selected, and "All ledgers" shows a warning).
+### Where everything is kept
+- **APEX** (shared by every PC; `apex_sql/85_finance_lens_fusion.sql`, created by the page): `WMS_FIN_DISCOVERY` (the whole
+  discovery), `WMS_FIN_COA_SEGMENTS` (segments + roles + why), `WMS_FIN_LEDGERS`, `WMS_FIN_ACCOUNT_MAP` (class per account —
+  your choices win on every PC and every load), `WMS_FIN_SEGMENT_VALUES`.
+- **DuckDB** (with the data): `fin_fusion_discovery`, `fin_coa_segments`, `fin_ledgers`, `fin_segment_values`,
+  `fin_account_map` + `fin_accounts.class`, `fin_sync_periods`; plus `config.json` (setup), `fusion-sync.log`, `bicc\`.
+
+### Account mapping
+Every account with its class and the income statement / balance sheet line it lands in; filter *in no line* / *in two lines*,
+change a class in place (saved on this PC, in DuckDB and in APEX), *Save all to APEX*, *Build statements from classes*.
+
+### Statements on any chart of accounts
+After a Fusion load every account gets a class from its type and name and the statements are built on those classes with the
+same line ids as the starters, so KPIs, monitors, analytics and the board pack work at once. Click a line *name* in Statements
+for the accounts mapped to it.
+
+### Trial balance
+Statements › **Trial balance**: every account with opening balance, debits, credits, net movement and closing balance as debit
+/ credit — for the month, quarter to date, year to date or last 12 months; every account, by class or by type; split by company,
+cost centre or ledger; actual or budget. The header shows *debits = credits* and *closing balances net to nil*; click a line to
+drill; Excel (with SUM formulas and the check) and CSV.
 
 ## CFO Copilot
 

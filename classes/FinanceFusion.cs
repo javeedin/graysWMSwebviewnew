@@ -420,6 +420,14 @@ namespace WMSApp
             /// <summary>The discovery (JSON from finFusionDiscover) - saved with the data as fin_fusion_discovery / fin_coa_segments.</summary>
             public JsonElement Discovery { get; set; }
             public string User { get; set; }
+            /// <summary>Only these periods (period_seq), e.g. the ones Check found changed or new; empty = FromSeq..ToSeq.</summary>
+            public List<int> PeriodSeqs { get; set; } = new();
+            /// <summary>What to read for PeriodSeqs: any of "bal", "bud", "jnl" (empty = balances, budget when set, journals of the last JournalMonths).</summary>
+            public List<string> Kinds { get; set; } = new();
+            /// <summary>Split every read of a period: "none", "account" (ranges of natural account values) or "company" (balancing values).</summary>
+            public string SplitBy { get; set; } = "none";
+            /// <summary>Account (or company) values per split range.</summary>
+            public int SplitSize { get; set; } = 100;
         }
 
         private sealed class Acc { public double Begin, Dr, Cr; }
@@ -455,32 +463,29 @@ namespace WMSApp
                 if (string.IsNullOrEmpty(l.Currency) || string.IsNullOrEmpty(l.PeriodSet)) return new { ok = false, error = "Ledger " + l.Name + ": run Discover again (currency / calendar missing)." };
                 if (string.IsNullOrWhiteSpace(l.Code)) l.Code = l.Id.ToString(CultureInfo.InvariantCulture);
             }
+            bool pick = o.PeriodSeqs != null && o.PeriodSeqs.Count > 0;
+            if (pick) { o.FromSeq = o.PeriodSeqs.Min(); o.ToSeq = o.PeriodSeqs.Max(); }
             if (o.FromSeq <= 0 || o.ToSeq < o.FromSeq) return new { ok = false, error = "Choose the first and last period." };
+            var kinds = new HashSet<string>((o.Kinds ?? new()).Select(k => (k ?? "").ToLowerInvariant()));
+            bool doBal = !pick || kinds.Count == 0 || kinds.Contains("bal");
+            bool doBud = !string.IsNullOrEmpty(o.BudgetSource) && (!pick || kinds.Count == 0 || kinds.Contains("bud"));
+            bool pickJnl = pick && kinds.Contains("jnl");
             await Probe(x).ConfigureAwait(false);
 
             // ── the calendar of the first ledger defines the periods ──
             var first = o.Ledgers[0];
             if (o.Ledgers.Any(l => l.PeriodSet != first.PeriodSet || l.PeriodType != first.PeriodType))
                 x.Note("⚠ The ledgers use different calendars: periods are matched by name to the calendar of " + first.Name + ".");
-            var pr = await Try(x, "periods", 5000,
-                "SELECT period_name, period_year, period_num, quarter_num, TO_CHAR(start_date, 'YYYY-MM-DD') sd, TO_CHAR(end_date, 'YYYY-MM-DD') ed, adjustment_period_flag adj FROM gl_periods WHERE period_set_name = " +
-                Q(first.PeriodSet) + " AND period_type = " + Q(first.PeriodType) + " ORDER BY period_year, period_num").ConfigureAwait(false);
-            if (pr == null) return new { ok = false, error = "Could not read GL_PERIODS.", log = x.Log };
-            var cal = pr.Rows.Select(r => new PeriodRow { Name = S(r, "PERIOD_NAME"), Year = (int)L(r, "PERIOD_YEAR"), Num = (int)L(r, "PERIOD_NUM"), Quarter = (int)L(r, "QUARTER_NUM"), Start = S(r, "SD"), End = S(r, "ED"), Adj = S(r, "ADJ") == "Y" }).ToList();
-            var normal = cal.Where(p => !p.Adj).ToList();
-            // an adjustment period is folded into the last normal period of its year at or before it (Adj-25 → Dec-25)
-            var target = new Dictionary<string, PeriodRow>();
-            foreach (var p in normal) target[p.Name] = p;
-            foreach (var a in cal.Where(p => p.Adj))
-            {
-                var t = normal.Where(p => p.Year == a.Year && p.Num <= a.Num).OrderByDescending(p => p.Num).FirstOrDefault() ?? normal.Where(p => p.Year == a.Year).OrderBy(p => p.Num).FirstOrDefault();
-                if (t != null && o.FoldAdjustments) target[a.Name] = t;
-            }
-            var periods = normal.Where(p => p.Seq >= o.FromSeq && p.Seq <= o.ToSeq).ToList();
+            var calr = await CalendarAsync(x, first, o.FoldAdjustments).ConfigureAwait(false);
+            if (calr == null) return new { ok = false, error = "Could not read GL_PERIODS.", log = x.Log };
+            var (cal, normal, target) = calr.Value;
+            var periods = pick ? normal.Where(p => o.PeriodSeqs.Contains(p.Seq)).ToList() : normal.Where(p => p.Seq >= o.FromSeq && p.Seq <= o.ToSeq).ToList();
             if (periods.Count == 0) return new { ok = false, error = "No periods between the chosen first and last period." };
             int budgetFrom = periods.Min(p => p.Year) * 100;   // the budget is re-read from the start of the first fiscal year (running balances)
-            var budgetPeriods = normal.Where(p => p.Seq > budgetFrom && p.Seq <= o.ToSeq).ToList();
-            var journalPeriods = o.JournalMonths > 0 ? periods.Skip(Math.Max(0, periods.Count - o.JournalMonths)).ToList() : new List<PeriodRow>();
+            var budgetPeriods = doBud ? normal.Where(p => p.Seq > budgetFrom && p.Seq <= o.ToSeq).ToList() : new List<PeriodRow>();
+            var journalPeriods = pick ? (pickJnl ? periods.ToList() : new List<PeriodRow>())
+                : o.JournalMonths > 0 ? periods.Skip(Math.Max(0, periods.Count - o.JournalMonths)).ToList() : new List<PeriodRow>();
+            var balPeriods = doBal ? periods : new List<PeriodRow>();
             string NamesOf(PeriodRow p) => string.Join(",", target.Where(kv => kv.Value == p).Select(kv => Q(kv.Key)));
 
             // ── incremental? only when the same ledgers and segments were loaded before ──
@@ -492,10 +497,15 @@ namespace WMSApp
                 incremental = m.Error == null && m.Rows.Count > 0 && Convert.ToString(m.Rows[0][0]) == signature;
                 if (!incremental) x.Note("Full load: the ledgers or segments changed since the last load.");
             }
+            if (pick && !incremental && File.Exists(FinanceLens.DbPath) && FinanceLens.HasLedgers())
+                return new { ok = false, error = "These ledgers / segments are not the ones loaded on this PC - run a full load first, then sync single periods." };
+            string split = (o.SplitBy ?? "none").ToLowerInvariant();
+            int splitSize = Math.Clamp(o.SplitSize <= 0 ? 100 : o.SplitSize, 5, 2000);
 
             Exception firstError = null;
             var allWork = new List<Task>();
-            x.Note("Sync " + string.Join(", ", o.Ledgers.Select(l => l.Name)) + " · " + periods.First().Name + " – " + periods.Last().Name + " · chunks of " + Math.Clamp(o.ChunkSize <= 0 ? DEFAULT_CHUNK : o.ChunkSize, MIN_CHUNK, 10000) +
+            x.Note("Sync " + string.Join(", ", o.Ledgers.Select(l => l.Name)) + " · " + (pick ? string.Join(", ", periods.Select(p => p.Name)) : periods.First().Name + " – " + periods.Last().Name) +
+                   (doBal ? "" : " · no balances") + (split != "none" ? " · split by " + split + " (" + splitSize + " values per range)" : "") + " · chunks of " + Math.Clamp(o.ChunkSize <= 0 ? DEFAULT_CHUNK : o.ChunkSize, MIN_CHUNK, 10000) +
                    " rows · " + Math.Clamp(o.Parallel, 1, 4) + " in parallel" + (journalPeriods.Count > 0 ? " · journals " + journalPeriods.First().Name + " – " + journalPeriods.Last().Name : " · no journals") +
                    (string.IsNullOrEmpty(o.BudgetSource) ? "" : " · budget " + o.BudgetId));
             var balances = new List<object[]>();
@@ -504,7 +514,9 @@ namespace WMSApp
             var companies = new Dictionary<string, (string Name, string Ledger)>();
             var ccs = new HashSet<string>();
             var gate = new SemaphoreSlim(Math.Clamp(o.Parallel, 1, 4));
-            int done = 0, total = o.Ledgers.Count * (periods.Count + (string.IsNullOrEmpty(o.BudgetSource) ? 0 : budgetPeriods.Count) + journalPeriods.Count);
+            int done = 0, total = o.Ledgers.Count * (balPeriods.Count + budgetPeriods.Count + journalPeriods.Count);
+            var syncRows = new List<object[]>();                                            // fin_sync_periods: what each period held when it was read
+            var fps = new Dictionary<string, Dictionary<int, Fp>>();                          // ledger → period_seq → Fusion fingerprint before reading
             var lockObj = new object();
             void Tick(string what) { int n = Interlocked.Increment(ref done); x.Note("[" + n + "/" + total + "] " + what); }
 
@@ -518,6 +530,8 @@ namespace WMSApp
                     string trans = x.Has("GL_BALANCES", "TRANSLATED_FLAG") ? " AND NVL(b.translated_flag, 'X') <> 'R'" : "";
 
                     // account types and the companies / cost centres seen in this chart
+                    x.Note("Fingerprinting " + led.Name + " in Fusion (rows, debits, credits, last update per period)…");
+                    fps[led.Code] = await FingerprintAsync(x, led, cal, target, periods.Concat(journalPeriods).Distinct().ToList(), balPeriods.Count > 0, journalPeriods.Count > 0).ConfigureAwait(false);
                     var tr = await Try(x, "account types", 200000,
                         "SELECT c." + led.Account + " ac, c.account_type t, COUNT(*) n FROM gl_code_combinations c WHERE c.chart_of_accounts_id = " + led.CoaId + summ + " GROUP BY c." + led.Account + ", c.account_type").ConfigureAwait(false);
                     if (tr != null)
@@ -527,6 +541,22 @@ namespace WMSApp
                             if (!acctTypes.TryGetValue(a, out var tm)) acctTypes[a] = tm = new();
                             string t = S(r, "T") ?? "?"; tm[t] = (tm.TryGetValue(t, out var v) ? v : 0) + L(r, "N");
                         }
+
+                    // split ranges: sorted values of the natural account (or balancing) segment cut into ranges with no gap
+                    var parts = new List<(string Label, string Pred)> { ("", "") };
+                    if (split == "account" || split == "company")
+                    {
+                        string col = split == "account" ? led.Account : led.Company;
+                        List<string> vals;
+                        if (split == "account") vals = acctTypes.Keys.ToList();
+                        else
+                        {
+                            var cr = await Try(x, "company values", 20000, "SELECT DISTINCT c." + col + " v FROM gl_code_combinations c WHERE c.chart_of_accounts_id = " + led.CoaId).ConfigureAwait(false);
+                            vals = cr == null ? led.CompanyNames.Keys.ToList() : cr.Rows.Select(r => S(r, "V")).Where(v => v != null).ToList();
+                        }
+                        parts = SplitRanges("c." + col, vals, splitSize);
+                        x.Note(led.Name + " · " + parts.Count + " " + split + " range(s) per period: " + string.Join(" | ", parts.Take(6).Select(z => z.Label)) + (parts.Count > 6 ? " …" : ""));
+                    }
 
                     async Task Bal(PeriodRow p, string scenario)
                     {
@@ -572,7 +602,13 @@ namespace WMSApp
                                   " AND (" + bb + " <> 0 OR " + dr + " <> 0 OR " + cr + " <> 0)";
                             string what = led.Name + " · " + (scenario == "ACTUAL" ? "balances " : "budget ") + p.Name;
                             var rows = new List<Dictionary<string, object>>();
-                            try { await RankedAsync(x, what, inner, new[] { "CCID", "PN" }, new[] { true, false }, o.ChunkSize, rows.AddRange).ConfigureAwait(false); }
+                            var psw = Stopwatch.StartNew();
+                            try
+                            {
+                                for (int pi = 0; pi < parts.Count; pi++)
+                                    await RankedAsync(x, what + (parts.Count > 1 ? " · " + split + " " + (pi + 1) + "/" + parts.Count + " " + parts[pi].Label : ""),
+                                        inner + parts[pi].Pred, new[] { "CCID", "PN" }, new[] { true, false }, o.ChunkSize, rows.AddRange).ConfigureAwait(false);
+                            }
                             catch (Exception ex) when (scenario == "BUDGET" && ex is not OperationCanceledException)
                             {
                                 x.Note("⚠ budget " + p.Name + " left out: " + ex.Message);
@@ -599,6 +635,9 @@ namespace WMSApp
                                     ccs.Add(kv.Key.Item2);
                                 }
                             }
+                            lock (lockObj)
+                                syncRows.Add(new object[] { led.Code, p.Seq, p.Name, scenario == "ACTUAL" ? "BAL" : "BUD", (long)rows.Count, (long)acc.Count, Math.Round(rows.Sum(r => D(r, "DR")), 2), Math.Round(rows.Sum(r => D(r, "CR")), 2),
+                                    scenario == "ACTUAL" && fps[led.Code].TryGetValue(p.Seq, out var bf) ? bf.Bal : null, DateTime.Now, psw.ElapsedMilliseconds, split, o.Pod ?? "" });
                             Tick("✓ " + what + " · " + rows.Count.ToString("N0", CultureInfo.InvariantCulture) + " rows → " + acc.Count.ToString("N0", CultureInfo.InvariantCulture) + " balances");
                         }
                         finally { gate.Release(); }
@@ -620,16 +659,20 @@ namespace WMSApp
                                 "JOIN gl_code_combinations c ON c.code_combination_id = l.code_combination_id WHERE h.ledger_id = " + led.Id + " AND h.status = 'P' AND h.actual_flag = 'A'" +
                                 " AND l.period_name IN (" + names + ")";
                             string what = led.Name + " · journals " + p.Name;
-                            int lines = 0;
+                            int lines = 0; double jdr = 0, jcr = 0; var heads = new HashSet<long>();
+                            var psw = Stopwatch.StartNew();
                             try
                             {
-                                lines = await RankedAsync(x, what, inner, new[] { "ID", "LN" }, new[] { true, true }, o.ChunkSize, rows =>
+                                for (int pi = 0; pi < parts.Count; pi++)
+                                lines += await RankedAsync(x, what + (parts.Count > 1 ? " · " + split + " " + (pi + 1) + "/" + parts.Count + " " + parts[pi].Label : ""), inner + parts[pi].Pred,
+                                    new[] { "ID", "LN" }, new[] { true, true }, o.ChunkSize, rows =>
                                 {
                                     lock (lockObj)
                                         foreach (var z in rows)
                                         {
                                             DateTime.TryParse(S(z, "AD"), CultureInfo.InvariantCulture, DateTimeStyles.None, out var ad);
                                             DateTime.TryParse(S(z, "PA"), CultureInfo.InvariantCulture, DateTimeStyles.None, out var pa);
+                                            jdr += D(z, "DR"); jcr += D(z, "CR"); heads.Add(L(z, "ID"));
                                             journals.Add(new object[] { L(z, "ID"), (int)L(z, "LN"), S(z, "BN"), S(z, "JN"), S(z, "JS"), S(z, "JC"), p.Name, p.Seq,
                                                 ad == default ? (object)null : DateOnly.FromDateTime(ad), pa == default ? (object)null : pa, S(z, "CB"),
                                                 S(z, "CO") ?? "", S(z, "CC") ?? "-", S(z, "AC") ?? "", Math.Round(D(z, "DR"), 2), Math.Round(D(z, "CR"), 2), S(z, "DS"), led.Code });
@@ -640,14 +683,17 @@ namespace WMSApp
                             {
                                 throw new InvalidOperationException(what + ": " + ex.Message, ex);
                             }
-                            Tick("✓ " + what + " · " + lines.ToString("N0", CultureInfo.InvariantCulture) + " lines");
+                            lock (lockObj)
+                                syncRows.Add(new object[] { led.Code, p.Seq, p.Name, "JNL", (long)lines, (long)heads.Count, Math.Round(jdr, 2), Math.Round(jcr, 2),
+                                    fps[led.Code].TryGetValue(p.Seq, out var jf) ? jf.Jnl : null, DateTime.Now, psw.ElapsedMilliseconds, split, o.Pod ?? "" });
+                            Tick("✓ " + what + " · " + lines.ToString("N0", CultureInfo.InvariantCulture) + " lines in " + heads.Count.ToString("N0", CultureInfo.InvariantCulture) + " journals");
                         }
                         finally { gate.Release(); }
                     }
 
                     var work = new List<Task>();
-                    work.AddRange(periods.Select(p => Bal(p, "ACTUAL")));
-                    if (!string.IsNullOrEmpty(o.BudgetSource)) work.AddRange(budgetPeriods.Select(p => Bal(p, "BUDGET")));
+                    work.AddRange(balPeriods.Select(p => Bal(p, "ACTUAL")));
+                    work.AddRange(budgetPeriods.Select(p => Bal(p, "BUDGET")));
                     work.AddRange(journalPeriods.Select(Jnl));
                     // the first real failure stops the other reads at once (and is the error shown)
                     foreach (var t in work)
@@ -701,24 +747,43 @@ namespace WMSApp
             if (incremental && !FinanceLens.CopyCurrent(tmp)) incremental = false;
             int jMin = journalPeriods.Count > 0 ? journalPeriods.Min(p => p.Seq) : int.MaxValue;
             string ledIn = string.Join(",", o.Ledgers.Select(l => FinanceLens.Lit(l.Code)));
-            int keptFrom = o.FromSeq;
+            int keptFrom = o.FromSeq, keptTo = o.ToSeq;
             var prevDiscovery = o.Discovery.ValueKind == JsonValueKind.Object ? null : FinanceLens.LoadDiscovery(o.Pod ?? "");
             using (var conn = new DuckDBConnection("Data Source=" + tmp))
             {
                 conn.Open();
                 if (!incremental)
+                {
                     foreach (var stmt in FinanceLens.SCHEMA.Split(';').Select(s => s.Trim()).Where(s => s.Length > 0)) FinanceLens.Exec(conn, stmt);
+                    FinanceLens.Exec(conn, FinanceLens.SEGVAL_TABLE);
+                    if (File.Exists(FinanceLens.DbPath))
+                        try
+                        {   // segment values fetched earlier stay with the data
+                            FinanceLens.Exec(conn, "ATTACH " + FinanceLens.Lit(FinanceLens.DbPath.Replace('\\', '/')) + " AS prev (READ_ONLY)");
+                            using (var pc = conn.CreateCommand())
+                            {
+                                pc.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog = 'prev' AND table_name = 'fin_segment_values'";
+                                if (Convert.ToInt64(pc.ExecuteScalar()) > 0) FinanceLens.Exec(conn, "INSERT INTO fin_segment_values SELECT * FROM prev.fin_segment_values");
+                            }
+                            FinanceLens.Exec(conn, "DETACH prev");
+                        }
+                        catch (Exception ex) { x.Note("⚠ earlier segment values not kept: " + ex.Message); }
+                }
                 else
                 {
-                    FinanceLens.Exec(conn, "DELETE FROM fin_balances WHERE ledger IN (" + ledIn + ") AND period_seq BETWEEN " + o.FromSeq + " AND " + o.ToSeq +
-                                           (string.IsNullOrEmpty(o.BudgetSource) ? " AND scenario = 'ACTUAL'" : ""));
+                    string seqIn = string.Join(",", periods.Select(p => p.Seq));
+                    if (balPeriods.Count > 0) FinanceLens.Exec(conn, "DELETE FROM fin_balances WHERE ledger IN (" + ledIn + ") AND scenario = 'ACTUAL' AND period_seq IN (" + seqIn + ")");
+                    if (budgetPeriods.Count > 0) FinanceLens.Exec(conn, "DELETE FROM fin_balances WHERE ledger IN (" + ledIn + ") AND scenario = 'BUDGET' AND period_seq BETWEEN " + o.FromSeq + " AND " + o.ToSeq);
                     using (var pc = conn.CreateCommand())
                     {
                         pc.CommandText = "SELECT MIN(TRY_CAST(value AS INTEGER)) FROM fin_meta WHERE key = 'from_seq'";
                         var pv = pc.ExecuteScalar();
                         if (pv != null && pv != DBNull.Value) keptFrom = Math.Min(o.FromSeq, Convert.ToInt32(pv));
+                        pc.CommandText = "SELECT MAX(TRY_CAST(value AS INTEGER)) FROM fin_meta WHERE key = 'to_seq'";
+                        pv = pc.ExecuteScalar();
+                        if (pv != null && pv != DBNull.Value) keptTo = Convert.ToInt32(pv);
                     }
-                    if (journalPeriods.Count > 0) FinanceLens.Exec(conn, "DELETE FROM fin_journals WHERE ledger IN (" + ledIn + ") AND period_seq >= " + jMin + " AND period_seq <= " + o.ToSeq);
+                    if (journalPeriods.Count > 0) FinanceLens.Exec(conn, "DELETE FROM fin_journals WHERE ledger IN (" + ledIn + ") AND period_seq IN (" + string.Join(",", journalPeriods.Select(p => p.Seq)) + ")");
                     foreach (var t in new[] { "fin_meta", "fin_ledgers", "fin_segments" }) FinanceLens.Exec(conn, "DELETE FROM " + t);
                 }
                 // dimensions: replace the codes this load saw, keep the others (incremental)
@@ -730,12 +795,17 @@ namespace WMSApp
                     DeleteCodes(conn, "fin_accounts", accRows.Select(r => (string)r[0]));
                     DeleteCodes(conn, "fin_companies", coRows.Select(r => (string)r[0]));
                     DeleteCodes(conn, "fin_cost_centres", ccRows.Select(r => (string)r[0]));
-                    FinanceLens.Exec(conn, "DELETE FROM fin_periods WHERE period_seq BETWEEN " + o.FromSeq + " AND " + o.ToSeq);
+                    FinanceLens.Exec(conn, "DELETE FROM fin_periods WHERE period_seq IN (" + string.Join(",", periods.Select(p => p.Seq)) + ")");
                 }
+                FinanceLens.Exec(conn, SYNC_TABLE);
+                foreach (var g in syncRows.GroupBy(r => (string)r[3]))
+                    FinanceLens.Exec(conn, "DELETE FROM fin_sync_periods WHERE kind = " + FinanceLens.Lit(g.Key) + " AND ledger || '|' || period_seq IN (" +
+                                           string.Join(",", g.Select(r => FinanceLens.Lit((string)r[0] + "|" + r[1]))) + ")");
+                FinanceLens.Append(conn, "fin_sync_periods", syncRows);
                 FinanceLens.Append(conn, "fin_accounts", accRows);
                 FinanceLens.Append(conn, "fin_companies", coRows);
                 FinanceLens.Append(conn, "fin_cost_centres", ccRows);
-                FinanceLens.Append(conn, "fin_periods", normal.Where(p => p.Seq >= o.FromSeq && p.Seq <= o.ToSeq)
+                FinanceLens.Append(conn, "fin_periods", periods
                     .Select(p => new object[] { p.Name, p.Seq, p.Year, p.Num, p.Quarter > 0 ? p.Quarter : (p.Num - 1) / 3 + 1, ParseDate(p.Start), ParseDate(p.End) }).ToList());
                 FinanceLens.Append(conn, "fin_ledgers", o.Ledgers.Select(l => new object[] { l.Code, l.Name, l.Currency, l.CoaId, l.Company, l.CostCentre, l.Account, l.Category }).ToList());
                 FinanceLens.Append(conn, "fin_segments", new List<object[]> {
@@ -754,7 +824,7 @@ namespace WMSApp
                     new object[] { "source", "FUSION" }, new object[] { "pod", o.Pod ?? "" }, new object[] { "loaded_at", DateTime.Now.ToString("s") },
                     new object[] { "currency", first.Currency }, new object[] { "currencies", string.Join(",", o.Ledgers.Select(l => l.Currency).Distinct()) },
                     new object[] { "description", "Oracle Fusion GL: " + string.Join(", ", o.Ledgers.Select(l => l.Name)) },
-                    new object[] { "fusion_signature", signature }, new object[] { "from_seq", keptFrom.ToString(CultureInfo.InvariantCulture) }, new object[] { "to_seq", o.ToSeq.ToString(CultureInfo.InvariantCulture) },
+                    new object[] { "fusion_signature", signature }, new object[] { "from_seq", keptFrom.ToString(CultureInfo.InvariantCulture) }, new object[] { "to_seq", Math.Max(keptTo, o.ToSeq).ToString(CultureInfo.InvariantCulture) },
                     new object[] { "budget", string.IsNullOrEmpty(o.BudgetSource) ? "" : o.BudgetSource + ":" + o.BudgetId },
                     new object[] { "journals_from_seq", journalPeriods.Count > 0 ? jMin.ToString(CultureInfo.InvariantCulture) : "" },
                     new object[] { "load_mode", incremental ? "INCREMENTAL" : "FULL" }
@@ -766,10 +836,235 @@ namespace WMSApp
             x.Note("Done in " + (sw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s.");
             return new
             {
-                ok = true, balances = balances.Count, journals = journals.Count, accounts = acctTypes.Count, companies = companies.Count, periods = periods.Count,
+                ok = true, balances = balances.Count, journals = journals.Count, accounts = acctTypes.Count, companies = companies.Count, periods = periods.Count, synced = syncRows.Count,
                 mode = incremental ? "INCREMENTAL" : "FULL", ms = sw.ElapsedMilliseconds, log = x.Log
             };
         }
+
+        internal const string SYNC_TABLE = "CREATE TABLE IF NOT EXISTS fin_sync_periods (ledger VARCHAR, period_seq INTEGER, period_name VARCHAR, kind VARCHAR, rows_read BIGINT, rows_local BIGINT, " +
+                                           "dr DOUBLE, cr DOUBLE, fusion_fp VARCHAR, synced_at TIMESTAMP, ms BIGINT, split VARCHAR, pod VARCHAR)";
+
+        /// <summary>The accounting calendar of a ledger and where each period lands (adjustment periods folded into the period they close).</summary>
+        private static async Task<(List<PeriodRow> Cal, List<PeriodRow> Normal, Dictionary<string, PeriodRow> Target)?> CalendarAsync(Ctx x, SyncLedger first, bool fold)
+        {
+            var pr = await Try(x, "periods", 5000,
+                "SELECT period_name, period_year, period_num, quarter_num, TO_CHAR(start_date, 'YYYY-MM-DD') sd, TO_CHAR(end_date, 'YYYY-MM-DD') ed, adjustment_period_flag adj FROM gl_periods WHERE period_set_name = " +
+                Q(first.PeriodSet) + " AND period_type = " + Q(first.PeriodType) + " ORDER BY period_year, period_num").ConfigureAwait(false);
+            if (pr == null) return null;
+            var cal = pr.Rows.Select(r => new PeriodRow { Name = S(r, "PERIOD_NAME"), Year = (int)L(r, "PERIOD_YEAR"), Num = (int)L(r, "PERIOD_NUM"), Quarter = (int)L(r, "QUARTER_NUM"), Start = S(r, "SD"), End = S(r, "ED"), Adj = S(r, "ADJ") == "Y" }).ToList();
+            var normal = cal.Where(p => !p.Adj).ToList();
+            var target = new Dictionary<string, PeriodRow>();
+            foreach (var p in normal) target[p.Name] = p;
+            foreach (var a in cal.Where(p => p.Adj))
+            {
+                var t = normal.Where(p => p.Year == a.Year && p.Num <= a.Num).OrderByDescending(p => p.Num).FirstOrDefault() ?? normal.Where(p => p.Year == a.Year).OrderBy(p => p.Num).FirstOrDefault();
+                if (t != null && fold) target[a.Name] = t;
+            }
+            return (cal, normal, target);
+        }
+
+        /// <summary>A period's fingerprint in Fusion: rows, debits, credits and last update of GL_BALANCES (ledger currency) and of the
+        /// posted journal headers. Two equal fingerprints = nothing was posted or changed in between.</summary>
+        public sealed class Fp
+        {
+            public long BalN, JnlN; public double BalDr, BalCr, JnlDr; public string BalUpd, JnlUpd;
+            public string Bal => BalN + "|" + BalDr.ToString("0.00", CultureInfo.InvariantCulture) + "|" + BalCr.ToString("0.00", CultureInfo.InvariantCulture) + "|" + BalUpd;
+            public string Jnl => JnlN + "|" + JnlDr.ToString("0.00", CultureInfo.InvariantCulture) + "|" + JnlUpd;
+        }
+
+        /// <summary>One cheap aggregate per ledger and fiscal year (GROUP BY period_name) for balances and for journal headers.</summary>
+        private static async Task<Dictionary<int, Fp>> FingerprintAsync(Ctx x, SyncLedger led, List<PeriodRow> cal, Dictionary<string, PeriodRow> target, List<PeriodRow> want, bool bal, bool jnl)
+        {
+            var res = new Dictionary<int, Fp>();
+            var wanted = new HashSet<int>(want.Select(p => p.Seq));
+            string tmpl = x.Has("GL_BALANCES", "TEMPLATE_ID") ? " AND b.template_id IS NULL" : "";
+            string trans = x.Has("GL_BALANCES", "TRANSLATED_FLAG") ? " AND NVL(b.translated_flag, 'X') <> 'R'" : "";
+            string bupd = x.Has("GL_BALANCES", "LAST_UPDATE_DATE") ? "TO_CHAR(MAX(b.last_update_date), 'YYYY-MM-DD HH24:MI:SS')" : "NULL";
+            string jupd = x.Has("GL_JE_HEADERS", "LAST_UPDATE_DATE") ? "TO_CHAR(MAX(h.last_update_date), 'YYYY-MM-DD HH24:MI:SS')" : "NULL";
+            string jdr = x.Has("GL_JE_HEADERS", "RUNNING_TOTAL_ACCOUNTED_DR") ? "SUM(NVL(h.running_total_accounted_dr, 0))" : "0";
+            foreach (var year in target.Where(kv => wanted.Contains(kv.Value.Seq)).GroupBy(kv => kv.Value.Year))
+            {
+                string names = string.Join(",", year.Select(kv => Q(kv.Key)));
+                Fp get(string pn) { var t = target[pn]; if (!res.TryGetValue(t.Seq, out var f)) res[t.Seq] = f = new Fp(); return f; }
+                if (bal)
+                {
+                    var r = await Try(x, "balance fingerprint " + led.Name + " " + year.Key, 1000,
+                        "SELECT b.period_name pn, COUNT(*) n, SUM(NVL(b.period_net_dr, 0)) dr, SUM(NVL(b.period_net_cr, 0)) cr, " + bupd + " upd FROM gl_balances b WHERE b.ledger_id = " + led.Id +
+                        " AND b.currency_code = " + Q(led.Currency) + " AND b.actual_flag = 'A'" + trans + tmpl + " AND b.period_name IN (" + names + ") GROUP BY b.period_name").ConfigureAwait(false);
+                    if (r != null)
+                        foreach (var z in r.Rows)
+                        {
+                            string pn = S(z, "PN"); if (pn == null || !target.ContainsKey(pn)) continue;
+                            var f = get(pn); f.BalN += L(z, "N"); f.BalDr = Math.Round(f.BalDr + D(z, "DR"), 2); f.BalCr = Math.Round(f.BalCr + D(z, "CR"), 2);
+                            string u = S(z, "UPD"); if (u != null && string.CompareOrdinal(u, f.BalUpd ?? "") > 0) f.BalUpd = u;
+                        }
+                }
+                if (jnl)
+                {
+                    var r = await Try(x, "journal fingerprint " + led.Name + " " + year.Key, 1000,
+                        "SELECT h.period_name pn, COUNT(*) n, " + jdr + " dr, " + jupd + " upd FROM gl_je_headers h WHERE h.ledger_id = " + led.Id +
+                        " AND h.status = 'P' AND h.actual_flag = 'A' AND h.period_name IN (" + names + ") GROUP BY h.period_name").ConfigureAwait(false);
+                    if (r != null)
+                        foreach (var z in r.Rows)
+                        {
+                            string pn = S(z, "PN"); if (pn == null || !target.ContainsKey(pn)) continue;
+                            var f = get(pn); f.JnlN += L(z, "N"); f.JnlDr = Math.Round(f.JnlDr + D(z, "DR"), 2);
+                            string u = S(z, "UPD"); if (u != null && string.CompareOrdinal(u, f.JnlUpd ?? "") > 0) f.JnlUpd = u;
+                        }
+                }
+            }
+            return res;
+        }
+
+        /// <summary>Ranges over the sorted values of a segment with no gap: first ≤ v1, then (v1, v2], …, last &gt; vn - values that
+        /// appear later still fall into a range.</summary>
+        internal static List<(string Label, string Pred)> SplitRanges(string expr, IEnumerable<string> values, int size)
+        {
+            var vals = values.Where(v => v != null).Distinct().OrderBy(v => v, StringComparer.Ordinal).ToList();
+            var parts = new List<(string, string)>();
+            if (vals.Count <= size) return new List<(string, string)> { ("", "") };
+            string prev = null;
+            for (int i = 0; i < vals.Count; i += size)
+            {
+                var batch = vals.Skip(i).Take(size).ToList();
+                bool last = i + size >= vals.Count;
+                string lo = prev == null ? "" : expr + " > " + Q(prev), hi = last ? "" : expr + " <= " + Q(batch[^1]);
+                parts.Add((batch[0] + " – " + batch[^1], " AND " + (lo.Length > 0 && hi.Length > 0 ? lo + " AND " + hi : lo.Length > 0 ? lo : hi)));
+                prev = batch[^1];
+            }
+            return parts;
+        }
+
+        // ───────────────────────── check: which months are in sync ─────────────────────────
+        public sealed class CheckOptions
+        {
+            public List<SyncLedger> Ledgers { get; set; } = new();
+            public int FromSeq { get; set; }
+            public int ToSeq { get; set; }
+            public bool FoldAdjustments { get; set; } = true;
+        }
+
+        /// <summary>
+        /// Compares Fusion with this PC per ledger × period: the Fusion fingerprint now against the one stored when the period was
+        /// read (fin_sync_periods) and the debits / credits in DuckDB against Fusion. Status per cell: OK (in sync and ties to the
+        /// cent), CHANGED (posted or changed in Fusion since), NEW (in Fusion, not loaded), DIFF (loaded totals do not tie), EMPTY,
+        /// NOT_LOADED (journals). Also the open / closed status of each period.
+        /// </summary>
+        public static async Task<object> CheckAsync(Runner run, CheckOptions o, Action<string> progress, CancellationToken ct)
+        {
+            var sw = Stopwatch.StartNew();
+            var x = new Ctx { Run = run, Ct = ct, Progress = progress };
+            if (o.Ledgers.Count == 0) return new { ok = false, error = "No ledgers - set up the Fusion load first." };
+            await Probe(x).ConfigureAwait(false);
+            var calr = await CalendarAsync(x, o.Ledgers[0], o.FoldAdjustments).ConfigureAwait(false);
+            if (calr == null) return new { ok = false, error = "Could not read GL_PERIODS.", log = x.Log };
+            var (cal, normal, target) = calr.Value;
+            string today = DateTime.Today.ToString("yyyy-MM-dd");
+            var started = normal.Where(p => string.IsNullOrEmpty(p.Start) || string.CompareOrdinal(p.Start, today) <= 0).ToList();
+            int to = o.ToSeq > 0 ? o.ToSeq : (started.LastOrDefault() ?? normal.Last()).Seq;
+            var upto = normal.Where(p => p.Seq <= to).ToList();
+            int from = o.FromSeq > 0 ? o.FromSeq : upto[Math.Max(0, upto.Count - 24)].Seq;
+            var periods = normal.Where(p => p.Seq >= from && p.Seq <= to).ToList();
+
+            // what this PC holds
+            var rec = new Dictionary<string, (string Fp, DateTime? At, long Rows, long Local, long Ms, string Split)>();
+            var locBal = new Dictionary<string, (double Dr, double Cr)>();
+            var locJnl = new Dictionary<string, (long N, double Dr)>();
+            if (File.Exists(FinanceLens.DbPath) && FinanceLens.HasLedgers())
+            {
+                var t = FinanceLens.Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_sync_periods'", 1);
+                if (t.Error == null && Convert.ToInt64(t.Rows[0][0]) > 0)
+                    foreach (var r in FinanceLens.Query("SELECT ledger, period_seq, kind, fusion_fp, synced_at, rows_read, rows_local, ms, split FROM fin_sync_periods", 500000).Rows)
+                        rec[r[0] + "|" + r[1] + "|" + r[2]] = (r[3] as string, r[4] as DateTime?, Convert.ToInt64(r[5] ?? 0L), Convert.ToInt64(r[6] ?? 0L), Convert.ToInt64(r[7] ?? 0L), r[8] as string);
+                foreach (var r in FinanceLens.Query("SELECT ledger, period_seq, SUM(period_dr), SUM(period_cr) FROM fin_balances WHERE scenario = 'ACTUAL' GROUP BY ALL", 500000).Rows)
+                    locBal[r[0] + "|" + r[1]] = (Convert.ToDouble(r[2] ?? 0.0), Convert.ToDouble(r[3] ?? 0.0));
+                foreach (var r in FinanceLens.Query("SELECT ledger, period_seq, COUNT(DISTINCT je_id), SUM(dr) FROM fin_journals GROUP BY ALL", 500000).Rows)
+                    locJnl[r[0] + "|" + r[1]] = (Convert.ToInt64(r[2] ?? 0L), Convert.ToDouble(r[3] ?? 0.0));
+            }
+            bool tie(double a, double b) => Math.Abs(a - b) < 0.015;
+
+            var cells = new List<object>();
+            var stat = new Dictionary<string, string>();
+            try
+            {
+                foreach (var led in o.Ledgers)
+                {
+                    if (string.IsNullOrWhiteSpace(led.Code)) led.Code = led.Id.ToString(CultureInfo.InvariantCulture);
+                    x.Note("Checking " + led.Name + " · " + periods.First().Name + " – " + periods.Last().Name + "…");
+                    var fp = await FingerprintAsync(x, led, cal, target, periods, true, true).ConfigureAwait(false);
+                    var ps = await Try(x, "period statuses", 5000, "SELECT period_name, closing_status FROM gl_period_statuses WHERE application_id = 101 AND ledger_id = " + led.Id).ConfigureAwait(false);
+                    var open = new Dictionary<string, string>();
+                    if (ps != null) foreach (var r in ps.Rows) if (S(r, "PERIOD_NAME") != null) open[S(r, "PERIOD_NAME")] = S(r, "CLOSING_STATUS");
+                    foreach (var p in periods)
+                    {
+                        fp.TryGetValue(p.Seq, out var f); f ??= new Fp();
+                        string k = led.Code + "|" + p.Seq;
+                        rec.TryGetValue(k + "|BAL", out var rb); bool hasRb = rec.ContainsKey(k + "|BAL");
+                        bool hasLb = locBal.TryGetValue(k, out var lb);
+                        string bs = f.BalN == 0 ? (hasLb && (lb.Dr != 0 || lb.Cr != 0) ? "DIFF" : "EMPTY")
+                            : !hasLb ? "NEW"
+                            : hasRb && rb.Fp != null && rb.Fp != f.Bal ? "CHANGED"
+                            : tie(lb.Dr, f.BalDr) && tie(lb.Cr, f.BalCr) ? "OK"
+                            : hasRb && rb.Fp == f.Bal ? "DIFF" : "CHANGED";
+                        rec.TryGetValue(k + "|JNL", out var rj); bool hasRj = rec.ContainsKey(k + "|JNL");
+                        bool hasLj = locJnl.TryGetValue(k, out var lj);
+                        string js = f.JnlN == 0 ? (hasLj ? "DIFF" : "EMPTY")
+                            : !hasLj && !hasRj ? "NOT_LOADED"
+                            : hasRj && rj.Fp != null && rj.Fp != f.Jnl ? "CHANGED"
+                            : lj.N == f.JnlN && (f.JnlDr == 0 || tie(lj.Dr, f.JnlDr)) ? "OK" : "CHANGED";
+                        stat[bs] = ""; stat["J" + js] = "";
+                        open.TryGetValue(p.Name, out var cs);
+                        cells.Add(new
+                        {
+                            ledger = led.Code, seq = p.Seq, period = p.Name, closing = cs,
+                            bal = new { status = bs, fusion = new { n = f.BalN, dr = f.BalDr, cr = f.BalCr, upd = f.BalUpd }, local = hasLb ? new { dr = Math.Round(lb.Dr, 2), cr = Math.Round(lb.Cr, 2) } : null,
+                                        synced = hasRb ? rb.At : null, rows = hasRb ? rb.Rows : 0, ms = hasRb ? rb.Ms : 0, split = hasRb ? rb.Split : null },
+                            jnl = new { status = js, fusion = new { n = f.JnlN, dr = f.JnlDr, upd = f.JnlUpd }, local = hasLj ? new { n = lj.N, dr = Math.Round(lj.Dr, 2) } : null,
+                                        synced = hasRj ? rj.At : null, rows = hasRj ? rj.Rows : 0, ms = hasRj ? rj.Ms : 0 }
+                        });
+                    }
+                }
+            }
+            catch (OperationCanceledException) { return new { ok = false, error = "Cancelled.", log = x.Log }; }
+            catch (Exception ex) { return new { ok = false, error = ex.Message, log = x.Log }; }
+            x.Note("Checked " + cells.Count + " ledger-period(s) in " + (sw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s.");
+            return new { ok = true, checkedAt = DateTime.Now.ToString("s"), periods = periods.Select(p => new { seq = p.Seq, name = p.Name, year = p.Year, num = p.Num, start = p.Start, end = p.End }), cells, log = x.Log, ms = sw.ElapsedMilliseconds };
+        }
+
+        // ───────────────────────── segment values ─────────────────────────
+        /// <summary>Every value of one segment of a chart: from its value set (with the description) and from GL_CODE_COMBINATIONS
+        /// (how many account combinations use it, and the account type for the natural account) - read in ranked chunks.</summary>
+        public static async Task<object> SegmentValuesAsync(Runner run, string coaId, string column, Action<string> progress, CancellationToken ct)
+        {
+            var x = new Ctx { Run = run, Ct = ct, Progress = progress };
+            string col = SegCol(column);
+            if (col == null || !long.TryParse(coaId, out _)) return new { ok = false, error = "Choose a chart of accounts and a SEGMENTn column." };
+            await Probe(x).ConfigureAwait(false);
+            var used = new Dictionary<string, (long N, string T1, string T2)>();
+            string summ = x.Has("GL_CODE_COMBINATIONS", "SUMMARY_FLAG") ? " AND NVL(c.summary_flag, 'N') = 'N'" : "";
+            try
+            {
+                await RankedAsync(x, "chart " + coaId + " · " + col + " values in use", "SELECT c." + col + " v, COUNT(*) n, MIN(c.account_type) t1, MAX(c.account_type) t2 FROM gl_code_combinations c WHERE c.chart_of_accounts_id = " + coaId + summ +
+                    " AND c." + col + " IS NOT NULL GROUP BY c." + col, new[] { "V" }, new[] { false }, DEFAULT_CHUNK, rows =>
+                    {
+                        foreach (var r in rows) { string v = S(r, "V"); if (v != null) used[v] = (L(r, "N"), S(r, "T1"), S(r, "T2")); }
+                    }).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException) { return new { ok = false, error = ex.Message, log = x.Log }; }
+            x.Note("Reading the value set descriptions…");
+            var names = await ValueNames(x, coaId, col, used.Keys.ToList()).ConfigureAwait(false);
+            var all = used.Keys.Union(names.Keys).OrderBy(v => v, StringComparer.Ordinal).ToList();
+            var list = all.Select(v =>
+            {
+                used.TryGetValue(v, out var u);
+                return new SegValue { Value = v, Description = names.TryGetValue(v, out var d) ? d : null, Combinations = u.N, AccountType = u.T1 == null ? null : u.T1 == u.T2 ? u.T1 : u.T1 + "/" + u.T2 };
+            }).ToList();
+            bool saved = false;
+            try { saved = FinanceLens.SaveSegmentValues(coaId, col, list); } catch (Exception ex) { x.Note("⚠ values not saved in DuckDB: " + ex.Message); }
+            x.Note(list.Count.ToString("N0", CultureInfo.InvariantCulture) + " values (" + used.Count.ToString("N0", CultureInfo.InvariantCulture) + " in use)" + (saved ? " · saved in DuckDB" : ""));
+            return new { ok = true, coaId, column = col, values = list.Select(v => new { value = v.Value, description = v.Description, combinations = v.Combinations, accountType = v.AccountType }), savedDuck = saved, log = x.Log };
+        }
+        public sealed class SegValue { public string Value { get; set; } public string Description { get; set; } public long Combinations { get; set; } public string AccountType { get; set; } }
 
         private static void DeleteCodes(DuckDBConnection conn, string table, IEnumerable<string> codes)
         {

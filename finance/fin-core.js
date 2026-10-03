@@ -117,7 +117,7 @@ FL.classifyAccounts = function () {
         if (over[a.code] && a.class !== over[a.code]) want = over[a.code];
         if (want !== a.class) { a.class = want; changed[a.code] = want; n++; }
     });
-    if (n) FL.call('finSetClasses', { classes: changed }, 120000).then(function () { FL.cache = {}; }).catch(function (e) { console.warn('[Finance] classes not saved', e); });
+    if (n) FL.call('finSetClasses', { classes: changed, source: 'AUTO' }, 120000).then(function () { FL.cache = {}; }).catch(function (e) { console.warn('[Finance] classes not saved', e); });
     return n;
 };
 FL.saveConfig = function () { return FL.call('finDocSave', { name: 'config', json: JSON.stringify(FL.config, null, 1) }); };
@@ -155,6 +155,7 @@ FL.refresh = function () {
             FL.fillFilters();
             FL.dataChip();
             FL.show(FL.ls('tab', 'overview'));
+            if (FL.fusion && FL.fusion.pullMapping && (st.meta || {}).source === 'FUSION') FL.fusion.pullMapping();
         });
     }).catch(function (e) { $('main').innerHTML = '<div class="callout bad">' + esc(e) + '</div>'; });
 };
