@@ -1120,14 +1120,14 @@ namespace WMSApp
         }
 
         /// <summary>
-        /// Trial balance of one ledger and period straight from GL_BALANCES (ledger currency, actuals, no translated or summary
-        /// rows) grouped by company × account (× cost centre): opening, PTD debits / credits, closing, and the balances at the start
-        /// of the quarter and of the fiscal year (QTD / YTD activity = closing − those). Only GL_BALANCES and GL_CODE_COMBINATIONS
-        /// are read — the names come from this PC (DuckDB / segment values), not from the value sets, so the queries stay small.
-        /// A GROUP BY over a whole ledger can take longer than the runner allows, and smaller chunks do not help an aggregate, so the
-        /// work is cut into small reads: one per period (current / start of quarter / start of year) × company, run in parallel; a
-        /// read that still times out is split again by ranges of account values (found in GL_CODE_COMBINATIONS), down to 6 levels.
-        /// Adjustment periods are folded into the period they close.
+        /// Trial balance of one ledger and period from GL_BALANCES (ledger currency, actuals, translated_flag NULL or not 'R' — for the
+        /// ledger currency Fusion keeps the total AND the part entered in it, flag 'R'), by company × account (× cost centre): opening,
+        /// PTD debits / credits, closing, and the balances at the start of the quarter and of the fiscal year (QTD / YTD = closing − those).
+        /// On big pods every query that touches GL_CODE_COMBINATIONS by segment scans it (minutes), so GL_BALANCES is read ALONE —
+        /// one period per query, keyset pages on code_combination_id (no join, no GROUP BY) — and each combination's segments come
+        /// from a map kept on this PC (`CcidMapAsync`: primary-key lookups `code_combination_id IN (…)` for the ids it has not seen,
+        /// so later runs need no lookup at all). Summary combinations are skipped through that map; companies are filtered in C#.
+        /// Adjustment periods are folded into the period they close; names come from this PC (DuckDB / segment values).
         /// </summary>
         public static async Task<object> TrialBalanceAsync(Runner run, TbOptions o, Action<string> progress, CancellationToken ct)
         {
@@ -1150,155 +1150,101 @@ namespace WMSApp
                 var fy = normal.Where(q => q.Year == p.Year).OrderBy(q => q.Num).First();
                 var fq = normal.Where(q => q.Year == p.Year && q.Quarter == p.Quarter).OrderBy(q => q.Num).FirstOrDefault() ?? p;
                 var cur = target.Where(kv => kv.Value == p).Select(kv => kv.Key).ToList();
-                string summ = x.Has("GL_CODE_COMBINATIONS", "SUMMARY_FLAG") ? " AND NVL(c.summary_flag, 'N') = 'N'" : "";
-                string coaF = long.TryParse(led.CoaId, out var coaNum) ? " AND c.chart_of_accounts_id = " + coaNum : "";
                 bool byCc = o.ByCostCentre && led.CostCentre != null;
-                var cos = (o.Companies ?? new()).Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().Take(500).ToList();
-                var splitCos = cos.Count > 0 ? cos : (o.AllCompanies ?? new()).Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().Take(500).ToList();
-                bool perCompany = !string.Equals(o.Split, "none", StringComparison.OrdinalIgnoreCase) && splitCos.Count > 0;
+                var cos = new HashSet<string>((o.Companies ?? new()).Where(v => !string.IsNullOrWhiteSpace(v)));
+                string trans = x.Has("GL_BALANCES", "TRANSLATED_FLAG") ? " AND (b.translated_flag IS NULL OR b.translated_flag <> 'R')" : "";
 
-                // the periods to read: the current one (opening + movements), the start of the quarter and of the year (balances only)
-                // one period per query: the period itself (opening + movements), its adjustment period(s) (movements only),
-                // the start of the quarter and of the year (begin balances only)
-                var roles = new List<(string Role, PeriodRow Per, List<string> Names, bool Moves)> { ("cur", p, new List<string> { p.Name }, true) };
-                foreach (var adj in cur.Where(n => n != p.Name)) roles.Add(("adj", p, new List<string> { adj }, true));
-                if (fq != p) roles.Add(("qtr", fq, new List<string> { fq.Name }, false));
-                if (fy != p && fy != fq) roles.Add(("year", fy, new List<string> { fy.Name }, false));
+                // one period per query: the period (opening + movements), its adjustment period(s) (movements),
+                // the start of the quarter and of the year (begin balances)
+                var roles = new List<(string Role, string Period, bool Begin, bool Moves)> { ("cur", p.Name, true, true) };
+                foreach (var adj in cur.Where(n => n != p.Name)) roles.Add(("adj", adj, false, true));
+                if (fq != p) roles.Add(("qtr", fq.Name, true, false));
+                if (fy != p && fy != fq) roles.Add(("year", fy.Name, true, false));
+                int page = Math.Clamp(o.ChunkSize <= 0 ? 5000 : o.ChunkSize, 500, 20000);
                 x.Note("Trial balance " + led.Name + " · " + p.Name + (cur.Count > 1 ? " (with " + string.Join(", ", cur.Where(n => n != p.Name)) + ")" : "") +
                        " · quarter from " + fq.Name + " · year from " + fy.Name + (cos.Count > 0 ? " · companies " + string.Join(", ", cos) : " · every company") + (byCc ? " · by cost centre" : "") +
-                       " · " + roles.Count + " period read(s)" + (perCompany ? " × " + splitCos.Count + " compan" + (splitCos.Count == 1 ? "y" : "ies") : "") + " · " + Math.Clamp(o.Parallel, 1, 4) + " in parallel");
+                       " · " + roles.Count + " period read(s) of GL_BALANCES alone, pages of " + page.ToString("N0", CultureInfo.InvariantCulture) + " combinations");
 
-                // Kept small for the optimizer: equality on ledger / currency / actual flag / ONE period, plain SUMs, no ranking.
-                // template_id IS NULL is left out: summary-template balances sit on summary combinations, already excluded by
-                // summary_flag = 'N'. translated_flag stays: for the ledger currency Fusion keeps the total (flag NULL) AND the
-                // part entered in ledger currency (flag 'R') - adding both would double the balances.
-                string Sql((string Role, PeriodRow Per, List<string> Names, bool Moves) r, string co, string lo, string hi)
-                {
-                    string accCol = "c." + led.Account;
-                    bool bal = r.Role != "adj";
-                    return "SELECT c." + led.Company + " co, " + accCol + " ac" + (byCc ? ", c." + led.CostCentre + " cc" : "") + ", MAX(c.account_type) atype" +
-                        (bal ? ", SUM(b.begin_balance_dr) bdr, SUM(b.begin_balance_cr) bcr" : "") +
-                        (r.Moves ? ", SUM(b.period_net_dr) dr, SUM(b.period_net_cr) cr" : "") +
-                        " FROM gl_balances b JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id" +
-                        " WHERE b.ledger_id = " + led.Id + " AND b.period_name = " + Q(r.Names[0]) + " AND b.currency_code = " + Q(led.Currency) + " AND b.actual_flag = 'A'" +
-                        (x.Has("GL_BALANCES", "TRANSLATED_FLAG") ? " AND (b.translated_flag IS NULL OR b.translated_flag <> 'R')" : "") +
-                        (co != null ? " AND c." + led.Company + " = " + Q(co) : cos.Count > 0 ? " AND c." + led.Company + " IN (" + string.Join(",", cos.Select(Q)) + ")" : "") +
-                        (lo != null ? " AND " + accCol + " > " + Q(lo) : "") + (hi != null ? " AND " + accCol + " <= " + Q(hi) : "") +
-                        (x.Has("GL_CODE_COMBINATIONS", "SUMMARY_FLAG") ? " AND c.summary_flag = 'N'" : "") +
-                        " GROUP BY c." + led.Company + ", " + accCol + (byCc ? ", c." + led.CostCentre : "");
-                }
-                bool Slow(string e) => e != null && (e.IndexOf("timed out", StringComparison.OrdinalIgnoreCase) >= 0 || e.IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0 || e.Contains("ORA-01013"));
-
-                // account values per company (for splitting a read that times out) — GL_CODE_COMBINATIONS only, cached
-                var accVals = new Dictionary<string, List<string>>();
-                var accLock = new SemaphoreSlim(1, 1);
-                async Task<List<string>> AccountsOf(string co)
-                {
-                    await accLock.WaitAsync(ct).ConfigureAwait(false);
-                    try
-                    {
-                        string k = co ?? "*";
-                        if (accVals.TryGetValue(k, out var have)) return have;
-                        var r = await RunLive(x, led.Name + " · account values" + (co != null ? " of company " + co : ""),
-                            "SELECT DISTINCT c." + led.Account + " v FROM gl_code_combinations c WHERE 1 = 1" + coaF + summ + (co != null ? " AND c." + led.Company + " = " + Q(co) : ""), 200000).ConfigureAwait(false);
-                        var list = r.Success ? r.Rows.Select(z => S(z, "V")).Where(v => v != null).Distinct().OrderBy(v => v, StringComparer.Ordinal).ToList() : new List<string>();
-                        if (!r.Success) x.Note("   ⚠ account values not read: " + r.Error);
-                        accVals[k] = list;
-                        return list;
-                    }
-                    finally { accLock.Release(); }
-                }
-
-                var acc = new Dictionary<(string Co, string Ac, string Cc), double[]>();   // bb cur, dr, cr, bb qtr, bb year
-                string atypeKey(string co, string ac) => co + "\u0001" + ac;
-                var atypes = new Dictionary<string, string>();
+                var bal = new Dictionary<long, double[]>();   // ccid → bb cur, dr, cr, bb qtr, bb year
+                int pages = 0, rowsSoFar = 0; bool sampled = false;
                 var gate = new SemaphoreSlim(Math.Clamp(o.Parallel, 1, 4));
-                int reads = 0, rowsSoFar = 0; bool sampled = false;
-                Exception first = null;
-                using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
-
-                async Task Read((string Role, PeriodRow Per, List<string> Names, bool Moves) r, string co, string lo, string hi, int depth)
+                async Task ReadPeriod((string Role, string Period, bool Begin, bool Moves) r)
                 {
-                    string what = led.Name + " · " + (r.Role == "cur" ? "trial balance " + r.Per.Name : r.Role == "adj" ? "adjustments " + r.Names[0] : (r.Role == "qtr" ? "start of quarter " : "start of year ") + r.Per.Name) +
-                                  (co != null ? " · company " + co : "") + (lo != null || hi != null ? " · accounts " + (lo != null ? "> " + lo : "") + (lo != null && hi != null ? " and " : "") + (hi != null ? "≤ " + hi : "") : "");
-                    FusionQueryResult res;
-                    string sql = Sql(r, co, lo, hi);
-                    await gate.WaitAsync(stop.Token).ConfigureAwait(false);
-                    var t0 = Stopwatch.StartNew();
+                    await gate.WaitAsync(ct).ConfigureAwait(false);
                     try
                     {
-                        if (x.LogSql) x.Note("   SQL: " + sql);
-                        res = await RunLive(x, what, sql, 100000).ConfigureAwait(false);
+                        string what = led.Name + " · " + (r.Role == "cur" ? "balances " : r.Role == "adj" ? "adjustments " : r.Role == "qtr" ? "start of quarter " : "start of year ") + r.Period;
+                        string cols = "b.code_combination_id ccid" + (r.Begin ? ", b.begin_balance_dr bdr, b.begin_balance_cr bcr" : "") + (r.Moves ? ", b.period_net_dr dr, b.period_net_cr cr" : "");
+                        string nz = r.Moves && r.Begin ? " AND (b.begin_balance_dr <> b.begin_balance_cr OR b.period_net_dr <> 0 OR b.period_net_cr <> 0)"
+                                  : r.Moves ? " AND (b.period_net_dr <> 0 OR b.period_net_cr <> 0)" : " AND b.begin_balance_dr <> b.begin_balance_cr";
+                        string where = "b.ledger_id = " + led.Id + " AND b.period_name = " + Q(r.Period) + " AND b.currency_code = " + Q(led.Currency) + " AND b.actual_flag = 'A'" + trans + nz;
+                        long last = -1; int size = page, retries = 0, n = 0, total = 0;
+                        var tw = Stopwatch.StartNew();
+                        while (true)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            string sql = "SELECT * FROM (SELECT " + cols + " FROM gl_balances b WHERE " + where + " AND b.code_combination_id > " + last.ToString(CultureInfo.InvariantCulture) +
+                                         " ORDER BY b.code_combination_id) WHERE ROWNUM <= " + size;
+                            if (x.LogSql && n == 0) x.Note("   SQL: " + sql);
+                            var t0 = Stopwatch.StartNew();
+                            var res = await RunLive(x, what + " · page " + (n + 1), sql, size).ConfigureAwait(false);
+                            if (!res.Success)
+                            {
+                                bool slow = (res.Error ?? "").IndexOf("timed out", StringComparison.OrdinalIgnoreCase) >= 0 || (res.Error ?? "").IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0;
+                                if (slow && size > 500 && retries < 3) { size = Math.Max(500, size / 2); retries++; x.Note("   ⚠ " + what + " · page " + (n + 1) + " timed out - again with " + size.ToString("N0", CultureInfo.InvariantCulture) + " rows"); continue; }
+                                throw new InvalidOperationException(what + ": " + res.Error);
+                            }
+                            n++;
+                            int from, to;
+                            lock (bal)
+                            {
+                                pages++; from = rowsSoFar + 1; rowsSoFar += res.Rows.Count; to = rowsSoFar;
+                                foreach (var row in res.Rows)
+                                {
+                                    long id = L(row, "CCID");
+                                    if (!bal.TryGetValue(id, out var v)) bal[id] = v = new double[5];
+                                    double b0 = r.Begin ? D(row, "BDR") - D(row, "BCR") : 0;
+                                    if (r.Role == "cur") { v[0] += b0; v[1] += D(row, "DR"); v[2] += D(row, "CR"); }
+                                    else if (r.Role == "adj") { v[1] += D(row, "DR"); v[2] += D(row, "CR"); }
+                                    else if (r.Role == "qtr") v[3] += b0;
+                                    else v[4] += b0;
+                                }
+                                if (!sampled && res.Rows.Count > 0) { sampled = true; LiveSample(x, what, res.Rows); }
+                            }
+                            x.Note("   " + what + " · chunk " + pages + " · rows " + from.ToString("N0", CultureInfo.InvariantCulture) + "–" + Math.Max(from, to).ToString("N0", CultureInfo.InvariantCulture) +
+                                   " · " + (t0.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s");
+                            total += res.Rows.Count;
+                            if (res.Rows.Count < size) break;
+                            last = L(res.Rows[^1], "CCID");
+                            if (n >= 2000) throw new InvalidOperationException(what + ": more than 2,000 pages - stopped");
+                        }
+                        x.Note("   " + what + " · " + total.ToString("N0", CultureInfo.InvariantCulture) + " combinations in " + n + " page(s), " + (tw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s");
                     }
                     finally { gate.Release(); }
-                    bool tooBig = res.Success && res.Capped;
-                    if (!res.Success && !Slow(res.Error)) throw new InvalidOperationException(what + ": " + res.Error);
-                    if (!res.Success || tooBig)
-                    {
-                        // cut it smaller: per company first, then ranges of account values
-                        if (co == null && splitCos.Count > 0)
-                        {
-                            x.Note("   ⚠ " + what + (tooBig ? " is too big" : " timed out after " + (t0.ElapsedMilliseconds / 1000.0).ToString("0", CultureInfo.InvariantCulture) + " s") + " - reading it per company (" + splitCos.Count + ")");
-                            await Task.WhenAll(splitCos.Select(c2 => Read(r, c2, null, null, depth + 1))).ConfigureAwait(false);
-                            return;
-                        }
-                        if (depth >= 6) throw new InvalidOperationException(what + ": still " + (tooBig ? "too big" : "timing out") + " after splitting it 6 times - " + res.Error);
-                        var vals = (await AccountsOf(co).ConfigureAwait(false)).Where(v => (lo == null || string.CompareOrdinal(v, lo) > 0) && (hi == null || string.CompareOrdinal(v, hi) <= 0)).ToList();
-                        if (vals.Count < 2) throw new InvalidOperationException(what + ": " + (res.Error ?? "too many rows") + " (cannot split further)");
-                        int k = Math.Min(4, vals.Count);
-                        var bounds = new List<string>();
-                        for (int i = 1; i < k; i++) bounds.Add(vals[i * vals.Count / k - 1]);
-                        var edges = new List<string> { lo }; edges.AddRange(bounds); edges.Add(hi);
-                        x.Note("   ⚠ " + what + (tooBig ? " is too big" : " timed out after " + (t0.ElapsedMilliseconds / 1000.0).ToString("0", CultureInfo.InvariantCulture) + " s") + " - reading it in " + k + " account ranges (" + vals.Count + " accounts)");
-                        var subs = new List<Task>();
-                        for (int i = 0; i < k; i++) subs.Add(Read(r, co, edges[i], edges[i + 1], depth + 1));
-                        await Task.WhenAll(subs).ConfigureAwait(false);
-                        return;
-                    }
-                    int from, to;
-                    lock (acc)
-                    {
-                        reads++; from = rowsSoFar + 1; rowsSoFar += res.Rows.Count; to = rowsSoFar;
-                        foreach (var row in res.Rows)
-                        {
-                            string c0 = S(row, "CO"), a0 = S(row, "AC"), cc0 = byCc ? S(row, "CC") : null;
-                            if (c0 == null || a0 == null) continue;
-                            var key = (c0, a0, cc0);
-                            if (!acc.TryGetValue(key, out var v)) acc[key] = v = new double[5];
-                            double b0 = D(row, "BDR") - D(row, "BCR");
-                            if (r.Role == "cur") { v[0] += b0; v[1] += D(row, "DR"); v[2] += D(row, "CR"); }
-                            else if (r.Role == "adj") { v[1] += D(row, "DR"); v[2] += D(row, "CR"); }
-                            else if (r.Role == "qtr") v[3] += b0;
-                            else v[4] += b0;
-                            string at = S(row, "ATYPE"); if (at != null) atypes[atypeKey(c0, a0)] = at;
-                        }
-                        if (!sampled && res.Rows.Count > 0) { sampled = true; LiveSample(x, what, res.Rows); }
-                    }
-                    double secs = Math.Max(0.001, t0.ElapsedMilliseconds / 1000.0);
-                    x.Note("   " + what + " · chunk " + reads + " · rows " + from.ToString("N0", CultureInfo.InvariantCulture) + "–" + Math.Max(from, to).ToString("N0", CultureInfo.InvariantCulture) +
-                           " · " + secs.ToString("0.0", CultureInfo.InvariantCulture) + " s");
                 }
+                await Task.WhenAll(roles.Select(ReadPeriod)).ConfigureAwait(false);
 
-                async Task Guard(Task t)
-                {
-                    try { await t.ConfigureAwait(false); }
-                    catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
-                    {
-                        lock (acc) first ??= ex;
-                        try { stop.Cancel(); } catch { }
-                    }
-                }
-                var work = new List<Task>();
-                foreach (var r in roles)
-                {
-                    if (perCompany) foreach (var c in splitCos) work.Add(Guard(Read(r, c, null, null, 0)));
-                    else work.Add(Guard(Read(r, null, null, null, 0)));
-                }
-                await Task.WhenAll(work).ConfigureAwait(false);
-                ct.ThrowIfCancellationRequested();
-                if (first != null) throw first is OperationCanceledException ? new InvalidOperationException("a read failed") : first;
+                // combination → segments from this PC's map (looked up in Fusion by primary key only for new ids)
+                var need = new List<string> { led.Company, led.Account }; if (led.CostCentre != null) need.Add(led.CostCentre);
+                var map = await CcidMapAsync(x, led.CoaId, bal.Keys.ToList(), need, Math.Clamp(o.Parallel, 1, 4)).ConfigureAwait(false);
 
-                // names from this PC: DuckDB accounts / segment values (or values kept before the first load)
+                var acc = new Dictionary<(string Co, string Ac, string Cc), double[]>();
+                var atypes = new Dictionary<(string, string), string>();
+                int unknown = 0, summary = 0;
+                foreach (var kv in bal)
+                {
+                    if (!map.TryGetValue(kv.Key, out var c)) { unknown++; continue; }
+                    if (c.Summary) { summary++; continue; }
+                    string co = c.Seg(led.Company), ac = c.Seg(led.Account), cc = byCc ? c.Seg(led.CostCentre) : null;
+                    if (co == null || ac == null || (cos.Count > 0 && !cos.Contains(co))) continue;
+                    var key = (co, ac, cc);
+                    if (!acc.TryGetValue(key, out var v)) acc[key] = v = new double[5];
+                    for (int i = 0; i < 5; i++) v[i] += kv.Value[i];
+                    if (c.Type != null) atypes[(co, ac)] = c.Type;
+                }
+                if (unknown > 0) x.Note("⚠ " + unknown + " combination(s) not found in GL_CODE_COMBINATIONS - left out");
+                if (summary > 0) x.Note(summary.ToString("N0", CultureInfo.InvariantCulture) + " summary combination(s) skipped");
+
                 var accNames = FinanceLens.SegmentNames(led.CoaId, led.Account);
                 var coNames = FinanceLens.SegmentNames(led.CoaId, led.Company);
                 foreach (var kv in led.CompanyNames ?? new()) if (!string.IsNullOrEmpty(kv.Value) && !coNames.ContainsKey(kv.Key)) coNames[kv.Key] = kv.Value;
@@ -1311,24 +1257,108 @@ namespace WMSApp
                     return new
                     {
                         company = co, companyName = coNames.TryGetValue(co, out var cn) ? cn : null,
-                        account = ac, accountName = accNames.TryGetValue(ac, out var an) ? an : null, accountType = atypes.TryGetValue(atypeKey(co, ac), out var at) ? at : null,
+                        account = ac, accountName = accNames.TryGetValue(ac, out var an) ? an : null, accountType = atypes.TryGetValue((co, ac), out var at) ? at : null,
                         costCentre = cc, costCentreName = cc != null && ccNames.TryGetValue(cc, out var ccn) ? ccn : null,
                         opening = Math.Round(op, 2), ptdDr = Math.Round(dr, 2), ptdCr = Math.Round(cr, 2), closing = Math.Round(cl, 2),
                         qtrOpen = Math.Round(qo, 2), yearOpen = Math.Round(yo, 2), qtd = Math.Round(cl - qo, 2), ytd = Math.Round(cl - yo, 2)
                     };
                 }).Where(r => r.opening != 0 || r.ptdDr != 0 || r.ptdCr != 0 || r.closing != 0 || r.yearOpen != 0 || r.qtrOpen != 0)
                   .OrderBy(r => r.company, StringComparer.Ordinal).ThenBy(r => r.account, StringComparer.Ordinal).ThenBy(r => r.costCentre, StringComparer.Ordinal).ToList();
-                x.Note("✓ " + list.Count.ToString("N0", CultureInfo.InvariantCulture) + " lines from " + reads + " read(s) · names for " + list.Count(r => r.accountName != null).ToString("N0", CultureInfo.InvariantCulture) + " from this PC · " +
+                x.Note("✓ " + list.Count.ToString("N0", CultureInfo.InvariantCulture) + " lines from " + bal.Count.ToString("N0", CultureInfo.InvariantCulture) + " combinations · " + pages + " page(s) · " +
                        (sw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s");
                 return new
                 {
                     ok = true, ledger = new { id = led.Id, code = led.Code, name = led.Name, currency = led.Currency, coaId = led.CoaId },
                     period = new { name = p.Name, seq = p.Seq, year = p.Year, quarter = p.Quarter, folded = cur.Where(n => n != p.Name).ToList(), yearFrom = fy.Name, quarterFrom = fq.Name },
-                    byCostCentre = byCc, companies = cos, rows = list, namesFromPc = accNames.Count, reads, ms = sw.ElapsedMilliseconds, log = x.Log
+                    byCostCentre = byCc, companies = cos.ToList(), rows = list, namesFromPc = accNames.Count, reads = pages, combinations = bal.Count, ms = sw.ElapsedMilliseconds, log = x.Log
                 };
             }
             catch (OperationCanceledException) { return new { ok = false, error = "Cancelled.", log = x.Log }; }
             catch (Exception ex) { x.Note("✖ " + ex.Message); return new { ok = false, error = ex.Message, log = x.Log }; }
+        }
+
+        // ═════ code combination map kept on this PC ═════
+        public sealed class CcidInfo
+        {
+            public string Type; public bool Summary; public Dictionary<string, string> Segs = new();
+            public string Seg(string col) => col != null && Segs.TryGetValue(col, out var v) ? v : null;
+        }
+        private static readonly object _ccidLock = new();
+        private static string CcidFile(string coaId) => Path.Combine(FinanceLens.Root, "ccid-cache", "coa_" + Regex.Replace(coaId ?? "x", "[^A-Za-z0-9_-]", "_") + ".tsv");
+
+        /// <summary>
+        /// Segments of code combinations: read from {root}\ccid-cache\coa_{id}.tsv (one line per combination: id, account type,
+        /// summary flag, then column=value), the rest looked up in Fusion by primary key (`code_combination_id IN (…)`, 500 per query)
+        /// and added to the file. A combination's segments never change, so the file only grows.
+        /// </summary>
+        private static async Task<Dictionary<long, CcidInfo>> CcidMapAsync(Ctx x, string coaId, List<long> ids, List<string> cols, int parallel)
+        {
+            var map = new Dictionary<long, CcidInfo>();
+            string file = CcidFile(coaId);
+            lock (_ccidLock)
+            {
+                if (File.Exists(file))
+                    foreach (var line in File.ReadLines(file))
+                    {
+                        var f = line.Split('\t');
+                        if (f.Length < 3 || !long.TryParse(f[0], out var id)) continue;
+                        var c = new CcidInfo { Type = f[1].Length > 0 ? f[1] : null, Summary = f[2] == "Y" };
+                        for (int i = 3; i < f.Length; i++) { int e = f[i].IndexOf('='); if (e > 0) c.Segs[f[i].Substring(0, e)] = f[i].Substring(e + 1); }
+                        map[id] = c;
+                    }
+            }
+            cols = cols.Select(SegCol).Where(c => c != null).Distinct().ToList();
+            var missing = ids.Where(id => !map.TryGetValue(id, out var c) || cols.Any(k => !c.Segs.ContainsKey(k))).Distinct().OrderBy(i => i).ToList();
+            x.Note("Code combinations: " + (ids.Count - missing.Count).ToString("N0", CultureInfo.InvariantCulture) + " known on this PC, " + missing.Count.ToString("N0", CultureInfo.InvariantCulture) + " to look up in Fusion");
+            if (missing.Count == 0) return map;
+            // ask for every segment this map already keeps plus the ones needed now, so the file stays complete
+            var all = cols.Union(map.Values.SelectMany(c => c.Segs.Keys)).Distinct().Where(c => SegCol(c) != null).OrderBy(c => c.Length).ThenBy(c => c, StringComparer.Ordinal).ToList();
+            bool hasSumm = x.Has("GL_CODE_COMBINATIONS", "SUMMARY_FLAG");
+            var found = new List<(long, CcidInfo)>();
+            var gate = new SemaphoreSlim(Math.Max(1, parallel));
+            var batches = missing.Chunk(500).ToList();
+            int done = 0;
+            await Task.WhenAll(batches.Select(async (b, bi) =>
+            {
+                await gate.WaitAsync(x.Ct).ConfigureAwait(false);
+                try
+                {
+                    string sql = "SELECT c.code_combination_id ccid, c.account_type atype" + (hasSumm ? ", c.summary_flag sflag" : "") + string.Concat(all.Select(c => ", c." + c)) +
+                                 " FROM gl_code_combinations c WHERE c.code_combination_id IN (" + string.Join(",", b.Select(i => i.ToString(CultureInfo.InvariantCulture))) + ")";
+                    var t0 = Stopwatch.StartNew();
+                    var r = await RunLive(x, "code combinations " + (bi + 1) + "/" + batches.Count, sql, 1000).ConfigureAwait(false);
+                    if (!r.Success) throw new InvalidOperationException("code combinations: " + r.Error);
+                    lock (found)
+                    {
+                        foreach (var row in r.Rows)
+                        {
+                            var c = new CcidInfo { Type = S(row, "ATYPE"), Summary = hasSumm && S(row, "SFLAG") == "Y" };
+                            foreach (var k in all) c.Segs[k] = S(row, k) ?? "";
+                            found.Add((L(row, "CCID"), c));
+                        }
+                        done++;
+                    }
+                    x.Note("   code combinations " + done + "/" + batches.Count + " · " + r.Rows.Count + " · " + (t0.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s");
+                }
+                finally { gate.Release(); }
+            })).ConfigureAwait(false);
+            foreach (var (id, c) in found) map[id] = c;
+            try
+            {
+                lock (_ccidLock)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(file));
+                    var sb = new StringBuilder();
+                    foreach (var kv in map.OrderBy(k => k.Key))
+                        sb.Append(kv.Key.ToString(CultureInfo.InvariantCulture)).Append('\t').Append(kv.Value.Type ?? "").Append('\t').Append(kv.Value.Summary ? "Y" : "N")
+                          .Append(string.Concat(kv.Value.Segs.Select(s => "\t" + s.Key + "=" + (s.Value ?? "").Replace('\t', ' ').Replace('\n', ' ')))).Append('\n');
+                    File.WriteAllText(file + ".tmp", sb.ToString());
+                    File.Move(file + ".tmp", file, true);
+                }
+                x.Note("   " + found.Count.ToString("N0", CultureInfo.InvariantCulture) + " combination(s) added to " + file);
+            }
+            catch (Exception ex) { x.Note("⚠ code combination map not saved: " + ex.Message); }
+            return map;
         }
 
         public sealed class SegValue { public string Value { get; set; } public string Description { get; set; } public long Combinations { get; set; } public string AccountType { get; set; } }
