@@ -113,6 +113,29 @@ month / year end, 12-month trend, quarter + full-year budget.
 The designer warns when accounts are **in no row** (left out of the totals) or **in two rows** (double counted), and
 shows a live preview on the current data. Templates can be exported and imported as JSON.
 
+## Understanding the KPIs and the company health
+
+**How a KPI is worked out** — click any KPI (KPI library, the ❓ next to a monitor, or a chip in the health card): what it means in plain words and
+its healthy range, the formula, the formula **with this period's numbers in it** (`PCT(-42,072,189, 32,822,657) = -128.2 %`), and a table of every
+input — the statement line (e.g. `PL.REV` = line *Revenue* of the income statement), the window (year to date, last 12 months, closing balance …)
+with the exact periods it covers, its amount, and a fold-out with **the accounts behind it** (code, name, amount) — or, for a formula line such as
+Gross profit, its parts (REV − COGS) with their amounts. Below: the last 12 months and the monitor rules on it. The same panel sits in the KPI
+editor (refreshed by *Test*) and in the monitor rule editor, which also says what the rule means right now ("Current ratio < 1.20×. Aug-26: 1.35× → OK").
+
+**No data is not 0 %** — a KPI that needs data that is not there (no budget loaded, last year not synced, the previous month missing) shows
+*no data* with the reason instead of a misleading 0.0 %, and its monitor is not raised. A last-12-month input built from fewer than 12 synced
+months is flagged.
+
+**Company health** (top of KPIs & monitor) — a score out of 100 with a grade (Healthy ≥ 75, Watch ≥ 55, At risk), strengths and concerns, and
+seven pillars: Profitability (gross / EBITDA / net margin, ROE), Growth & plan (vs last year, vs budget), Liquidity (current, quick ratio),
+Working capital (DSO, DIO, cash cycle), Debt & solvency (debt / equity, net debt / EBITDA, interest cover), Cash generation (OCF / EBITDA) and
+Books in order (balance check, suspense). Each KPI is good (100) / watch (60) / poor (20) against typical ranges (`FINE.HEALTH.bands`; change them
+in config.json `health.bands`); pillars are averaged with weights. The score is marked *provisional* while data is missing, and **To complete the
+picture** lists what is missing with the button that gets it: last year's periods, 12 months in a row, the budget (full GL load), accounts not
+mapped to receivables / inventory / payables / cash / finance costs / cost of sales (Statement builder), accounts without a Fusion type, journal
+lines. The master data checklist (Data › Trial balance sync and SQL explorer) has the same items — *12 months in a row* and *Last year* with a
+Sync button for exactly the missing periods, and *Budget*.
+
 ## KPIs
 
 KPI formulas refer to template rows with a window: `PL.NP@YTD`, `BS.AR@BAL`, `CF.OPC@LTM`; windows `MTD QTD YTD LTM BAL
