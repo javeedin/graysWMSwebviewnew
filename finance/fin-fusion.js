@@ -500,7 +500,7 @@
         el.innerHTML = '<h3><i class="fa-solid fa-diagram-project"></i> Account mapping <small>' + accs.length.toLocaleString() + ' accounts → statement lines' + (auto ? ' by class' : ' by account ranges') + '</small></h3>' +
             '<div class="row" style="margin-bottom:8px"><input id="mp-q" placeholder="Search account, name or class" value="' + esc(M.q) + '" style="flex:1;min-width:180px">' +
             '<div class="seg" id="mp-only">' + [['all', 'All'], ['none', 'In no line (' + probs.none + ')'], ['dbl', 'In two lines (' + probs.dbl + ')']].map(function (x) { return '<button data-o="' + x[0] + '" class="' + (M.only === x[0] ? 'on' : '') + '">' + esc(x[1]) + '</button>'; }).join('') + '</div>' +
-            '<button class="btn sm" id="mp-rebuild" title="Replace PL, PLS, BS and CF with statements built on the account classes (your other templates stay)"><i class="fa-solid fa-wand-magic-sparkles"></i> Build statements from classes</button>' +
+            '<button class="btn sm" id="mp-rebuild" title="Replace PL, PLS, BS and CF with the default statements built on the account classes (your other templates stay)"><i class="fa-solid fa-wand-magic-sparkles"></i> Rebuild default statements</button>' +
             '<button class="btn sm" id="mp-apex" title="Store the class of every account in APEX (WMS_FIN_ACCOUNT_MAP) so other PCs and the next load use the same mapping"><i class="fa-solid fa-cloud-arrow-up"></i> Save all to APEX</button></div>' +
             '<p class="sm muted">Saved: your choices in APEX <code>WMS_FIN_ACCOUNT_MAP</code> (shared, by chart ' + esc(F.coaOf()) + '), DuckDB <code>fin_account_map</code> + <code>fin_accounts.class</code>, and config.json — every load keeps them.</p>' +
             (!auto ? '<p class="sm muted">These templates pick accounts by ranges — a class change here moves an account only in templates built from classes.</p>' : '') +
@@ -523,8 +523,10 @@
                 .then(function () { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Save all to APEX'; });
         };
         $('mp-rebuild').onclick = function () {
-            if (!confirm('Replace the PL, PLS, BS and CF templates with statements built from the account classes? Your other templates stay.')) return;
-            var fresh = FINE.autoTemplates(), ids = fresh.map(function (t) { return t.id; });
+            if (!confirm('Replace the PL, PLS, BS and CF templates with the default statements built from the account classes? Your other templates stay.')) return;
+            var fresh = FINE.autoTemplates().map(function (t) {
+                return t.id === 'PL' || t.id === 'BS' ? FINE.simpleTemplate({ id: t.id, name: t.id === 'PL' ? 'Income statement' : 'Balance sheet', simple: FINE.simpleDefault(t.id, accs), description: 'Default mapping from the account types and names — change it in the Statement builder.' }) : t;
+            }), ids = fresh.map(function (t) { return t.id; });
             FL.templates = fresh.concat(FL.templates.filter(function (t) { return ids.indexOf(t.id) < 0; }));
             FL.saveTemplates().then(function () { FL.templatesSaved = true; FL.cache = {}; FL.toast('Statements rebuilt from the account classes', 'ok'); M.render(el); });
         };
@@ -533,6 +535,14 @@
         FL.config.accountClass = FL.config.accountClass || {};
         FL.config.accountClass[code] = cls;
         FL.dims.accounts.forEach(function (a) { if (a.code === code) a.class = cls; });
+        // simple statements hold accounts by section: move the account to the section of its new class
+        var moved = 0;
+        FL.templates.forEach(function (t) {
+            if (!t.simple || !(t.simple.lines || []).some(function (l) { return (l.sections || []).some(function (x) { return (x.accounts || []).indexOf(code) >= 0; }); })) return;
+            t.simple.lines.forEach(function (l) { (l.sections || []).forEach(function (x) { x.accounts = (x.accounts || []).filter(function (c) { return c !== code; }); }); });
+            FINE.simplePlace(t.simple, FL.dims.accounts, [code]); FINE.simpleTemplate(t); moved++;
+        });
+        if (moved) FL.saveTemplates();
         var ch = {}; ch[code] = cls;
         var acc = FL.dims.accounts.filter(function (a) { return a.code === code; })[0] || {};
         var apex = FL.apexStore ? FL.apexStore.saveClasses(F.coaOf(), [{ code: code, name: acc.name, type: acc.account_type, cls: cls, source: 'USER' }]).then(function () { return 'APEX'; }).catch(function (e) { console.warn(e); return 'not APEX (' + (e.message || e) + ')'; }) : Promise.resolve('');

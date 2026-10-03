@@ -104,6 +104,7 @@ FL.loadDocs = function () {
         try { c = r[1].json ? JSON.parse(r[1].json) : null; } catch (e) { FL.toast('config.json is not valid JSON — using the starters', 'err'); }
         FL.templatesSaved = !!(t && t.templates && t.templates.length);
         FL.templates = (FL.templatesSaved ? t.templates : JSON.parse(JSON.stringify(FIN_SEED.templates)));
+        FL.templates.forEach(function (x) { if (x.simple) { try { FINE.simpleTemplate(x); } catch (e) { console.warn('[Finance] template', x.id, e); } } });
         FL.config = Object.assign(JSON.parse(JSON.stringify(FIN_SEED.config)), c || {});
     });
 };
@@ -113,12 +114,50 @@ FL.saveTemplates = function () { return FL.call('finDocSave', { name: 'templates
 FL.classifyAccounts = function () {
     var over = (FL.config && FL.config.accountClass) || {}, changed = {}, n = 0;
     FL.dims.accounts.forEach(function (a) {
-        var want = over[a.code] || a.class || FINE.classify(a);
+        // only your choices (config.accountClass, also those from APEX) stick: the rest is worked out again from the type and name
+        // every time — a class saved while the name was still the bare code, or the type unknown, would otherwise stay wrong
+        var fits = a.class && (FINE.CLASSES[a.account_type] || []).concat(a.account_type === 'E' ? ['Other expenses'] : []).indexOf(a.class) >= 0;
+        var named = a.name && String(a.name).trim() !== String(a.code);
+        var want = over[a.code] || (named || !fits ? FINE.classify(a) : a.class);
         if (over[a.code] && a.class !== over[a.code]) want = over[a.code];
         if (want !== a.class) { a.class = want; changed[a.code] = want; n++; }
     });
     if (n) FL.call('finSetClasses', { classes: changed, source: 'AUTO' }, 120000).then(function () { FL.cache = {}; }).catch(function (e) { console.warn('[Finance] classes not saved', e); });
     return n;
+};
+/** Income statement and balance sheet as simple templates (main groups → sections → accounts), mapped by default from the
+    accounts' type and name. A class-built or range template that misses most accounts is replaced (kept as "… (previous)"). */
+FL.ensureSimple = function () {
+    var accs = FL.dims.accounts; if (!accs.length) return false;
+    var changed = false;
+    // the default mapping follows the account types, names and classes until someone changes it (simple.auto)
+    FL.templates.forEach(function (t) {
+        if (!t.simple || !t.simple.auto) return;
+        var before = JSON.stringify(t.simple); t.simple = FINE.simpleDefault(t.simple.kind, accs);
+        if (JSON.stringify(t.simple) !== before) { FINE.simpleTemplate(t); changed = true; }
+    });
+    ['PL', 'BS'].forEach(function (kind) {
+        if (FL.templates.some(function (t) { return t.simple && t.simple.kind === kind; })) return;
+        var mine = accs.filter(function (a) { return FINE.simpleKindOf(a) === kind; }); if (!mine.length) return;
+        var old = FL.tpl(kind), fresh = FINE.simpleTemplate({ id: kind, name: kind === 'PL' ? 'Income statement' : 'Balance sheet', simple: FINE.simpleDefault(kind, accs),
+            description: 'Default mapping from the account types and names — change it in the Statement builder.' });
+        if (old) {
+            var lines = FINE.accountLines([old], mine), hit = mine.filter(function (a) { return lines[a.code].length; }).length;
+            if (!old.auto && hit >= mine.length * 0.6) { fresh.id = kind === 'PL' ? 'IS' : 'SFP'; while (FL.tpl(fresh.id)) fresh.id += '1'; FL.templates.push(fresh); changed = true; return; }
+            if (!old.auto) { old.id = kind + '_PREV'; old.name = old.name + ' (previous)'; } else FL.templates = FL.templates.filter(function (t) { return t !== old; });
+        }
+        var at = FL.templates.map(function (t) { return t.type; }).indexOf(kind);
+        FL.templates.splice(at < 0 ? 0 : at, 0, fresh); changed = true;
+    });
+    if (changed) FL.saveTemplates().then(function () { FL.templatesSaved = true; }).catch(function (e) { console.warn('[Finance] templates not saved', e); });
+    return changed;
+};
+/** Changes the filter from anywhere (statement bar, links) and keeps the header selects in step */
+FL.setFilter = function (patch) {
+    Object.assign(FL.filter, patch);
+    if ('ledger' in patch && FL.coOptions) FL.coOptions();
+    [['f-period', 'period'], ['f-ledger', 'ledger'], ['f-company', 'company'], ['f-cc', 'cc'], ['f-scale', 'scale']].forEach(function (x) { if ($(x[0])) $(x[0]).value = FL.filter[x[1]] == null ? '' : FL.filter[x[1]]; });
+    FL.lsSet('filter', FL.filter); FL.cache = {}; FL.render();
 };
 FL.saveConfig = function () { return FL.call('finDocSave', { name: 'config', json: JSON.stringify(FL.config, null, 1) }); };
 
@@ -147,12 +186,15 @@ FL.refresh = function () {
             st.hasLedgers ? FL.rows('SELECT DISTINCT ledger, company FROM fin_balances') : Promise.resolve([])
         ]).then(function (r) {
             FL.dims = { companies: r[0], ccs: r[1], accounts: r[2], periods: r[3], ledgers: r[5], ledgerCompanies: r[6] };
+            // no type from Fusion yet: worked out from the name and code (the builder marks them), so statements are never empty
+            FL.dims.accounts.forEach(function (a) { if (!/^[ALORE]$/.test(a.account_type || '')) { a.account_type = FINE.guessType(a); a.typeGuess = true; } });
             FL.classifyAccounts();
-            if (!FL.templatesSaved) FL.toast('Statements built from your chart of accounts by account class — adjust in Data › Account mapping or the Template designer.', 'ok');
+            FL.ensureSimple();
+            if (!FL.templatesSaved) FL.toast('Statements built from your chart of accounts by account class — adjust them in the Statement builder.', 'ok');
             FL.fillFilters();
             FL.dataChip();
             FL.show(FL.ls('tab', 'overview'));
-            if (FL.fusion && FL.fusion.pullMapping && (st.meta || {}).source === 'FUSION') FL.fusion.pullMapping();
+            if (FL.fusion && FL.fusion.pullMapping && /^FUSION/.test((st.meta || {}).source || '')) FL.fusion.pullMapping().then(function () { if (FL.ensureSimple() && /statements|builder/.test(FL.tab)) FL.render(); });
         });
     }).catch(function (e) { $('main').innerHTML = '<div class="callout bad">' + esc(e) + '</div>'; });
 };
@@ -187,6 +229,7 @@ FL.fillFilters = function () {
         $('f-company').value = f.company;
     };
     coOptions();
+    FL.coOptions = coOptions;
     $('f-period').value = f.period; $('f-ledger').value = f.ledger; $('f-cc').value = f.cc; $('f-scale').value = f.scale;
     var on = function (e) {
         f.period = +$('f-period').value; f.ledger = $('f-ledger').value; f.company = $('f-company').value; f.cc = $('f-cc').value; f.scale = +$('f-scale').value;

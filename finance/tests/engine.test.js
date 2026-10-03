@@ -182,5 +182,44 @@ test('Fusion charts: accounts classified by name, auto templates balance, tie an
     near(k.gm.value, k0.gm.value, 0.3, 'gross margin'); near(k.np.value, k0.np.value, 1, 'np'); near(k.cash.value, k0.cash.value, 1, 'cash');
 });
 
+test('simple templates: default mapping from types + names, compile, KPIs, upload / download round trip', function () {
+    var accs = raw.accounts.map(function (a) { return { code: a.code, name: a.name, account_type: a.account_type }; });
+    accs.forEach(function (a) { a.class = FINE.classify(a); });
+    var d2 = { accounts: accs, periods: data.periods, facts: data.facts };
+    var PL = FINE.simpleTemplate({ id: 'PL', name: 'Income statement', simple: FINE.simpleDefault('PL', accs) });
+    var BS = FINE.simpleTemplate({ id: 'BS', name: 'Balance sheet', simple: FINE.simpleDefault('BS', accs) });
+    // every P&L account in exactly one section of PL, every balance sheet account in exactly one section of BS
+    var cp = FINE.simpleCheck(PL.simple, accs), cb = FINE.simpleCheck(BS.simple, accs);
+    assert.strictEqual(cp.unmapped.length + cp.twice.length + cb.unmapped.length + cb.twice.length, 0);
+    assert.strictEqual(cp.mapped + cb.mapped, accs.length);
+    // same net profit as the class-built statement; the balance sheet balances every month
+    var AT = {}; FINE.autoTemplates().forEach(function (t) { AT[t.id] = t; });
+    var val = function (t, id, cols) { var r = FINE.compute(t, d2, { period: last, scale: 1, columns: cols }).rows.filter(function (x) { return x.id === id; })[0]; return r.values[0]; };
+    var Y = [{ id: 'y', range: 'YTD' }];
+    near(val(PL, 'NP', Y), val(AT.PL, 'NP', Y), 0.5, 'np'); near(val(PL, 'REV', Y), val(AT.PL, 'REV', Y), 0.5, 'rev'); near(val(PL, 'GP', Y), val(AT.PL, 'GP', Y), 0.5, 'gp');
+    near(val(BS, 'TA', [{ id: 'b', range: 'BAL' }]), val(AT.BS, 'TA', [{ id: 'b', range: 'BAL' }]), 0.5, 'total assets');
+    data.periods.forEach(function (p) { var st = FINE.compute(BS, d2, { period: p.period_seq, scale: 1 }); assert.ok(st.rows.filter(function (r) { return r.id === 'CHK'; })[0].ok, p.period_name); assert.strictEqual(st.errors.length, 0); });
+    var k = FINE.kpis(SEED.config.kpis, { PL: PL, BS: BS, CF: AT.CF, PLS: AT.PLS }, d2, last);
+    Object.keys(k).forEach(function (id) { assert.ok(!k[id].error, id + ': ' + k[id].error); });
+    // every column set computes
+    ['PL', 'BS'].forEach(function (kind) { FINE.COLSETS[kind].forEach(function (c) { var t = JSON.parse(JSON.stringify(kind === 'PL' ? PL : BS)); t.colset = c.id; FINE.simpleTemplate(t); assert.strictEqual(FINE.compute(t, d2, { period: last, scale: 1 }).errors.length, 0, c.id); }); });
+    // download → upload gives the same numbers
+    var rows = FINE.simpleToRows(PL, accs).map(function (r) { return { Template: r.template, 'Main group': r.group, Nature: r.nature, Section: r.section, Account: r.account, 'Account name': r.name }; });
+    var up = FINE.simpleFromRows(rows, accs);
+    assert.strictEqual(up.templates.length, 1); assert.strictEqual(up.templates[0].simple.kind, 'PL');
+    var U = FINE.simpleTemplate({ id: 'U', name: 'u', simple: up.templates[0].simple });
+    var last2 = function (t) { var st = FINE.compute(t, d2, { period: last, scale: 1, columns: Y }); return st.rows.filter(function (r) { return r.type === 'formula' && !/_M$/.test(r.id); }).slice(-1)[0].values[0]; };
+    near(last2(U), val(PL, 'NP', Y), 0.5, 'uploaded net profit');
+    // a new account is placed next to accounts of its class; the type is guessed from the name when Fusion gave none
+    assert.strictEqual(FINE.guessType({ code: '501100001', name: 'PL EXP - SALARIES AND WAGES' }), 'E');
+    assert.strictEqual(FINE.guessType({ code: '101200004', name: 'PL- CREDIT & DEBIT TRANSFERS' }), 'E');
+    assert.strictEqual(FINE.guessType({ code: '401000001', name: 'SALES - LOCAL' }), 'R');
+    assert.strictEqual(FINE.guessType({ code: '210000001', name: 'TRADE PAYABLES' }), 'L');
+    var nw = { code: '6011', name: 'Staff overtime', account_type: 'E' }; nw.class = FINE.classify(nw);
+    var s2 = JSON.parse(JSON.stringify(PL.simple)); assert.strictEqual(FINE.simplePlace(s2, accs.concat([nw]), ['6011']), 1);
+    assert.ok(s2.lines.filter(function (l) { return l.id === 'OPEX'; })[0].sections.filter(function (x) { return x.id === 'STAFF'; })[0].accounts.indexOf('6011') >= 0);
+    assert.strictEqual(FINE.simpleId('Gross profit', {}), 'GROSS_PROFIT'); assert.strictEqual(FINE.simpleId('2025 sales', {}), 'L_2025_SALES'); assert.strictEqual(FINE.simpleId('Sum', {}), 'L_SUM');
+});
+
 console.log('\n' + (n - fail) + '/' + n + ' passed');
 process.exit(fail ? 1 : 0);

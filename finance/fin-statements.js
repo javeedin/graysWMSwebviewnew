@@ -5,6 +5,52 @@
 
     FL.stmtOpts = function () { return { period: FL.filter.period, scale: FL.filter.scale }; };
 
+    // ═════ the statement bar: one place for ledger · year · period · company · amounts, the statement kinds and the template ═════
+    var KINDS = [['TB', 'Trial balance', 'fa-scale-balanced'], ['PL', 'Income statement', 'fa-chart-line'], ['BS', 'Balance sheet', 'fa-building-columns'], ['CF', 'Cash flow', 'fa-money-bill-transfer'], ['X', 'Other', 'fa-file-lines']];
+    S.pick = FL.ls('stmt.pick', {});
+    S.kindOf = function (t) { return !t ? 'TB' : /^(PL|BS|CF)$/.test(t.type) ? t.type : 'X'; };
+    S.ofKind = function (k) { return (FL.templates || []).filter(function (t) { return S.kindOf(t) === k; }); };
+    S.kind = function () { return S.tpl === 'TB' ? 'TB' : S.kindOf(FL.tpl(S.tpl)); };
+    /** Shows a kind: the template last used for it, else its first */
+    S.go = function (kind, id) {
+        if (kind === 'TB') S.tpl = 'TB';
+        else { var list = S.ofKind(kind), t = FL.tpl(id || S.pick[kind]); if (!t || S.kindOf(t) !== kind) t = list[0]; if (!t) return; S.tpl = t.id; S.pick[kind] = t.id; FL.lsSet('stmt.pick', S.pick); }
+        FL.lsSet('stmt.tpl', S.tpl); FL.show('statements');
+    };
+    S.bar = function () {
+        var f = FL.filter, pers = FL.dims.periods || [], cur = pers.filter(function (p) { return p.period_seq === f.period; })[0] || pers[pers.length - 1] || {}, years = {};
+        pers.forEach(function (p) { years[p.fiscal_year] = 1; });
+        var leds = FL.dims.ledgers || [], kind = S.kind(), list = kind === 'TB' ? [] : S.ofKind(kind);
+        var ctx = !pers.length ? '<span class="sm muted">No periods synced yet</span>' :
+            (leds.length > 1 ? '<label class="sb-f">Ledger<select id="sb-led"><option value="">All ledgers</option>' + leds.map(function (l) { return '<option value="' + esc(l.code) + '"' + (f.ledger === l.code ? ' selected' : '') + '>' + esc(l.name + ' · ' + l.currency) + '</option>'; }).join('') + '</select></label>'
+                : leds.length ? '<span class="sb-f"><small>Ledger</small><b>' + esc(leds[0].name) + '</b> <span class="muted sm">' + esc(leds[0].currency || '') + '</span></span>' : '') +
+            '<span class="sb-f"><small>Year</small><span class="seg sb-years">' + Object.keys(years).sort().map(function (y) { return '<button data-y="' + esc(y) + '" class="' + (+y === cur.fiscal_year ? 'on' : '') + '">' + esc(y) + '</button>'; }).join('') + '</span></span>' +
+            '<span class="sb-f grow"><small>Period</small><span class="seg sb-pers">' + pers.filter(function (p) { return p.fiscal_year === cur.fiscal_year; }).map(function (p) {
+                return '<button data-p="' + p.period_seq + '" class="' + (p.period_seq === f.period ? 'on' : '') + '" title="' + esc(p.period_name) + '">' + esc(String(p.period_name).replace(/[-\s]?\d{2,4}$/, '') || p.period_name) + '</button>'; }).join('') + '</span></span>' +
+            '<label class="sb-f">Company<select id="sb-co"><option value="">' + (f.ledger ? 'All companies of the ledger' : 'All companies') + '</option>' + (FL.dims.companies || []).filter(function (c) {
+                return !f.ledger || (FL.dims.ledgerCompanies || []).some(function (x) { return x.ledger === f.ledger && x.company === c.code; }) || !(FL.dims.ledgerCompanies || []).length; }).map(function (c) { return '<option value="' + esc(c.code) + '"' + (f.company === c.code ? ' selected' : '') + '>' + esc(c.code + (c.name && c.name !== c.code ? ' ' + c.name : '')) + '</option>'; }).join('') + '</select></label>' +
+            '<label class="sb-f">Amounts<select id="sb-sc">' + [[1, 'Units'], [1000, 'Thousands'], [1000000, 'Millions']].map(function (x) { return '<option value="' + x[0] + '"' + (+f.scale === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>';
+        var kinds = KINDS.filter(function (k) { return k[0] === 'TB' || S.ofKind(k[0]).length || k[0] === 'PL' || k[0] === 'BS'; });
+        return '<div class="sbar"><div class="sb-ctx">' + ctx + '</div><div class="sb-kinds"><div class="sb-tabs">' +
+            kinds.map(function (k) { return '<button data-k="' + k[0] + '" class="' + (kind === k[0] ? 'on' : '') + '"><i class="fa-solid ' + k[2] + '"></i> ' + k[1] + (k[0] !== 'TB' && S.ofKind(k[0]).length > 1 ? ' <span class="cnt">' + S.ofKind(k[0]).length + '</span>' : '') + '</button>'; }).join('') + '</div>' +
+            (kind !== 'TB' ? '<span class="grow"></span><label class="sb-f sb-tpl">Template<select id="sb-tpl">' + list.map(function (t) { return '<option value="' + esc(t.id) + '"' + (t.id === S.tpl ? ' selected' : '') + '>' + esc(t.name) + '</option>'; }).join('') + '</select></label>' +
+                '<button class="btn sm" id="sb-build" title="Main groups, sections and accounts of this template"><i class="fa-solid fa-sitemap"></i> ' + ((FL.tpl(S.tpl) || {}).simple ? 'Edit mapping' : 'Edit template') + '</button>' +
+                (kind === 'PL' || kind === 'BS' ? '<button class="btn sm" id="sb-new" title="Another ' + (kind === 'PL' ? 'income statement' : 'balance sheet') + ' layout — choose it here when you run the statement"><i class="fa-solid fa-plus"></i> New template</button>' : '') : '') +
+            '</div></div>';
+    };
+    S.wireBar = function (el) {
+        var q = function (sel) { return el.querySelector(sel); };
+        el.querySelectorAll('.sb-tabs button').forEach(function (b) { b.onclick = function () { if (b.dataset.k !== 'TB' && !S.ofKind(b.dataset.k).length) { FL.builder.create(b.dataset.k); return; } S.go(b.dataset.k); }; });
+        el.querySelectorAll('.sb-years button').forEach(function (b) { b.onclick = function () { var ps = FL.dims.periods.filter(function (p) { return p.fiscal_year === +b.dataset.y; }); if (ps.length) FL.setFilter({ period: ps[ps.length - 1].period_seq }); }; });
+        el.querySelectorAll('.sb-pers button').forEach(function (b) { b.onclick = function () { FL.setFilter({ period: +b.dataset.p }); }; });
+        if (q('#sb-led')) q('#sb-led').onchange = function () { FL.setFilter({ ledger: this.value, company: '' }); };
+        if (q('#sb-co')) q('#sb-co').onchange = function () { FL.setFilter({ company: this.value }); };
+        if (q('#sb-sc')) q('#sb-sc').onchange = function () { FL.setFilter({ scale: +this.value }); };
+        if (q('#sb-tpl')) q('#sb-tpl').onchange = function () { S.go(S.kind(), this.value); };
+        if (q('#sb-build')) q('#sb-build').onclick = function () { FL.builder.open(S.tpl); };
+        if (q('#sb-new')) q('#sb-new').onclick = function () { FL.builder.create(S.kind()); };
+    };
+
     /** Formats a cell of a computed statement */
     FL.cellText = function (r, c, v) {
         if (v == null) return '';
@@ -80,12 +126,21 @@
         render: function (el) {
             if (S.tpl === 'TB' || !(FL.status && FL.status.loaded)) return FL.tb.render(el);
             var tpl = FL.tpl(S.tpl) || FL.templates[0];
-            if (!tpl) { el.innerHTML = '<div class="empty">No templates — open the Template designer.</div>'; return; }
+            if (!tpl) { el.innerHTML = '<div class="empty">No templates — open the Statement builder.</div>'; return; }
             S.tpl = tpl.id;
             return FL.data().then(function (data) {
                 var opts = FL.stmtOpts(), st = FINE.compute(tpl, data, opts);
                 S.last = { tpl: tpl, st: st, opts: opts };
                 var sub = S.detail ? subRows(tpl, data, opts, st) : null;
+                var chk = tpl.simple ? FINE.simpleCheck(tpl.simple, data.accounts) : null, loose = [], looseAmt = 0;
+                if (chk && chk.unmapped.length) {
+                    var w = FINE.windowOf({ range: tpl.simple.kind === 'BS' ? 'BAL' : 'YTD' }, data._pi || (data._pi = FINE.periodIndex(data.periods)), opts.period), fa = (data.facts.ACTUAL || {});
+                    chk.unmapped.forEach(function (a) {
+                        var f = fa[a.code] || {}, v = 0;
+                        if (w) { if (tpl.simple.kind === 'BS') v = (f[data._pi.list[w.end].period_seq] || [0, 0])[1]; else for (var i = Math.max(0, w.from); i <= w.to; i++) v += (f[data._pi.list[i].period_seq] || [0])[0]; }
+                        if (Math.abs(v) >= 0.5) { loose.push(a); looseAmt += v; }
+                    });
+                }
                 el.innerHTML = FL.tb.head() +
                     '<label class="sm"><input type="checkbox" id="st-zero"' + (S.hideZero ? ' checked' : '') + '> hide empty lines</label>' +
                     '<label class="sm"><input type="checkbox" id="st-det"' + (S.detail ? ' checked' : '') + '> account detail</label>' +
@@ -93,19 +148,26 @@
                     '<button class="btn sm" id="st-xla" title="Every template in one workbook"><i class="fa-solid fa-file-excel"></i> All statements</button>' +
                     '<button class="btn sm" id="st-csv"><i class="fa-solid fa-file-csv"></i> CSV</button>' +
                     '<button class="btn sm" onclick="window.print()"><i class="fa-solid fa-print"></i> Print</button>' +
-                    '<button class="btn sm" id="st-edit"><i class="fa-solid fa-pen-ruler"></i> Edit template</button></div>' +
+                    (tpl.simple ? '' : '<button class="btn sm" id="st-edit"><i class="fa-solid fa-pen-ruler"></i> Edit template</button>') + '</div>' +
                     '<div class="stmt-wrap"><div class="stmt-head"><h2>' + esc(tpl.name) + '</h2><div class="sub">' + esc(FL.filterText()) + ' · period ' + esc(st.periodName) + ' · amounts in ' + FL.scaleLabel() +
                     (FL.filter.cc && tpl.type === 'BS' ? ' · <b>balance sheet accounts carry no cost centre: pick All cost centres</b>' : '') + '</div></div>' +
+                    (loose.length ? '<div class="callout warn sm"><i class="fa-solid fa-triangle-exclamation"></i> <b>' + loose.length + ' account(s) with amounts are not in this statement</b> (' + FL.num(Math.abs(looseAmt)) + ' ' + FL.scaleLabel() + ', e.g. ' +
+                        loose.slice(0, 3).map(function (a) { return esc(a.code + ' ' + (a.name || '')); }).join(', ') + ') — the totals leave them out. <a id="st-place">Place them automatically</a> · <a id="st-map">open the mapping</a></div>' : '') +
                     (st.errors.length ? '<div class="stmt-err"><i class="fa-solid fa-triangle-exclamation"></i> ' + st.errors.map(esc).join(' · ') + '</div>' : '') +
                     FL.stmtTable(st, { links: true, hideZero: S.hideZero, detail: S.detail, sub: sub }) + '</div>' +
                     '<p class="sm muted">Click a line name for the accounts mapped to it; click an amount to see the accounts behind it, then companies, cost centres, months and journal lines. Variances are shown favourable (+) / unfavourable (−).</p>';
-                el.querySelectorAll('#st-tpls button').forEach(function (b) { b.onclick = function () { S.tpl = b.dataset.t; FL.lsSet('stmt.tpl', S.tpl); FL.render(); }; });
+                FL.tb.wireHead(el);
                 $('st-zero').onchange = function () { S.hideZero = this.checked; FL.lsSet('stmt.hideZero', S.hideZero); FL.render(); };
                 $('st-det').onchange = function () { S.detail = this.checked; FL.render(); };
                 $('st-xl').onclick = function () { FL.excel([S.last.st], tpl.name); };
                 $('st-xla').onclick = function () { FL.excel(FL.templates.map(function (t) { return FINE.compute(t, data, opts); }), 'Financial statements'); };
                 $('st-csv').onclick = function () { FL.csv(tpl.id + '-' + st.periodName + '.csv', ['line'].concat(st.columns.map(function (c) { return c.label; })), st.rows.filter(function (r) { return r.type !== 'blank'; }).map(function (r) { return [r.label].concat(r.values.map(function (v) { return v == null ? '' : Math.round(v * 100) / 100; })); })); };
-                $('st-edit').onclick = function () { FL.designer.open(tpl.id); };
+                if ($('st-edit')) $('st-edit').onclick = function () { FL.designer.open(tpl.id); };
+                if ($('st-map')) $('st-map').onclick = function () { FL.builder.open(tpl.id, 'unmapped'); };
+                if ($('st-place')) $('st-place').onclick = function () {
+                    var n = FINE.simplePlace(tpl.simple, FL.dims.accounts, chk.unmapped.map(function (a) { return a.code; })); FINE.simpleTemplate(tpl);
+                    FL.saveTemplates().then(function () { FL.toast(n + ' account(s) placed by their type and name — check them in the mapping', 'ok'); FL.render(); });
+                };
                 el.querySelectorAll('td.lbl').forEach(function (td) { td.onclick = function () { FL.rowMap(tpl, td.parentNode.dataset.row); }; });
                 el.querySelectorAll('td.v').forEach(function (td) {
                     td.onclick = function () { FL.drillCell(tpl, opts, td.parentNode.dataset.row, td.dataset.col); };

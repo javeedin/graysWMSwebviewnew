@@ -26,6 +26,11 @@
             return out.sort();
         }
         var parts = (Array.isArray(spec) ? spec : String(spec).split(/[,;\n]+/)).map(function (s) { return String(s).trim(); }).filter(Boolean);
+        if (parts.every(function (p) { return !/[-*!]/.test(p); })) {                 // plain codes (simple templates): one set lookup per account
+            var set = {}; parts.forEach(function (p) { set[p] = 1; });
+            accounts.forEach(function (a) { if (set[String(a.code)]) out.push(String(a.code)); });
+            return out.sort();
+        }
         var inc = parts.filter(function (p) { return p[0] !== '!'; }), exc = parts.filter(function (p) { return p[0] === '!'; }).map(function (p) { return p.slice(1).trim(); });
         var hit = function (code, p) {
             if (p.indexOf('-') > 0) { var r = p.split('-'); return code >= r[0].trim() && code <= r[1].trim(); }
@@ -171,8 +176,8 @@
         if (col.kind === 'pctof') return '% of ' + (col.row || '');
         var w = FINE.windowOf(col, pi, curSeq), p = w && pi.list[Math.max(0, w.end)];
         var sc = col.scenario && col.scenario !== 'ACTUAL' ? ' ' + col.scenario.charAt(0) + col.scenario.slice(1).toLowerCase() : '';
-        if (!p) return (RANGE_LABEL[col.range] || col.range) + sc;
-        if (col.range === 'BAL' || col.range === 'OPEN') return p.period_name + sc;
+        if (!p) return ({ PM: 'Last month', PQ: '3 months back', PY: 'Last year', PYE: 'Last year end' }[col.at] || (RANGE_LABEL[col.range] || col.range)) + sc;
+        if (col.range === 'BAL' || col.range === 'OPEN' || col.plain) return p.period_name + sc;
         return (RANGE_LABEL[col.range || 'MTD'] || col.range) + ' ' + p.period_name + sc;
     };
 
@@ -239,6 +244,7 @@
                 if (col.kind === 'var') {
                     var a = cols.filter(function (c) { return c.id === col.a; })[0], b = cols.filter(function (c) { return c.id === col.b; })[0];
                     if (!a || !b) return null;
+                    if (!FINE.windowOf(a, pi, cur) || !FINE.windowOf(b, pi, cur)) return null;     // a side before the first period: no change to show
                     var va = rowVal(r, a), vb = rowVal(r, b), d = va - vb;
                     // a cost going up is unfavourable: flip so that + is always good when the row says so
                     if (r.favourable === 'down') d = -d;
@@ -716,6 +722,249 @@
                 { id: 'B4', type: 'blank' },
                 { id: 'FCF', type: 'formula', label: 'Free cash flow (operating + investing)', formula: 'OPC + INVC', style: B }] };
         return [PL, PLS, BS, CF];
+    };
+
+    // ── simple templates: main groups → sections → accounts (what a finance user thinks in), compiled to template rows ──
+    // simple = { kind: 'PL' | 'BS', lines: [ {t: 'group', id, name, nature: income|expense|asset|liability|equity,
+    //   sections: [{id, name, accounts: [codes], match: '5011*, 5012*', special: 'cye', cls: [hint classes]}]},
+    //   {t: 'subtotal', id, name, of: [group ids] | null (PL: everything above; BS: the groups since the last subtotal), margin} ] }
+    var NATURE_TYPE = { income: 'R', expense: 'E', asset: 'A', liability: 'L', equity: 'O' };
+    var TYPE_NATURE = { R: 'income', E: 'expense', A: 'asset', L: 'liability', O: 'equity' };
+    FINE.NATURES = ['income', 'expense', 'asset', 'liability', 'equity'];
+    var RESERVED = { PCT: 1, DIV: 1, IF: 1, ABS: 1, MIN: 1, MAX: 1, SUM: 1, AVG: 1, ROUND: 1, NEG: 1 };
+
+    /** Account type from the name and code when Fusion gave none ("PL EXP - SALARIES" → E; 1… A, 2… L, 3… O, 4… R, 5-9… E). */
+    FINE.guessType = function (a) {
+        var n = String(a.name || '').toUpperCase(), c = String(a.code || '');
+        var pl = /(^|[^A-Z])(PL|P\s*&\s*L|P\/L)([^A-Z]|$)|PROFIT AND LOSS|INCOME STATEMENT/.test(n);
+        if (/INCOME TAX|TAX EXPENSE/.test(n)) return 'E';
+        if (/REVENUE|TURNOVER|\bSALES\b(?! (TAX|RETURN))|\bINCOME\b|\bREV\b|GAIN/.test(n) && !/COST OF|EXPENSE|\bEXP\b/.test(n)) return 'R';
+        if (/EXPENSE|\bEXP\b|\bCOST\b|COSTS|SALAR|WAGE|\bRENT\b|DEPRECIATION EXP|CHARGES|FEES PAID|UTILIT/.test(n) && !/ACCRU|PAYABLE|PREPAID|PREPAY/.test(n)) return 'E';
+        if (pl) return /REV|INCOME|SALES/.test(n) ? 'R' : 'E';
+        if (/PAYABLE|ACCRU|\bLOAN|BORROW|OVERDRAFT|PROVISION|DEFERRED (INCOME|REVENUE)|CREDITOR/.test(n)) return 'L';
+        if (/SHARE CAPITAL|RETAINED|RESERVE|EQUITY|CAPITAL ACCOUNT/.test(n)) return 'O';
+        if (/RECEIVABLE|\bCASH\b|\bBANK|INVENTOR|STOCK|PREPAID|PREPAY|DEPOSIT|ASSET|EQUIPMENT|DEBTOR|ACCUM/.test(n)) return 'A';
+        var d = c.replace(/\D/g, '').charAt(0);
+        return { 1: 'A', 2: 'L', 3: 'O', 4: 'R', 5: 'E', 6: 'E', 7: 'E', 8: 'E', 9: 'E' }[d] || 'E';
+    };
+    /** A formula-safe id from a name, unique among `used` */
+    FINE.simpleId = function (name, used) {
+        var b = String(name || 'LINE').toUpperCase().replace(/&/g, ' AND ').replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24) || 'LINE';
+        if (/^\d/.test(b) || RESERVED[b] || /^H_/.test(b)) b = 'L_' + b;
+        var id = b, i = 2;
+        while (used[id]) id = b + '_' + (i++);
+        used[id] = 1;
+        return id;
+    };
+    FINE.simpleIds = function (s) { var u = {}; (s.lines || []).forEach(function (l) { u[l.id] = 1; u['H_' + l.id] = 1; (l.sections || []).forEach(function (x) { u[x.id] = 1; }); }); u.CHK = 1; return u; };
+
+    var DEF = {
+        PL: [['g', 'REV', 'Revenue', 'income', [['REV_S', 'Revenue', ['Revenue']]]],
+            ['g', 'COGS', 'Cost of sales', 'expense', [['COGS_S', 'Cost of sales', ['Cost of sales']]]],
+            ['s', 'GP', 'Gross profit', 1],
+            ['g', 'OPEX', 'Operating expenses', 'expense', [['STAFF', 'Staff costs', ['Staff costs']], ['PREM', 'Premises & maintenance', ['Premises']], ['DIST', 'Distribution', ['Distribution']],
+                ['SELL', 'Selling & marketing', ['Selling']], ['ADMIN', 'Administration & other', ['Administration', 'Other expenses']]]],
+            ['g', 'OI', 'Other income', 'income', [['OI_S', 'Other income', ['Other income']]]],
+            ['s', 'EBITDA', 'EBITDA', 1],
+            ['g', 'DA', 'Depreciation & amortisation', 'expense', [['DA_S', 'Depreciation & amortisation', ['Depreciation & amortisation']]]],
+            ['s', 'EBIT', 'Operating profit (EBIT)'],
+            ['g', 'FIN', 'Finance costs', 'expense', [['FIN_S', 'Finance costs', ['Finance costs']]]],
+            ['s', 'PBT', 'Profit before tax'],
+            ['g', 'TAX', 'Income tax', 'expense', [['TAX_S', 'Income tax', ['Tax']]]],
+            ['s', 'NP', 'Net profit', 1]],
+        BS: [['g', 'NCA', 'Non-current assets', 'asset', [['PPE', 'Property, plant & equipment (net)', ['Fixed assets', 'Accumulated depreciation']], ['INT', 'Intangible assets', ['Intangibles']]]],
+            ['g', 'CA', 'Current assets', 'asset', [['INV', 'Inventories', ['Inventory']], ['AR', 'Trade receivables', ['Receivables']], ['OCA', 'Prepayments & other receivables', ['Other current assets', 'Intercompany']],
+                ['SUSP', 'Suspense / unallocated', ['Suspense']], ['CASH', 'Cash and cash equivalents', ['Cash']]]],
+            ['s', 'TA', 'Total assets'],
+            ['g', 'EQ', 'Equity', 'equity', [['SC', 'Share capital & reserves', ['Share capital']], ['RE', 'Retained earnings', ['Retained earnings']], ['CYE', 'Profit for the year to date', null, 'cye']]],
+            ['g', 'NCL', 'Non-current liabilities', 'liability', [['LOANS', 'Long-term borrowings', ['Long-term borrowings']], ['LEASE', 'Lease liabilities', ['Leases']]]],
+            ['g', 'CL', 'Current liabilities', 'liability', [['AP', 'Trade payables', ['Payables']], ['ACCR', 'Accruals & other payables', ['Accruals', 'Other liabilities']], ['TAXL', 'Tax liabilities', ['Tax liabilities']],
+                ['ICP', 'Intercompany payables', ['Intercompany']], ['STB', 'Short-term borrowings', ['Borrowings']]]],
+            ['s', 'TEL', 'Total equity and liabilities']]
+    };
+    var natureOk = function (nature, a) { return NATURE_TYPE[nature] === a.account_type; };
+    FINE.simpleKindOf = function (a) { return a.account_type === 'R' || a.account_type === 'E' ? 'PL' : 'BS'; };
+
+    /** The default structure for PL or BS, every account of that kind placed by its type + class (FINE.classify). */
+    FINE.simpleDefault = function (kind, accounts) {
+        var s = { kind: kind, auto: true, lines: DEF[kind].map(function (d) {
+            if (d[0] === 's') return { t: 'subtotal', id: d[1], name: d[2], of: null, margin: !!d[3] };
+            return { t: 'group', id: d[1], name: d[2], nature: d[3], sections: d[4].map(function (x) { var o = { id: x[0], name: x[1], accounts: [], cls: x[2] || [] }; if (x[3]) o.special = x[3]; return o; }) };
+        }) };
+        FINE.simplePlace(s, accounts, (accounts || []).filter(function (a) { return FINE.simpleKindOf(a) === kind; }).map(function (a) { return a.code; }));
+        return s;
+    };
+    /** Account codes this structure maps: {code: [section ids]} */
+    FINE.simpleMapped = function (s, accounts) {
+        var m = {};
+        (s.lines || []).forEach(function (l) {
+            (l.sections || []).forEach(function (x) {
+                if (x.special) return;
+                var codes = (x.accounts || []).slice();
+                if (x.match && accounts) codes = codes.concat(FINE.matchAccounts(x.match, accounts));
+                codes.forEach(function (c) { var a = m[c] = m[c] || []; if (a.indexOf(x.id) < 0) a.push(x.id); });
+            });
+        });
+        return m;
+    };
+    /** Accounts of this kind in no section, and accounts in two or more sections */
+    FINE.simpleCheck = function (s, accounts) {
+        var m = FINE.simpleMapped(s, accounts), kind = s.kind || 'PL';
+        return { unmapped: accounts.filter(function (a) { return FINE.simpleKindOf(a) === kind && !m[a.code]; }),
+            twice: accounts.filter(function (a) { return m[a.code] && m[a.code].length > 1; }),
+            mapped: accounts.filter(function (a) { return m[a.code]; }).length };
+    };
+    /** Places accounts: the section whose hint classes or existing accounts share the account's class (same nature), else the first
+        section of a group with the account's nature, else a new group "Other …". Returns how many were placed. */
+    FINE.simplePlace = function (s, accounts, codes) {
+        var byCode = {}; (accounts || []).forEach(function (a) { byCode[a.code] = a; });
+        var used = FINE.simpleIds(s), n = 0, clsOf = {};
+        (s.lines || []).forEach(function (l) { (l.sections || []).forEach(function (x) { (x.accounts || []).forEach(function (c) { var a = byCode[c]; if (a && a.class) { var k = l.nature + '|' + a.class; (clsOf[k] = clsOf[k] || {})[x.id] = ((clsOf[k] || {})[x.id] || 0) + 1; } }); }); });
+        var secById = {}; (s.lines || []).forEach(function (l) { (l.sections || []).forEach(function (x) { secById[x.id] = { l: l, x: x }; }); });
+        (codes || []).forEach(function (c) {
+            var a = byCode[c]; if (!a) return;
+            var target = null;
+            (s.lines || []).some(function (l) {
+                if (l.t !== 'group' || !natureOk(l.nature, a)) return false;
+                return (l.sections || []).some(function (x) { if (!x.special && (x.cls || []).indexOf(a.class) >= 0) { target = x; return true; } return false; });
+            });
+            if (!target) {
+                var votes = clsOf[TYPE_NATURE[a.account_type] + '|' + a.class], best = 0;
+                Object.keys(votes || {}).forEach(function (id) { if (votes[id] > best) { best = votes[id]; target = secById[id].x; } });
+            }
+            if (!target) (s.lines || []).some(function (l) { if (l.t === 'group' && natureOk(l.nature, a)) { target = (l.sections || []).filter(function (x) { return !x.special; })[0]; } return !!target; });
+            if (!target) {
+                var nat = TYPE_NATURE[a.account_type] || 'expense', name = 'Other ' + nat + (nat === 'income' || nat === 'equity' ? '' : 's');
+                var g = { t: 'group', id: FINE.simpleId(name, used), name: name.charAt(0).toUpperCase() + name.slice(1), nature: nat, sections: [] };
+                target = { id: FINE.simpleId(g.name + ' S', used), name: g.name, accounts: [] };
+                g.sections.push(target);
+                var at = s.lines.length; if (s.kind === 'PL') { for (var i = s.lines.length - 1; i >= 0; i--) if (s.lines[i].t === 'subtotal') { at = i; break; } }
+                s.lines.splice(at, 0, g);
+                secById[target.id] = { l: g, x: target };
+            }
+            (target.accounts = target.accounts || []).push(c); n++;
+        });
+        (s.lines || []).forEach(function (l) { (l.sections || []).forEach(function (x) { if (x.accounts) x.accounts.sort(); }); });
+        return n;
+    };
+    /** Groups a subtotal adds up (ids) */
+    FINE.simpleOf = function (s, ix) {
+        var l = s.lines[ix];
+        if (l.of && l.of.length) return l.of.slice();
+        var out = [];
+        for (var i = ix - 1; i >= 0; i--) {
+            var x = s.lines[i];
+            if (x.t === 'subtotal') { if (s.kind === 'BS') break; continue; }
+            out.unshift(x.id);
+        }
+        return out;
+    };
+    /** simple → template rows (ids stay as written so KPIs like PL.REV / BS.CASH keep working) */
+    FINE.simpleCompile = function (s) {
+        var B = { bold: true }, T = { bold: true, topBorder: true }, TT = { bold: true, topBorder: true, doubleBottom: true }, I = { italic: true, muted: true };
+        var rows = [], pl = s.kind !== 'BS', basis = pl ? 'activity' : 'balance', natOf = {}, lines = s.lines || [];
+        var firstIncome = (lines.filter(function (l) { return l.t === 'group' && l.nature === 'income'; })[0] || {}).id;
+        lines.forEach(function (l) { if (l.t === 'group') natOf[l.id] = l.nature; });
+        var lastSub = -1; lines.forEach(function (l, i) { if (l.t === 'subtotal') lastSub = i; });
+        lines.forEach(function (l, ix) {
+            if (l.t === 'group') {
+                var sign = l.nature === 'income' || l.nature === 'liability' || l.nature === 'equity' ? 'credit' : 'debit', fav = l.nature === 'expense' ? 'down' : undefined;
+                var spec = function (x) { return x.special === 'cye' ? { type: 'RE' } : (x.accounts || []).concat(x.match ? String(x.match).split(/[,;\n]+/).map(function (p) { return p.trim(); }).filter(Boolean) : []); };
+                var secs = l.sections || [];
+                var row = function (x, extra) { var r = { id: x.id, type: 'accounts', label: x.name, accounts: spec(x), basis: x.special === 'cye' ? 'balance' : basis, sign: x.special === 'cye' ? 'credit' : sign }; if (fav) r.favourable = fav; return Object.assign(r, extra || {}); };
+                if (secs.length === 1 && !secs[0].special) rows.push(row({ id: l.id, name: l.name, accounts: secs[0].accounts, match: secs[0].match }, { style: B }));
+                else {
+                    rows.push({ id: 'H_' + l.id, type: 'header', label: l.name, style: B });
+                    secs.forEach(function (x) { rows.push(row(x, { parent: l.id, level: 1 })); });
+                    var g = { id: l.id, type: 'group', label: 'Total ' + l.name.charAt(0).toLowerCase() + l.name.slice(1), style: T }; if (fav) g.favourable = fav;
+                    rows.push(g);
+                }
+            } else if (l.t === 'subtotal') {
+                var of = FINE.simpleOf(s, ix);
+                var f = of.map(function (id, i) { var neg = pl && natOf[id] === 'expense'; return (neg ? (i ? ' - ' : '-') : (i ? ' + ' : '')) + id; }).join('') || '0';
+                rows.push({ id: l.id, type: 'formula', label: l.name, formula: f, style: ix === lastSub ? TT : T });
+                if (pl && l.margin && firstIncome) rows.push({ id: l.id + '_M', type: 'formula', label: l.name + ' margin', formula: 'PCT(' + l.id + ', ' + firstIncome + ')', format: 'pct', style: I });
+                if (!pl && ix < lines.length - 1) rows.push({ id: 'B_' + l.id, type: 'blank' });
+            }
+        });
+        if (!pl) {
+            var a = lines.filter(function (l) { return l.t === 'group' && l.nature === 'asset'; }).map(function (l) { return l.id; });
+            var o = lines.filter(function (l) { return l.t === 'group' && l.nature !== 'asset'; }).map(function (l) { return l.id; });
+            if (a.length && o.length) rows.push({ id: 'CHK', type: 'check', label: 'Check: assets − equity and liabilities', formula: '(' + a.join(' + ') + ') - (' + o.join(' + ') + ')', style: I });
+        }
+        return rows;
+    };
+
+    /** Column sets a simple template can use */
+    FINE.COLSETS = {
+        PL: [{ id: 'month_ytd', label: 'Month · YTD · last year', cols: [{ id: 'm', scenario: 'ACTUAL', range: 'MTD' }, { id: 'y', scenario: 'ACTUAL', range: 'YTD' }, { id: 'py', scenario: 'ACTUAL', range: 'YTD', at: 'PY', label: 'YTD last year' }, { id: 'ch', kind: 'var', a: 'y', b: 'py', mode: 'pct', label: 'vs last year %' }] },
+            { id: 'budget', label: 'Month & YTD vs budget', cols: [{ id: 'm_act', scenario: 'ACTUAL', range: 'MTD' }, { id: 'm_bud', scenario: 'BUDGET', range: 'MTD' }, { id: 'm_var', kind: 'var', a: 'm_act', b: 'm_bud', label: 'Var F/(U)' },
+                { id: 'y_act', scenario: 'ACTUAL', range: 'YTD' }, { id: 'y_bud', scenario: 'BUDGET', range: 'YTD' }, { id: 'y_var', kind: 'var', a: 'y_act', b: 'y_bud', label: 'Var F/(U)' }, { id: 'y_varp', kind: 'var', a: 'y_act', b: 'y_bud', mode: 'pct', label: 'Var %' }] },
+            { id: 'ytd_py', label: 'Year to date vs last year', cols: [{ id: 'cy', scenario: 'ACTUAL', range: 'YTD' }, { id: 'py', scenario: 'ACTUAL', range: 'YTD', at: 'PY' }, { id: 'ch', kind: 'var', a: 'cy', b: 'py', label: 'Change' }, { id: 'chp', kind: 'var', a: 'cy', b: 'py', mode: 'pct', label: 'Change %' }] },
+            { id: 'trend', label: 'Last 12 months + YTD', cols: [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map(function (n) { return { id: 'm' + n, scenario: 'ACTUAL', range: 'MTD', at: n ? 'M-' + n : 'CUR', plain: true }; }).concat([{ id: 'ytd', scenario: 'ACTUAL', range: 'YTD' }]) },
+            { id: 'quarter', label: 'Month · quarter · YTD · full year', cols: [{ id: 'm', scenario: 'ACTUAL', range: 'MTD' }, { id: 'q', scenario: 'ACTUAL', range: 'QTD' }, { id: 'y', scenario: 'ACTUAL', range: 'YTD' }, { id: 'pfy', scenario: 'ACTUAL', range: 'FY', at: 'PY', label: 'Last full year' }] }],
+        BS: [{ id: 'bal', label: 'Period end · last month · last year end', cols: [{ id: 'cur', scenario: 'ACTUAL', range: 'BAL' }, { id: 'pm', scenario: 'ACTUAL', range: 'BAL', at: 'PM' }, { id: 'pye', scenario: 'ACTUAL', range: 'BAL', at: 'PYE' }, { id: 'ch', kind: 'var', a: 'cur', b: 'pye', label: 'Change vs YE' }] },
+            { id: 'trend', label: 'Last 12 month ends', cols: [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0].map(function (n) { return { id: 'b' + n, scenario: 'ACTUAL', range: 'BAL', at: n ? 'M-' + n : 'CUR' }; }) },
+            { id: 'py', label: 'Period end vs a year ago', cols: [{ id: 'cur', scenario: 'ACTUAL', range: 'BAL' }, { id: 'py', scenario: 'ACTUAL', range: 'BAL', at: 'PY' }, { id: 'ch', kind: 'var', a: 'cur', b: 'py', label: 'Change' }, { id: 'chp', kind: 'var', a: 'cur', b: 'py', mode: 'pct', label: 'Change %' }] }]
+    };
+    FINE.colset = function (kind, id) { var l = FINE.COLSETS[kind === 'BS' ? 'BS' : 'PL']; return JSON.parse(JSON.stringify((l.filter(function (c) { return c.id === id; })[0] || l[0]).cols)); };
+    /** A full template from a simple structure: {id, name, type, colset, simple} → + rows + columns */
+    FINE.simpleTemplate = function (t) {
+        t.type = t.simple.kind === 'BS' ? 'BS' : 'PL';
+        t.colset = t.colset || FINE.COLSETS[t.type][0].id;
+        t.columns = FINE.colset(t.type, t.colset);
+        t.rows = FINE.simpleCompile(t.simple);
+        t.scale = t.scale || 1000;
+        return t;
+    };
+
+    /** Mapping as flat rows (download / Excel): [{template, group, nature, section, account, name, type}] — subtotals as nature 'subtotal';
+        accounts of this kind in no section come last with an empty group / section to fill in. */
+    FINE.simpleToRows = function (t, accounts) {
+        var names = {}; (accounts || []).forEach(function (a) { names[a.code] = a; });
+        var out = [], s = t.simple;
+        s.lines.forEach(function (l) {
+            if (l.t === 'subtotal') { out.push({ template: t.name, group: l.name, nature: 'subtotal', section: '', account: '', name: '', type: '' }); return; }
+            (l.sections || []).forEach(function (x) {
+                var codes = x.special ? [] : (x.accounts || []);
+                if (!codes.length) out.push({ template: t.name, group: l.name, nature: l.nature, section: x.special === 'cye' ? x.name + ' [profit for the year]' : x.name, account: x.match ? x.match : '', name: '', type: '' });
+                codes.forEach(function (c) { var a = names[c] || {}; out.push({ template: t.name, group: l.name, nature: l.nature, section: x.name, account: c, name: a.name || '', type: a.account_type || '' }); });
+            });
+        });
+        FINE.simpleCheck(s, accounts || []).unmapped.forEach(function (a) { out.push({ template: t.name, group: '', nature: '', section: '', account: a.code, name: a.name || '', type: a.account_type || '' }); });
+        return out;
+    };
+    /** Flat rows (upload: Template, Main group, Nature, Section, Account …, header names are matched loosely) → {templates: [{name, simple}], warnings} */
+    FINE.simpleFromRows = function (rows, accounts, defName) {
+        var byCode = {}; (accounts || []).forEach(function (a) { byCode[String(a.code)] = a; });
+        var key = function (r, re) { var k = Object.keys(r).filter(function (x) { return re.test(String(x).trim()); })[0]; return k == null ? '' : String(r[k] == null ? '' : r[k]).trim(); };
+        var tpls = {}, order = [], warn = [], unknown = 0;
+        rows.forEach(function (r, i) {
+            var tn = key(r, /^template/i) || defName || 'My statement', gname = key(r, /^(main\s*)?group|^line$|^heading/i), nat = key(r, /^nature|^kind/i).toLowerCase();
+            var sname = key(r, /^section|^sub/i), code = key(r, /^account(\s*(code|no|number))?$|^code$|^segment/i);
+            if (!gname && !sname && !code) return;
+            if (!gname) { if (code) warn.push('Row ' + (i + 2) + ': account ' + code + ' has no main group — left unmapped'); return; }
+            var t = tpls[tn]; if (!t) { t = tpls[tn] = { name: tn, simple: { kind: 'PL', lines: [] }, used: {}, g: {} }; order.push(tn); }
+            if (/^sub|^total|^=/.test(nat) || /^=/.test(gname)) { var nm = gname.replace(/^=\s*/, ''); if (!t.g['§' + nm]) { t.g['§' + nm] = 1; t.simple.lines.push({ t: 'subtotal', id: FINE.simpleId(nm, t.used), name: nm, of: null }); } return; }
+            var g = t.g[gname];
+            if (!g) { g = t.g[gname] = { t: 'group', id: FINE.simpleId(gname, t.used), name: gname, nature: FINE.NATURES.indexOf(nat) >= 0 ? nat : '', sections: [], s: {} }; t.simple.lines.push(g); }
+            if (!g.nature && FINE.NATURES.indexOf(nat) >= 0) g.nature = nat;
+            var cye = /\[profit for the year\]/i.test(sname); sname = sname.replace(/\s*\[profit for the year\]\s*/i, '') || gname;
+            var x = g.s[sname];
+            if (!x) { x = g.s[sname] = { id: FINE.simpleId(sname === gname ? gname + ' S' : sname, t.used), name: sname, accounts: [] }; if (cye) x.special = 'cye'; g.sections.push(x); }
+            if (!code || cye) return;
+            if (/[*\-!,]/.test(code)) { x.match = x.match ? x.match + ', ' + code : code; return; }
+            if (!byCode[code]) unknown++;
+            if (x.accounts.indexOf(code) < 0) x.accounts.push(code);
+            if (!g.nature && byCode[code]) g.nature = TYPE_NATURE[byCode[code].account_type] || '';
+        });
+        if (unknown) warn.push(unknown + ' account code(s) are not in the synced chart of accounts (kept — they show once synced)');
+        return { templates: order.map(function (n) {
+            var t = tpls[n], s = t.simple;
+            s.lines.forEach(function (l) { delete l.s; if (l.t === 'group' && !l.nature) l.nature = s.lines.some(function (z) { return z.nature === 'asset' || z.nature === 'liability' || z.nature === 'equity'; }) ? 'asset' : 'expense'; });
+            s.kind = s.lines.some(function (l) { return l.nature === 'asset' || l.nature === 'liability' || l.nature === 'equity'; }) ? 'BS' : 'PL';
+            return { name: n, simple: s };
+        }), warnings: warn };
     };
 
     /** Where every account lands: {code: [{tpl, row, label}]} for the accounts rows of the templates (to find unmapped / double-counted). */

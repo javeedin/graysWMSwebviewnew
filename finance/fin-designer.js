@@ -199,6 +199,8 @@
         t.columns.forEach(function (c) { if (!c.id) bad.push('a column has no id'); });
         var st = FINE.compute(t, D.data, FL.stmtOpts());
         if (bad.length || st.errors.length) { if (!confirm('Problems:\n• ' + bad.concat(st.errors).join('\n• ') + '\n\nSave anyway?')) return; }
+        if (t.simple && !confirm('"' + t.name + '" is a Statement builder template (main groups → sections → accounts). Saving here turns it into an advanced template — the builder no longer edits it. Save?')) return;
+        delete t.simple; delete t.colset;
         var i = FL.templates.map(function (x) { return x.id; }).indexOf(t.id);
         if (i >= 0) FL.templates[i] = JSON.parse(JSON.stringify(t)); else FL.templates.push(JSON.parse(JSON.stringify(t)));
         FL.saveTemplates().then(function () { D.dirty = false; D.isNew = false; FL.toast('Template saved', 'ok'); FL.render(); }).catch(function (e) { FL.toast(String(e), 'err'); });

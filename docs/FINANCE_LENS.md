@@ -18,8 +18,12 @@ templates and mapping stay).
 - **Overview** — headline KPIs with 12-month sparklines and monitor status, plain-language commentary (month vs budget,
   YTD vs last year, unusual accounts, monitor alerts), revenue and profit, margins, the net-profit bridge, cash and
   working capital, opex mix, biggest movements.
-- **Statements** — any template for the period and filter (company, cost centre, units / thousands / millions); hide
-  empty lines, account detail; Excel (formatted, one sheet per statement), CSV, print. **Click any amount** to drill:
+- **Statements** — one **statement bar** on top for every statement: Ledger · Year · Period (the synced months as
+  buttons) · Company · Amounts, then the statements as tabs — Trial balance, Income statement, Balance sheet, Cash
+  flow (and Other) — and the **Template** to run it with (each statement can have several: management, statutory, a
+  group view …), *Edit mapping* and *New template*. Hide empty lines, account detail; Excel (formatted, one sheet per
+  statement), CSV, print. Accounts with amounts that are in no line of the template are named in a warning with
+  *Place them automatically*. **Click any amount** to drill:
   the accounts behind it → companies, cost centres and months → journal lines → the whole journal.
 - **Analytics** — trends with a seasonal forecast (Holt-Winters with 24+ months), variance bridges (YTD vs budget,
   vs last year, month vs budget / last month, last 12 months), cost centres against budget as a heat map, companies
@@ -34,13 +38,54 @@ templates and mapping stay).
 - **Close checks** — trial balance per company, every journal balanced, balance sheet balances, cash flow ties to the
   bank, suspense cleared, intercompany balances and income/expense agree, abnormal balance signs, budget loaded,
   clean year-end roll-over, late manual journals, unusual movements reviewed.
-- **Template designer** — see below.
+- **Statement builder** — see *Statement builder* below; the advanced *Template designer* (formulas, ranges, styles
+  row by row) opens from it.
 - **Data** — sync status against Fusion, chart of accounts and segment values, Fusion setup, BICC, account mapping, SQL explorer, folder.
 - **Board pack** (header button) — title, sections, statements and an editable commentary → a print-ready pack
   (cover, executive summary with KPI tiles and attention points, KPI table, charts, statements, cost centres,
   monitors, risk highlights). Print / save as PDF, or save the HTML.
 
-## Templates
+## Statement builder
+
+An income statement or balance sheet is **main groups → sections → accounts**:
+
+- **Main group** — a heading (Revenue, Cost of sales, Operating expenses …) with its *nature*: income / expense for the
+  income statement, asset / liability / equity for the balance sheet (which side shows as positive). A group with one
+  section is one line; with more it shows its sections and a *Total …* line.
+- **Section** — a line inside the group (Staff costs, Rent …) holding accounts, plus an optional rule (`5011*`,
+  `5020-5099`, `!5050`) for accounts added later. The balance sheet's equity has *Profit for the year to date*
+  (automatic: every income and expense account).
+- **Subtotal** — Gross profit, EBITDA, Net profit … adds up the groups above it (income +, expenses −); on the balance
+  sheet the groups since the previous subtotal. Click its description to pick the groups yourself; *margin %* adds a
+  margin line. The balance sheet gets a check line (assets = equity + liabilities).
+
+**Default mapping**: from the synced trial balance (account, description, account type) every account gets a class
+(`FINE.classify`) and lands in its section; accounts without a type get one from the name and code (`FINE.guessType`:
+"PL EXP – …" → expense, 1… asset, 2… liability, 3… equity, 4… revenue, 5–9… expense). Until you change it the
+default mapping follows the chart of accounts (re-done on every refresh, so names synced later still move accounts to
+the right line); the first edit makes it yours. Only classes you chose (Account mapping, also from APEX) stick — the
+others are worked out again from the type and name each time.
+
+**Working in the builder**: click a section (it lights up), then click accounts on the right to put them there — or
+drag accounts (ticked ones together) onto a section, or tick several and *Move*. The right side lists *Not mapped*,
+every account of the statement, *In two* sections, or all, with their amounts; every line shows its amount live (YTD
+for the income statement, closing balance for the balance sheet) and the bar says whether everything is mapped and
+whether the balance sheet balances. *Auto-place* puts the accounts that are not mapped next to accounts of the same
+class; *Default mapping* starts again. *Columns*: Month · YTD · last year, Month & YTD vs budget, YTD vs last year, last
+12 months + YTD, Month · quarter · YTD · full year (balance sheet: period end · last month · last year end, 12 month
+ends, vs a year ago).
+
+**Download / upload the mapping**: *Download mapping* writes an Excel (or CSV) with one row per account — Template,
+Main group, Nature, Section, Account, Account name, Type, Amount — accounts not mapped yet at the bottom in yellow,
+plus a *How to fill* sheet. Fill it in (or write your own with those columns; a subtotal is a row with Nature =
+`subtotal` and its name in Main group) and *Upload mapping*: replace the current template's mapping, or save it as
+new templates — several template names in one file make several templates. Groups and sections keep their ids when
+their names match, so KPIs (`PL.REV`, `BS.CASH` …) keep working.
+
+Stored with the other templates in `templates.json` (`simple` = the structure, compiled to rows by
+`FINE.simpleCompile`). The default income statement and balance sheet keep the ids `PL` / `BS` and the starter line ids.
+
+## Templates (advanced designer)
 
 A template is a list of rows and columns, stored in `templates.json` next to the data.
 
@@ -149,7 +194,7 @@ then daily incremental extracts, then *Load* (it rebuilds from all files, so not
 
 ### Account mapping
 Every account with its class and the income statement / balance sheet line it lands in; filter *in no line* / *in two lines*,
-change a class in place (saved on this PC, in DuckDB and in APEX), *Save all to APEX*, *Build statements from classes*.
+change a class in place (saved on this PC, in DuckDB and in APEX; in Statement builder templates the account moves to the section of its new class), *Save all to APEX*, *Rebuild default statements*.
 
 ### Statements on any chart of accounts
 After a Fusion load every account gets a class from its type and name and the statements are built on those classes with the

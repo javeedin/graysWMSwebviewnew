@@ -16,14 +16,9 @@
         return [cur];
     };
 
-    /** The statement chips: Trial balance first, then every template */
-    T.head = function () {
-        return '<div class="row toolbar" style="margin-bottom:10px"><div class="seg" id="st-tpls"><button data-t="TB" class="' + (FL.stmt.tpl === 'TB' ? 'on' : '') + '"><i class="fa-solid fa-scale-balanced"></i> Trial balance</button>' +
-            (FL.templates || []).map(function (t) { return '<button data-t="' + esc(t.id) + '" class="' + (FL.stmt.tpl === t.id ? 'on' : '') + '" title="' + esc(t.description || '') + '">' + esc(t.name) + '</button>'; }).join('') + '</div><span class="grow"></span>';
-    };
-    T.wireHead = function (el) {
-        el.querySelectorAll('#st-tpls button').forEach(function (b) { b.onclick = function () { FL.stmt.tpl = b.dataset.t; FL.lsSet('stmt.tpl', b.dataset.t); FL.render(); }; });
-    };
+    /** The statement bar (ledger · year · period · company · amounts, the statement kinds, the template), then the view's toolbar row (left open) */
+    T.head = function () { return FL.stmt.bar() + '<div class="row toolbar" style="margin-bottom:10px">'; };
+    T.wireHead = function (el) { FL.stmt.wireBar(el); };
     /** Nothing synced or loaded yet: say where the data comes from */
     T.empty = function (el) {
         el.innerHTML = T.head() + '</div><div class="card" style="max-width:760px"><h3><i class="fa-solid fa-scale-balanced"></i> No trial balance on this PC yet</h3>' +
@@ -67,12 +62,7 @@
             T.last = { lines: lines, tot: tot, dim: dim };
             var head = (dim ? '<th>' + { 'b.company': 'Company', 'b.cost_centre': 'Cost centre', 'b.ledger': 'Ledger' }[dim] + '</th>' : '') + (keyOf ? '<th>' + (T.group === 'class' ? 'Class' : 'Type') + '</th><th class="n">Accounts</th>' : '<th>Account</th><th>Name</th><th>Type</th><th>Class</th>') +
                 '<th class="n">Opening</th><th class="n">Debits</th><th class="n">Credits</th><th class="n">Net movement</th><th class="n">Closing debit</th><th class="n">Closing credit</th>';
-            var pers = FL.dims.periods, curP = pers.filter(function (x) { return x.period_seq === FL.filter.period; })[0] || {}, years = {};
-            pers.forEach(function (x) { years[x.fiscal_year] = 1; });
             el.innerHTML = T.head() +
-                '<label class="sm">Ledger <select id="tb-led"><option value="">' + ((FL.dims.ledgers || []).length > 1 ? 'All ledgers' : 'The ledger') + '</option>' + (FL.dims.ledgers || []).map(function (l) { return '<option value="' + esc(l.code) + '"' + (FL.filter.ledger === l.code ? ' selected' : '') + '>' + esc(l.name + ' · ' + l.currency) + '</option>'; }).join('') + '</select></label>' +
-                '<label class="sm">Year <select id="tb-year">' + Object.keys(years).sort().reverse().map(function (y) { return '<option' + (+y === curP.fiscal_year ? ' selected' : '') + '>' + esc(y) + '</option>'; }).join('') + '</select></label>' +
-                '<label class="sm">Period <select id="tb-per">' + pers.filter(function (x) { return x.fiscal_year === curP.fiscal_year; }).slice().reverse().map(function (x) { return '<option value="' + x.period_seq + '"' + (x.period_seq === FL.filter.period ? ' selected' : '') + '>' + esc(x.period_name) + '</option>'; }).join('') + '</select></label>' +
                 '<label class="sm">Range <select id="tb-range">' + [['MTD', 'Month'], ['QTD', 'Quarter to date'], ['YTD', 'Year to date'], ['LTM', 'Last 12 months']].map(function (x) { return '<option value="' + x[0] + '"' + (T.range === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>' +
                 '<label class="sm">Show <select id="tb-group">' + [['account', 'every account'], ['class', 'by class'], ['type', 'by type']].map(function (x) { return '<option value="' + x[0] + '"' + (T.group === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>' +
                 '<label class="sm">Split <select id="tb-by">' + [['', 'none'], ['company', 'by company'], ['cc', 'by cost centre'], ['ledger', 'by ledger']].map(function (x) { return '<option value="' + x[0] + '"' + (T.by === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>' +
@@ -96,11 +86,6 @@
             $('tb-csv').onclick = function () { FL.csv('trial-balance-' + FL.periodName(last) + '.csv', (dim ? ['split'] : []).concat(['account', 'name', 'type', 'class', 'opening', 'debits', 'credits', 'net', 'closing']), lines.map(function (r) { return (dim ? [r.dim] : []).concat([r.account, r.name, r.type, r.cls, r.opening.toFixed(2), r.dr.toFixed(2), r.cr.toFixed(2), r.net.toFixed(2), r.closing.toFixed(2)]); })); };
             $('tb-xl').onclick = function () { T.excel(first, last); };
             $('tb-apex').onclick = function () { T.saveApex(this); };
-            // ledger / year / period drive the header filter (the whole page follows)
-            var setHead = function (id, v) { var sel = $(id); if (!sel) return; sel.value = v; if (sel.onchange) sel.onchange({ target: sel }); };
-            $('tb-led').onchange = function () { setHead('f-ledger', this.value); };
-            $('tb-year').onchange = function () { var y = +this.value, ps = pers.filter(function (x) { return x.fiscal_year === y; }); if (ps.length) setHead('f-period', ps[ps.length - 1].period_seq); };
-            $('tb-per').onchange = function () { setHead('f-period', this.value); };
             if (!okBal) T.why(last);
             FL.wireRows(el, lines, function (r) {
                 if (keyOf) { FL.toast('Show every account to drill', ''); return; }
