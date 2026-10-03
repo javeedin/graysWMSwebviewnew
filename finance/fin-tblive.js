@@ -7,7 +7,7 @@
    compared line by line with the balances loaded on this PC when that ledger and period are loaded. */
 (function () {
     var T = FL.tb;
-    var L = T.live = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), seq: null, cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, chunk: FL.ls('tbl.chunk', 2000),
+    var L = T.live = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), seq: null, cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2),
         view: FL.ls('tbl.view', 'account'), q: '', zero: true, scale: FL.ls('tbl.scale', 1), compare: FL.ls('tbl.compare', true), res: null };
     T.source = FL.ls('tb.source', 'duck');
     var TYPE = { A: 'Asset', L: 'Liability', O: 'Equity', R: 'Revenue', E: 'Expense' };
@@ -37,7 +37,7 @@
             '<label class="sm">Ledger <select id="tl-led"><option>…</option></select></label><label class="sm">Period <select id="tl-per"></select></label>' +
             '<label class="sm"><input type="checkbox" id="tl-cc"' + (L.byCc ? ' checked' : '') + '> by cost centre</label>' +
             '<label class="sm"><input type="checkbox" id="tl-fold"' + (L.fold ? ' checked' : '') + ' title="Adjustment periods (e.g. Adj-25) are added to the period they close"> fold adjustment periods</label>' +
-            '<label class="sm">Rows per chunk <select id="tl-chunk">' + [1000, 2000, 5000, 10000].map(function (n) { return '<option value="' + n + '"' + (L.chunk === n ? ' selected' : '') + '>' + n.toLocaleString() + '</option>'; }).join('') + '</select></label>' +
+            '<label class="sm" title="One query per period and company runs at a time per slot; a query that still times out is split by account ranges">Reads in parallel <select id="tl-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + (L.par === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>' +
             '<button class="btn primary" id="tl-go"><i class="fa-solid fa-bolt"></i> Fetch from Fusion</button></div>' +
             '<div class="row" style="margin-top:6px"><span class="sm muted">Companies</span><div id="tl-cos" class="tl-cos"></div></div>' +
             '<div id="fu-prog"></div></div><div id="tl-res"></div>' +
@@ -47,7 +47,7 @@
         $('tl-pod').onchange = function () { L.pod = this.value; FL.lsSet('tbl.pod', L.pod); L.ledger = null; T.fillLedgers(); };
         $('tl-cc').onchange = function () { L.byCc = this.checked; FL.lsSet('tbl.byCc', L.byCc); };
         $('tl-fold').onchange = function () { L.fold = this.checked; };
-        $('tl-chunk').onchange = function () { L.chunk = +this.value; FL.lsSet('tbl.chunk', L.chunk); };
+        $('tl-par').onchange = function () { L.par = +this.value; FL.lsSet('tbl.par', L.par); };
         $('tl-go').onclick = T.fetch;
         T.fillLedgers();
         T.listSaved();
@@ -90,7 +90,7 @@
         if (!led.company || !led.account) { FL.toast('The company / account segment of chart ' + l.coaId + ' is not set — Data › Fusion setup', 'err'); return; }
         var p = FL.fusion.progress('Trial balance ' + l.name + ' · ' + FL.fusion.calOf(L.disc, l).filter(function (x) { return x.seq === L.seq; }).map(function (x) { return x.name; })[0] + '…', true);
         $('tl-go').disabled = true;
-        FL.call('finFusionTb', { pod: L.pod || '', options: { ledger: led, periodSeq: L.seq || 0, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, chunkSize: L.chunk } }, 30 * 60000, p).then(function (r) {
+        FL.call('finFusionTb', { pod: L.pod || '', options: { ledger: led, periodSeq: L.seq || 0, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, parallel: L.par, allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 30 * 60000, p).then(function (r) {
             FL.fusion.finish();
             r.source = 'Fusion · read ' + new Date().toLocaleString(); r.pod = L.pod || ''; r.accountCol = led.account; r.companyCol = led.company; r.costCentreCol = led.costCentre;
             L.res = r;
@@ -159,7 +159,7 @@
                 '<div class="row" style="margin:6px 0 10px"><span class="tag ' + (okMove ? 'good' : 'bad') + '">' + (okMove ? '✓ PTD debits = credits' : '✗ PTD debits ≠ credits: ' + f2(tot.ptdDr - tot.ptdCr)) + '</span>' +
                 (all ? '<span class="tag ' + (okBal ? 'good' : 'bad') + '">' + (okBal ? '✓ closing balances net to nil' : '✗ closing balances net to ' + f2(tot.closing)) + '</span>' : '') +
                 (cmp ? '<span class="tag ' + (tot.ndiff ? 'bad' : 'good') + '">' + (tot.ndiff ? '✗ ' + tot.ndiff + ' line(s) differ from this PC' : '✓ same as the data on this PC') + '</span>' : canCmp ? '' : (loaded ? '<span class="sm muted">this ledger / period is not loaded on this PC — no comparison</span>' : '')) +
-                '<span class="sm muted">' + r.rows.length.toLocaleString() + ' lines from Fusion' + (r.ms ? ' in ' + (r.ms / 1000).toFixed(1) + ' s' : '') + ' · names: ' + esc(r.namesFrom || '') + '</span>' + (/^none/.test(r.namesFrom || '') && r.accountCol ? '<button class="btn sm" id="tl-names"><i class="fa-solid fa-tags"></i> Read the account names from Fusion</button>' : '') + '</div>' +
+                '<span class="sm muted">' + r.rows.length.toLocaleString() + ' lines from Fusion' + (r.reads ? ' (' + r.reads + ' queries)' : '') + (r.ms ? ' in ' + (r.ms / 1000).toFixed(1) + ' s' : '') + ' · names: ' + esc(r.namesFrom || '') + '</span>' + (/^none/.test(r.namesFrom || '') && r.accountCol ? '<button class="btn sm" id="tl-names"><i class="fa-solid fa-tags"></i> Read the account names from Fusion</button>' : '') + '</div>' +
                 '<div class="row toolbar" style="margin-bottom:8px"><input id="tl-q" placeholder="Search account, name, company" value="' + esc(L.q) + '" style="min-width:200px">' +
                 '<label class="sm">Show <select id="tl-view">' + [['account', 'by account (companies added up)'], ['line', 'every company × account']].map(function (x) { return '<option value="' + x[0] + '"' + (L.view === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>' +
                 '<label class="sm">Amounts <select id="tl-scale">' + [[1, 'units'], [1000, 'thousands'], [1000000, 'millions']].map(function (x) { return '<option value="' + x[0] + '"' + (L.scale === x[0] ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></label>' +

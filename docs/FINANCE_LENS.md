@@ -160,7 +160,9 @@ for the accounts mapped to it.
 Statements › Trial balance › **Live from Fusion** (also before anything is loaded — the other statements need a load):
 pod, ledger, period, companies (all or some), optional cost centre, *Fetch from Fusion*. One read of `GL_BALANCES` (ledger
 currency, actuals, no translated / summary rows) joined only to `GL_CODE_COMBINATIONS`, grouped by company × account
-(× cost centre), in ranked chunks with the live monitor: **opening, PTD debits / credits / net, QTD, YTD, closing** (QTD / YTD
+(× cost centre). The work is cut into small queries — **one period per query** (the period, its adjustment period, the start
+of the quarter and of the year) **× one company**, *Reads in parallel* at a time; a query that still times out is split again into
+account ranges, automatically — all shown in the live monitor: **opening, PTD debits / credits / net, QTD, YTD, closing** (QTD / YTD
 = closing − the balance at the start of the quarter / fiscal year; adjustment periods folded into the period they close).
 Names are not read from the value sets (keeps the Fusion query small): they come from this PC (DuckDB accounts or segment
 values), else APEX; if there are none yet, *Read the account names from Fusion* reads the account segment once and keeps it.
