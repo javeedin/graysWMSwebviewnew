@@ -164,8 +164,9 @@ currency, actuals, no translated / summary rows) joined only to `GL_CODE_COMBINA
 period, the start of the quarter and of the year) are read **once**, one query per period filtered only on ledger, period, currency and actual flag (no ORDER BY, no join, no
 expression filters), and kept on this PC (DuckDB `fin_gl_balances`, same column names as Fusion, listed under *GL
 balances kept on this PC*), so any other column is there for later reports; after that the trial balance is built from this
-copy in a fraction of a second. Tick *read again from Fusion* after postings. A period with more than 100,000 rows, or one that times
-out, is read in even slices (`MOD(code_combination_id, k) = i`). **GL_BALANCES query** (fold-out under the fetch button): change
+copy in a fraction of a second. Tick *read again from Fusion* after postings. Every period is read **page by page**: its rows are counted
+first (the monitor shows *page i of N*), then *Rows per fetch* rows at a time in code_combination_id order, each page after the
+last id read (a page never ends inside one combination; a page that times out is asked again at half the size). **GL_BALANCES query** (fold-out under the fetch button): change
 the query — `{LEDGER_ID}`, `{PERIOD}`, `{CURRENCY}` are filled in for each period; it must return CODE_COMBINATION_ID,
 BEGIN_BALANCE_DR / _CR and PERIOD_NET_DR / _CR — and *Run with this query*; *Default query* goes back. The segments of each combination come from a map on this PC (`ccid-cache`, also
 `fin_ccid`), looked up in Fusion by primary key only for new combinations. All shown in the live monitor: **opening, PTD debits / credits / net, QTD, YTD, closing** (QTD / YTD

@@ -7,7 +7,7 @@
    compared line by line with the balances loaded on this PC when that ledger and period are loaded. */
 (function () {
     var T = FL.tb;
-    var L = T.live = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), seq: null, cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2), query: FL.ls('tbl.query', ''), defaultQuery: FL.ls('tbl.defaultQuery', ''),
+    var L = T.live = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), seq: null, cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2), page: FL.ls('tbl.page', 5000), query: FL.ls('tbl.query', ''), defaultQuery: FL.ls('tbl.defaultQuery', ''),
         view: FL.ls('tbl.view', 'account'), q: '', zero: true, scale: FL.ls('tbl.scale', 1), compare: FL.ls('tbl.compare', true), res: null };
     T.source = FL.ls('tb.source', 'duck');
     var TYPE = { A: 'Asset', L: 'Liability', O: 'Equity', R: 'Revenue', E: 'Expense' };
@@ -37,6 +37,7 @@
             '<label class="sm">Ledger <select id="tl-led"><option>…</option></select></label><label class="sm">Period <select id="tl-per"></select></label>' +
             '<label class="sm"><input type="checkbox" id="tl-cc"' + (L.byCc ? ' checked' : '') + '> by cost centre</label>' +
             '<label class="sm"><input type="checkbox" id="tl-fold"' + (L.fold ? ' checked' : '') + ' title="Adjustment periods (e.g. Adj-25) are added to the period they close"> fold adjustment periods</label>' +
+            '<label class="sm" title="Each period is read in pages of this many rows (code_combination_id order, each page after the last id), so no single query returns too much and times out">Rows per fetch <select id="tl-page">' + [1000, 2000, 5000, 10000, 20000].map(function (n) { return '<option value="' + n + '"' + (L.page === n ? ' selected' : '') + '>' + n.toLocaleString() + '</option>'; }).join('') + '</select></label>' +
             '<label class="sm" title="One query per period and company runs at a time per slot; a query that still times out is split by account ranges">Reads in parallel <select id="tl-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + (L.par === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>' +
             '<label class="sm" title="This PC keeps the GL_BALANCES rows of every ledger and period it has read (DuckDB fin_gl_balances, every column) and builds the trial balance from them. Tick to read the periods from Fusion again, e.g. after postings."><input type="checkbox" id="tl-ref"> read again from Fusion</label>' +
             '<button class="btn primary" id="tl-go"><i class="fa-solid fa-bolt"></i> Fetch from Fusion</button></div>' +
@@ -55,6 +56,7 @@
         $('tl-pod').onchange = function () { L.pod = this.value; FL.lsSet('tbl.pod', L.pod); L.ledger = null; T.fillLedgers(); };
         $('tl-cc').onchange = function () { L.byCc = this.checked; FL.lsSet('tbl.byCc', L.byCc); };
         $('tl-fold').onchange = function () { L.fold = this.checked; };
+        $('tl-page').onchange = function () { L.page = +this.value; FL.lsSet('tbl.page', L.page); };
         $('tl-par').onchange = function () { L.par = +this.value; FL.lsSet('tbl.par', L.par); };
         $('tl-go').onclick = function () { T.fetch(); };
         $('tl-qrun').onclick = function () {
@@ -107,7 +109,7 @@
         if (!led.company || !led.account) { FL.toast('The company / account segment of chart ' + l.coaId + ' is not set — Data › Fusion setup', 'err'); return; }
         var p = FL.fusion.progress('Trial balance ' + l.name + ' · ' + FL.fusion.calOf(L.disc, l).filter(function (x) { return x.seq === L.seq; }).map(function (x) { return x.name; })[0] + '…', true);
         $('tl-go').disabled = true;
-        FL.call('finFusionTb', { pod: L.pod || '', options: { ledger: led, periodSeq: L.seq || 0, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, parallel: L.par, refresh: !!forceRefresh || !!($('tl-ref') && $('tl-ref').checked), queryTemplate: L.query || '', allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 30 * 60000, p).then(function (r) {
+        FL.call('finFusionTb', { pod: L.pod || '', options: { ledger: led, periodSeq: L.seq || 0, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, parallel: L.par, chunkSize: L.page, refresh: !!forceRefresh || !!($('tl-ref') && $('tl-ref').checked), queryTemplate: L.query || '', allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 30 * 60000, p).then(function (r) {
             FL.fusion.finish();
             r.source = (r.sources && r.sources.every(function (z) { return z.from === 'pc'; }) ? 'GL balances kept on this PC' : 'Fusion') + ' · built ' + new Date().toLocaleString();
             T.listRaw(); r.pod = L.pod || ''; r.accountCol = led.account; r.companyCol = led.company; r.costCentreCol = led.costCentre;

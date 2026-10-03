@@ -1199,59 +1199,75 @@ namespace WMSApp
                 if (custom && !Regex.IsMatch(template, @"^\s*(SELECT|WITH)\b", RegexOptions.IgnoreCase)) return new { ok = false, error = "The query must start with SELECT or WITH." };
                 if (custom) x.Note("Using your own GL_BALANCES query: " + template);
                 string Fill(string period) => template.Replace("{LEDGER_ID}", led.Id.ToString(CultureInfo.InvariantCulture)).Replace("{PERIOD}", period.Replace("'", "''")).Replace("{CURRENCY}", (led.Currency ?? "").Replace("'", "''"));
-                const int CAP = 100000;   // the runner's maximum: one query per period whenever the period fits
+                int page = Math.Clamp(o.ChunkSize <= 0 ? 5000 : o.ChunkSize, 100, 50000);
                 bool Slow(string e) => e != null && (e.IndexOf("timed out", StringComparison.OrdinalIgnoreCase) >= 0 || e.IndexOf("timeout", StringComparison.OrdinalIgnoreCase) >= 0 || e.Contains("ORA-01013"));
 
-                // One period = ONE query with only ledger / period / currency / actual flag (no ORDER BY, no join, no id ranges, no
-                // expression filters — zero rows are kept and skipped on the PC); the runner adds ROWNUM <= cap.
-                // Only when that read is cut at the cap or times out is the period read in k even slices, MOD(code_combination_id, k) = i —
-                // every slice returns about 1/k of the rows (no empty ranges); a slice that is still too big is split again (k × 2).
-                async Task<List<Dictionary<string, object>>> Fetch(string period, int k, int i, int depth)
+                // A period is read in pages of `page` rows: first COUNT(*) (so the monitor shows page i of N), then
+                //   SELECT * FROM (SELECT q.* FROM (query) q WHERE q.code_combination_id > <last id read> ORDER BY q.code_combination_id) WHERE ROWNUM <= page
+                // — every page returns a small result (no time-out on a big period), continues after the last id (nothing read twice,
+                // nothing missed) and stops at the first short page. A page that times out is asked again at half the size.
+                async Task<List<Dictionary<string, object>>> Fetch(string period)
                 {
-                    string what = led.Name + " · GL_BALANCES " + period + (k > 1 ? " · slice " + (i + 1) + "/" + k : "");
-                    string sql = k > 1 ? "SELECT * FROM (" + Fill(period) + ") q WHERE MOD(q.code_combination_id, " + k + ") = " + i : Fill(period);
-                    if (x.LogSql) x.Note("   SQL: " + sql);
-                    FusionQueryResult res;
-                    var t0 = Stopwatch.StartNew();
-                    await gate.WaitAsync(ct).ConfigureAwait(false);
-                    try { res = await RunLive(x, what, sql, CAP).ConfigureAwait(false); }
-                    finally { gate.Release(); }
-                    if (res.Success && !res.Capped)
+                    string what = led.Name + " · GL_BALANCES " + period;
+                    long total = -1;
+                    var cr = await RunLive(x, what + " · rows", "SELECT COUNT(*) n FROM (" + Fill(period) + ")", 1).ConfigureAwait(false);
+                    if (cr.Success && cr.Rows.Count > 0) { total = L(cr.Rows[0], "N"); x.Note("   " + what + " · " + total.ToString("N0", CultureInfo.InvariantCulture) + " rows → about " + Math.Max(1, (long)Math.Ceiling(total / (double)page)) + " page(s) of " + page.ToString("N0", CultureInfo.InvariantCulture)); }
+                    else x.Note("   ⚠ " + what + " · the row count did not come back (" + cr.Error + ") - reading page by page anyway");
+                    var all = new List<Dictionary<string, object>>();
+                    if (total == 0) return all;
+                    long last = long.MinValue; int size = page, n = 0, retries = 0;
+                    while (true)
                     {
+                        ct.ThrowIfCancellationRequested();
+                        string sql = "SELECT * FROM (SELECT q.* FROM (" + Fill(period) + ") q" + (last == long.MinValue ? "" : " WHERE q.code_combination_id > " + last.ToString(CultureInfo.InvariantCulture)) +
+                                     " ORDER BY q.code_combination_id) WHERE ROWNUM <= " + size;
+                        if (x.LogSql && n == 0) x.Note("   SQL: " + sql);
+                        string label = what + " · page " + (n + 1) + (total > 0 ? "/" + Math.Max(n + 1, (long)Math.Ceiling(total / (double)page)) : "");
+                        var t0 = Stopwatch.StartNew();
+                        FusionQueryResult res;
+                        await gate.WaitAsync(ct).ConfigureAwait(false);
+                        try { res = await RunLive(x, label, sql, size).ConfigureAwait(false); }
+                        finally { gate.Release(); }
+                        if (!res.Success)
+                        {
+                            if (Slow(res.Error) && size > 50 && retries < 4) { size = Math.Max(50, size / 2); retries++; x.Note("   ⚠ " + label + " timed out after " + (t0.ElapsedMilliseconds / 1000.0).ToString("0", CultureInfo.InvariantCulture) + " s - again with " + size.ToString("N0", CultureInfo.InvariantCulture) + " rows"); continue; }
+                            throw new InvalidOperationException(label + ": " + res.Error);
+                        }
+                        n++;
+                        if (res.Rows.Count > 0 && !res.Rows[0].ContainsKey("CODE_COMBINATION_ID")) throw new InvalidOperationException("The query must return CODE_COMBINATION_ID.");
+                        bool full = res.Rows.Count >= size;
+                        var rowsNow = res.Rows;
+                        long nextLast = last;
+                        if (full)
+                        {   // a combination can have several rows in a period (e.g. translated_flag NULL and 'R'): never end a page inside one —
+                            // drop the last id's rows here and read them whole on the next page
+                            long tail = L(rowsNow[^1], "CODE_COMBINATION_ID");
+                            var keep = rowsNow.Where(r2 => L(r2, "CODE_COMBINATION_ID") != tail).ToList();
+                            if (keep.Count == 0) throw new InvalidOperationException(label + ": one code combination has more than " + size + " rows - raise the rows per fetch");
+                            rowsNow = keep;
+                            nextLast = L(keep[^1], "CODE_COMBINATION_ID");
+                        }
+                        all.AddRange(rowsNow);
                         int from, to;
                         lock (gate)
                         {
-                            pages++; from = rowsSoFar + 1; rowsSoFar += res.Rows.Count; to = rowsSoFar;
-                            if (!sampled && res.Rows.Count > 0) { sampled = true; LiveSample(x, what, res.Rows); }
+                            pages++; from = rowsSoFar + 1; rowsSoFar += rowsNow.Count; to = rowsSoFar;
+                            if (!sampled && rowsNow.Count > 0) { sampled = true; LiveSample(x, what, rowsNow); }
                         }
-                        x.Note("   " + what + " · chunk " + pages + " · rows " + from.ToString("N0", CultureInfo.InvariantCulture) + "–" + Math.Max(from, to).ToString("N0", CultureInfo.InvariantCulture) +
+                        x.Note((total > 0 ? "[" + Math.Min(all.Count, total) + "/" + total + "] " : "") + "   " + label + " · chunk " + pages + " · rows " + from.ToString("N0", CultureInfo.InvariantCulture) + "–" + Math.Max(from, to).ToString("N0", CultureInfo.InvariantCulture) +
                                " · " + (t0.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s");
-                        return res.Rows;
+                        if (!full) break;
+                        if (nextLast <= last) throw new InvalidOperationException(label + ": code_combination_id did not move forward - stopped");
+                        last = nextLast;
+                        if (n >= 5000) throw new InvalidOperationException(what + ": more than 5,000 pages - stopped");
                     }
-                    if (!res.Success && !Slow(res.Error)) throw new InvalidOperationException(what + ": " + res.Error);
-                    if (depth >= 5) throw new InvalidOperationException(what + ": still " + (res.Success ? "over " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows" : "timing out") + " after splitting it into " + k + " slices");
-                    // first split: 4 slices (or as many as the row count needs); later: this slice in two
-                    var parts = new List<(int K, int I)>();
-                    if (k == 1)
-                    {
-                        int nk = 4;
-                        if (res.Success)   // cut at the cap: count the period's rows once to size the slices
-                        {
-                            var cr = await RunLive(x, what + " · rows", "SELECT COUNT(*) n FROM (" + Fill(period) + ")", 1).ConfigureAwait(false);
-                            if (cr.Success && cr.Rows.Count > 0) nk = (int)Math.Clamp(Math.Ceiling(L(cr.Rows[0], "N") / (CAP * 0.6)), 2, 64);
-                        }
-                        for (int j = 0; j < nk; j++) parts.Add((nk, j));
-                    }
-                    else { parts.Add((k * 2, i)); parts.Add((k * 2, i + k)); }
-                    x.Note("   ⚠ " + what + (res.Success ? " has more than " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows" : " timed out after " + (t0.ElapsedMilliseconds / 1000.0).ToString("0", CultureInfo.InvariantCulture) + " s") +
-                           " - reading it in " + parts.Count + " even slices (MOD(code_combination_id, " + parts[0].K + "))");
-                    var got = await Task.WhenAll(parts.Select(pt => Fetch(period, pt.K, pt.I, depth + 1))).ConfigureAwait(false);
-                    return got.SelectMany(g => g).ToList();
+                    if (total > 0 && all.Count != total) x.Note("   ⚠ " + what + " · read " + all.Count.ToString("N0", CultureInfo.InvariantCulture) + " rows, the count said " + total.ToString("N0", CultureInfo.InvariantCulture) + " (postings in between, or several rows per combination)");
+                    return all;
                 }
                 await Task.WhenAll(toRead.Select(async n =>
                 {
                     var tw = Stopwatch.StartNew();
-                    var rows = await Fetch(n, 1, 0, 0).ConfigureAwait(false);
+                    var rows = await Fetch(n).ConfigureAwait(false);
                     if (rows.Count > 0)
                     {
                         var need = new[] { "CODE_COMBINATION_ID", "BEGIN_BALANCE_DR", "BEGIN_BALANCE_CR", "PERIOD_NET_DR", "PERIOD_NET_CR" }.Where(c => !rows[0].ContainsKey(c)).ToList();
