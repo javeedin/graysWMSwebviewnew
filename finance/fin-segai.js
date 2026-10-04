@@ -27,7 +27,7 @@
           ask: 'Write the board-pack section "Performance by {SEG}" for {PERIODS}{CMP}: a 120-word narrative in a calm, factual board tone, then a table of the top 10 values (revenue, gross margin %, EBITDA, change), then 2 sentences on actions taken / proposed. No jargon, no internal codes without their names.' },
         { id: 'score', who: 'cfo', icon: 'fa-ranking-star', title: 'Scorecards A / B / C', sub: 'tier every value on growth, margin and profit',
           ask: 'Score every {SEG} value with revenue: tier A (above-median margin and positive EBITDA and, if there is a comparison, growing), C (loss-making or margin 10+ pts below median), B the rest. Give the rule you used, the count and revenue share per tier, and a table of tier C with the reason for each.' },
-        { id: 'deep', who: 'cfo', icon: 'fa-crosshairs', title: 'Deep dive on one value', sub: 'pick a value in KPIs › Focus on, or below', focus: true,
+        { id: 'deep', who: 'cfo', icon: 'fa-crosshairs', title: 'Deep dive on one value', sub: 'pick a value below, or Segment P&amp;L › KPIs › Focus on', focus: true,
           ask: 'Deep dive on {SEG} {FOCUS}. Compare it with its peers (the median value) and with the comparison period: revenue, margin, opex, EBITDA. Query fin_gl_ext_v WHERE {SEGCOL} = \'{FOCUSCODE}\' grouped by account and by period_seq to find what drives its result. Give: the 3 facts that matter, the accounts behind them, what to ask the person responsible, and a recommendation.' },
         { id: 'dq', who: 'cio', icon: 'fa-broom', title: 'Data quality audit', sub: 'unassigned postings, missing cost of sales, blanks, names',
           ask: 'Audit the data quality of the {SEG} segment as a controller / CIO would. Check with run_sql on fin_gl_ext_v: share of revenue and opex on blank or default values (e.g. all-zero codes); values with revenue but no cost of sales; accounts that post to many values vs only to the default; values without a name in fin_segment_values. For each finding: size, likely root cause in Oracle Fusion (default segment values, subledger accounting rules, cross-validation rules, missing derivation from the customer / salesperson) and the fix. End with a prioritised fix list.' },
@@ -77,7 +77,7 @@
         if (A.busy) { FL.toast('The agent is still working on "' + A.busy + '" — wait or press Stop', 'info'); return; }
         if (!s.groups.length) { FL.toast('Add a segment on the left first (e.g. Salesperson)', 'err'); return; }
         var m = id === 'ask' ? { id: 'ask', title: 'Your question', ask: question } : A.MISSIONS.filter(function (x) { return x.id === id; })[0]; if (!m) return;
-        if (m.focus && s.aiFocus == null) { FL.toast('Pick the value first (the box under the missions, or KPIs › Focus on)', 'err'); return; }
+        if (m.focus && s.aiFocus == null) { FL.toast('Pick the value first (the box under the missions, or Segment P&L › KPIs › Focus on)', 'err'); return; }
         var d = G.kpi.build(), fx = s.aiFocus != null ? d.list.filter(function (x) { return x.v === s.aiFocus; })[0] : null;
         var q = id === 'ask' ? question + '\n\n(Context: the P&L by ' + G.label(d.f) + ' for ' + d.ps.map(G.pname).join(', ') + '.)' : A.prompt(m);
         var h = { id: 'r' + Date.now(), mission: m.id, title: m.title + (m.focus && fx ? ' — ' + fx.label : ''), at: new Date().toISOString(), seg: G.label(d.f), periods: d.ps.map(G.pname).join(', '), q: q, md: '', steps: [], pending: true };

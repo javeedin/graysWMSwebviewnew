@@ -648,3 +648,15 @@ body.nav-min .tabs.side .datachip { display: none; }
 @media (max-width: 900px) { .pg-wrap { grid-template-columns: 1fr; } .pg-w { grid-column: span 12 !important; } }
 .cop-sugbar { border-top: 1px solid #e2e8f0; padding: 4px 10px; max-height: 34vh; overflow: auto; } .cop-sugbar summary { cursor: pointer; color: #475569; }
 .cop-sugs { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; } .cop-sugs .cop-sug { cursor: pointer; }
+
+/* full screen for a chart / grid card (FL.maxi) */
+.fl-has-max { position: relative; }
+.card.fl-has-max > h3, .card.fl-has-max > .row:first-child { padding-right: 30px; }
+.fl-maxb { position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: #64748b; cursor: pointer; opacity: .55; z-index: 2; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+.fl-maxb:hover, .fl-max > .fl-maxb { opacity: 1; color: var(--primary, #1d4ed8); }
+.fl-max { position: fixed !important; background: var(--card, #fff); padding: 12px 14px; border-radius: 10px; inset: 14px; z-index: 950; overflow: auto; margin: 0 !important; box-shadow: 0 20px 60px rgba(15,23,42,.35); display: flex; flex-direction: column; }
+body.fl-maxed::after { content: ''; position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 940; }
+body.fl-maxed { overflow: hidden; }
+.card.fl-max .sk-ch, .card.fl-max .chartbox, .card.fl-max .wc-spark { height: auto !important; flex: 1 1 auto; min-height: 60vh; }
+.card.fl-max .fg-wrap, .card.fl-max .scroll { max-height: calc(100vh - 150px) !important; }
+.scroll.fl-max { max-height: none !important; }

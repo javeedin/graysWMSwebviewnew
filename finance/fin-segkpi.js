@@ -167,7 +167,7 @@
                 options: { plugins: { tooltip: { callbacks: { label: function (c) { return c.dataset.label + ': ' + money(c.raw); } } } }, scales: { y: FL.moneyAxis(), x: { grid: { display: false } } } } });
         }
         $('sk-fst').onclick = function () { G.full({ rows: x.rows, label: name + ' ' + x.label }); };
-        $('sk-fai').onclick = function () { s.view = 'ai'; s.aiFocus = x.v; K.save(); G.draw(); if (G.ai) setTimeout(function () { G.ai.run('deep'); }, 50); };
+        $('sk-fai').onclick = function () { s.aiFocus = x.v; K.save(); G.pendingAi = 'deep'; FL.show('segai'); };
     };
 
     G.viewKpi = function (out) {

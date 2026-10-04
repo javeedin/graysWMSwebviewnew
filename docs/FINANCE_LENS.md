@@ -572,3 +572,9 @@ Three pages under Reports, each built on the working-capital snapshots (Sync fro
 - The yellow banner at the top has a **Stop** button while a Fusion sync runs, and the running row of Trial balance sync shows **Stop** too. What was read before you stopped stays on this PC; Sync again carries on from there.
 - **One period after another** (Trial balance sync › Settings, on by default): when several periods are ticked, each period is synced and saved completely before the next starts; the others show *waiting in line*. Stop ends the current period and the rest are not started.
 - Extended segments read account by account start with *accounts per query* (default 20). When a batch fails or times out it is read again in halves, and the smaller size is kept for the next accounts instead of trying 20 again each time; after 3 good reads it doubles back. The row shows e.g. *accounts 41–45 of 156 · 5 per query*.
+
+
+## Full screen and the AI Agent page
+
+- Every chart, grid and table card has a ⤢ button in its top-right corner: it opens that card full screen (the chart grows to the window, the grid shows as many rows as fit). ✕ or Esc closes it.
+- **AI Agent** is its own page in the left menu (under Segment P&L). It uses the same left panel (ledger, periods, group by, filters) as Segment P&L; *AI deep dive* on a value in Segment P&L › KPIs opens it and runs the deep dive.

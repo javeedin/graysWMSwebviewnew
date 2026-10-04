@@ -190,7 +190,8 @@
             out.push(Math.abs(diff) < Math.max(1, Math.abs(glv) * 0.005) ? { sev: 'good', html: 'The subledger agrees with the GL control account (' + money(glv) + ').' }
                 : { sev: 'bad', html: 'The subledger differs from the GL control account by <b>' + money(diff) + '</b> (GL ' + money(glv) + ' at the end of ' + esc(FL.periodName(FL.filter.period)) + ') — timing, unposted items or manual journals on the control account.' });
         }
-        if (k === 'AR' && days != null && t.total > 0) {
+        if (k === 'AR' && days != null && days > 730) out.push({ html: 'DSO from the GL reads <b>' + Math.round(days) + ' days</b> — the revenue it divides by is very small for ' + esc(FL.periodName(FL.filter.period)) + (FL.filter.company ? ' and this company' : '') + ' (only part of the year synced, or a company with little revenue); use the ageing here instead.' });
+        else if (k === 'AR' && days != null && t.total > 0) {
             var top10 = m.ps.filter(function (p) { return p.overdue > 0; }).sort(function (a, b) { return b.score - a.score; }).slice(0, 10), get = top10.reduce(function (s, p) { return s + p.overdue; }, 0);
             if (get > 0) out.push({ sev: 'good', html: 'Collecting the overdue of the top 10 on the worklist (<b>' + money(get) + '</b>) would cut DSO by about <b>' + Math.round(days * get / t.total) + ' days</b> (from ' + Math.round(days) + ').' });
         }

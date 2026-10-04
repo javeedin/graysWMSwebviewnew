@@ -13,7 +13,10 @@
     var segCol = function (c) { return /^segment([1-9]|[12][0-9]|30)$/.test(c); };
 
     G.money = money;
-    FL.TABS.segpl = { render: function (el) { return G.render(el); } };
+    // Segment P&L and the AI Agent page share this engine (left panel, data); the AI Agent is its own page in the menu (tab segai)
+    G.mode = 'segpl';
+    FL.TABS.segpl = { render: function (el) { G.mode = 'segpl'; if (G.st.view === 'ai') G.st.view = 'kpi'; return G.render(el); } };
+    FL.TABS.segai = { render: function (el) { G.mode = 'agent'; return G.render(el); } };
 
     // ── what is on this PC: ledgers, periods, segments, names ──
     G.meta = function () {
@@ -240,8 +243,10 @@
         Object.keys(FL.charts || {}).forEach(function (k) { if (/^sk-/.test(k)) { try { FL.charts[k].destroy(); } catch (e) { /* gone */ } delete FL.charts[k]; } });
         if (G.ai && G.ai.charts) { G.ai.charts.forEach(function (c) { try { c.destroy(); } catch (e) { /* gone */ } }); G.ai.charts = []; }
         var pn = s.periods.slice().sort().map(function (q) { return (G.periods.filter(function (p) { return p.seq === q; })[0] || {}).name || q; });
-        bar.innerHTML = '<div class="row"><h2 style="margin:0"><i class="fa-solid fa-layer-group"></i> ' + esc(G.tplObj() ? G.tplObj().name : 'P&L') + (s.groups.length ? ' by ' + s.groups.map(G.label).map(esc).join(' ▸ ') : '') + '</h2><span class="grow"></span>' +
-            '<div class="seg" id="sp-view">' + [['kpi', 'KPIs'], ['ai', '<i class="fa-solid fa-robot"></i> AI Agent'], ['tree', 'Tree'], ['cols', 'By columns'], ['pivot', 'Pivot'], ['tb', 'Trial balance']].map(function (v) { return '<button data-v="' + v[0] + '" class="' + (s.view === v[0] ? 'on' : '') + '">' + v[1] + '</button>'; }).join('') + '</div>' +
+        var agent = G.mode === 'agent';
+        if (!agent && s.view === 'ai') s.view = 'kpi';
+        bar.innerHTML = '<div class="row"><h2 style="margin:0"><i class="fa-solid ' + (agent ? 'fa-robot' : 'fa-layer-group') + '"></i> ' + (agent ? 'AI Agent · ' : '') + esc(G.tplObj() ? G.tplObj().name : 'P&L') + (s.groups.length ? ' by ' + s.groups.map(G.label).map(esc).join(' ▸ ') : '') + '</h2><span class="grow"></span>' +
+            (agent ? '<a class="sm" id="sp-toseg" style="margin-right:8px"><i class="fa-solid fa-layer-group"></i> Open in Segment P&amp;L</a>' : '<div class="seg" id="sp-view">' + [['kpi', 'KPIs'], ['tree', 'Tree'], ['cols', 'By columns'], ['pivot', 'Pivot'], ['tb', 'Trial balance']].map(function (v) { return '<button data-v="' + v[0] + '" class="' + (s.view === v[0] ? 'on' : '') + '">' + v[1] + '</button>'; }).join('') + '</div>') +
             '<label class="sm sp-units" title="Amounts shown in">Amounts <select id="sp-scale">' + [[1, 'absolute'], [100, 'hundreds'], [1000, 'thousands'], [1000000, 'millions']].map(function (o) { return '<option value="' + o[0] + '"' + (+FL.filter.scale === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
             '<select id="sp-dec" title="Decimals">' + [['', 'auto'], ['0', '0 dp'], ['1', '1 dp'], ['2', '2 dp']].map(function (o) { return '<option value="' + o[0] + '"' + (String(s.dec == null ? '' : s.dec) === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
             '<button class="btn sm" id="sp-xl"><i class="fa-solid fa-file-excel"></i> Excel</button></div>' +
@@ -250,11 +255,13 @@
             ' · ' + G.rows.length.toLocaleString() + ' balance rows' + (G.truncated ? ' <b class="neg">(cut at 400,000 — narrow the periods or filters)</b>' : '') + '</div>';
         bar.querySelectorAll('#sp-view button').forEach(function (b) { b.onclick = function () { s.view = b.dataset.v; save(); G.draw(); }; });
         $('sp-xl').onclick = G.excel;
+        if ($('sp-toseg')) $('sp-toseg').onclick = function () { FL.show('segpl'); };
         // amounts: the module-wide scale (kept in step with the header) and decimals for this page
         $('sp-scale').onchange = function () { FL.filter.scale = +this.value; if ($('f-scale')) $('f-scale').value = FL.filter.scale; FL.lsSet('filter', FL.filter); FL.cache = {}; G.draw(); };
         $('sp-dec').onchange = function () { s.dec = this.value === '' ? null : +this.value; save(); G.draw(); };
         G.out = null;
-        if (s.view === 'kpi' && G.viewKpi) G.viewKpi(out); else if (s.view === 'ai' && G.viewAi) G.viewAi(out); else if (s.view === 'cols') G.viewCols(out); else if (s.view === 'pivot') G.viewPivot(out); else if (s.view === 'tb') G.viewTb(out); else G.viewTree(out);
+        if (agent && G.viewAi) { G.viewAi(out); if (G.pendingAi && G.ai) { var pa = G.pendingAi; G.pendingAi = null; setTimeout(function () { G.ai.run(pa); }, 50); } }
+        else if (s.view === 'kpi' && G.viewKpi) G.viewKpi(out); else if (s.view === 'cols') G.viewCols(out); else if (s.view === 'pivot') G.viewPivot(out); else if (s.view === 'tb') G.viewTb(out); else G.viewTree(out);
     };
 
     // ── Tree: one row per value of the first segment, children per next segment, chosen lines as columns ──

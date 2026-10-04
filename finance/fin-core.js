@@ -173,7 +173,8 @@ FL.init = function () {
     };
     setNav(navMin);
     if ($('nav-tg')) $('nav-tg').onclick = function () { navMin = !document.body.classList.contains('nav-min'); FL.lsSet('nav.min', navMin); setNav(navMin); setTimeout(function () { window.dispatchEvent(new Event('resize')); }, 200); };
-    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') FL.closeModal(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { if (FL.maxi.cur) FL.maxi.close(); else FL.closeModal(); } });
+    FL.maxi.watch();
     $('b-pack').onclick = function () { FL.packDialog(); };
     $('b-ask').onclick = function () { FL.copilot.toggle(); };
     if (!hasHost()) { $('main').innerHTML = '<div class="empty"><i class="fa-solid fa-plug-circle-xmark"></i>Open Finance Lens inside the Gray\'s WMS app.</div>'; return; }
@@ -420,6 +421,43 @@ FL.download = function (name, blob) {
 };
 
 // ── charts (Chart.js) ──
+// ═════ full screen for any card with a chart or a grid: a ⤢ button in its corner, Esc or ✕ closes ═════
+FL.maxi = {
+    cur: null,
+    scan: function (root) {
+        // cards with a chart / grid / table, and big tables that sit in a plain scroll box outside any card (statements)
+        var els = Array.prototype.slice.call((root || document).querySelectorAll('#main .card'))
+            .concat(Array.prototype.filter.call((root || document).querySelectorAll('#main .scroll'), function (sc) { return !sc.closest('.card') && sc.querySelector('table.t'); }));
+        els.forEach(function (card) {
+            if (card.dataset.maxi || card.closest('.modal')) return;
+            if (!card.querySelector('canvas, .fg-wrap, table.t')) return;
+            if (!card.classList.contains('card') && card.querySelectorAll('tr').length < 6) return;
+            var inner = card.querySelectorAll('.card'); if (inner.length && Array.prototype.some.call(inner, function (c) { return c.querySelector('canvas, .fg-wrap, table.t'); })) return;   // the inner cards get it
+            card.dataset.maxi = '1'; card.classList.add('fl-has-max');
+            var b = document.createElement('button'); b.className = 'fl-maxb'; b.type = 'button'; b.title = 'Full screen (Esc to close)'; b.innerHTML = '<i class="fa-solid fa-expand"></i>';
+            b.onclick = function (e) { e.stopPropagation(); if (FL.maxi.cur === card) FL.maxi.close(); else FL.maxi.open(card); };
+            card.appendChild(b);
+        });
+    },
+    open: function (card) {
+        if (FL.maxi.cur) FL.maxi.close();
+        FL.maxi.cur = card; card.classList.add('fl-max'); document.body.classList.add('fl-maxed');
+        var b = card.querySelector(':scope > .fl-maxb'); if (b) { b.innerHTML = '<i class="fa-solid fa-xmark"></i>'; b.title = 'Close full screen (Esc)'; }
+        FL.maxi.resize(card);
+    },
+    close: function () {
+        var card = FL.maxi.cur; FL.maxi.cur = null; document.body.classList.remove('fl-maxed'); if (!card) return;
+        card.classList.remove('fl-max');
+        var b = card.querySelector(':scope > .fl-maxb'); if (b) { b.innerHTML = '<i class="fa-solid fa-expand"></i>'; b.title = 'Full screen (Esc to close)'; }
+        FL.maxi.resize(card);
+    },
+    resize: function (card) { setTimeout(function () { Object.keys(FL.charts).forEach(function (k) { var c = FL.charts[k]; if (c && c.canvas && card.contains(c.canvas)) try { c.resize(); } catch (e) { /* gone */ } }); }, 60); },
+    /** New cards appear whenever a view paints — buttons are added as they come */
+    watch: function () {
+        var main = $('main'); if (!main || !window.MutationObserver) return;
+        var t; new MutationObserver(function () { clearTimeout(t); t = setTimeout(function () { if (FL.maxi.cur && !document.body.contains(FL.maxi.cur)) FL.maxi.close(); FL.maxi.scan(main); }, 150); }).observe(main, { childList: true, subtree: true });
+    }
+};
 FL.chart = function (id, cfg) {
     var cv = $(id); if (!cv || !window.Chart) return null;
     if (FL.charts[id]) FL.charts[id].destroy();
