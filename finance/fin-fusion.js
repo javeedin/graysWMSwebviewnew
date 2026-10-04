@@ -76,7 +76,9 @@
         F.log = [];
         if (F.run && F.run.busy && F.run.running) FL.busy.end(F.run.busy);   // a run replaced by a new one
         var R = F.run = { title: title, cancel: !!cancel, running: true, t0: Date.now(), sql: {}, done: [], samples: [], chunks: 0, rows: 0, pct: 0, tab: FL.ls('mon.tab', 'running'), error: null, end: null };
-        R.busy = FL.busy.start(title);
+        // cancel = true (stop every Fusion action) or the host action to stop ('finTbExtSync' …); the yellow banner gets a Stop button
+        R.stop = cancel ? function () { F.stopAt = Date.now(); return FL.call('finCancel', typeof cancel === 'string' ? { what: cancel } : {}).catch(function () { /* already ended */ }); } : null;
+        R.busy = FL.busy.start(title, R.stop);
         F.paint(true);
         clearInterval(F.tick);
         F.tick = setInterval(function () { if (!R.running) { clearInterval(F.tick); return; } F.paintTimes(); }, 1000);
@@ -135,7 +137,7 @@
             '<label class="sm" style="margin-left:auto"><input type="checkbox" id="fu-chunks"' + (F.hideChunks ? '' : ' checked') + '> chunk lines</label></div>' +
             '<div id="mon-pane"></div><div class="fu-log' + (F.hideChunks ? ' nochunks' : '') + '" id="fu-log"' + (R.tab === 'log' ? '' : ' style="display:none"') + '></div>' +
             (R.error ? '<div class="callout bad">' + esc(R.error) + '</div>' : '') + '</div>';
-        if ($('fu-cancel')) $('fu-cancel').onclick = function () { FL.call('finCancel'); this.disabled = true; };
+        if ($('fu-cancel')) $('fu-cancel').onclick = function () { if (R.stop) R.stop(); FL.busy.stopping(R.busy); this.disabled = true; };
         if ($('fu-close')) $('fu-close').onclick = function () { F.run = null; box.innerHTML = ''; };
         $('fu-logcopy').onclick = function () { try { navigator.clipboard.writeText(F.log.join('\n')); FL.toast('Log copied', 'ok'); } catch (e) { FL.toast('Copy failed', 'err'); } };
         $('fu-logsave').onclick = function () { F.saveLog(F.log); };

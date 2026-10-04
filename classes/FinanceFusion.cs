@@ -1781,12 +1781,16 @@ namespace WMSApp
                     int failedHere = 0; string firstAcctErr = null;
                     x.Note("   " + period + " · company " + co + ": reading " + accts.Count + " account(s) " + (batch == 1 ? "one by one" : batch + " per query"));
                     var all = new List<Dictionary<string, object>>();
-                    var queue = new Queue<(int At, List<string> Accts)>(accts.Select((a, i) => (i, a)).Chunk(batch).Select(c => (c[0].i, c.Select(z => z.a).ToList())));
-                    while (queue.Count > 0)
+                    // the batch size adapts: a batch that fails is read again in halves, and the smaller size carries on for the next
+                    // accounts (a size that timed out would time out again); after 3 good reads in a row it doubles back up to `batch`
+                    int pos = 0, size = batch, good = 0;
+                    while (pos < accts.Count)
                     {
                         x.Ct.ThrowIfCancellationRequested();
-                        var (at, list) = queue.Dequeue();
-                        string label = led.Name + " · " + period + " · extended · company " + co + " · account " + (list.Count == 1 ? list[0] : list[0] + "…" + list[^1]) + " · " + (at + 1) + " of " + accts.Count;
+                        int at = pos;
+                        var list = accts.Skip(pos).Take(size).ToList();
+                        string label = led.Name + " · " + period + " · extended · company " + co + " · account " + (list.Count == 1 ? list[0] : list[0] + "…" + list[^1]) +
+                                       " · " + (at + 1) + (list.Count > 1 ? "–" + (at + list.Count) : "") + " of " + accts.Count + " (" + list.Count + " per query)";
                         var ta = Stopwatch.StartNew();
                         var r = Back(await RunLive(x, label, Sql(period, co, list), CAP).ConfigureAwait(false));
                         Interlocked.Increment(ref reads);
@@ -1804,23 +1808,25 @@ namespace WMSApp
                             // saved as it arrives: only these accounts' rows are replaced; the read is sealed when the company is complete
                             FinanceLens.SaveExt(o.Pod, led.Id, period, led.Currency, co, led.Company, led.Account, segs, r.Rows, ta.ElapsedMilliseconds, list, partial: true);
                             FinanceLens.SaveExtAcctStatus(o.Pod, led.Id, period, co, bst, false, segKey);
+                            pos += list.Count;
+                            if (size < batch && ++good >= 3) { size = Math.Min(batch, size * 2); good = 0; x.Note("   " + period + " · company " + co + ": 3 good reads - " + size + " accounts per query again"); }
                             continue;
                         }
+                        good = 0;
+                        string why = r.Success ? "more than " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows" : Short(r.Error);
                         if (list.Count > 1)
-                        {   // split the batch and read both halves before the rest
-                            int h = list.Count / 2;
-                            var rest = queue.ToList(); queue.Clear();
-                            queue.Enqueue((at, list.Take(h).ToList())); queue.Enqueue((at + h, list.Skip(h).ToList()));
-                            foreach (var z in rest) queue.Enqueue(z);
-                            x.Note("   ↯ " + label + " failed - split in two");
+                        {   // read the same accounts again in halves, and keep the smaller size for what follows
+                            size = Math.Max(1, list.Count / 2);
+                            x.Note("   ↯ " + label + " failed after " + (ta.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s (" + why + ") - " + size + " account(s) per query from here");
                             continue;
                         }
-                        string aerr = r.Success ? "more than " + CAP.ToString("N0", CultureInfo.InvariantCulture) + " rows" : Short(r.Error);
+                        string aerr = why;
                         stat.Add((list[0], "failed", 0, aerr, ta.ElapsedMilliseconds));
                         FinanceLens.SaveExtAcctStatus(o.Pod, led.Id, period, co, new List<(string, string, int, string, long)> { (list[0], "failed", 0, aerr, ta.ElapsedMilliseconds) }, false, segKey);
                         failedHere++; firstAcctErr ??= "account " + list[0] + ": " + aerr;
                         x.Note("   ✖ " + period + " · company " + co + " · account " + list[0] + ": " + aerr + " - carrying on with the next account");
                         x.Live(new { t = "ext", period, company = co, state = "acct", account = list[0], ok = false, error = aerr });
+                        pos++;
                     }
                     if (failIfAll && accts.Count > 0 && failedHere == accts.Count) throw new InvalidOperationException("every account failed - " + firstAcctErr);
                     if (failedHere > 0) x.Note("⚠ " + period + " · company " + co + ": " + failedHere + " of " + accts.Count + " account(s) failed - the others are kept; Retry them from the accounts list");

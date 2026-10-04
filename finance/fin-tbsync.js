@@ -7,7 +7,7 @@
    FinanceLens.BuildFromTb). */
 (function () {
     var T = FL.tbsync = {};
-    var L = T.st = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), year: FL.ls('tbl.year', null), cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2),
+    var L = T.st = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), year: FL.ls('tbl.year', null), cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2), seq: FL.ls('tbl.seq', true),
         opt: Object.assign({ skipZero: true, allSums: false, hint: true, perCompany: true }, FL.ls('tbl.opt', {})), query: '', defaultQuery: '', sel: {}, status: null, extBy: FL.ls('tbl.extBy', 'ccid'), extBatch: FL.ls('tbl.extBatch', 20) };
     T.qKey = function () { return 'account' + (L.byCc ? '.cc' : '') + '.' + (L.opt.skipZero ? 'z' : '') + (L.opt.allSums ? 'a' : '') + (L.opt.hint ? 'h' : ''); };
     T.loadQ = function () { L.query = FL.ls('tbl.query.account', ''); L.defaultQuery = FL.ls('tbl.dq.' + T.qKey(), ''); };
@@ -32,6 +32,7 @@
 
             '<div class="row" style="margin-top:6px"><label class="sm"><input type="checkbox" id="ts-cc"' + (L.byCc ? ' checked' : '') + '> by cost centre</label>' +
             '<label class="sm"><input type="checkbox" id="ts-fold"' + (L.fold ? ' checked' : '') + ' title="Adjustment periods (e.g. Adj-25) are read too and added to the period they close"> fold adjustment periods</label>' +
+            '<label class="sm" title="With several periods ticked: sync the first period completely, then the next — each is saved before the next starts, and Stop drops the rest of the line"><input type="checkbox" id="ts-seq"' + (L.seq ? ' checked' : '') + '> one period after another</label>' +
             '<label class="sm" title="Queries to Fusion at the same time (one per company and period)">Reads in parallel <select id="ts-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + (L.par === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label></div>' +
 
             '<div class="row sm" style="margin-top:8px"><i class="fa-solid fa-code"></i> <span class="muted">The query each Sync runs: the <b>&lt;/&gt;</b> button on a period row (view, test, edit) — ' + (L.query ? '<b>your own trial balance query</b>' : 'default trial balance query') + '</span></div></details>' +
@@ -43,6 +44,7 @@
         $('ts-pod').onchange = function () { L.pod = this.value; FL.lsSet('tbl.pod', L.pod); L.ledger = null; L.sel = {}; T.fillLedgers(); };
         $('ts-cc').onchange = function () { L.byCc = this.checked; FL.lsSet('tbl.byCc', L.byCc); T.loadQ(); T.setSum(); };
         $('ts-fold').onchange = function () { L.fold = this.checked; T.setSum(); };
+        $('ts-seq').onchange = function () { L.seq = this.checked; FL.lsSet('tbl.seq', L.seq); T.setSum(); };
         $('ts-par').onchange = function () { L.par = +this.value; FL.lsSet('tbl.par', L.par); T.setSum(); };
         T.wireActs('ts');
         $('ts-selmiss').onclick = function () { T.select('missing'); };
@@ -407,7 +409,7 @@
     T.setSum = function () {
         var l = T.ledgerObj(), n = (l && l.companies || []).length;
         if ($('ts-setsum')) $('ts-setsum').textContent = (L.cos.length ? L.cos.length + ' of ' + n + ' companies' : 'every company' + (n ? ' (' + n + ')' : '')) + (L.byCc ? ' · by cost centre' : '') +
-            (L.fold ? ' · adjustment periods folded' : '') + ' · ' + L.par + ' in parallel' + (L.opt.perCompany ? ' · one query per company' : '') + (L.query ? ' · your own query' : '');
+            (L.fold ? ' · adjustment periods folded' : '') + (L.seq ? ' · one period after another' : '') + ' · ' + L.par + ' in parallel' + (L.opt.perCompany ? ' · one query per company' : '') + (L.query ? ' · your own query' : '');
     };
     /** The companies a period must hold to count as synced */
     /** company key that survives lost leading zeros ("01" and "1" are the same company) */
@@ -519,6 +521,7 @@
                 b.onclick = function (ev) {
                     ev.stopPropagation();
                     var q = +b.dataset.s, a = b.dataset.row;
+                    if (a === 'stop') { var R = FL.fusion.run; if (R && R.stop) { R.stop(); FL.busy.stopping(R.busy); } b.disabled = true; b.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Stopping…'; return; }
                     if (a === 'tb') T.sync([q], false); else if (a === 'tbo') T.sync([q], true); else if (a === 'ext') T.extSync([q], false); else if (a === 'exto') T.extSync([q], true);
                 };
             });
@@ -542,24 +545,25 @@
             var c = cells[p.seq], future = p.start && p.start > today, st = T.stateOf(p, cells, want), lv = T.live && T.live.per[p.name];
             var have = c ? want.filter(function (v) { return c.all || c.cos[T.ck(v)]; }).length : 0;
             var tb = st === 'running' ? pill('run', '<i class="fa-solid fa-circle-notch fa-spin"></i>', 'syncing · company ' + Math.min(lv.done + 1, lv.total) + ' of ' + lv.total)
-                : st === 'queued' ? pill('run', '⏳', 'waiting') : st === 'failed' ? pill('bad', '⚠', 'failed', lv && lv.error)
+                : st === 'queued' ? pill('run', '⏳', 'waiting') : T.inLine('tb', p.name) ? pill('run', '⏳', 'waiting in line') : st === 'failed' ? pill('bad', '⚠', 'failed', lv && lv.error)
                 : st === 'done' ? pill('ok', '✓', 'Yes · ' + (c.rows || 0).toLocaleString() + ' rows · ' + String(c.at).slice(5, 16), (c.all ? 'every company' : 'companies ' + Object.keys(c.cos).join(', ')) + (c.adj.length ? ' · + ' + c.adj.join(', ') : ''))
                 : st === 'part' ? pill('part', '◐', have + ' of ' + cos + ' companies') : future ? pill('off', '–', 'not open yet') : pill('no', '✗', 'No');
             var sqlBtn = function (k) { return future ? '' : '<button class="ts-eye ts-sqlb" data-sql="' + k + '" data-s="' + p.seq + '" title="The SQL this Sync runs for ' + esc(p.name) + ' — view, test' + (k === 'tb' ? ', edit' : '') + '"><i class="fa-solid fa-code"></i></button>'; };
-            var tbBtn = future || !admin ? '' : st === 'done' ? '<button class="btn sm" data-row="tbo" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + ' title="Read again from Fusion and replace"><i class="fa-solid fa-rotate"></i> Overwrite</button>'
+            var stopBtn = function () { var R = FL.fusion.run; return R && R.running && R.stop ? '<button class="btn sm" data-row="stop" data-s="' + p.seq + '" title="Stop the sync — what was read so far stays on this PC; Sync again goes on from there"><i class="fa-solid fa-stop"></i> Stop</button>' : ''; };
+            var tbBtn = future || !admin ? '' : st === 'running' ? stopBtn() : st === 'done' ? '<button class="btn sm" data-row="tbo" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + ' title="Read again from Fusion and replace"><i class="fa-solid fa-rotate"></i> Overwrite</button>'
                 : '<button class="btn sm primary" data-row="tb" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + '><i class="fa-solid fa-cloud-arrow-down"></i> Sync</button>';
             var xs = T.extState(p.seq, want), xl = T.xlive && T.xlive.per[p.name], x = xc[p.seq];
             var miss = x ? need.filter(function (n) { return Object.keys(x.cos).every(function (co) { return x.cos[co].indexOf(n) < 0; }); }) : [];
             var ex = !ext.length ? pill('off', '–', 'no segments chosen')
-                : xl && xl.state === 'running' ? pill('run', '<i class="fa-solid fa-circle-notch fa-spin"></i>', xl.acct ? 'company ' + xl.acct.co + ' · account ' + xl.acct.i + ' of ' + xl.acct.n + (xl.acctFail ? ' · ✗ ' + xl.acctFail : '')
+                : xl && xl.state === 'running' ? pill('run', '<i class="fa-solid fa-circle-notch fa-spin"></i>', xl.acct ? 'company ' + xl.acct.co + ' · account' + (xl.acct.j > xl.acct.i ? 's ' + xl.acct.i + '–' + xl.acct.j : ' ' + xl.acct.i) + ' of ' + xl.acct.n + (xl.acct.per > 1 ? ' · ' + xl.acct.per + ' per query' : '') + (xl.acctFail ? ' · ✗ ' + xl.acctFail : '')
                     : 'syncing · ' + xl.done + ' of ' + xl.total + ' compan' + (xl.total === 1 ? 'y' : 'ies'), xl.acct ? 'Timed out per company - reading it account by account (now ' + xl.acct.name + ')' : '') + (xl.fails ? ' ' + pill('bad', '⚠', xl.fails.length + ' failed', xl.error) : '')
-                : xl && xl.state === 'queued' ? pill('run', '⏳', 'waiting') : xl && xl.state === 'failed' ? pill('bad', '⚠', 'failed', xl.error)
+                : xl && xl.state === 'queued' ? pill('run', '⏳', 'waiting') : T.inLine('ext', p.name) ? pill('run', '⏳', 'waiting in line') : xl && xl.state === 'failed' ? pill('bad', '⚠', 'failed', xl.error)
                 : xs === 'done' && L.ties && L.ties[p.seq] ? pill('part', '◐', 'Yes · ' + (x.rows || 0).toLocaleString() + ' rows · ' + L.ties[p.seq].n + ' account' + (L.ties[p.seq].n === 1 ? '' : 's') + ' differ from TB',
                     'Accounts whose extended rows do not add up to the trial balance (company:account): ' + L.ties[p.seq].accts.slice(0, 600) + ' — press Overwrite to read them again, or 👁 to compare')
                 : xs === 'done' ? pill('ok', '✓', 'Yes · ' + (x.rows || 0).toLocaleString() + ' rows' + (L.ties ? ' · ties to TB' : '') + ' · ' + String(x.at).slice(5, 16), Object.keys(x.cos).length + ' compan(ies) · ' + need.join(', ') + (L.ties ? ' · every account adds up to the trial balance' : ''))
                 : xs === 'part' ? pill('part', '◐', miss.length ? 'missing ' + miss.join(', ') : 'some companies', 'Sync to complete it')
                 : future ? pill('off', '–', 'not open yet') : pill('no', '✗', 'No');
-            var exBtn = !ext.length || future || !admin ? '' : xs === 'done' ? '<button class="btn sm" data-row="exto" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + '><i class="fa-solid fa-rotate"></i> Overwrite</button>'
+            var exBtn = !ext.length || future || !admin ? '' : xl && xl.state === 'running' ? stopBtn() : xs === 'done' ? '<button class="btn sm" data-row="exto" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + '><i class="fa-solid fa-rotate"></i> Overwrite</button>'
                 : '<button class="btn sm' + (st === 'done' ? ' primary' : '') + '" data-row="ext" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + ' title="' + esc(st === 'done' ? 'Read the extended segments for this period' : 'Works on its own, but sync the trial balance too') + '"><i class="fa-solid fa-cloud-arrow-down"></i> Sync</button>';
             var delBtn = admin && c && !run ? '<button class="ts-eye ts-del" data-del="' + p.seq + '" title="Delete ' + esc(p.name) + ' from this PC (trial balance and extended segments; Sync reads it again any time)"><i class="fa-solid fa-trash"></i></button>' : '';
             return '<tr class="ts-tr' + (future ? ' future' : '') + '" data-s="' + p.seq + '"><td><b>' + esc(p.name) + '</b>' +
@@ -737,8 +741,8 @@
                 var n = periodOf(e.what); xl.ids[e.id] = n;
                 if (n) {
                     var pr = xl.per[n]; if (pr.state === 'queued') pr.state = 'running';
-                    var am = /· company (.+?) · account (.+?) · (\d+) of (\d+)$/.exec(e.what || '');
-                    pr.acct = am ? { co: am[1], i: +am[3], n: +am[4], name: am[2] } : pr.acct;
+                    var am = /· company (.+?) · account (.+?) · (\d+)(?:–(\d+))? of (\d+)(?: \((\d+) per query\))?$/.exec(e.what || '');
+                    pr.acct = am ? { co: am[1], i: +am[3], j: am[4] ? +am[4] : +am[3], n: +am[5], per: am[6] ? +am[6] : 1, name: am[2] } : pr.acct;
                 }
             } else if (e.t === 'end') { var nn = xl.ids[e.id]; delete xl.ids[e.id]; if (nn && !e.ok) xl.per[nn].retry = e.error; }
             else if (e.t === 'ext' && xl.per[e.period]) {
@@ -932,7 +936,28 @@
         T.paintExt();
     };
     /** Reads the extended-segment balances of some periods (only what this PC lacks unless refresh) */
+    /** Several periods, one after another (setting "one period after another", on by default): each period is its own sync, saved
+        before the next starts; the periods still to come show "waiting in line"; Stop ends the current one and drops the rest. */
+    T.queue = null;
+    T.inLine = function (kind, name) { var q = T.queue; return !!(q && q.kind === kind && q.names.indexOf(name) >= 0); };
+    T.seqRun = function (kind, seqs, one) {
+        var cal = T.cal(), list = cal.filter(function (p) { return seqs.indexOf(p.seq) >= 0; }).map(function (p) { return p.seq; });
+        var q = T.queue = { kind: kind, names: cal.filter(function (p) { return list.indexOf(p.seq) >= 0; }).map(function (p) { return p.name; }), t0: Date.now() };
+        var i = 0, nameOf = function (s) { return (cal.filter(function (p) { return p.seq === s; })[0] || {}).name; };
+        var next = function () {
+            if (T.queue !== q) return Promise.resolve();
+            if (i >= list.length || (FL.fusion.stopAt && FL.fusion.stopAt >= q.t0)) { var left = list.length - i; T.queue = null; if (left > 0) FL.toast('Stopped — ' + left + ' period(s) not synced', 'info'); T.paintBoard(); return Promise.resolve(); }
+            var s = list[i++]; q.names = q.names.filter(function (n) { return n !== nameOf(s); });
+            return Promise.resolve(one(s)).then(next, next);
+        };
+        T.paintBoard();
+        return next();
+    };
     T.extSync = function (seqs, refresh, quiet, only) {
+        if (L.seq && seqs && seqs.length > 1 && !(only && only.accounts)) return T.seqRun('ext', seqs, function (s) { return T.extSyncOne([s], refresh, quiet, only); });
+        return T.extSyncOne(seqs, refresh, quiet, only);
+    };
+    T.extSyncOne = function (seqs, refresh, quiet, only) {
         only = only || {};
         var l = T.ledgerObj(), ext = T.extCols(); if (!l || !ext.length || !seqs.length) return Promise.resolve();
         var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), today = new Date().toISOString().slice(0, 10);
@@ -945,7 +970,7 @@
         var nco = Math.max(1, T.want().length);
         names.forEach(function (n) { T.xlive.per[n] = { state: 'queued', done: 0, total: nco }; });
         T.paintBoard();
-        var p0 = FL.fusion.progress('Extended segments (' + ext.map(T.segName).map(function (n) { return n.replace(/ \(SEGMENT\d+\)$/, ''); }).join(', ') + ') · ' + names[0] + (names.length > 1 ? ' – ' + names[names.length - 1] : '') + '…', true);
+        var p0 = FL.fusion.progress('Extended segments (' + ext.map(T.segName).map(function (n) { return n.replace(/ \(SEGMENT\d+\)$/, ''); }).join(', ') + ') · ' + names[0] + (names.length > 1 ? ' – ' + names[names.length - 1] : '') + '…', 'finTbExtSync');
         var p = function (m) { p0(m); T.extTrack(String(m || '')); };
         FL.fusion.run.pod = L.pod || '';
         T.pfx().forEach(function (x) { if ($(x + '-md')) $(x + '-md').querySelectorAll('button').forEach(function (b) { b.disabled = true; }); });
@@ -966,6 +991,11 @@
     // ── sync ──
     /** seqs: the periods to sync (default = From–To); refresh: read again even when this PC has them */
     T.sync = function (seqs, refresh) {
+        var list = seqs || T.selSeqs();
+        if (L.seq && list.length > 1) return T.seqRun('tb', list, function (s) { return T.syncOne([s], refresh); });
+        return T.syncOne(list, refresh);
+    };
+    T.syncOne = function (seqs, refresh) {
         var l = T.ledgerObj(); if (!l) { FL.toast('Pick a ledger', 'err'); return; }
         if (T.live && T.live.running) { FL.toast('A trial balance sync is already running — wait for it, or Cancel it first', 'info'); return; }
         var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc));
@@ -975,7 +1005,7 @@
         if (fut.length) { list = list.filter(function (q) { return !fut.some(function (p) { return p.seq === q; }); }); FL.toast(fut.length + ' period(s) not open yet left out', 'info'); }
         if (!list.length) { FL.toast('Tick the periods to sync (open periods only)', 'err'); return; }
         var names = T.cal().filter(function (p) { return list.indexOf(p.seq) >= 0; }).map(function (p) { return p.name; });
-        var base = FL.fusion.progress('Trial balance sync ' + l.name + ' · ' + names[0] + (names.length > 1 ? ' – ' + names[names.length - 1] : '') + '…', true);
+        var base = FL.fusion.progress('Trial balance sync ' + l.name + ' · ' + names[0] + (names.length > 1 ? ' – ' + names[names.length - 1] : '') + '…', 'finTbSync');
         FL.fusion.run.pod = L.pod || '';
         // the board follows the sync: every chosen period queued → running (company k of n) → done / failed
         var total = L.opt.perCompany !== false ? Math.max(1, T.want().length) : 1;
@@ -984,7 +1014,7 @@
         T.paintLive(); T.paintBoard();
         var p = function (msg) { base(msg); T.track(String(msg || '')); };
         if ($('ts-go')) $('ts-go').disabled = true;
-        FL.call('finTbSync', { pod: L.pod || '', options: { ledger: led, periodSeqs: list, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, parallel: L.par, refresh: !!refresh, queryTemplate: L.query || '',
+        return FL.call('finTbSync', { pod: L.pod || '', options: { ledger: led, periodSeqs: list, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, parallel: L.par, refresh: !!refresh, queryTemplate: L.query || '',
             skipZero: !!L.opt.skipZero, allSums: !!L.opt.allSums, hint: !!L.opt.hint, perCompany: L.opt.perCompany !== false, allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 60 * 60000, p).then(function (r) {
             FL.fusion.finish();
             Object.keys(T.live.per).forEach(function (n) { var x = T.live.per[n]; if (x.state !== 'failed') { x.state = 'done'; x.done = x.total; } });

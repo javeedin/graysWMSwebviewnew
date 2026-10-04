@@ -307,7 +307,9 @@ FL.busy = {
         return b;
     },
     /** Starts an item; returns its id. label = what is running ("Syncing debtors…") */
-    start: function (label) { var id = 'b' + (++FL.busy.n); FL.busy.items[id] = { label: String(label || 'Working…').replace(/…$/, ''), line: '', t0: Date.now(), state: 'run' }; FL.busy.paint(); FL.busy.tick(); return id; },
+    /** stop (optional) = function that cancels the work — the banner then shows a Stop button */
+    start: function (label, stop) { var id = 'b' + (++FL.busy.n); FL.busy.items[id] = { label: String(label || 'Working…').replace(/…$/, ''), line: '', t0: Date.now(), state: 'run', stop: stop || null }; FL.busy.paint(); FL.busy.tick(); return id; },
+    stopping: function (id) { var it = FL.busy.items[id]; if (!it || it.state !== 'run') return; it.stopping = true; it.line = 'stopping — the reads already done are kept…'; FL.busy.paint(); },
     line: function (id, msg) { var it = FL.busy.items[id]; if (!it || !msg) return; it.line = String(msg).trim().slice(0, 220); clearTimeout(FL.busy.pt); FL.busy.pt = setTimeout(FL.busy.paint, 150); },
     end: function (id, err) {
         var it = FL.busy.items[id]; if (!it) return;
@@ -332,8 +334,10 @@ FL.busy = {
             return '<div class="fl-busy-i ' + it.state + '">' + (it.state === 'run' ? '<i class="fa-solid fa-circle-notch fa-spin"></i>' : it.state === 'ok' ? '<i class="fa-solid fa-circle-check"></i>' : '<i class="fa-solid fa-triangle-exclamation"></i>') +
                 '<b>' + esc(it.label) + (it.state === 'run' ? ' — syncing' : it.state === 'ok' ? ' — done' : ' — stopped') + '</b>' +
                 (it.state === 'run' ? '<span class="fl-busy-t" data-t0="' + it.t0 + '">' + FL.busy.secs(Date.now() - it.t0) + '</span>' : '') +
-                '<span class="fl-busy-l">' + esc(it.line) + '</span>' + (it.state !== 'run' ? '<a class="fl-busy-x" data-x="' + id + '" title="Hide">×</a>' : '') + '</div>';
+                '<span class="fl-busy-l">' + esc(it.line) + '</span>' +
+                (it.state === 'run' && it.stop ? '<button class="btn sm fl-busy-stop" data-stop="' + id + '"' + (it.stopping ? ' disabled' : '') + ' title="Stop it — what was read so far stays on this PC"><i class="fa-solid fa-stop"></i> ' + (it.stopping ? 'Stopping…' : 'Stop') + '</button>' : '') + (it.state !== 'run' ? '<a class="fl-busy-x" data-x="' + id + '" title="Hide">×</a>' : '') + '</div>';
         }).join('');
+        b.querySelectorAll('[data-stop]').forEach(function (a) { a.onclick = function () { var it = FL.busy.items[a.dataset.stop]; if (!it || !it.stop) return; it.stop(); FL.busy.stopping(a.dataset.stop); }; });
         b.querySelectorAll('[data-x]').forEach(function (a) { a.onclick = function () { delete FL.busy.items[a.dataset.x]; FL.busy.paint(); }; });
     }
 };

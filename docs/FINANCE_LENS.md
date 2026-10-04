@@ -565,3 +565,10 @@ Three pages under Reports, each built on the working-capital snapshots (Sync fro
 - **Creditors** — payment run planner: type the cash available and choose who to pay first (oldest debt, largest, smallest to clear the most suppliers, or pro rata); on-hold suppliers can be skipped. It only plans — nothing is sent to Fusion. Suppliers to act on lists holds, items over 90 days and debit balances.
 - **Inventory** — ABC × age, items that did not move since the comparison, slow-moving provision by age band (editable rates), stock to review, organisations and the stock explorer.
 - Every page has rule-based findings, Excel export and Copilot prompts for that page; the Copilot gets the page's figures as context.
+
+
+## Stopping a sync, and one period after another
+
+- The yellow banner at the top has a **Stop** button while a Fusion sync runs, and the running row of Trial balance sync shows **Stop** too. What was read before you stopped stays on this PC; Sync again carries on from there.
+- **One period after another** (Trial balance sync › Settings, on by default): when several periods are ticked, each period is synced and saved completely before the next starts; the others show *waiting in line*. Stop ends the current period and the rest are not started.
+- Extended segments read account by account start with *accounts per query* (default 20). When a batch fails or times out it is read again in halves, and the smaller size is kept for the next accounts instead of trying 20 again each time; after 3 good reads it doubles back. The row shows e.g. *accounts 41–45 of 156 · 5 per query*.
