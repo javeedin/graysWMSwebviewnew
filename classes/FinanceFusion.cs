@@ -1847,6 +1847,21 @@ namespace WMSApp
                                           && !(Math.Abs(kv.Value.B) < 0.005 && Math.Abs(kv.Value.D) < 0.005 && Math.Abs(kv.Value.C) < 0.005))
                              .Select(kv => kv.Key).OrderBy(a => a, StringComparer.Ordinal).ToList();
                 }
+                // the first differences, TB vs extended (opening / debits / credits), so the log shows HOW they differ
+                string MismatchDetail(string period, string co, List<Dictionary<string, object>> got, List<string> bad)
+                {
+                    List<AcctRow> mine;
+                    lock (acctLock) mine = (tbRows ?? new List<AcctRow>()).Where(r => SameCode(r.Co, co) && r.Period == period && r.Tf != "R").ToList();
+                    var grain = mine.Where(r => r.Cc == null).ToList(); if (grain.Count == 0) grain = mine;
+                    string F(double v) => v.ToString("#,0.##", CultureInfo.InvariantCulture);
+                    return string.Join("; ", bad.Take(3).Select(a =>
+                    {
+                        var t = grain.Where(r => K(r.Ac) == a).ToList();
+                        var e = got.Where(r => ExtTf(r) != "R" && K(S(r, led.Account)) == a).ToList();
+                        return a + ": TB " + F(t.Sum(r => r.Bdr - r.Bcr)) + " / " + F(t.Sum(r => r.Ndr)) + " / " + F(t.Sum(r => r.Ncr)) +
+                               " vs extended " + F(e.Sum(r => D(r, "BEGIN_BALANCE_DR") - D(r, "BEGIN_BALANCE_CR"))) + " / " + F(e.Sum(r => D(r, "PERIOD_NET_DR"))) + " / " + F(e.Sum(r => D(r, "PERIOD_NET_CR"))) + " (" + e.Count + " rows)";
+                    })) + " (opening / debits / credits)";
+                }
                 // ── by code combination: GL_BALANCES alone per period (all companies, no join, no GROUP BY in Fusion), saved page by page in
                 //    fin_gl_ccid_bal; combinations missing from fin_ccid looked up by primary key; the extended trial balance built in DuckDB ──
                 bool ccidMode = by == "ccid" && (o.ExtAccounts == null || !o.ExtAccounts.Any(a => !string.IsNullOrWhiteSpace(a)));
@@ -1924,7 +1939,7 @@ namespace WMSApp
                                 string tie = tbAcc == 0 ? "no-tb" : bad.Count == 0 ? "ok" : "diff";
                                 Interlocked.Add(ref rows, b.Rows);
                                 x.Note("✓ " + g.Key + " · company " + b.Company + ": " + b.Rows.ToString("N0", CultureInfo.InvariantCulture) + " rows built from code combinations" + (b.Unknown > 0 ? " · " + b.Unknown + " combination(s) without segments left out" : "") +
-                                       (tie == "ok" ? " · ties to the trial balance (" + tbAcc + " accounts)" : tie == "diff" ? " · " + bad.Count + " account(s) differ from the trial balance (" + string.Join(", ", bad.Take(12)) + ")" : ""));
+                                       (tie == "ok" ? " · ties to the trial balance (" + tbAcc + " accounts)" : tie == "diff" ? " · " + bad.Count + " account(s) differ from the trial balance (" + string.Join(", ", bad.Take(12)) + ") - " + MismatchDetail(g.Key, b.Company, got, bad) : ""));
                                 x.Live(new { t = "ext", period = g.Key, company = b.Company, state = "done", rows = b.Rows, how = "ccid", tie, differ = bad.Count, failedAccounts = 0 });
                                 lock (sources) sources.Add(new { period = g.Key, company = b.Company, rows = b.Rows, ms = t0.ElapsedMilliseconds, how = "ccid", tie, differ = bad, reread = 0, failedAccounts = 0 });
                             }
@@ -1991,7 +2006,11 @@ namespace WMSApp
                         var bad = Mismatch(j.Period, j.Co, got, out int tbAcc);
                         int reread = 0;
                         var failedSet = new HashSet<string>(stat.Where(z => z.State == "failed").Select(z => K(z.Account)), StringComparer.Ordinal);
-                        if (bad.Any(b2 => !failedSet.Contains(b2)) && by != "company")
+                        // re-read only after a per-company read (which can come back short); an account-by-account read asked exactly those
+                        // accounts already and would get the same rows again, and when most accounts differ the difference is in the data, not the read
+                        bool rereadHelps = how != "account" && bad.Count <= Math.Max(5, tbAcc / 2);
+                        if (bad.Count > 0 && !rereadHelps) x.Note("   " + j.Period + " · company " + j.Co + ": " + bad.Count + " of " + tbAcc + " account(s) differ from the trial balance - not read again (" + (how == "account" ? "they were just read account by account" : "most accounts differ, so a re-read would return the same") + ")");
+                        if (rereadHelps && bad.Any(b2 => !failedSet.Contains(b2)) && by != "company")
                         {
                             bad = bad.Where(b2 => !failedSet.Contains(b2)).ToList();   // accounts that just failed are not asked again here - Retry does that
                             x.Note("⚠ " + j.Period + " · company " + j.Co + ": " + bad.Count + " of " + tbAcc + " account(s) do not match the trial balance on this PC (" + string.Join(", ", bad.Take(12)) + (bad.Count > 12 ? " …" : "") + ") - reading them account by account");
@@ -2004,7 +2023,7 @@ namespace WMSApp
                             bad = Mismatch(j.Period, j.Co, got, out tbAcc);
                         }
                         string tie = tbAcc == 0 ? "no-tb" : bad.Count == 0 ? "ok" : "diff";
-                        if (tie == "diff") x.Note("⚠ " + j.Period + " · company " + j.Co + ": still " + bad.Count + " account(s) differ from the trial balance (" + string.Join(", ", bad.Take(12)) + ") - Fusion returns them this way; compare in the 👁 view");
+                        if (tie == "diff") x.Note("⚠ " + j.Period + " · company " + j.Co + ": " + bad.Count + " account(s) differ from the trial balance (" + string.Join(", ", bad.Take(12)) + ") - " + MismatchDetail(j.Period, j.Co, got, bad) + " - compare in the 👁 view");
                         else if (tie == "ok") x.Note("   " + j.Period + " · company " + j.Co + ": ties to the trial balance (" + tbAcc + " accounts)" + (reread > 0 ? " after reading " + reread + " again" : ""));
                         lock (gate) if (!sampled && got.Count > 0) { sampled = true; LiveSample(x, label, got); }
                         if (how == "account") FinanceLens.SealExt(o.Pod, led.Id, j.Period, led.Currency, j.Co, segs, t0.ElapsedMilliseconds);   // rows were saved as they came
