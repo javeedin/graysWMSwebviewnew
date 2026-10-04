@@ -54,6 +54,32 @@ templates and mapping stay).
   (cover, executive summary with KPI tiles and attention points, KPI table, charts, statements, cost centres,
   monitors, risk highlights). Print / save as PDF, or save the HTML.
 
+
+## Cost allocation & activity-based costing
+
+Reports › **Cost allocation** spreads costs from where they are booked to where they are caused — without posting anything
+to Fusion. Every rule nets to zero, so total profit never changes; only who carries the cost does.
+
+- **Models** — keep several (e.g. *Monthly overheads*, *ABC customer profitability*); saved in the finance folder
+  (`alloc.json`). Data: the income statement of the chosen periods by cost centre, or by a ledger's extended segments
+  (department, salesperson, product line …). Pick periods with the chips (Ctrl+click for several, *year to date*).
+- **Rules run in order** (step-down): support and head-office pools first, then activities, then customers / products.
+  A value a rule has emptied receives nothing from later rules.
+  - *Pool* — which costs: accounts (`type:E` = every expense, ranges like `6000-6999, !6150`, `class:Staff costs`),
+    on which values of a dimension, and what % of them.
+  - *Receivers* — the dimension and the method: **fixed %**, **evenly**, a **GL driver** (e.g. each receiver's revenue,
+    per company), a **driver table** (headcount, m², orders, deliveries — paste from Excel) or **their own costs**.
+  - Optional posting accounts (e.g. *allocations out / in*); otherwise the cost keeps its own account.
+  - The rule editor previews the result live on your data.
+- **Activity-based costing** — add a dimension that is not in the GL (*Activity*: Order handling, Picking, Delivery),
+  move cost-centre costs onto activities (fixed %, e.g. from time surveys), then activities onto customers / salespeople /
+  products by their driver (orders, lines, deliveries). Starter patterns set this up.
+- **Results** — cost moved, not allocated (with the reason), receivers, the balance check, who turns loss-making after
+  allocation, a **flow diagram** (Sankey: thickness = amount, colour = rule), before / after by any dimension (revenue,
+  direct cost, allocated in / out, fully loaded cost, result and margin before / after — click a row for what it
+  received and gave), steps, the allocation journal (CSV) and Excel.
+- **AI** — *Propose rules with AI* reads your values, expense accounts and current rules and proposes a set (with
+  drivers and activities); you see them first and add them, replace your rules or open them as a new model.
 ## Statement builder
 
 An income statement or balance sheet is **main groups → sections → accounts**:

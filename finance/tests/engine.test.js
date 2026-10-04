@@ -280,5 +280,35 @@ test('statement vs trial balance: missing accounts, suggested line, moving accou
     assert.strictEqual(FINE.tbGaps(fx, data, last).length, 0, 'fixture PL covers the chart');
 });
 
+test('cost allocation: step-down, drivers, GL driver, ABC stages, every rule nets to zero', function () {
+    var AL = require('../fin-alloc-engine.js');
+    var accs = ['4000', '6000', '6100'].map(function (c) { return { code: c, account_type: c[0] === '4' ? 'R' : 'E' }; });
+    var rows = [
+        { company: '01', account: '6000', type: 'E', dims: { cc: '900' }, amount: 1000 },
+        { company: '01', account: '6100', type: 'E', dims: { cc: '800' }, amount: 300 },
+        { company: '01', account: '6000', type: 'E', dims: { cc: '100' }, amount: 200 },
+        { company: '01', account: '4000', type: 'R', dims: { cc: '100' }, amount: -3000 },
+        { company: '01', account: '4000', type: 'R', dims: { cc: '200' }, amount: -1000 }];
+    var model = { drivers: [{ id: 'hc', field: 'cc', values: { 100: 3, 200: 1, 800: 1 } }], virtual: [{ id: 'activity', values: ['Order', 'Ship'] }], rules: [
+        { id: 'r1', name: 'HQ by headcount', pool: { where: { cc: ['900'] } }, to: { field: 'cc', method: 'driver', driver: 'hc' } },
+        { id: 'r2', name: 'IT by revenue', pool: { where: { cc: ['800'] } }, to: { field: 'cc', method: 'gl', gl: { accounts: '4*' } } },
+        { id: 'r3', name: 'cc 100 to activities', pool: { accounts: '6*', where: { cc: ['100'] } }, to: { field: 'activity', method: 'fixed', targets: [{ value: 'Order', pct: 60 }, { value: 'Ship', pct: 40 }] } },
+        { id: 'r4', name: 'back to HQ (step-down blocks it)', pool: { where: { cc: ['200'] } }, to: { field: 'cc', method: 'even', targets: ['900'] } }]};
+    var r = AL.run(model, rows, accs);
+    assert.ok(r.ok);
+    near(r.steps[0].targets['100'], 600); near(r.steps[0].targets['800'], 200);           // headcount 3 : 1 : 1
+    near(r.steps[1].pool, 500); near(r.steps[1].targets['100'], 375); near(r.steps[1].targets['200'], 125);   // IT incl. its HQ share, by revenue 3 : 1
+    near(r.steps[2].targets.Order, 0.6 * 1175); near(r.steps[2].targets.Ship, 0.4 * 1175);
+    assert.strictEqual(r.steps[3].allocated, 0); assert.ok(r.steps[3].warn.length, 'HQ was emptied by rule 1, so it receives nothing');
+    var total = r.work.reduce(function (a, x) { return a + x.amount; }, 0); near(total, -2500, 0.001, 'profit unchanged');
+    var cc = {}; AL.summary(r, 'cc').forEach(function (o) { cc[o.value] = o; });
+    near(cc['900'].loaded, 0); near(cc['800'].loaded, 0); near(cc['200'].after, 1000 - 325); near(cc['100'].after, 3000 - 1175);
+    var j = AL.journal(r, ['cc', 'activity']), dr = 0, cr = 0; j.forEach(function (o) { dr += o.dr; cr += o.cr; }); near(dr, cr, 0.05, 'journal balances');
+    // fixed shares are scaled when they do not add to 100; an empty driver leaves the pool unallocated with a warning
+    var r2 = AL.run({ rules: [{ id: 'a', pool: { where: { cc: ['900'] } }, to: { field: 'cc', method: 'fixed', targets: [{ value: '100', pct: 30 }, { value: '200', pct: 10 }] } },
+        { id: 'b', pool: { where: { cc: ['800'] } }, to: { field: 'cc', method: 'driver', driver: 'none' } }] }, rows, accs);
+    near(r2.steps[0].targets['100'], 750); near(r2.steps[1].unallocated, 300); assert.ok(r2.warnings.length === 1);
+});
+
 console.log('\n' + (n - fail) + '/' + n + ' passed');
 process.exit(fail ? 1 : 0);

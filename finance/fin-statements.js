@@ -152,7 +152,7 @@
             }).join('') + '</tbody></table></div>' +
             '<p class="sm muted">Set every ticked row at once: ' + FL.lineSelect(tpl, '', '', ' id="tg-bulk"') + '</p>';
         FL.modal('<i class="fa-solid fa-list-check"></i> Accounts missing from ' + esc(tpl.name), html,
-            '<button class="btn sm" id="tg-csv"><i class="fa-solid fa-file-csv"></i> CSV</button><button class="btn sm pri" id="tg-add"><i class="fa-solid fa-plus"></i> Add ticked</button>');
+            '<button class="btn sm" id="tg-csv"><i class="fa-solid fa-file-csv"></i> CSV</button><button class="btn sm primary" id="tg-add"><i class="fa-solid fa-plus"></i> Add ticked</button>');
         var body = $('m-body');
         $('tg-all').onchange = function () { var c = this.checked; body.querySelectorAll('.tg-c').forEach(function (x) { x.checked = c; }); };
         $('tg-bulk').onchange = function () { var v = this.value; if (!v) return; body.querySelectorAll('#tg-t tbody tr').forEach(function (tr) { if (tr.querySelector('.tg-c').checked) tr.querySelector('.tg-s').value = v; }); };
@@ -196,7 +196,7 @@
                     (gaps.length ? '<div class="callout warn st-gap"><i class="fa-solid fa-triangle-exclamation"></i> <b>' + gaps.length + ' trial balance account(s) are not in this statement</b> — ' +
                         (Math.abs(looseAmt) >= 0.5 ? FL.num(Math.abs(looseAmt)) + ' ' + FL.scaleLabel() + ' ' + (FINE.tplKind(tpl) === 'BS' ? 'of closing balances' : 'this year') + ' the totals leave out' : 'they carry amounts in other periods') +
                         '. e.g. ' + gaps.slice(0, 3).map(function (g) { return '<b>' + esc(g.code) + '</b> ' + esc(g.name || '') + (g.suggest ? ' → <i>' + esc(g.suggest.label) + '</i>' : ''); }).join(' · ') +
-                        '<div style="margin-top:6px"><button class="btn sm pri" id="st-gaps"><i class="fa-solid fa-list-check"></i> Review &amp; add (' + gaps.length + ')</button> ' +
+                        '<div style="margin-top:6px"><button class="btn sm primary" id="st-gaps"><i class="fa-solid fa-list-check"></i> Review &amp; add (' + gaps.length + ')</button> ' +
                         '<button class="btn sm" id="st-gapall"><i class="fa-solid fa-wand-magic-sparkles"></i> Add all as suggested</button>' + (tpl.simple ? ' <a id="st-map">open the mapping</a>' : '') + '</div></div>' : '') +
                     (st.errors.length ? '<div class="stmt-err"><i class="fa-solid fa-triangle-exclamation"></i> ' + st.errors.map(esc).join(' · ') + '</div>' : '') +
                     FL.stmtTable(st, { links: true, hideZero: S.hideZero, detail: S.detail, sub: sub }) + '</div>' +

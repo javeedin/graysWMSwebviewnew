@@ -582,7 +582,7 @@
                         .concat(cols.map(function (c) { return { label: c.label, n: 1, get: function (r) { return r.v[c.id] == null ? '' : FL.num(r.v[c.id]); } }; })), list, { click: true }) + '</div>' +
                     '<p class="sm">Total ' + cols.map(function (c, i) { var ix = st.columns.indexOf(c); return esc(c.label) + ' <b>' + FL.cellText(row, c, srow.values[ix]) + '</b>'; }).join(' · ') + '</p>' +
                     (FINE.tplKind(tpl) && !(row.accounts && row.accounts.type === 'RE' && !Array.isArray(row.accounts)) ? '<div class="callout sm rm-move"><b>Move accounts to another line</b> — tick them above (<a id="rm-tall">tick all</a>), choose the line and Move: they leave every other line of this template. ' +
-                        FL.lineSelect(tpl, '', '', ' id="rm-to"') + ' <button class="btn sm pri" id="rm-mv"><i class="fa-solid fa-right-left"></i> Move</button></div>' : '');
+                        FL.lineSelect(tpl, '', '', ' id="rm-to"') + ' <button class="btn sm primary" id="rm-mv"><i class="fa-solid fa-right-left"></i> Move</button></div>' : '');
             } else {
                 var kids = row.type === 'group' ? tpl.rows.filter(function (r) { return r.parent === rowId; }) : FINE.refs(FINE.parse(row.formula || '0'), []).map(function (id) { return tpl.rows.filter(function (r) { return r.id === id; })[0]; }).filter(Boolean);
                 html += '<p class="sm muted">Made of these lines — click one for its accounts</p>' + FL.table([{ label: 'Line', key: 'label' }, { label: 'Type', key: 'type' }].concat(cols.map(function (c) {
