@@ -483,6 +483,8 @@
             if (spec.type) p.push('type ' + String(spec.type).split('').map(function (t) { return TYPE[t] || t; }).join(' / '));
             if (spec.class) p.push('class ' + [].concat(spec.class).join(', '));
             if (spec.prefix) p.push('starts with ' + [].concat(spec.prefix).join(', '));
+            if (spec.include) p.push('plus ' + [].concat(spec.include).join(', '));
+            if (spec.exclude) p.push('except ' + [].concat(spec.exclude).join(', '));
             return p.join(' · ');
         }
         return Array.isArray(spec) ? spec.join(', ') : String(spec);
@@ -576,9 +578,11 @@
                 var list = codes.map(function (c) { var a = byCode[c] || {}; return { code: c, name: a.name, type: a.account_type, cls: a.class, v: (per[c] || { v: {} }).v }; });
                 FL.rmList = list;
                 html += '<p class="sm muted">' + list.length + ' account(s) mapped to this line · amounts in ' + FL.scaleLabel() + ' · click an account for companies, cost centres, months and journals</p><div class="scroll" style="max-height:52vh">' +
-                    FL.table([{ label: 'Account', key: 'code' }, { label: 'Name', key: 'name' }, { label: 'Type', get: function (r) { return TYPE[r.type] || r.type || ''; } }, { label: 'Class', key: 'cls' }]
+                    FL.table([{ label: '', html: 1, get: function (r) { return '<input type="checkbox" class="rm-c" data-code="' + esc(r.code) + '">'; } }, { label: 'Account', key: 'code' }, { label: 'Name', key: 'name' }, { label: 'Type', get: function (r) { return TYPE[r.type] || r.type || ''; } }, { label: 'Class', key: 'cls' }]
                         .concat(cols.map(function (c) { return { label: c.label, n: 1, get: function (r) { return r.v[c.id] == null ? '' : FL.num(r.v[c.id]); } }; })), list, { click: true }) + '</div>' +
-                    '<p class="sm">Total ' + cols.map(function (c, i) { var ix = st.columns.indexOf(c); return esc(c.label) + ' <b>' + FL.cellText(row, c, srow.values[ix]) + '</b>'; }).join(' · ') + '</p>';
+                    '<p class="sm">Total ' + cols.map(function (c, i) { var ix = st.columns.indexOf(c); return esc(c.label) + ' <b>' + FL.cellText(row, c, srow.values[ix]) + '</b>'; }).join(' · ') + '</p>' +
+                    (FINE.tplKind(tpl) && !(row.accounts && row.accounts.type === 'RE' && !Array.isArray(row.accounts)) ? '<div class="callout sm rm-move"><b>Move accounts to another line</b> — tick them above (<a id="rm-tall">tick all</a>), choose the line and Move: they leave every other line of this template. ' +
+                        FL.lineSelect(tpl, '', '', ' id="rm-to"') + ' <button class="btn sm pri" id="rm-mv"><i class="fa-solid fa-right-left"></i> Move</button></div>' : '');
             } else {
                 var kids = row.type === 'group' ? tpl.rows.filter(function (r) { return r.parent === rowId; }) : FINE.refs(FINE.parse(row.formula || '0'), []).map(function (id) { return tpl.rows.filter(function (r) { return r.id === id; })[0]; }).filter(Boolean);
                 html += '<p class="sm muted">Made of these lines — click one for its accounts</p>' + FL.table([{ label: 'Line', key: 'label' }, { label: 'Type', key: 'type' }].concat(cols.map(function (c) {
@@ -594,6 +598,17 @@
             if ($('rm-csv')) $('rm-csv').onclick = function () { FL.csv(tpl.id + '-' + rowId + '-accounts.csv', ['account', 'name', 'type', 'class'].concat(cols.map(function (c) { return c.label; })), FL.rmList.map(function (r) { return [r.code, r.name, r.type, r.cls].concat(cols.map(function (c) { return r.v[c.id] == null ? '' : r.v[c.id].toFixed(2); })); })); };
             if (row.type === 'accounts') {
                 var c0 = cols[0], seqs = c0 ? FINE.windowSeqs(c0, data, opts.period) : [];
+                $('m-body').querySelectorAll('.rm-c').forEach(function (cb) { cb.onclick = function (e) { e.stopPropagation(); }; cb.parentNode.onclick = function (e) { e.stopPropagation(); }; });
+                if ($('rm-tall')) $('rm-tall').onclick = function () { var bx = $('m-body').querySelectorAll('.rm-c'), on = [].some.call(bx, function (x) { return !x.checked; }); bx.forEach(function (x) { x.checked = on; }); };
+                if ($('rm-mv')) $('rm-mv').onclick = function () {
+                    var to = $('rm-to').value, codes = [].filter.call($('m-body').querySelectorAll('.rm-c'), function (x) { return x.checked; }).map(function (x) { return x.dataset.code; });
+                    if (!codes.length) { FL.toast('Tick the accounts to move', 'warn'); return; }
+                    if (!to) { FL.toast('Choose the line to move them to', 'warn'); return; }
+                    if (to === rowId) { FL.toast('They are already on this line', 'warn'); return; }
+                    var n = FINE.moveAccounts(tpl, codes, to, data.accounts);
+                    FL.saveTemplates().then(function () { FL.cache = {}; FL.closeModal(); FL.toast(n + ' account(s) moved from ' + row.label + ' — ' + tpl.name + ' saved', 'ok'); FL.render(); })
+                        .catch(function (e) { FL.toast(String(e && e.message || e), 'err'); });
+                };
                 FL.wireRows($('m-body'), FL.rmList, function (a) { FL.drillAccount(a.code, { tpl: tpl, row: row, col: c0 || {}, seqs: seqs, label: row.label + (c0 ? ' · ' + FINE.colLabel(c0, data._pi, opts.period) : '') }); });
             } else FL.wireRows($('m-body'), FL.rmKids, function (r) { FL.rowMap(tpl, r.id); });
         }).catch(function (e) { FL.toast(String(e && e.message || e), 'err'); });

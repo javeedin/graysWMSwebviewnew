@@ -246,5 +246,39 @@ test('KPI explain, missing data and company health', function () {
     assert.strictEqual(FINE.band(FINE.HEALTH.bands.nd_ebitda, -18.9), 'poor');
 });
 
+test('statement vs trial balance: missing accounts, suggested line, moving accounts', function () {
+    var clone = function (o) { return JSON.parse(JSON.stringify(o)); };
+    // builder template: take one revenue account out → it is reported with a suggestion, adding it closes the gap
+    var pl = { id: 'PLX', type: 'PL', simple: FINE.simpleDefault('PL', data.accounts) }; FINE.simpleTemplate(pl);
+    assert.strictEqual(FINE.tbGaps(pl, data, last).length, 0, 'default PL maps every P&L account');
+    var rev = data.accounts.filter(function (a) { return a.account_type === 'R'; })[0], from = null;
+    pl.simple.lines.forEach(function (l) { (l.sections || []).forEach(function (x) { var i = (x.accounts || []).indexOf(rev.code); if (i >= 0) { x.accounts.splice(i, 1); from = l.sections.length === 1 ? l.id : x.id; } }); });
+    FINE.simpleTemplate(pl);
+    var g = FINE.tbGaps(pl, data, last);
+    assert.strictEqual(g.length, 1); assert.strictEqual(g[0].code, rev.code); assert.ok(Math.abs(g[0].amount) > 0);
+    assert.ok(g[0].suggest && g[0].suggest.id === from, JSON.stringify(g[0].suggest) + ' vs ' + from);
+    assert.strictEqual(FINE.moveAccounts(pl, [rev.code], g[0].suggest.id, data.accounts), 1);
+    assert.strictEqual(FINE.tbGaps(pl, data, last).length, 0);
+    // move it to another line: in exactly one line afterwards
+    var other = FINE.tplTargets(pl).filter(function (t) { return t.id !== from; })[0].id;
+    FINE.moveAccounts(pl, [rev.code], other, data.accounts);
+    var lines = FINE.accountLines([pl], data.accounts)[rev.code];
+    assert.deepStrictEqual(lines.map(function (l) { return l.row; }), [other]);
+    // range template: exclusions / plain codes
+    var t = { id: 'R', type: 'PL', rows: [{ id: 'A', type: 'accounts', label: 'A', accounts: '4000-4099' }, { id: 'B', type: 'accounts', label: 'B', accounts: ['4100'] }, { id: 'C', type: 'accounts', label: 'C', accounts: { type: 'E' } }] };
+    var acc = ['4000', '4010', '4100', '4200', '5000'].map(function (c) { return { code: c, account_type: c[0] === '4' ? 'R' : 'E' }; });
+    FINE.moveAccounts(t, ['4010'], 'B', acc);
+    assert.deepStrictEqual(FINE.matchAccounts(t.rows[0].accounts, acc), ['4000']); assert.deepStrictEqual(FINE.matchAccounts(t.rows[1].accounts, acc), ['4010', '4100']);
+    FINE.moveAccounts(t, ['5000'], 'A', acc);
+    assert.deepStrictEqual(FINE.matchAccounts(t.rows[2].accounts, acc), []); assert.deepStrictEqual(FINE.matchAccounts(t.rows[0].accounts, acc), ['4000', '5000']);
+    FINE.moveAccounts(t, ['4010'], 'A', acc);
+    assert.deepStrictEqual(FINE.matchAccounts(t.rows[0].accounts, acc), ['4000', '4010', '5000']); assert.deepStrictEqual(FINE.matchAccounts(t.rows[1].accounts, acc), ['4100']);
+    var s2 = FINE.suggestLine(t, { code: '4200', account_type: 'R' }, acc);
+    assert.ok(s2 && (s2.id === 'A' || s2.id === 'B'), JSON.stringify(s2));
+    // a non-builder fixture template with one account removed
+    var fx = clone(T[Object.keys(T).filter(function (k) { return FINE.tplKind(T[k]) === 'PL'; })[0]]);
+    assert.strictEqual(FINE.tbGaps(fx, data, last).length, 0, 'fixture PL covers the chart');
+});
+
 console.log('\n' + (n - fail) + '/' + n + ' passed');
 process.exit(fail ? 1 : 0);

@@ -18,12 +18,21 @@ templates and mapping stay).
 - **Overview** — headline KPIs with 12-month sparklines and monitor status, plain-language commentary (month vs budget,
   YTD vs last year, unusual accounts, monitor alerts), revenue and profit, margins, the net-profit bridge, cash and
   working capital, opex mix, biggest movements.
+  It always opens on the **current period** (the latest synced month that has started); the period bar at the top
+  (◀ period ▶, *Current period*) changes it while you stay on the page. Every figure comes from `fin_balances`, which
+  — when the data source is *synced trial balances* — is built from the trial balances synced from Fusion (Data ›
+  Trial balance sync); the bar says so.
 - **Statements** — one **statement bar** on top for every statement: Ledger · Year · Period (the synced months as
   buttons) · Company · Amounts, then the statements as tabs — Trial balance, Income statement, Balance sheet, Cash
   flow (and Other) — and the **Template** to run it with (each statement can have several: management, statutory, a
   group view …), *Edit mapping* and *New template*. Hide empty lines, account detail; Excel (formatted, one sheet per
-  statement), CSV, print. Accounts with amounts that are in no line of the template are named in a warning with
-  *Place them automatically*. **Click any amount** to drill:
+  statement), CSV, print. **Trial balance check**: every income statement and balance sheet template is checked
+  against the trial balance — accounts of that kind with amounts in any synced period that are on no line are named in
+  a warning with the amount the totals leave out and, per account, a **suggested line** (accounts of the same type
+  whose codes start the same way, or its class; builder templates place it like Auto-place). *Review & add* lists them
+  all — change any suggestion, set every ticked row at once, CSV, Add ticked — or *Add all as suggested*.
+  **Moving accounts**: click a line name, tick its accounts and *Move* them to another line; they leave every other
+  line of the template (ranges and rules get an exclusion, so nothing is counted twice). **Click any amount** to drill:
   the accounts behind it → companies, cost centres and months → journal lines → the whole journal.
 - **Analytics** — trends of several income statement lines on one chart (pick any lines of any income statement template — Sales, Cost of sales, Discounts …, up to 8, each in its own colour; quick sets Sales & costs / Profit / Operating expenses / Margins; lines or columns; % lines on a right-hand axis; a monthly table underneath) with a seasonal forecast per line (dotted; Holt-Winters with 24+ months) and optional budget (dashed), variance bridges (YTD vs budget,
   vs last year, month vs budget / last month, last 12 months), cost centres against budget as a heat map, companies

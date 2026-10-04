@@ -21,6 +21,8 @@
                 var ok = (!spec.type || String(spec.type).indexOf(a.account_type) >= 0) &&
                     (!spec.class || [].concat(spec.class).indexOf(a.class) >= 0) &&
                     (!spec.prefix || [].concat(spec.prefix).some(function (p) { return String(a.code).indexOf(p) === 0; }));
+                if (ok && spec.exclude && [].concat(spec.exclude).indexOf(String(a.code)) >= 0) ok = false;
+                if (!ok && spec.include && [].concat(spec.include).indexOf(String(a.code)) >= 0) ok = true;
                 if (ok) out.push(a.code);
             });
             return out.sort();
@@ -1095,6 +1097,118 @@
             });
         });
         return out;
+    };
+
+    // ── statement ↔ trial balance: accounts with amounts in no line, where they should go, moving an account between lines ──
+    /** 'PL' | 'BS' | null (cash flow and other templates are not checked) */
+    FINE.tplKind = function (t) { return !t ? null : t.simple ? (t.simple.kind || 'PL') : /^PL/.test(t.type || '') ? 'PL' : t.type === 'BS' ? 'BS' : null; };
+    var isCye = function (r) { return r.accounts && typeof r.accounts === 'object' && !Array.isArray(r.accounts) && r.accounts.type === 'RE' && !r.accounts.class && !r.accounts.prefix; };
+    /** Lines an account can be put on: accounts rows of the template (not the profit-for-the-year line), labelled with their header */
+    FINE.tplTargets = function (t) {
+        var rows = t.rows || [], lab = {};
+        rows.forEach(function (r) { if (r.type === 'header') lab[r.id.replace(/^H_/, '')] = r.label; else if (r.type === 'group' && !lab[r.id]) lab[r.id] = r.label.replace(/^Total /i, ''); });
+        return rows.filter(function (r) { return r.type === 'accounts' && !isCye(r); })
+            .map(function (r) { return { id: r.id, label: (r.parent && lab[r.parent] ? lab[r.parent] + ' › ' : '') + r.label }; });
+    };
+    /** Accounts of the statement's kind that carry amounts in the trial balance (any loaded period) but sit in no line.
+        amount = the window the statement shows (PL: year to date, BS: closing) in raw units; any = largest absolute period amount. */
+    FINE.tbGaps = function (t, data, period) {
+        var kind = FINE.tplKind(t); if (!kind) return [];
+        var accs = data.accounts || [], fa = (data.facts && data.facts.ACTUAL) || {}, inLine = {};
+        (t.rows || []).forEach(function (r) { if (r.type === 'accounts' && !isCye(r)) FINE.matchAccounts(r.accounts, accs).forEach(function (c) { inLine[c] = 1; }); });
+        var pi = data._pi || (data._pi = FINE.periodIndex(data.periods || [])), w = FINE.windowOf({ range: kind === 'BS' ? 'BAL' : 'YTD' }, pi, period), out = [];
+        accs.forEach(function (a) {
+            if (inLine[a.code] || (kind === 'PL') !== FINE.isPl(a)) return;
+            var f = fa[a.code] || {}, any = 0, v = 0;
+            Object.keys(f).forEach(function (k) { var x = f[k] || [0, 0]; any = Math.max(any, Math.abs(x[0] || 0), Math.abs(x[1] || 0)); });
+            if (any < 0.5) return;
+            if (w) { if (kind === 'BS') v = (f[pi.list[w.end != null ? w.end : w.to].period_seq] || [0, 0])[1]; else for (var i = Math.max(0, w.from); i <= w.to; i++) v += (f[pi.list[i].period_seq] || [0])[0]; }
+            out.push({ code: a.code, name: a.name, type: a.account_type, cls: a.class, amount: v, any: any, suggest: FINE.suggestLine(t, a, accs) });
+        });
+        return out.sort(function (x, y) { return Math.abs(y.amount) - Math.abs(x.amount) || Math.abs(y.any) - Math.abs(x.any); });
+    };
+    /** Best line for an account: builder templates place it like Auto-place does (a new group when nothing fits → id '__new');
+        other templates take the line whose accounts share the longest code prefix with it (same type), class agreement counting extra.
+        Returns {id, label, why} or null. */
+    FINE.suggestLine = function (t, a, accounts) {
+        if (t.simple) {
+            var s = JSON.parse(JSON.stringify(t.simple)), before = {};
+            (s.lines || []).forEach(function (l) { before[l.id] = 1; });
+            FINE.simplePlace(s, accounts, [a.code]);
+            var hit = null;
+            (s.lines || []).some(function (l) { return (l.sections || []).some(function (x) { if ((x.accounts || []).indexOf(a.code) >= 0) { hit = { l: l, x: x }; return true; } return false; }); });
+            if (!hit) return null;
+            if (!before[hit.l.id]) return { id: '__new', label: 'new group "' + hit.l.name + '"', why: 'no group of this nature' };
+            return { id: hit.l.sections.length === 1 ? hit.l.id : hit.x.id, label: hit.l.name + (hit.l.sections.length === 1 ? '' : ' › ' + hit.x.name), why: a.class ? 'class ' + a.class : 'type' };
+        }
+        var byCode = {}; accounts.forEach(function (x) { byCode[x.code] = x; });
+        var code = String(a.code), best = null, targets = FINE.tplTargets(t), lab = {};
+        targets.forEach(function (x) { lab[x.id] = x.label; });
+        (t.rows || []).forEach(function (r) {
+            if (!lab[r.id]) return;
+            var pre = 0, cls = 0;
+            FINE.matchAccounts(r.accounts, accounts).forEach(function (c) {
+                var o = byCode[c]; if (!o || o.account_type !== a.account_type) return;
+                var n = 0; c = String(c); while (n < c.length && n < code.length && c[n] === code[n]) n++;
+                if (n > pre) pre = n;
+                if (a.class && o.class === a.class) cls = 1;
+            });
+            var sc = pre * 2 + cls * 3;
+            if (sc > 0 && (!best || sc > best.sc)) best = { id: r.id, label: lab[r.id], sc: sc, why: (pre ? 'code starts like its accounts (' + code.slice(0, pre) + '…)' : '') + (cls ? (pre ? ', ' : '') + 'class ' + a.class : '') };
+        });
+        return best ? { id: best.id, label: best.label, why: best.why } : null;
+    };
+    var specDrop = function (spec, code) {
+        code = String(code);
+        if (Array.isArray(spec)) { var i = spec.map(String).indexOf(code); if (i >= 0) { spec.splice(i, 1); return spec; } spec.push('!' + code); return spec; }
+        if (spec && typeof spec === 'object') { if (spec.include) spec.include = [].concat(spec.include).filter(function (c) { return String(c) !== code; }); spec.exclude = [].concat(spec.exclude || []).concat([code]); return spec; }
+        var parts = String(spec || '').split(/[,;\n]+/).map(function (p) { return p.trim(); }).filter(Boolean), j = parts.indexOf(code);
+        if (j >= 0) parts.splice(j, 1); else parts.push('!' + code);
+        return parts.join(', ');
+    };
+    var specAdd = function (spec, code) {
+        code = String(code);
+        if (Array.isArray(spec)) { var i = spec.indexOf('!' + code); if (i >= 0) spec.splice(i, 1); if (spec.indexOf(code) < 0) spec.push(code); return spec; }
+        if (spec && typeof spec === 'object') { if (spec.exclude) spec.exclude = [].concat(spec.exclude).filter(function (c) { return String(c) !== code; }); spec.include = [].concat(spec.include || []).concat([code]); return spec; }
+        var parts = String(spec || '').split(/[,;\n]+/).map(function (p) { return p.trim(); }).filter(function (p) { return p && p !== '!' + code; });
+        parts.push(code); return parts.join(', ');
+    };
+    /** Moves (or adds) accounts to one line: taken out of every other line of the template, put on toId.
+        Builder templates: section accounts (toId = a section id, a one-section group id, or '__new' = Auto-place), then recompiled.
+        Other templates: plain codes are removed / added, ranges and type / class rules get "!code" / include. Returns how many moved. */
+    FINE.moveAccounts = function (t, codes, toId, accounts) {
+        codes = (codes || []).map(String); if (!codes.length) return 0;
+        if (t.simple) {
+            var s = t.simple; delete s.auto;
+            if (toId === '__new') {
+                (s.lines || []).forEach(function (l) { (l.sections || []).forEach(function (x) { x.accounts = (x.accounts || []).filter(function (c) { return codes.indexOf(String(c)) < 0; }); }); });
+                var n = FINE.simplePlace(s, accounts, codes); FINE.simpleTemplate(t); return n;
+            }
+            var target = null;
+            (s.lines || []).some(function (l) {
+                return (l.sections || []).some(function (x) { if (x.special) return false; if (x.id === toId || (l.id === toId && l.sections.length === 1)) { target = x; return true; } return false; });
+            });
+            if (!target) return 0;
+            (s.lines || []).forEach(function (l) {
+                (l.sections || []).forEach(function (x) {
+                    if (x.special) return;
+                    x.accounts = (x.accounts || []).filter(function (c) { return codes.indexOf(String(c)) < 0; });
+                    if (x !== target && x.match) { var m = FINE.matchAccounts(x.match, accounts); codes.forEach(function (c) { if (m.indexOf(c) >= 0) x.match = specDrop(x.match, c); }); }
+                });
+            });
+            target.accounts = (target.accounts || []).concat(codes).filter(function (c, i, a) { return a.indexOf(c) === i; }).sort();
+            FINE.simpleTemplate(t); return codes.length;
+        }
+        var rows = t.rows || [], to = rows.filter(function (r) { return r.id === toId && r.type === 'accounts'; })[0];
+        if (!to) return 0;
+        rows.forEach(function (r) {
+            if (r.type !== 'accounts' || r === to || isCye(r)) return;
+            var m = FINE.matchAccounts(r.accounts, accounts);
+            codes.forEach(function (c) { if (m.indexOf(c) >= 0) r.accounts = specDrop(r.accounts, c); });
+        });
+        var have = FINE.matchAccounts(to.accounts, accounts);
+        codes.forEach(function (c) { if (have.indexOf(c) < 0) to.accounts = specAdd(to.accounts, c); });
+        return codes.length;
     };
 
     if (typeof module !== 'undefined' && module.exports) module.exports = FINE; else root.FINE = FINE;

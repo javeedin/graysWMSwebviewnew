@@ -122,6 +122,54 @@
         return out;
     }
 
+    /** Puts accounts on lines: [{code, to}] (to = a line id, '__new' = a new group for builder templates). Saves the templates. */
+    FL.tbGapApply = function (tpl, moves, skipped) {
+        if (!moves.length) { FL.toast('No line suggested for these accounts — pick one in Review & add', 'warn'); return Promise.resolve(); }
+        var by = {}; moves.forEach(function (m) { (by[m.to] = by[m.to] || []).push(m.code); });
+        var n = 0; Object.keys(by).forEach(function (to) { n += FINE.moveAccounts(tpl, by[to], to, FL.dims.accounts); });
+        return FL.saveTemplates().then(function () {
+            FL.cache = {}; FL.closeModal();
+            FL.toast(n + ' account(s) added to ' + tpl.name + (skipped ? ' · ' + skipped + ' without a suggestion left for you' : ''), 'ok'); FL.render();
+        }).catch(function (e) { FL.toast(String(e && e.message || e), 'err'); });
+    };
+    /** Select of a template's lines (+ a new group for builder templates); sel = the line chosen */
+    FL.lineSelect = function (tpl, sel, cls, extra) {
+        var opts = FINE.tplTargets(tpl).map(function (t) { return '<option value="' + esc(t.id) + '"' + (t.id === sel ? ' selected' : '') + '>' + esc(t.label) + '</option>'; });
+        if (tpl.simple) opts.push('<option value="__new"' + (sel === '__new' ? ' selected' : '') + '>＋ a new group (by its type)</option>');
+        return '<select class="' + (cls || '') + '"' + (extra || '') + '>' + (sel ? '' : '<option value="">— choose a line —</option>') + opts.join('') + '</select>';
+    };
+    /** Every trial balance account the statement leaves out, the suggested line for each (changeable), add ticked / all */
+    FL.tbGapDialog = function (tpl, gaps) {
+        var kind = FINE.tplKind(tpl), tot = 0; gaps.forEach(function (g) { tot += g.amount; });
+        var html = '<p class="sm">These accounts have amounts in the trial balance but are on no line of <b>' + esc(tpl.name) + '</b>, so its totals leave them out' +
+            (Math.abs(tot) >= 0.5 ? ' (' + FL.num(tot) + ' ' + FL.scaleLabel() + ' ' + (kind === 'BS' ? 'closing' : 'year to date') + ')' : '') +
+            '. Each has a suggested line — from accounts with the same type whose codes start the same way, or its class. Change any before adding.</p>' +
+            '<div class="scroll" style="max-height:56vh"><table class="t" id="tg-t"><thead><tr><th><input type="checkbox" id="tg-all" checked></th><th>Account</th><th>Name</th><th>Type</th><th>Class</th><th class="n">' + (kind === 'BS' ? 'Closing' : 'Year to date') + '</th><th>Add to line</th><th>Why</th></tr></thead><tbody>' +
+            gaps.map(function (g, i) {
+                return '<tr data-i="' + i + '"><td><input type="checkbox" class="tg-c"' + (g.suggest ? ' checked' : '') + '></td><td>' + esc(g.code) + '</td><td>' + esc(g.name || '') + '</td><td>' + esc(g.type || '') + '</td><td>' + esc(g.cls || '') + '</td>' +
+                    '<td class="n">' + (Math.abs(g.amount) >= 0.5 ? FL.num(g.amount) : '<span class="muted" title="Amounts only in other periods">other periods</span>') + '</td>' +
+                    '<td>' + FL.lineSelect(tpl, g.suggest ? g.suggest.id : '', 'tg-s') + '</td><td class="sm muted">' + esc(g.suggest ? g.suggest.why || '' : 'nothing similar — choose') + '</td></tr>';
+            }).join('') + '</tbody></table></div>' +
+            '<p class="sm muted">Set every ticked row at once: ' + FL.lineSelect(tpl, '', '', ' id="tg-bulk"') + '</p>';
+        FL.modal('<i class="fa-solid fa-list-check"></i> Accounts missing from ' + esc(tpl.name), html,
+            '<button class="btn sm" id="tg-csv"><i class="fa-solid fa-file-csv"></i> CSV</button><button class="btn sm pri" id="tg-add"><i class="fa-solid fa-plus"></i> Add ticked</button>');
+        var body = $('m-body');
+        $('tg-all').onchange = function () { var c = this.checked; body.querySelectorAll('.tg-c').forEach(function (x) { x.checked = c; }); };
+        $('tg-bulk').onchange = function () { var v = this.value; if (!v) return; body.querySelectorAll('#tg-t tbody tr').forEach(function (tr) { if (tr.querySelector('.tg-c').checked) tr.querySelector('.tg-s').value = v; }); };
+        body.querySelectorAll('.tg-s').forEach(function (sel) { sel.onchange = function () { if (this.value) this.closest('tr').querySelector('.tg-c').checked = true; }; });
+        $('tg-csv').onclick = function () { FL.csv(tpl.id + '-missing-accounts.csv', ['account', 'name', 'type', 'class', 'amount', 'suggested line'], gaps.map(function (g) { return [g.code, g.name, g.type, g.cls, g.amount.toFixed(2), g.suggest ? g.suggest.label : '']; })); };
+        $('tg-add').onclick = function () {
+            var moves = [], none = 0;
+            body.querySelectorAll('#tg-t tbody tr').forEach(function (tr) {
+                if (!tr.querySelector('.tg-c').checked) return;
+                var to = tr.querySelector('.tg-s').value; if (!to) { none++; return; }
+                moves.push({ code: gaps[+tr.dataset.i].code, to: to });
+            });
+            if (none) FL.toast(none + ' ticked account(s) have no line chosen — left out', 'warn');
+            FL.tbGapApply(tpl, moves, 0);
+        };
+    };
+
     FL.TABS.statements = {
         render: function (el) {
             if (S.tpl === 'TB' || !(FL.status && FL.status.loaded)) return FL.tb.render(el);
@@ -132,15 +180,9 @@
                 var opts = FL.stmtOpts(), st = FINE.compute(tpl, data, opts);
                 S.last = { tpl: tpl, st: st, opts: opts };
                 var sub = S.detail ? subRows(tpl, data, opts, st) : null;
-                var chk = tpl.simple ? FINE.simpleCheck(tpl.simple, data.accounts) : null, loose = [], looseAmt = 0;
-                if (chk && chk.unmapped.length) {
-                    var w = FINE.windowOf({ range: tpl.simple.kind === 'BS' ? 'BAL' : 'YTD' }, data._pi || (data._pi = FINE.periodIndex(data.periods)), opts.period), fa = (data.facts.ACTUAL || {});
-                    chk.unmapped.forEach(function (a) {
-                        var f = fa[a.code] || {}, v = 0;
-                        if (w) { if (tpl.simple.kind === 'BS') v = (f[data._pi.list[w.end].period_seq] || [0, 0])[1]; else for (var i = Math.max(0, w.from); i <= w.to; i++) v += (f[data._pi.list[i].period_seq] || [0])[0]; }
-                        if (Math.abs(v) >= 0.5) { loose.push(a); looseAmt += v; }
-                    });
-                }
+                var gaps = FINE.tbGaps(tpl, data, opts.period), looseAmt = 0;
+                gaps.forEach(function (g) { looseAmt += g.amount; });
+                S.gaps = gaps;
                 el.innerHTML = FL.tb.head() +
                     '<label class="sm"><input type="checkbox" id="st-zero"' + (S.hideZero ? ' checked' : '') + '> hide empty lines</label>' +
                     '<label class="sm"><input type="checkbox" id="st-det"' + (S.detail ? ' checked' : '') + '> account detail</label>' +
@@ -151,8 +193,11 @@
                     (tpl.simple ? '' : '<button class="btn sm" id="st-edit"><i class="fa-solid fa-pen-ruler"></i> Edit template</button>') + '</div>' +
                     '<div class="stmt-wrap"><div class="stmt-head"><h2>' + esc(tpl.name) + '</h2><div class="sub">' + esc(FL.filterText()) + ' · period ' + esc(st.periodName) + ' · amounts in ' + FL.scaleLabel() +
                     (FL.filter.cc && tpl.type === 'BS' ? ' · <b>balance sheet accounts carry no cost centre: pick All cost centres</b>' : '') + '</div></div>' +
-                    (loose.length ? '<div class="callout warn sm"><i class="fa-solid fa-triangle-exclamation"></i> <b>' + loose.length + ' account(s) with amounts are not in this statement</b> (' + FL.num(Math.abs(looseAmt)) + ' ' + FL.scaleLabel() + ', e.g. ' +
-                        loose.slice(0, 3).map(function (a) { return esc(a.code + ' ' + (a.name || '')); }).join(', ') + ') — the totals leave them out. <a id="st-place">Place them automatically</a> · <a id="st-map">open the mapping</a></div>' : '') +
+                    (gaps.length ? '<div class="callout warn st-gap"><i class="fa-solid fa-triangle-exclamation"></i> <b>' + gaps.length + ' trial balance account(s) are not in this statement</b> — ' +
+                        (Math.abs(looseAmt) >= 0.5 ? FL.num(Math.abs(looseAmt)) + ' ' + FL.scaleLabel() + ' ' + (FINE.tplKind(tpl) === 'BS' ? 'of closing balances' : 'this year') + ' the totals leave out' : 'they carry amounts in other periods') +
+                        '. e.g. ' + gaps.slice(0, 3).map(function (g) { return '<b>' + esc(g.code) + '</b> ' + esc(g.name || '') + (g.suggest ? ' → <i>' + esc(g.suggest.label) + '</i>' : ''); }).join(' · ') +
+                        '<div style="margin-top:6px"><button class="btn sm pri" id="st-gaps"><i class="fa-solid fa-list-check"></i> Review &amp; add (' + gaps.length + ')</button> ' +
+                        '<button class="btn sm" id="st-gapall"><i class="fa-solid fa-wand-magic-sparkles"></i> Add all as suggested</button>' + (tpl.simple ? ' <a id="st-map">open the mapping</a>' : '') + '</div></div>' : '') +
                     (st.errors.length ? '<div class="stmt-err"><i class="fa-solid fa-triangle-exclamation"></i> ' + st.errors.map(esc).join(' · ') + '</div>' : '') +
                     FL.stmtTable(st, { links: true, hideZero: S.hideZero, detail: S.detail, sub: sub }) + '</div>' +
                     '<p class="sm muted">Click a line name for the accounts mapped to it; click an amount to see the accounts behind it, then companies, cost centres, months and journal lines. Variances are shown favourable (+) / unfavourable (−).</p>';
@@ -164,10 +209,8 @@
                 $('st-csv').onclick = function () { FL.csv(tpl.id + '-' + st.periodName + '.csv', ['line'].concat(st.columns.map(function (c) { return c.label; })), st.rows.filter(function (r) { return r.type !== 'blank'; }).map(function (r) { return [r.label].concat(r.values.map(function (v) { return v == null ? '' : Math.round(v * 100) / 100; })); })); };
                 if ($('st-edit')) $('st-edit').onclick = function () { FL.designer.open(tpl.id); };
                 if ($('st-map')) $('st-map').onclick = function () { FL.builder.open(tpl.id, 'unmapped'); };
-                if ($('st-place')) $('st-place').onclick = function () {
-                    var n = FINE.simplePlace(tpl.simple, FL.dims.accounts, chk.unmapped.map(function (a) { return a.code; })); FINE.simpleTemplate(tpl);
-                    FL.saveTemplates().then(function () { FL.toast(n + ' account(s) placed by their type and name — check them in the mapping', 'ok'); FL.render(); });
-                };
+                if ($('st-gaps')) $('st-gaps').onclick = function () { FL.tbGapDialog(tpl, gaps); };
+                if ($('st-gapall')) $('st-gapall').onclick = function () { FL.tbGapApply(tpl, gaps.filter(function (g) { return g.suggest; }).map(function (g) { return { code: g.code, to: g.suggest.id }; }), gaps.filter(function (g) { return !g.suggest; }).length); };
                 el.querySelectorAll('td.lbl').forEach(function (td) { td.onclick = function () { FL.rowMap(tpl, td.parentNode.dataset.row); }; });
                 el.querySelectorAll('td.v').forEach(function (td) {
                     td.onclick = function () { FL.drillCell(tpl, opts, td.parentNode.dataset.row, td.dataset.col); };

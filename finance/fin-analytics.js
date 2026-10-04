@@ -18,8 +18,35 @@
     };
 
     // ═════════ Overview ═════════
+    /** The current period: the latest loaded period that has started (period_seq = yyyymm ≤ this month), else the latest loaded */
+    FL.currentPeriod = function () {
+        var d = new Date(), now = d.getFullYear() * 100 + d.getMonth() + 1, ps = (FL.dims.periods || []).filter(function (p) { return !p.adj; });
+        var cur = ps.filter(function (p) { return p.period_seq <= now; });
+        return ((cur.length ? cur : ps)[(cur.length ? cur : ps).length - 1] || {}).period_seq || null;
+    };
+    // the Overview always opens on the current period; the period bar on the page (or the header) changes it while you stay
+    var show0 = FL.show;
+    FL.show = function (tab) { if ((FL.TABS[tab] ? tab : 'overview') === 'overview' && FL.tab !== 'overview') FL.ovFresh = true; return show0.apply(this, arguments); };
+    FL.ovFresh = true;
+    var ovBar = function (per) {
+        var ps = FL.dims.periods || [], i = -1, cur = FL.currentPeriod();
+        ps.forEach(function (p, k) { if (p.period_seq === per) i = k; });
+        var src = (FL.status && FL.status.meta || {}).source;
+        return '<div class="row ov-per" style="margin-bottom:8px;gap:6px">' +
+            '<button class="btn sm" id="ov-prev"' + (i > 0 ? '' : ' disabled') + ' title="Previous period"><i class="fa-solid fa-chevron-left"></i></button>' +
+            '<select id="ov-p">' + ps.slice().reverse().map(function (p) { return '<option value="' + p.period_seq + '"' + (p.period_seq === per ? ' selected' : '') + '>' + esc(p.period_name) + (p.period_seq === cur ? ' (current)' : '') + '</option>'; }).join('') + '</select>' +
+            '<button class="btn sm" id="ov-next"' + (i >= 0 && i < ps.length - 1 ? '' : ' disabled') + ' title="Next period"><i class="fa-solid fa-chevron-right"></i></button>' +
+            (per !== cur && cur ? '<button class="btn sm" id="ov-cur"><i class="fa-solid fa-calendar-day"></i> Current period</button>' : '<span class="tag good">current period</span>') +
+            '<span class="muted sm">' + (src === 'FUSION_TB' ? '<i class="fa-solid fa-scale-balanced"></i> every figure comes from the trial balances synced from Fusion (fin_balances built from them)' : src ? 'figures from the ' + esc(src) + ' load' : '') + '</span></div>';
+    };
+
     FL.TABS.overview = {
         render: function (el) {
+            if (FL.ovFresh) {
+                FL.ovFresh = false;
+                var cp = FL.currentPeriod();
+                if (cp && cp !== FL.filter.period) { FL.filter.period = cp; if ($('f-period')) $('f-period').value = cp; FL.lsSet('filter', FL.filter); }
+            }
             return FL.data().then(function (data) {
                 var cfg = FL.config, tm = T(), per = FL.filter.period;
                 var kv = FINE.kpis(cfg.kpis, tm, data, per), mon = FINE.monitor(cfg.monitors, kv);
@@ -35,7 +62,7 @@
                 anom.forEach(function (a) { story.push({ tone: 'bad', text: 'Unusual this month: ' + a.code + ' ' + a.name + ' ' + FL.compact(a.value) + ' vs a typical ' + FL.compact(a.typical) + ' (' + a.z.toFixed(1) + ' σ)' }); });
                 breaches.slice(0, 4).forEach(function (b) { story.push({ tone: 'bad', text: 'Monitor: ' + b.rule.label + ' — now ' + FL.kfmt(b.value, (cfg.kpis.filter(function (k) { return k.id === b.rule.kpi; })[0] || {}).fmt) }); });
 
-                el.innerHTML = '<div class="row" style="margin-bottom:10px"><h2 style="margin:0;font-size:1.1rem">CFO overview · ' + esc(FL.periodName(per)) + '</h2><span class="muted sm">' + esc(FL.filterText()) + '</span><span class="grow"></span>' +
+                el.innerHTML = ovBar(per) + '<div class="row" style="margin-bottom:10px"><h2 style="margin:0;font-size:1.1rem">CFO overview · ' + esc(FL.periodName(per)) + '</h2><span class="muted sm">' + esc(FL.filterText()) + '</span><span class="grow"></span>' +
                     (breaches.length ? '<span class="tag bad">' + breaches.length + ' monitor alert' + (breaches.length > 1 ? 's' : '') + '</span>' : '<span class="tag good">all monitors OK</span>') + '</div>' +
                     '<div class="kpis" id="ov-kpis">' + head.map(function (k, i) {
                         var v = kv[k.id].value, tr = trend[k.id].map(function (x) { return x.value; }), prev = tr.length > 1 ? tr[tr.length - 2] : null;
@@ -51,6 +78,11 @@
                     '<div class="grid g2" style="margin-top:12px"><div class="card"><h3><i class="fa-solid fa-chart-pie"></i> Operating expenses YTD</h3><div class="chartbox short"><canvas id="ov-opex"></canvas></div></div>' +
                     '<div class="card"><h3><i class="fa-solid fa-arrow-trend-up"></i> Biggest movements <small>YTD vs last year, income statement accounts</small></h3><div class="scroll" style="max-height:220px" id="ov-mov"></div></div></div>';
 
+                var go = function (seq) { if (seq) FL.setFilter({ period: +seq }); }, ps = FL.dims.periods, ix = ps.map(function (p) { return p.period_seq; }).indexOf(per);
+                $('ov-p').onchange = function () { go(this.value); };
+                $('ov-prev').onclick = function () { if (ix > 0) go(ps[ix - 1].period_seq); };
+                $('ov-next').onclick = function () { if (ix >= 0 && ix < ps.length - 1) go(ps[ix + 1].period_seq); };
+                if ($('ov-cur')) $('ov-cur').onclick = function () { go(FL.currentPeriod()); };
                 head.forEach(function (k, i) { var vals = trend[k.id].map(function (x) { return x.value; }); FL.spark('sp' + i, vals, k.good === 'down' ? '#0d9488' : FL.PAL.act); });
                 el.querySelectorAll('.kpi').forEach(function (c) { c.onclick = function () { FL.kpiModal(c.dataset.k); }; });
                 if (!tm.PL) return;
