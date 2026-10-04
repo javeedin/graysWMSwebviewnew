@@ -256,32 +256,91 @@
     // ── Tree: one row per value of the first segment, children per next segment, chosen lines as columns ──
     G.viewTree = function (out) {
         var s = G.st, lines = (s.lines || G.defLines(G.total)).map(function (id) { return G.total.rows.filter(function (r) { return r.id === id; })[0]; }).filter(Boolean);
-        var groups = s.groups, sortI = 0, html = [], flat = [];
-        var vals = function (st) { return lines.map(function (l) { var r = st.rows.filter(function (x) { return x.id === l.id; })[0]; return r ? r.values[0] : null; }); };
-        var node = function (rows, depth, path) {
-            var f = groups[depth], by = {};
-            rows.forEach(function (r) { var v = f === 'company' ? r.company : r[f]; v = v == null ? '' : String(v); (by[v] = by[v] || []).push(r); });
-            var kids = Object.keys(by).map(function (v) { var st = G.stmt(by[v]); return { v: v, rows: by[v], vals: vals(st) }; })
-                .filter(function (k) { return k.vals.some(function (x) { return x != null && Math.abs(x) >= 0.005; }); });   // a value with no P&L (e.g. balance-sheet only) is left out
-            kids.sort(function (a, b) { return Math.abs(b.vals[sortI] || 0) - Math.abs(a.vals[sortI] || 0); });
+        var groups = s.groups, html = [], flat = [], ps = s.periods.slice().sort(), plan = G.plan || { seqs: [], missing: [] };
+        // period handling: the chosen periods added up (optionally compared with last year / the previous periods) or side by side
+        // (optionally with the change between them and a total) — every value is still the template computed on that node's rows
+        var mode = s.treeBy === 'period' && ps.length > 1 ? 'period' : 'sum', cmp = mode === 'sum' && s.cmp !== 'none';
+        var tvar = s.tvar || 'prev', show = s.tvshow || 'both', showAbs = show !== 'pct', showPct = show !== 'abs', ttot = mode === 'period' && !!s.ttot, CL = s.cmp === 'py' ? 'PY' : 'Prev';
+        var slots = [];
+        if (mode === 'sum') {
+            slots.push({ t: 'v', a: 0, label: cmp ? 'Actual' : '' });
+            if (cmp) { slots.push({ t: 'v', a: 1, label: CL, cv: 1 }); if (showAbs) slots.push({ t: 'd', a: 0, b: 1, label: 'Δ' }); if (showPct) slots.push({ t: 'p', a: 0, b: 1, label: 'Δ %' }); }
+        } else {
+            ps.forEach(function (q, i) {
+                slots.push({ t: 'v', a: i, label: G.pname(q) });
+                if (tvar !== 'none' && i > 0) { var bi = tvar === 'first' ? 0 : i - 1;
+                    if (showAbs) slots.push({ t: 'd', a: i, b: bi, label: 'Δ', title: G.pname(q) + ' − ' + G.pname(ps[bi]) });
+                    if (showPct) slots.push({ t: 'p', a: i, b: bi, label: showAbs ? 'Δ %' : 'Δ % vs ' + G.pname(ps[bi]) }); }
+            });
+            if (ttot) slots.push({ t: 'v', a: ps.length, label: 'Total' });
+        }
+        var stats = function (rows, crows) {
+            if (mode === 'sum') return cmp ? [G.stmt(rows), G.stmt(crows || [])] : [G.stmt(rows)];
+            var st = ps.map(function (q) { return G.stmt(rows.filter(function (r) { return r.period_seq === q; })); });
+            if (ttot) st.push(G.stmt(rows)); return st;
+        };
+        var lv = function (st, l) { var r = st.rows.filter(function (x) { return x.id === l.id; })[0]; return r ? r.values[0] : null; };
+        var isPct = function (l) { return /^(pct|ratio|days)$/.test(l.format); };
+        var calc = function (sts, l, sl) {
+            if (sl.t === 'v') return lv(sts[sl.a], l);
+            var v = lv(sts[sl.a], l), bv = lv(sts[sl.b], l); if (v == null && bv == null) return null;
+            var d = (v || 0) - (bv || 0); return sl.t === 'd' ? d : isPct(l) || !bv ? null : d / Math.abs(bv) * 100;
+        };
+        var cell = function (sts, l, sl, bold) {
+            var v = calc(sts, l, sl), cls = 'n' + (sl.cv ? ' sp-cv' : '') + (sl.t !== 'v' ? ' sp-vd' : '');
+            if (sl.t !== 'v' && v != null && Math.abs(v) >= 0.005) cls += (l.favourable === 'down' ? v < 0 : v > 0) ? ' pos' : ' neg';
+            else if (sl.t === 'v' && v < 0 && !isPct(l)) cls += ' neg';
+            var txt = v == null ? '' : sl.t === 'p' ? (v > 0 ? '+' : '') + v.toFixed(1) + '%' : sl.t === 'd' ? (isPct(l) ? (v > 0 ? '+' : '') + v.toFixed(1) + ' pts' : (v > 0 ? '+' : '') + money(v)) : G.fmtLine(l, v);
+            return '<td class="' + cls + '">' + (bold ? '<b>' + txt + '</b>' : txt) + '</td>';
+        };
+        var xv = function (sts) { var sc = FL.filter.scale || 1, o = []; lines.forEach(function (l) { slots.forEach(function (sl) { var v = calc(sts, l, sl); o.push(v == null ? null : sl.t === 'p' || isPct(l) ? Math.round(v * 10) / 10 : v / sc); }); }); return o; };
+        var keyOf = function (r, f) { var v = f === 'company' ? r.company : r[f]; return v == null ? '' : String(v); };
+        var node = function (rows, crows, depth, path) {
+            var f = groups[depth], by = {}, cby = {};
+            rows.forEach(function (r) { var v = keyOf(r, f); (by[v] = by[v] || []).push(r); });
+            (crows || []).forEach(function (r) { var v = keyOf(r, f); (cby[v] = cby[v] || []).push(r); });
+            if (cmp) Object.keys(cby).forEach(function (v) { if (!by[v]) by[v] = []; });   // a value that only had amounts in the comparison period
+            var kids = Object.keys(by).map(function (v) { var sts = stats(by[v], cby[v]); return { v: v, rows: by[v], crows: cby[v] || [], sts: sts, k: Math.abs(calc(sts, lines[0], slots[0]) || 0),
+                    any: lines.some(function (l) { return slots.some(function (sl) { if (sl.t !== 'v') return false; var x = calc(sts, l, sl); return x != null && Math.abs(x) >= 0.005; }); }) }; })
+                .filter(function (k) { return k.any; });   // a value with no P&L (e.g. balance-sheet only) is left out
+            kids.sort(function (a, b) { return b.k - a.k; });
             kids.forEach(function (k) {
                 var p = path.concat([k.v]), key = p.join('\u0001'), hasKids = depth < groups.length - 1, open = !!s.open[key];
                 html.push('<tr class="sp-n d' + depth + '" data-k="' + esc(key) + '"><td style="padding-left:' + (8 + depth * 18) + 'px">' + (hasKids ? '<a class="sp-tg">' + (open ? '▾' : '▸') + '</a> ' : '<span class="sp-tg0"></span>') +
-                    '<span class="muted sm">' + esc(G.label(f)) + '</span> ' + esc(G.valLabel(f, k.v)) + ' <a class="sp-full" title="The whole statement for this">⋯</a></td>' +
-                    k.vals.map(function (v, i) { return '<td class="n' + (v < 0 && lines[i].format !== 'pct' ? ' neg' : '') + '">' + G.fmtLine(lines[i], v) + '</td>'; }).join('') + '</tr>');
-                flat.push([new Array(depth + 1).join('   ') + G.valLabel(f, k.v)].concat(k.vals.map(function (v, i) { return /^(pct|ratio|days)$/.test(lines[i].format) ? v : v == null ? null : v / (FL.filter.scale || 1); })));
+                    '<span title="' + esc(G.label(f)) + '">' + esc(G.valLabel(f, k.v)) + '</span> <a class="sp-full" title="The whole statement for this">⋯</a></td>' +
+                    lines.map(function (l) { return slots.map(function (sl) { return cell(k.sts, l, sl); }).join(''); }).join('') + '</tr>');
+                flat.push([new Array(depth + 1).join('   ') + G.valLabel(f, k.v)].concat(xv(k.sts)));
                 G.nodes[key] = { rows: k.rows, label: p.map(function (x, i) { return G.label(groups[i]) + ' ' + G.valLabel(groups[i], x); }).join(' ▸ ') };
-                if (hasKids && open) node(k.rows, depth + 1, p);
+                if (hasKids && open) node(k.rows, k.crows, depth + 1, p);
             });
         };
         G.nodes = {};
-        var tv = vals(G.total);
-        if (groups.length) node(G.rows, 0, []);
-        out.innerHTML = '<div class="card sp-card"><div class="scroll" style="max-height:72vh"><table class="t sp-tree"><thead><tr><th>' + (groups.length ? esc(groups.map(G.label).join(' ▸ ')) : 'Total') + '</th>' + lines.map(function (l) { return '<th class="n">' + esc(l.label) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-            '<tr class="sp-total"><td><b>Total</b> <a class="sp-full" data-total="1" title="The whole statement">⋯</a></td>' + tv.map(function (v, i) { return '<td class="n"><b>' + G.fmtLine(lines[i], v) + '</b></td>'; }).join('') + '</tr>' + html.join('') + '</tbody></table></div>' +
+        var tsts = stats(G.rows, G.cmpRows);
+        if (groups.length) node(G.rows, cmp ? G.cmpRows : [], 0, []);
+        var multi = slots.length > 1, first = groups.length ? esc(groups.map(G.label).join(' ▸ ')) : 'Total';
+        var head = multi
+            ? '<tr><th rowspan="2">' + first + '</th>' + lines.map(function (l) { return '<th class="sp-gh" colspan="' + slots.length + '">' + esc(l.label) + '</th>'; }).join('') + '</tr><tr>' +
+              lines.map(function () { return slots.map(function (sl, i) { return '<th class="n' + (i === 0 ? ' sp-c0' : '') + (sl.cv ? ' sp-cv' : '') + (sl.t !== 'v' ? ' sp-vd' : '') + '"' + (sl.title ? ' title="' + esc(sl.title) + '"' : '') + '>' + esc(sl.label) + '</th>'; }).join(''); }).join('') + '</tr>'
+            : '<tr><th>' + first + '</th>' + lines.map(function (l) { return '<th class="n">' + esc(l.label) + '</th>'; }).join('') + '</tr>';
+        var sel = function (id, v, opts) { return '<select id="' + id + '">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (v === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>'; };
+        var ctl = '<div class="row sm sp-cctl" style="margin-bottom:6px;flex-wrap:wrap;gap:10px">' +
+            (ps.length > 1 ? '<label>Periods ' + sel('sp-tby', mode, [['sum', 'added up'], ['period', 'side by side']]) + '</label>' : '') +
+            (mode === 'sum' ? '<label>Compare with ' + sel('sp-tcmp', s.cmp, [['none', 'nothing'], ['py', 'same period last year'], ['prev', 'previous period' + (ps.length > 1 ? 's' : '')]]) + '</label>'
+                : '<label>Variance ' + sel('sp-tvar', tvar, [['none', 'none'], ['prev', 'vs previous period'], ['first', 'vs first period']]) + '</label>' +
+                  '<label><input type="checkbox" id="sp-ttot"' + (ttot ? ' checked' : '') + '> Total column</label>') +
+            ((mode === 'sum' && cmp) || (mode === 'period' && tvar !== 'none') ? '<label>Show ' + sel('sp-tshow', show, [['both', 'Δ and Δ %'], ['abs', 'Δ only'], ['pct', 'Δ % only']]) + '</label>' : '') + '</div>' +
+            (cmp && plan.missing.length ? '<div class="callout warn sm" style="margin-bottom:6px"><b>' + esc(plan.missing.map(G.pname).join(', ')) + '</b> ' + (plan.missing.length === 1 ? 'is' : 'are') + ' not on this PC with the extended segments, so the comparison shows as blank. <a id="sp-gosync2">Sync in Data › Trial balance sync</a>.</div>' : '');
+        out.innerHTML = '<div class="card sp-card">' + ctl + '<div class="scroll" style="max-height:72vh"><table class="t sp-tree' + (multi ? ' sp-cmp' : '') + '"><thead>' + head + '</thead><tbody>' +
+            '<tr class="sp-total"><td><b>Total</b> <a class="sp-full" data-total="1" title="The whole statement">⋯</a></td>' + lines.map(function (l) { return slots.map(function (sl) { return cell(tsts, l, sl, true); }).join(''); }).join('') + '</tr>' + html.join('') + '</tbody></table></div>' +
             (groups.length ? '' : '<p class="sm muted">Add a segment on the left (e.g. Salesperson) to split the P&amp;L by it; add a second one (e.g. Profit centre) to open each value into the next.</p>') +
             '<p class="sm muted">Click ▸ to open the next segment · ⋯ = the whole statement for that row · columns: <a id="sp-lines2">choose the lines</a></p></div>';
-        G.out = { head: [groups.map(G.label).join(' ▸ ') || 'Total'].concat(lines.map(function (l) { return l.label; })), rows: [['Total'].concat(tv.map(function (v, i) { return /^(pct|ratio|days)$/.test(lines[i].format) ? v : v == null ? null : v / (FL.filter.scale || 1); }))].concat(flat) };
+        G.out = { head: [first.replace(/&[a-z]+;/g, '')].concat([].concat.apply([], lines.map(function (l) { return slots.map(function (sl) { return multi ? l.label + ' · ' + (sl.title || sl.label) : l.label; }); }))), rows: [['Total'].concat(xv(tsts))].concat(flat) };
+        if ($('sp-tby')) $('sp-tby').onchange = function () { s.treeBy = this.value; save(); G.draw(); };
+        if ($('sp-tcmp')) $('sp-tcmp').onchange = function () { s.cmp = this.value; save(); G.run(); };
+        if ($('sp-tvar')) $('sp-tvar').onchange = function () { s.tvar = this.value; save(); G.draw(); };
+        if ($('sp-ttot')) $('sp-ttot').onchange = function () { s.ttot = this.checked; save(); G.draw(); };
+        if ($('sp-tshow')) $('sp-tshow').onchange = function () { s.tvshow = this.value; save(); G.draw(); };
+        if ($('sp-gosync2')) $('sp-gosync2').onclick = function () { FL.show('data'); setTimeout(function () { if (FL.dataTab) FL.dataTab.go('tbsync'); }, 50); };
         out.querySelectorAll('.sp-tg').forEach(function (a) { a.onclick = function () { var k = a.closest('tr').dataset.k; if (s.open[k]) delete s.open[k]; else s.open[k] = 1; G.draw(); }; });
         out.querySelectorAll('.sp-full').forEach(function (a) { a.onclick = function () { var t = a.dataset.total, n = t ? { rows: G.rows, label: 'Total' } : G.nodes[a.closest('tr').dataset.k]; G.full(n); }; });
         if ($('sp-lines2')) $('sp-lines2').onclick = G.linePick;

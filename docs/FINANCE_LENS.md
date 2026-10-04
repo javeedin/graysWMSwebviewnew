@@ -188,6 +188,10 @@ Segments are named from the chart of accounts (fin_coa_segments, else the saved 
   Δ and Δ % (green when good for that line: income up, costs down; margins in points). Opened accounts and the
   drill-down work on the comparison too. Comparison months that are not synced with the extended segments are named,
   with a link to Trial balance sync.
+- **Tree**: *Periods* added up — optionally *Compare with* the same period last year or the previous periods, so every
+  line shows Actual, PY / Prev, Δ and Δ % — or *side by side* (one column per period under every line), with the change
+  vs the previous or the first period and an optional Total column. Rows show only the value (the segment is the
+  column header).
 - **Pivot** with a column field (e.g. Period): *Variance* vs the previous or the first column as Δ, Δ % or both
   (green when profit goes up / a cost goes down), and a *Total column* you can switch on or off — for periods it is off
   by default, since adding months together says little when you compare them.

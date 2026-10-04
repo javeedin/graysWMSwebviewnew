@@ -599,3 +599,6 @@ body.nav-min .tabs.side .datachip { display: none; }
 .sp-cctl select { margin-left: 4px; }
 .sp-units { display: inline-flex; gap: 4px; align-items: center; margin-right: 6px; }
 .sp-tree .sp-vd, .sp-tree .sp-vp { font-size: 12px; background: #fafafa; }
+.sp-tree.sp-cmp th.sp-gh { text-align: center; border-left: 2px solid var(--line, #e2e8f0); }
+.sp-tree.sp-cmp .sp-c0 { border-left: 2px solid var(--line, #e2e8f0); }
+.sp-tree.sp-cmp .sp-cv { color: #64748b; }
