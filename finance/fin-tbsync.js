@@ -1029,4 +1029,20 @@
         }).then(function () { L.sel = {}; T.paintLive(); T.board(); });
     };
 
+    /** Segment P&L › Sync segments: open this board on that pod / ledger / year and sync the extended segments of those periods
+        as soon as the board has loaded (one period after another when that setting is on). */
+    T.pendingExt = null;
+    T.queueExt = function (pod, ledgerId, seqs) {
+        T.pendingExt = { pod: pod || '', ledger: String(ledgerId), seqs: seqs.slice().sort() };
+        FL.lsSet('tbl.pod', pod || ''); FL.lsSet('tbl.ledger', String(ledgerId)); FL.lsSet('tbl.year', Math.floor(seqs[0] / 100));
+        L.pod = pod || ''; L.ledger = String(ledgerId); L.year = Math.floor(seqs[0] / 100);
+    };
+    var boardBase = T.board;
+    T.board = function () {
+        return boardBase.apply(this, arguments).then(function (r) {
+            var p = T.pendingExt;
+            if (p && T.ledgerObj() && String(L.ledger) === p.ledger && (L.pod || '') === p.pod) { T.pendingExt = null; setTimeout(function () { T.extSync(p.seqs, false); }, 0); }
+            return r;
+        });
+    };
 })();

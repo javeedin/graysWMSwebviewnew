@@ -707,3 +707,9 @@ body.fl-maxed { overflow: hidden; }
 .ph-fbar { height: 10px; border-radius: 6px; background: #e2e8f0; overflow: hidden; } .ph-fbar span { display: block; height: 100%; border-radius: 6px; }
 .ph-gmini { display: inline-block; min-width: 22px; text-align: center; border-radius: 6px; color: #fff; font-weight: 800; font-size: 12px; padding: 1px 4px; }
 .ph-gmini.g-A { background: #16a34a; } .ph-gmini.g-B { background: #65a30d; } .ph-gmini.g-C { background: #ca8a04; } .ph-gmini.g-D { background: #ea580c; } .ph-gmini.g-E { background: #dc2626; }
+
+/* Segment P&L: synced periods without the extended segments */
+.sp-pchips .chip.sp-miss { border-style: dashed; color: #94a3b8; background: #f8fafc; }
+.sp-pchips .chip.sp-miss.on { color: #92400e; border-color: #f59e0b; background: #fffbeb; }
+.sp-misshint { margin-top: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: #92400e; }
+.sp-mdot { width: 10px; height: 10px; border-radius: 3px; border: 1px dashed #94a3b8; display: inline-block; }

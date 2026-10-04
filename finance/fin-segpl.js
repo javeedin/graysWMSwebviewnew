@@ -36,7 +36,14 @@
     // ── what is on this PC: ledgers, periods, segments, names ──
     G.meta = function () {
         return FL.rows("SELECT e.ledger_id, ANY_VALUE(l.name) AS name, ANY_VALUE(l.currency) AS currency, ANY_VALUE(l.coa_id) AS coa_id, ANY_VALUE(l.company_segment) AS cseg, ANY_VALUE(l.account_segment) AS aseg, ANY_VALUE(e.pod) AS pod, COUNT(*) AS n " +
-            "FROM fin_gl_ext_v e LEFT JOIN fin_tb_ledgers l ON l.ledger_id = e.ledger_id AND l.pod = e.pod GROUP BY 1 ORDER BY 2", 100).then(function (leds) {
+            "FROM fin_gl_ext_v e LEFT JOIN fin_tb_ledgers l ON l.ledger_id = e.ledger_id AND l.pod = e.pod GROUP BY 1 ORDER BY 2", 100).catch(function () { return []; }).then(function (leds) {
+            // ledgers with a synced trial balance but no extended segments yet are listed too (their months show as "no segments yet")
+            return FL.rows("SELECT l.ledger_id, ANY_VALUE(l.name) AS name, ANY_VALUE(l.currency) AS currency, ANY_VALUE(l.coa_id) AS coa_id, ANY_VALUE(l.company_segment) AS cseg, ANY_VALUE(l.account_segment) AS aseg, ANY_VALUE(l.pod) AS pod, 0 AS n " +
+                "FROM fin_tb_ledgers l WHERE EXISTS (SELECT 1 FROM fin_gl_balances_acct_sync a WHERE a.ledger_id = l.ledger_id) GROUP BY 1 ORDER BY 2", 100).catch(function () { return []; }).then(function (tb) {
+                var ids = {}; leds.forEach(function (l) { ids[String(l.ledger_id)] = 1; });
+                return leds.concat(tb.filter(function (l) { return !ids[String(l.ledger_id)]; }));
+            });
+        }).then(function (leds) {
             G.leds = leds;
             if (!leds.length) return null;
             if (!leds.some(function (l) { return String(l.ledger_id) === String(G.st.ledger); })) G.st.ledger = leds[0].ledger_id;
@@ -45,9 +52,15 @@
                 FL.rows("SELECT period_seq, MIN(CASE WHEN NOT adj THEN period_name END) AS name, string_agg(DISTINCT CASE WHEN adj THEN period_name END, ', ') AS adjs FROM fin_gl_ext_v" + w + " AND period_seq IS NOT NULL GROUP BY 1 ORDER BY 1", 1000),
                 FL.rows("SELECT DISTINCT segments FROM fin_gl_balances_ext_sync" + w, 1000),
                 FL.rows("SELECT DISTINCT company FROM fin_gl_ext_v" + w + " ORDER BY 1", 5000),
-                FL.rows("SELECT column_name, ANY_VALUE(segment_name) AS name FROM fin_coa_segments WHERE coa_id = " + FL.q(L.coa_id || '') + " GROUP BY 1", 100).catch(function () { return []; })
+                FL.rows("SELECT column_name, ANY_VALUE(segment_name) AS name FROM fin_coa_segments WHERE coa_id = " + FL.q(L.coa_id || '') + " GROUP BY 1", 100).catch(function () { return []; }),
+                // every period whose trial balance is on this PC — those without extended segments are offered for a sync
+                FL.rows("SELECT p.period_seq, MIN(p.period_name) AS name FROM fin_tb_periods p WHERE p.ledger_id = " + (+L.ledger_id) + " AND NOT COALESCE(p.adj, FALSE) AND p.period_seq IS NOT NULL" +
+                    " AND EXISTS (SELECT 1 FROM fin_gl_balances_acct_sync a WHERE a.ledger_id = p.ledger_id AND a.period_name = p.period_name) GROUP BY 1 ORDER BY 1", 1000).catch(function () { return []; })
             ]).then(function (r) {
                 G.periods = r[0].map(function (p) { return { seq: +p.period_seq, name: p.name || String(p.period_seq), adjs: p.adjs }; });
+                var have = {}; G.periods.forEach(function (p) { have[p.seq] = 1; });
+                G.tbOnly = (r[4] || []).filter(function (p) { return !have[+p.period_seq]; }).map(function (p) { return { seq: +p.period_seq, name: p.name || String(p.period_seq), miss: true }; });
+                G.missSel = G.missSel || {};
                 var cols = {}; r[1].forEach(function (x) { String(x.segments || '').split(',').forEach(function (c) { if (c) cols[c.toLowerCase()] = 1; }); });
                 var cseg = String(L.cseg || '').toLowerCase(), aseg = String(L.aseg || '').toLowerCase();
                 G.segs = Object.keys(cols).filter(function (c) { return segCol(c) && c !== cseg && c !== aseg; }).sort(function (a, b) { return +a.slice(7) - +b.slice(7); });
@@ -171,7 +184,8 @@
     };
     G.side = function () {
         var s = G.st, L = G.led, box = $('sp-side');
-        var years = {}; G.periods.forEach(function (p) { (years[Math.floor(p.seq / 100)] = years[Math.floor(p.seq / 100)] || []).push(p); });
+        var years = {}; G.periods.concat(G.tbOnly || []).sort(function (a, b) { return a.seq - b.seq; }).forEach(function (p) { (years[Math.floor(p.seq / 100)] = years[Math.floor(p.seq / 100)] || []).push(p); });
+        var miss = G.tbOnly || [], nSel = miss.filter(function (p) { return G.missSel[p.seq]; }).length;
         var avail = G.segs.filter(function (c) { return s.groups.indexOf(c) < 0; }).concat(s.groups.indexOf('company') < 0 ? ['company'] : [])
             .concat(G.segs.filter(function (c) { return G.grpDef(c) && s.groups.indexOf('grp_' + c) < 0; }).map(function (c) { return 'grp_' + c; }));
         box.innerHTML =
@@ -180,9 +194,12 @@
             '<div class="sp-quick">' + [['last', 'Last'], ['q', 'Quarter'], ['ytd', 'YTD'], ['12', '12 m'], ['all', 'All']].map(function (x) { return '<button class="btn sm ghost" data-q="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>' +
             '<div class="sp-per">' + Object.keys(years).sort().reverse().map(function (y) {
                 return '<div class="sp-year"><a data-y="' + y + '">' + y + '</a></div><div class="sp-pchips">' + years[y].map(function (p) {
+                    if (p.miss) return '<label class="chip sp-miss' + (G.missSel[p.seq] ? ' on' : '') + '" title="' + esc(p.name) + ': the trial balance is synced, the segments (' + esc(G.segs.map(G.label).join(', ')) + ') are not yet — click to pick it for Sync segments"><input type="checkbox" data-mp="' + p.seq + '"' + (G.missSel[p.seq] ? ' checked' : '') + '>' + esc(p.name.replace(/-\d{2,4}$/, '')) + '</label>';
                     return '<label class="chip' + (s.periods.indexOf(p.seq) >= 0 ? ' on' : '') + '" title="' + esc(p.adjs ? 'includes ' + p.adjs : '') + '"><input type="checkbox" data-p="' + p.seq + '"' + (s.periods.indexOf(p.seq) >= 0 ? ' checked' : '') + '>' + esc(p.name.replace(/-\d{2,4}$/, '')) + '</label>';
                 }).join('') + '</div>';
-            }).join('') + '</div></div>' +
+            }).join('') + '</div>' +
+            (miss.length ? '<div class="sp-misshint sm"><span class="sp-mdot"></span> ' + miss.length + ' synced period' + (miss.length === 1 ? ' has' : 's have') + ' no segments yet' +
+                (FL.who && FL.who.admin ? ' <button class="btn sm" id="sp-xsync" title="Opens Data › Trial balance sync and reads the extended segments for ' + (nSel ? 'the picked' : 'all these') + ' periods, one after another">Sync segments' + (nSel ? ' (' + nSel + ')' : ' (all ' + miss.length + ')') + '</button>' : ' — an AI admin syncs them in Data › Trial balance sync') + '</div>' : '') + '</div>' +
             '<div class="sp-sec"><div class="row"><b class="sm">Group by</b><span class="grow"></span><span class="sm muted">company &amp; account always in</span></div>' +
             '<div id="sp-groups" class="sp-groups">' + (s.groups.length ? s.groups.map(function (g, i) {
                 var nf = (s.filters[g] || []).length;
@@ -203,6 +220,14 @@
         var q = function (x) { return box.querySelector(x); }, rerun = function () { save(); G.side(); G.run(); };
         q('#sp-led').onchange = function () { s.ledger = this.value; s.periods = []; s.filters = {}; save(); FL.render(); };
         box.querySelectorAll('[data-p]').forEach(function (c) { c.onchange = function () { var v = +c.dataset.p, i = s.periods.indexOf(v); if (c.checked && i < 0) s.periods.push(v); if (!c.checked && i >= 0) s.periods.splice(i, 1); if (!s.periods.length) s.periods = [v]; rerun(); }; });
+        box.querySelectorAll('[data-mp]').forEach(function (c) { c.onchange = function () { var v = +c.dataset.mp; if (c.checked) G.missSel[v] = 1; else delete G.missSel[v]; G.side(); }; });
+        if (q('#sp-xsync')) q('#sp-xsync').onclick = function () {
+            var seqs = miss.filter(function (p) { return G.missSel[p.seq]; }).map(function (p) { return p.seq; });
+            if (!seqs.length) seqs = miss.map(function (p) { return p.seq; });
+            G.missSel = {};
+            if (FL.tbsync && FL.tbsync.queueExt) FL.tbsync.queueExt(L.pod || '', L.ledger_id, seqs);
+            FL.show('data'); setTimeout(function () { if (FL.dataTab) FL.dataTab.go('tbsync'); }, 50);
+        };
         box.querySelectorAll('[data-y]').forEach(function (a) { a.onclick = function () { s.periods = G.periods.filter(function (p) { return Math.floor(p.seq / 100) === +a.dataset.y; }).map(function (p) { return p.seq; }); rerun(); }; });
         box.querySelectorAll('[data-q]').forEach(function (b) {
             b.onclick = function () {
@@ -265,6 +290,12 @@
 
     G.run = function () {
         var out = $('sp-out'); if (!out) return;
+        if (!G.periods.length) {
+            if ($('sp-bar')) $('sp-bar').innerHTML = '';
+            out.innerHTML = '<div class="card" style="max-width:720px"><h3>No period of ' + esc((G.led || {}).name || 'this ledger') + ' has the extended segments yet</h3><p>Its trial balance is synced for ' + (G.tbOnly || []).length + ' period(s) — they are shown dashed on the left. ' +
+                (FL.who && FL.who.admin ? 'Press <b>Sync segments</b> there to read the segments for them.' : 'An AI admin syncs them in Data › Trial balance sync.') + '</p></div>';
+            return Promise.resolve();
+        }
         out.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i> Adding up ' + G.st.periods.length + ' period(s)…</div>';
         return G.load().then(function () { G.prep(); G.total = G.stmt(G.rows); G.draw(); }).catch(function (e) { out.innerHTML = '<div class="callout bad">' + esc(String(e && e.message || e)) + '</div>'; });
     };

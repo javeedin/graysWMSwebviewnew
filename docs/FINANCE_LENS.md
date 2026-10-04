@@ -602,3 +602,8 @@ Click any customer on Debtors (or supplier on Creditors, or a party in Working c
 - **Rating** (customers): a grade A–E with a score out of 100, in the header of the customer page and as a card in Overview. Six factors, each shown with its score and what it is based on (hover for how it is scored): paying on time (30 %), overdue now (20 %), collected vs invoiced in 12 months (15 %), credit notes and write-offs vs invoiced (15 %), the trend of days to pay against the year before (10 %) and credit limit use (10 %). Each grade comes with a suggested action — from *a higher limit can be considered* (A) to *stop further credit* (E). The grade is remembered on this PC and shown in the *Rating* column of the Debtors lists.
 - **Payments** include receipts from another account (e.g. a head office paying for its branches) that were applied to this customer's invoices — see *Applied here* and *Paid by*. *Collected* counts the cash applied to the customer's invoices.
 - **Totals**: every grid in Finance Lens has a totals row at the bottom for its value columns — over every row the filters keep, not only the rows shown. Days, percentages, rates and quantities in mixed units are not totalled.
+
+
+## Segment P&L: periods without segments
+
+The period list shows every month whose trial balance is synced. Months whose extended segments (Salesperson, Item profit centre …) are not synced yet show **dashed** — click them to pick some (or none for all) and press **Sync segments**: Trial balance sync opens on that ledger and reads the segments for those months, one after another. Come back to Segment P&L and they can be chosen.
