@@ -796,7 +796,7 @@
         boxes.forEach(function (b) {
             b.innerHTML = html;
             var c = b.querySelector('.ts-cancel'), x = b.querySelector('.ts-liveclose');
-            if (c) c.onclick = function () { FL.call('finCancel', {}).catch(function () { /* already ended */ }); c.disabled = true; };
+            if (c) c.onclick = function () { FL.call('finCancel', { what: 'finTbSync' }).catch(function () { /* already ended */ }); c.disabled = true; };
             if (x) x.onclick = function () { T.live = null; T.paintLive(); };
         });
     };
@@ -939,6 +939,7 @@
         var future = T.cal().filter(function (p) { return seqs.indexOf(p.seq) >= 0 && p.start && p.start > today; });
         if (future.length) { seqs = seqs.filter(function (q) { return !future.some(function (p) { return p.seq === q; }); }); if (!quiet) FL.toast(future.length + ' period(s) not open yet left out', 'info'); }
         if (!seqs.length) return Promise.resolve();
+        if (T.xlive && T.xlive.running) { if (!quiet) FL.toast('An extended segments sync is already running — wait for it, or Cancel it first', 'info'); return Promise.resolve(); }
         var names = T.cal().filter(function (p) { return seqs.indexOf(p.seq) >= 0; }).map(function (p) { return p.name; });
         T.xlive = { running: true, per: {}, ids: {} };
         var nco = Math.max(1, T.want().length);
@@ -966,6 +967,7 @@
     /** seqs: the periods to sync (default = From–To); refresh: read again even when this PC has them */
     T.sync = function (seqs, refresh) {
         var l = T.ledgerObj(); if (!l) { FL.toast('Pick a ledger', 'err'); return; }
+        if (T.live && T.live.running) { FL.toast('A trial balance sync is already running — wait for it, or Cancel it first', 'info'); return; }
         var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc));
         if (!led.company || !led.account) { FL.toast('The company / account segment of chart ' + l.coaId + ' is not set — Data › Fusion setup', 'err'); return; }
         var list = seqs || T.selSeqs();

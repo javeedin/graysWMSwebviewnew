@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -16,13 +17,53 @@ namespace WMSApp
     /// </summary>
     public partial class Form1
     {
-        private System.Threading.CancellationTokenSource _finCts, _finAskCts;
+        private System.Threading.CancellationTokenSource _finAskCts;
+
+        // Every long Fusion action gets its own token. Before, one shared token meant that ANY new action (an extended sync, the segment
+        // values read after a TB sync, a Test query in the SQL dialog …) cancelled whatever was running. Now a sync of one kind refuses to
+        // start while the same kind runs, a lookup only replaces the previous lookup of the same kind, and finCancel stops what it names.
+        private sealed class FinJob { public string Action; public System.Threading.CancellationTokenSource Cts; public string Reason; public TimeSpan Limit; }
+        private readonly Dictionary<string, FinJob> _finJobs = new();
+        private static readonly System.Threading.AsyncLocal<FinJob> _finSlot = new();
+        private static readonly HashSet<string> FIN_SYNCS = new(StringComparer.Ordinal)
+        {
+            "finFusionSync", "finTbSync", "finTbExtSync", "finCcidSync", "finBiccLoad", "finWcSync", "finWcItems", "finFusionDiscover", "finUcmDownload", "finFusionCheck"
+        };
+        private static string FinLabel(string action) => action switch
+        {
+            "finTbSync" => "A trial balance sync", "finTbExtSync" => "An extended segments sync", "finCcidSync" => "A code combinations sync",
+            "finFusionSync" => "A full GL load", "finBiccLoad" => "A BICC load", "finWcSync" => "A working capital sync", "finWcItems" => "An item master sync",
+            "finFusionDiscover" => "A discovery", "finUcmDownload" => "A UCM download", "finFusionCheck" => "A Fusion check", _ => "This action"
+        };
 
         private System.Threading.CancellationTokenSource FinNewCts(TimeSpan limit)
         {
-            try { _finCts?.Cancel(); } catch { }
-            _finCts = new System.Threading.CancellationTokenSource(limit);
-            return _finCts;
+            var slot = _finSlot.Value ?? new FinJob { Action = "fin" };
+            lock (_finJobs)
+            {
+                if (_finJobs.TryGetValue(slot.Action, out var prev) && !prev.Cts.IsCancellationRequested)
+                {
+                    if (FIN_SYNCS.Contains(slot.Action))
+                        throw new InvalidOperationException(FinLabel(slot.Action) + " is already running on this PC - wait for it to finish or press Cancel first.");
+                    prev.Reason = "Replaced by a newer request of the same kind.";
+                    try { prev.Cts.Cancel(); } catch { }
+                }
+                slot.Cts = new System.Threading.CancellationTokenSource(limit);
+                slot.Limit = limit;
+                _finJobs[slot.Action] = slot;
+                return slot.Cts;
+            }
+        }
+        /// <summary>Stops the named action, or every running finance action when none is named.</summary>
+        private int FinCancel(string only, string reason)
+        {
+            lock (_finJobs)
+            {
+                int n = 0;
+                foreach (var j in _finJobs.Values.Where(j => string.IsNullOrEmpty(only) || j.Action == only).ToList())
+                    if (!j.Cts.IsCancellationRequested) { j.Reason = reason; try { j.Cts.Cancel(); } catch { } n++; }
+                return n;
+            }
         }
 
         private Action<string> FinProgress(WebView2 wv, string requestId) =>
@@ -62,6 +103,8 @@ namespace WMSApp
         private async Task HandleFinanceAction(WebView2 wv, string action, JsonElement root, string requestId)
         {
             object data;
+            var slot = new FinJob { Action = action };
+            _finSlot.Value = slot;
             try
             {
                 string user = GetClaudeCliService().PolicyUser;
@@ -176,7 +219,7 @@ namespace WMSApp
                             if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can load finance data." }; break; }
                             var to = root.GetProperty("options").Deserialize<FinanceFusion.TbOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                             to.Pod = PipeSrvStr(root, "pod") ?? "";
-                            var cts = FinNewCts(TimeSpan.FromMinutes(90));
+                            var cts = FinNewCts(TimeSpan.FromHours(4));
                             var sw = System.Diagnostics.Stopwatch.StartNew();
                             data = await Task.Run(() => FinanceFusion.SyncTbExtAsync(FinRunner(PipeSrvStr(root, "pod")), to, FinProgress(wv, requestId), cts.Token));
                             bool okE = JsonSerializer.SerializeToElement(data).TryGetProperty("ok", out var oke) && oke.ValueKind == JsonValueKind.True;
@@ -225,7 +268,7 @@ namespace WMSApp
                             if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can load finance data." }; break; }
                             var to = root.GetProperty("options").Deserialize<FinanceFusion.TbOptions>(new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                             to.Pod = PipeSrvStr(root, "pod") ?? "";
-                            var cts = FinNewCts(TimeSpan.FromMinutes(60));
+                            var cts = FinNewCts(TimeSpan.FromHours(3));
                             var sw = System.Diagnostics.Stopwatch.StartNew();
                             data = await Task.Run(() => FinanceFusion.SyncTbAsync(FinRunner(PipeSrvStr(root, "pod")), to, FinProgress(wv, requestId), cts.Token));
                             bool okS = JsonSerializer.SerializeToElement(data).TryGetProperty("ok", out var oks) && oks.ValueKind == JsonValueKind.True;
@@ -389,8 +432,7 @@ namespace WMSApp
                             break;
                         }
                     case "finCancel":
-                        _finCts?.Cancel();
-                        data = new { ok = true };
+                        data = new { ok = true, stopped = FinCancel(PipeSrvStr(root, "what"), "Stopped - Cancel was pressed.") };
                         break;
                     case "finAsk":
                         {
@@ -447,6 +489,25 @@ namespace WMSApp
                 System.Diagnostics.Debug.WriteLine("[Finance] " + action + " failed: " + ex);
                 data = new { ok = false, error = ex.Message };
             }
+            finally
+            {
+                if (slot.Cts != null)
+                    lock (_finJobs) { if (_finJobs.TryGetValue(action, out var cur) && ReferenceEquals(cur, slot)) _finJobs.Remove(action); }
+            }
+            // say WHY a run stopped instead of a bare "Cancelled."
+            if (slot.Cts != null && slot.Cts.IsCancellationRequested)
+            {
+                try
+                {
+                    if (JsonSerializer.SerializeToNode(data) is System.Text.Json.Nodes.JsonObject node && node["error"] is System.Text.Json.Nodes.JsonValue ev && ev.TryGetValue<string>(out var es) && es == "Cancelled.")
+                    {
+                        node["error"] = slot.Reason ?? ("Stopped after its time limit of " + (slot.Limit.TotalHours >= 1 ? slot.Limit.TotalHours.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " h" : slot.Limit.TotalMinutes.ToString("0", System.Globalization.CultureInfo.InvariantCulture) + " min") + " - what was read so far is kept; Sync again to go on.");
+                        data = node;
+                    }
+                }
+                catch { }
+            }
+            try { slot.Cts?.Dispose(); } catch { }
             PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "finResponse", requestId, data }));
         }
     }
