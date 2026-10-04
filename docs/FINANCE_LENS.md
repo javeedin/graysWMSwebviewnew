@@ -199,6 +199,17 @@ Segments are named from the chart of accounts (fin_coa_segments, else the saved 
     change (or the top values) — *Rank and chart by* revenue, gross profit, EBITDA or net profit.
   - Ranking table with share, margins, change, a trend sparkline (3+ periods) and flags; click a row for its statement.
   - *Ask the Copilot* sends the table and asks for the five things to act on.
+  - **Focus on** one value (type its code or name, or click its row in the ranking): its revenue, margins, opex and EBITDA
+    against the average / median value and the comparison, what to look at (margin gap with the money at stake, missing
+    cost of sales, loss, rank and rank change, the account that moved most), the P&L line by line next to the comparison
+    and the average value, the accounts that moved most, and revenue / gross profit / EBITDA by period. The value is
+    circled on the margin map. *AI deep dive* hands it to the AI Agent.
+- **AI Agent**: one-click missions for the CFO (executive briefing, who to talk to this week, margin recovery plan, fair
+  allocation of costs sitting on blank / default values, run-rate & outlook, board pack text, A / B / C scorecards, deep
+  dive on one value) and for the CIO and controllers (data quality audit, unusual postings, reconciliation & coverage with
+  the trial balance, what to automate), plus your own question. The agent gets the segment table and the findings and can
+  read every balance on this PC (read-only); each answer is a card with the steps it took, tables / charts, its cost, Copy,
+  Save .md, follow-up in the Copilot and Run again — kept on this PC.
 - **Tree**: *Periods* added up — optionally *Compare with* the same period last year or the previous periods, so every
   line shows Actual, PY / Prev, Δ and Δ % — or *side by side* (one column per period under every line), with the change
   vs the previous or the first period and an optional Total column. Rows show only the value (the segment is the

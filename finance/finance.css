@@ -616,3 +616,15 @@ body.nav-min .tabs.side .datachip { display: none; }
 .sk-spark { vertical-align: middle; }
 @media (max-width: 700px) { .sk-grid { grid-template-columns: 1fr; } }
 .sk-wrap .card h3 { display: block; } .sk-wrap .card h3 .muted { font-weight: 400; margin-left: 6px; }
+.sk-fbar { gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; } .sk-fbar input { min-width: 320px; padding: 4px 8px; }
+.sk-fcard { border: 2px solid #bfdbfe; margin-bottom: 12px; } .sk-fcard h3 { font-size: 15px; }
+/* Segment P&L › AI Agent */
+.sa-head { margin-bottom: 12px; }
+.sa-grp { margin-bottom: 12px; } .sa-grp h3 { font-size: 14px; margin: 0 0 8px; }
+.sa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.sa-m { display: grid; grid-template-columns: 28px 1fr; grid-template-rows: auto auto; gap: 2px 8px; text-align: left; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; cursor: pointer; }
+.sa-m:hover:not(:disabled) { border-color: #93c5fd; background: #f8fbff; } .sa-m:disabled { opacity: .55; cursor: default; }
+.sa-m i { grid-row: 1 / 3; font-size: 18px; color: #1d4ed8; align-self: center; } .sa-m b { font-size: 13px; } .sa-m span { font-size: 12px; color: #64748b; }
+.sa-ask { margin-bottom: 12px; } .sa-ask input { padding: 6px 8px; }
+.sa-res { margin-bottom: 12px; } .sa-md { margin-top: 8px; } .sa-steps { margin-top: 6px; } .sa-live { max-height: 160px; overflow: auto; color: #475569; }
+.sa-md .cop-chart { position: relative; height: 260px; }

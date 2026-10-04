@@ -99,6 +99,77 @@
         return '<svg width="' + w + '" height="' + h + '" class="sk-spark"><polyline points="' + pts + '" fill="none" stroke="' + FL.PAL.act + '" stroke-width="1.6" stroke-linejoin="round"/></svg>';
     };
 
+    K.save = function () { var c = Object.assign({}, G.st); delete c.open; FL.lsSet('segpl', c); };
+
+    /** One value against its peers and its comparison: tiles, the P&L line by line, the accounts that moved, its trend, what to look at */
+    K.focus = function (el, d, x) {
+        var s = G.st, T = d.tot, name = G.label(d.f), real = d.list.filter(function (y) { return !y.un; }), revs = real.filter(function (y) { return y.m.rev > 0; });
+        var n = Math.max(1, revs.length), CL = s.cmp === 'py' ? 'last year' : 'previous', med = function (arr) { if (!arr.length) return null; var a = arr.slice().sort(function (p, q) { return p - q; }); return a[Math.floor(a.length / 2)]; };
+        var peer = { rev: T.rev / n, gp: T.gp / n, opex: T.opex / n, ebitda: T.ebitda / n, np: T.np / n,
+            gpm: med(revs.filter(function (y) { return y.m.gpm != null; }).map(function (y) { return y.m.gpm; })), em: med(revs.filter(function (y) { return y.m.em != null; }).map(function (y) { return y.m.em; })) };
+        var byRev = real.slice().sort(function (a, b) { return b.m.rev - a.m.rev; }), rank = byRev.indexOf(x) + 1;
+        var crank = null;
+        if (d.cmp) { var cr = real.filter(function (y) { return y.c; }).sort(function (a, b) { return b.c.rev - a.c.rev; }); var ci = cr.indexOf(x); crank = ci >= 0 && x.c && x.c.rev > 0 ? ci + 1 : null; }
+        var tile = function (lbl, k, isPct, goodDown) {
+            var v = x.m[k], pv = peer[k], cv = x.c ? x.c[k] : null, f = isPct ? function (z) { return pct(z); } : money;
+            var dv = v == null || pv == null ? null : v - pv, dc = cv == null || v == null ? null : v - cv;
+            var tone = function (z) { return z == null || Math.abs(z) < 0.005 ? '' : (goodDown ? z < 0 : z > 0) ? 'pos' : 'neg'; };
+            return '<div class="sk-card"><div class="sk-l">' + esc(lbl) + '</div><div class="sk-v">' + (v == null ? '–' : f(v)) + '</div>' +
+                '<div class="sk-s ' + tone(dv) + '">' + (dv == null ? '' : (isPct ? sgn(dv, function (z) { return z.toFixed(1) + ' pts'; }) : sgn(dv, money)) + ' vs ' + (isPct ? 'median' : 'average') + ' ' + esc(name.toLowerCase()) + ' (' + f(pv) + ')') + '</div>' +
+                (d.cmp ? '<div class="sk-s ' + tone(dc) + '">' + (dc == null ? 'no comparison' : (isPct ? sgn(dc, function (z) { return z.toFixed(1) + ' pts'; }) : sgn(dc, money)) + ' vs ' + CL) + '</div>' : '') + '</div>';
+        };
+        // the statement line by line: this value, its comparison, the average value
+        var st = G.stmt(x.rows), cst = d.cmp ? G.stmt(x.crows || []) : null, lines = G.lineRows(st);
+        var lv = function (stx, id) { if (!stx) return null; var r = stx.rows.filter(function (q) { return q.id === id; })[0]; return r ? r.values[0] : null; };
+        var isPctL = function (r) { return /^(pct|ratio|days)$/.test(r.format); };
+        var cell = function (v, r) { return v == null ? '' : G.fmtLine(r, v); };
+        var dcell = function (a, b, r) { if (a == null && b == null) return '<td></td>'; var dd = (a || 0) - (b || 0), good = Math.abs(dd) < 0.005 ? '' : (r.favourable === 'down' ? dd < 0 : dd > 0) ? 'pos' : 'neg';
+            return '<td class="n ' + good + '">' + (isPctL(r) ? sgn(dd, function (z) { return z.toFixed(1) + ' pts'; }) : sgn(dd, money)) + '</td>'; };
+        var lrows = lines.map(function (r) {
+            var v = lv(st, r.id), cv = lv(cst, r.id), tv = lv(G.total, r.id), pv = isPctL(r) ? tv : tv == null ? null : tv / n;
+            var b = r.type === 'group' || r.type === 'formula';
+            return '<tr' + (b ? ' class="sp-b"' : '') + '><td style="padding-left:' + (6 + (r.level || 0) * 12) + 'px">' + esc(r.label) + '</td><td class="n">' + cell(v, r) + '</td>' +
+                (d.cmp ? '<td class="n muted">' + cell(cv, r) + '</td>' + dcell(v, cv, r) : '') + '<td class="n muted">' + cell(pv, r) + '</td>' + dcell(v, pv, r) + '</tr>';
+        }).join('');
+        // the accounts behind it (P&L sign: income +, costs −) and how they moved
+        var acc = {}, add = function (rows, k) { rows.forEach(function (r) { var o = G.accBy[r.account], pl = o ? FINE.isPl(o) : true; if (!pl) return; var a = acc[r.account] = acc[r.account] || { a: r.account, v: 0, c: 0 }; a[k] += -r.net; }); };
+        add(x.rows, 'v'); if (d.cmp) add(x.crows || [], 'c');
+        var alist = Object.keys(acc).map(function (k) { var a = acc[k]; a.d = a.v - a.c; return a; }).filter(function (a) { return Math.abs(a.v) >= 0.5 || Math.abs(a.c) >= 0.5; })
+            .sort(function (a, b) { return d.cmp ? Math.abs(b.d) - Math.abs(a.d) : Math.abs(b.v) - Math.abs(a.v); }).slice(0, 12);
+        // what to look at
+        var tips = [];
+        if (x.m.gpm != null && peer.gpm != null && peer.gpm - x.m.gpm >= 3 && x.m.rev > 0) tips.push({ k: 'bad', t: 'Gross margin ' + pct(x.m.gpm) + ' is ' + (peer.gpm - x.m.gpm).toFixed(1) + ' pts below the median ' + esc(name.toLowerCase()) + ' — ' + money(x.m.rev * (peer.gpm - x.m.gpm) / 100) + ' of gross profit at the median margin. Check price lists, discounts and the product mix.' });
+        if (x.m.gpm != null && x.m.gpm >= 99 && Math.abs(x.m.cogs) < 0.01 * x.m.rev) tips.push({ k: 'bad', t: 'Revenue with almost no cost of sales — the margin is overstated; the cost is probably posted on another (default) value.' });
+        if (x.m.ebitda < -0.5) tips.push({ k: 'bad', t: 'Loss-making at EBITDA (' + money(x.m.ebitda) + '): operating expenses ' + money(x.m.opex) + ' against gross profit ' + money(x.m.gp) + '.' });
+        if (T.rev && x.m.rev > 0) tips.push({ k: 'info', t: 'Rank <b>#' + rank + '</b> of ' + byRev.length + ' by revenue' + (crank ? ' (was #' + crank + ')' : '') + ', ' + pct(x.share) + ' of the total.' });
+        if (d.cmp && x.c) {
+            var dr = x.m.rev - x.c.rev, de = x.m.ebitda - x.c.ebitda;
+            tips.push({ k: de >= 0 ? 'good' : 'bad', t: 'Versus ' + CL + ': revenue ' + sgn(dr, money) + (x.c.rev ? ' (' + sgn(dr / Math.abs(x.c.rev) * 100, function (z) { return pct(z); }) + ')' : '') + ', EBITDA ' + sgn(de, money) + '.' });
+            var big = alist.filter(function (a) { return Math.abs(a.d) >= 0.5; })[0];
+            if (big) tips.push({ k: big.d >= 0 ? 'good' : 'bad', t: 'Biggest move: account <b>' + esc(G.valLabel('account', big.a)) + '</b> ' + sgn(big.d, money) + ' (now ' + money(big.v) + ', was ' + money(big.c) + ').' });
+        } else if (d.cmp) tips.push({ k: 'info', t: 'No amounts in the comparison period — new this period.' });
+        el.innerHTML = '<div class="card sk-fcard"><div class="row" style="flex-wrap:wrap;gap:8px"><h3 style="margin:0"><i class="fa-solid fa-crosshairs"></i> ' + esc(x.label) + '</h3>' +
+            '<span class="muted sm">' + esc(name) + ' · ' + esc(d.ps.map(G.pname).join(', ')) + (d.cmp ? ' vs ' + CL : '') + (x.un ? ' · blank / default value' : '') + '</span><span class="grow"></span>' +
+            '<button class="btn sm" id="sk-fst"><i class="fa-solid fa-file-invoice-dollar"></i> Full statement</button>' +
+            '<button class="btn sm" id="sk-fai"><i class="fa-solid fa-robot"></i> AI deep dive</button></div>' +
+            '<div class="sk-cards" style="margin-top:8px">' + tile('Revenue', 'rev') + tile('Gross profit', 'gp') + tile('Gross margin', 'gpm', true) + tile('Operating expenses', 'opex', false, true) + tile('EBITDA', 'ebitda') + tile('EBITDA margin', 'em', true) + '</div>' +
+            '<ul class="sk-ins" style="margin-bottom:10px">' + tips.map(function (i) { return '<li class="' + i.k + '"><span class="sk-ic">' + (i.k === 'good' ? '▲' : i.k === 'bad' ? '!' : 'i') + '</span><span>' + i.t + '</span></li>'; }).join('') + '</ul>' +
+            '<div class="sk-grid"><div><h3>P&amp;L line by line</h3><div class="scroll" style="max-height:420px"><table class="t sp-cols"><thead><tr><th></th><th class="n">' + esc(x.label.split(' · ')[0]) + '</th>' + (d.cmp ? '<th class="n">' + (s.cmp === 'py' ? 'PY' : 'Prev') + '</th><th class="n">Δ</th>' : '') + '<th class="n" title="the total divided by the ' + n + ' values with revenue; margins: the company margin">Average</th><th class="n">vs avg</th></tr></thead><tbody>' + lrows + '</tbody></table></div></div>' +
+            '<div><h3>' + (d.cmp ? 'Accounts that moved most' : 'Largest accounts') + ' <span class="muted sm">P&amp;L effect: income +, costs −</span></h3><table class="t sp-cols"><thead><tr><th>Account</th><th class="n">Amount</th>' + (d.cmp ? '<th class="n">' + (s.cmp === 'py' ? 'PY' : 'Prev') + '</th><th class="n">Δ</th>' : '') + '</tr></thead><tbody>' +
+            alist.map(function (a) { return '<tr><td>' + esc(G.valLabel('account', a.a)) + '</td><td class="n">' + money(a.v) + '</td>' + (d.cmp ? '<td class="n muted">' + money(a.c) + '</td><td class="n ' + (a.d >= 0 ? 'pos' : 'neg') + '">' + sgn(a.d, money) + '</td>' : '') + '</tr>'; }).join('') + '</tbody></table>' +
+            (d.ps.length > 1 ? '<h3 style="margin-top:12px">By period</h3><div class="sk-ch" style="height:200px"><canvas id="sk-ftr"></canvas></div>' : '') + '</div></div></div>';
+        if (d.ps.length > 1) {
+            var per = d.ps.map(function (q) { return K.metrics(G.stmt(x.rows.filter(function (r) { return r.period_seq === q; }))); });
+            FL.chart('sk-ftr', { type: 'bar', data: { labels: d.ps.map(G.pname), datasets: [
+                { label: 'Revenue', data: per.map(function (m) { return m.rev; }), backgroundColor: FL.PAL.act, borderRadius: 4, barPercentage: 0.7 },
+                { label: 'Gross profit', data: per.map(function (m) { return m.gp; }), backgroundColor: FL.PAL.series[1], borderRadius: 4, barPercentage: 0.7 },
+                { label: 'EBITDA', data: per.map(function (m) { return m.ebitda; }), backgroundColor: FL.PAL.series[2], borderRadius: 4, barPercentage: 0.7 }] },
+                options: { plugins: { tooltip: { callbacks: { label: function (c) { return c.dataset.label + ': ' + money(c.raw); } } } }, scales: { y: FL.moneyAxis(), x: { grid: { display: false } } } } });
+        }
+        $('sk-fst').onclick = function () { G.full({ rows: x.rows, label: name + ' ' + x.label }); };
+        $('sk-fai').onclick = function () { s.view = 'ai'; s.aiFocus = x.v; K.save(); G.draw(); if (G.ai) setTimeout(function () { G.ai.run('deep'); }, 50); };
+    };
+
     G.viewKpi = function (out) {
         var s = G.st;
         if (!s.groups.length) { out.innerHTML = '<div class="card sp-card"><p>Add a segment on the left (e.g. <b>Salesperson</b>) — the KPIs rank its values.</p></div>'; G.out = null; return; }
@@ -114,6 +185,7 @@
         var top5 = totRev ? revs.slice(0, 5).reduce(function (a, x) { return a + x.m.rev; }, 0) / totRev * 100 : null;
         var un = d.list.filter(function (x) { return x.un; }), unOpex = un.reduce(function (a, x) { return a + x.m.opex; }, 0);
         var ins = K.insights(d);
+        var fx = s.kpiFocus != null ? d.list.filter(function (x) { return x.v === s.kpiFocus; })[0] : null;
         var cards = card('Revenue', T.rev, C && C.rev, money) +
             card('Gross profit', T.gp, C && C.gp, money, 'margin ' + pct(T.gpm)) +
             card('Operating expenses', T.opex, C && C.opex, money, T.rev ? pct(T.opex / Math.abs(T.rev) * 100) + ' of revenue' : '', true) +
@@ -128,12 +200,16 @@
             '<label>Compare with <select id="sk-cmp">' + [['none', 'nothing'], ['py', 'same period last year'], ['prev', 'previous period' + (d.ps.length > 1 ? 's' : '')]].map(function (o) { return '<option value="' + o[0] + '"' + (s.cmp === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
             '<label>Rank and chart by <select id="sk-m">' + K.METRICS.map(function (m) { return '<option value="' + m[0] + '"' + (metric === m[0] ? ' selected' : '') + '>' + m[1] + '</option>'; }).join('') + '</select></label>' +
             '<button class="btn sm" id="sk-ask"><i class="fa-solid fa-wand-magic-sparkles"></i> Ask the Copilot</button></div>' +
+            '<div class="row sm sk-fbar"><i class="fa-solid fa-crosshairs"></i> <b>Focus on</b> <input id="sk-fq" list="sk-fl" placeholder="type a ' + esc(name.toLowerCase()) + ' code or name…" value="' + esc(fx ? fx.label : '') + '" autocomplete="off">' +
+            '<datalist id="sk-fl">' + d.list.map(function (x) { return '<option value="' + esc(x.label) + '">'; }).join('') + '</datalist>' +
+            (fx ? '<a id="sk-fclr"><i class="fa-solid fa-xmark"></i> show everyone</a>' : '<span class="muted">or click a row in the ranking — one ' + esc(name.toLowerCase()) + ' against its peers and the comparison</span>') + '</div>' +
+            (fx ? '<div id="sk-focus"></div>' : '') +
             '<div class="sk-cards">' + cards + '</div>' +
             '<div class="sk-grid"><div class="card"><h3><i class="fa-solid fa-lightbulb"></i> What stands out</h3>' + (ins.length ? '<ul class="sk-ins">' + ins.map(function (i) { return '<li class="' + i.k + '"><span class="sk-ic">' + (i.k === 'good' ? '▲' : i.k === 'bad' ? '!' : 'i') + '</span><span>' + i.t + '</span></li>'; }).join('') + '</ul>' : '<p class="muted sm">Nothing unusual in this choice.</p>') + '</div>' +
             '<div class="card"><h3>Margin map <span class="muted sm">revenue × gross margin · dashed = average margin</span></h3><div class="sk-ch"><canvas id="sk-map"></canvas></div></div></div>' +
             '<div class="sk-grid"><div class="card"><h3>Concentration <span class="muted sm">cumulative share of ' + esc(mName.toLowerCase()) + '</span></h3><div class="sk-ch"><canvas id="sk-con"></canvas></div></div>' +
             '<div class="card"><h3>' + (d.cmp ? 'What drove the change in ' + esc(mName) : esc(mName) + ' by ' + esc(name)) + ' <span class="muted sm">' + (d.cmp ? 'vs ' + CL + ', top 12' : 'top 12') + '</span></h3><div class="sk-ch"><canvas id="sk-drv"></canvas></div></div></div>' +
-            '<div class="card"><h3>Ranking <span class="muted sm">click a row for its full statement · ⚑ flags</span></h3><div id="sk-tbl"></div></div></div>';
+            '<div class="card"><h3>Ranking <span class="muted sm">click a row to focus on it · flags</span></h3><div id="sk-tbl"></div></div></div>';
 
         // charts
         var pal = FL.PAL;
@@ -143,8 +219,9 @@
         FL.chart('sk-map', { type: 'scatter', data: { datasets: [
             { label: 'EBITDA positive', data: pts.filter(function (x) { return x.m.ebitda >= 0; }).map(function (x) { return { x: x.m.rev, y: clampY(x.m.gpm), g: x.m.gpm, n: x.label, e: x.m.ebitda }; }), backgroundColor: pal.good, borderColor: '#fff', borderWidth: 2, pointRadius: 6, pointHoverRadius: 8 },
             { label: 'EBITDA negative', data: pts.filter(function (x) { return x.m.ebitda < 0; }).map(function (x) { return { x: x.m.rev, y: clampY(x.m.gpm), g: x.m.gpm, n: x.label, e: x.m.ebitda }; }), backgroundColor: pal.bad, borderColor: '#fff', borderWidth: 2, pointRadius: 6, pointHoverRadius: 8, pointStyle: 'triangle' },
+            { label: fx ? fx.label : 'Focus', data: fx && fx.m.rev > 0 && fx.m.gpm != null ? [{ x: fx.m.rev, y: clampY(fx.m.gpm), g: fx.m.gpm, n: fx.label, e: fx.m.ebitda }] : [], backgroundColor: 'rgba(0,0,0,0)', borderColor: pal.act, borderWidth: 3, pointRadius: 11, pointHoverRadius: 12, hidden: !fx },
             { label: 'Average margin', type: 'line', data: [{ x: xmin, y: clampY(T.gpm || 0) }, { x: xmax, y: clampY(T.gpm || 0) }], borderColor: '#94a3b8', borderDash: [5, 4], borderWidth: 1.5, pointRadius: 0 }] },
-            options: { interaction: { mode: 'nearest', intersect: true }, plugins: { legend: { labels: { usePointStyle: true, boxWidth: 8, font: { size: 11 } } }, tooltip: { filter: function (i) { return i.datasetIndex < 2; }, callbacks: { label: function (c) { var r = c.raw; return r.n + ': revenue ' + money(r.x) + ' · GP ' + pct(r.g) + ' · EBITDA ' + money(r.e); } } } },
+            options: { interaction: { mode: 'nearest', intersect: true }, plugins: { legend: { labels: { usePointStyle: true, boxWidth: 8, font: { size: 11 } } }, tooltip: { filter: function (i) { return i.datasetIndex < 3; }, callbacks: { label: function (c) { var r = c.raw; return r.n + ': revenue ' + money(r.x) + ' · GP ' + pct(r.g) + ' · EBITDA ' + money(r.e); } } } },
                 scales: { x: Object.assign(FL.moneyAxis(), { title: { display: true, text: 'Revenue' } }), y: { title: { display: true, text: 'Gross margin %' }, ticks: { callback: function (v) { return v + '%'; }, font: { size: 10 } }, grid: { color: '#f1f5f9' } } } } });
         var conv = real.map(function (x) { return x.m[metric]; }).filter(function (v) { return v > 0; }).sort(function (a, b) { return b - a; }), csum = conv.reduce(function (a, v) { return a + v; }, 0), run = 0;
         var cpts = [{ x: 0, y: 0 }].concat(conv.map(function (v, i) { run += v; return { x: (i + 1) / conv.length * 100, y: csum ? run / csum * 100 : 0 }; }));
@@ -180,9 +257,15 @@
             { label: 'EBITDA Δ', n: 1, html: 1, val: function (x) { return x.c ? Math.round((x.m.ebitda - x.c.ebitda) / sc) : null; }, get: function (x) { var v = x.c ? x.m.ebitda - x.c.ebitda : null; return v == null ? '' : '<span class="' + (v >= 0 ? 'pos' : 'neg') + '">' + sgn(v, money) + '</span>'; } });
         if (d.ps.length >= 3) cols.push({ label: mName + ' trend', html: 1, val: function () { return ''; }, get: function (x) { return K.spark(x.trend); } });
         cols.push({ label: 'Flags', html: 1, val: function (x) { return flags(x).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(); }, get: flags });
-        FL.grid($('sk-tbl'), cols, d.list, { id: 'sk-rank-' + d.f + (d.cmp ? '-c' : '') + (d.ps.length >= 3 ? '-t' : ''), height: '60vh', max: 1000, csv: 'segment-kpis.csv', click: function (x) { G.full({ rows: x.rows, label: name + ' ' + x.label }); } });
+        FL.grid($('sk-tbl'), cols, d.list, { id: 'sk-rank-' + d.f + (d.cmp ? '-c' : '') + (d.ps.length >= 3 ? '-t' : ''), height: '60vh', max: 1000, csv: 'segment-kpis.csv', click: function (x) { s.kpiFocus = x.v; K.save(); G.draw(); } });
         G.out = { head: cols.filter(function (c) { return c.label !== mName + ' trend'; }).map(function (c) { return c.label; }), rows: d.list.map(function (x) { return cols.filter(function (c) { return c.label !== mName + ' trend'; }).map(function (c) { return c.val ? c.val(x) : x[c.key]; }); }) };
 
+        var pick = function () { var t = String($('sk-fq').value || '').trim().toLowerCase(); if (!t) return;
+            var m = d.list.filter(function (x) { return x.label.toLowerCase() === t; })[0] || d.list.filter(function (x) { return x.v.toLowerCase() === t || x.label.toLowerCase().indexOf(t) >= 0; })[0];
+            if (m && m.v !== s.kpiFocus) { s.kpiFocus = m.v; K.save(); setTimeout(G.draw, 0); } };
+        $('sk-fq').onchange = pick; $('sk-fq').onkeydown = function (e) { if (e.key === 'Enter') this.blur(); };   // blur fires change once — never redraw twice
+        if ($('sk-fclr')) $('sk-fclr').onclick = function () { s.kpiFocus = null; K.save(); G.draw(); };
+        if (fx) K.focus($('sk-focus'), d, fx);
         $('sk-cmp').onchange = function () { s.cmp = this.value; FL.lsSet('segpl', Object.assign({}, s, { open: undefined })); G.run(); };
         $('sk-m').onchange = function () { s.kpiMetric = this.value; FL.lsSet('segpl', Object.assign({}, s, { open: undefined })); G.draw(); };
         $('sk-ask').onclick = function () {
