@@ -694,3 +694,16 @@ body.fl-maxed { overflow: hidden; }
 .ph-sql { white-space: pre-wrap; font-size: 11px; background: #f1f5f9; padding: 6px 8px; border-radius: 6px; margin: 4px 0 10px; max-height: 120px; overflow: auto; }
 .ph-st { padding: 1px 7px; border-radius: 999px; font-size: 11px; background: #e2e8f0; } .ph-st.s-OP { background: #fef3c7; color: #92400e; } .ph-st.s-CL { background: #dcfce7; color: #166534; }
 .ph-st.s-CM { background: #ede9fe; color: #5b21b6; }
+
+/* FL.grid totals row (sticky at the bottom of the scroll box) */
+.fg tfoot.fg-tot td { position: sticky; bottom: 0; background: #eef2f7; font-weight: 700; border-top: 2px solid #cbd5e1; white-space: nowrap; z-index: 1; }
+.fg tfoot.fg-tot td.fg-tl { color: #334155; }
+/* customer rating (fin-wchistory.js) */
+.ph-badge { display: inline-flex; align-items: center; gap: 8px; border: 2px solid; border-radius: 12px; padding: 4px 12px 4px 4px; cursor: pointer; text-decoration: none; color: inherit; margin-right: 6px; background: #fff; }
+.ph-badge span { width: 34px; height: 34px; border-radius: 9px; color: #fff; font-weight: 800; font-size: 20px; display: flex; align-items: center; justify-content: center; }
+.ph-badge small { color: #64748b; }
+.ph-grade { width: 58px; height: 58px; border-radius: 14px; color: #fff; font-weight: 800; font-size: 32px; display: flex; align-items: center; justify-content: center; flex: none; }
+.ph-ftab { margin-top: 10px; } .ph-ftab td { vertical-align: middle; }
+.ph-fbar { height: 10px; border-radius: 6px; background: #e2e8f0; overflow: hidden; } .ph-fbar span { display: block; height: 100%; border-radius: 6px; }
+.ph-gmini { display: inline-block; min-width: 22px; text-align: center; border-radius: 6px; color: #fff; font-weight: 800; font-size: 12px; padding: 1px 4px; }
+.ph-gmini.g-A { background: #16a34a; } .ph-gmini.g-B { background: #65a30d; } .ph-gmini.g-C { background: #ca8a04; } .ph-gmini.g-D { background: #ea580c; } .ph-gmini.g-E { background: #dc2626; }

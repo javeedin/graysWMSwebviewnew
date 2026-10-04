@@ -83,15 +83,25 @@
             if (v < 0) m.credits += v;
         });
         inv.forEach(function (r) { var t = day(r.TRX_DATE); if (t != null && t >= y1) { m.invoiced12 += num(r.ORIGINAL); m.nInv12++; } });
-        pay.forEach(function (r) { var t = day(r.RECEIPT_DATE || r.PAYMENT_DATE); if (t != null && t >= y1) m.paid12 += num(r.AMOUNT); m.unapplied += num(r.UNAPPLIED); });
+        // collected = cash applied to this party's items (receipts can come from another account, e.g. a head office paying for its
+        // branches); credit-note applications are not cash. Without applications: the receipts' amount applied here, else their amount.
+        var cash = app.filter(function (r) { return r.APPLICATION_TYPE !== 'CM' && r.CLASS !== 'CM'; });
+        if (cash.length) cash.forEach(function (r) { var t = day(r.APPLY_DATE); if (t != null && t >= y1) m.paid12 += num(r.AMOUNT_APPLIED); });
+        else pay.forEach(function (r) { var t = day(r.RECEIPT_DATE || r.PAYMENT_DATE); if (t != null && t >= y1) m.paid12 += num(r.APPLIED_HERE != null && r.APPLIED_HERE !== '' ? r.APPLIED_HERE : r.AMOUNT); });
+        pay.forEach(function (r) { m.unapplied += num(r.UNAPPLIED); });
         var lastPay = pay.slice().sort(function (a, b) { return (day(b.RECEIPT_DATE || b.PAYMENT_DATE) || 0) - (day(a.RECEIPT_DATE || a.PAYMENT_DATE) || 0); })[0];
-        m.lastPay = lastPay ? { date: lastPay.RECEIPT_DATE || lastPay.PAYMENT_DATE, amount: num(lastPay.AMOUNT) } : null;
+        if (lastPay) m.lastPay = { date: lastPay.RECEIPT_DATE || lastPay.PAYMENT_DATE, amount: num(lastPay.APPLIED_HERE != null && lastPay.APPLIED_HERE !== '' ? lastPay.APPLIED_HERE : lastPay.AMOUNT), by: lastPay.PAID_BY };
+        else if (cash.length) { var ld = cash.reduce(function (x, r) { return r.APPLY_DATE > x ? r.APPLY_DATE : x; }, ''); m.lastPay = { date: ld, amount: cash.filter(function (r) { return r.APPLY_DATE === ld; }).reduce(function (x, r) { return x + num(r.AMOUNT_APPLIED); }, 0) }; }
+        else m.lastPay = null;
+        m.cn12 = 0; m.nCn12 = 0; cn.forEach(function (r) { var t = day(r.TRX_DATE); if (t != null && t >= y1) { m.cn12 += Math.abs(num(r.ORIGINAL)); m.nCn12++; } });
+        m.adj12 = 0; H.rows('adjustments').forEach(function (r) { var t = day(r.APPLY_DATE); if (t != null && t >= y1) m.adj12 += Math.abs(num(r.AMOUNT)); });
         // days to pay / late, weighted by the amount applied (last 12 months, and the 12 before for the trend)
         var w = function (from, to, key) { var s = 0, n = 0; app.forEach(function (r) { var t = day(r.APPLY_DATE), a = Math.abs(num(r.AMOUNT_APPLIED)); if (t == null || t < from || t >= to || r[key] == null || r[key] === '') return; s += num(r[key]) * a; n += a; }); return n ? s / n : null; };
         m.dtp = w(y1, today + 864e5, 'DAYS_TO_PAY'); m.dtpPrev = w(y1 - 365 * 864e5, y1, 'DAYS_TO_PAY');
         m.late = w(y1, today + 864e5, 'DAYS_LATE'); m.latePrev = w(y1 - 365 * 864e5, y1, 'DAYS_LATE');
         var cr = H.rows('credit'); m.limit = cr.length ? cr.reduce(function (s, r) { return Math.max(s, num(r.CREDIT_LIMIT)); }, 0) : null; m.limitCcy = cr.length ? cr[0].CURRENCY : '';
         m.holds = ar ? 0 : H.rows('holds').filter(function (r) { return !r.RELEASE; }).length;
+        m.posOpen = open.reduce(function (x, r) { var v = rem(r); return x + (v > 0 ? v : 0); }, 0);
         // by month: invoiced vs paid (applications when there are any, else payments)
         var months = {}, key = function (s) { return String(s || '').slice(0, 7); };
         inv.forEach(function (r) { var k = key(r.TRX_DATE); if (k) (months[k] = months[k] || { inv: 0, paid: 0, dtp: [0, 0] }).inv += num(r.ORIGINAL); });
@@ -101,6 +111,49 @@
         m.age = [['Not due', 0], ['1-30', 0], ['31-60', 0], ['61-90', 0], ['91-180', 0], ['>180', 0]];
         open.forEach(function (r) { var d = day(r.DUE_DATE), l = d == null ? 0 : Math.floor((today - d) / 864e5), i = l <= 0 ? 0 : l <= 30 ? 1 : l <= 60 ? 2 : l <= 90 ? 3 : l <= 180 ? 4 : 5; m.age[i][1] += rem(r); });
         return m;
+    };
+    // ═════ customer rating: six factors from invoices, credit notes, payments and the open items → 0-100 and a grade ═════
+    H.GRADES = [[85, 'A', 'Excellent', '#16a34a', 'Reliable payer — a higher credit limit or better terms can be considered.'],
+        [70, 'B', 'Good', '#65a30d', 'Standard terms; keep the usual reminders.'],
+        [55, 'C', 'Watch', '#ca8a04', 'Monitor: remind before the due date and review the credit limit.'],
+        [40, 'D', 'Risky', '#ea580c', 'Tighten: lower the limit, shorten the terms or ask for a deposit; escalate the items over 90 days.'],
+        [-1, 'E', 'High risk', '#dc2626', 'Stop further credit (cash before delivery) until the overdue is cleared; consider a provision.']];
+    H.rate = function (m) {
+        var cl = function (x) { return Math.max(0, Math.min(100, x)); }, pc = function (x) { return Math.round(x * 100) + ' %'; }, f = [];
+        f.push({ k: 'Paying on time', w: 30, s: m.late == null ? 60 : cl(100 - Math.max(0, m.late) * 2.5), nodata: m.late == null,
+            v: m.late == null ? 'no payments in the window' : m.late > 0 ? Math.round(m.late) + ' days late on average' : Math.round(-m.late) + ' days early on average',
+            why: 'Days between the due date and the payment, weighted by the amount paid (last 12 months). 0 days late scores 100, 40 days late scores 0.' });
+        var od = m.posOpen ? Math.max(0, m.overdue) / m.posOpen : 0, o90 = m.posOpen ? Math.max(0, m.o90) / m.posOpen : 0;
+        f.push({ k: 'Overdue now', w: 20, s: m.posOpen ? cl(100 - od * 60 - o90 * 100) : 100, v: m.posOpen ? pc(od) + ' overdue · ' + pc(o90) + ' over 90 days' : 'nothing open',
+            why: 'Share of the open balance that is past due, and the share over 90 days (counted twice as heavy).' });
+        var cr = m.invoiced12 ? m.paid12 / m.invoiced12 : null;
+        f.push({ k: 'Collected vs invoiced', w: 15, s: cr == null ? 60 : cl((cr - 0.5) / 0.45 * 100), nodata: cr == null, v: cr == null ? 'nothing invoiced in 12 months' : pc(cr) + ' of the last 12 months collected',
+            why: 'Cash received against what was invoiced in the last 12 months; 95 % or more scores 100, 50 % or less scores 0.' });
+        var dr = m.invoiced12 ? (m.cn12 + m.adj12) / m.invoiced12 : null;
+        f.push({ k: 'Credit notes & write-offs', w: 15, s: dr == null ? 60 : cl(100 - (dr - 0.02) / 0.18 * 100), nodata: dr == null,
+            v: dr == null ? 'nothing invoiced in 12 months' : pc(dr) + ' of invoiced (' + m.nCn12 + ' credit note' + (m.nCn12 === 1 ? '' : 's') + (m.adj12 ? ', ' + k0(m.adj12) + ' adjusted' : '') + ')',
+            why: 'Credit notes and adjustments as a share of invoices — returns, disputes and write-offs. Up to 2 % scores 100, 20 % or more scores 0.' });
+        var tr = m.dtp != null && m.dtpPrev != null ? m.dtp - m.dtpPrev : null;
+        f.push({ k: 'Trend', w: 10, s: tr == null ? 60 : cl(100 - (tr + 5) / 25 * 100), nodata: tr == null,
+            v: tr == null ? 'no year before to compare' : (tr > 0 ? Math.round(tr) + ' days slower' : Math.round(-tr) + ' days faster') + ' than the year before',
+            why: 'Days to pay this year against the year before: 5 days faster or better scores 100, 20 days slower scores 0.' });
+        var u = m.limit ? m.total / m.limit : null;
+        f.push({ k: 'Credit limit', w: 10, s: u == null ? 50 : u <= 0.8 ? 100 : u <= 1 ? 100 - (u - 0.8) / 0.2 * 50 : cl(50 - (u - 1) / 0.3 * 50), nodata: u == null,
+            v: u == null ? 'no credit limit set in Fusion' : pc(u) + ' of ' + k0(m.limit) + ' used', why: 'Open balance against the credit limit: up to 80 % scores 100, at the limit 50, 130 % or more 0. No limit set counts as 50.' });
+        var tot = f.reduce(function (x, y) { return x + y.w; }, 0), score = Math.round(f.reduce(function (x, y) { return x + y.s * y.w; }, 0) / tot);
+        var g = H.GRADES.filter(function (x) { return score >= x[0]; })[0];
+        var thin = f.filter(function (x) { return x.nodata; }).length >= 3;
+        return { score: score, grade: g[1], label: g[2], color: g[3], action: g[4], factors: f, thin: thin };
+    };
+    H.ratingCard = function (r) {
+        return '<div class="card ph-rate"><div class="row" style="gap:14px;align-items:center"><div class="ph-grade" style="background:' + r.color + '">' + r.grade + '</div><div style="flex:1">' +
+            '<h3 style="margin:0">Customer rating · ' + esc(r.label) + ' <small class="muted">' + r.score + ' / 100' + (r.thin ? ' · little history — read more months for a firmer rating' : '') + '</small></h3>' +
+            '<div class="sm" style="margin-top:3px"><b>Suggested:</b> ' + esc(r.action) + '</div></div></div>' +
+            '<table class="t ph-ftab"><tbody>' + r.factors.map(function (x) {
+                var col = x.s >= 80 ? '#16a34a' : x.s >= 60 ? '#84cc16' : x.s >= 40 ? '#f59e0b' : '#dc2626';
+                return '<tr title="' + esc(x.why) + '"><td><b>' + esc(x.k) + '</b> <span class="muted sm">' + x.w + ' %</span><div class="sm muted">' + esc(x.v) + '</div></td>' +
+                    '<td style="width:42%"><div class="ph-fbar"><span style="width:' + Math.round(x.s) + '%;background:' + col + '"></span></div></td><td class="n" style="width:40px"><b>' + Math.round(x.s) + '</b></td></tr>';
+            }).join('') + '</tbody></table><div class="sm muted">Hover a line for how it is scored. Grades: A ≥ 85 · B ≥ 70 · C ≥ 55 · D ≥ 40 · E below.</div></div>';
     };
     H.insights = function (m) {
         var c = H.cur, ar = c.kind === 'AR', o = [];
@@ -134,11 +187,14 @@
             tile(ar ? 'Collected (12 m)' : 'Paid (12 m)', k0(m.paid12), m.invoiced12 ? Math.round(m.paid12 / m.invoiced12 * 100) + ' % of invoiced' : '') +
             tile('Days to pay', m.dtp == null ? '—' : Math.round(m.dtp) + ' d', m.late == null ? 'from the invoice date' : (m.late > 0 ? Math.round(m.late) + ' d late' : Math.round(-m.late) + ' d early') + ' vs due', m.late > 15 ? 'neg' : m.late != null && m.late <= 0 ? 'pos' : '') +
             tile('Last ' + (ar ? 'receipt' : 'payment'), m.lastPay ? esc(m.lastPay.date) : '—', m.lastPay ? k0(m.lastPay.amount) : 'none in the window') + '</div>';
+        var rt = ar ? H.rate(m) : null; m.rating = rt;
+        if (rt) { var rs = FL.ls('wcp.ratings', {}); rs[(W.cfg().pod || '') + '|' + c.party] = { g: rt.grade, s: rt.score, at: d.fetchedAt }; FL.lsSet('wcp.ratings', rs); }
         var cnt = function (k) { var s = (d.sections || {})[k]; return s ? (s.ok ? s.rows.length + (s.capped ? '+' : '') : '!') : ''; };
         $('ph-head').innerHTML = '<div class="row" style="gap:10px;align-items:flex-start"><div class="ph-av">' + esc(String(name).trim().charAt(0).toUpperCase()) + '</div><div style="flex:1;min-width:0">' +
             '<h2 style="margin:0">' + esc(name) + ' <span class="muted" style="font-weight:400;font-size:.8em">' + esc(number) + '</span> ' + chips.map(function (x) { return '<span class="wc-chip">' + esc(x) + '</span>'; }).join(' ') + '</h2>' +
             '<div class="sm muted ph-meta">' + [line ? '<i class="fa-solid fa-location-dot"></i> ' + esc(line) : '', prof.EMAIL_ADDRESS ? '<i class="fa-regular fa-envelope"></i> ' + esc(prof.EMAIL_ADDRESS) : '', prof.PHONE ? '<i class="fa-solid fa-phone"></i> ' + esc(prof.PHONE) : '',
                 prof.ESTABLISHED ? (ar ? 'customer since ' : 'supplier since ') + esc(prof.ESTABLISHED) : '', prof.TAX_REFERENCE ? 'tax ' + esc(prof.TAX_REFERENCE) : '', addrs.length > 1 ? addrs.length + ' sites' : ''].filter(Boolean).join(' · ') + '</div></div>' +
+            (rt ? '<a class="ph-badge" id="ph-rt" title="Customer rating ' + rt.score + ' / 100 — ' + esc(rt.action) + '" style="border-color:' + rt.color + '"><span style="background:' + rt.color + '">' + rt.grade + '</span><b>' + esc(rt.label) + '</b><small>' + rt.score + ' / 100</small></a>' : '') +
             '<button class="icon ph-x" id="ph-x" title="Close (Esc)">✕</button></div>' +
             '<div class="row sm ph-bar"><span id="ph-src" class="wc-chip ' + (d.fromCache ? '' : 'live') + '" title="' + (d.fromCache ? 'Read from DuckDB on this PC — no call to Fusion' : 'Just read from Fusion and kept on this PC') + '">' +
             (d.fromCache ? '<i class="fa-solid fa-hard-drive"></i> From this PC · read from Fusion ' + esc(d.fetchedAt.slice(0, 16)) + ' (' + ago(d.fetchedAt) + ')' : '<i class="fa-solid fa-cloud"></i> Just read from Fusion' + (d.ms ? ' in ' + (d.ms / 1000).toFixed(1) + ' s' : '') + ' · kept on this PC') + '</span>' +
@@ -148,6 +204,7 @@
             '<button class="btn sm" id="ph-ask"><i class="fa-solid fa-wand-magic-sparkles"></i> Ask the Copilot</button></div>' + tiles +
             '<div class="seg ph-tabs" id="ph-tabs">' + TABS[c.kind].map(function (t) { var n = t[0] === 'overview' || t[0] === 'sql' ? '' : t[0] === 'open' ? String(m.open.length) : cnt(t[0]); return '<button data-t="' + t[0] + '" class="' + (c.tab === t[0] ? 'on' : '') + '">' + esc(t[1]) + (n !== '' ? ' <span class="tag">' + n + '</span>' : '') + '</button>'; }).join('') + '</div>';
         $('ph-x').onclick = H.close;
+        if ($('ph-rt')) $('ph-rt').onclick = function () { c.tab = 'overview'; $('ph-tabs').querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x.dataset.t === 'overview'); }); H.body(m); };
         $('ph-ref').onclick = function () { H.load(true); };
         $('ph-m').onchange = function () { H.months = +this.value; FL.lsSet('wcp.hmonths', H.months); H.load(true); };
         $('ph-xl').onclick = H.excel;
@@ -162,7 +219,7 @@
         if (c.tab === 'overview') {
             box.innerHTML = '<div class="sk-grid"><div class="card"><h3>' + (ar ? 'Invoiced and collected' : 'Invoiced to us and paid') + ' <small class="muted">by month</small></h3><div class="sk-ch"><canvas id="ph-c1"></canvas></div></div>' +
                 '<div class="card"><h3>Open items by age</h3><div class="sk-ch"><canvas id="ph-c2"></canvas></div></div></div>' +
-                '<div class="sk-grid"><div class="card"><h3>What stands out</h3><ul class="sk-ins">' + H.insights(m).map(function (i) { return '<li class="' + (i.sev || '') + '"><span class="sk-ic">' + (i.sev === 'bad' ? '!' : i.sev === 'good' ? '✓' : '•') + '</span><span>' + i.html + '</span></li>'; }).join('') + '</ul></div>' +
+                (m.rating ? '<div class="sk-grid">' + H.ratingCard(m.rating) : '<div class="sk-grid">') + '<div class="card"><h3>What stands out</h3><ul class="sk-ins">' + H.insights(m).map(function (i) { return '<li class="' + (i.sev || '') + '"><span class="sk-ic">' + (i.sev === 'bad' ? '!' : i.sev === 'good' ? '✓' : '•') + '</span><span>' + i.html + '</span></li>'; }).join('') + '</ul></div>' + (m.rating ? '</div><div class="sk-grid">' : '') +
                 '<div class="card"><h3>Days to pay <small class="muted">by month, weighted by amount</small></h3><div class="sk-ch"><canvas id="ph-c3"></canvas></div></div></div>';
             var mk = function (id, cfg) { var cv = $(id); if (!cv || !window.Chart) return; cfg.options = Object.assign({ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } } }, cfg.options || {}); H.charts.push(new Chart(cv, cfg)); };
             mk('ph-c1', { type: 'bar', data: { labels: m.months.map(function (x) { return x.k; }), datasets: [{ label: ar ? 'Invoiced' : 'Invoiced to us', data: m.months.map(function (x) { return x.inv; }), backgroundColor: FL.PAL.act, borderRadius: 3 }, { label: ar ? 'Collected' : 'Paid', data: m.months.map(function (x) { return x.paid; }), backgroundColor: FL.PAL.good, borderRadius: 3 }] }, options: { scales: { y: FL.moneyAxis() } } });
@@ -196,6 +253,7 @@
             var n = NUMCOL.test(c);
             return { label: LABEL(c), n: n, html: c === 'DAYS_LATE' || c === 'STATUS' || c === 'CLASS', get: function (r) {
                 var v = r[c];
+                if (typeof v === 'string' && v.indexOf('4712-12-31') === 0) return '';   // Fusion's "not closed" date
                 if (c === 'DAYS_LATE' && v != null && v !== '') return '<span class="' + (num(v) > 0 ? 'neg' : 'pos') + '">' + num(v) + '</span>';
                 if (c === 'STATUS' || c === 'CLASS') return v == null ? '' : '<span class="ph-st s-' + esc(String(v)) + '">' + esc(String(v)) + '</span>';
                 return n && v != null && v !== '' ? amt(v, /DAYS/.test(c) ? 0 : 2) : v == null ? '' : v;
@@ -207,6 +265,7 @@
         return (ar ? 'Customer ' : 'Supplier ') + name + ' (' + number + '): total ' + (ar ? 'due ' : 'owed ') + Math.round(m.total) + ', overdue ' + Math.round(m.overdue) + ', over 90 days ' + Math.round(m.o90) +
             (m.limit ? ', credit limit ' + Math.round(m.limit) : '') + ', invoiced last 12 months ' + Math.round(m.invoiced12) + ', ' + (ar ? 'collected ' : 'paid ') + Math.round(m.paid12) +
             (m.dtp != null ? ', days to pay ' + Math.round(m.dtp) + (m.dtpPrev != null ? ' (year before ' + Math.round(m.dtpPrev) + ')' : '') : '') + (m.lastPay ? ', last ' + (ar ? 'receipt ' : 'payment ') + m.lastPay.date : '') +
+            (m.rating ? '. Our rating: ' + m.rating.grade + ' (' + m.rating.score + '/100, ' + m.rating.factors.map(function (x) { return x.k + ' ' + Math.round(x.s); }).join(', ') + ')' : '') +
             '. ' + (ar ? 'How risky is this customer, and what should we do about collection and the credit limit?' : 'What should we pay this supplier first, and is anything blocking payment?');
     };
     H.excel = function () {
@@ -214,7 +273,7 @@
         var wb = new ExcelJS.Workbook(), m = H.model(), ws = wb.addWorksheet('Summary');
         ws.addRow([(c.kind === 'AR' ? 'Customer ' : 'Supplier ') + c.title + ' (' + c.party + ')']).font = { bold: true, size: 13 };
         ws.addRow(['Read from Fusion', c.data.fetchedAt, 'History', c.data.months + ' months']);
-        [['Total', m.total], ['Overdue', m.overdue], ['Over 90 days', m.o90], ['Credit limit', m.limit], ['Invoiced 12 m', m.invoiced12], ['Paid 12 m', m.paid12], ['Days to pay', m.dtp == null ? null : Math.round(m.dtp)], ['Days late', m.late == null ? null : Math.round(m.late)]]
+        [['Total', m.total], ['Overdue', m.overdue], ['Over 90 days', m.o90], ['Credit limit', m.limit], ['Invoiced 12 m', m.invoiced12], ['Paid 12 m', m.paid12], ['Days to pay', m.dtp == null ? null : Math.round(m.dtp)], ['Days late', m.late == null ? null : Math.round(m.late)]].concat(m.rating ? [['Rating', m.rating.grade + ' · ' + m.rating.score + ' / 100 · ' + m.rating.label]].concat(m.rating.factors.map(function (x) { return ['  ' + x.k + ' (' + x.w + ' %)', Math.round(x.s) + ' — ' + x.v]; })) : [])
             .forEach(function (r) { ws.addRow(r); });
         H.insights(m).forEach(function (i) { ws.addRow([String(i.html).replace(/<[^>]+>/g, '')]); });
         ws.getColumn(1).width = 40; ws.getColumn(2).numFmt = '#,##0.00';

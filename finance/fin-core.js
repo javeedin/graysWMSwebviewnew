@@ -382,7 +382,22 @@ FL.grid = function (el, cols, rows, opts) {
         '<div class="scroll fg-wrap"' + (opts.height ? ' style="max-height:' + opts.height + '"' : '') + '><table class="t fg"><thead><tr>' + cols.map(function (c, i) {
             return '<th class="' + (c.n ? 'n' : '') + '" data-c="' + i + '" title="Sort">' + esc(c.label) + '<span class="fg-s"></span></th>'; }).join('') + '</tr><tr class="fg-f">' +
         cols.map(function (c, i) { return '<th><input data-c="' + i + '" placeholder="' + (c.n ? '>0, 1..9' : 'filter') + '" value="' + esc(st.f[c.label] || '') + '"></th>'; }).join('') +
-        '</tr></thead><tbody></tbody></table></div>';
+        '</tr></thead><tbody></tbody><tfoot class="fg-tot"></tfoot></table></div>';
+    // totals of the value columns over every row the filters keep (not only the rows shown); columns where a sum means
+    // nothing (days, %, rates, prices, ages, ranks, ids) are left out — a column can say sum: true / false itself
+    var NOSUM = /(^#$|%|\bdays?\b|\bage\b|oldest|rate|rank|price|unit cost|limit|\byear\b|\bid\b|seq|score|margin|ratio)/i;
+    var sums = cols.map(function (c) { return c.n && (c.sum === true || (c.sum !== false && !NOSUM.test(c.label))); });
+    var foot = function (list) {
+        var tf = el.querySelector('tfoot.fg-tot'); if (!tf) return;
+        if (opts.totals === false || !sums.some(Boolean) || list.length < 2) { tf.innerHTML = ''; return; }
+        var lead = cols[0] && !sums[0];
+        tf.innerHTML = '<tr>' + cols.map(function (c, i) {
+            if (!sums[i]) return '<td' + (i === 0 && lead ? ' class="fg-tl"' : '') + '>' + (i === 0 && lead ? 'Total · ' + list.length.toLocaleString() : '') + '</td>';
+            var t = 0, dp = 0, any = false;
+            list.forEach(function (r) { var v = raw(c, r); if (v == null || v === '') return; var x = +v; if (isNaN(x)) return; any = true; t += x; var s0 = String(v), k = s0.indexOf('.'); if (k >= 0) dp = Math.max(dp, Math.min(2, s0.length - k - 1)); });
+            return '<td class="n">' + (any ? FINE.fmt(t, 'num', { decimals: dp }) : '') + '</td>';
+        }).join('') + '</tr>';
+    };
     var body = function () {
         var list = rows.filter(function (r) { return cols.every(function (c) { return FL.gridMatch(raw(c, r), st.f[c.label], c.n); }); });
         if (st.sort != null && cols[st.sort]) {
@@ -399,6 +414,7 @@ FL.grid = function (el, cols, rows, opts) {
         el.querySelector('.fg-clear').style.display = nf ? '' : 'none';
         el.querySelectorAll('thead th[data-c]').forEach(function (th) { th.querySelector('.fg-s').textContent = st.sort === +th.dataset.c ? (st.dir > 0 ? ' ▲' : ' ▼') : ''; });
         if (opts.click) el.querySelectorAll('tbody tr.click').forEach(function (tr) { tr.onclick = function () { opts.click(part[+tr.dataset.i]); }; });
+        foot(list);
         if (opts.onFilter) opts.onFilter(list);
     };
     var t;

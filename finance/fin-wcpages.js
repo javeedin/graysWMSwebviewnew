@@ -244,17 +244,19 @@
                 return b.score - a.score || Math.abs(b.total) - Math.abs(a.total);
             });
         work.forEach(function (p, i) { p.rank = i + 1; p.next = X.step(k, p); });
-        FL.grid($('wp-work'), [{ label: '#', n: 1, key: 'rank' }, { label: isAR ? 'Customer' : 'Supplier', key: 'name' }, { label: 'Number', key: 'number' },
+        // the rating of a customer whose history was opened on this PC (fin-wchistory.js keeps grade + score per customer)
+        var RS = FL.ls('wcp.ratings', {}), rcol = isAR ? [{ label: 'Rating', html: true, sum: false, get: function (p) { var r = RS[(W.cfg().pod || '') + '|' + p.number]; return r ? '<span class="ph-gmini g-' + r.g + '" title="' + r.s + ' / 100 · history read ' + esc(String(r.at || '').slice(0, 16)) + '">' + r.g + '</span>' : '<span class="muted sm" title="Open the customer to rate it">–</span>'; }, val: function (p) { var r = RS[(W.cfg().pod || '') + '|' + p.number]; return r ? r.g : ''; } }] : [];
+        FL.grid($('wp-work'), [{ label: '#', n: 1, key: 'rank' }, { label: isAR ? 'Customer' : 'Supplier', key: 'name' }].concat(rcol).concat([{ label: 'Number', key: 'number' },
             { label: 'Overdue', n: 1, get: function (p) { return money(p.overdue); }, val: function (p) { return sc(p.overdue); } },
             { label: '> 90 days', n: 1, get: function (p) { return p.o90 ? money(p.o90) : ''; }, val: function (p) { return sc(p.o90); } },
             { label: 'Oldest (days)', n: 1, html: true, get: function (p) { return p.days == null ? '' : '<span class="' + (p.days > 90 ? 'neg' : '') + '">' + p.days + '</span>'; }, val: function (p) { return p.days; } },
-            dcol('Δ overdue', function (p) { return p.dOver; }, true)]
+            dcol('Δ overdue', function (p) { return p.dOver; }, true)])
             .concat(isAR ? [{ label: 'Expected loss', n: 1, get: function (p) { return p.ecl ? money(p.ecl) : ''; }, val: function (p) { return sc(p.ecl); } }] : [{ label: 'On hold', n: 1, get: function (p) { return p.hold || ''; }, val: function (p) { return p.hold; } }])
             .concat([{ label: 'Next step', html: true, get: function (p) { return '<b class="' + (/Escalate|Call today|supply at risk|Resolve/.test(p.next) ? 'neg' : '') + '">' + esc(p.next) + '</b>'; }, val: function (p) { return p.next; } }]),
             work, { id: 'wp-work-' + k, height: '46vh', csv: (isAR ? 'collection-worklist' : 'suppliers-to-act-on') + '.csv', click: open, empty: 'Nothing overdue.' });
-        FL.grid($('wp-all'), [{ label: isAR ? 'Customer' : 'Supplier', key: 'name' }, { label: 'Number', key: 'number' },
+        FL.grid($('wp-all'), [{ label: isAR ? 'Customer' : 'Supplier', key: 'name' }].concat(rcol).concat([{ label: 'Number', key: 'number' },
             { label: 'Business unit', get: function (p) { return Object.keys(p.bu).map(W.buName).join(', '); } },
-            { label: 'Total', n: 1, get: function (p) { return money(p.total); }, val: function (p) { return sc(p.total); } }, dcol('Δ total', function (p) { return p.dTotal; }, isAR)]
+            { label: 'Total', n: 1, get: function (p) { return money(p.total); }, val: function (p) { return sc(p.total); } }, dcol('Δ total', function (p) { return p.dTotal; }, isAR)])
             .concat(m.bk.map(function (n) { return { label: n, n: 1, get: function (p) { return p.b[n] ? money(p.b[n]) : ''; }, val: function (p) { return sc(p.b[n] || 0); } }; }))
             .concat([{ label: 'Overdue %', n: 1, get: function (p) { return pct(p.overdue, p.total); }, val: function (p) { return p.total ? Math.round(p.overdue / p.total * 1000) / 10 : 0; } },
                 { label: 'Share', n: 1, get: function (p) { return pct(p.total, m.t.total); }, val: function (p) { return m.t.total ? Math.round(p.total / m.t.total * 1000) / 10 : 0; } },
@@ -455,7 +457,7 @@
         var review = m.list.filter(function (it) { return it.still || it.maxAge > 180 || it.qty < 0; });
         review.forEach(function (it) { it.why = [it.qty < 0 ? 'negative' : '', it.still ? 'not moved' : '', it.maxAge > 365 ? 'over a year' : it.maxAge > 180 ? 'over 180 days' : ''].filter(Boolean).join(' · '); });
         FL.grid($('wp-review'), [{ label: 'Item', key: 'item' }, { label: 'Description', key: 'desc' }, { label: 'Organisation', key: 'org' }, { label: 'ABC', key: 'abc' },
-            { label: 'Quantity', n: 1, get: function (it) { return (Math.round(it.qty * 100) / 100).toLocaleString() + ' ' + (it.uom || ''); }, val: function (it) { return it.qty; } },
+            { label: 'Quantity', n: 1, sum: false, get: function (it) { return (Math.round(it.qty * 100) / 100).toLocaleString() + ' ' + (it.uom || ''); }, val: function (it) { return it.qty; } },
             { label: m.byValue ? 'Value' : 'Value', n: 1, get: function (it) { return it.valued ? money(it.value) : '—'; }, val: function (it) { return it.valued ? sc(it.value) : null; } },
             { label: 'Oldest (days)', n: 1, key: 'maxAge' },
             { label: 'Δ quantity', n: 1, get: function (it) { return it.dQty == null ? (m.s0 ? 'new' : '') : (Math.round(it.dQty * 100) / 100).toLocaleString(); }, val: function (it) { return it.dQty; } },

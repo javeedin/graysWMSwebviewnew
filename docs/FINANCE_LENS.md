@@ -595,3 +595,10 @@ Click any customer on Debtors (or supplier on Creditors, or a party in Working c
 - **Tabs** — Overview (invoiced vs collected by month, open items by age, findings, days to pay by month), Open items (with *Live from Fusion*), Invoices, Payments, Credit notes, Paid invoices (each payment against the invoice it paid, with days to pay), Adjustments (customers) / Holds (suppliers), Sources (the query behind each tab).
 - **Where the data comes from** — the first time a customer is opened its history is read from Fusion and **kept in DuckDB on this PC** (`fin_wc_history`). Opening it again reads this PC — the header says *From this PC · read from Fusion … ago*. **Refresh from Fusion** reads it again; changing the history window (12 / 24 / 36 / 60 months) does too.
 - The Debtors / Creditors / Inventory pages themselves always read the synced snapshots on this PC; only **Sync** asks Fusion. The page header says how long ago the last sync was.
+
+
+## Customer rating and grid totals
+
+- **Rating** (customers): a grade A–E with a score out of 100, in the header of the customer page and as a card in Overview. Six factors, each shown with its score and what it is based on (hover for how it is scored): paying on time (30 %), overdue now (20 %), collected vs invoiced in 12 months (15 %), credit notes and write-offs vs invoiced (15 %), the trend of days to pay against the year before (10 %) and credit limit use (10 %). Each grade comes with a suggested action — from *a higher limit can be considered* (A) to *stop further credit* (E). The grade is remembered on this PC and shown in the *Rating* column of the Debtors lists.
+- **Payments** include receipts from another account (e.g. a head office paying for its branches) that were applied to this customer's invoices — see *Applied here* and *Paid by*. *Collected* counts the cash applied to the customer's invoices.
+- **Totals**: every grid in Finance Lens has a totals row at the bottom for its value columns — over every row the filters keep, not only the rows shown. Days, percentages, rates and quantities in mixed units are not totalled.

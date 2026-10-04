@@ -907,6 +907,8 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
 
         // ═════ customer / supplier history kept on this PC (FinanceWorkingCapital.HistoryAsync) ═════
         internal const string WC_HISTORY_TABLE = "CREATE TABLE IF NOT EXISTS fin_wc_history (pod VARCHAR, kind VARCHAR, party VARCHAR, section VARCHAR, months INTEGER, fetched_at TIMESTAMP, ms BIGINT, ok BOOLEAN, error VARCHAR, sql VARCHAR, alt INTEGER, capped BOOLEAN, columns_json VARCHAR, rows_json VARCHAR)";
+        /// <summary>Raised when the history queries change, so a party read with the older queries is read from Fusion again once.</summary>
+        public const int HISTORY_VERSION = 2;
         public sealed class HistorySection
         {
             public string Name; public bool Ok; public string Error; public string Sql; public int Alt; public bool Capped; public long Ms;
@@ -918,9 +920,10 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             {
                 using var conn = OpenWrite();
                 Exec(conn, WC_HISTORY_TABLE);
+                Exec(conn, "ALTER TABLE fin_wc_history ADD COLUMN IF NOT EXISTS ver INTEGER");
                 Exec(conn, "DELETE FROM fin_wc_history WHERE pod = " + Lit(pod ?? "") + " AND kind = " + Lit(kind) + " AND party = " + Lit(party));
                 Append(conn, "fin_wc_history", sections.Select(x => new object[] { pod ?? "", kind, party, x.Name, months, at, x.Ms, x.Ok, x.Error, x.Sql, x.Alt, x.Capped,
-                    JsonSerializer.Serialize(x.Columns), JsonSerializer.Serialize(x.Rows) }).ToList());
+                    JsonSerializer.Serialize(x.Columns), JsonSerializer.Serialize(x.Rows), HISTORY_VERSION }).ToList());
                 Exec(conn, "CHECKPOINT");
             }
         }
@@ -929,7 +932,9 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             if (!File.Exists(DbPath)) return null;
             var t = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_wc_history'", 1);
             if (t.Error != null || t.Rows.Count == 0 || Convert.ToInt64(t.Rows[0][0]) == 0) return null;
-            var q = Query("SELECT section, months, CAST(fetched_at AS VARCHAR), ms, ok, error, sql, alt, capped, columns_json, rows_json FROM fin_wc_history WHERE pod = " + Lit(pod ?? "") + " AND kind = " + Lit(kind) + " AND party = " + Lit(party), 100);
+            var hasVer = Query("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'fin_wc_history' AND column_name = 'ver'", 1);
+            if (hasVer.Error != null || hasVer.Rows.Count == 0 || Convert.ToInt64(hasVer.Rows[0][0]) == 0) return null;   // read with the first queries — read again
+            var q = Query("SELECT section, months, CAST(fetched_at AS VARCHAR), ms, ok, error, sql, alt, capped, columns_json, rows_json FROM fin_wc_history WHERE pod = " + Lit(pod ?? "") + " AND kind = " + Lit(kind) + " AND party = " + Lit(party) + " AND COALESCE(ver, 0) >= " + HISTORY_VERSION, 100);
             if (q.Error != null || q.Rows.Count == 0) return null;
             var secs = q.Rows.Select(r => new HistorySection
             {

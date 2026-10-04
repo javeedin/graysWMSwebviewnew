@@ -236,7 +236,7 @@
             .concat(W.grp !== 'org' && W.grp !== 'sub' ? [{ label: gLabel, get: function (r) { return r.grp == null ? '' : r.grp; } }] : [])
             .concat(W.grp !== 'item_type' ? [{ label: 'Item type', get: function (r) { return r.item_type || ''; } }] : [])
             .concat(W.dffCols().filter(function (c) { return c !== W.grp; }).slice(0, 6).map(function (c) { return { label: W.dffLabel(c), get: function (r) { return r[c] == null ? '' : r[c]; } }; }))
-            .concat([{ label: 'Quantity', n: 1, get: function (r) { return (Math.round(r.qty * 100) / 100).toLocaleString() + ' ' + (r.uom || ''); }, val: function (r) { return r.qty; } },
+            .concat([{ label: 'Quantity', n: 1, sum: false, get: function (r) { return (Math.round(r.qty * 100) / 100).toLocaleString() + ' ' + (r.uom || ''); }, val: function (r) { return r.qty; } },
                 { label: 'Value', n: 1, get: function (r) { return r.valued ? money(r.value) : '—'; }, val: function (r) { return r.valued ? sc(r.value) : null; } },
                 { label: 'Basis', get: function (r) { return r.basis === 'list' ? 'list price' : r.basis || ''; } },
                 { label: 'Oldest (days)', n: 1, html: true, get: function (r) { return '<span class="' + (r.maxAge > 180 ? 'neg' : '') + '">' + r.maxAge + '</span>'; }, val: function (r) { return r.maxAge; } }]);
