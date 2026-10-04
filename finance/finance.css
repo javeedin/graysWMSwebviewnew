@@ -660,3 +660,11 @@ body.fl-maxed { overflow: hidden; }
 .card.fl-max .sk-ch, .card.fl-max .chartbox, .card.fl-max .wc-spark { height: auto !important; flex: 1 1 auto; min-height: 60vh; }
 .card.fl-max .fg-wrap, .card.fl-max .scroll { max-height: calc(100vh - 150px) !important; }
 .scroll.fl-max { max-height: none !important; }
+/* Segment P&L › value groups */
+.gr-groups { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.gr-chip { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; background: #f8fafc; cursor: pointer; font-size: 12px; display: inline-flex; gap: 6px; align-items: center; }
+.gr-chip.on { border-color: var(--primary, #1d4ed8); background: #eff6ff; } .gr-chip.add { cursor: default; background: #fff; }
+.gr-chip a { cursor: pointer; color: #64748b; }
+.sp-gx { cursor: pointer; color: inherit; } .sp-gx:hover { color: var(--primary, #1d4ed8); }
+.sp-cols th.sp-mem, .sp-cols td.sp-memc { background: #f8fafc; font-weight: 400; }
+.sp-cols th.sp-sub, .sp-cols td.sp-subc { background: #eef2ff; font-weight: 700; }

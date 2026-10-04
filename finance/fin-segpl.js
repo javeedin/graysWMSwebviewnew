@@ -11,6 +11,21 @@
     var BASE = { company: 'Company', account: 'Account', period: 'Period' };
     var money = function (v) { var d = G.st.dec; return v == null ? '' : FINE.fmt(v / (FL.filter.scale || 1), 'num', { decimals: d != null && d !== '' ? +d : FL.filter.scale >= 1000000 ? 1 : 0 }); };
     var segCol = function (c) { return /^segment([1-9]|[12][0-9]|30)$/.test(c); };
+    // value groups: "grp_segmentN" is a field made of the user's groups of that segment's values (config.json segGroups[coa|col])
+    var isGrp = G.isGrp = function (f) { return /^grp_segment([1-9]|[12][0-9]|30)$/.test(f || ''); };
+    G.grpBase = function (f) { return isGrp(f) ? f.slice(4) : f; };
+    G.grpKey = function (col) { return String((G.led || {}).coa_id || '') + '|' + col; };
+    G.grpDef = function (col) { var d = ((FL.config || {}).segGroups || {})[G.grpKey(col)]; return d && d.groups && d.groups.length ? d : null; };
+    G.NOGRP = '(not grouped)';
+    /** Writes each row's group into r.grp_segmentN for every grouping in use */
+    G.decorate = function () {
+        var used = {}; (G.st.groups || []).concat(G.st.pv.rows || [], [G.st.pv.col]).forEach(function (f) { if (isGrp(f)) used[f] = 1; });
+        Object.keys(used).forEach(function (f) {
+            var col = G.grpBase(f), d = G.grpDef(col), m = {};
+            if (d) d.groups.forEach(function (g) { (g.values || []).forEach(function (v) { m[v] = g.name; }); });
+            (G.rows || []).concat(G.cmpRows || []).forEach(function (r) { var v = r[col] == null ? '' : String(r[col]); r[f] = m[v] || G.NOGRP; });
+        });
+    };
 
     G.money = money;
     // Segment P&L and the AI Agent page share this engine (left panel, data); the AI Agent is its own page in the menu (tab segai)
@@ -38,7 +53,7 @@
                 G.segs = Object.keys(cols).filter(function (c) { return segCol(c) && c !== cseg && c !== aseg; }).sort(function (a, b) { return +a.slice(7) - +b.slice(7); });
                 G.cos = r[2].map(function (x) { return x.company; });
                 G.segName = {}; r[3].forEach(function (x) { if (x.name) G.segName[String(x.column_name).toLowerCase()] = x.name; });
-                G.st.groups = (G.st.groups || []).filter(function (g) { return G.segs.indexOf(g) >= 0 || g === 'company'; });
+                G.st.groups = (G.st.groups || []).filter(function (g) { return G.segs.indexOf(g) >= 0 || g === 'company' || (isGrp(g) && G.segs.indexOf(G.grpBase(g)) >= 0 && G.grpDef(G.grpBase(g))); });
                 var seqs = G.periods.map(function (p) { return p.seq; });
                 G.st.periods = (G.st.periods || []).filter(function (q) { return seqs.indexOf(q) >= 0; });
                 if (!G.st.periods.length && seqs.length) G.st.periods = [seqs[seqs.length - 1]];
@@ -59,9 +74,10 @@
             });
         }).catch(function () { return null; });
     };
-    G.label = function (f) { return BASE[f] || (G.segName[f] ? G.segName[f] : f.toUpperCase()) ; };
+    G.label = function (f) { if (isGrp(f)) { var gd = G.grpDef(G.grpBase(f)); return (gd && gd.name) || G.label(G.grpBase(f)) + ' group'; } return BASE[f] || (G.segName[f] ? G.segName[f] : f.toUpperCase()) ; };
     G.valLabel = function (f, v) {
         if (v == null || v === '') return '(blank)';
+        if (isGrp(f)) return String(v);
         if (f === 'company') { var c = (FL.dims.companies || []).filter(function (x) { return x.code === v; })[0]; return v + (c && c.name && c.name !== v ? ' · ' + c.name : ''); }
         if (f === 'account') { var a = G.accBy[v]; return v + (a && a.name && a.name !== v ? ' · ' + a.name : ''); }
         if (f === 'period') { var p = G.periods.filter(function (x) { return x.seq === +v; })[0]; return p ? p.name : v; }
@@ -72,9 +88,9 @@
 
     // ── data: one query for everything the views need ──
     G.fields = function () {
-        var f = (G.st.groups || []).slice();
-        (G.st.pv.rows || []).concat([G.st.pv.col]).forEach(function (x) { if (x && segCol(x) && f.indexOf(x) < 0) f.push(x); });
-        return f.filter(segCol);
+        var f = (G.st.groups || []).map(G.grpBase);
+        (G.st.pv.rows || []).concat([G.st.pv.col]).forEach(function (x) { x = G.grpBase(x); if (x && segCol(x) && f.indexOf(x) < 0) f.push(x); });
+        return f.filter(function (x, i) { return segCol(x) && f.indexOf(x) === i; });
     };
     /** The comparison period of each chosen period: same period last year (seq − 100) or the block of periods just before the first
      *  chosen one (previous). → { map: {chosen: cmp}, seqs: [cmp synced], missing: [cmp not on this PC] } */
@@ -107,6 +123,7 @@
             var keep = function (list, f) { return rows.filter(function (r) { return list.indexOf(r.period_seq) >= 0; }).map(function (r) { return r.period_seq === f ? r : Object.assign({}, r, { opening: 0 }); }); };
             G.rows = keep(ps, first);
             G.cmpRows = keep(plan.seqs, plan.seqs[0]);
+            G.decorate();
         });
     };
 
@@ -155,7 +172,8 @@
     G.side = function () {
         var s = G.st, L = G.led, box = $('sp-side');
         var years = {}; G.periods.forEach(function (p) { (years[Math.floor(p.seq / 100)] = years[Math.floor(p.seq / 100)] || []).push(p); });
-        var avail = G.segs.filter(function (c) { return s.groups.indexOf(c) < 0; }).concat(s.groups.indexOf('company') < 0 ? ['company'] : []);
+        var avail = G.segs.filter(function (c) { return s.groups.indexOf(c) < 0; }).concat(s.groups.indexOf('company') < 0 ? ['company'] : [])
+            .concat(G.segs.filter(function (c) { return G.grpDef(c) && s.groups.indexOf('grp_' + c) < 0; }).map(function (c) { return 'grp_' + c; }));
         box.innerHTML =
             '<div class="sp-sec"><label class="sm"><b>Ledger</b></label><select id="sp-led">' + G.leds.map(function (l) { return '<option value="' + l.ledger_id + '"' + (String(l.ledger_id) === String(s.ledger) ? ' selected' : '') + '>' + esc((l.name || l.ledger_id) + (l.currency ? ' · ' + l.currency : '')) + '</option>'; }).join('') + '</select></div>' +
             '<div class="sp-sec"><div class="row"><b class="sm">Periods</b><span class="grow"></span><span class="sm muted">' + s.periods.length + ' chosen</span></div>' +
@@ -169,10 +187,12 @@
             '<div id="sp-groups" class="sp-groups">' + (s.groups.length ? s.groups.map(function (g, i) {
                 var nf = (s.filters[g] || []).length;
                 return '<div class="sp-g"><span class="sp-gi">' + (i + 1) + '</span><b>' + esc(G.label(g)) + '</b><span class="grow"></span>' +
-                    '<a data-f="' + g + '" title="Filter values" class="' + (nf ? 'on' : '') + '"><i class="fa-solid fa-filter"></i>' + (nf ? ' ' + nf : '') + '</a>' +
+                    (segCol(G.grpBase(g)) ? '<a data-gr="' + G.grpBase(g) + '" title="Group the values of ' + esc(G.label(G.grpBase(g))) + ' (e.g. Door to door, Pre-sales, Shops)"' + (G.grpDef(G.grpBase(g)) ? ' class="on"' : '') + '>⧉</a>' : '') +
+                    (isGrp(g) ? '' : '<a data-f="' + g + '" title="Filter values" class="' + (nf ? 'on' : '') + '"><i class="fa-solid fa-filter"></i>' + (nf ? ' ' + nf : '') + '</a>') +
                     '<a data-up="' + i + '" title="Up"' + (i ? '' : ' class="off"') + '>↑</a><a data-dn="' + i + '" title="Down"' + (i < s.groups.length - 1 ? '' : ' class="off"') + '>↓</a><a data-rm="' + i + '" title="Remove">×</a></div>';
             }).join('') : '<div class="sm muted">Nothing yet — add a segment to see the P&amp;L by it (e.g. Salesperson, then Profit centre under it).</div>') + '</div>' +
-            (avail.length ? '<select id="sp-add"><option value="">+ add a segment…</option>' + avail.map(function (c) { return '<option value="' + c + '">' + esc(G.label(c) + (segCol(c) ? ' (' + c.toUpperCase() + ')' : '')) + '</option>'; }).join('') + '</select>' : '') +
+            (avail.length ? '<select id="sp-add"><option value="">+ add a segment…</option>' + avail.map(function (c) { return '<option value="' + c + '">' + esc(isGrp(c) ? '⧉ ' + G.label(c) + ' — groups of ' + G.label(G.grpBase(c)) : G.label(c) + (segCol(c) ? ' (' + c.toUpperCase() + ')' : '')) + '</option>'; }).join('') + '</select>' : '') +
+            '<div class="sm" style="margin-top:4px"><a id="sp-grpnew"><i class="fa-solid fa-object-group"></i> Group the values of a segment…</a></div>' +
             (G.segs.filter(function (c) { return s.groups.indexOf(c) < 0 && (s.filters[c] || []).length; }).map(function (c) { return '<div class="sm">Filter on ' + esc(G.label(c)) + ': ' + s.filters[c].length + ' value(s) <a data-f="' + c + '">change</a></div>'; }).join('')) +
             '<div class="sm" style="margin-top:4px"><a id="sp-flt">Filter another segment…</a></div></div>' +
             '<div class="sp-sec"><div class="row"><b class="sm">Companies</b><span class="grow"></span><a class="sm" id="sp-coall">' + (s.cos.length ? 'all' : '') + '</a></div><div class="sp-cos">' + G.cos.map(function (c) {
@@ -192,7 +212,18 @@
                 rerun();
             };
         });
-        if (q('#sp-add')) q('#sp-add').onchange = function () { if (this.value) { s.groups.push(this.value); s.open = {}; rerun(); } };
+        if (q('#sp-add')) q('#sp-add').onchange = function () {
+            var v = this.value; if (!v) return;
+            // a grouping goes in with its segment right under it, so the tree opens a group into its values
+            if (isGrp(v)) { var b = G.grpBase(v), i = s.groups.indexOf(b); if (i >= 0) s.groups.splice(i, 0, v); else s.groups.push(v, b); } else s.groups.push(v);
+            s.open = {}; rerun();
+        };
+        box.querySelectorAll('[data-gr]').forEach(function (a) { a.onclick = function () { if (G.groupEditor) G.groupEditor(a.dataset.gr); }; });
+        q('#sp-grpnew').onclick = function () {
+            if (G.segs.length === 1) return G.groupEditor(G.segs[0]);
+            FL.modal('<i class="fa-solid fa-object-group"></i> Group the values of…', '<div class="sp-flist">' + G.segs.map(function (c) { return '<button class="btn sm" data-gc="' + c + '">' + esc(G.label(c)) + (G.grpDef(c) ? ' · ' + G.grpDef(c).groups.length + ' groups' : '') + '</button>'; }).join(' ') + '</div>');
+            document.querySelectorAll('[data-gc]').forEach(function (b) { b.onclick = function () { G.groupEditor(b.dataset.gc); }; });
+        };
         box.querySelectorAll('[data-up]').forEach(function (a) { a.onclick = function () { var i = +a.dataset.up; if (!i) return; s.groups.splice(i - 1, 0, s.groups.splice(i, 1)[0]); s.open = {}; rerun(); }; });
         box.querySelectorAll('[data-dn]').forEach(function (a) { a.onclick = function () { var i = +a.dataset.dn; if (i >= s.groups.length - 1) return; s.groups.splice(i + 1, 0, s.groups.splice(i, 1)[0]); s.open = {}; rerun(); }; });
         box.querySelectorAll('[data-rm]').forEach(function (a) { a.onclick = function () { s.groups.splice(+a.dataset.rm, 1); s.open = {}; rerun(); }; });
@@ -385,10 +416,23 @@
             G.rows.forEach(function (r) { var v = valOf(r); (by[v] = by[v] || []).push(r); });
             cmpAll.forEach(function (r) { var v = valOf(r); (cby[v] = cby[v] || []).push(r); });
             var list = Object.keys(by).map(function (v) { var st = G.stmt(by[v]), kr = st.rows.filter(function (r) { return r.id === key; })[0]; return { v: v, rows: by[v], st: st, k: kr ? Math.abs(kr.values[0] || 0) : 0 }; }).sort(function (a, b) { return b.k - a.k; });
-            var top = list.slice(0, cmp ? 8 : 12), rest = list.slice(top.length), topSet = {};
+            var nTop = s.colTop == null ? (cmp ? 8 : 12) : +s.colTop || list.length;
+            var top = list.slice(0, nTop), rest = list.slice(top.length), topSet = {};
             top.forEach(function (x) { topSet[x.v] = 1; });
-            cols = top.map(function (x) { return { label: G.valLabel(f, x.v), rows: x.rows, st: x.st, crows: cby[x.v] || [] }; });
-            if (rest.length) cols.push({ label: 'Others (' + rest.length + ')', rows: [].concat.apply([], rest.map(function (x) { return x.rows; })), crows: cmpAll.filter(function (r) { return !topSet[valOf(r)]; }) });
+            var grpF = isGrp(f), base = G.grpBase(f), exp = s.cExp = s.cExp || {};
+            cols = [];
+            top.forEach(function (x) {
+                var open = grpF && exp[x.v];
+                cols.push({ label: G.valLabel(f, x.v), rows: x.rows, st: x.st, crows: cby[x.v] || [], grp: grpF ? x.v : null, open: open, sub: open });
+                if (!open) return;
+                // the group opened: one column per value in it (biggest first), the group column stays as its subtotal
+                var mb = {}, cmb = {}, bv = function (r) { return r[base] == null ? '' : String(r[base]); };
+                x.rows.forEach(function (r) { (mb[bv(r)] = mb[bv(r)] || []).push(r); });
+                (cby[x.v] || []).forEach(function (r) { (cmb[bv(r)] = cmb[bv(r)] || []).push(r); });
+                Object.keys(mb).map(function (v) { var st = G.stmt(mb[v]), kr = st.rows.filter(function (r) { return r.id === key; })[0]; return { v: v, st: st, k: kr ? Math.abs(kr.values[0] || 0) : 0 }; })
+                    .sort(function (a, b) { return b.k - a.k; }).forEach(function (m) { cols.push({ label: G.valLabel(base, m.v), rows: mb[m.v], st: m.st, crows: cmb[m.v] || [], member: x.v }); });
+            });
+            if (rest.length) cols.push({ label: 'Others (' + rest.length + ')', rows: [].concat.apply([], rest.map(function (x) { return x.rows; })), crows: cmpAll.filter(function (r) { return !topSet[valOf(r)]; }), others: rest.length });
             cols.push({ label: 'Total', st: G.total, rows: G.rows, crows: cmpAll, total: true });
         }
         cols.forEach(function (c) {
@@ -422,7 +466,7 @@
             html.push('<tr class="' + (r.type === 'header' ? 'sp-h' : b ? 'sp-b' : '') + '" data-r="' + ri + '"><td style="padding-left:' + (8 + (r.level || 0) * 14) + 'px">' +
                 (d ? '<span class="sp-tg sp-ctg" title="' + (open ? 'Hide' : 'Show') + ' the accounts">' + (open ? '▾' : '▸') + '</span>' : anyLine ? '<span class="sp-tg0"></span>' : '') + esc(r.label) +
                 (d ? ' <span class="muted sm">' + accs.length + ' acc.</span>' : '') + '</td>' +
-                cols.map(function (c) { var tc = c.total ? ' sp-tc' : '', v = pick(c.st, r); return '<td class="n' + tc + (cmp ? ' sp-c0' : '') + '">' + (r.type === 'header' ? '' : G.fmtLine(r, v)) + '</td>' + cmpCells(r, v, pick(c.cst, r), tc); }).join('') + '</tr>');
+                cols.map(function (c) { var tc = (c.total ? ' sp-tc' : '') + (c.member ? ' sp-memc' : '') + (c.sub ? ' sp-subc' : ''), v = pick(c.st, r); return '<td class="n' + tc + (cmp ? ' sp-c0' : '') + '">' + (r.type === 'header' ? '' : G.fmtLine(r, v)) + '</td>' + cmpCells(r, v, pick(c.cst, r), tc); }).join('') + '</tr>');
             if (r.type !== 'header') exp.push([r.label].concat([].concat.apply([], cols.map(function (c) { var v = pick(c.st, r), cv = pick(c.cst, r);
                 return cmp ? [sx(v, r), sx(cv, r), v == null && cv == null ? null : sx((v || 0) - (cv || 0), r), isPct(r) || !cv ? null : ((v || 0) - cv) / Math.abs(cv) * 100] : [sx(v, r)]; }))));
             if (!open) return;
@@ -440,18 +484,29 @@
         var sel = function (id, v, opts) { return '<select id="' + id + '">' + opts.map(function (o) { return '<option value="' + o[0] + '"' + (v === o[0] ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select>'; };
         var ctl = '<div class="row sm sp-cctl" style="margin-bottom:6px;flex-wrap:wrap;gap:10px">' +
             '<label>Columns ' + sel('sp-colby', byPer ? 'period' : 'seg', (f ? [['seg', 'one per ' + G.label(f)]] : []).concat([['period', 'one per period']])) + '</label>' +
+            (!byPer && f ? '<label>Show ' + sel('sp-top', String(s.colTop == null ? (cmp ? 8 : 12) : s.colTop), [['8', 'top 8'], ['12', 'top 12'], ['20', 'top 20'], ['50', 'top 50'], ['0', 'every value']]) + '</label>' : '') +
+            (!byPer && isGrp(f) ? '<button class="btn sm ghost" id="sp-gxall">' + (Object.keys(s.cExp || {}).length ? '<i class="fa-solid fa-compress"></i> Close the groups' : '<i class="fa-solid fa-expand"></i> Open every group') + '</button>' : '') +
             '<label>Compare with ' + sel('sp-cmp', s.cmp, [['none', 'nothing'], ['py', 'same period last year'], ['prev', 'previous period' + (s.periods.length > 1 ? 's' : '')]]) + '</label>' +
             (anyLine ? '<span class="muted">▸ opens a line into its accounts · click an amount for the rows behind it</span>' : '') + '<span class="grow"></span>' +
             (anyLine ? '<button class="btn sm ghost" id="sp-cx">' + (nOpen ? '<i class="fa-solid fa-compress"></i> Close all' : '<i class="fa-solid fa-expand"></i> Open all lines') + '</button>' : '') + '</div>' +
             (cmp && plan.missing.length ? '<div class="callout warn sm" style="margin-bottom:6px"><b>' + esc(plan.missing.map(G.pname).join(', ')) + '</b> ' + (plan.missing.length === 1 ? 'is' : 'are') + ' not on this PC with the extended segments, so ' + (plan.missing.length === 1 ? 'its' : 'their') + ' comparison shows as blank. <a id="sp-gosync">Sync ' + (plan.missing.length === 1 ? 'it' : 'them') + ' in Data › Trial balance sync</a>.</div>' : '');
+        var colHead = function (c, ci) {
+            if (c.grp != null) return '<a class="sp-gx" data-gx="' + ci + '" title="' + (c.open ? 'Close the group (show it as one column)' : 'Open the group into its values') + '">' + (c.open ? '▾ ' : '▸ ') + esc(c.label) + (c.open ? ' <span class="muted">subtotal</span>' : '') + '</a>';
+            if (c.others) return '<a class="sp-gx" data-more="1" title="Show every value as a column">' + esc(c.label) + ' ⊕</a>';
+            return esc(c.label);
+        };
         var head = cmp
-            ? '<tr><th rowspan="2">' + esc(G.tplObj().name) + (f && !byPer ? ' · by ' + esc(G.label(f)) : '') + '</th>' + cols.map(function (c) { return '<th class="sp-gh' + (c.total ? ' sp-tc' : '') + '" colspan="4">' + esc(c.label) + '</th>'; }).join('') + '</tr>' +
+            ? '<tr><th rowspan="2">' + esc(G.tplObj().name) + (f && !byPer ? ' · by ' + esc(G.label(f)) : '') + '</th>' + cols.map(function (c, ci) { return '<th class="sp-gh' + (c.total ? ' sp-tc' : '') + (c.member ? ' sp-mem' : '') + (c.sub ? ' sp-sub' : '') + '" colspan="4">' + colHead(c, ci) + '</th>'; }).join('') + '</tr>' +
               '<tr>' + cols.map(function (c) { var tc = c.total ? ' sp-tc' : ''; return '<th class="n sp-c0' + tc + '">Actual</th><th class="n sp-cv' + tc + '" title="' + esc(byPer ? c.clabel : CL) + '">' + esc(byPer ? c.clabel || CL : CL) + '</th><th class="n' + tc + '">Δ</th><th class="n sp-cg' + tc + '">Δ %</th>'; }).join('') + '</tr>'
-            : '<tr><th>' + esc(G.tplObj().name) + (f && !byPer ? ' · by ' + esc(G.label(f)) : '') + '</th>' + cols.map(function (c) { return '<th class="n' + (c.total ? ' sp-tc' : '') + '">' + esc(c.label) + '</th>'; }).join('') + '</tr>';
+            : '<tr><th>' + esc(G.tplObj().name) + (f && !byPer ? ' · by ' + esc(G.label(f)) : '') + '</th>' + cols.map(function (c, ci) { return '<th class="n' + (c.total ? ' sp-tc' : '') + (c.member ? ' sp-mem' : '') + (c.sub ? ' sp-sub' : '') + '">' + colHead(c, ci) + '</th>'; }).join('') + '</tr>';
         out.innerHTML = '<div class="card sp-card">' + ctl + '<div class="scroll" style="max-height:74vh"><table class="t sp-cols' + (cmp ? ' sp-cmp' : '') + '"><thead>' + head + '</thead><tbody>' +
             html.join('') + '</tbody></table></div>' + (f ? '' : '<p class="sm muted">Add a segment on the left to get one column per value (e.g. one per salesperson).</p>') + '</div>';
         G.out = { head: [G.tplObj().name].concat([].concat.apply([], cols.map(function (c) { return cmp ? [c.label, c.label + ' · ' + (byPer ? c.clabel : CL), c.label + ' · Δ', c.label + ' · Δ %'] : [c.label]; }))), rows: exp };
         $('sp-colby').onchange = function () { s.colBy = this.value; save(); G.draw(); };
+        if ($('sp-top')) $('sp-top').onchange = function () { s.colTop = +this.value; save(); G.draw(); };
+        out.querySelectorAll('[data-gx]').forEach(function (a) { a.onclick = function () { var c = cols[+a.dataset.gx]; s.cExp = s.cExp || {}; if (s.cExp[c.grp]) delete s.cExp[c.grp]; else s.cExp[c.grp] = 1; save(); G.draw(); }; });
+        out.querySelectorAll('[data-more]').forEach(function (a) { a.onclick = function () { s.colTop = 0; save(); G.draw(); }; });
+        if ($('sp-gxall')) $('sp-gxall').onclick = function () { if (Object.keys(s.cExp || {}).length) s.cExp = {}; else { s.cExp = {}; cols.forEach(function (c) { if (c.grp != null) s.cExp[c.grp] = 1; }); } save(); G.draw(); };
         $('sp-cmp').onchange = function () { s.cmp = this.value; save(); G.run(); };
         if ($('sp-gosync')) $('sp-gosync').onclick = function () { FL.show('data'); setTimeout(function () { if (FL.dataTab) FL.dataTab.go('tbsync'); }, 50); };
         out.querySelectorAll('.sp-ctg').forEach(function (t) { t.onclick = function () { var r = rows[+t.closest('tr').dataset.r]; if (G.cOpen[r.id]) delete G.cOpen[r.id]; else G.cOpen[r.id] = 1; G.draw(); }; });
@@ -473,13 +528,14 @@
 
     // ── Pivot: rows (several fields, nested with subtotals), one column field, a measure ──
     G.viewPivot = function (out) {
-        var s = G.st, pv = s.pv, fields = ['company', 'account', 'period'].concat(G.segs);
+        var s = G.st, pv = s.pv, fields = ['company', 'account', 'period'].concat(G.segs).concat(G.segs.filter(function (c) { return G.grpDef(c); }).map(function (c) { return 'grp_' + c; }));
         var acctLines = G.lineRows(G.total).filter(function (r) { return r.accounts && r.accounts.length; });
         var measures = [['profit', 'Profit (income +, costs −)'], ['net', 'Net movement (debit +)'], ['closing', 'Closing balance']].concat(acctLines.map(function (r) { return ['line:' + r.id, 'Line: ' + r.label]; }));
         if (!measures.some(function (m) { return m[0] === pv.measure; })) pv.measure = 'profit';
         pv.rows = (pv.rows || []).filter(function (f) { return fields.indexOf(f) >= 0; });
         if (!pv.rows.length) pv.rows = s.groups.length ? s.groups.slice() : ['account'];
-        var need = pv.rows.concat([pv.col]).filter(function (x) { return x && segCol(x); }).some(function (x) { return G.rows.length > 0 && !(x in G.rows[0]); });
+        var need = pv.rows.concat([pv.col]).filter(function (x) { return x && (segCol(x) || isGrp(x)); }).some(function (x) { return G.rows.length > 0 && !(G.grpBase(x) in G.rows[0]); });
+        G.decorate();
         // across periods a Total adds months together, which says little next to a comparison: off by default there, variances on
         var pvVar = pv['var'] || (pv.col === 'period' ? 'prev' : 'none'), pvShow = pv.vshow || 'both', pvTot = pv.tot != null ? pv.tot : pv.col !== 'period';
         var ctl = '<div class="card sp-pctl"><div class="row" style="flex-wrap:wrap;gap:10px"><b class="sm">Rows</b><span id="pv-rows">' + pv.rows.map(function (f, i) { return '<span class="chip on">' + esc(G.label(f)) + ' <a data-pr="' + i + '">×</a></span>'; }).join(' ') + '</span>' +

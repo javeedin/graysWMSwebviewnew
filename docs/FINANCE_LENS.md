@@ -578,3 +578,10 @@ Three pages under Reports, each built on the working-capital snapshots (Sync fro
 
 - Every chart, grid and table card has a ⤢ button in its top-right corner: it opens that card full screen (the chart grows to the window, the grid shows as many rows as fit). ✕ or Esc closes it.
 - **AI Agent** is its own page in the left menu (under Segment P&L). It uses the same left panel (ledger, periods, group by, filters) as Segment P&L; *AI deep dive* on a value in Segment P&L › KPIs opens it and runs the deep dive.
+
+
+## Grouping segment values (Segment P&L)
+
+- **Group by › ⧉** (or *Group the values of a segment…*): make groups of a segment's values — e.g. Salesperson → *Door to door*, *Pre-sales*, *Shops*. Add groups, then put each value in one (per value, or tick several and *Move*); *Suggest* fills groups from the first word of the value name or a code prefix. Save keeps it in `config.json` on this PC.
+- The grouping then appears under **Group by** (with the segment under it): the Tree shows the groups and opens each into its values; **By columns** shows one column per group — ▸ opens a group into one column per value with the group as the subtotal, *Open every group* opens them all. Pivot and KPIs can use the grouping too. Values in no group show as *(not grouped)*.
+- **By columns › Show**: top 8 / 12 / 20 / 50 or every value; *Others (n) ⊕* shows every value.
