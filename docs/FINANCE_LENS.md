@@ -554,3 +554,14 @@ one read-only query over the ledger on this PC, so a saved page shows fresh numb
 The Copilot drawer now keeps its working steps folded (the line shows what it is doing) and lists **suggested prompts for
 the page you are on** — a click puts the prompt in the box so you can change it; nothing is sent until you press Enter.
 
+
+
+## Debtors, Creditors and Inventory pages
+
+Three pages under Reports, each built on the working-capital snapshots (Sync from the page or from Working capital). Data stays on this PC in `finance.duckdb`; the loss / provision rates are in `config.json`.
+
+- **Compare with** — the previous snapshot by default, or the first / any earlier one. Tiles show the change, a bridge shows what was new, grew, shrank or cleared, and the ageing chart shows the last 12 snapshots. Sync regularly (e.g. weekly) so the comparison means something.
+- **Debtors** — collection worklist (overdue weighted by age, with the next step per customer), expected credit loss with an editable IFRS 9 provision matrix, concentration (Pareto), business units, every customer with its change.
+- **Creditors** — payment run planner: type the cash available and choose who to pay first (oldest debt, largest, smallest to clear the most suppliers, or pro rata); on-hold suppliers can be skipped. It only plans — nothing is sent to Fusion. Suppliers to act on lists holds, items over 90 days and debit balances.
+- **Inventory** — ABC × age, items that did not move since the comparison, slow-moving provision by age band (editable rates), stock to review, organisations and the stock explorer.
+- Every page has rule-based findings, Excel export and Copilot prompts for that page; the Copilot gets the page's figures as context.

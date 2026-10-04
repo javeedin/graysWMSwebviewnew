@@ -59,6 +59,7 @@
             'Add a chart of revenue and expenses by month for the last 12 months',
             'Add a table of the 10 largest expense accounts with the change versus the comparison',
             'Make every widget year-to-date', 'Explain what the numbers on this page say, in 5 bullets', 'Remove the widgets that show nothing and tidy the layout'] };
+        if (FL.wcp && FL.wcp.KIND[tab]) { var wk = FL.wcp.KIND[tab]; return { title: { AR: 'Debtors', AP: 'Creditors', INV: 'Inventory' }[wk], items: FL.wcp.prompts(wk) }; }
         if (tab === 'wc') return { title: 'Working capital', items: ['Which customers are most overdue and how much is over 90 days?', 'Why did DSO change this month?', 'Which suppliers should we pay first, and which can wait?', 'Which stock is aged over 180 days and what is it worth?'] };
         if (tab === 'statements' || tab === 'overview' || tab === 'analytics') return { title: 'Statements & analytics', items: C.SUGGEST.slice(0, 8) };
         if (tab === 'closing' || tab === 'close') return { title: 'Close', items: ['Run the month-end close for this period', 'Write the variance commentary for this month', 'Build the roll-forward of trade receivables', 'Which accounts do not reconcile this month?'] };
@@ -207,6 +208,7 @@
             if (FL.tab === 'segpl' && FL.segpl && FL.segpl.ai && FL.segpl.st.groups && FL.segpl.st.groups.length) { try { out.segmentPL = FL.segpl.ai.context(); } catch (e) { /* not loaded */ } }
             if (FL.tab === 'pages' && FL.pages && FL.pages.cur) { var dc = FL.pages.designContext(); out.openPage = dc.page; out.pageParameters = dc.parameters_now;
                 out.pageGuide = 'The user is on their own page "' + FL.pages.cur.name + '" (My pages). When they ask to add, change or remove something on it, follow this guide and answer with ONE ```page block of the whole page:\n' + FL.pages.GUIDE; }
+            if (FL.wcp && FL.wcp.KIND[FL.tab]) { try { out.thisPage = FL.wcp.context(); } catch (e) { /* not drawn yet */ } }
             return FL.wc ? FL.wc.summary().then(function (w) { if (w) out.workingCapital = w; return out; }) : out;
         });
     };
