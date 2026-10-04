@@ -63,6 +63,10 @@ to Fusion. Every rule nets to zero, so total profit never changes; only who carr
 - **Models** — keep several (e.g. *Monthly overheads*, *ABC customer profitability*); saved in the finance folder
   (`alloc.json`). Data: the income statement of the chosen periods by cost centre, or by a ledger's extended segments
   (department, salesperson, product line …). Pick periods with the chips (Ctrl+click for several, *year to date*).
+  Before you add a rule the page shows **what you can allocate**: the trial balance of those periods by any dimension
+  (revenue, expenses, result) and the expense accounts. The header *Company* applies only when that company belongs to
+  the chosen ledger; otherwise all its companies are shown and a note says so. If there is nothing, the page says why
+  (segments not synced for the ledger or the periods, only balance sheet rows, the company filter).
 - **Rules run in order** (step-down): support and head-office pools first, then activities, then customers / products.
   A value a rule has emptied receives nothing from later rules.
   - *Pool* — which costs: accounts (`type:E` = every expense, ranges like `6000-6999, !6150`, `class:Staff costs`),

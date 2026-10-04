@@ -80,8 +80,10 @@
                     FL.rows("SELECT period_seq, MIN(CASE WHEN NOT adj THEN period_name END) AS name FROM fin_gl_ext_v" + w + " AND period_seq IS NOT NULL GROUP BY 1 ORDER BY 1", 1000),
                     FL.rows("SELECT DISTINCT segments FROM fin_gl_balances_ext_sync" + w, 1000),
                     FL.rows("SELECT lower(column_name) AS col, ANY_VALUE(segment_name) AS name FROM fin_coa_segments WHERE coa_id = " + FL.q(L.coa_id || '') + " GROUP BY 1", 100).catch(function () { return []; }),
-                    FL.rows("SELECT lower(column_name) AS col, value, ANY_VALUE(description) AS d FROM fin_segment_values WHERE coa_id = " + FL.q(L.coa_id || '') + " GROUP BY 1, 2", 200000).catch(function () { return []; })
+                    FL.rows("SELECT lower(column_name) AS col, value, ANY_VALUE(description) AS d FROM fin_segment_values WHERE coa_id = " + FL.q(L.coa_id || '') + " GROUP BY 1, 2", 200000).catch(function () { return []; }),
+                    FL.rows("SELECT DISTINCT company FROM fin_gl_ext_v" + w + " ORDER BY 1", 5000).catch(function () { return []; })
                 ]).then(function (r) {
+                    AL.ledCos = (r[4] || []).map(function (x) { return String(x.company); });
                     AL.periods = r[0].map(function (p) { return { seq: +p.period_seq, name: p.name || String(p.period_seq) }; });
                     var cols = {}; r[1].forEach(function (x) { String(x.segments || '').split(',').forEach(function (c) { if (/^segment\d+$/i.test(c)) cols[c.toLowerCase()] = 1; }); });
                     var cseg = String(L.cseg || '').toLowerCase(), aseg = String(L.aseg || '').toLowerCase(), nm = {};
@@ -114,9 +116,15 @@
                 });
         }
         if (!AL.led) return Promise.resolve([]);
-        var segs = AL.segs || [];
+        var segs = AL.segs || [], co = FL.filter.company, coSql = '', nz = function (x) { return String(x).replace(/^0+(?=.)/, ''); };
+        AL.coNote = '';
+        if (co) {
+            var hit = (AL.ledCos || []).filter(function (c) { return nz(c) === nz(co); })[0];
+            if (hit != null) coSql = ' AND company = ' + FL.q(hit);
+            else AL.coNote = 'The header company ' + co + ' is not in the ledger ' + (AL.led.name || AL.led.ledger_id) + ' (its companies: ' + ((AL.ledCos || []).slice(0, 8).join(', ') || 'none') + ') — showing all of them.';
+        }
         return FL.rows('SELECT company, account, ANY_VALUE(account_type) AS t' + segs.map(function (c) { return ', ' + c; }).join('') + ', SUM(dr - cr) AS amount FROM fin_gl_ext_v WHERE ledger_id = ' + (+AL.led.ledger_id) +
-            ' AND period_seq IN (' + per.join(',') + ") AND COALESCE(account_type, 'E') IN ('R', 'E')" + (FL.filter.company ? ' AND company = ' + FL.q(FL.filter.company) : '') +
+            ' AND period_seq IN (' + per.join(',') + ") AND COALESCE(account_type, 'E') IN ('R', 'E')" + coSql +
             ' GROUP BY company, account' + segs.map(function (c) { return ', ' + c; }).join('') + ' HAVING ABS(SUM(dr - cr)) > 0.005', 400000).then(function (rows) {
                 return rows.map(function (r) { var d = {}; segs.forEach(function (c) { d[c] = r[c] == null ? '' : String(r[c]); }); return { company: r.company, account: String(r.account), type: tp(String(r.account), r.t), dims: d, amount: +r.amount }; })
                     .filter(function (r) { return r.type === 'R' || r.type === 'E'; });
@@ -256,22 +264,28 @@
     AL.paintRight = function () {
         var R = $('al-right'), res = AL.res, m = AL.model();
         if (AL.err) { R.innerHTML = '<div class="callout bad">' + esc(AL.err) + '</div>'; return; }
-        if (!AL.rows || !AL.rows.length) { R.innerHTML = '<div class="empty">No income statement amounts for these periods' + (m.source === 'seg' ? ' in the extended segments (Data › Trial balance sync › Extended segments)' : '') + '.</div>'; return; }
+        if (!AL.rows || !AL.rows.length) { AL.whyEmpty(R); return; }
         var exp = 0, rev = 0; AL.rows.forEach(function (r) { if (r.type === 'E') exp += r.amount; else rev -= r.amount; });
+        var note = AL.coNote ? '<div class="callout warn sm"><i class="fa-solid fa-circle-info"></i> ' + esc(AL.coNote) + '</div>' : '';
         if (!res || !(m.rules || []).length) {
-            R.innerHTML = '<div class="kpis">' + kpi('Revenue', money(rev)) + kpi('Expenses', money(exp)) + kpi('Rules', '0') + '</div>' +
+            R.innerHTML = note + '<div class="kpis">' + kpi('Revenue', money(rev)) + kpi('Expenses', money(exp)) + kpi('Result', money(rev - exp)) + kpi('Rules', '0', 'add one on the left') + '</div>' +
+                '<div class="card" style="margin-top:10px"><h3><i class="fa-solid fa-table"></i> What you can allocate — the trial balance by <select id="al-fld0">' + AL.allFields().filter(function (f) { return !f.virtual; }).map(function (f) { return '<option value="' + f.id + '"' + (f.id === (AL.st.field || AL.mainField()) ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('') + '</select>' +
+                '<small>income statement accounts of the chosen periods</small></h3><div id="al-d0"></div></div>' +
+                '<div class="card" style="margin-top:10px"><h3><i class="fa-solid fa-list"></i> Expense accounts <small>the costs rules can move</small></h3><div id="al-d1"></div></div>' +
                 '<div class="card" style="margin-top:10px"><h3><i class="fa-solid fa-lightbulb"></i> How it works</h3><ol class="sm al-how">' +
                 '<li><b>Pool</b> — which costs move: accounts (e.g. every expense) on some values (e.g. cost centre 900 Head office).</li>' +
                 '<li><b>Receivers</b> — the dimension they move to (cost centre, salesperson, an activity …) and how: fixed %, evenly, by a GL driver (their revenue), a driver table (headcount, m², orders) or their own costs.</li>' +
                 '<li><b>Order</b> — rules run one after another: support departments first, then activities, then customers / products (step-down, ABC).</li>' +
                 '<li><b>Result</b> — before / after per receiver, the flows, journal lines to export. Every rule nets to zero, so the total profit never changes.</li></ol></div>';
+            AL.dataView();
+            $('al-fld0').onchange = function () { AL.st.field = this.value; save(); AL.dataView(); };
             return;
         }
         var moved = 0, un = 0, nT = {}; res.steps.forEach(function (s) { if (s.skipped) return; moved += s.allocated; un += s.unallocated; Object.keys(s.targets || {}).forEach(function (v) { nT[v] = 1; }); });
         var flds = AL.allFields(), lastTo = ((m.rules || []).filter(function (r) { return r.active !== false; }).slice(-1)[0] || {}).to || {};
         var field = AL.st.field && flds.some(function (f) { return f.id === AL.st.field; }) ? AL.st.field : lastTo.field || AL.mainField();
         var sum = A.summary(res, field), loss = sum.filter(function (o) { return o.revenue > 0 && o.before >= 0 && o.after < 0; });
-        R.innerHTML = '<div class="kpis">' + kpi('Expenses in scope', money(exp)) + kpi('Cost moved', money(moved), res.steps.filter(function (s) { return !s.skipped; }).length + ' step(s) · cost can move twice (step-down / ABC)') +
+        R.innerHTML = note + '<div class="kpis">' + kpi('Expenses in scope', money(exp)) + kpi('Cost moved', money(moved), res.steps.filter(function (s) { return !s.skipped; }).length + ' step(s) · cost can move twice (step-down / ABC)') +
             kpi('Not allocated', money(un), un ? 'no driver for some pools' : 'everything placed', Math.abs(un) >= 0.5 ? 'neg' : 'pos') +
             kpi('Receivers', Object.keys(nT).length) + kpi('Check', res.ok ? '✓ OK' : '✗', res.ok ? 'profit unchanged by every rule' : 'a rule does not net to zero', res.ok ? 'pos' : 'neg') + '</div>' +
             (res.warnings.length ? '<div class="callout warn sm"><i class="fa-solid fa-triangle-exclamation"></i> ' + res.warnings.map(esc).join('<br>') + '</div>' : '') +
@@ -311,6 +325,53 @@
             .concat(used.map(function (f) { return { label: AL.label(f), get: function (o) { return AL.vname(f, o.dims[f]); }, val: function (o) { return o.dims[f]; } }; }))
             .concat([{ label: 'Debit', n: 1, get: function (o) { return money(o.dr); }, val: function (o) { return o.dr; } }, { label: 'Credit', n: 1, get: function (o) { return money(o.cr); }, val: function (o) { return o.cr; } }]),
             jr, { id: 'al-lines', csv: 'allocation-journal.csv', height: 360 });
+    };
+    /** Before any rule: the trial balance rows by a dimension and the expense accounts */
+    AL.dataView = function () {
+        var f = $('al-fld0') ? $('al-fld0').value : AL.mainField(), by = {}, acc = {}, byCode = {};
+        (FL.dims.accounts || []).forEach(function (a) { byCode[a.code] = a; });
+        AL.rows.forEach(function (r) {
+            var v = f === 'company' ? r.company : r.dims[f] == null ? '' : r.dims[f], o = by[v] = by[v] || { value: v, rev: 0, exp: 0 };
+            if (r.type === 'R') o.rev -= r.amount; else { o.exp += r.amount; var a = acc[r.account] = acc[r.account] || { code: r.account, exp: 0, n: {} }; a.exp += r.amount; a.n[v] = 1; }
+        });
+        FL.grid($('al-d0'), [{ label: AL.label(f), get: function (o) { return AL.vname(f, o.value); }, val: function (o) { return o.value; } },
+            { label: 'Revenue', n: 1, get: function (o) { return money(o.rev); }, val: function (o) { return o.rev; } },
+            { label: 'Expenses', n: 1, get: function (o) { return money(o.exp); }, val: function (o) { return o.exp; } },
+            { label: 'Result', n: 1, html: 1, get: function (o) { return '<span class="' + (o.rev - o.exp < 0 ? 'neg' : '') + '">' + money(o.rev - o.exp) + '</span>'; }, val: function (o) { return o.rev - o.exp; } }],
+            Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return b.exp - a.exp; }), { id: 'al-d0', csv: 'allocation-data.csv', height: 380 });
+        FL.grid($('al-d1'), [{ label: 'Account', key: 'code' }, { label: 'Name', get: function (a) { return (byCode[a.code] || {}).name || ''; } }, { label: 'Class', get: function (a) { return (byCode[a.code] || {})['class'] || ''; } },
+            { label: 'Amount', n: 1, get: function (a) { return money(a.exp); }, val: function (a) { return a.exp; } },
+            { label: AL.label(f) + ' values', n: 1, sum: false, get: function (a) { return String(Object.keys(a.n).length); }, val: function (a) { return Object.keys(a.n).length; } }],
+            Object.keys(acc).map(function (k) { return acc[k]; }).sort(function (a, b) { return b.exp - a.exp; }), { id: 'al-d1', csv: 'allocation-expense-accounts.csv', height: 320 });
+    };
+    /** Nothing to allocate: say why (no periods, the company filter, only balance sheet rows, nothing synced) */
+    AL.whyEmpty = function (R) {
+        var m = AL.model(), per = AL.st.periods || [];
+        R.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i> Checking why there is nothing…</div>';
+        if (m.source === 'cc' || !AL.led) {
+            R.innerHTML = '<div class="callout warn">No income statement amounts for ' + (per.length ? 'these periods' : 'any period') + (m.source === 'cc' ? ' in the balances' : '') + '.' +
+                (m.source !== 'cc' ? ' No extended segments are synced yet — Data › Trial balance sync › <i>Extended segments</i>.' : '') + (AL.coNote ? '<br>' + esc(AL.coNote) : '') + '</div>';
+            return;
+        }
+        var w = ' WHERE ledger_id = ' + (+AL.led.ledger_id) + (per.length ? ' AND period_seq IN (' + per.join(',') + ')' : '');
+        Promise.all([
+            FL.rows("SELECT COALESCE(account_type, '?') AS t, COUNT(*) AS n, SUM(dr - cr) AS net FROM fin_gl_ext_v" + w + ' GROUP BY 1 ORDER BY 1', 50),
+            FL.rows('SELECT company, COUNT(*) AS n FROM fin_gl_ext_v' + w + ' GROUP BY 1 ORDER BY 1', 50),
+            FL.rows("SELECT COUNT(*) AS n FROM fin_gl_ext_v WHERE ledger_id = " + (+AL.led.ledger_id), 1)
+        ]).then(function (r) {
+            var all = r[0].reduce(function (a, x) { return a + (+x.n); }, 0), tot = (r[2][0] || {}).n || 0, why = [];
+            if (!tot) why.push('Nothing from the ledger <b>' + esc(AL.led.name || AL.led.ledger_id) + '</b> is kept with extended segments on this PC. Sync them in Data › Trial balance sync › <i>Extended segments</i>.');
+            else if (!all) why.push('The ledger has extended-segment rows, but none for ' + esc(per.join(', ')) + '. Pick a period chip above that is synced, or sync its segments.');
+            else {
+                var types = r[0].map(function (x) { return x.t; });
+                if (!types.some(function (t) { return t === 'R' || t === 'E' || t === '?'; })) why.push('The rows for these periods are all balance sheet accounts (types ' + esc(types.join(', ')) + ') — cost allocation works on revenue and expense accounts.');
+                if (FL.filter.company && !AL.coNote) why.push('The header company <b>' + esc(FL.filter.company) + '</b> has no income statement rows here; the ledger’s companies with rows: ' + esc(r[1].map(function (x) { return x.company; }).join(', ')) + '. Choose <i>All companies</i> in the header.');
+            }
+            R.innerHTML = '<div class="callout warn"><b>Nothing to allocate yet.</b><ul>' + (why.length ? why : ['No revenue or expense amounts were found.']).map(function (x) { return '<li>' + x + '</li>'; }).join('') + '</ul>' +
+                '<div class="sm muted">Ledger ' + esc(AL.led.name || AL.led.ledger_id) + ' · periods ' + esc(per.join(', ') || 'none') + ' · rows by account type: ' + (r[0].map(function (x) { return x.t + ' ' + x.n; }).join(', ') || 'none') + ' · companies: ' + (r[1].map(function (x) { return x.company + ' (' + x.n + ')'; }).join(', ') || 'none') + '</div>' +
+                (FL.filter.company ? '<button class="btn sm" id="al-allco" style="margin-top:6px">Use all companies</button>' : '') + '</div>';
+            if ($('al-allco')) $('al-allco').onclick = function () { FL.setFilter({ company: '' }); };
+        }).catch(function (e) { R.innerHTML = '<div class="callout bad">' + esc(String(e && e.message || e)) + '</div>'; });
     };
     var kpi = function (l, v, sub, cls) { return '<div class="kpi"><div class="k-l">' + esc(l) + '</div><div class="k-v">' + v + '</div><div class="k-d ' + (cls || 'muted') + '">' + esc(sub || '') + '&nbsp;</div></div>'; };
     AL.ruleName = function (id) { var r = (AL.model().rules || []).filter(function (x) { return x.id === id; })[0]; return r ? r.name : id; };
