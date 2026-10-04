@@ -668,3 +668,13 @@ body.fl-maxed { overflow: hidden; }
 .sp-gx { cursor: pointer; color: inherit; } .sp-gx:hover { color: var(--primary, #1d4ed8); }
 .sp-cols th.sp-mem, .sp-cols td.sp-memc { background: #f8fafc; font-weight: 400; }
 .sp-cols th.sp-sub, .sp-cols td.sp-subc { background: #eef2ff; font-weight: 700; }
+.gr-chip.over { background: #dbeafe; border-color: var(--primary, #1d4ed8); box-shadow: 0 0 0 2px #bfdbfe; }
+.gr-k { display: inline-block; min-width: 15px; padding: 0 3px; border-radius: 3px; background: #e2e8f0; color: #334155; font-size: 10px; font-weight: 700; text-align: center; }
+.btn.primary .gr-k { background: rgba(255,255,255,.25); color: #fff; }
+.gr-act { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 6px 8px; border-radius: 8px; background: #f8fafc; border: 1px dashed var(--line); margin-bottom: 6px; font-size: 12px; min-height: 34px; }
+.gr-act.on { background: #eff6ff; border: 1px solid #bfdbfe; position: sticky; top: 0; z-index: 2; }
+.gr-t tbody tr { cursor: pointer; user-select: none; } .gr-t tbody tr.gr-on { background: #eff6ff; } .gr-t tbody tr:hover { background: #f1f5f9; }
+.gr-badge { padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: #e0e7ff; color: #3730a3; }
+.gr-badge.g1 { background: #dcfce7; color: #166534; } .gr-badge.g2 { background: #fef3c7; color: #92400e; } .gr-badge.g3 { background: #fce7f3; color: #9d174d; }
+.gr-badge.g4 { background: #cffafe; color: #155e75; } .gr-badge.g5 { background: #ede9fe; color: #5b21b6; } .gr-badge.g6 { background: #ffedd5; color: #9a3412; } .gr-badge.g7 { background: #e2e8f0; color: #334155; }
+.gr-pastebox { margin-bottom: 8px; border: 2px solid #bfdbfe; }
