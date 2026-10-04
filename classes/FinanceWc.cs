@@ -224,6 +224,109 @@ GROUP BY q.ORGANIZATION_ID, i.INVENTORY_ITEM_ID, i.ORGANIZATION_ID, i.ITEM_NUMBE
             return new { ok = true, columns = cols, rows = r.Rows.Select(x => cols.Select(c => Get(x, c)).ToArray()).ToList(), ms = sw.ElapsedMilliseconds, capped = r.Capped, sql };
         }
 
+        // ═════ customer / supplier history (the drill from Debtors / Creditors) ═════
+        // Each section is tried with its SQL alternatives in order (a column a pod does not have → the next, simpler one); the
+        // result is kept in DuckDB fin_wc_history, so opening the same party again reads this PC unless Refresh is pressed.
+        private static readonly Dictionary<string, (string Title, string[] Sql)[]> HISTORY = new()
+        {
+            ["AR"] = new (string, string[])[]
+            {
+                ("profile", new[] {
+                    "SELECT a.ACCOUNT_NUMBER, p.PARTY_NAME, p.PARTY_NUMBER, a.ACCOUNT_NAME, a.CUSTOMER_CLASS_CODE AS CUSTOMER_CLASS, a.CUSTOMER_TYPE, a.STATUS, TO_CHAR(a.ACCOUNT_ESTABLISHED_DATE, 'YYYY-MM-DD') AS ESTABLISHED, p.EMAIL_ADDRESS, p.PRIMARY_PHONE_NUMBER AS PHONE, p.TAX_REFERENCE FROM HZ_CUST_ACCOUNTS a JOIN HZ_PARTIES p ON p.PARTY_ID = a.PARTY_ID WHERE a.CUST_ACCOUNT_ID IN ({ID})",
+                    "SELECT a.ACCOUNT_NUMBER, p.PARTY_NAME FROM HZ_CUST_ACCOUNTS a JOIN HZ_PARTIES p ON p.PARTY_ID = a.PARTY_ID WHERE a.CUST_ACCOUNT_ID IN ({ID})" }),
+                ("address", new[] {
+                    "SELECT l.ADDRESS1, l.ADDRESS2, l.ADDRESS3, l.CITY, l.STATE, l.POSTAL_CODE, l.COUNTRY, ps.IDENTIFYING_ADDRESS_FLAG AS MAIN FROM HZ_PARTY_SITES ps JOIN HZ_LOCATIONS l ON l.LOCATION_ID = ps.LOCATION_ID WHERE ps.PARTY_ID IN ({PID})",
+                    "SELECT l.ADDRESS1, l.CITY, l.COUNTRY FROM HZ_PARTY_SITES ps JOIN HZ_LOCATIONS l ON l.LOCATION_ID = ps.LOCATION_ID WHERE ps.PARTY_ID IN ({PID})" }),
+                ("credit", new[] {
+                    "SELECT pa.CURRENCY_CODE AS CURRENCY, pa.OVERALL_CREDIT_LIMIT AS CREDIT_LIMIT, pa.TRX_CREDIT_LIMIT FROM HZ_CUST_PROFILE_AMTS pa WHERE pa.CUST_ACCOUNT_ID IN ({ID})",
+                    "SELECT pa.CURRENCY_CODE AS CURRENCY, pa.OVERALL_CREDIT_LIMIT AS CREDIT_LIMIT FROM HZ_CUST_PROFILE_AMTS pa WHERE pa.CUST_ACCOUNT_ID IN ({ID})" }),
+                ("invoices", TrxSql("ps.CLASS IN ('INV', 'DM', 'CB', 'DEP')")),
+                ("creditnotes", TrxSql("ps.CLASS = 'CM'")),
+                ("payments", new[] {
+                    "SELECT cr.RECEIPT_NUMBER, TO_CHAR(cr.RECEIPT_DATE, 'YYYY-MM-DD') AS RECEIPT_DATE, cr.CURRENCY_CODE AS CURRENCY, cr.AMOUNT, cr.STATUS, cr.TYPE, (SELECT -SUM(ps.AMOUNT_DUE_REMAINING) FROM AR_PAYMENT_SCHEDULES_ALL ps WHERE ps.CASH_RECEIPT_ID = cr.CASH_RECEIPT_ID) AS UNAPPLIED, cr.COMMENTS FROM AR_CASH_RECEIPTS_ALL cr WHERE cr.PAY_FROM_CUSTOMER IN ({ID}) AND cr.RECEIPT_DATE >= TRUNC(SYSDATE) - {DAYS} ORDER BY cr.RECEIPT_DATE DESC",
+                    "SELECT cr.RECEIPT_NUMBER, TO_CHAR(cr.RECEIPT_DATE, 'YYYY-MM-DD') AS RECEIPT_DATE, cr.CURRENCY_CODE AS CURRENCY, cr.AMOUNT, cr.STATUS FROM AR_CASH_RECEIPTS_ALL cr WHERE cr.PAY_FROM_CUSTOMER IN ({ID}) AND cr.RECEIPT_DATE >= TRUNC(SYSDATE) - {DAYS} ORDER BY cr.RECEIPT_DATE DESC",
+                    "SELECT ps.TRX_NUMBER AS RECEIPT_NUMBER, TO_CHAR(ps.TRX_DATE, 'YYYY-MM-DD') AS RECEIPT_DATE, ps.INVOICE_CURRENCY_CODE AS CURRENCY, -ps.AMOUNT_DUE_ORIGINAL AS AMOUNT, ps.STATUS, -ps.AMOUNT_DUE_REMAINING AS UNAPPLIED FROM AR_PAYMENT_SCHEDULES_ALL ps WHERE ps.CUSTOMER_ID IN ({ID}) AND ps.CLASS = 'PMT' AND ps.TRX_DATE >= TRUNC(SYSDATE) - {DAYS} ORDER BY ps.TRX_DATE DESC" }),
+                ("applications", new[] {
+                    "SELECT cr.RECEIPT_NUMBER, TO_CHAR(ra.APPLY_DATE, 'YYYY-MM-DD') AS APPLY_DATE, ps.TRX_NUMBER, ps.CLASS, TO_CHAR(ps.TRX_DATE, 'YYYY-MM-DD') AS TRX_DATE, TO_CHAR(ps.DUE_DATE, 'YYYY-MM-DD') AS DUE_DATE, ra.AMOUNT_APPLIED, TRUNC(ra.APPLY_DATE) - TRUNC(ps.TRX_DATE) AS DAYS_TO_PAY, TRUNC(ra.APPLY_DATE) - TRUNC(ps.DUE_DATE) AS DAYS_LATE, ra.APPLICATION_TYPE FROM AR_RECEIVABLE_APPLICATIONS_ALL ra JOIN AR_PAYMENT_SCHEDULES_ALL ps ON ps.PAYMENT_SCHEDULE_ID = ra.APPLIED_PAYMENT_SCHEDULE_ID LEFT JOIN AR_CASH_RECEIPTS_ALL cr ON cr.CASH_RECEIPT_ID = ra.CASH_RECEIPT_ID WHERE ps.CUSTOMER_ID IN ({ID}) AND ra.STATUS = 'APP' AND ra.APPLY_DATE >= TRUNC(SYSDATE) - {DAYS} ORDER BY ra.APPLY_DATE DESC",
+                    "SELECT TO_CHAR(ra.APPLY_DATE, 'YYYY-MM-DD') AS APPLY_DATE, ps.TRX_NUMBER, TO_CHAR(ps.TRX_DATE, 'YYYY-MM-DD') AS TRX_DATE, TO_CHAR(ps.DUE_DATE, 'YYYY-MM-DD') AS DUE_DATE, ra.AMOUNT_APPLIED, TRUNC(ra.APPLY_DATE) - TRUNC(ps.TRX_DATE) AS DAYS_TO_PAY, TRUNC(ra.APPLY_DATE) - TRUNC(ps.DUE_DATE) AS DAYS_LATE FROM AR_RECEIVABLE_APPLICATIONS_ALL ra JOIN AR_PAYMENT_SCHEDULES_ALL ps ON ps.PAYMENT_SCHEDULE_ID = ra.APPLIED_PAYMENT_SCHEDULE_ID WHERE ps.CUSTOMER_ID IN ({ID}) AND ra.STATUS = 'APP' AND ra.APPLY_DATE >= TRUNC(SYSDATE) - {DAYS} ORDER BY ra.APPLY_DATE DESC" }),
+                ("adjustments", new[] {
+                    "SELECT adj.ADJUSTMENT_NUMBER, TO_CHAR(adj.APPLY_DATE, 'YYYY-MM-DD') AS APPLY_DATE, ps.TRX_NUMBER, adj.AMOUNT, adj.TYPE, adj.REASON_CODE, adj.STATUS FROM AR_ADJUSTMENTS_ALL adj JOIN AR_PAYMENT_SCHEDULES_ALL ps ON ps.PAYMENT_SCHEDULE_ID = adj.PAYMENT_SCHEDULE_ID WHERE ps.CUSTOMER_ID IN ({ID}) AND adj.APPLY_DATE >= TRUNC(SYSDATE) - {DAYS} ORDER BY adj.APPLY_DATE DESC",
+                    "SELECT TO_CHAR(adj.APPLY_DATE, 'YYYY-MM-DD') AS APPLY_DATE, ps.TRX_NUMBER, adj.AMOUNT FROM AR_ADJUSTMENTS_ALL adj JOIN AR_PAYMENT_SCHEDULES_ALL ps ON ps.PAYMENT_SCHEDULE_ID = adj.PAYMENT_SCHEDULE_ID WHERE ps.CUSTOMER_ID IN ({ID}) AND adj.APPLY_DATE >= TRUNC(SYSDATE) - {DAYS} ORDER BY adj.APPLY_DATE DESC" })
+            },
+            ["AP"] = new (string, string[])[]
+            {
+                ("profile", new[] {
+                    "SELECT s.SEGMENT1 AS SUPPLIER_NUMBER, p.PARTY_NAME, p.PARTY_NUMBER, s.VENDOR_TYPE_LOOKUP_CODE AS SUPPLIER_TYPE, TO_CHAR(s.START_DATE_ACTIVE, 'YYYY-MM-DD') AS ESTABLISHED, TO_CHAR(s.END_DATE_ACTIVE, 'YYYY-MM-DD') AS END_DATE, s.ENABLED_FLAG, p.EMAIL_ADDRESS, p.PRIMARY_PHONE_NUMBER AS PHONE, p.TAX_REFERENCE FROM POZ_SUPPLIERS s JOIN HZ_PARTIES p ON p.PARTY_ID = s.PARTY_ID WHERE s.VENDOR_ID IN ({ID})",
+                    "SELECT s.SEGMENT1 AS SUPPLIER_NUMBER, p.PARTY_NAME FROM POZ_SUPPLIERS s JOIN HZ_PARTIES p ON p.PARTY_ID = s.PARTY_ID WHERE s.VENDOR_ID IN ({ID})" }),
+                ("address", new[] {
+                    "SELECT ss.VENDOR_SITE_CODE AS SITE, l.ADDRESS1, l.ADDRESS2, l.CITY, l.STATE, l.POSTAL_CODE, l.COUNTRY FROM POZ_SUPPLIER_SITES_ALL_M ss LEFT JOIN HZ_LOCATIONS l ON l.LOCATION_ID = ss.LOCATION_ID WHERE ss.VENDOR_ID IN ({ID})",
+                    "SELECT l.ADDRESS1, l.CITY, l.COUNTRY, ps.IDENTIFYING_ADDRESS_FLAG AS MAIN FROM HZ_PARTY_SITES ps JOIN HZ_LOCATIONS l ON l.LOCATION_ID = ps.LOCATION_ID WHERE ps.PARTY_ID IN ({PID})" }),
+                ("invoices", ApInvSql("NOT IN ('CREDIT', 'DEBIT')")),
+                ("creditnotes", ApInvSql("IN ('CREDIT', 'DEBIT')")),
+                ("payments", new[] {
+                    "SELECT c.CHECK_NUMBER AS PAYMENT_NUMBER, TO_CHAR(c.CHECK_DATE, 'YYYY-MM-DD') AS PAYMENT_DATE, c.CURRENCY_CODE AS CURRENCY, c.AMOUNT, c.STATUS_LOOKUP_CODE AS STATUS, c.PAYMENT_METHOD_CODE AS METHOD, c.BANK_ACCOUNT_NAME AS BANK FROM AP_CHECKS_ALL c WHERE c.VENDOR_ID IN ({ID}) AND c.CHECK_DATE >= TRUNC(SYSDATE) - {DAYS} ORDER BY c.CHECK_DATE DESC",
+                    "SELECT c.CHECK_NUMBER AS PAYMENT_NUMBER, TO_CHAR(c.CHECK_DATE, 'YYYY-MM-DD') AS PAYMENT_DATE, c.CURRENCY_CODE AS CURRENCY, c.AMOUNT, c.STATUS_LOOKUP_CODE AS STATUS FROM AP_CHECKS_ALL c WHERE c.VENDOR_ID IN ({ID}) AND c.CHECK_DATE >= TRUNC(SYSDATE) - {DAYS} ORDER BY c.CHECK_DATE DESC" }),
+                ("applications", new[] {
+                    "SELECT c.CHECK_NUMBER AS PAYMENT_NUMBER, TO_CHAR(c.CHECK_DATE, 'YYYY-MM-DD') AS APPLY_DATE, i.INVOICE_NUM AS TRX_NUMBER, TO_CHAR(i.INVOICE_DATE, 'YYYY-MM-DD') AS TRX_DATE, (SELECT TO_CHAR(MIN(ps.DUE_DATE), 'YYYY-MM-DD') FROM AP_PAYMENT_SCHEDULES_ALL ps WHERE ps.INVOICE_ID = i.INVOICE_ID) AS DUE_DATE, ip.AMOUNT AS AMOUNT_APPLIED, TRUNC(c.CHECK_DATE) - TRUNC(i.INVOICE_DATE) AS DAYS_TO_PAY FROM AP_INVOICE_PAYMENTS_ALL ip JOIN AP_INVOICES_ALL i ON i.INVOICE_ID = ip.INVOICE_ID JOIN AP_CHECKS_ALL c ON c.CHECK_ID = ip.CHECK_ID WHERE i.VENDOR_ID IN ({ID}) AND c.CHECK_DATE >= TRUNC(SYSDATE) - {DAYS} ORDER BY c.CHECK_DATE DESC",
+                    "SELECT c.CHECK_NUMBER AS PAYMENT_NUMBER, TO_CHAR(c.CHECK_DATE, 'YYYY-MM-DD') AS APPLY_DATE, i.INVOICE_NUM AS TRX_NUMBER, TO_CHAR(i.INVOICE_DATE, 'YYYY-MM-DD') AS TRX_DATE, ip.AMOUNT AS AMOUNT_APPLIED, TRUNC(c.CHECK_DATE) - TRUNC(i.INVOICE_DATE) AS DAYS_TO_PAY FROM AP_INVOICE_PAYMENTS_ALL ip JOIN AP_INVOICES_ALL i ON i.INVOICE_ID = ip.INVOICE_ID JOIN AP_CHECKS_ALL c ON c.CHECK_ID = ip.CHECK_ID WHERE i.VENDOR_ID IN ({ID}) AND c.CHECK_DATE >= TRUNC(SYSDATE) - {DAYS} ORDER BY c.CHECK_DATE DESC" }),
+                ("holds", new[] {
+                    "SELECT i.INVOICE_NUM AS TRX_NUMBER, h.HOLD_LOOKUP_CODE AS HOLD, h.HOLD_REASON AS REASON, TO_CHAR(h.HOLD_DATE, 'YYYY-MM-DD') AS HOLD_DATE, h.RELEASE_LOOKUP_CODE AS RELEASE, h.RELEASE_REASON FROM AP_HOLDS_ALL h JOIN AP_INVOICES_ALL i ON i.INVOICE_ID = h.INVOICE_ID WHERE i.VENDOR_ID IN ({ID}) AND (h.HOLD_DATE >= TRUNC(SYSDATE) - {DAYS} OR h.RELEASE_LOOKUP_CODE IS NULL) ORDER BY h.HOLD_DATE DESC",
+                    "SELECT i.INVOICE_NUM AS TRX_NUMBER, h.HOLD_LOOKUP_CODE AS HOLD, TO_CHAR(h.HOLD_DATE, 'YYYY-MM-DD') AS HOLD_DATE, h.RELEASE_LOOKUP_CODE AS RELEASE FROM AP_HOLDS_ALL h JOIN AP_INVOICES_ALL i ON i.INVOICE_ID = h.INVOICE_ID WHERE i.VENDOR_ID IN ({ID}) AND (h.HOLD_DATE >= TRUNC(SYSDATE) - {DAYS} OR h.RELEASE_LOOKUP_CODE IS NULL) ORDER BY h.HOLD_DATE DESC" })
+            }
+        };
+        private static string[] TrxSql(string cls) => new[] {
+            "SELECT ps.TRX_NUMBER, ps.CLASS, TO_CHAR(ps.TRX_DATE, 'YYYY-MM-DD') AS TRX_DATE, TO_CHAR(ps.DUE_DATE, 'YYYY-MM-DD') AS DUE_DATE, tt.NAME AS TRX_TYPE, ps.INVOICE_CURRENCY_CODE AS CURRENCY, ps.AMOUNT_DUE_ORIGINAL AS ORIGINAL, ps.AMOUNT_DUE_REMAINING AS REMAINING, ps.ACCTD_AMOUNT_DUE_REMAINING AS REMAINING_LEDGER, ps.STATUS, TO_CHAR(ps.ACTUAL_DATE_CLOSED, 'YYYY-MM-DD') AS CLOSED, t.PURCHASE_ORDER AS CUSTOMER_PO, t.CT_REFERENCE AS REFERENCE, TO_CHAR(ps.ORG_ID) AS BU_ID FROM AR_PAYMENT_SCHEDULES_ALL ps LEFT JOIN RA_CUSTOMER_TRX_ALL t ON t.CUSTOMER_TRX_ID = ps.CUSTOMER_TRX_ID LEFT JOIN RA_CUST_TRX_TYPES_ALL tt ON tt.CUST_TRX_TYPE_SEQ_ID = t.CUST_TRX_TYPE_SEQ_ID WHERE ps.CUSTOMER_ID IN ({ID}) AND " + cls + " AND (ps.TRX_DATE >= TRUNC(SYSDATE) - {DAYS} OR ps.STATUS = 'OP') ORDER BY ps.TRX_DATE DESC",
+            "SELECT ps.TRX_NUMBER, ps.CLASS, TO_CHAR(ps.TRX_DATE, 'YYYY-MM-DD') AS TRX_DATE, TO_CHAR(ps.DUE_DATE, 'YYYY-MM-DD') AS DUE_DATE, ps.INVOICE_CURRENCY_CODE AS CURRENCY, ps.AMOUNT_DUE_ORIGINAL AS ORIGINAL, ps.AMOUNT_DUE_REMAINING AS REMAINING, ps.ACCTD_AMOUNT_DUE_REMAINING AS REMAINING_LEDGER, ps.STATUS, TO_CHAR(ps.ORG_ID) AS BU_ID FROM AR_PAYMENT_SCHEDULES_ALL ps WHERE ps.CUSTOMER_ID IN ({ID}) AND " + cls + " AND (ps.TRX_DATE >= TRUNC(SYSDATE) - {DAYS} OR ps.STATUS = 'OP') ORDER BY ps.TRX_DATE DESC" };
+        private static string[] ApInvSql(string types) => new[] {
+            "SELECT i.INVOICE_NUM AS TRX_NUMBER, i.INVOICE_TYPE_LOOKUP_CODE AS CLASS, TO_CHAR(i.INVOICE_DATE, 'YYYY-MM-DD') AS TRX_DATE, (SELECT TO_CHAR(MIN(ps.DUE_DATE), 'YYYY-MM-DD') FROM AP_PAYMENT_SCHEDULES_ALL ps WHERE ps.INVOICE_ID = i.INVOICE_ID) AS DUE_DATE, i.INVOICE_CURRENCY_CODE AS CURRENCY, i.INVOICE_AMOUNT AS ORIGINAL, NVL(i.AMOUNT_PAID, 0) AS PAID, (SELECT SUM(ps.AMOUNT_REMAINING) FROM AP_PAYMENT_SCHEDULES_ALL ps WHERE ps.INVOICE_ID = i.INVOICE_ID) AS REMAINING, i.PAYMENT_STATUS_FLAG AS STATUS, (SELECT COUNT(*) FROM AP_HOLDS_ALL h WHERE h.INVOICE_ID = i.INVOICE_ID AND h.RELEASE_LOOKUP_CODE IS NULL) AS OPEN_HOLDS, i.DESCRIPTION, TO_CHAR(i.ORG_ID) AS BU_ID FROM AP_INVOICES_ALL i WHERE i.VENDOR_ID IN ({ID}) AND i.CANCELLED_DATE IS NULL AND i.INVOICE_TYPE_LOOKUP_CODE " + types + " AND (i.INVOICE_DATE >= TRUNC(SYSDATE) - {DAYS} OR NVL(i.PAYMENT_STATUS_FLAG, 'N') <> 'Y') ORDER BY i.INVOICE_DATE DESC",
+            "SELECT i.INVOICE_NUM AS TRX_NUMBER, i.INVOICE_TYPE_LOOKUP_CODE AS CLASS, TO_CHAR(i.INVOICE_DATE, 'YYYY-MM-DD') AS TRX_DATE, (SELECT TO_CHAR(MIN(ps.DUE_DATE), 'YYYY-MM-DD') FROM AP_PAYMENT_SCHEDULES_ALL ps WHERE ps.INVOICE_ID = i.INVOICE_ID) AS DUE_DATE, i.INVOICE_CURRENCY_CODE AS CURRENCY, i.INVOICE_AMOUNT AS ORIGINAL, (SELECT SUM(ps.AMOUNT_REMAINING) FROM AP_PAYMENT_SCHEDULES_ALL ps WHERE ps.INVOICE_ID = i.INVOICE_ID) AS REMAINING FROM AP_INVOICES_ALL i WHERE i.VENDOR_ID IN ({ID}) AND i.CANCELLED_DATE IS NULL AND i.INVOICE_TYPE_LOOKUP_CODE " + types + " AND i.INVOICE_DATE >= TRUNC(SYSDATE) - {DAYS} ORDER BY i.INVOICE_DATE DESC" };
+
+        /// <summary>The history of one customer (AR, by account number) or supplier (AP, by supplier number): profile, address,
+        /// credit limit, invoices, credit notes, payments, applications (with days to pay), adjustments / holds — from this PC
+        /// (fin_wc_history) unless <paramref name="refresh"/>, else from Fusion and kept.</summary>
+        public static async Task<object> HistoryAsync(FinanceFusion.Runner run, string pod, string kind, string party, int months, bool refresh, Action<string> progress, CancellationToken ct)
+        {
+            kind = (kind ?? "").ToUpperInvariant();
+            if (!HISTORY.ContainsKey(kind)) return new { ok = false, error = "kind is AR or AP" };
+            if (string.IsNullOrWhiteSpace(party) || party == "-") return new { ok = false, error = "This line has no " + (kind == "AR" ? "customer account" : "supplier number") + " — there is no history to read." };
+            months = Math.Clamp(months <= 0 ? 24 : months, 3, 120);
+            if (!refresh) { var cached = FinanceLens.LoadHistory(pod, kind, party); if (cached != null) return cached; }
+            var total = Stopwatch.StartNew();
+            progress?.Invoke("Finding " + (kind == "AR" ? "customer account " : "supplier ") + party + "…");
+            string idSql = kind == "AR" ? "SELECT a.CUST_ACCOUNT_ID AS ID, a.PARTY_ID AS PID FROM HZ_CUST_ACCOUNTS a WHERE a.ACCOUNT_NUMBER = " + Lit(party)
+                                        : "SELECT s.VENDOR_ID AS ID, s.PARTY_ID AS PID FROM POZ_SUPPLIERS s WHERE s.SEGMENT1 = " + Lit(party);
+            var idr = await run(idSql, 50, ct).ConfigureAwait(false);
+            if (idr == null || !idr.Success) return new { ok = false, error = "Could not find " + party + ": " + (idr?.Error ?? "cancelled") };
+            string Ids(string col) => string.Join(", ", idr.Rows.Select(x => Convert.ToString(Get(x, col), CultureInfo.InvariantCulture)).Where(v => !string.IsNullOrEmpty(v) && v.All(char.IsDigit)).Distinct());
+            string id = Ids("ID"), pid = Ids("PID");
+            if (id.Length == 0) return new { ok = false, error = (kind == "AR" ? "No customer account " : "No supplier ") + party + " in Fusion." };
+            if (pid.Length == 0) pid = "-1";
+            var sections = new List<FinanceLens.HistorySection>();
+            foreach (var (name, alts) in HISTORY[kind])
+            {
+                ct.ThrowIfCancellationRequested();
+                progress?.Invoke("Reading " + name + "…");
+                var sec = new FinanceLens.HistorySection { Name = name };
+                var sw = Stopwatch.StartNew();
+                for (int a = 0; a < alts.Length; a++)
+                {
+                    string sql = alts[a].Replace("{ID}", id).Replace("{PID}", pid).Replace("{DAYS}", ((int)Math.Round(months * 30.44)).ToString(CultureInfo.InvariantCulture));
+                    var r = await run(sql, 5000, ct).ConfigureAwait(false);
+                    if (r == null) break;
+                    if (!r.Success) { sec.Error ??= r.Error; sec.Sql = sql; continue; }
+                    var cols = r.Columns.Count > 0 ? r.Columns : r.Rows.SelectMany(x => x.Keys).Distinct().ToList();
+                    sec.Ok = true; sec.Error = null; sec.Sql = sql; sec.Alt = a; sec.Capped = r.Capped; sec.Columns = cols;
+                    sec.Rows = r.Rows.Select(x => cols.Select(c => Get(x, c)).ToArray()).ToList();
+                    break;
+                }
+                sec.Ms = sw.ElapsedMilliseconds;
+                progress?.Invoke("   " + name + ": " + (sec.Ok ? sec.Rows.Count + " row(s)" + (sec.Alt > 0 ? " (simpler query " + (sec.Alt + 1) + ")" : "") : "not available — " + Short(sec.Error)) + " · " + sec.Ms + " ms");
+                sections.Add(sec);
+            }
+            var at = DateTime.Now;
+            FinanceLens.SaveHistory(pod, kind, party, months, at, sections);
+            return FinanceLens.HistoryReply(kind, party, months, at, sections, false, total.ElapsedMilliseconds);
+        }
         /// <summary>Candidate unit-cost tables: CST% tables with an item id and a cost column (from ALL_TAB_COLUMNS)</summary>
         public static async Task<object> CostTablesAsync(FinanceFusion.Runner run, CancellationToken ct)
         {

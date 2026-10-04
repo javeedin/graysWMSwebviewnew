@@ -333,6 +333,16 @@ namespace WMSApp
                             AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_wc_detail", Outcome = "OK", Target = kind ?? "", Detail = party ?? "" });
                             break;
                         }
+                    case "finWcHistory":        // one customer / supplier: profile, invoices, payments, credit notes … — this PC first, else Fusion (kept in fin_wc_history)
+                        {
+                            var cts = FinNewCts(TimeSpan.FromMinutes(10));
+                            string kind = PipeSrvStr(root, "kind"), party = PipeSrvStr(root, "party"), pod = PipeSrvStr(root, "pod") ?? "";
+                            bool refresh = root.TryGetProperty("refresh", out var rfe) && rfe.ValueKind == JsonValueKind.True;
+                            int months = root.TryGetProperty("months", out var me) && me.ValueKind == JsonValueKind.Number ? me.GetInt32() : 24;
+                            data = await Task.Run(() => FinanceWorkingCapital.HistoryAsync(FinRunner(pod), pod, kind, party, months, refresh, FinProgress(wv, requestId), cts.Token));
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_wc_history", Outcome = "OK", Target = kind ?? "", Detail = (party ?? "") + (refresh ? " · refresh" : "") });
+                            break;
+                        }
                     case "finWcItems":          // item master + DFF columns of the stock organisations → fin_items
                     case "finWcItemDff":        // item DFF labels → fin_item_dff
                     case "finWcNames":          // business unit / organisation names for the kept snapshots

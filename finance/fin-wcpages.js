@@ -91,7 +91,7 @@
             s.slice(0, -1).reverse().slice(1, 24).map(function (x) { return '<option value="' + esc(x.at) + '"' + (c === x.at ? ' selected' : '') + '>' + esc(short(x.at)) + '</option>'; }).join('') +
             '<option value="none"' + (c === 'none' ? ' selected' : '') + '>No comparison</option></select></label>';
         return '<div class="row" style="margin-bottom:10px;gap:8px;align-items:center"><h2 style="margin:0"><i class="fa-solid ' + ICON[k] + '"></i> ' + NAME[k] + '</h2>' +
-            '<span class="sm muted">' + (last ? 'as of ' + esc(short(last.at)) + (cmp ? ' · compared with ' + esc(short(cmp)) : '') : 'not synced') + ' · amounts in ' + FL.scaleLabel() + '</span><span class="grow"></span>' +
+            '<span class="sm muted">' + (last ? 'as of ' + esc(short(last.at)) + (X.ago ? ' (' + X.ago(last.at) + ')' : '') + (cmp ? ' · compared with ' + esc(short(cmp)) : '') : 'not synced') + ' · amounts in ' + FL.scaleLabel() + '</span><span class="grow"></span>' +
             (extra || '') + '<button class="btn sm" id="wp-ask"><i class="fa-solid fa-wand-magic-sparkles"></i> Ask the Copilot</button>' +
             (last ? '<button class="btn sm" id="wp-xl"><i class="fa-solid fa-file-excel"></i> Excel</button>' : '') +
             (admin ? '<button class="btn sm primary" id="wc-sync"><i class="fa-solid fa-cloud-arrow-down"></i> Sync ' + NAME[k].toLowerCase() + '</button>' : '') + '</div><div id="wc-prog"></div>' +

@@ -678,3 +678,19 @@ body.fl-maxed { overflow: hidden; }
 .gr-badge.g1 { background: #dcfce7; color: #166534; } .gr-badge.g2 { background: #fef3c7; color: #92400e; } .gr-badge.g3 { background: #fce7f3; color: #9d174d; }
 .gr-badge.g4 { background: #cffafe; color: #155e75; } .gr-badge.g5 { background: #ede9fe; color: #5b21b6; } .gr-badge.g6 { background: #ffedd5; color: #9a3412; } .gr-badge.g7 { background: #e2e8f0; color: #334155; }
 .gr-pastebox { margin-bottom: 8px; border: 2px solid #bfdbfe; }
+/* customer / supplier history (fin-wchistory.js) */
+.ph-ov { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 960; display: flex; align-items: stretch; justify-content: center; padding: 2.5vh 2.5vw; }
+.ph-box { background: var(--bg, #f8fafc); border-radius: 12px; width: 100%; max-width: 1500px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 24px 70px rgba(15,23,42,.4); animation: phIn .18s ease-out; }
+@keyframes phIn { from { transform: translateY(-14px); opacity: 0; } to { transform: none; opacity: 1; } }
+.ph-head { background: #fff; padding: 14px 18px 0; border-bottom: 1px solid var(--line); }
+.ph-body { flex: 1; overflow: auto; padding: 12px 18px 18px; }
+.ph-av { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, #1d4ed8, #0ea5e9); color: #fff; font-weight: 800; font-size: 20px; display: flex; align-items: center; justify-content: center; flex: none; }
+.ph-meta { margin-top: 3px; } .ph-meta i { opacity: .7; }
+.ph-bar { gap: 10px; align-items: center; margin: 10px 0; flex-wrap: wrap; }
+.ph-bar .wc-chip.live { background: #dcfce7; color: #166534; }
+.ph-tiles { margin-bottom: 8px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); } .ph-tiles .sk-v { font-size: 1.15rem; }
+.ph-tabs { margin-bottom: -1px; } .ph-tabs .tag { font-size: 10px; padding: 0 6px; border-radius: 999px; background: #e2e8f0; margin-left: 3px; }
+.ph-x { font-size: 18px; border: 0; background: none; cursor: pointer; color: #64748b; } .ph-x:hover { color: #0f172a; }
+.ph-sql { white-space: pre-wrap; font-size: 11px; background: #f1f5f9; padding: 6px 8px; border-radius: 6px; margin: 4px 0 10px; max-height: 120px; overflow: auto; }
+.ph-st { padding: 1px 7px; border-radius: 999px; font-size: 11px; background: #e2e8f0; } .ph-st.s-OP { background: #fef3c7; color: #92400e; } .ph-st.s-CL { background: #dcfce7; color: #166534; }
+.ph-st.s-CM { background: #ede9fe; color: #5b21b6; }

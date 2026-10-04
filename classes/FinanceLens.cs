@@ -905,6 +905,54 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             }
         }
 
+        // ═════ customer / supplier history kept on this PC (FinanceWorkingCapital.HistoryAsync) ═════
+        internal const string WC_HISTORY_TABLE = "CREATE TABLE IF NOT EXISTS fin_wc_history (pod VARCHAR, kind VARCHAR, party VARCHAR, section VARCHAR, months INTEGER, fetched_at TIMESTAMP, ms BIGINT, ok BOOLEAN, error VARCHAR, sql VARCHAR, alt INTEGER, capped BOOLEAN, columns_json VARCHAR, rows_json VARCHAR)";
+        public sealed class HistorySection
+        {
+            public string Name; public bool Ok; public string Error; public string Sql; public int Alt; public bool Capped; public long Ms;
+            public List<string> Columns = new(); public List<object[]> Rows = new();
+        }
+        public static void SaveHistory(string pod, string kind, string party, int months, DateTime at, List<HistorySection> sections)
+        {
+            lock (_lock)
+            {
+                using var conn = OpenWrite();
+                Exec(conn, WC_HISTORY_TABLE);
+                Exec(conn, "DELETE FROM fin_wc_history WHERE pod = " + Lit(pod ?? "") + " AND kind = " + Lit(kind) + " AND party = " + Lit(party));
+                Append(conn, "fin_wc_history", sections.Select(x => new object[] { pod ?? "", kind, party, x.Name, months, at, x.Ms, x.Ok, x.Error, x.Sql, x.Alt, x.Capped,
+                    JsonSerializer.Serialize(x.Columns), JsonSerializer.Serialize(x.Rows) }).ToList());
+                Exec(conn, "CHECKPOINT");
+            }
+        }
+        public static object LoadHistory(string pod, string kind, string party)
+        {
+            if (!File.Exists(DbPath)) return null;
+            var t = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_wc_history'", 1);
+            if (t.Error != null || t.Rows.Count == 0 || Convert.ToInt64(t.Rows[0][0]) == 0) return null;
+            var q = Query("SELECT section, months, CAST(fetched_at AS VARCHAR), ms, ok, error, sql, alt, capped, columns_json, rows_json FROM fin_wc_history WHERE pod = " + Lit(pod ?? "") + " AND kind = " + Lit(kind) + " AND party = " + Lit(party), 100);
+            if (q.Error != null || q.Rows.Count == 0) return null;
+            var secs = q.Rows.Select(r => new HistorySection
+            {
+                Name = Convert.ToString(r[0]), Ms = Convert.ToInt64(r[3] ?? 0L), Ok = r[4] is bool b && b, Error = r[5] as string, Sql = r[6] as string, Alt = Convert.ToInt32(r[7] ?? 0), Capped = r[8] is bool c && c,
+                Columns = JsonSerializer.Deserialize<List<string>>(Convert.ToString(r[9]) ?? "[]") ?? new(),
+                Rows = (JsonSerializer.Deserialize<List<JsonElement[]>>(Convert.ToString(r[10]) ?? "[]") ?? new()).Select(a => a.Select(JsonValue).ToArray()).ToList()
+            }).ToList();
+            DateTime.TryParse(Convert.ToString(q.Rows[0][2]), CultureInfo.InvariantCulture, DateTimeStyles.None, out var at);
+            return HistoryReply(kind, party, Convert.ToInt32(q.Rows[0][1] ?? 24), at, secs, true, 0);
+        }
+        private static object JsonValue(JsonElement e) => e.ValueKind switch
+        {
+            JsonValueKind.Number => e.TryGetInt64(out var l) ? l : e.GetDouble(),
+            JsonValueKind.String => e.GetString(),
+            JsonValueKind.True => true, JsonValueKind.False => false,
+            _ => null
+        };
+        public static object HistoryReply(string kind, string party, int months, DateTime at, List<HistorySection> sections, bool fromCache, long ms) => new
+        {
+            ok = true, kind, party, months, fromCache, ms, fetchedAt = at.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+            sections = sections.ToDictionary(x => x.Name, x => (object)new { ok = x.Ok, error = x.Error, sql = x.Sql, alt = x.Alt, capped = x.Capped, ms = x.Ms, columns = x.Columns, rows = x.Rows })
+        };
+
         /// <summary>Saves one snapshot of a kind (AR | AP | INV) — rows already shaped as the table's columns after pod / kind / snapshot_at;
         /// keeps the last <paramref name="keep"/> snapshots of that kind for the trend.</summary>
         public static void SaveWc(string pod, string kind, DateTime at, List<object[]> rows, double total, long ms, bool capped, string note, int keep = 36)
@@ -1174,7 +1222,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 Exec(conn, "ATTACH " + Lit(DbPath.Replace('\\', '/')) + " AS prev (READ_ONLY)");
                 try
                 {
-                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances", "fin_gl_balances_acct_sync", "fin_gl_balances_acct", "fin_tb_periods", "fin_tb_ledgers", "fin_wc_parties", "fin_wc_stock", "fin_wc_snapshots", "fin_gl_balances_ext", "fin_gl_balances_ext_sync", "fin_gl_ext_acct_status", "fin_ccid_sync", "fin_gl_ccid_bal", "fin_gl_ccid_bal_sync", "fin_wc_names", "fin_items", "fin_item_dff" })
+                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances", "fin_gl_balances_acct_sync", "fin_gl_balances_acct", "fin_tb_periods", "fin_tb_ledgers", "fin_wc_parties", "fin_wc_stock", "fin_wc_snapshots", "fin_gl_balances_ext", "fin_gl_balances_ext_sync", "fin_gl_ext_acct_status", "fin_ccid_sync", "fin_gl_ccid_bal", "fin_gl_ccid_bal_sync", "fin_wc_names", "fin_items", "fin_item_dff", "fin_wc_history" })
                     {
                         using var c = conn.CreateCommand();
                         c.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog = 'prev' AND table_name = '" + t + "'";

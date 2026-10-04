@@ -585,3 +585,13 @@ Three pages under Reports, each built on the working-capital snapshots (Sync fro
 - **Group by › ⧉** (or *Group the values of a segment…*): make groups of a segment's values — e.g. Salesperson → *Door to door*, *Pre-sales*, *Shops*. Add groups, then tick values (header box = every row shown, Shift+click = a range; the list starts on *Not grouped* so moved values drop out) and press a group in the bar that appears — or drag them onto a group chip, or press the group's number 1–9. Search matches value, name or group. *Paste a list…* puts pasted codes or names (e.g. an Excel column) into a group at once; *Suggest* fills groups from the first word of the value name or a code prefix. Save keeps it in `config.json` on this PC.
 - The grouping then appears under **Group by** (with the segment under it): the Tree shows the groups and opens each into its values; **By columns** shows one column per group — ▸ opens a group into one column per value with the group as the subtotal, *Open every group* opens them all. Pivot and KPIs can use the grouping too. Values in no group show as *(not grouped)*.
 - **By columns › Show**: top 8 / 12 / 20 / 50 or every value; *Others (n) ⊕* shows every value.
+
+
+## Customer and supplier history (drill-down)
+
+Click any customer on Debtors (or supplier on Creditors, or a party in Working capital) to open its history page:
+
+- **Header** — name, number, class / status, address, e-mail, phone, customer since; tiles for total due, overdue, over 90 days, credit limit used (customers) or open holds (suppliers), invoiced and collected in the last 12 months, days to pay (weighted by amount, and days late against the due date) and the last receipt / payment.
+- **Tabs** — Overview (invoiced vs collected by month, open items by age, findings, days to pay by month), Open items (with *Live from Fusion*), Invoices, Payments, Credit notes, Paid invoices (each payment against the invoice it paid, with days to pay), Adjustments (customers) / Holds (suppliers), Sources (the query behind each tab).
+- **Where the data comes from** — the first time a customer is opened its history is read from Fusion and **kept in DuckDB on this PC** (`fin_wc_history`). Opening it again reads this PC — the header says *From this PC · read from Fusion … ago*. **Refresh from Fusion** reads it again; changing the history window (12 / 24 / 36 / 60 months) does too.
+- The Debtors / Creditors / Inventory pages themselves always read the synced snapshots on this PC; only **Sync** asks Fusion. The page header says how long ago the last sync was.
