@@ -268,10 +268,6 @@
         if (fx) K.focus($('sk-focus'), d, fx);
         $('sk-cmp').onchange = function () { s.cmp = this.value; FL.lsSet('segpl', Object.assign({}, s, { open: undefined })); G.run(); };
         $('sk-m').onchange = function () { s.kpiMetric = this.value; FL.lsSet('segpl', Object.assign({}, s, { open: undefined })); G.draw(); };
-        $('sk-ask').onclick = function () {
-            var lines = d.list.slice(0, 25).map(function (x) { return '- ' + x.label + ': revenue ' + Math.round(x.m.rev) + ', GP ' + Math.round(x.m.gp) + ' (' + pct(x.m.gpm) + '), opex ' + Math.round(x.m.opex) + ', EBITDA ' + Math.round(x.m.ebitda) + (x.c ? ', comparison revenue ' + Math.round(x.c.rev) + ', EBITDA ' + Math.round(x.c.ebitda) : '') + (x.un ? ' [blank/default value]' : ''); }).join('\n');
-            FL.copilot.ask('Review the P&L by ' + name + ' for ' + d.ps.map(G.pname).join(', ') + (d.cmp ? ' compared with ' + CL : '') + ' (amounts in the ledger currency, units). Totals: revenue ' + Math.round(T.rev) + ', GP ' + Math.round(T.gp) + ', EBITDA ' + Math.round(T.ebitda) + '.\n' + lines +
-                '\nGive me the 5 things a CFO should act on (who to look at, why, the money at stake), and what to check in the data (unassigned costs, missing cost of sales).');
-        };
+        $('sk-ask').onclick = function () { FL.copilot.show(); };   // opens the drawer with prompts for this page — nothing runs until one is chosen
     };
 })();

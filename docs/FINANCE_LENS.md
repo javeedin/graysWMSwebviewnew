@@ -536,3 +536,21 @@ accounts; the page sends what is on screen (filter, statement lines, KPIs, monit
 numbers shown. Answers carry a chart when it helps and links that drill: accounts, journals, cost centres, periods, and
 follow-up questions. Every line in the drill dialog has *Ask the Copilot*. It uses the Claude key of Fusion SQL › Ask AI,
 stops when the AI is paused (AI Digital Employee › Control) and every answer is audited with its cost.
+
+## My pages (pages you design)
+
+*My pages* (first under Reports) holds your own pages. Start from the **CFO cockpit**, a blank page, or **describe it to the
+Copilot**. A page has its own periods (tick months, or Last / Quarter / YTD / 12 m), *Compare with* and company, and a grid
+of widgets: KPI cards (with the change against the comparison), bar / line / donut charts, tables and notes. Each widget is
+one read-only query over the ledger on this PC, so a saved page shows fresh numbers every time you open it.
+
+- **Edit page**: add a widget (title, type, width, number format, its query — *Test* runs it), make it narrower / wider,
+  move it up / down, remove it. Press **Save** to keep the page; *⋯* duplicates, exports or imports a page.
+- **Design with the Copilot**: type what you want in the bar under the page — "add a chart of gross profit by salesperson",
+  "make the KPIs year-to-date", "a page for the monthly board meeting". The Copilot checks every query on your data and
+  proposes the whole page; you see what is new or removed and press **Apply** (then Save) or Discard. A widget that fails
+  offers *Ask the Copilot to fix it*. In the Copilot drawer, any page it proposes shows *Apply to this page*.
+
+The Copilot drawer now keeps its working steps folded (the line shows what it is doing) and lists **suggested prompts for
+the page you are on** — a click puts the prompt in the box so you can change it; nothing is sent until you press Enter.
+

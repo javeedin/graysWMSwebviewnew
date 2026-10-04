@@ -24,7 +24,7 @@
         if (!$('cop')) {
             document.body.insertAdjacentHTML('beforeend', '<aside class="cop" id="cop"><div class="cop-h"><i class="fa-solid fa-wand-magic-sparkles"></i><div><b>CFO Copilot</b><div class="sm" id="cop-ctx"></div></div><span class="grow"></span>' +
                 '<button class="icon" id="cop-clear" title="New conversation"><i class="fa-regular fa-square-plus"></i></button><button class="icon" id="cop-x" title="Close"><i class="fa-solid fa-xmark"></i></button></div>' +
-                '<div class="cop-b" id="cop-b"></div><div class="cop-f"><textarea id="cop-q" rows="2" placeholder="Ask about revenue, margins, budget, cash, cost centres, journals… (Enter to send)"></textarea>' +
+                '<div class="cop-b" id="cop-b"></div><details class="cop-sugbar" id="cop-sugbar" open><summary class="sm"></summary><div class="cop-sugs" id="cop-sugs"></div></details><div class="cop-f"><textarea id="cop-q" rows="2" placeholder="Ask about revenue, margins, budget, cash, cost centres, journals… (Enter to send)"></textarea>' +
                 '<button class="btn primary" id="cop-send" title="Send"><i class="fa-solid fa-paper-plane"></i></button></div></aside>');
             $('cop-x').onclick = C.close;
             $('cop-clear').onclick = function () { if (C.busy) return; C.msgs = []; C.save(); C.paint(); };
@@ -34,8 +34,43 @@
         }
         C.open = true; $('cop').classList.add('open'); document.body.classList.add('cop-on');
         $('cop-ctx').textContent = FL.status && FL.status.loaded ? FL.filterText() + ' · ' + FL.periodName(FL.filter.period) : 'no data loaded';
+        C.paintSuggest();
         C.paint();
         setTimeout(function () { $('cop-q').focus(); }, 50);
+    };
+    /** Prompts that fit the page on screen — a click puts the prompt in the box (edit it, Enter sends); nothing runs by itself */
+    C.pagePrompts = function () {
+        var G = FL.segpl, tab = FL.tab;
+        if (tab === 'segpl' && G && G.st && G.st.groups && G.st.groups.length) {
+            var seg = G.label(G.st.groups[0]), sl = seg.toLowerCase(), fx = null;
+            try { var d = G.kpi.build(); fx = G.st.kpiFocus != null ? d.list.filter(function (x) { return x.v === G.st.kpiFocus; })[0] : null; } catch (e) { /* no data yet */ }
+            var cmp = G.st.cmp === 'py' ? 'last year' : G.st.cmp === 'prev' ? 'the previous period' : null;
+            return { title: 'Segment P&L by ' + seg, items: [].concat(fx ? ['Deep dive on ' + fx.label + ': what drives its result, compared with its peers' + (cmp ? ' and ' + cmp : '') + '?', 'Which accounts explain the margin of ' + fx.label + '?'] : [], [
+                'Which 5 ' + sl + ' values should I talk to this week, and what is the money at stake?',
+                'Where are we losing gross margin by ' + sl + ', and how much could we recover at the median margin?',
+                cmp ? 'Explain the change in EBITDA by ' + sl + ' versus ' + cmp + ' — who drove it?' : 'Rank the ' + sl + ' values by EBITDA margin and explain the bottom 5',
+                'How much operating expense sits on blank / default ' + sl + ' values, and how should we allocate it?',
+                'Chart revenue and gross profit for the top 15 ' + sl + ' values',
+                'Which ' + sl + ' values have revenue but no cost of sales, and what does that mean for their margin?',
+                'Write a short board paragraph on performance by ' + sl]) };
+        }
+        if (tab === 'pages' && FL.pages && FL.pages.cur) return { title: 'This page: ' + FL.pages.cur.name, items: [
+            'Add KPI cards for revenue, gross profit, EBITDA and net profit with the comparison',
+            'Add a chart of revenue and expenses by month for the last 12 months',
+            'Add a table of the 10 largest expense accounts with the change versus the comparison',
+            'Make every widget year-to-date', 'Explain what the numbers on this page say, in 5 bullets', 'Remove the widgets that show nothing and tidy the layout'] };
+        if (tab === 'wc') return { title: 'Working capital', items: ['Which customers are most overdue and how much is over 90 days?', 'Why did DSO change this month?', 'Which suppliers should we pay first, and which can wait?', 'Which stock is aged over 180 days and what is it worth?'] };
+        if (tab === 'statements' || tab === 'overview' || tab === 'analytics') return { title: 'Statements & analytics', items: C.SUGGEST.slice(0, 8) };
+        if (tab === 'closing' || tab === 'close') return { title: 'Close', items: ['Run the month-end close for this period', 'Write the variance commentary for this month', 'Build the roll-forward of trade receivables', 'Which accounts do not reconcile this month?'] };
+        if (tab === 'journals') return { title: 'Journal risk', items: ['Are there unusual or risky journals this month?', 'Which users posted journals outside working hours?', 'Show manual journals above the materiality limit'] };
+        return { title: 'Suggestions', items: C.SUGGEST.slice(0, 6) };
+    };
+    C.paintSuggest = function () {
+        var box = $('cop-sugs'); if (!box) return;
+        var p = C.pagePrompts();
+        $('cop-sugbar').querySelector('summary').textContent = 'Suggested for ' + p.title;
+        box.innerHTML = p.items.map(function (q) { return '<a class="cop-sug" data-fill="' + esc(q) + '">' + esc(q) + '</a>'; }).join('');
+        box.querySelectorAll('[data-fill]').forEach(function (a) { a.onclick = function () { var t = $('cop-q'); t.value = a.dataset.fill; t.focus(); t.setSelectionRange(t.value.length, t.value.length); }; });
     };
     C.close = function () { C.open = false; if ($('cop')) $('cop').classList.remove('open'); document.body.classList.remove('cop-on'); };
     C.save = function () { FL.lsSet('copilot', C.msgs.slice(-30).map(function (m) { return { role: m.role, content: m.content, steps: m.steps, error: m.error, cost: m.cost }; })); };
@@ -50,10 +85,11 @@
         }
         b.innerHTML = C.msgs.map(function (m, i) {
             if (m.role === 'user') return '<div class="cop-m u">' + esc(m.content) + '</div>';
-            return '<div class="cop-m a" data-i="' + i + '">' + (m.steps && m.steps.length ? '<details class="cop-steps"' + (m.pending ? ' open' : '') + '><summary>' + (m.pending ? '<i class="fa-solid fa-circle-notch fa-spin"></i> ' : '') + m.steps.length + ' step(s)</summary>' + m.steps.map(function (s) { return '<div>' + esc(s) + '</div>'; }).join('') + '</details>' : (m.pending ? '<div class="muted"><i class="fa-solid fa-circle-notch fa-spin"></i> Thinking…</div>' : '')) +
+            return '<div class="cop-m a" data-i="' + i + '">' + (m.steps && m.steps.length ? '<details class="cop-steps"><summary>' + (m.pending ? '<i class="fa-solid fa-circle-notch fa-spin"></i> ' + esc(String(m.steps[m.steps.length - 1]).slice(0, 90)) + ' · ' : '') + m.steps.length + ' step(s)</summary>' + m.steps.map(function (s) { return '<div>' + esc(s) + '</div>'; }).join('') + '</details>' : (m.pending ? '<div class="muted"><i class="fa-solid fa-circle-notch fa-spin"></i> Thinking…</div>' : '')) +
                 (m.error ? '<div class="callout bad">' + esc(m.error) + '</div>' : C.md(m.content || '', i)) +
                 (m.cost != null && !m.pending ? '<div class="cop-cost">$' + m.cost.toFixed(3) + '</div>' : '') + '</div>';
         }).join('');
+        b.querySelectorAll('[data-page]').forEach(function (bt) { bt.onclick = function () { if (!FL.pages) return; var pg = FL.pages.parse('```page\n' + decodeURIComponent(bt.dataset.page) + '\n```'); if (!pg) { FL.toast('That page design is not valid', 'err'); return; } FL.pages.load().then(function () { FL.pages.apply(pg); }); }; });
         b.querySelectorAll('canvas[data-chart]').forEach(function (cv) {
             try {
                 var spec = JSON.parse(decodeURIComponent(cv.dataset.chart)), pal = FL.PAL.series;
@@ -87,6 +123,8 @@
                 while (i < lines.length && !/^```/.test(lines[i])) body.push(lines[i++]);
                 i++;
                 var raw = body.join('\n').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+                if (fence[1] === 'page') { var pw = 0; try { pw = (JSON.parse(raw).widgets || []).length; } catch (e) { pw = -1; }
+                    out.push('<div class="cop-page"><i class="fa-regular fa-file-lines"></i> A page design' + (pw >= 0 ? ' · ' + pw + ' widget(s)' : ' (not valid JSON)') + (pw >= 0 ? ' <button class="btn sm primary" data-page="' + encodeURIComponent(raw) + '">' + (FL.pages && FL.pages.cur && FL.tab === 'pages' ? 'Apply to this page' : 'Open as a new page') + '</button>' : '') + '</div>'); continue; }
                 if (fence[1] === 'chart') out.push('<div class="cop-chart"><canvas data-chart="' + encodeURIComponent(raw) + '" id="copc' + mi + '_' + (n++) + '"></canvas></div>');
                 else out.push('<pre>' + body.join('\n') + '</pre>');
                 continue;
@@ -166,6 +204,9 @@
                 (FL.config.kpis || []).forEach(function (d) { if (k[d.id] && k[d.id].value != null) out.kpis[d.label] = r0(k[d.id].value) + (d.fmt === 'pct' ? ' %' : d.fmt === 'days' ? ' days' : d.fmt === 'ratio' ? '×' : ''); });
                 out.monitors = FINE.monitor(FL.config.monitors || [], k).filter(function (m) { return m.status === 'breach' || m.status === 'bad' || m.status === 'alert'; }).map(function (m) { return m.rule.label; });
             } catch (e) { out.kpiError = String(e.message || e); }
+            if (FL.tab === 'segpl' && FL.segpl && FL.segpl.ai && FL.segpl.st.groups && FL.segpl.st.groups.length) { try { out.segmentPL = FL.segpl.ai.context(); } catch (e) { /* not loaded */ } }
+            if (FL.tab === 'pages' && FL.pages && FL.pages.cur) { var dc = FL.pages.designContext(); out.openPage = dc.page; out.pageParameters = dc.parameters_now;
+                out.pageGuide = 'The user is on their own page "' + FL.pages.cur.name + '" (My pages). When they ask to add, change or remove something on it, follow this guide and answer with ONE ```page block of the whole page:\n' + FL.pages.GUIDE; }
             return FL.wc ? FL.wc.summary().then(function (w) { if (w) out.workingCapital = w; return out; }) : out;
         });
     };
@@ -194,5 +235,5 @@
     };
 
     /** "Ask the Copilot" from anywhere (e.g. a statement line) */
-    FL.askCopilot = function (q) { C.show(); C.ask(q); };
+    FL.askCopilot = function (q) { C.show(); if (q && $('cop-q')) { $('cop-q').value = q; $('cop-q').focus(); } };   // fills the box — the user sends it
 })();

@@ -251,6 +251,7 @@ FL.show = function (tab) {
     if (!FL.TABS[tab]) tab = 'overview';
     FL.tab = tab; FL.lsSet('tab', tab);
     document.querySelectorAll('#tabs button[data-tab]').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === tab); });
+    if (FL.copilot && FL.copilot.open && FL.copilot.paintSuggest) FL.copilot.paintSuggest();   // the drawer's prompts follow the page
     FL.render();
 };
 FL.render = function () {
