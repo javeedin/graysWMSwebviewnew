@@ -597,3 +597,5 @@ body.nav-min .tabs.side .datachip { display: none; }
 .sp-cols.sp-cmp .sp-cv { color: #64748b; }
 .sp-cols.sp-cmp .sp-cg { font-size: 12px; }
 .sp-cctl select { margin-left: 4px; }
+.sp-units { display: inline-flex; gap: 4px; align-items: center; margin-right: 6px; }
+.sp-tree .sp-vd, .sp-tree .sp-vp { font-size: 12px; background: #fafafa; }

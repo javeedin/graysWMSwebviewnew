@@ -9,7 +9,7 @@
     var G = FL.segpl = { st: Object.assign({ ledger: null, periods: [], cos: [], groups: [], filters: {}, view: 'tree', cmp: 'none', colBy: 'seg', tpl: null, lines: null, pv: { rows: [], col: 'period', measure: 'profit' }, open: {} }, FL.ls('segpl', {})) };
     var save = function () { var s = Object.assign({}, G.st); delete s.open; FL.lsSet('segpl', s); };
     var BASE = { company: 'Company', account: 'Account', period: 'Period' };
-    var money = function (v) { return v == null ? '' : FINE.fmt(v / (FL.filter.scale || 1), 'num', { decimals: FL.filter.scale >= 1000000 ? 1 : 0 }); };
+    var money = function (v) { var d = G.st.dec; return v == null ? '' : FINE.fmt(v / (FL.filter.scale || 1), 'num', { decimals: d != null && d !== '' ? +d : FL.filter.scale >= 1000000 ? 1 : 0 }); };
     var segCol = function (c) { return /^segment([1-9]|[12][0-9]|30)$/.test(c); };
 
     FL.TABS.segpl = { render: function (el) { return G.render(el); } };
@@ -94,11 +94,11 @@
         if (G.st.cos.length) w.push('company IN (' + G.st.cos.map(FL.q).join(',') + ')');
         Object.keys(G.st.filters || {}).forEach(function (c) { var v = G.st.filters[c]; if (segCol(c) && v && v.length) w.push('COALESCE(' + c + ", '') IN (" + v.map(FL.q).join(',') + ')'); });
         var sql = 'SELECT period_seq, company, account' + fs.map(function (c) { return ', ' + c; }).join('') +
-            ', SUM(dr - cr) AS net, SUM(dr) AS dr, SUM(cr) AS cr, SUM(CASE WHEN period_seq IN (' + firsts.join(',') + ') AND NOT adj THEN opening ELSE 0 END) AS opening FROM fin_gl_ext_v WHERE ' + w.join(' AND ') + ' GROUP BY ALL';
+            ', SUM(dr - cr) AS net, SUM(dr) AS dr, SUM(cr) AS cr, SUM(CASE WHEN period_seq IN (' + firsts.join(',') + ') AND NOT adj THEN opening ELSE 0 END) AS opening, SUM(CASE WHEN NOT adj THEN opening ELSE 0 END) AS opening_p FROM fin_gl_ext_v WHERE ' + w.join(' AND ') + ' GROUP BY ALL';
         G.sqlText = sql;
         return FL.sql(sql, 400000).then(function (d) {
             G.truncated = d.truncated;
-            var rows = d.rows.map(function (r) { var o = {}; d.columns.forEach(function (c, i) { o[c] = r[i]; }); o.period_seq = +o.period_seq; o.period = String(o.period_seq); o.net = +o.net || 0; o.dr = +o.dr || 0; o.cr = +o.cr || 0; o.opening = +o.opening || 0; return o; });
+            var rows = d.rows.map(function (r) { var o = {}; d.columns.forEach(function (c, i) { o[c] = r[i]; }); o.period_seq = +o.period_seq; o.period = String(o.period_seq); o.net = +o.net || 0; o.dr = +o.dr || 0; o.cr = +o.cr || 0; o.opening = +o.opening || 0; o.opening_p = +o.opening_p || 0; return o; });
             // the chosen periods drive every view; the comparison periods only feed the comparison columns
             var keep = function (list, f) { return rows.filter(function (r) { return list.indexOf(r.period_seq) >= 0; }).map(function (r) { return r.period_seq === f ? r : Object.assign({}, r, { opening: 0 }); }); };
             G.rows = keep(ps, first);
@@ -238,12 +238,17 @@
         var pn = s.periods.slice().sort().map(function (q) { return (G.periods.filter(function (p) { return p.seq === q; })[0] || {}).name || q; });
         bar.innerHTML = '<div class="row"><h2 style="margin:0"><i class="fa-solid fa-layer-group"></i> ' + esc(G.tplObj() ? G.tplObj().name : 'P&L') + (s.groups.length ? ' by ' + s.groups.map(G.label).map(esc).join(' ▸ ') : '') + '</h2><span class="grow"></span>' +
             '<div class="seg" id="sp-view">' + [['tree', 'Tree'], ['cols', 'By columns'], ['pivot', 'Pivot'], ['tb', 'Trial balance']].map(function (v) { return '<button data-v="' + v[0] + '" class="' + (s.view === v[0] ? 'on' : '') + '">' + v[1] + '</button>'; }).join('') + '</div>' +
+            '<label class="sm sp-units" title="Amounts shown in">Amounts <select id="sp-scale">' + [[1, 'absolute'], [100, 'hundreds'], [1000, 'thousands'], [1000000, 'millions']].map(function (o) { return '<option value="' + o[0] + '"' + (+FL.filter.scale === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
+            '<select id="sp-dec" title="Decimals">' + [['', 'auto'], ['0', '0 dp'], ['1', '1 dp'], ['2', '2 dp']].map(function (o) { return '<option value="' + o[0] + '"' + (String(s.dec == null ? '' : s.dec) === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
             '<button class="btn sm" id="sp-xl"><i class="fa-solid fa-file-excel"></i> Excel</button></div>' +
             '<div class="sm muted">' + esc(pn.length > 4 ? pn[0] + ' – ' + pn[pn.length - 1] + ' (' + pn.length + ' periods)' : pn.join(', ')) + ' · ' + (s.cos.length ? s.cos.length + ' compan' + (s.cos.length === 1 ? 'y' : 'ies') : 'every company') + ' · amounts in ' + FL.scaleLabel() +
             (s.cmp !== 'none' && G.plan ? ' · compared with ' + esc(s.cmp === 'py' ? 'the same period last year' : 'the previous period' + (s.periods.length > 1 ? 's' : '')) + ' (' + esc(G.plan.seqs.map(G.pname).join(', ') || 'none synced') + ')' : '') +
             ' · ' + G.rows.length.toLocaleString() + ' balance rows' + (G.truncated ? ' <b class="neg">(cut at 400,000 — narrow the periods or filters)</b>' : '') + '</div>';
         bar.querySelectorAll('#sp-view button').forEach(function (b) { b.onclick = function () { s.view = b.dataset.v; save(); G.draw(); }; });
         $('sp-xl').onclick = G.excel;
+        // amounts: the module-wide scale (kept in step with the header) and decimals for this page
+        $('sp-scale').onchange = function () { FL.filter.scale = +this.value; if ($('f-scale')) $('f-scale').value = FL.filter.scale; FL.lsSet('filter', FL.filter); FL.cache = {}; G.draw(); };
+        $('sp-dec').onchange = function () { s.dec = this.value === '' ? null : +this.value; save(); G.draw(); };
         G.out = null;
         if (s.view === 'cols') G.viewCols(out); else if (s.view === 'pivot') G.viewPivot(out); else if (s.view === 'tb') G.viewTb(out); else G.viewTree(out);
     };
@@ -405,16 +410,24 @@
         pv.rows = (pv.rows || []).filter(function (f) { return fields.indexOf(f) >= 0; });
         if (!pv.rows.length) pv.rows = s.groups.length ? s.groups.slice() : ['account'];
         var need = pv.rows.concat([pv.col]).filter(function (x) { return x && segCol(x); }).some(function (x) { return G.rows.length > 0 && !(x in G.rows[0]); });
+        // across periods a Total adds months together, which says little next to a comparison: off by default there, variances on
+        var pvVar = pv['var'] || (pv.col === 'period' ? 'prev' : 'none'), pvShow = pv.vshow || 'both', pvTot = pv.tot != null ? pv.tot : pv.col !== 'period';
         var ctl = '<div class="card sp-pctl"><div class="row" style="flex-wrap:wrap;gap:10px"><b class="sm">Rows</b><span id="pv-rows">' + pv.rows.map(function (f, i) { return '<span class="chip on">' + esc(G.label(f)) + ' <a data-pr="' + i + '">×</a></span>'; }).join(' ') + '</span>' +
             '<select id="pv-addr"><option value="">+ row field</option>' + fields.filter(function (f) { return pv.rows.indexOf(f) < 0 && f !== pv.col; }).map(function (f) { return '<option value="' + f + '">' + esc(G.label(f)) + '</option>'; }).join('') + '</select>' +
             '<b class="sm">Columns</b><select id="pv-col"><option value="">(none)</option>' + fields.filter(function (f) { return pv.rows.indexOf(f) < 0; }).map(function (f) { return '<option value="' + f + '"' + (pv.col === f ? ' selected' : '') + '>' + esc(G.label(f)) + '</option>'; }).join('') + '</select>' +
             '<b class="sm">Value</b><select id="pv-m">' + measures.map(function (m) { return '<option value="' + esc(m[0]) + '"' + (pv.measure === m[0] ? ' selected' : '') + '>' + esc(m[1]) + '</option>'; }).join('') + '</select>' +
+            (pv.col ? '<b class="sm">Variance</b><select id="pv-var">' + [['none', 'none'], ['prev', 'vs previous column'], ['first', 'vs first column']].map(function (o) { return '<option value="' + o[0] + '"' + (pvVar === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
+                (pvVar !== 'none' ? '<select id="pv-vshow">' + [['both', 'Δ and Δ %'], ['abs', 'Δ only'], ['pct', 'Δ % only']].map(function (o) { return '<option value="' + o[0] + '"' + (pvShow === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' : '') +
+                '<label class="sm"><input type="checkbox" id="pv-tot"' + (pvTot ? ' checked' : '') + '> Total column</label>' : '') +
             '<a class="sm" id="pv-exp">open all</a> · <a class="sm" id="pv-col0">close all</a></div></div>';
         var wire = function () {
             out.querySelectorAll('[data-pr]').forEach(function (a) { a.onclick = function () { pv.rows.splice(+a.dataset.pr, 1); save(); G.pvReload(); }; });
             $('pv-addr').onchange = function () { if (this.value) { pv.rows.push(this.value); save(); G.pvReload(); } };
             $('pv-col').onchange = function () { pv.col = this.value; save(); G.pvReload(); };
             $('pv-m').onchange = function () { pv.measure = this.value; save(); G.draw(); };
+            if ($('pv-var')) $('pv-var').onchange = function () { pv['var'] = this.value; save(); G.draw(); };
+            if ($('pv-vshow')) $('pv-vshow').onchange = function () { pv.vshow = this.value; save(); G.draw(); };
+            if ($('pv-tot')) $('pv-tot').onchange = function () { pv.tot = this.checked; save(); G.draw(); };
             $('pv-exp').onclick = function () { G.pvOpen = 'all'; G.draw(); };
             $('pv-col0').onclick = function () { G.pvOpen = {}; G.draw(); };
         };
@@ -441,20 +454,38 @@
             pv.rows.forEach(function (f) { var k = get(r, f); n = n.k[k] = n.k[k] || { k: {}, t: {}, sum: 0 }; n.sum += v; n.t[c] = (n.t[c] || 0) + v; });
         });
         var open = G.pvOpen || (G.pvOpen = {}), html = [], flat = [];
-        var cells = function (n) { return (pv.col ? colVals.map(function (c) { return '<td class="n">' + money(n.t[c]) + '</td>'; }).join('') : '') + '<td class="n sp-tc">' + money(n.sum) + '</td>'; };
+        var lineFav = lineAcc ? (acctLines.filter(function (r) { return 'line:' + r.id === pv.measure; })[0] || {}).favourable : null;
+        var judged = pv.measure === 'profit' || !!lineAcc;   // net movement / closing balance: a change is neither good nor bad
+        var hasVar = !!pv.col && pvVar !== 'none', showAbs = pvShow !== 'pct', showPct = pvShow !== 'abs', showTot = !pv.col || pvTot;
+        var baseOf = function (i) { return i === 0 ? null : pvVar === 'first' ? colVals[0] : colVals[i - 1]; };
+        var varOf = function (n, i) { var b = baseOf(i); if (b == null) return null; var v = n.t[colVals[i]], bv = n.t[b]; if (v == null && bv == null) return null; var d = (v || 0) - (bv || 0); return { d: d, p: bv ? d / Math.abs(bv) * 100 : null }; };
+        var tone = function (d) { if (!judged || Math.abs(d) < 0.005) return ''; return (lineFav === 'down' ? d < 0 : d > 0) ? ' pos' : ' neg'; };
+        var cells = function (n) {
+            return (pv.col ? colVals.map(function (c, i) {
+                var h = '<td class="n">' + money(n.t[c]) + '</td>';
+                if (hasVar && i > 0) { var x = varOf(n, i);
+                    if (showAbs) h += '<td class="n sp-vd' + (x ? tone(x.d) : '') + '">' + (x ? (x.d > 0 ? '+' : '') + money(x.d) : '') + '</td>';
+                    if (showPct) h += '<td class="n sp-vp' + (x ? tone(x.d) : '') + '">' + (x && x.p != null ? (x.p > 0 ? '+' : '') + x.p.toFixed(1) + '%' : '') + '</td>'; }
+                return h; }).join('') : '') + (showTot ? '<td class="n sp-tc">' + money(n.sum) + '</td>' : '');
+        };
+        var flatCells = function (n) { var sc = FL.filter.scale || 1, o = [];
+            if (pv.col) colVals.forEach(function (c, i) { o.push(n.t[c] == null ? null : n.t[c] / sc); if (hasVar && i > 0) { var x = varOf(n, i); if (showAbs) o.push(x ? x.d / sc : null); if (showPct) o.push(x && x.p != null ? Math.round(x.p * 10) / 10 : null); } });
+            if (showTot) o.push(n.sum / sc); return o; };
+        var bname = function (i) { var b = baseOf(i); return b == null ? '' : G.valLabel(pv.col, b); };
         var walk = function (n, d, path) {
             Object.keys(n.k).sort(function (a, b) { return Math.abs(n.k[b].sum) - Math.abs(n.k[a].sum); }).forEach(function (k) {
                 var ch = n.k[k], p = path.concat([k]), key = p.join('\u0001'), leaf = d === pv.rows.length - 1, isOpen = open === 'all' || open[key];
                 html.push('<tr class="sp-n d' + d + (leaf ? '' : ' sp-b') + '" data-k="' + esc(key) + '"><td style="padding-left:' + (8 + d * 18) + 'px">' + (leaf ? '<span class="sp-tg0"></span>' : '<a class="sp-tg">' + (isOpen ? '▾' : '▸') + '</a> ') + esc(G.valLabel(pv.rows[d], k)) + '</td>' + cells(ch) + '</tr>');
-                flat.push([new Array(d + 1).join('   ') + G.valLabel(pv.rows[d], k)].concat(pv.col ? colVals.map(function (c) { return ch.t[c] == null ? null : ch.t[c] / (FL.filter.scale || 1); }) : []).concat([ch.sum / (FL.filter.scale || 1)]));
+                flat.push([new Array(d + 1).join('   ') + G.valLabel(pv.rows[d], k)].concat(flatCells(ch)));
                 if (!leaf && isOpen) walk(ch, d + 1, p);
             });
         };
         walk(root, 0, []);
         out.innerHTML = ctl + '<div class="card sp-card"><div class="scroll" style="max-height:66vh"><table class="t sp-tree"><thead><tr><th>' + esc(pv.rows.map(G.label).join(' ▸ ')) + '</th>' +
-            (pv.col ? colVals.map(function (c) { return '<th class="n">' + esc(G.valLabel(pv.col, c)) + '</th>'; }).join('') : '') + '<th class="n sp-tc">Total</th></tr></thead><tbody>' +
-            '<tr class="sp-total"><td><b>Total</b></td>' + cells(root).replace(/<td class="n( sp-tc)?">/g, '<td class="n$1"><b>').replace(/<\/td>/g, '</b></td>') + '</tr>' + html.join('') + '</tbody></table></div></div>';
-        G.out = { head: [pv.rows.map(G.label).join(' ▸ ')].concat(pv.col ? colVals.map(function (c) { return G.valLabel(pv.col, c); }) : []).concat(['Total']), rows: flat };
+            (pv.col ? colVals.map(function (c, i) { return '<th class="n">' + esc(G.valLabel(pv.col, c)) + '</th>' + (hasVar && i > 0 ? (showAbs ? '<th class="n sp-vd" title="' + esc(G.valLabel(pv.col, c) + ' − ' + bname(i)) + '">Δ vs ' + esc(bname(i)) + '</th>' : '') + (showPct ? '<th class="n sp-vp">' + (showAbs ? 'Δ %' : 'Δ % vs ' + esc(bname(i))) + '</th>' : '') : ''); }).join('') : '') + (showTot ? '<th class="n sp-tc">Total</th>' : '') + '</tr></thead><tbody>' +
+            '<tr class="sp-total"><td><b>Total</b></td>' + cells(root).replace(/(<td class="[^"]*">)/g, '$1<b>').replace(/<\/td>/g, '</b></td>') + '</tr>' + html.join('') + '</tbody></table></div></div>';
+        var fh = []; if (pv.col) colVals.forEach(function (c, i) { fh.push(G.valLabel(pv.col, c)); if (hasVar && i > 0) { if (showAbs) fh.push('Δ vs ' + bname(i)); if (showPct) fh.push('Δ % vs ' + bname(i)); } });
+        G.out = { head: [pv.rows.map(G.label).join(' ▸ ')].concat(fh).concat(showTot ? ['Total'] : []), rows: [['Total'].concat(flatCells(root))].concat(flat) };
         wire();
         out.querySelectorAll('.sp-tg').forEach(function (a) { a.onclick = function () { var k = a.closest('tr').dataset.k; if (G.pvOpen === 'all') G.pvOpen = {}; if (G.pvOpen[k]) delete G.pvOpen[k]; else G.pvOpen[k] = 1; G.draw(); }; });
     };
@@ -462,23 +493,27 @@
 
     // ── Trial balance by company × account × the group segments ──
     G.viewTb = function (out) {
-        var s = G.st, segs = s.groups.filter(segCol), by = {};
+        var s = G.st, segs = s.groups.filter(segCol), by = {}, ps = s.periods.slice().sort();
+        var perRow = ps.length > 1 && s.tbBy !== 'sum', span = ps.length > 1 ? G.pname(ps[0]) + ' – ' + G.pname(ps[ps.length - 1]) : G.pname(ps[0]);
         G.rows.forEach(function (r) {
-            var k = [r.company, r.account].concat(segs.map(function (c) { return r[c] == null ? '' : r[c]; })).join('\u0001');
-            var x = by[k] = by[k] || { company: r.company, account: r.account, opening: 0, dr: 0, cr: 0 };
+            var k = (perRow ? [r.period_seq] : []).concat([r.company, r.account]).concat(segs.map(function (c) { return r[c] == null ? '' : r[c]; })).join('\u0001');
+            var x = by[k] = by[k] || { period: perRow ? G.pname(r.period_seq) : span, seq: perRow ? r.period_seq : ps[0], company: r.company, account: r.account, opening: 0, dr: 0, cr: 0 };
             segs.forEach(function (c) { x[c] = r[c]; });
-            x.opening += r.opening; x.dr += r.dr; x.cr += r.cr;
+            x.opening += perRow ? r.opening_p : r.opening; x.dr += r.dr; x.cr += r.cr;
         });
         var list = Object.keys(by).map(function (k) { var x = by[k]; x.closing = x.opening + x.dr - x.cr; return x; }).filter(function (x) { return x.opening || x.dr || x.cr; });
         var t = list.reduce(function (a, x) { a.o += x.opening; a.d += x.dr; a.c += x.cr; return a; }, { o: 0, d: 0, c: 0 });
-        out.innerHTML = '<div class="card sp-card"><div class="row"><b>Trial balance with extended segments</b><span class="sm muted">opening of the first period, debits and credits of the chosen periods, closing</span><span class="grow"></span>' +
+        out.innerHTML = '<div class="card sp-card"><div class="row" style="flex-wrap:wrap;gap:8px"><b>Trial balance with extended segments · ' + esc(ps.length > 2 && !perRow ? span + ' (' + ps.length + ' periods)' : ps.map(G.pname).join(', ')) + '</b>' +
+            (ps.length > 1 ? '<div class="seg" id="sp-tbby"><button data-b="period" class="' + (perRow ? 'on' : '') + '">One row per period</button><button data-b="sum" class="' + (perRow ? '' : 'on') + '">Periods added up</button></div>' : '') +
+            '<span class="sm muted">' + (perRow ? 'each period: its opening, debits, credits and closing' : 'opening of ' + esc(G.pname(ps[0])) + ', debits and credits of ' + (ps.length > 1 ? 'all ' + ps.length + ' periods' : 'the period') + ', closing') + '</span><span class="grow"></span>' +
             '<span class="sm">Debits ' + money(t.d) + ' · Credits ' + money(t.c) + ' · ' + (Math.abs(t.d - t.c) < 1 ? '<span class="pos">balanced</span>' : '<span class="neg">difference ' + money(t.d - t.c) + '</span>') + '</span></div><div id="sp-tbg"></div></div>';
         var sc = function (v) { return v / (FL.filter.scale || 1); };
-        var cols = [{ label: 'Company', key: 'company' }, { label: 'Account', get: function (r) { return G.valLabel('account', r.account); }, val: function (r) { return G.valLabel('account', r.account); } },
+        var cols = [{ label: 'Period', key: 'period', val: function (r) { return r.period; } }, { label: 'Company', key: 'company' }, { label: 'Account', get: function (r) { return G.valLabel('account', r.account); }, val: function (r) { return G.valLabel('account', r.account); } },
             { label: 'Type', get: function (r) { return (G.accBy[r.account] || {}).account_type || ''; } }]
             .concat(segs.map(function (c) { return { label: G.label(c), get: function (r) { return G.valLabel(c, r[c]); } }; }))
             .concat([['Opening', 'opening'], ['Debits', 'dr'], ['Credits', 'cr'], ['Closing', 'closing']].map(function (x) { return { label: x[0], n: 1, get: function (r) { return money(r[x[1]]); }, val: function (r) { return Math.round(sc(r[x[1]]) * 100) / 100; } }; }));
-        FL.grid($('sp-tbg'), cols, list.sort(function (a, b) { return a.company < b.company ? -1 : a.company > b.company ? 1 : a.account < b.account ? -1 : 1; }), { id: 'sp-tb-' + segs.join('-'), height: '62vh', max: 2000, csv: 'trial-balance-segments.csv' });
+        out.querySelectorAll('#sp-tbby button').forEach(function (b) { b.onclick = function () { s.tbBy = b.dataset.b; save(); G.draw(); }; });
+        FL.grid($('sp-tbg'), cols, list.sort(function (a, b) { return a.seq !== b.seq ? a.seq - b.seq : a.company < b.company ? -1 : a.company > b.company ? 1 : a.account < b.account ? -1 : 1; }), { id: 'sp-tb-' + (perRow ? 'p-' : '') + segs.join('-'), height: '62vh', max: 2000, csv: 'trial-balance-segments.csv' });
         G.out = { head: cols.map(function (c) { return c.label; }), rows: list.map(function (r) { return cols.map(function (c) { return c.val ? c.val(r) : c.get ? c.get(r) : r[c.key]; }); }) };
     };
 

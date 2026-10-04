@@ -37,7 +37,7 @@ FL.kdelta = function (d, f) {
     return (d >= 0 ? '▲ ' : '▼ ') + (f === 'pct' ? a.toFixed(1) + ' pts' : f === 'ratio' ? a.toFixed(2) + '×' : f === 'days' ? Math.round(a) + ' d' : FL.compact(a));
 };
 FL.num = function (v, d) { return FINE.fmt(v / (FL.filter.scale || 1), 'num', { decimals: d }); };
-FL.scaleLabel = function () { return { 1: 'units', 1000: 'thousands', 1000000: 'millions' }[FL.filter.scale] || ''; };
+FL.scaleLabel = function () { return { 1: 'units', 100: 'hundreds', 1000: 'thousands', 1000000: 'millions' }[FL.filter.scale] || ''; };
 
 // ── host bridge ──
 var _pending = {};
