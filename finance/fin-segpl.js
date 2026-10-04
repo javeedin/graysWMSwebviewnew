@@ -12,6 +12,7 @@
     var money = function (v) { var d = G.st.dec; return v == null ? '' : FINE.fmt(v / (FL.filter.scale || 1), 'num', { decimals: d != null && d !== '' ? +d : FL.filter.scale >= 1000000 ? 1 : 0 }); };
     var segCol = function (c) { return /^segment([1-9]|[12][0-9]|30)$/.test(c); };
 
+    G.money = money;
     FL.TABS.segpl = { render: function (el) { return G.render(el); } };
 
     // ── what is on this PC: ledgers, periods, segments, names ──
@@ -237,7 +238,7 @@
         var s = G.st, bar = $('sp-bar'), out = $('sp-out'); if (!bar || !out) return;
         var pn = s.periods.slice().sort().map(function (q) { return (G.periods.filter(function (p) { return p.seq === q; })[0] || {}).name || q; });
         bar.innerHTML = '<div class="row"><h2 style="margin:0"><i class="fa-solid fa-layer-group"></i> ' + esc(G.tplObj() ? G.tplObj().name : 'P&L') + (s.groups.length ? ' by ' + s.groups.map(G.label).map(esc).join(' ▸ ') : '') + '</h2><span class="grow"></span>' +
-            '<div class="seg" id="sp-view">' + [['tree', 'Tree'], ['cols', 'By columns'], ['pivot', 'Pivot'], ['tb', 'Trial balance']].map(function (v) { return '<button data-v="' + v[0] + '" class="' + (s.view === v[0] ? 'on' : '') + '">' + v[1] + '</button>'; }).join('') + '</div>' +
+            '<div class="seg" id="sp-view">' + [['kpi', 'KPIs'], ['tree', 'Tree'], ['cols', 'By columns'], ['pivot', 'Pivot'], ['tb', 'Trial balance']].map(function (v) { return '<button data-v="' + v[0] + '" class="' + (s.view === v[0] ? 'on' : '') + '">' + v[1] + '</button>'; }).join('') + '</div>' +
             '<label class="sm sp-units" title="Amounts shown in">Amounts <select id="sp-scale">' + [[1, 'absolute'], [100, 'hundreds'], [1000, 'thousands'], [1000000, 'millions']].map(function (o) { return '<option value="' + o[0] + '"' + (+FL.filter.scale === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
             '<select id="sp-dec" title="Decimals">' + [['', 'auto'], ['0', '0 dp'], ['1', '1 dp'], ['2', '2 dp']].map(function (o) { return '<option value="' + o[0] + '"' + (String(s.dec == null ? '' : s.dec) === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
             '<button class="btn sm" id="sp-xl"><i class="fa-solid fa-file-excel"></i> Excel</button></div>' +
@@ -250,7 +251,7 @@
         $('sp-scale').onchange = function () { FL.filter.scale = +this.value; if ($('f-scale')) $('f-scale').value = FL.filter.scale; FL.lsSet('filter', FL.filter); FL.cache = {}; G.draw(); };
         $('sp-dec').onchange = function () { s.dec = this.value === '' ? null : +this.value; save(); G.draw(); };
         G.out = null;
-        if (s.view === 'cols') G.viewCols(out); else if (s.view === 'pivot') G.viewPivot(out); else if (s.view === 'tb') G.viewTb(out); else G.viewTree(out);
+        if (s.view === 'kpi' && G.viewKpi) G.viewKpi(out); else if (s.view === 'cols') G.viewCols(out); else if (s.view === 'pivot') G.viewPivot(out); else if (s.view === 'tb') G.viewTb(out); else G.viewTree(out);
     };
 
     // ── Tree: one row per value of the first segment, children per next segment, chosen lines as columns ──

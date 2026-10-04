@@ -188,6 +188,17 @@ Segments are named from the chart of accounts (fin_coa_segments, else the saved 
   Δ and Δ % (green when good for that line: income up, costs down; margins in points). Opened accounts and the
   drill-down work on the comparison too. Comparison months that are not synced with the extended segments are named,
   with a link to Trial balance sync.
+- **KPIs** (first view): one page per group-by segment (e.g. Salesperson) for the chosen periods —
+  - KPI cards: revenue, gross profit and margin, operating expenses (% of revenue), EBITDA and margin, net profit — each with
+    its change when *Compare with* is set — plus active values, loss makers, top-5 share of revenue and the share of opex
+    sitting on a blank / default value (e.g. D000).
+  - **What stands out**: plain sentences found by rules — revenue concentration, costs not owned by anyone, loss makers,
+    margin laggards (with the gross profit at stake), revenue without cost of sales (a posting gap), costs without revenue,
+    the biggest EBITDA gain and drop, values lost since the comparison.
+  - Charts: margin map (revenue × gross margin, red triangles = EBITDA negative), concentration curve, and what drove the
+    change (or the top values) — *Rank and chart by* revenue, gross profit, EBITDA or net profit.
+  - Ranking table with share, margins, change, a trend sparkline (3+ periods) and flags; click a row for its statement.
+  - *Ask the Copilot* sends the table and asks for the five things to act on.
 - **Tree**: *Periods* added up — optionally *Compare with* the same period last year or the previous periods, so every
   line shows Actual, PY / Prev, Δ and Δ % — or *side by side* (one column per period under every line), with the change
   vs the previous or the first period and an optional Total column. Rows show only the value (the segment is the

@@ -602,3 +602,17 @@ body.nav-min .tabs.side .datachip { display: none; }
 .sp-tree.sp-cmp th.sp-gh { text-align: center; border-left: 2px solid var(--line, #e2e8f0); }
 .sp-tree.sp-cmp .sp-c0 { border-left: 2px solid var(--line, #e2e8f0); }
 .sp-tree.sp-cmp .sp-cv { color: #64748b; }
+/* Segment P&L › KPIs */
+.sk-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.sk-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; }
+.sk-l { font-size: 12px; color: #64748b; } .sk-v { font-size: 1.35rem; font-weight: 700; margin: 2px 0; } .sk-s { font-size: 12px; color: #64748b; }
+.sk-s.pos { color: var(--good); } .sk-s.neg { color: var(--bad); }
+.sk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.sk-grid h3, .sk-wrap > .card h3 { margin: 0 0 8px; font-size: 14px; }
+.sk-ch { position: relative; height: 280px; }
+.sk-ins { list-style: none; margin: 0; padding: 0; } .sk-ins li { display: flex; gap: 8px; padding: 7px 8px; border-left: 3px solid #cbd5e1; margin-bottom: 6px; background: #f8fafc; border-radius: 4px; font-size: 13px; line-height: 1.4; }
+.sk-ins li.bad { border-color: var(--bad); background: #fef2f2; } .sk-ins li.good { border-color: var(--good); background: #f0fdf4; }
+.sk-ic { font-weight: 700; width: 14px; text-align: center; flex: none; } .sk-ins li.bad .sk-ic { color: var(--bad); } .sk-ins li.good .sk-ic { color: var(--good); }
+.sk-spark { vertical-align: middle; }
+@media (max-width: 700px) { .sk-grid { grid-template-columns: 1fr; } }
+.sk-wrap .card h3 { display: block; } .sk-wrap .card h3 .muted { font-weight: 400; margin-left: 6px; }
