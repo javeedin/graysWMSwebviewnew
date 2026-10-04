@@ -183,6 +183,11 @@ Segments are named from the chart of accounts (fin_coa_segments, else the saved 
 - **By columns**: the whole statement with one column per value of the first segment (biggest 12, others, total).
   Press ▸ on a line (or *Open all lines*) to see its accounts with their amount in every column; click an account amount for
   the balance rows behind it (period × company × segments, debits / credits, filters and CSV).
+  **Columns**: one per value of the first segment, or *one per period* (each chosen month side by side + Total).
+  **Compare with**: *same period last year* or *previous period(s)* — every column then shows Actual, the comparison,
+  Δ and Δ % (green when good for that line: income up, costs down; margins in points). Opened accounts and the
+  drill-down work on the comparison too. Comparison months that are not synced with the extended segments are named,
+  with a link to Trial balance sync.
 - **Pivot**: rows = any fields in order (company, account, period, any segment) with subtotals and ▸ / open all / close
   all, columns = one field (default period), value = profit (income +, costs −), net movement, closing balance or one
   statement line (e.g. *Revenue* by salesperson × month).

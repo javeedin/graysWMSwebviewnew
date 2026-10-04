@@ -592,3 +592,8 @@ body.nav-min .tabs.side .datachip { display: none; }
 .sp-cols tr.sp-acc td { background: #fbfdff; color: #334155; font-size: 12px; }
 .sp-cols td.sp-dc { cursor: pointer; } .sp-cols td.sp-dc:hover { background: #eff6ff; text-decoration: underline; }
 .sp-cols .sp-ctg { margin-right: 4px; }
+.sp-cols.sp-cmp th.sp-gh { text-align: center; border-left: 2px solid var(--line, #e2e8f0); }
+.sp-cols.sp-cmp .sp-c0 { border-left: 2px solid var(--line, #e2e8f0); }
+.sp-cols.sp-cmp .sp-cv { color: #64748b; }
+.sp-cols.sp-cmp .sp-cg { font-size: 12px; }
+.sp-cctl select { margin-left: 4px; }
