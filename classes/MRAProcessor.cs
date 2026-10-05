@@ -473,10 +473,47 @@ namespace WMSApp.MRA
         /// 'N' or a type missing from the table means "do not interface" (Excluded). When the table cannot
         /// be read the order is NOT sent either (Excluded = false, so it shows as a failure to retry).
         /// </summary>
-        // MRA_ORDER_TYPES hardly ever changes: read it once per 5 minutes instead of once per order
-        // (a trip of 40 orders made 40 identical APEX calls).
-        private const int ORDER_TYPES_CACHE_MINUTES = 5;
-        private static (DateTime At, List<Dictionary<string, string>> Rows, List<string> Names)? _orderTypesCache;
+        // MRA_ORDER_TYPES is read once per Print Trip click: the page sends one batch id with every order of
+        // that click (OrderTypesBatch), the first order reads the table and the others reuse that read (also
+        // when they run at the same time). Without a batch id every order reads it, as before.
+        public string OrderTypesBatch { get; set; }
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<(List<Dictionary<string, string>> Rows, List<string> Names, string Error)>>> _orderTypeBatches = new();
+
+        private static async Task<(List<Dictionary<string, string>> Rows, List<string> Names, string Error)> ReadOrderTypesAsync()
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            string body = JsonConvert.SerializeObject(new { sql = "SELECT * FROM mra_order_types", maxRows = 1000, appUser = Environment.UserName });
+            var resp = await http.PostAsync(APEX_QUERY_URL, new StringContent(body, Encoding.UTF8, "application/json"));
+            string text = await resp.Content.ReadAsStringAsync();
+            var root = Newtonsoft.Json.Linq.JObject.Parse(text);
+            if (root.Value<bool?>("success") == false || root["rows"] == null)
+                return (null, null, "Could not read MRA_ORDER_TYPES (" + (root.Value<string>("error") ?? "HTTP " + (int)resp.StatusCode) + ") - not sent to MRA");
+
+            var cols = (root["columns"] as Newtonsoft.Json.Linq.JArray ?? new Newtonsoft.Json.Linq.JArray())
+                .Select(c => (c.Type == Newtonsoft.Json.Linq.JTokenType.Object ? c.Value<string>("name") : c.ToString())?.ToUpperInvariant() ?? "").ToList();
+            var rows = new List<Dictionary<string, string>>();
+            foreach (var r in (Newtonsoft.Json.Linq.JArray)root["rows"])
+            {
+                var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (r is Newtonsoft.Json.Linq.JArray arr) { for (int i = 0; i < arr.Count && i < cols.Count; i++) d[cols[i]] = arr[i]?.ToString(); }
+                else if (r is Newtonsoft.Json.Linq.JObject obj) foreach (var p in obj.Properties()) d[p.Name.ToUpperInvariant()] = p.Value?.ToString();
+                rows.Add(d);
+            }
+            var names = cols.Count > 0 ? cols : (rows.FirstOrDefault()?.Keys.ToList() ?? new List<string>());
+            return (rows, names, null);
+        }
+
+        private Task<(List<Dictionary<string, string>> Rows, List<string> Names, string Error)> OrderTypesAsync()
+        {
+            if (string.IsNullOrWhiteSpace(OrderTypesBatch)) return ReadOrderTypesAsync();
+            // keep only the last few clicks
+            if (_orderTypeBatches.Count > 20) foreach (var k in _orderTypeBatches.Keys.Take(_orderTypeBatches.Count - 10).ToList()) _orderTypeBatches.TryRemove(k, out _);
+            var lazy = _orderTypeBatches.GetOrAdd(OrderTypesBatch, _ => new Lazy<Task<(List<Dictionary<string, string>>, List<string>, string)>>(ReadOrderTypesAsync));
+            var task = lazy.Value;
+            // a failed read is not shared: the next order of the click reads again
+            _ = task.ContinueWith(t => { if (t.IsFaulted || t.Result.Error != null) _orderTypeBatches.TryRemove(OrderTypesBatch, out _); }, TaskScheduler.Default);
+            return task;
+        }
 
         private async Task<(bool Allowed, bool Excluded, string Message)> CheckOrderTypeAsync(string orderType, Action<string, string> logCallback)
         {
@@ -484,33 +521,9 @@ namespace WMSApp.MRA
                 return (false, false, "Cannot check MRA_ORDER_TYPES: the order summary has no ORDER_TYPE_CODE - not sent to MRA");
             try
             {
-                List<Dictionary<string, string>> rows; List<string> names;
-                var cached = _orderTypesCache;
-                if (cached != null && DateTime.UtcNow - cached.Value.At < TimeSpan.FromMinutes(ORDER_TYPES_CACHE_MINUTES))
-                { rows = cached.Value.Rows; names = cached.Value.Names; }
-                else
-                {
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
-                string body = JsonConvert.SerializeObject(new { sql = "SELECT * FROM mra_order_types", maxRows = 1000, appUser = Environment.UserName });
-                var resp = await http.PostAsync(APEX_QUERY_URL, new StringContent(body, Encoding.UTF8, "application/json"));
-                string text = await resp.Content.ReadAsStringAsync();
-                var root = Newtonsoft.Json.Linq.JObject.Parse(text);
-                if (root.Value<bool?>("success") == false || root["rows"] == null)
-                    return (false, false, "Could not read MRA_ORDER_TYPES (" + (root.Value<string>("error") ?? "HTTP " + (int)resp.StatusCode) + ") - not sent to MRA");
-
-                var cols = (root["columns"] as Newtonsoft.Json.Linq.JArray ?? new Newtonsoft.Json.Linq.JArray())
-                    .Select(c => (c.Type == Newtonsoft.Json.Linq.JTokenType.Object ? c.Value<string>("name") : c.ToString())?.ToUpperInvariant() ?? "").ToList();
-                rows = new List<Dictionary<string, string>>();
-                foreach (var r in (Newtonsoft.Json.Linq.JArray)root["rows"])
-                {
-                    var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                    if (r is Newtonsoft.Json.Linq.JArray arr) { for (int i = 0; i < arr.Count && i < cols.Count; i++) d[cols[i]] = arr[i]?.ToString(); }
-                    else if (r is Newtonsoft.Json.Linq.JObject obj) foreach (var p in obj.Properties()) d[p.Name.ToUpperInvariant()] = p.Value?.ToString();
-                    rows.Add(d);
-                }
-                names = cols.Count > 0 ? cols : (rows.FirstOrDefault()?.Keys.ToList() ?? new List<string>());
-                _orderTypesCache = (DateTime.UtcNow, rows, names);
-                }
+                var read = await OrderTypesAsync();
+                if (read.Error != null) return (false, false, read.Error);
+                var rows = read.Rows; var names = read.Names;
                 string flagCol = names.FirstOrDefault(c => c == "INTERFACE_FLAG")
                               ?? names.FirstOrDefault(c => c.Contains("INTERFACE") && c.Contains("FLAG"))
                               ?? names.FirstOrDefault(c => c.Contains("INTERFACE"));

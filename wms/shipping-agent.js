@@ -2188,7 +2188,7 @@
     /** One order through the C# MRA processor → { st, irn, msg, log, timings, secs }. onLive(partial) gets each step. */
     const SA_MRA_STEPS = { CheckingMRAStatus: 'check', FetchingOrderSummary: 'summary', CheckingOrderType: 'type', FetchingOrderDetails: 'lines',
         ValidatingOrderLines: 'validate', CreatingMRAInvoice: 'gateway', UpdatingFusionOrder: 'Fusion update' };
-    function saMraInterfaceOrder(orderNumber, instanceName, creds, onLive) {
+    function saMraInterfaceOrder(orderNumber, instanceName, creds, onLive, batchId) {
         return new Promise(resolve => {
             if (!window.chrome?.webview) { resolve({ st: 'FAILED', msg: 'WebView2 not available' }); return; }
             const requestId = 'sa_mra_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
@@ -2229,7 +2229,7 @@
             window.chrome.webview.addEventListener('message', handler);
             timer = setTimeout(() => done({ st: 'FAILED', msg: 'MRA request timed out after 3 minutes' }), 180000);
             window.chrome.webview.postMessage({ action: 'processMRAInterface', requestId, orderNumber,
-                fusionUsername: creds.username, fusionPassword: creds.password, instance: instanceName || 'PROD' });
+                fusionUsername: creds.username, fusionPassword: creds.password, instance: instanceName || 'PROD', batchId: batchId || ('one_' + requestId) });
         });
     }
     // How many orders go to MRA at the same time (each order already runs its 3 Fusion reports in parallel).
@@ -2302,6 +2302,7 @@
         const toPrint = mraOn ? [] : printable.slice();
         let gwStreak = 0, gwStop = null;   // two MRA gateway timeouts / connection errors in a row = gateway down: stop sending
         // Several orders at the same time (saMraParallel), results kept in trip order so printing order does not change.
+        const batchId = 'pt_' + tripId + '_' + Date.now();   // MRA_ORDER_TYPES is read once for this click
         const results = new Array(printable.length);
         const todo = [];
         printable.forEach((o, i) => {
@@ -2324,7 +2325,7 @@
                     else {
                         saMraSet(tripId, o.orderNumber, { st: 'RUNNING', inst: instanceName });
                         r = await saMraInterfaceOrder(o.orderNumber, instanceName, creds,
-                            live => saMraSet(tripId, o.orderNumber, Object.assign({ st: 'RUNNING', inst: instanceName }, live)));
+                            live => saMraSet(tripId, o.orderNumber, Object.assign({ st: 'RUNNING', inst: instanceName }, live)), batchId);
                         if (r.gw) gwStreak++; else if (r.st === 'DONE' || r.step === 'CreatingMRAInvoice') gwStreak = 0;
                         if (gwStreak >= 2 && !gwStop) gwStop = `the MRA gateway did not answer for ${gwStreak} orders in a row — stopped sending; nothing was sent for this order. Use Retry when MRA answers.`;
                     }

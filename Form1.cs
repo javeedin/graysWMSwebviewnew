@@ -4805,6 +4805,9 @@ navPanel.Controls.Add(wmsDevButton);
                         fusionPassword,
                         instance
                     );
+                    // Shipping Agent Print Trip: one id per click → MRA_ORDER_TYPES read once for all its orders
+                    if (root.TryGetProperty("batchId", out var mraBatch) && mraBatch.ValueKind == JsonValueKind.String)
+                        mraProcessor.OrderTypesBatch = mraBatch.GetString();
 
                     // Process with progress updates and data callbacks
                     var result = await mraProcessor.ProcessMRAInterfaceAsync(
