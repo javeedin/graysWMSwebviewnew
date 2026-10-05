@@ -290,16 +290,26 @@
                 var k = c && c.dataField; if (!k) return true;
                 return !(API_FIELDS[String(k).toLowerCase()] && k !== k.toUpperCase()) && k !== DATE_FIELD && k !== MRA_FIELD && k !== SHIP_FIELD;
             });
-            // Actual ship date takes the printing status's place; printing status moves to the end
-            var pi = cols.findIndex(function (c) { return c && /^printing_st$/i.test(c.dataField || ''); }), printCol = pi >= 0 ? cols.splice(pi, 1)[0] : null;
-            if (pi < 0) pi = cols.findIndex(function (c) { return c && /^ship_confirm_st$/i.test(c.dataField || ''); }) + 1 || cols.length;
-            cols.splice(pi, 0, { dataField: SHIP_FIELD, caption: 'Actual Ship Date', width: 150, alignment: 'center', cellTemplate: shipCell });
-            if (printCol) cols.push(printCol);
-            var at = cols.findIndex(function (c) { return c && /^order_number$/i.test(c.dataField || ''); });
-            cols.splice(at >= 0 ? at + 1 : cols.length, 0, { dataField: DATE_FIELD, caption: 'Picker Assigned On', width: 135, alignment: 'center',
-                cellTemplate: function (el, info) { el.text(info.value || '—').css({ color: info.value ? '#0f766e' : '#94a3b8', whiteSpace: 'nowrap' }); } });
+            // Column order: Actions · MRA · line status · order number · picker · Picker Assigned On · order type · the rest
+            // (Actual Ship Date right after the trip date) · printing status last.
+            var take = function (re) {
+                var i = cols.findIndex(function (c) { return c && re.test(c.dataField || ''); });
+                return i >= 0 ? cols.splice(i, 1)[0] : null;
+            };
+            var printCol = take(/^printing_st$/i);
+            var lead = [
+                { dataField: MRA_FIELD, caption: 'MRA', width: 118, alignment: 'center', cellTemplate: mraCell },
+                take(/^line_status$/i), take(/^order_number$/i), take(/^picker(_name)?$/i),
+                { dataField: DATE_FIELD, caption: 'Picker Assigned On', width: 135, alignment: 'center',
+                    cellTemplate: function (el, info) { el.text(info.value || '—').css({ color: info.value ? '#0f766e' : '#94a3b8', whiteSpace: 'nowrap' }); } },
+                take(/^order_type$/i)
+            ].filter(Boolean);
             var act = cols.findIndex(function (c) { return c && !c.dataField && /actions/i.test(c.caption || ''); });
-            cols.splice(act >= 0 ? act + 1 : 0, 0, { dataField: MRA_FIELD, caption: 'MRA', width: 118, alignment: 'center', cellTemplate: mraCell });
+            cols.splice.apply(cols, [act + 1, 0].concat(lead));          // act = -1 → at the start
+            var td = cols.findIndex(function (c) { return c && /^(tripdate|trip_date)$/i.test(c.dataField || ''); });
+            if (td < 0) td = cols.findIndex(function (c) { return c && /^ship_confirm_st$/i.test(c.dataField || ''); });
+            cols.splice(td >= 0 ? td + 1 : cols.length, 0, { dataField: SHIP_FIELD, caption: 'Actual Ship Date', width: 150, alignment: 'center', cellTemplate: shipCell });
+            if (printCol) cols.push(printCol);
             grid.option('columns', cols);
             grid.refresh();
         }).catch(function (e) { console.warn('[Trip extras] not added:', e); });
