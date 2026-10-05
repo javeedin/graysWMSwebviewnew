@@ -48,7 +48,7 @@
         (ctx.closed[f] ? Object.keys(ctx.closed[f]) : []).forEach(function (v) { if (rule.stepDown !== false) ex[v] = 1; });
         var only = list.length ? {} : null; list.forEach(function (v) { only[v] = 1; });
         var ok = function (v) { return !ex[v] && (!only || only[v]); };
-        var per = to.perCompany !== false;
+        var per = to.perCompany !== false && f !== 'company';   // allocating to companies spreads across them
         if (to.method === 'fixed') {
             (to.targets || []).forEach(function (t) { var v = String(t.value), w = +t.pct || 0; if (!ex[v] && w > 0) out[v] = (out[v] || 0) + w; });
         } else if (to.method === 'driver') {
@@ -100,8 +100,8 @@
             var poolVals = {};
             pool.forEach(function (r) {
                 var x = r.amount * pct; st.pool += x; st.rows++;
-                var key = to.perCompany !== false ? r.company : '*';
-                var w = wCache[key] || (wCache[key] = A.weights(rule, ctx, to.perCompany !== false ? r.company : null));
+                var perCo = to.perCompany !== false && f !== 'company', key = perCo ? r.company : '*';
+                var w = wCache[key] || (wCache[key] = A.weights(rule, ctx, perCo ? r.company : null));
                 // never back to itself — only when the pool names its values on the receiving dimension (department 900 → departments);
                 // a pool of whole accounts is shared over every receiver, its own part included
                 var wfs = Object.keys(where0).filter(function (k) { return (where0[k] || []).length; }), selfDim = wfs.indexOf(f) >= 0;
@@ -114,8 +114,8 @@
                 var keys = Object.keys(w), done = 0;
                 keys.forEach(function (v, i) {
                     var y = i === keys.length - 1 ? x - done : x * w[v] / tot; done += y;      // last share takes the rounding
-                    var d = Object.assign({}, r.dims); d[f] = v;
-                    add.push({ company: r.company, account: rule.post && rule.post['in'] ? String(rule.post['in']) : r.account, type: r.type, dims: d, amount: y, src: rule.id, side: 'in', origin: r.account });
+                    var d = Object.assign({}, r.dims); if (f !== 'company') d[f] = v;
+                    add.push({ company: f === 'company' ? v : r.company, account: rule.post && rule.post['in'] ? String(rule.post['in']) : r.account, type: r.type, dims: d, amount: y, src: rule.id, side: 'in', origin: r.account });
                     st.targets[v] = (st.targets[v] || 0) + y;
                     var fromLbl = wfs.length ? wfs.map(function (k) { return k + '=' + val(r, k); }).join(' ') : val(r, f) !== '' ? f + '=' + val(r, f) : 'pool';
                     var fk = rule.id + '|' + fromLbl + '|' + f + '=' + v;

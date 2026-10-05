@@ -308,6 +308,11 @@ test('cost allocation: step-down, drivers, GL driver, ABC stages, every rule net
     var r2 = AL.run({ rules: [{ id: 'a', pool: { where: { cc: ['900'] } }, to: { field: 'cc', method: 'fixed', targets: [{ value: '100', pct: 30 }, { value: '200', pct: 10 }] } },
         { id: 'b', pool: { where: { cc: ['800'] } }, to: { field: 'cc', method: 'driver', driver: 'none' } }] }, rows, accs);
     near(r2.steps[0].targets['100'], 750); near(r2.steps[1].unallocated, 300); assert.ok(r2.warnings.length === 1);
+    // to companies: travel of company 01 shared over 01 and 02 by their sales
+    var rows3 = [{ company: '01', account: '6100', type: 'E', dims: {}, amount: 1000 }, { company: '01', account: '4000', type: 'R', dims: {}, amount: -3000 }, { company: '02', account: '4000', type: 'R', dims: {}, amount: -1000 }];
+    var r3 = AL.run({ rules: [{ id: 't', pool: { accounts: ['6100'] }, to: { field: 'company', method: 'gl', gl: { accounts: { type: 'R' } } } }] }, rows3, accs);
+    var co = {}; AL.summary(r3, 'company').forEach(function (o) { co[o.value] = o; });
+    near(co['01'].loaded, 750); near(co['02'].loaded, 250); near(co['02'].after, 750);
 });
 
 console.log('\n' + (n - fail) + '/' + n + ' passed');

@@ -64,10 +64,12 @@ list you type) — without posting anything to Fusion. Rules sit on the left and
    *Staff costs*). Optionally take the balances of only some departments, and allocate a % of the balance. The footer
    shows the source balance.
 2. **Allocation** — choose who receives it (*Allocate to* a dimension, or *your own list* — e.g. activities that a later
-   rule shares on to customers) and how: **Percentages**, **Equally**, **By revenue** or **By a number** (headcount, m²,
+   rule shares on to customers) and how: **By sales** (the default — each receiver's share of sales), **Percentages**, **Equally** or **By a number** (headcount, m²,
    orders — type or paste them). Share and amount per receiver update as you type; the footer shows
    *Source balance · Allocated · ✓ equal*.
-3. **Result** — one row per source account: its balance, the amount each receiver got, the total allocated and the
+3. **Result** — first **profitability by receiver**: e.g. *Travel 100,000 shared to 12 salespeople by their sales*,
+   then per salesperson: sales, other costs, travel allocated (its share), share %, profit and margin after, profit as
+   booked and the change, with a chart. Below it the check — one row per source account: its balance, the amount each receiver got, the total allocated and the
    difference (✓ 0 when everything is allocated), with totals and the journal lines (credit the source, debit the
    receivers).
 

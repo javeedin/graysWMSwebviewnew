@@ -746,3 +746,4 @@ body.fl-maxed { overflow: hidden; }
 .al-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
 .al-pick .al-pl { max-height: 170px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; margin-top: 4px; columns: 2; font-size: .8rem; }
 .al-pick .al-pl label { display: block; break-inside: avoid; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.al-story { background: var(--accent-bg); border-left: 4px solid var(--accent); padding: 8px 12px; border-radius: 6px; }

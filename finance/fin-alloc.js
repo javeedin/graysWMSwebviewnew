@@ -170,7 +170,7 @@
         return r;
     };
     AL.newRule = function () {
-        var m = AL.model(), r = { id: A.uid('r'), name: 'Rule ' + ((m.rules || []).length + 1), active: true, pool: { accounts: [], where: {} }, to: { field: AL.mainField(), method: 'fixed', targets: [] }, stepDown: true };
+        var m = AL.model(), r = { id: A.uid('r'), name: 'Rule ' + ((m.rules || []).length + 1), active: true, pool: { accounts: [], where: {} }, to: { field: AL.mainField(), method: 'gl', gl: { accounts: { type: 'R' } }, targets: [] }, stepDown: true };
         (m.rules = m.rules || []).push(r); AL.st.sel = r.id; AL.st.step = 1; save(); AL.changed();
     };
 
@@ -235,7 +235,7 @@
         box.innerHTML = '<div class="card"><h3><i class="fa-solid fa-list-ol"></i> Rules <small>run in this order</small></h3>' +
             (items || '<p class="sm muted">No rules yet.</p>') +
             '<button class="btn sm primary" id="al-add" style="width:100%;margin-top:6px"><i class="fa-solid fa-plus"></i> New rule</button>' +
-            ((m.rules || []).length ? '<div class="al-it' + (AL.st.sel === 'sum' ? ' on' : '') + '" data-id="sum" style="margin-top:10px"><i class="fa-solid fa-chart-pie"></i><div class="grow"><b>Result of all rules</b><div class="sm muted">before / after, flows, journal</div></div></div>' : '') + '</div>';
+            ((m.rules || []).length ? '<div class="al-it' + (AL.st.sel === 'sum' ? ' on' : '') + '" data-id="sum" style="margin-top:10px"><i class="fa-solid fa-chart-pie"></i><div class="grow"><b>Profitability after all rules</b><div class="sm muted">profit before / after, flows, journal</div></div></div>' : '') + '</div>';
         $('al-add').onclick = AL.newRule;
         box.querySelectorAll('.al-it').forEach(function (it) { it.onclick = function () { AL.st.sel = it.dataset.id; if (AL.st.sel !== 'sum') AL.st.step = AL.st.step || 1; save(); AL.paintList(); AL.paintMain(); }; });
     };
@@ -354,7 +354,7 @@
         var tSel = {}; (to.targets || []).forEach(function (t) { tSel[typeof t === 'object' ? t.value : t] = typeof t === 'object' ? t.pct : 1; });
         var s = AL.step(r) || { targets: {} }, fields = AL.allFields();
         var M = { fixed: ['fa-percent', 'Percentages', 'you type each receiver’s %'], even: ['fa-equals', 'Equally', 'same amount to every ticked receiver'],
-            gl: ['fa-sack-dollar', 'By revenue', 'in proportion to each receiver’s revenue'], driver: ['fa-hashtag', 'By a number', 'headcount, m², orders … you type per receiver'] };
+            gl: ['fa-sack-dollar', 'By sales', 'in proportion to each receiver’s sales (revenue accounts)'], driver: ['fa-hashtag', 'By a number', 'headcount, m², orders … you type per receiver'] };
         var closed = {};   // values an earlier rule emptied (step-down): they receive nothing
         if (r.stepDown !== false) (m.rules || []).slice(0, AL.ruleIx(r)).forEach(function (x) { if (x.active !== false) (((x.pool || {}).where || {})[f] || []).forEach(function (v) { closed[v] = x.name; }); });
         var input = function (v) {
@@ -362,7 +362,7 @@
             if (closed[v.value]) return '<span class="muted sm" title="Step-down: a value an earlier rule shared out receives nothing">emptied by ' + esc(closed[v.value]) + '</span>';
             if (meth === 'fixed') return '<input type="number" step="0.01" min="0" class="s2-in" value="' + esc(tSel[v.value] != null ? tSel[v.value] : '') + '" placeholder="%" style="width:90px">';
             if (meth === 'driver') return '<input type="number" step="any" min="0" class="s2-in" value="' + esc(drv && drv.values[v.value] != null ? drv.values[v.value] : '') + '" style="width:90px">';
-            if (meth === 'gl') return '<input type="checkbox" class="s2-ck"' + (!(to.targets || []).length || tSel[v.value] ? ' checked' : '') + '> ' + money(v.rev);
+            if (meth === 'gl') return '<input type="checkbox" class="s2-ck"' + (!(to.targets || []).length || tSel[v.value] ? ' checked' : '') + '>' + (v.rev > 0 ? '' : ' <span class="muted sm">no sales → gets nothing</span>');
             return '<input type="checkbox" class="s2-ck"' + (!(to.targets || []).length || tSel[v.value] ? ' checked' : '') + '>';
         };
         $('al-body').innerHTML = '<p class="sm">Who receives the source balance, and how it is shared. The share and amount columns are worked out as you type.</p>' +
@@ -371,9 +371,9 @@
             '<div class="al-meth">' + Object.keys(M).map(function (k) { return '<button class="' + (k === meth ? 'on' : '') + '" data-m="' + k + '"><i class="fa-solid ' + M[k][0] + '"></i><b>' + M[k][1] + '</b><span>' + M[k][2] + '</span></button>'; }).join('') + '</div>' +
             (meth === 'driver' ? '<label class="sm">What the number is <input id="s2-unit" value="' + esc(drv ? drv.unit || drv.name : 'headcount') + '" style="width:160px"></label> <a class="sm" id="s2-paste">paste from Excel</a>' : '') +
             '<div class="row" style="gap:6px;margin:6px 0"><input type="search" id="s2-q" placeholder="Search receivers" style="min-width:200px">' + (meth === 'fixed' ? '<a class="sm" id="s2-even">split evenly over the filled ones</a>' : meth === 'even' || meth === 'gl' ? '<a class="sm" id="s2-all">tick all</a> · <a class="sm" id="s2-none">none</a>' : '') + '</div>' +
-            '<div class="scroll" style="max-height:50vh"><table class="t al-rcv"><thead><tr><th>' + esc(AL.label(f)) + '</th><th>' + (meth === 'fixed' ? 'Percentage' : meth === 'driver' ? esc(drv ? drv.unit || 'Number' : 'Number') : meth === 'gl' ? 'Revenue' : 'Receives') + '</th><th class="n">Share</th><th class="n">Amount</th></tr></thead><tbody>' +
-            vals.map(function (v) { var a = s.targets[v.value]; return '<tr data-v="' + esc(v.value) + '" data-s="' + esc((v.value + ' ' + ((AL.names[f] || {})[v.value] || '')).toLowerCase()) + '"><td>' + esc(AL.vname(f, v.value)) + '</td><td>' + input(v) + '</td><td class="n s2-sh">' + (a && s.allocated ? pct(a / s.allocated * 100) : '') + '</td><td class="n s2-am">' + (a ? money(a) : '') + '</td></tr>'; }).join('') +
-            '</tbody><tfoot><tr><td><b>Total</b></td><td id="s2-in"></td><td class="n" id="s2-sh"></td><td class="n" id="s2-am"></td></tr></tfoot></table></div>';
+            '<div class="scroll" style="max-height:50vh"><table class="t al-rcv"><thead><tr><th>' + esc(AL.label(f)) + '</th><th class="n">Sales</th><th>' + (meth === 'fixed' ? 'Percentage' : meth === 'driver' ? esc(drv ? drv.unit || 'Number' : 'Number') : 'Receives') + '</th><th class="n">Share</th><th class="n">Amount</th></tr></thead><tbody>' +
+            vals.map(function (v) { var a = s.targets[v.value]; return '<tr data-v="' + esc(v.value) + '" data-s="' + esc((v.value + ' ' + ((AL.names[f] || {})[v.value] || '')).toLowerCase()) + '"><td>' + esc(AL.vname(f, v.value)) + '</td><td class="n">' + (v.rev ? money(v.rev) : '') + '</td><td>' + input(v) + '</td><td class="n s2-sh">' + (a && s.allocated ? pct(a / s.allocated * 100) : '') + '</td><td class="n s2-am">' + (a ? money(a) : '') + '</td></tr>'; }).join('') +
+            '</tbody><tfoot><tr><td><b>Total</b></td><td class="n"><b>' + money(vals.reduce(function (t, v) { return t + (v.rev || 0); }, 0)) + '</b></td><td id="s2-in"></td><td class="n" id="s2-sh"></td><td class="n" id="s2-am"></td></tr></tfoot></table></div>';
         var B = $('al-body'), tb = B.querySelector('.al-rcv tbody');
         var collect = function () {
             var trs = [].slice.call(tb.querySelectorAll('tr'));
@@ -448,7 +448,27 @@
         var tSrc = 0, tAll = 0; list.forEach(function (a) { tSrc += a.src; tAll += a.total; });
         var ok = list.length && list.every(function (a) { return Math.abs(a.diff) < 0.5; });
         var oth = function (a) { var t = 0; rest.forEach(function (v) { t += a.t[v] || 0; }); return t; };
-        $('al-body').innerHTML = (!list.length ? '<div class="callout warn">No source balance — tick accounts in step 1.</div>' :
+        // profitability per receiver: the rules up to this one, and what this rule moved
+        var upto = clone(AL.model()); upto.rules = upto.rules.slice(0, AL.ruleIx(r) + 1);
+        var resK = A.run(upto, AL.rows || [], FL.dims.accounts || []), net = {}, gin = {};
+        resK.lines.forEach(function (l) {
+            if (l.src !== r.id) return;
+            var v = f === 'company' ? l.company : String(l.dims[f] == null ? '' : l.dims[f]);
+            net[v] = (net[v] || 0) + l.amount; if (l.side === 'in') gin[v] = (gin[v] || 0) + l.amount;
+        });
+        // the source cost is taken out of where it was booked and put back on each receiver by its share
+        var prof = A.summary(resK, f).map(function (o) {
+            o.share = gin[o.value] || 0; o.other = o.loaded - o.share; o.booked = o.after + (net[o.value] || 0); o.change = o.after - o.booked;
+            o.mB = o.revenue ? o.booked / o.revenue * 100 : null; return o;
+        }).filter(function (o) { return o.revenue || o.loaded || o.share; });
+        var srcLbl = list.length === 1 ? (list[0].name || list[0].code).replace(/^PL\s*(EXP)?\s*-\s*/i, '').slice(0, 24) : 'Cost';
+        var srcNames = list.slice(0, 3).map(function (a) { return a.name || a.code; }).join(', ') + (list.length > 3 ? ' + ' + (list.length - 3) + ' more' : '');
+        var profHtml = !list.length ? '' : '<div class="al-story"><b>' + money(tAll) + '</b> of <b>' + esc(srcNames) + '</b> shared to <b>' + Object.keys(tg).length + ' ' + esc(AL.label(f)) + '</b> ' +
+            ({ gl: 'by their sales', fixed: 'by the percentages you set', even: 'equally', driver: 'by ' + esc(((AL.model().drivers || []).filter(function (d) { return d.id === 'd_' + r.id; })[0] || {}).unit || 'your numbers') }[(r.to || {}).method] || '') + '.</div>' +
+            '<h4 style="margin:10px 0 4px"><i class="fa-solid fa-scale-balanced"></i> Profitability by ' + esc(AL.label(f)) + ' after this allocation</h4>' +
+            '<div class="chartbox short"><canvas id="s3-ch"></canvas></div><div id="s3-pr"></div>' +
+            '<h4 style="margin:14px 0 4px"><i class="fa-solid fa-check-double"></i> Check — every source account fully allocated</h4>';
+        $('al-body').innerHTML = profHtml + (!list.length ? '<div class="callout warn">No source balance — tick accounts in step 1.</div>' :
             '<div class="al-check ' + (ok ? 'ok' : 'bad') + '"><i class="fa-solid ' + (ok ? 'fa-circle-check' : 'fa-triangle-exclamation') + '"></i><div><b>' + (ok ? 'Every account is fully allocated' : 'Not everything is allocated') + '</b><br>' +
             'Source balance ' + money(tSrc) + (share !== 1 ? ' × ' + (share * 100).toFixed(1) + '% = ' + money(tSrc * share) : '') + ' · allocated ' + money(tAll) + ' · difference ' + money(tSrc * share - tAll) +
             (s.warn && s.warn.length ? '<br><span class="sm">' + esc(s.warn.join(' · ')) + '</span>' : '') + '</div></div>') +
@@ -461,6 +481,23 @@
             }).join('') + '</tbody><tfoot><tr><td><b>Total</b></td><td>' + list.length + ' account(s)</td><td class="n"><b>' + money(tSrc) + '</b></td>' + shown.map(function (v) { return '<td class="n"><b>' + money(tg[v]) + '</b></td>'; }).join('') +
             (rest.length ? '<td class="n"><b>' + money(rest.reduce(function (t, v) { return t + tg[v]; }, 0)) + '</b></td>' : '') + '<td class="n"><b>' + money(tAll) + '</b></td><td class="n"><b>' + money(tSrc * share - tAll) + '</b></td></tr></tfoot></table></div>' +
             '<details style="margin-top:10px"><summary class="sm">Journal lines of this rule (credit the source, debit the receivers)</summary><div id="s3-jr"></div></details>';
+        if (list.length) {
+            var mc = function (label, get, extra) { return Object.assign({ label: label, n: 1, money: 1, get: function (o) { return money(get(o)); }, val: get }, extra || {}); };
+            FL.grid($('s3-pr'), [{ label: AL.label(f), get: function (o) { return AL.vname(f, o.value); }, val: function (o) { return o.value; } },
+                mc('Sales', function (o) { return o.revenue; }), mc('Other costs', function (o) { return o.other; }),
+                { label: srcLbl + ' allocated', n: 1, money: 1, html: 1, get: function (o) { return o.share ? '<b>' + money(o.share) + '</b>' : ''; }, val: function (o) { return o.share; } },
+                { label: 'Share %', n: 1, sum: false, get: function (o) { return tAll ? pct(o.share / tAll * 100) : ''; }, val: function (o) { return tAll ? o.share / tAll * 100 : null; } },
+                { label: 'Profit after', n: 1, money: 1, html: 1, get: function (o) { return '<b class="' + (o.after < 0 ? 'neg' : '') + '">' + money(o.after) + '</b>'; }, val: function (o) { return o.after; } },
+                { label: 'Margin after %', n: 1, sum: false, html: 1, get: function (o) { return o.mAfter == null ? '' : '<span class="' + (o.mAfter < 0 ? 'neg' : '') + '">' + pct(o.mAfter) + '</span>'; }, val: function (o) { return o.mAfter; } },
+                mc('Profit as booked', function (o) { return o.booked; }),
+                { label: 'Change', n: 1, money: 1, html: 1, get: function (o) { return Math.abs(o.change) < 0.5 ? '' : '<span class="' + (o.change < 0 ? 'neg' : 'pos') + '">' + (o.change > 0 ? '+' : '') + money(o.change) + '</span>'; }, val: function (o) { return o.change; } }],
+                prof.sort(function (a, b) { return b.share - a.share || b.revenue - a.revenue; }), { id: 's3-pr', csv: 'profitability-' + r.name.replace(/\W+/g, '-') + '.csv', height: 360, click: function (o) { AL.trace(f, o.value); } });
+            var top = prof.filter(function (o) { return o.share || o.revenue; }).slice(0, 15);
+            FL.chart('s3-ch', { type: 'bar', data: { labels: top.map(function (o) { return AL.vname(f, o.value).slice(0, 22); }), datasets: [
+                { label: 'Profit as booked', data: top.map(function (o) { return Math.round(o.booked); }), backgroundColor: 'rgba(148,163,184,.75)' },
+                { label: 'Profit after this allocation', data: top.map(function (o) { return Math.round(o.after); }), backgroundColor: top.map(function (o) { return o.after < 0 ? 'rgba(220,38,38,.8)' : 'rgba(29,78,216,.8)'; }) }] },
+                options: { plugins: { legend: { position: 'bottom' } }, scales: { y: { ticks: { callback: function (v) { return FL.compact(v); } } } } } });
+        }
         if (list.length && res) {
             var jr = A.journal({ lines: res.lines.filter(function (l) { return l.src === r.id; }) }, f ? [f] : []);
             FL.grid($('s3-jr'), [{ label: 'Company', key: 'company' }, { label: 'Account', key: 'account' }, { label: AL.label(f), get: function (o) { return AL.vname(f, o.dims[f]); }, val: function (o) { return o.dims[f]; } },
@@ -481,7 +518,7 @@
         var field = AL.st.field && flds.some(function (f) { return f.id === AL.st.field; }) ? AL.st.field : lastTo.field || AL.mainField();
         var sum = A.summary(res, field), loss = sum.filter(function (o) { return o.revenue > 0 && o.before >= 0 && o.after < 0; });
         var srcT = 0, allT = 0; (m.rules || []).forEach(function (r) { if (r.active === false) return; var s = AL.step(r) || {}; srcT += AL.sourceTotal(r) * AL.share(r); allT += s.allocated || 0; });
-        M.innerHTML = '<div class="card"><h3><i class="fa-solid fa-chart-pie"></i> Result of all rules</h3>' +
+        M.innerHTML = '<div class="card"><h3><i class="fa-solid fa-chart-pie"></i> Profitability after all allocations</h3>' +
             '<div class="al-check ' + (Math.abs(srcT - allT) < 0.5 ? 'ok' : 'bad') + '"><i class="fa-solid ' + (Math.abs(srcT - allT) < 0.5 ? 'fa-circle-check' : 'fa-triangle-exclamation') + '"></i><div><b>Source balances ' + money(srcT) + ' · allocated ' + money(allT) + ' · difference ' + money(srcT - allT) + '</b><br><span class="sm">Total profit is unchanged — allocation only moves cost between receivers. Expenses in these periods: ' + money(exp) + '.</span></div></div>' +
             (loss.length ? '<div class="callout bad sm"><b>' + loss.length + ' ' + esc(AL.label(field)) + ' value(s) turn loss-making after allocation</b>: ' + loss.slice(0, 6).map(function (o) { return esc(AL.vname(field, o.value)) + ' (' + money(o.after) + ')'; }).join(', ') + '</div>' : '') +
             '<h4 style="margin:12px 0 4px">Before and after by <select id="al-fld">' + flds.map(function (f) { return '<option value="' + f.id + '"' + (f.id === field ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('') + '</select> <small class="muted">click a row for what it gave and received</small></h4><div id="al-sum"></div>' +
