@@ -1,59 +1,38 @@
-/* WMS 2.0 — Trip screen: the WMS Trip Details page itself (legacy/trip-workspace.js, copied verbatim) hosted inside
-   WMS 2.0, so every trip feature of the WMS works exactly as there:
+/* WMS 2.0 — the WMS Trip Details page (legacy/trip-workspace.js, copied verbatim) shown INSIDE each trip tab of the
+   Trips area, under WMS 2.0's stage timeline and KPI cards (the WMS summary cards are hidden there). Every WMS trip
+   feature works exactly as in the WMS:
      Refresh · Edit Trip (lorry / bay / priority) · Assign Picker (+ date) · Allocate Lots for S2V · Pick Release All
      (with / without lots, progress, retry) · All Shipment Lines (update ship date, cancel) · Add to Agent · Show Lines ·
      Get Profit Centers · Add Orders (pending orders, paste orders, fetch pending shipments) · per order: Move to another
-     trip, Remove from trip, Print, Order / Store Transactions dialogs · Excel export · trip summary (volume vs lorry)
-   plus Create Trip (copied from the WMS Co-Pilot).
-   WMS 2.0 only hosts it: the page opens the trip with the same call as the WMS (GETTRIPDETAILS/{trip}), can tick the
-   orders an action is for (Trip 360 buttons), and reads the date again into DuckDB when you come back.
-   It also adds what the WMS has only as a stub: Unassign picker (deletes the order's wms_picker_assignment row). */
+     trip, Remove from trip, Print, Order / Store Transactions dialogs · Excel export
+   plus Create Trip (copied from the WMS Co-Pilot) and Unassign picker (a stub in the WMS; here it deletes the
+   order's wms_picker_assignment row).
+   One host element holds the WMS ids (#trip-tab-header hidden, #trip-tab-content, #trip-instance-name). It is parked
+   (hidden, still in the document) whenever a page is drawn and mounted into the trip tab on screen, so the DevExtreme
+   grids and any running pick release keep their state while you switch tabs. */
 (function () {
     'use strict';
     var W2 = window.W2, esc = W2.esc;
     var WS = W2.ws = { dirty: false };
+    var host = null, park = null;
 
-    function $(id) { return document.getElementById(id); }
-
-    function panel() {
-        var p = $('w2-ws'); if (p) return p;
-        p = document.createElement('div'); p.id = 'w2-ws'; p.hidden = true;
-        p.innerHTML =
-            '<div class="ws-bar"><button class="btn sm" id="ws-back"><i class="fa-solid fa-arrow-left"></i> Back</button>' +
-            '<b><i class="fa-solid fa-truck-ramp-box"></i> Trip screen</b><span class="muted xs">the WMS trip page — every button works as in the WMS</span><span class="grow"></span>' +
-            '<select id="ws-pick" title="Open another trip of the date"></select><button class="btn sm" id="ws-open"><i class="fa-solid fa-folder-open"></i> Open</button>' +
-            '<button class="btn sm primary" id="ws-new"><i class="fa-solid fa-plus"></i> Create trip</button></div>' +
-            // ids the copied WMS code looks for
-            '<input type="hidden" id="trip-instance-name"><div id="trip-tab-header" class="ws-tabs"></div><div id="trip-tab-content" class="ws-content">' +
-            '<div class="empty" id="ws-empty"><i class="fa-solid fa-truck"></i>Pick a trip above, or open one from Trips / Trip 360.</div></div>';
-        document.querySelector('.pane').appendChild(p);
-        $('ws-back').onclick = function () { W2.go(WS.from && WS.from[0] !== 'tripws' ? WS.from[0] : 'trips', WS.from ? WS.from[1] : {}); };
-        $('ws-new').onclick = WS.createTrip;
-        $('ws-open').onclick = function () { var v = $('ws-pick').value; if (v) WS.open(v); };
-        return p;
+    function ensureHost() {
+        if (host) return host;
+        park = document.createElement('div'); park.id = 'w2-park'; park.hidden = true; document.body.appendChild(park);
+        host = document.createElement('div'); host.id = 'w2-lhost';
+        host.innerHTML = '<input type="hidden" id="trip-instance-name"><div id="trip-tab-header" hidden></div><div id="trip-tab-content"></div>';
+        park.appendChild(host);
+        return host;
     }
+    WS.park = function () { if (host && host.parentNode !== park) park.appendChild(host); };
 
-    function show(on) {
-        var p = panel();
-        p.hidden = !on; $('main').hidden = !!on;
-        if (on) $('trip-instance-name').value = W2.pod();
-    }
-    function tabsOpen() { return document.querySelectorAll('#trip-tab-header .tab-item').length; }
-    function emptyNote() { var e = $('ws-empty'); if (e) e.style.display = tabsOpen() ? 'none' : ''; }
-
-    // the panel is only on screen on its own page
+    // the host leaves the screen before any page is drawn; after WMS actions, coming back reads the date again
     var render = W2.render;
     W2.render = function () {
-        if (W2.state.page !== 'tripws') {
-            if (WS.dirty) { WS.dirty = false; resync(); }
-            show(false);
-        }
+        WS.park();
+        var onWms = W2.state.page === 'trips' && W2.tt && W2.tt.get().active !== 'list' && W2.tt.view(W2.tt.get().active) === 'wms';
+        if (WS.dirty && !onWms) { WS.dirty = false; resync(); }
         return render.apply(this, arguments);
-    };
-    var go = W2.go;
-    W2.go = function (page, params) {
-        if (page === 'tripws' && W2.state.page !== 'tripws') WS.from = [W2.state.page, W2.state.params];
-        return go.apply(this, arguments);
     };
 
     /** The WMS keeps the trips of the search in currentFullData (Edit Trip, Add Orders and Move read it). */
@@ -69,9 +48,6 @@
             window.currentFullData = trips;
             window.tripDetailsAllData = r[1].map(parse);
             window.currentTripInstance = pod;
-            var sel = $('ws-pick');
-            if (sel) sel.innerHTML = '<option value="">Trip…</option>' + r[0].map(function (t) { return '<option value="' + esc(t.trip_id) + '">' + esc(t.trip_id + (t.lorry ? ' · ' + t.lorry : '')) + '</option>'; }).join('');
-            WS.trips = r[0];
             return r[0];
         });
     }
@@ -88,7 +64,7 @@
             (function poll() {
                 var g = gridOf(trip);
                 if (g) return setTimeout(function () { resolve(g); }, 150);
-                if (Date.now() - t0 > 30000) return reject('The trip screen did not open.');
+                if (Date.now() - t0 > 30000) return reject('The WMS trip page did not open.');
                 setTimeout(poll, 200);
             })();
         });
@@ -101,37 +77,48 @@
         g.clearSelection(); if (rows.length) g.selectRows(rows, false);
         return rows.length;
     }
-
-    /** Opens a trip in the trip screen; then(grid) runs once its grid is there. */
-    WS.open = function (trip, then) {
-        WS.pending = { trip: String(trip), then: then || null };
-        if (W2.state.page === 'tripws' && String(W2.state.params.trip || '') === String(trip)) return openNow();
-        W2.go('tripws', { trip: String(trip) });
-    };
-    function openNow() {
-        var p = WS.pending; WS.pending = null;
-        if (!p) return feedLegacy();
-        var trip = p.trip;
-        show(true);
-        return feedLegacy().then(function (trips) {
-            var t = trips.filter(function (x) { return String(x.trip_id) === trip; })[0] || {}, raw = {};
-            try { raw = JSON.parse(t.raw_json || '{}'); } catch (e) {}
-            if (!gridOf(trip)) {
-                window.openTripDetails(trip, raw.TRIP_DATE || raw.trip_date || W2.dmy(W2.date()), t.lorry || raw.TRIP_LORRY || '', W2.pod(), t.loading_bay || '', t.priority || '');
-            } else {
-                var ti = document.querySelector('.tab-item[data-tab="trip-detail-' + trip + '"]'); if (ti) ti.click();
-            }
-            WS.dirty = true;
-            return whenGrid(trip);
-        }).then(function (g) { emptyNote(); if (p.then) p.then(g); return g; }).catch(function (e) { W2.toast(String(e), 'error'); });
+    function showPane(trip) {
+        host.querySelectorAll('#trip-tab-content > .tab-pane').forEach(function (p) { p.classList.toggle('active', p.id === 'trip-trip-detail-' + trip + '-tab'); });
     }
 
-    /** Runs a WMS trip action, with the given orders ticked first (selection actions: Assign Picker, Pick Release All, Allocate Lots). */
+    // the WMS's own openTripDetails (W2 calls it); when WMS code opens a trip (Create trip), it becomes a tab
+    var legacyOpen = window.openTripDetails;
+    window.openTripDetails = function (tripId) {
+        if (WS.opening === String(tripId)) return legacyOpen.apply(this, arguments);
+        if (W2.tt) W2.tt.open(String(tripId));
+    };
+
+    /** Puts the WMS trip page of `trip` into `box` (opens it with GETTRIPDETAILS/{trip} the first time). Resolves its grid. */
+    WS.mount = function (box, trip) {
+        trip = String(trip); ensureHost();
+        host.querySelector('#trip-instance-name').value = W2.pod();
+        box.appendChild(host);
+        WS.dirty = true;
+        return feedLegacy().then(function (trips) {
+            if (gridOf(trip)) { showPane(trip); var g = gridOf(trip); try { g.updateDimensions(); } catch (e) {} return g; }
+            var t = trips.filter(function (x) { return String(x.trip_id) === trip; })[0] || {}, raw = {};
+            try { raw = JSON.parse(t.raw_json || '{}'); } catch (e) {}
+            WS.opening = trip;
+            try { legacyOpen(trip, raw.TRIP_DATE || raw.trip_date || W2.dmy(W2.date()), t.lorry || raw.TRIP_LORRY || '', W2.pod(), t.loading_bay || '', t.priority || ''); }
+            finally { WS.opening = null; }
+            return whenGrid(trip).then(function (g) { showPane(trip); return g; });
+        });
+    };
+    /** Removes a trip's WMS page (its tab was closed). */
+    WS.drop = function (trip) {
+        if (typeof window.closeTripTab === 'function' && document.getElementById('trip-trip-detail-' + trip + '-tab')) {
+            try { window.closeTripTab('trip-detail-' + trip, { stopPropagation: function () {} }); } catch (e) {}
+        }
+    };
+
+    /** Runs a WMS trip action on the trip's WMS page, with the given orders ticked first. */
     WS.run = function (trip, action, orders) {
-        return WS.open(trip, function (g) {
+        trip = String(trip);
+        W2.tt.setView(trip, 'wms'); W2.tt.open(trip);
+        return whenGrid(trip).then(function (g) {
             if (orders) {
                 var n = tick(g, orders);
-                if (!n) { W2.toast('None of those orders is on the trip screen — tick them in the grid, then use the button.', 'info'); return; }
+                if (!n) { W2.toast('None of those orders is on the WMS trip page — tick them in the grid, then use the button.', 'info'); return; }
             }
             var fn = window[action];
             if (typeof fn !== 'function') { W2.toast(action + ' is not loaded.', 'error'); return; }
@@ -141,8 +128,9 @@
                 showAllShipmentLines: function () { fn(trip, inst); }, showTripLines: function () { fn(trip, inst); },
                 saAddTripToAgent: function () { fn(trip, 'Trip ' + trip, inst); }
             }[action] || function () { fn(trip); })();
-        });
+        }).catch(function (e) { W2.toast(String(e), 'error'); });
     };
+    WS.open = function (trip) { W2.tt.setView(String(trip), 'wms'); W2.tt.open(String(trip)); };
 
     WS.createTrip = function () {
         if (typeof window.openNewTripModal !== 'function') { W2.toast('Create trip is not loaded.', 'error'); return; }
@@ -150,8 +138,6 @@
         WS.dirty = true;
     };
 
-    /** Unassign picker — the WMS button is a stub; this removes the picker assignment rows of the orders ticked here.
-        orders: [{order_number, picker}] (all ticked when there is one). */
     WS.unassignPicker = function (orders) {
         orders = orders.filter(function (o) { return o && o.order_number; });
         if (!orders.length) { W2.toast('No order on this trip has a picker.', 'info'); return Promise.resolve(); }
@@ -179,19 +165,15 @@
     };
 
     // hooks the WMS calls after Add Orders / Create Trip (missing in the WMS itself): read the date again
+
+    // hooks the WMS calls after Add Orders / Create Trip (missing in the WMS itself): read the date again
     function resync() { if (!W2.sync.running) W2.sync.day(W2.date(), { only: ['trips', 'lines', 'pickers', 'print'], auto: true }); }
     window.fetchTripsData = resync;
     window.fetchTrips = resync;
 
+    // old links to the separate trip screen now land on the trip tabs
     W2.page('tripws', {
-        title: 'Trip screen', icon: 'fa-truck-ramp-box',
-        render: function (main, params) {
-            show(true); emptyNote();
-            if (params.trip && !(WS.pending && WS.pending.trip === String(params.trip))) WS.pending = { trip: String(params.trip), then: null };
-            return openNow();
-        }
+        title: 'Trips', icon: 'fa-truck',
+        render: function (main, params) { if (params.trip) WS.open(params.trip); else W2.go('trips'); }
     });
-
-    // keep the "pick a trip" note right when the WMS closes a tab
-    W2.on('ready', function () { panel(); var h = $('trip-tab-header'); if (h) new MutationObserver(emptyNote).observe(h, { childList: true }); });
 })();

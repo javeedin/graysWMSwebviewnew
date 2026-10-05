@@ -31,7 +31,7 @@ Press **Ctrl K** to find any trip, order, customer, picker or page.
 
 Everything the WMS trip page does is available in WMS 2.0, from the WMS's own code. The WMS trip page, its dialogs and the order dialogs are copied as they are into `wms2/legacy/`, so the same tested screens run. To refresh that copy after a fix in the WMS, run `python wms2/legacy/copy-from-wms.py`.
 
-**Trip 360** has an action bar. Each button opens the trip in the **Trip screen** (the WMS trip page, in the left menu) and runs the WMS action. Where the WMS needs ticked orders, the right orders are ticked for you.
+**Opening a trip** shows the stage timeline and the WMS 2.0 cards first: orders, lines interfaced, without picker, MRA, printed, lines to cancel and lorry load. Below them is the WMS trip page itself, with every WMS button and the WMS orders grid. Its own summary cards are hidden, because the cards above replace them. **Insights** switches the tab to the WMS 2.0 view: the orders with their Fusion status, MRA, print and cancellations, plus an action bar that runs the same WMS actions with the right orders ticked. Each trip tab keeps its own WMS page, so ticked rows and a running pick release stay when you switch tabs.
 
 | WMS trip page | In WMS 2.0 |
 |---|---|
@@ -49,10 +49,10 @@ Everything the WMS trip page does is available in WMS 2.0, from the WMS's own co
 | Remove from trip | Order panel › Remove from trip |
 | Print (sales order / store transaction) | Order panel › Print |
 | Order / Store Transactions (lines, lots, pick confirm, ship confirm, cancel lines by hand, QOH, set data, process) | Order panel › Order details |
-| Create New Trip (Co-Pilot) | Trips › Create trip, or the Trip screen |
-| Trip summary, volume vs lorry capacity, Excel export | Trip screen |
+| Create New Trip (Co-Pilot) | Trips › Create trip (the new trip opens as a tab) |
+| Trip summary, volume vs lorry capacity, Excel export | The trip tab's cards (Lorry load) and the WMS page's grid |
 
-The Trip screen keeps the trips you opened as tabs. **Back** returns to where you were and reads the date again, so the dashboard shows what you changed.
+When you leave a trip's WMS page (another tab or page), WMS 2.0 reads the date again, so the dashboard shows what you changed.
 
 ## Fast: the local copy
 

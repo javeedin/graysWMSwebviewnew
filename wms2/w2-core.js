@@ -329,7 +329,7 @@
     // ── pages + left menu ─────────────────────────────────────
     /** def: {title, icon, group, render(main, params) → Promise|void, badge() → {n, cls}} */
     W2.page = function (id, def) { W2.pages[id] = def; if (W2.order.indexOf(id) < 0) W2.order.push(id); };
-    W2.GROUPS = [['Operate', ['dash', 'trips', 'tripws', 'orders', 'picking', 'pickrelease', 'autopilot', 'mra', 'printing', 'pending']], ['Analyse', ['insights']], ['Setup', ['data', 'settings']]];
+    W2.GROUPS = [['Operate', ['dash', 'trips', 'orders', 'picking', 'pickrelease', 'autopilot', 'mra', 'printing', 'pending']], ['Analyse', ['insights']], ['Setup', ['data', 'settings']]];
     function paintNav() {
         var nav = $('nav'), h = '';
         W2.GROUPS.forEach(function (g) {

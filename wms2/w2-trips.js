@@ -89,14 +89,16 @@
                 var notRel = live0.filter(function (x) { return ['NOT CHECKED', 'NO LINES', 'PENDING', 'READY'].indexOf(x.stage) >= 0 && s2v.indexOf(x) < 0; });
                 var a = W2.n(t.active_lines), o = W2.n(t.orders) - W2.n(t.cancelled);
                 var tl = [['On trip', o, o], ['Pickers', t.with_picker, o], ['Released', t.released, o], ['Picked / staged', t.staged, o], ['Interfaced', t.interfaced, o], ['MRA', t.mra_ok, t.interfaced || o], ['Printed', t.printed, o]];
+                var wms = (params.view || 'wms') === 'wms';
                 var h = '<div class="pagehead"><button class="btn sm" id="t-back"><i class="fa-solid fa-arrow-left"></i> All trips</button><h2>Trip <span class="mono">' + esc(trip) + '</span></h2>' +
                     '<span class="muted">' + esc([t.lorry, t.loading_bay && 'bay ' + t.loading_bay, t.priority && 'priority ' + t.priority, W2.dayName(date)].filter(Boolean).join(' · ')) + '</span><span class="grow"></span>' +
                     '<button class="btn sm" id="t-ref"><i class="fa-solid fa-rotate"></i> Read this trip again</button>' +
                     '<button class="btn sm" id="t-rel"><i class="fa-solid fa-dolly"></i> Pick release</button>' +
                     '<button class="btn sm" id="t-mra"><i class="fa-solid fa-receipt"></i> MRA</button>' +
-                    '<button class="btn sm primary" id="t-ws"><i class="fa-solid fa-truck-ramp-box"></i> Trip screen</button></div>' +
+                    '<span class="seg"><button class="btn sm' + (wms ? ' primary' : '') + '" data-view="wms" title="The WMS trip page with every WMS button"><i class="fa-solid fa-table-list"></i> WMS page</button>' +
+                    '<button class="btn sm' + (wms ? '' : ' primary') + '" data-view="insights" title="WMS 2.0 view: orders with Fusion status, MRA, print, cancellations"><i class="fa-solid fa-chart-simple"></i> Insights</button></span></div>' +
                     // the WMS trip page's actions — each opens the trip screen and runs the WMS code (orders pre-ticked where it needs a selection)
-                    '<div class="actbar">' +
+                    (wms ? '' : '<div class="actbar">' +
                     '<button class="btn sm" data-a="assign"><i class="fa-solid fa-user-plus"></i> Assign picker<small>' + W2.fmt(noPick.length) + ' without</small></button>' +
                     '<button class="btn sm" data-a="unassign"><i class="fa-solid fa-user-minus"></i> Unassign picker</button>' +
                     '<button class="btn sm" data-a="pickReleaseAll"><i class="fa-solid fa-dolly"></i> Pick Release All<small>' + W2.fmt(notRel.length) + ' not released</small></button>' +
@@ -107,7 +109,7 @@
                     '<button class="btn sm" data-a="showTripLines"><i class="fa-solid fa-list"></i> Show lines</button>' +
                     '<button class="btn sm" data-a="getTripProfitCenters"><i class="fa-solid fa-sitemap"></i> Profit centers</button>' +
                     '<button class="btn sm" data-a="saAddTripToAgent"><i class="fa-solid fa-user-gear"></i> Add to agent</button>' +
-                    '</div>' +
+                    '</div>') +
                     '<div class="card"><div class="tl">' + tl.map(function (s) { var cls = !s[2] ? '' : s[1] >= s[2] ? 'd' : s[1] > 0 ? 'p' : ''; return '<div class="' + cls + '">' + s[0] + '<small>' + W2.n(s[1]) + ' / ' + W2.n(s[2]) + '</small></div>'; }).join('') + '</div></div>' +
                     '<div class="kpis" style="margin-top:12px">' +
                     '<div class="kpi"><span class="l">Orders</span><span class="n">' + W2.fmt(t.orders) + '</span><span class="s">' + W2.fmt(t.lines) + ' WMS line(s)</span></div>' +
@@ -115,14 +117,16 @@
                     '<div class="kpi ' + (t.orders - t.with_picker ? 'warn' : '') + '"><span class="l">Without picker</span><span class="n">' + W2.fmt(t.orders - t.with_picker) + '</span><span class="s">' + esc(t.pickers || 'no picker yet') + '</span></div>' +
                     '<div class="kpi ' + (t.mra_bad ? 'bad' : '') + '"><span class="l">MRA</span><span class="n">' + W2.fmt(t.mra_ok) + '</span><span class="s">' + (t.mra_bad ? t.mra_bad + ' failed' : 'done') + '</span></div>' +
                     '<div class="kpi ' + (t.print_bad ? 'bad' : '') + '"><span class="l">Printed</span><span class="n">' + W2.fmt(t.printed) + '</span><span class="s">' + (t.print_bad ? t.print_bad + ' failed' : 'of ' + o) + '</span></div>' +
-                    '<div class="kpi ' + (W2.n(t.to_cancel) ? 'warn' : '') + '"><span class="l">Lines to cancel</span><span class="n">' + W2.fmt(t.to_cancel) + '</span><span class="s">' + W2.fmt(t.cancelled_w2) + ' cancelled by autopilot</span></div></div>' +
-                    '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-file-lines"></i>Orders <small>click an order for its details</small></h3><div id="t-ord"></div></div>';
+                    '<div class="kpi ' + (W2.n(t.to_cancel) ? 'warn' : '') + '"><span class="l">Lines to cancel</span><span class="n">' + W2.fmt(t.to_cancel) + '</span><span class="s">' + W2.fmt(t.cancelled_w2) + ' cancelled by autopilot</span></div>' +
+                    (wms ? '<div class="kpi" id="t-load"><span class="l">Lorry load</span><span class="n">…</span><span class="s">m³ from the WMS trip page</span></div>' : '') + '</div>' +
+                    (wms ? '<div id="t-wms" class="t-wms"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i>Opening the WMS trip page…</div></div>'
+                        : '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-file-lines"></i>Orders <small>click an order for its details</small></h3><div id="t-ord"></div></div>');
                 main.innerHTML = h;
                 main.querySelector('#t-back').onclick = function () { W2.tt.show('list'); };
                 main.querySelector('#t-ref').onclick = function () { W2.trip.refresh(trip); };
                 main.querySelector('#t-rel').onclick = function () { W2.go('pickrelease', { trip: trip }); };
                 main.querySelector('#t-mra').onclick = function () { W2.go('mra', { trip: trip }); };
-                main.querySelector('#t-ws').onclick = function () { W2.ws.open(trip); };
+                main.querySelectorAll('[data-view]').forEach(function (b) { b.onclick = function () { W2.tt.setView(trip, b.dataset.view); W2.render(); }; });
                 main.querySelectorAll('[data-a]').forEach(function (b) {
                     b.onclick = function () {
                         var a = b.dataset.a;
@@ -133,7 +137,24 @@
                         W2.ws.run(trip, a);
                     };
                 });
-                W2.grid(main.querySelector('#t-ord'), orders, W2.ORDER_COLS(false), { onRow: function (row) { W2.orderPanel(row); }, csv: 'trip-' + trip + '.csv' });
+                if (wms) {
+                    var box = main.querySelector('#t-wms');
+                    W2.ws.mount(box, trip).then(function () {
+                        var e = box.querySelector('.empty'); if (e) e.remove();
+                        if (!live()) return;
+                        // lorry load: the WMS rows' order volume vs the vehicle's capacity (what the hidden WMS summary card showed)
+                        var rows = (window.tripOrdersStore || {})[trip] || [], vol = 0;
+                        rows.forEach(function (r) { vol += parseFloat(r.order_volume1 != null ? r.order_volume1 : (r.ORDER_VOLUME || r.order_volume || 0)) || 0; });
+                        var norm = function (v) { return String(v || '').replace(/\s+/g, '').toUpperCase(); }, lorry = norm(t.lorry);
+                        var veh = (window.vehiclesData || []).filter(function (v) { return norm(v.lorry_number || v.LORRY_NUMBER) === lorry; })[0];
+                        var cap = veh ? parseFloat(veh.volume_m3 || veh.VOLUME_M3 || 0) || 0 : 0, k = main.querySelector('#t-load');
+                        if (k) {
+                            var pc = cap ? Math.round(100 * vol / cap) : 0;
+                            k.className = 'kpi' + (pc > 100 ? ' bad' : pc > 90 ? ' warn' : '');
+                            k.innerHTML = '<span class="l">Lorry load</span><span class="n">' + (cap ? pc + '%' : vol.toFixed(2)) + '</span><span class="s">' + vol.toFixed(2) + ' m³' + (cap ? ' of ' + cap.toFixed(2) + ' m³' : ' · capacity unknown') + '</span>';
+                        }
+                    }, function (e) { box.innerHTML = '<div class="callout bad">' + esc(e) + '</div>'; });
+                } else W2.grid(main.querySelector('#t-ord'), orders, W2.ORDER_COLS(false), { onRow: function (row) { W2.orderPanel(row); }, csv: 'trip-' + trip + '.csv' });
                 if (params.order) { var x = orders.filter(function (y) { return y.order_number === params.order; })[0]; if (x) W2.orderPanel(x); }
             });
         }
@@ -161,11 +182,14 @@
     TT.show = function (tab) { var st = TT.get(); st.active = String(tab); TT.save(st); W2.go('trips'); };
     TT.close = function (trip) {
         var st = TT.get(), i = st.tabs.indexOf(String(trip)); if (i < 0) return;
-        st.tabs.splice(i, 1);
+        st.tabs.splice(i, 1); if (W2.ws) W2.ws.drop(String(trip));
         if (st.active === String(trip)) st.active = st.tabs[Math.min(i, st.tabs.length - 1)] || 'list';
         TT.save(st); W2.go('trips');
     };
-    TT.closeAll = function () { TT.save({ tabs: [], active: 'list' }); W2.go('trips'); };
+    TT.closeAll = function () { TT.get().tabs.forEach(function (t) { if (W2.ws) W2.ws.drop(t); }); TT.save({ tabs: [], active: 'list' }); W2.go('trips'); };
+    /** Per trip tab: 'wms' (the WMS trip page under the timeline + cards, default) or 'insights' (WMS 2.0 orders view). */
+    TT.view = function (trip) { var v = TT.get().views || {}; return v[String(trip)] || 'wms'; };
+    TT.setView = function (trip, view) { var st = TT.get(); st.views = st.views || {}; st.views[String(trip)] = view; TT.save(st); };
 
     var tripInfo = {};
     function paintTabs() {
@@ -202,7 +226,7 @@
             }).catch(function () {});
             paintTabs();
             if (st.active === 'list') return TRIPS_LIST.render(body, params, live);
-            return TRIP_360.render(body, { trip: st.active, order: params.order }, live);
+            return TRIP_360.render(body, { trip: st.active, order: params.order, view: TT.view(st.active) }, live);
         }
     });
     /** Trip 360 links (dashboard, find, orders …) open the trip as a tab of the Trips area. */

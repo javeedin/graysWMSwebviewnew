@@ -229,14 +229,12 @@ table.steps tr.bad td { background: var(--bad-bg); }
 .arch > div b { display: block; } .arch > div span { color: var(--muted); font-size: .76rem; }
 .arch > i { color: var(--muted); }
 
-/* trip screen: the copied WMS trip page inside WMS 2.0 */
-#w2-ws { flex: 1; overflow: auto; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
-#w2-ws[hidden] { display: none; }
-#w2-ws .ws-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #fff; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-#w2-ws .ws-bar select { padding: 4px 8px; border: 1px solid var(--line2); border-radius: 8px; }
-#w2-ws .ws-tabs { display: flex; gap: 2px; padding: 6px 14px 0; flex-wrap: wrap; }
-#w2-ws .ws-content { flex: 1; }
-#w2-ws .tab-pane { display: none; } #w2-ws .tab-pane.active { display: block; }
+/* the WMS trip page inside a trip tab (W2.ws.mount): WMS 2.0's timeline + cards replace its summary card */
+#w2-lhost .tab-pane { display: none; } #w2-lhost .tab-pane.active { display: block; }
+#w2-lhost .tab-pane > div { padding: 0 !important; }
+#w2-lhost .tab-pane > div > div:first-child { display: none !important; }
+.t-wms { margin-top: 12px; }
+.seg { display: inline-flex; } .seg .btn { border-radius: 0; } .seg .btn:first-child { border-radius: 8px 0 0 8px; } .seg .btn:last-child { border-radius: 0 8px 8px 0; margin-left: -1px; }
 .actbar { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
 .actbar .btn small { margin-left: 6px; font-weight: 500; color: var(--muted); font-size: .7rem; }
 .btn.danger small { color: #fff; }
