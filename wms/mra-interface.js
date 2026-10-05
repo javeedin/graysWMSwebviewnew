@@ -113,13 +113,15 @@
     var ST_LABEL = { SUCCESS: 'Success', FAILED: 'Failed', SKIPPED: 'Skipped', ALREADY_DONE: 'Already done' };
     var HIST_CSS =
         '.mri-wrap.wide{max-width:1500px;}' +
-        '.mri-tabs{display:flex;gap:.4rem;margin-top:1rem;border-bottom:2px solid #e2e8f0;}' +
+        '.mri-tabs{display:flex;gap:.4rem;align-items:center;border-bottom:2px solid #e2e8f0;}' +
+        '.mri-tabs button.rf{margin-left:auto;border:1px solid #cbd5e1;border-radius:8px;padding:.35rem .8rem;margin-bottom:.3rem;font-size:.8rem;color:#334155;background:#fff;}' +
         '.mri-tabs button{background:none;border:none;border-bottom:3px solid transparent;margin-bottom:-2px;padding:.6rem 1rem;font-weight:700;color:#64748b;cursor:pointer;font-size:.9rem;}' +
         '.mri-tabs button.on{color:#4f46e5;border-bottom-color:#4f46e5;}' +
         '.mrh-f{display:flex;flex-wrap:wrap;gap:.6rem;align-items:flex-end;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:.8rem 1rem;margin-top:1rem;}' +
         '.mrh-f label{display:flex;flex-direction:column;font-size:.7rem;font-weight:700;color:#64748b;gap:.2rem;text-transform:uppercase;letter-spacing:.02em;}' +
         '.mrh-f input,.mrh-f select{border:1px solid #cbd5e1;border-radius:8px;padding:.4rem .5rem;font:inherit;font-size:.85rem;color:#0f172a;min-width:120px;}' +
         '.mrh-f .chk{flex-direction:row;align-items:center;gap:.35rem;text-transform:none;font-size:.8rem;color:#334155;padding-bottom:.45rem;}' +
+        '.mrh-f .chk input{min-width:0;width:auto;margin:0;}' +
         '.mrh-btn{border:none;border-radius:8px;padding:.5rem .9rem;font-weight:700;cursor:pointer;font-size:.82rem;display:inline-flex;align-items:center;gap:.35rem;}' +
         '.mrh-btn.p{background:#4f46e5;color:#fff;} .mrh-btn.g{background:#16a34a;color:#fff;} .mrh-btn.b{background:#0ea5e9;color:#fff;} .mrh-btn.n{background:#e2e8f0;color:#334155;}' +
         '.mrh-btn:disabled{opacity:.5;cursor:not-allowed;} .mrh-btn.s{padding:.25rem .5rem;font-size:.72rem;}' +
@@ -130,8 +132,10 @@
         '.mrh-bar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-top:.8rem;padding:.55rem .8rem;background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;font-size:.82rem;color:#3730a3;}' +
         '.mrh-tw{background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-top:.8rem;overflow:auto;max-height:62vh;}' +
         '.mrh-t{width:100%;border-collapse:collapse;font-size:.78rem;} .mrh-t th{position:sticky;top:0;background:#f8fafc;text-align:left;color:#475569;font-weight:700;padding:.5rem .6rem;border-bottom:1px solid #e2e8f0;white-space:nowrap;z-index:1;}' +
-        '.mrh-t td{padding:.45rem .6rem;border-bottom:1px solid #f1f5f9;color:#1e293b;vertical-align:top;} .mrh-t tr:hover td{background:#f8fafc;} .mrh-t tr.sel td{background:#eef2ff;}' +
-        '.mrh-t .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;} .mrh-t .why{max-width:340px;color:#b91c1c;font-size:.74rem;}' +
+        '.mrh-t td{padding:.35rem .6rem;border-bottom:1px solid #f1f5f9;color:#1e293b;vertical-align:middle;white-space:nowrap;}' +
+        '.mrh-t td.cut{max-width:220px;overflow:hidden;text-overflow:ellipsis;} .mrh-t td.cut.w{max-width:320px;} .mrh-t td.cut.n{max-width:150px;}' +
+        '.mrh-t .sub{color:#64748b;font-size:.7rem;margin-left:.3rem;} .mrh-t tr:hover td{background:#f8fafc;} .mrh-t tr.sel td{background:#eef2ff;}' +
+        '.mrh-t .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;} .mrh-t .why{color:#b91c1c;font-size:.74rem;}' +
         '.mrh-s{display:inline-block;font-size:.68rem;font-weight:800;border-radius:999px;padding:.12rem .55rem;white-space:nowrap;}' +
         '.mrh-s.SUCCESS{background:#dcfce7;color:#15803d;} .mrh-s.FAILED{background:#fee2e2;color:#b91c1c;} .mrh-s.SKIPPED{background:#f1f5f9;color:#475569;} .mrh-s.ALREADY_DONE{background:#e0f2fe;color:#0369a1;} .mrh-s.RUN{background:#fef9c3;color:#a16207;}' +
         '.mrh-src{font-size:.68rem;color:#64748b;} .mrh-act{display:flex;gap:.25rem;white-space:nowrap;}' +
@@ -241,17 +245,19 @@
                 var live = H.live[r.ID], busy = H.busy[r.ID];
                 var stc = live ? live.cls : r.MRA_INTERFACE_STATUS;
                 var stl = live ? live.text : (ST_LABEL[r.MRA_INTERFACE_STATUS] || r.MRA_INTERFACE_STATUS || '');
+                var why = (r.FAILED_STEP ? r.FAILED_STEP + ' · ' : '') + (r.FAILED_REASON || '') + (r.GATEWAY_PROBLEM ? ' [' + r.GATEWAY_PROBLEM + ']' : '') + (live && live.msg ? ' — ' + live.msg : ''); why = why.replace(/^ — /, '');
+                var cust = (r.CUSTOMER_NAME || '') + (r.CUSTOMER_NUMBER ? ' (' + r.CUSTOMER_NUMBER + ')' : '');
                 return '<tr class="' + (H.sel[r.ID] ? 'sel' : '') + '"><td><input type="checkbox" data-id="' + esc(r.ID) + '"' + (H.sel[r.ID] ? ' checked' : '') + '></td>' +
-                    '<td style="white-space:nowrap;">' + esc(r.CREATED_AT) + (Number(r.TRIES) > 1 ? '<div class="mrh-src">' + esc(r.TRIES) + ' tries</div>' : '') + '</td>' +
-                    '<td>' + esc(r.INSTANCE_NAME) + '</td><td>' + esc(r.TRIP_ID || '') + (r.TRIP_DATE ? '<div class="mrh-src">' + esc(r.TRIP_DATE) + '</div>' : '') + '</td>' +
-                    '<td><b>' + esc(r.ORDER_NUMBER) + '</b>' + (r.ORDER_TYPE ? '<div class="mrh-src">' + esc(r.ORDER_TYPE) + '</div>' : '') + '</td>' +
-                    '<td>' + esc(r.CUSTOMER_NAME || '') + (r.CUSTOMER_NUMBER ? '<div class="mrh-src">' + esc(r.CUSTOMER_NUMBER) + '</div>' : '') + '</td>' +
+                    '<td>' + esc(r.CREATED_AT) + (Number(r.TRIES) > 1 ? '<span class="sub" title="Runs of this order in the range">×' + esc(r.TRIES) + '</span>' : '') + '</td>' +
+                    '<td>' + esc(r.INSTANCE_NAME) + '</td>' +
+                    '<td title="' + esc(r.TRIP_DATE ? 'Trip date ' + r.TRIP_DATE : '') + '">' + esc(r.TRIP_ID || '') + '</td>' +
+                    '<td title="' + esc(r.ORDER_TYPE || '') + '"><b>' + esc(r.ORDER_NUMBER) + '</b></td>' +
+                    '<td class="cut" title="' + esc(cust + (r.ORDER_TYPE ? ' · ' + r.ORDER_TYPE : '')) + '">' + esc(cust) + '</td>' +
                     '<td class="num">' + money(r.ORDER_AMOUNT) + '</td><td>' + esc(r.INVOICE_TYPE || '') + '</td>' +
                     '<td><span class="mrh-s ' + esc(stc) + '">' + (busy ? '<i class="fas fa-spinner fa-spin"></i> ' : '') + esc(stl) + '</span></td>' +
-                    '<td style="font-size:.72rem;word-break:break-all;max-width:180px;">' + esc(r.MRA_INTERFACE_ID || '') + '</td>' +
-                    '<td class="why">' + (r.FAILED_STEP ? '<b>' + esc(r.FAILED_STEP) + '</b> · ' : '') + esc(String(r.FAILED_REASON || '').slice(0, 220)) +
-                        (r.GATEWAY_PROBLEM ? ' <span class="mrh-s RUN">' + esc(r.GATEWAY_PROBLEM) + '</span>' : '') + (live && live.msg ? '<div style="color:#334155;">' + esc(live.msg) + '</div>' : '') + '</td>' +
-                    '<td class="mrh-src">' + esc(r.SOURCE || '') + '<br>' + esc(r.APP_USER || '') + '</td>' +
+                    '<td class="cut n" style="font-size:.72rem;" title="' + esc(r.MRA_INTERFACE_ID || '') + '">' + esc(r.MRA_INTERFACE_ID || '') + '</td>' +
+                    '<td class="cut w' + (r.FAILED_REASON || r.GATEWAY_PROBLEM ? ' why' : '') + '" title="' + esc(why) + '">' + esc(why) + '</td>' +
+                    '<td class="cut n mrh-src" title="' + esc((r.SOURCE || '') + ' · ' + (r.APP_USER || '')) + '">' + esc(r.SOURCE || '') + (r.APP_USER ? ' · ' + esc(r.APP_USER) : '') + '</td>' +
                     '<td><div class="mrh-act">' +
                         '<button class="mrh-btn g s" title="Interface to MRA again" onclick="MraInterface.retry([' + JSON.stringify(String(r.ID)).replace(/"/g, '&quot;') + '])"' + (busy ? ' disabled' : '') + '><i class="fas fa-paper-plane"></i></button>' +
                         '<button class="mrh-btn b s" title="Print order" onclick="MraInterface.print([' + JSON.stringify(String(r.ID)).replace(/"/g, '&quot;') + '])"' + (busy ? ' disabled' : '') + '><i class="fas fa-print"></i></button>' +
@@ -501,11 +507,9 @@
         }).join('') : '<tr><td colspan="5" style="color:#94a3b8;text-align:center;padding:1rem;">No changes yet.</td></tr>';
         var hist = st.tab === 'history';
         el.innerHTML = '<div class="mri-wrap' + (hist ? ' wide' : '') + '">' +
-            '<div class="mri-hero"><div class="ic"><i class="fas fa-file-invoice"></i></div><div><h2>MRA Interface</h2>' +
-            '<p>' + (hist ? 'Every MRA run from every screen — search, retry and print.' : 'Switch the Mauritius Revenue Authority interface on or off for the Shipping Agent\'s Print Trip.') + '</p></div>' +
-            '<button onclick="MraInterface.' + (hist ? 'search()' : 'refresh()') + '"' + (st.loading || H.loading ? ' disabled' : '') + '><i class="fas fa-sync-alt' + (st.loading || H.loading ? ' fa-spin' : '') + '"></i> Refresh</button></div>' +
             '<div class="mri-tabs"><button class="' + (hist ? '' : 'on') + '" onclick="MraInterface.tab(\'setup\')"><i class="fas fa-sliders"></i> Setup</button>' +
-            '<button class="' + (hist ? 'on' : '') + '" onclick="MraInterface.tab(\'history\')"><i class="fas fa-clock-rotate-left"></i> MRA transactions history</button></div>' +
+            '<button class="' + (hist ? 'on' : '') + '" onclick="MraInterface.tab(\'history\')"><i class="fas fa-clock-rotate-left"></i> MRA transactions history</button>' +
+            '<button class="rf" onclick="MraInterface.' + (hist ? 'search()' : 'refresh()') + '"' + (st.loading || H.loading ? ' disabled' : '') + ' title="Refresh"><i class="fas fa-sync-alt' + (st.loading || H.loading ? ' fa-spin' : '') + '"></i> Refresh</button></div>' +
             (hist ? histHtml() + '</div>' : '') + (hist ? '' :
             (st.error ? '<div class="mri-err"><i class="fas fa-exclamation-triangle"></i> Could not read the MRA setting: ' + esc(st.error) + '</div>' : '') +
             '<div class="mri-grid">' + INSTANCES.map(card).join('') + '</div>' +
