@@ -394,9 +394,20 @@ test('planning: periods, seeding last year + %, rules, % of revenue, checks, goa
     var sh = PL.toSheet(v, ctx), i0 = sh.head.indexOf(per[0].period_name), row = sh.rows.filter(function (r) { return r[2] === '4000'; })[0];
     row[i0] = 123456; var res = PL.fromSheet(v, ctx, sh.head, sh.rows); assert.ok(!res.error); assert.strictEqual(res.changed, 1);
     near(v.lines.filter(function (l) { return l.account === '4000'; })[0].m[0], -123456, 0.001);
+    // refill: again and again until baselined — typed lines kept when asked, missing accounts added, nothing duplicated
+    var r0 = v.lines.length, typedL = v.lines.filter(function (l) { return l.account === '4000'; })[0];
+    var rf = PL.refill(v, ctx, { how: { method: 'py', pct: 2 }, keepTyped: true, addMissing: true });
+    assert.strictEqual(v.lines.length, r0); assert.strictEqual(rf.added, 0); assert.ok(rf.kept >= 1); near(typedL.m[0], -123456, 0.001);
+    v.lines = v.lines.filter(function (l) { return l.account !== '6100'; });
+    rf = PL.refill(v, ctx, { how: { method: 'py', pct: 0 }, keepTyped: false, addMissing: true });
+    assert.strictEqual(rf.added, 1); assert.strictEqual(v.lines.length, r0); near(typedL.m[0], hist['C1||4000'][202601], 0.02);
+    rf = PL.refill(v, ctx, { how: { method: 'zero' }, only: function (l) { return l.account === '6000'; } });
+    assert.strictEqual(rf.refilled, 1);
     // workflow: the person who submitted cannot approve
     var w = { status: 'SUBMITTED', submittedBy: 'ann' };
     assert.ok(!PL.can(w, 'approve', { user: 'ann', admin: true })); assert.ok(PL.can(w, 'approve', { user: 'bob', admin: true })); assert.ok(!PL.can(w, 'edit', {}));
+    var d = { status: 'DRAFT', owner: 'ann' }; assert.ok(PL.can(d, 'refill', {})); assert.ok(PL.can(d, 'baseline', { user: 'ann' })); assert.ok(!PL.can(d, 'baseline', { user: 'bob' }));
+    var bl = { status: 'BASELINED', owner: 'ann' }; assert.ok(!PL.can(bl, 'refill', { admin: true })); assert.ok(!PL.can(bl, 'edit', { admin: true })); assert.ok(PL.can(bl, 'reopen', { admin: true })); assert.ok(!PL.can(bl, 'reopen', { user: 'ann' }));
 });
 
 console.log('\n' + (n - fail) + '/' + n + ' passed');

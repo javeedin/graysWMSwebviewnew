@@ -396,14 +396,56 @@
     };
 
     // ── workflow ──
-    P.STATUS = { DRAFT: 'Draft', SUBMITTED: 'Submitted', APPROVED: 'Approved', REJECTED: 'Sent back' };
-    /** Whether `who` ({user, admin}) may do `act` (edit | submit | approve | reject | reopen) on the version */
+    /** Fill the plan again from the actuals — as often as wanted until the version is baselined.
+        opts = { how: rule every refilled line starts from, only(l): which lines (default all), keepTyped: lines typed in keep their
+        months, addMissing: accounts with actuals in the 24 months before the plan that have no line get one, dropEmpty: lines with no
+        actuals and nothing planned go } → { refilled, kept, added, dropped } */
+    P.refill = function (v, ctx, opts) {
+        opts = opts || {};
+        var how = opts.how || { method: 'py', pct: 0 }, only = opts.only || function () { return true; }, res = { refilled: 0, kept: 0, added: 0, dropped: 0 };
+        var first = v.periods[0].period_seq, has = {};
+        v.lines.forEach(function (l) {
+            has[P.key(l)] = 1;
+            if (!only(l)) return;
+            var typed = (!l.rule || l.rule.method === 'manual') && l.m.some(function (x) { return Math.abs(x) >= 0.005; });
+            if (typed && opts.keepTyped) { res.kept++; return; }
+            l.rule = JSON.parse(JSON.stringify(how)); l.adj = 1; res.refilled++;
+        });
+        if (opts.addMissing) {
+            var cos = v.companies && v.companies.length ? v.companies : null;
+            Object.keys(ctx.hist || {}).forEach(function (k) {
+                var p = k.split('|'), acc = ctx.accounts[p[2]]; if (!acc || (acc.account_type !== 'R' && acc.account_type !== 'E')) return;
+                if (cos && cos.indexOf(p[0]) < 0) return;
+                var line = { company: p[0], cc: v.grain === 'cc' ? p[1] : '', account: p[2], m: v.periods.map(function () { return 0; }), rule: JSON.parse(JSON.stringify(how)), adj: 1 };
+                if (has[P.key(line)] || !only(line)) return;
+                var h = ctx.hist[k]; if (!Object.keys(h).some(function (q) { return +q >= first - 200 && +q < first && Math.abs(h[q]) >= 0.5; })) return;
+                has[P.key(line)] = 1; v.lines.push(line); res.added++;
+            });
+        }
+        P.compute(v, ctx);
+        if (opts.dropEmpty) {
+            var keepL = v.lines.filter(function (l) {
+                if (!only(l)) return true;
+                var h = (ctx.hist || {})[P.key(l)] || {}, any = Object.keys(h).some(function (q) { return Math.abs(h[q]) >= 0.5; });
+                return any || l.m.some(function (x) { return Math.abs(x) >= 0.005; }) || l.note;
+            });
+            res.dropped = v.lines.length - keepL.length; v.lines = keepL;
+        }
+        v.lines.sort(function (a, b) { return a.company.localeCompare(b.company) || String(a.account).localeCompare(String(b.account), undefined, { numeric: true }) || String(a.cc).localeCompare(String(b.cc)); });
+        return res;
+    };
+
+    // ── workflow ──
+    P.STATUS = { DRAFT: 'Draft', SUBMITTED: 'Submitted', APPROVED: 'Approved', REJECTED: 'Sent back', BASELINED: 'Baselined' };
+    /** Whether `who` ({user, admin}) may do `act` (edit | refill | submit | approve | reject | baseline | reopen) on the version.
+        Baseline = the version is final and locked (the owner or an AI admin, from Draft / Sent back / Approved); reopening needs an AI admin. */
     P.can = function (v, act, who) {
         who = who || {}; var st = v.status || 'DRAFT';
-        if (act === 'edit') return st === 'DRAFT' || st === 'REJECTED';
+        if (act === 'edit' || act === 'refill') return st === 'DRAFT' || st === 'REJECTED';
         if (act === 'submit') return st === 'DRAFT' || st === 'REJECTED';
         if (act === 'approve' || act === 'reject') return st === 'SUBMITTED' && !!who.admin && (who.user || '') !== (v.submittedBy || '');
-        if (act === 'reopen') return st === 'APPROVED' && !!who.admin;
+        if (act === 'baseline') return (st === 'DRAFT' || st === 'REJECTED' || st === 'APPROVED') && (!!who.admin || (!!who.user && who.user === (v.owner || '')));
+        if (act === 'reopen') return (st === 'APPROVED' || st === 'BASELINED') && !!who.admin;
         return false;
     };
 

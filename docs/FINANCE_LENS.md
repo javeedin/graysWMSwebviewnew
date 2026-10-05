@@ -686,7 +686,9 @@ Left menu › **Planning › Budgets & forecasts**. A plan is a version of the i
 - **Plan vs actual** — once the months are synced: plan against actual by line and a cumulative profit chart; **Make a rolling forecast** = the actual months + the rest of the year (keep the plan, run-rate, trend or last year).
 - **Checks** — no revenue, lines far from last year, lines with actuals that the plan left out (add them in one click), months below zero, margin change.
 - **AI** — write the assumptions in plain words ("revenue +8 % from the new price list, salaries +5 %, travel −20 %"); the Copilot turns them into rules you preview before applying. *AI review* challenges the plan like a CFO.
-- **Workflow** — Draft → Submit → an AI admin who did not submit it approves (or sends it back with a reason); approved versions are read-only until reopened. Every step is in **History**.
+- **Refill from actuals** — while the plan is a draft, refill it as often as you like: it reads the latest actuals from DuckDB again and restarts every line (or one company, revenue or costs) from last year + %, run-rate, trend or empty. Lines you typed can be kept, accounts with new actuals are added, and a preview shows revenue, expenses and profit before and after.
+- **Baseline** — when the budget is final, *Baseline* locks it (no more refills or edits). Only an AI admin can reopen it.
+- **Workflow** — Draft → Submit → an AI admin who did not submit it approves (or sends it back with a reason); approved and baselined versions are read-only until reopened. Every step is in **History**.
 - **Use as budget** — every statement, KPI, variance and the board pack then compare with this version instead of the Fusion budget.
 - **Excel** — download the plan, change the months, upload it back.
 

@@ -18,7 +18,7 @@
     var sumOf = function (a) { var s = 0; (a || []).forEach(function (x) { s += +x || 0; }); return s; };
     var clone = function (o) { return JSON.parse(JSON.stringify(o)); };
     var KIND = { BUDGET: 'Budget', FORECAST: 'Forecast', SCENARIO: 'Scenario' };
-    var ST_TAG = { DRAFT: '', SUBMITTED: 'warn', APPROVED: 'good', REJECTED: 'bad' };
+    var ST_TAG = { DRAFT: '', SUBMITTED: 'warn', APPROVED: 'good', REJECTED: 'bad', BASELINED: 'good' };
     var dp = function () { return FL.filter.scale >= 1000000 ? 1 : 0; };
     var parseNum = function (s) { s = String(s == null ? '' : s).trim().replace(/[,\s]/g, ''); var neg = /^\(.*\)$/.test(s) || /^-/.test(s); s = s.replace(/[()\-]/g, ''); var n = parseFloat(s); return isNaN(n) ? null : (neg ? -n : n); };
 
@@ -263,9 +263,11 @@
             (bud ? '<span class="tag good">★ budget in every statement</span>' : '') +
             '<span class="sm muted">' + esc(v.currency || '') + ' · ' + v.lines.length + ' lines · rev ' + (v.rev || 0) + (PL.needApex ? ' · <b class="neg">not in APEX yet</b>' : '') + '</span><span class="grow"></span>' +
             (can('edit') ? '<button class="btn' + (PL.dirty ? ' primary' : '') + '" id="pl-save"><i class="fa-solid fa-floppy-disk"></i> Save' + (PL.dirty ? ' *' : '') + '</button>' : (PL.needApex ? '<button class="btn" id="pl-save"><i class="fa-solid fa-cloud-arrow-up"></i> Save to APEX</button>' : '')) +
+            (can('refill') ? '<button class="btn" id="pl-refill" title="Fill the lines again from the actuals in DuckDB — as often as you like until you baseline the plan"><i class="fa-solid fa-rotate"></i> Refill from actuals</button>' : '') +
             (can('submit') ? '<button class="btn" id="pl-submit" title="Send for approval"><i class="fa-solid fa-paper-plane"></i> Submit</button>' : '') +
             (can('approve') ? '<button class="btn primary" id="pl-approve"><i class="fa-solid fa-check"></i> Approve</button>' : '') +
             (can('reject') ? '<button class="btn" id="pl-reject"><i class="fa-solid fa-rotate-left"></i> Send back</button>' : '') +
+            (can('baseline') ? '<button class="btn" id="pl-base" title="Final version: lock it (no more refills or edits) — an AI admin can reopen it"><i class="fa-solid fa-lock"></i> Baseline</button>' : '') +
             (can('reopen') ? '<button class="btn" id="pl-reopen"><i class="fa-solid fa-lock-open"></i> Reopen</button>' : '') +
             '<button class="btn" id="pl-bud" title="' + (bud ? 'Stop using it as the budget (statements fall back to the Fusion budget)' : 'Every statement, KPI and variance in Finance Lens compares with this version') + '"><i class="fa-solid fa-star"></i> ' + (bud ? 'Budget ✓' : 'Use as budget') + '</button>' +
             '<span class="pl-more"><button class="btn" id="pl-more"><i class="fa-solid fa-ellipsis"></i></button><div class="pl-menu" id="pl-menu">' +
@@ -273,7 +275,8 @@
             '<a data-a="copy"><i class="fa-regular fa-copy"></i> Copy as a new version</a><a data-a="rolling"><i class="fa-solid fa-forward"></i> Rolling forecast</a>' +
             (can('edit') ? '<a data-a="recalc"><i class="fa-solid fa-calculator"></i> Recalculate every rule</a>' : '') + '<a data-a="reload"><i class="fa-solid fa-rotate"></i> Reload from APEX</a>' +
             '<a data-a="delete" class="neg"><i class="fa-solid fa-trash"></i> Delete</a></div></span></div>' +
-            (v.status === 'APPROVED' ? '<div class="sm muted" style="margin-top:4px"><i class="fa-solid fa-lock"></i> Approved by ' + esc(v.approvedBy || '') + ' ' + esc(String(v.approvedAt || '').replace('T', ' ').slice(0, 16)) + ' — read-only until an admin reopens it.</div>' :
+            (v.status === 'BASELINED' ? '<div class="sm muted" style="margin-top:4px"><i class="fa-solid fa-lock"></i> Baselined by ' + esc(v.baselinedBy || '') + ' ' + esc(String(v.baselinedAt || '').replace('T', ' ').slice(0, 16)) + ' — the final version; refills and edits are closed until an admin reopens it.</div>' :
+                v.status === 'APPROVED' ? '<div class="sm muted" style="margin-top:4px"><i class="fa-solid fa-lock"></i> Approved by ' + esc(v.approvedBy || '') + ' ' + esc(String(v.approvedAt || '').replace('T', ' ').slice(0, 16)) + ' — read-only until an admin reopens it.</div>' :
                 v.status === 'SUBMITTED' ? '<div class="sm muted" style="margin-top:4px"><i class="fa-solid fa-hourglass-half"></i> Submitted by ' + esc(v.submittedBy || '') + ' — waiting for an admin who did not submit it.</div>' :
                 v.status === 'REJECTED' ? '<div class="callout warn sm">Sent back: ' + esc(v.rejectNote || '') + '</div>' : '') +
             '<div class="kpis pl-kpis" style="margin-top:10px">' + tile('Revenue', t.sum.rev, t.sum.pyRev) + tile('Gross profit' + (gm != null ? ' · ' + gm.toFixed(1) + '%' : ''), t.sum.rev - t.sum.cos, t.sum.pyRev - (PL.pyCos(t))) +
@@ -291,7 +294,13 @@
             PL.statusBefore = v.status; v.status = 'APPROVED'; v.approvedBy = who().user || ''; v.approvedAt = new Date().toISOString(); PL.save('approved');
         };
         if ($('pl-reject')) $('pl-reject').onclick = function () { var why = prompt('Why is it sent back? (the preparer sees this)'); if (!why) return; PL.statusBefore = v.status; v.status = 'REJECTED'; v.rejectNote = why; PL.save('rejected', why); };
-        if ($('pl-reopen')) $('pl-reopen').onclick = function () { var why = prompt('Why reopen the approved version?'); if (!why) return; PL.statusBefore = v.status; v.status = 'DRAFT'; v.approvedBy = null; v.approvedAt = null; PL.save('reopened', why); };
+        if ($('pl-reopen')) $('pl-reopen').onclick = function () { var why = prompt('Why reopen the ' + (v.status === 'BASELINED' ? 'baselined' : 'approved') + ' version?'); if (!why) return; PL.statusBefore = v.status; v.status = 'DRAFT'; v.approvedBy = null; v.approvedAt = null; v.baselinedBy = null; v.baselinedAt = null; PL.save('reopened', why); };
+        if ($('pl-refill')) $('pl-refill').onclick = PL.refillDialog;
+        if ($('pl-base')) $('pl-base').onclick = function () {
+            var bad = chk.filter(function (c) { return c.level === 'bad'; });
+            if (!confirm('Baseline “' + v.name + '”?\n\nIt becomes the final version: no more refills or edits (an AI admin can reopen it).' + (bad.length ? '\n\n' + bad.length + ' check(s) fail:\n' + bad.map(function (c) { return '• ' + c.text; }).join('\n') : ''))) return;
+            PL.statusBefore = v.status; v.status = 'BASELINED'; v.baselinedBy = who().user || ''; v.baselinedAt = new Date().toISOString(); PL.save('baselined');
+        };
         $('pl-bud').onclick = PL.toggleBudget;
         $('pl-kchk').onclick = function () { PL.st.view = 'checks'; keep(); PL.paintMain(); };
         $('pl-more').onclick = function (e) { e.stopPropagation(); $('pl-menu').classList.toggle('open'); };
@@ -334,7 +343,7 @@
             PL.diag().then(function (d) {
                 if (!$('pd-box')) return;
                 $('pd-box').innerHTML = PL.diagHtml(d);
-                if ($('pd-fill')) $('pd-fill').onclick = function () { P.seed(v, PL.ctx, { method: 'py', pct: 0 }); PL.changed(true); FL.toast(v.lines.length + ' line(s) from the actuals — save to keep them', 'ok'); };
+                if ($('pd-fill')) $('pd-fill').onclick = function () { P.refill(v, PL.ctx, { how: { method: 'py', pct: 0 }, addMissing: true }); PL.changed(true); FL.toast(v.lines.length + ' line(s) from the actuals — save to keep them', 'ok'); };
                 if ($('pd-again')) $('pd-again').onclick = function () { PL.prepare().then(function () { PL.paintMain(); }); };
             }).catch(function (e) { if ($('pd-box')) $('pd-box').innerHTML = '<div class="callout bad">' + esc(String(e && e.message || e)) + '</div>'; });
         }
@@ -736,6 +745,52 @@
             '<div class="row" style="margin-top:6px"><button class="btn primary" id="ai-apply"><i class="fa-solid fa-check"></i> Apply to the plan</button><button class="btn" id="ai-no">Discard</button></div></div>';
         $('ai-apply').onclick = function () { PL.v.lines = copy.lines; PL.v.drivers = copy.drivers; PL.changed(true); FL.toast('Applied — save to keep it', 'ok'); };
         $('ai-no').onclick = function () { box.innerHTML = ''; };
+    };
+
+
+    // ═════ refill from actuals: as often as wanted until the plan is baselined ═════
+    PL.refillDialog = function () {
+        var v = PL.v; if (!P.can(v, 'refill', who())) return;
+        FL.modal('<i class="fa-solid fa-rotate"></i> Refill from actuals', '<div class="sm muted" id="rf-read"><i class="fa-solid fa-circle-notch fa-spin"></i> Reading the actuals from DuckDB again…</div>' +
+            '<div class="field">Start the lines from<div class="rd-meths" id="rf-how">' + [['py', 'Last year + %', 'Same month last year — keeps the seasons'], ['runrate', 'Run-rate', 'Average of the last months'], ['trend', 'Trend', 'Seasonal trend of the actuals'], ['zero', 'Empty', 'Zero — to type or upload']]
+                .map(function (x, i) { return '<button class="rd-meth' + (i === 0 ? ' on' : '') + '" data-h="' + x[0] + '"><b>' + x[1] + '</b><span>' + x[2] + '</span></button>'; }).join('') + '</div></div>' +
+            '<div class="row" id="rf-x" style="gap:10px;flex-wrap:wrap;margin-top:8px"></div>' +
+            '<div class="row" style="gap:14px;flex-wrap:wrap;margin-top:8px"><label class="field">Which lines<select id="rf-which"><option value="all">every line</option>' +
+            (PL.st.co ? '<option value="co">company ' + esc(PL.st.co) + ' only</option>' : '') + '<option value="R">revenue lines</option><option value="E">cost lines</option></select></label>' +
+            '<label class="sm"><input type="checkbox" id="rf-keep" checked> keep the lines I typed in</label><label class="sm"><input type="checkbox" id="rf-add" checked> add accounts with actuals that have no line</label>' +
+            '<label class="sm"><input type="checkbox" id="rf-drop"> remove lines with no actuals and nothing planned</label></div>' +
+            '<div id="rf-prev" style="margin-top:10px"></div><div class="row" style="margin-top:10px"><span class="sm muted">Nothing is saved until you press Save. Drivers, notes and the other versions stay as they are.</span><span class="grow"></span><button class="btn primary" id="rf-go" disabled><i class="fa-solid fa-check"></i> Refill</button></div>');
+        var how = 'py';
+        var opts = function () {
+            var w = $('rf-which').value, a = function (l) { return (PL.ctx.accounts[l.account] || {}).account_type; };
+            return { how: how === 'py' ? { method: 'py', pct: +(($('rf-pct') || {}).value || 0) } : how === 'runrate' ? { method: 'runrate', n: +(($('rf-n') || {}).value || 3) } : how === 'trend' ? { method: 'trend' } : { method: 'zero' },
+                only: w === 'co' ? function (l) { return l.company === PL.st.co; } : w === 'R' || w === 'E' ? function (l) { return a(l) === w; } : null,
+                keepTyped: $('rf-keep').checked, addMissing: $('rf-add').checked, dropEmpty: $('rf-drop').checked };
+        };
+        var extra = function () {
+            $('rf-x').innerHTML = how === 'py' ? '<label class="field">Change %<input id="rf-pct" type="number" step="0.1" value="0"></label>' : how === 'runrate' ? '<label class="field">Months<select id="rf-n"><option>1</option><option selected>3</option><option>6</option><option>12</option></select></label>' : '';
+            $('rf-x').querySelectorAll('input,select').forEach(function (x) { x.oninput = prev; x.onchange = prev; });
+        };
+        var prev = function () {
+            var copy = clone(PL.v), t0 = P.totals(PL.v, PL.ctx), r = P.refill(copy, PL.ctx, opts()), t1 = P.totals(copy, PL.ctx);
+            var row = function (lbl, a, b) { var d = b - a; return '<tr><td>' + lbl + '</td><td class="n">' + money(a) + '</td><td class="n"><b>' + money(b) + '</b></td><td class="n ' + (d >= 0 ? 'pos' : 'neg') + '">' + (d >= 0 ? '+' : '') + money(d) + '</td></tr>'; };
+            $('rf-prev').innerHTML = '<div class="sm">' + r.refilled + ' line(s) refilled · ' + r.kept + ' typed line(s) kept · ' + r.added + ' added' + (r.dropped ? ' · ' + r.dropped + ' removed' : '') + '</div>' +
+                '<table class="t sm" style="margin-top:6px"><thead><tr><th></th><th class="n">Now</th><th class="n">After refill</th><th class="n">Change</th></tr></thead><tbody>' +
+                row('Revenue', t0.sum.rev, t1.sum.rev) + row('Expenses', t0.sum.exp, t1.sum.exp) + row('Net profit', t0.sum.np, t1.sum.np) + '</tbody></table>';
+            PL.rfCopy = copy; PL.rfRes = r;
+        };
+        PL.prepare().then(function () {
+            var la = PL.ctx.lastActual;
+            $('rf-read').innerHTML = 'Actuals read from DuckDB again: ' + (PL.ctx.read || {}).plRows + ' income statement rows' + (la ? ', up to ' + esc(FL.periodName(la)) : '') + '.';
+            $('rf-go').disabled = false; extra(); prev();
+        }).catch(function (e) { $('rf-read').innerHTML = '<span class="neg">' + esc(String(e && e.message || e)) + '</span>'; });
+        document.querySelectorAll('#rf-how .rd-meth').forEach(function (b) { b.onclick = function () { how = b.dataset.h; document.querySelectorAll('#rf-how .rd-meth').forEach(function (x) { x.classList.toggle('on', x === b); }); extra(); if (PL.ctx) prev(); }; });
+        ['rf-which', 'rf-keep', 'rf-add', 'rf-drop'].forEach(function (id) { $(id).onchange = function () { if (PL.ctx) prev(); }; });
+        $('rf-go').onclick = function () {
+            if (!PL.rfCopy) return;
+            PL.v.lines = PL.rfCopy.lines; (PL.v.notes = PL.v.notes || []).push('Refilled ' + new Date().toISOString().slice(0, 10) + ' from actuals (' + how + '): ' + PL.rfRes.refilled + ' refilled, ' + PL.rfRes.kept + ' kept, ' + PL.rfRes.added + ' added' + (PL.rfRes.dropped ? ', ' + PL.rfRes.dropped + ' removed' : ''));
+            FL.closeModal(); PL.changed(true); FL.toast('Refilled — press Save to keep it', 'ok');
+        };
     };
 
     // ═════ history ═════
