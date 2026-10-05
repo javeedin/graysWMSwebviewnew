@@ -2,7 +2,7 @@
 -- 90_mra_interface_status.sql
 -- WMS_MRA_INTERFACE_STATUS — one row for every MRA interface run, from every place that runs it:
 --   WMS MRA button (WMS_MANUAL), Trip Print / SO Trip Print batch (WMS_AUTO_INV / WMS_AUTO_SO), Shipping Agent Print Trip
---   (SHIPPING_AGENT), WMS 2.0 (WMS2), AI Digital Employee chat (AI_EMPLOYEE), AI Agent (AI_AGENT), Order Management (ORDER_MGMT).
+--   (SHIPPING_AGENT), WMS 2.0 (WMS2), WMS › MRA Interface › MRA transactions history retry (WMS_MRA_HISTORY), AI Digital Employee chat (AI_EMPLOYEE), AI Agent (AI_AGENT), Order Management (ORDER_MGMT).
 -- Written by the app (classes/MRAInterfaceStatus.cs, called from MRAProcessor.ProcessMRAInterfaceAsync) through ai/executewrite.
 -- The app also creates the table on first use; run this script to create it up front or to re-create it.
 --
