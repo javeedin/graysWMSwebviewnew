@@ -315,5 +315,34 @@ test('cost allocation: step-down, drivers, GL driver, ABC stages, every rule net
     near(co['01'].loaded, 750); near(co['02'].loaded, 250); near(co['02'].after, 750);
 });
 
+test('IFRS pack: statements balance, cash flow ties to cash, equity ties, both presentations, overrides', function () {
+    var IFRS = require('../fin-ifrs-engine.js');
+    ['function', 'nature'].forEach(function (pres) {
+        var p = IFRS.build(data, last, { presentation: pres, taxRate: 15, shares: 1000 });
+        near(p.sfp.assets[0], p.sfp.eqLiab[0], 1, 'SFP balances now'); near(p.sfp.assets[1], p.sfp.eqLiab[1], 1, 'SFP balances at the comparative');
+        near(p.cf.values.cur.diff, 0, 1, 'cash flow ties to the change in cash');
+        near(p.cf.values.cur.close - p.cf.values.cur.open, p.cf.values.cur.net, 1);
+        var blk = p.soce.blocks[p.soce.blocks.length - 1], close = blk.rows[blk.rows.length - 1].v[3];
+        near(close, p.sfp.equity[0], 1, 'changes in equity close to the balance sheet equity');
+        near(p.pl.values.cur.PFY, blk.rows[1].v[2], 1, 'profit in equity = profit in P&L');
+        var tcheck = p.checks.filter(function (c) { return /balances at|ties to|close to/.test(c.label); });
+        assert.ok(tcheck.length >= 3 && tcheck.every(function (c) { return c.ok; }), JSON.stringify(tcheck));
+        near(p.notes.tax.expected, p.notes.tax.pbt * 0.15, 0.5);
+    });
+    // the same profit whichever presentation
+    near(IFRS.build(data, last, { presentation: 'function' }).pl.values.cur.PFY, IFRS.build(data, last, { presentation: 'nature' }).pl.values.cur.PFY, 0.5);
+    // moving a cash account to other current assets: still balances and still ties (the cash line shrinks, the movement shows in working capital)
+    var cashAcc = data.accounts.filter(function (a) { return IFRS.defaultMap(a).sfp === 'CASH'; })[0];
+    var q = IFRS.build(data, last, { map: { sfp: (function () { var o = {}; o[cashAcc.code] = 'OCA'; return o; })() } });
+    near(q.sfp.assets[0], q.sfp.eqLiab[0], 1); near(q.cf.values.cur.diff, 0, 1);
+    assert.ok(q.map[cashAcc.code].overridden);
+    // OCI: an income account moved to OCI leaves profit, enters total comprehensive income and reserves; everything still ties
+    var oi = data.accounts.filter(function (a) { return a.account_type === 'R'; })[0], over = { fn: {} }; over.fn[oi.code] = 'OCI_R';
+    var r = IFRS.build(data, last, { map: over }), base = IFRS.build(data, last, {});
+    near(r.pl.values.cur.TCI, base.pl.values.cur.TCI, 1); assert.ok(Math.abs(r.pl.values.cur.OCI) > 0);
+    near(r.sfp.assets[0], r.sfp.eqLiab[0], 1); near(r.cf.values.cur.diff, 0, 1);
+    var rb = r.soce.blocks[r.soce.blocks.length - 1]; near(rb.rows[rb.rows.length - 1].v[3], r.sfp.equity[0], 1);
+});
+
 console.log('\n' + (n - fail) + '/' + n + ' passed');
 process.exit(fail ? 1 : 0);

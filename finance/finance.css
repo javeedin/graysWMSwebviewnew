@@ -756,3 +756,26 @@ body.fl-maxed { overflow: hidden; }
 .sa-askbox .btn { padding: 0 20px; }
 .sa-sugg { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .sa-reach { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+/* ── IFRS pack (fin-ifrs.js) ── */
+.if-head h2 { font-size: 1.25rem; }
+.if-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.if-tabs button { border: 1px solid var(--line); background: var(--card); color: inherit; border-radius: 99px; padding: 5px 12px; cursor: pointer; font-weight: 600; font-size: .82rem; }
+.if-tabs button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.if-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; vertical-align: middle; } .if-dot.bad { background: var(--bad); } .if-dot.warn { background: var(--warn); }
+.if-card { margin-top: 10px; max-width: 1100px; }
+.if-ttl { border-bottom: 2px solid var(--ink2, #0f172a); margin-bottom: 6px; padding-bottom: 4px; } .if-ttl h3 { margin: 0; font-size: 1.05rem; }
+.if-st { width: 100%; } .if-st td, .if-st th { padding: 4px 8px; }
+.if-st th.n, .if-st td.n { width: 150px; }
+.if-st tr.if-head td { font-weight: 700; padding-top: 12px; text-transform: none; }
+.if-st tr.if-head2 td { font-style: italic; color: var(--muted); }
+.if-st tr.if-sub td { font-weight: 700; border-top: 1px solid var(--line); }
+.if-st tr.if-total td { font-weight: 800; border-top: 1px solid var(--ink2, #0f172a); border-bottom: 3px double var(--ink2, #0f172a); }
+.if-st tr.click:hover td { background: var(--accent-bg); cursor: pointer; }
+.if-nt { width: 48px; text-align: center; color: var(--muted); }
+.if-ref { font-size: .68rem; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; white-space: nowrap; }
+.if-soce th.n, .if-soce td.n { width: 130px; }
+.if-note { border-top: 1px dashed var(--line); padding-top: 4px; } .if-note h4 { margin: 10px 0 6px; }
+.if-chk { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.if-chk i { margin-top: 3px; } .if-chk.ok i { color: var(--good); } .if-chk.error i { color: var(--bad); } .if-chk.warn i { color: var(--warn); }
+.if-man { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; border-bottom: 1px dashed var(--line); cursor: pointer; }
+.if-set label, .if-set > div { display: block; margin: 8px 0; } .if-set textarea { width: 100%; font: inherit; } .if-set input:not([type]), .if-set input[id=st-ent] { min-width: 320px; }

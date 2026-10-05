@@ -55,6 +55,39 @@ templates and mapping stay).
   monitors, risk highlights). Print / save as PDF, or save the HTML.
 
 
+## IFRS pack
+
+Reports › **IFRS pack** (before Statements) builds a full set of IFRS financial statements from the synced trial balance,
+for the period chosen in its header (or the main header), with comparatives:
+
+- **Statement of financial position** (IAS 1.54) at the period end vs the previous financial year end — non-current /
+  current assets, equity, non-current / current liabilities, each line with its standard (IAS 16, IFRS 16, IFRS 9 …)
+  and note number. Retained earnings include the profit of the year so far.
+- **Statement of profit or loss and other comprehensive income** — year to date vs the same period last year, expenses
+  **by function** (cost of sales method) or **by nature** (Settings); OCI split into items that may / will not be
+  reclassified; earnings per share when the number of shares is set.
+- **Statement of changes in equity** — opening, profit, OCI, dividends and other transactions with owners, closing — for
+  the current and the comparative period.
+- **Statement of cash flows** (IAS 7, indirect) — operating (profit before tax, depreciation, finance costs, working
+  capital, tax paid), investing (capital expenditure, investments, interest received), financing (borrowings, leases,
+  equity, dividends, interest paid). It always ties to the change in cash; the page says so.
+- **Notes**: basis of preparation, accounting policies, judgements, revenue, expenses by nature, PPE / right-of-use /
+  intangibles roll-forward, income tax reconciliation, trade receivables with the ageing and expected credit loss
+  allowance (from Debtors), borrowings and leases, related parties, earnings per share, segment information (IFRS 8 —
+  choose the segment in Settings), events after the reporting period. Numbers come from the data; the text is yours.
+- **Checks**: automatic (trial balance balances, balance sheet balances, comparatives loaded, cash flow ties, equity ties,
+  suspense balances, negative cash, wrong signs, missing tax rate / shares) and a 16-item **disclosure checklist** with
+  the IAS / IFRS reference — tick each item when it is covered; ticks keep who and when.
+- **Mapping**: every account's IFRS line, worked out from its class and name. Click any statement line to see its
+  accounts and move one to another line; the change is kept for every period.
+- **AI review**: the Copilot reviews the whole pack like an auditor (IAS 1 / 7 / 34 and related standards) and lists
+  issues, missing disclosures and unusual numbers.
+- **Excel** (one sheet per statement, notes data, checks) and **Print / PDF** (cover, statements and notes in a print
+  layout).
+
+With several companies selected the statements are a sum, not a consolidation — intercompany balances are not
+eliminated and foreign ledgers are not translated; pick one company for its own statements.
+
 ## Cost allocation
 
 Reports › **Cost allocation** shares the balance of chosen accounts out to departments (or salespeople, companies, or a
