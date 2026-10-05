@@ -41,7 +41,8 @@
     /** Prompts that fit the page on screen — a click puts the prompt in the box (edit it, Enter sends); nothing runs by itself */
     C.pagePrompts = function () {
         var G = FL.segpl, tab = FL.tab;
-        if ((tab === 'segpl' || tab === 'segai') && G && G.st && G.st.groups && G.st.groups.length) {
+        if (tab === 'segai' && G && G.ai) return { title: 'AI Agent', items: G.ai.SUGGEST.concat(['What changed most versus last month, and why?']) };
+        if (tab === 'segpl' && G && G.st && G.st.groups && G.st.groups.length) {
             var seg = G.label(G.st.groups[0]), sl = seg.toLowerCase(), fx = null;
             try { var d = G.kpi.build(); fx = G.st.kpiFocus != null ? d.list.filter(function (x) { return x.v === G.st.kpiFocus; })[0] : null; } catch (e) { /* no data yet */ }
             var cmp = G.st.cmp === 'py' ? 'last year' : G.st.cmp === 'prev' ? 'the previous period' : null;
@@ -211,7 +212,7 @@
                 (FL.config.kpis || []).forEach(function (d) { if (k[d.id] && k[d.id].value != null) out.kpis[d.label] = r0(k[d.id].value) + (d.fmt === 'pct' ? ' %' : d.fmt === 'days' ? ' days' : d.fmt === 'ratio' ? '×' : ''); });
                 out.monitors = FINE.monitor(FL.config.monitors || [], k).filter(function (m) { return m.status === 'breach' || m.status === 'bad' || m.status === 'alert'; }).map(function (m) { return m.rule.label; });
             } catch (e) { out.kpiError = String(e.message || e); }
-            if ((FL.tab === 'segpl' || FL.tab === 'segai') && FL.segpl && FL.segpl.ai && FL.segpl.st.groups && FL.segpl.st.groups.length) { try { out.segmentPL = FL.segpl.ai.context(); } catch (e) { /* not loaded */ } }
+            if (FL.tab === 'segpl' && FL.segpl && FL.segpl.ai && FL.segpl.st.groups && FL.segpl.st.groups.length) { try { out.segmentPL = FL.segpl.ai.context(); } catch (e) { /* not loaded */ } }
             if (FL.tab === 'pages' && FL.pages && FL.pages.cur) { var dc = FL.pages.designContext(); out.openPage = dc.page; out.pageParameters = dc.parameters_now;
                 out.pageGuide = 'The user is on their own page "' + FL.pages.cur.name + '" (My pages). When they ask to add, change or remove something on it, follow this guide and answer with ONE ```page block of the whole page:\n' + FL.pages.GUIDE; }
             if (FL.tab === 'alloc' && FL.alloc && FL.alloc.doc) { try { out.costAllocation = FL.alloc.context(); out.costAllocationGuide = 'The user is on Cost allocation. To add or change rules answer with ONE ```alloc block: ' + FL.alloc.GUIDE; } catch (e) { /* not loaded */ } }

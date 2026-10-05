@@ -31,7 +31,7 @@
     // Segment P&L and the AI Agent page share this engine (left panel, data); the AI Agent is its own page in the menu (tab segai)
     G.mode = 'segpl';
     FL.TABS.segpl = { render: function (el) { G.mode = 'segpl'; if (G.st.view === 'ai') G.st.view = 'kpi'; return G.render(el); } };
-    FL.TABS.segai = { render: function (el) { G.mode = 'agent'; return G.render(el); } };
+    // the AI Agent tab is its own page (fin-segai.js); the Segment P&L panel is not shown there
 
     // ── what is on this PC: ledgers, periods, segments, names ──
     G.meta = function () {

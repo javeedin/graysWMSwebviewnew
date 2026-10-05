@@ -236,12 +236,14 @@ Segments are named from the chart of accounts (fin_coa_segments, else the saved 
     cost of sales, loss, rank and rank change, the account that moved most), the P&L line by line next to the comparison
     and the average value, the accounts that moved most, and revenue / gross profit / EBITDA by period. The value is
     circled on the margin map. *AI deep dive* hands it to the AI Agent.
-- **AI Agent**: one-click missions for the CFO (executive briefing, who to talk to this week, margin recovery plan, fair
-  allocation of costs sitting on blank / default values, run-rate & outlook, board pack text, A / B / C scorecards, deep
-  dive on one value) and for the CIO and controllers (data quality audit, unusual postings, reconciliation & coverage with
-  the trial balance, what to automate), plus your own question. The agent gets the segment table and the findings and can
-  read every balance on this PC (read-only); each answer is a card with the steps it took, tables / charts, its cost, Copy,
-  Save .md, follow-up in the Copilot and Run again — kept on this PC.
+- **AI Agent** (its own page in the left menu, no ledger or period panel): ask anything in the big box — the agent reads
+  every table on this PC and, for AI admins, queries Oracle Fusion live (read-only); it shows the steps it took and
+  answers with numbers, tables and charts. One-click missions for the CFO (the month on one page, where did the profit
+  go, cost movers, cash & working capital, run-rate & year-end outlook, board pack text) and for controllers / the CIO
+  (data health check, statements tie to the trial balance, unusual balances, check against Fusion, what to automate).
+  When a Segment P&L is set up, its missions (briefing, who to talk to, margin recovery, scorecards …) appear underneath;
+  *AI deep dive* from a KPI focus opens the page and runs the deep dive. Answers are kept on this PC (copy, save .md,
+  follow up in the Copilot, run again).
 - **Tree**: *Periods* added up — optionally *Compare with* the same period last year or the previous periods, so every
   line shows Actual, PY / Prev, Δ and Δ % — or *side by side* (one column per period under every line), with the change
   vs the previous or the first period and an optional Total column. Rows show only the value (the segment is the

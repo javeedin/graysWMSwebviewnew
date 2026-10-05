@@ -747,3 +747,12 @@ body.fl-maxed { overflow: hidden; }
 .al-pick .al-pl { max-height: 170px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; margin-top: 4px; columns: 2; font-size: .8rem; }
 .al-pick .al-pl label { display: block; break-inside: avoid; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .al-story { background: var(--accent-bg); border-left: 4px solid var(--accent); padding: 8px 12px; border-radius: 6px; }
+/* ── AI Agent page (fin-segai.js, tab segai) ── */
+.sa-gen { max-width: 1400px; }
+.sa-hero h2 { margin: 0 0 4px; font-size: 1.3rem; } .sa-hero p { margin: 0 0 10px; }
+.sa-askbox { display: flex; gap: 8px; align-items: stretch; }
+.sa-askbox textarea { flex: 1; font: inherit; font-size: .95rem; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; resize: vertical; min-height: 64px; }
+.sa-askbox textarea:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+.sa-askbox .btn { padding: 0 20px; }
+.sa-sugg { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.sa-reach { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
