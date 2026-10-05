@@ -709,9 +709,17 @@ Count rows, ▶ Test). The `</>` dialog of a month × kind starts with every que
 with rows and seconds) and what the next sync sends, with *Count rows* (how big it is in Fusion), ▶ *Test* and *Copy*.
 While a sync runs, the strip above the board shows the query being asked right now, how long it has been running, and its SQL.
 
-GL journal lines are read only for intercompany code combinations (the intercompany segment holds a counterparty, or the
-account is an intercompany account) in the ledger's period of the month, plus journals whose category / source says
-Intercompany — never every line of the month.
+GL journal lines are read in three small steps, never one query over the month's lines:
+1. the ledger's period name(s) of the month (GL_PERIOD_STATUSES);
+2. the intercompany code combinations that **moved** this month — GL_BALANCES of the ledger and period (indexed) joined to
+   GL_CODE_COMBINATIONS where the intercompany segment holds a counterparty or the account is an intercompany account —
+   with their company, counterparty and account (if GL_BALANCES is refused: every intercompany combination of the chart);
+3. the posted lines of exactly those combinations, 300 per query, by CODE_COMBINATION_ID + LEDGER_ID + PERIOD_NAME
+   (ledger / period from the header when the lines have no such columns). A query with more than 20,000 lines is split
+   in halves; one combination with that many lines is read page by page.
+
+The journal category / source rule ("Intercompany" in the category or source) is **off by default** — most pods do not
+use such a category and the query was slow; tick it in Settings to add an optional step 4.
 
 Each kind tries its queries in order: when a table or column is missing on your pod it falls back to a simpler one
 (Settings › Queries shows them, ▶ *Test in Fusion*, or replace them with your own).
@@ -738,7 +746,7 @@ Intercompany module transaction produced its invoices.
 
 **Settings** (AI admins) — ledgers and their intercompany segment, intercompany accounts (empty = accounts classed
 *Intercompany* in Account mapping), extra customers / suppliers, inventory only between legal entities, GL category / source
-rule, automatic APEX copy, rows per page, queries.
+rule (off by default), automatic APEX copy, rows per page, queries.
 
 The CFO Copilot gets the month's matching and reconciliation, and can query `rr_ic_v`, `rr_ic_bal_v`, `rr_ic_entities`.
 

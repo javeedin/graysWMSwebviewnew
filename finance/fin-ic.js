@@ -29,7 +29,8 @@
     IC.cfg = function () {
         FL.config = FL.config || {};
         var c = FL.config.ic = FL.config.ic || {};
-        if (c.tol == null) c.tol = 1; if (c.window == null) c.window = 1; if (c.crossLe == null) c.crossLe = true; if (c.useCategory == null) c.useCategory = true;
+        if (c.tol == null) c.tol = 1; if (c.window == null) c.window = 1; if (c.crossLe == null) c.crossLe = true; if (c.useCategory == null) c.useCategory = false;
+        if (!c.catV2) { c.useCategory = false; c.catV2 = 1; }   // the category / source rule was on by default before: slow and empty on most pods
         if (c.pageSize == null) c.pageSize = 5000; if (c.apex == null) c.apex = true;
         c.icSeg = c.icSeg || {}; c.queries = c.queries || {}; c.icAccounts = c.icAccounts || []; c.customers = c.customers || []; c.suppliers = c.suppliers || [];
         return c;
@@ -756,7 +757,7 @@
                 '<div class="ic-g2"><label class="sm">Customers<textarea id="ic-cus" rows="5" style="width:100%"' + dis + '>' + esc(list(cfg.customers)) + '</textarea></label><label class="sm">Suppliers<textarea id="ic-sup" rows="5" style="width:100%"' + dis + '>' + esc(list(cfg.suppliers)) + '</textarea></label></div></div></div>' +
             '<div class="card"><h3><i class="fa-solid fa-gear"></i> Options</h3><div class="row">' +
                 '<label class="sm"><input type="checkbox" id="ic-cross"' + (cfg.crossLe ? ' checked' : '') + dis + '> inventory: only transfers between different legal entities</label>' +
-                '<label class="sm"><input type="checkbox" id="ic-cat"' + (cfg.useCategory ? ' checked' : '') + dis + '> GL: also journals whose category / source says Intercompany</label>' +
+                '<label class="sm"><input type="checkbox" id="ic-cat"' + (cfg.useCategory ? ' checked' : '') + dis + '> GL: also journals whose category / source says Intercompany (slower — off by default)</label>' +
                 '<label class="sm"><input type="checkbox" id="ic-apex"' + (cfg.apex ? ' checked' : '') + dis + '> copy every sync to APEX (RR_IC_ tables)</label>' +
                 '<label class="sm">Rows per page <input type="number" id="ic-ps" min="200" max="50000" value="' + cfg.pageSize + '" style="width:90px"' + dis + '></label></div></div>' +
             '<div class="card"><h3><i class="fa-solid fa-code"></i> Queries</h3><p class="sm muted">Each kind tries its queries in order (a pod without a table or column falls back to a simpler one). You can replace them with your own — it must return the same column names (SRC_ID, DOC_NUMBER, GL_DATE, FROM_LE / FROM_BU / FROM_ORG / FROM_COMPANY, TO_…, CURRENCY, AMOUNT_ENTERED, AMOUNT …; balances: COMPANY, ACCOUNT, IC_COMPANY, OPENING, DR, CR). ' +

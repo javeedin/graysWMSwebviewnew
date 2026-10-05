@@ -46,7 +46,7 @@ namespace WMSApp
             public List<string> IcCustomers { get; set; } = new();
             public List<string> IcSuppliers { get; set; } = new();
             public bool CrossLeOnly { get; set; } = true;
-            public bool UseCategory { get; set; } = true;
+            public bool UseCategory { get; set; } = false;
             public int PageSize { get; set; } = 5000;
             public int Cap { get; set; } = 500000;
             public Dictionary<string, string> Queries { get; set; } = new();
@@ -205,40 +205,19 @@ namespace WMSApp
                         break;
                     }
                 case "GL":
-                    {
-                        // Only intercompany lines, read the cheap way round:
-                        //  A = the chart's intercompany code combinations (segment / accounts) → their lines of the ledger's period(s) of the month
-                        //      (GL_JE_LINES by CODE_COMBINATION_ID + PERIOD_NAME, indexed) → the header for posted actuals;
-                        //  B = (when "category / source" is on) lines of journals whose category or source says Intercompany that are NOT already in A.
-                        // Never GL_JE_LINES.EFFECTIVE_DATE (no index: it scanned every line of the ledger) and never a function per line of the month.
+                    {   // the sync runs these steps in turn (GlAsync) with the names / ids it finds — {…} shows where they go; the Log shows every real query
                         if (led == null) break;
-                        string co = Seg(led.Company), ac = Seg(led.Account), ic = Seg(led.Ic);
-                        if (co == null || ac == null) break;
+                        if (Seg(led.Company) == null || Seg(led.Account) == null) break;
                         string lid = Regex.IsMatch(led.Id ?? "", "^[0-9]+$") ? led.Id : "0";
                         string coa = Regex.IsMatch(led.CoaId ?? "", "^[0-9]+$") ? led.CoaId : null;
-                        string periods = "(SELECT ps.PERIOD_NAME FROM GL_PERIOD_STATUSES ps WHERE ps.APPLICATION_ID = 101 AND ps.LEDGER_ID = " + lid +
-                            " AND ps.START_DATE >= " + from + " AND ps.START_DATE < " + to + " AND NVL(ps.ADJUSTMENT_PERIOD_FLAG, 'N') = 'N')";
-                        string cols = "l.JE_HEADER_ID AS K1, l.JE_LINE_NUM AS K2, TO_CHAR(l.JE_HEADER_ID) || '-' || TO_CHAR(l.JE_LINE_NUM) AS SRC_ID, h.NAME AS DOC_NUMBER, l.JE_LINE_NUM AS LINE_NUM, h.JE_CATEGORY AS DOC_TYPE, " +
-                            "TO_CHAR(h.DEFAULT_EFFECTIVE_DATE, 'YYYY-MM-DD') AS DOC_DATE, TO_CHAR(NVL(l.EFFECTIVE_DATE, h.DEFAULT_EFFECTIVE_DATE), 'YYYY-MM-DD') AS GL_DATE, h.STATUS AS STATUS, c." + co + " AS FROM_COMPANY, " +
-                            (ic != null ? "c." + ic : "NULL") + " AS TO_COMPANY, h.CURRENCY_CODE AS CURRENCY, NVL(l.ENTERED_DR, 0) - NVL(l.ENTERED_CR, 0) AS AMOUNT_ENTERED, " +
-                            "NVL(l.ACCOUNTED_DR, 0) - NVL(l.ACCOUNTED_CR, 0) AS AMOUNT, c." + ac + " AS ACCOUNT, h.JE_SOURCE AS REFERENCE, h.PERIOD_NAME AS REF2, NVL(l.DESCRIPTION, h.DESCRIPTION) AS DESCRIPTION, TO_CHAR(h.LEDGER_ID) AS LEDGER_ID";
-                        string segF = GlFilter(led, new Options { IcAccounts = o.IcAccounts, UseCategory = false }, false, "c");
-                        string cat = "(UPPER(h.JE_CATEGORY) LIKE '%INTERCO%' OR UPPER(h.JE_SOURCE) LIKE '%INTERCO%')";
-                        string posted = " AND h.ACTUAL_FLAG = 'A' AND h.STATUS = 'P'";
-                        string partB = "SELECT /*+ LEADING(h) USE_NL(l c) */ " + cols + " FROM GL_JE_HEADERS h JOIN GL_JE_LINES l ON l.JE_HEADER_ID = h.JE_HEADER_ID JOIN GL_CODE_COMBINATIONS c ON c.CODE_COMBINATION_ID = l.CODE_COMBINATION_ID " +
-                            "WHERE h.LEDGER_ID = " + lid + " AND h.PERIOD_NAME IN " + periods + posted + " AND " + cat;
-                        if (segF != null)
-                        {
-                            string partA = "SELECT /*+ LEADING(c l h) USE_NL(l h) */ " + cols + " FROM GL_CODE_COMBINATIONS c JOIN GL_JE_LINES l ON l.CODE_COMBINATION_ID = c.CODE_COMBINATION_ID JOIN GL_JE_HEADERS h ON h.JE_HEADER_ID = l.JE_HEADER_ID " +
-                                "WHERE " + (coa != null ? "c.CHART_OF_ACCOUNTS_ID = " + coa + " AND " : "") + "NVL(c.SUMMARY_FLAG, 'N') = 'N' AND " + segF +
-                                " AND l.LEDGER_ID = " + lid + " AND l.PERIOD_NAME IN " + periods + posted;
-                            string notA = " AND (CASE WHEN " + segF + " THEN 1 ELSE 0 END) = 0";
-                            if (o.UseCategory) list.Add(("intercompany code combinations + journals in an intercompany category / source", partA + " UNION ALL " + partB + notA));
-                            list.Add(("intercompany code combinations", partA));
-                            // a pod whose GL_JE_LINES has no LEDGER_ID / PERIOD_NAME: the header gives them
-                            list.Add(("intercompany code combinations (period from the header)", partA.Replace(" AND l.LEDGER_ID = " + lid + " AND l.PERIOD_NAME IN " + periods, " AND h.LEDGER_ID = " + lid + " AND h.PERIOD_NAME IN " + periods)));
-                        }
-                        if (o.UseCategory) list.Add(("journals in an intercompany category / source only", partB));
+                        list.Add(("step 1 · the ledger's period(s) of the month", GlPeriodsSql(lid, from, to)));
+                        string c2 = GlCcidSql(led, o, lid, coa, "({period names of step 1})", true);
+                        if (c2 == null) break;
+                        list.Add(("step 2 · intercompany code combinations that moved this month (GL_BALANCES)", c2));
+                        list.Add(("step 2 · fallback when GL_BALANCES is refused: every intercompany code combination of the chart", GlCcidSql(led, o, lid, coa, null, false)));
+                        list.Add(("step 3 · their posted journal lines (300 code combinations per query)", GlLinesSql(lid, "({period names of step 1})", new[] { "{code combination ids of step 2}" }, false)));
+                        list.Add(("step 3 · fallback when GL_JE_LINES has no LEDGER_ID / PERIOD_NAME: from the header", GlLinesSql(lid, "({period names of step 1})", new[] { "{code combination ids of step 2}" }, true)));
+                        if (o.UseCategory) list.Add(("step 4 (optional) · journals in an intercompany category / source not found above", GlCategorySql(led, lid, "({period names of step 1})")));
                         break;
                     }
                 case "XLA":
@@ -412,6 +391,7 @@ namespace WMSApp
                         _lg.Value = new LogCtx { Pod = o.Pod ?? "", Kind = kind, Month = month, Scope = scope, RunId = runId, Step = "read" };
                         try {
                         if (kind == "XLA") { results.Add(await TraceAsync(run, o, led, month, what, user, progress, ct).ConfigureAwait(false)); continue; }
+                        if (kind == "GL" && !(o.Queries != null && o.Queries.TryGetValue("GL", out var ownGl) && !string.IsNullOrWhiteSpace(ownGl))) { results.Add(await GlAsync(run, o, led, month, what, user, progress, ct).ConfigureAwait(false)); continue; }
                         var alts = Alternatives(kind, month, led, o);
                         if (alts.Count == 0)
                         {
@@ -458,6 +438,176 @@ namespace WMSApp
             }
             return results;
         }
+        // ── GL journal lines in three small steps (never one query over the month's lines) ──
+        //  1 · the ledger's period name(s) of the month (GL_PERIOD_STATUSES)
+        //  2 · the intercompany code combinations that MOVED this month: GL_BALANCES of the ledger + period (indexed) × GL_CODE_COMBINATIONS with the
+        //      intercompany filter → id + company / counterparty / account (fallback: every intercompany combination of the chart)
+        //  3 · the posted lines of exactly those combinations, 300 per query, by CODE_COMBINATION_ID + LEDGER_ID + PERIOD_NAME (indexed); no ORDER BY over the
+        //      month, no re-run per page; a query that returns too many rows is split in halves, one busy combination is read in keyset pages
+        //  4 · (only when "category / source" is on) journals in an intercompany category / source whose lines were not found above
+        internal static string GlPeriodsSql(string lid, string from, string to) =>
+            "SELECT ps.PERIOD_NAME AS PERIOD_NAME FROM GL_PERIOD_STATUSES ps WHERE ps.APPLICATION_ID = 101 AND ps.LEDGER_ID = " + lid +
+            " AND ps.START_DATE >= " + from + " AND ps.START_DATE < " + to + " AND NVL(ps.ADJUSTMENT_PERIOD_FLAG, 'N') = 'N'";
+        internal static string GlCcidSql(LedgerSeg led, Options o, string lid, string coa, string periodsIn, bool moved)
+        {
+            string co = Seg(led.Company), ac = Seg(led.Account), ic = Seg(led.Ic);
+            string segF = GlFilter(led, new Options { IcAccounts = o.IcAccounts, UseCategory = false }, false, "c");
+            if (co == null || ac == null || segF == null) return null;
+            string cols = "TO_CHAR(c.CODE_COMBINATION_ID) AS CCID, c." + co + " AS COMPANY, " + (ic != null ? "c." + ic : "NULL") + " AS IC_COMPANY, c." + ac + " AS ACCOUNT";
+            return moved
+                ? "SELECT DISTINCT " + cols + " FROM GL_BALANCES b JOIN GL_CODE_COMBINATIONS c ON c.CODE_COMBINATION_ID = b.CODE_COMBINATION_ID WHERE b.LEDGER_ID = " + lid +
+                  " AND b.PERIOD_NAME IN " + periodsIn + " AND b.ACTUAL_FLAG = 'A' AND (NVL(b.PERIOD_NET_DR, 0) <> 0 OR NVL(b.PERIOD_NET_CR, 0) <> 0) AND NVL(c.SUMMARY_FLAG, 'N') = 'N' AND " + segF
+                : "SELECT " + cols + " FROM GL_CODE_COMBINATIONS c WHERE " + (coa != null ? "c.CHART_OF_ACCOUNTS_ID = " + coa + " AND " : "") + "NVL(c.SUMMARY_FLAG, 'N') = 'N' AND " + segF;
+        }
+        private const string GL_LINE_COLS = "l.JE_HEADER_ID AS K1, l.JE_LINE_NUM AS K2, TO_CHAR(l.JE_HEADER_ID) || '-' || TO_CHAR(l.JE_LINE_NUM) AS SRC_ID, TO_CHAR(l.CODE_COMBINATION_ID) AS CCID, h.NAME AS DOC_NUMBER, " +
+            "l.JE_LINE_NUM AS LINE_NUM, h.JE_CATEGORY AS DOC_TYPE, TO_CHAR(h.DEFAULT_EFFECTIVE_DATE, 'YYYY-MM-DD') AS DOC_DATE, TO_CHAR(NVL(l.EFFECTIVE_DATE, h.DEFAULT_EFFECTIVE_DATE), 'YYYY-MM-DD') AS GL_DATE, " +
+            "h.STATUS AS STATUS, h.CURRENCY_CODE AS CURRENCY, NVL(l.ENTERED_DR, 0) - NVL(l.ENTERED_CR, 0) AS AMOUNT_ENTERED, NVL(l.ACCOUNTED_DR, 0) - NVL(l.ACCOUNTED_CR, 0) AS AMOUNT, " +
+            "h.JE_SOURCE AS REFERENCE, h.PERIOD_NAME AS REF2, NVL(l.DESCRIPTION, h.DESCRIPTION) AS DESCRIPTION, TO_CHAR(h.LEDGER_ID) AS LEDGER_ID";
+        internal static string GlLinesSql(string lid, string periodsIn, IEnumerable<string> ccids, bool byHeader) =>
+            "SELECT /*+ LEADING(l) USE_NL(h) */ " + GL_LINE_COLS + " FROM GL_JE_LINES l JOIN GL_JE_HEADERS h ON h.JE_HEADER_ID = l.JE_HEADER_ID WHERE l.CODE_COMBINATION_ID IN (" + string.Join(", ", ccids) + ") AND " +
+            (byHeader ? "h.LEDGER_ID = " + lid + " AND h.PERIOD_NAME IN " + periodsIn : "l.LEDGER_ID = " + lid + " AND l.PERIOD_NAME IN " + periodsIn) + " AND h.ACTUAL_FLAG = 'A' AND h.STATUS = 'P'";
+        internal static string GlCategorySql(LedgerSeg led, string lid, string periodsIn)
+        {
+            string co = Seg(led.Company), ac = Seg(led.Account), ic = Seg(led.Ic);
+            return "SELECT /*+ LEADING(h) USE_NL(l c) */ " + GL_LINE_COLS + ", c." + co + " AS FROM_COMPANY, " + (ic != null ? "c." + ic : "NULL") + " AS TO_COMPANY, c." + ac + " AS ACCOUNT " +
+                "FROM GL_JE_HEADERS h JOIN GL_JE_LINES l ON l.JE_HEADER_ID = h.JE_HEADER_ID JOIN GL_CODE_COMBINATIONS c ON c.CODE_COMBINATION_ID = l.CODE_COMBINATION_ID " +
+                "WHERE h.LEDGER_ID = " + lid + " AND h.PERIOD_NAME IN " + periodsIn + " AND h.ACTUAL_FLAG = 'A' AND h.STATUS = 'P' AND (UPPER(h.JE_CATEGORY) LIKE '%INTERCO%' OR UPPER(h.JE_SOURCE) LIKE '%INTERCO%')";
+        }
+        private const int GL_BATCH = 300, GL_QUERY_CAP = 20000;
+
+        private static async Task<object> GlAsync(FinanceFusion.Runner run, Options o, LedgerSeg led, int month, string what, string user, Action<string> progress, CancellationToken ct)
+        {
+            string pod = o.Pod ?? "", scope = led.Id;
+            var sw = Stopwatch.StartNew();
+            void Step(string st) { var c = _lg.Value; if (c != null) c.Step = st; progress?.Invoke("   ▶ " + st); }
+            object Fail(string err, string sql)
+            {
+                FinanceLens.SaveIcSync(pod, "GL", month, scope, false, 0, 0, null, err, sql, sw.ElapsedMilliseconds, false, user);
+                progress?.Invoke("✖ " + what + ": " + err);
+                return new { kind = "GL", month, scope, ok = false, rows = 0, error = err };
+            }
+            if (Seg(led.Company) == null || Seg(led.Account) == null) return Fail("No company / account segment for this ledger — Data › Fusion setup", null);
+            string lid = Regex.IsMatch(led.Id ?? "", "^[0-9]+$") ? led.Id : "0";
+            string coa = Regex.IsMatch(led.CoaId ?? "", "^[0-9]+$") ? led.CoaId : null;
+            var (from, to) = Window(month);
+
+            // 1 · periods
+            Step("step 1/3 · the ledger's period(s) of the month (GL_PERIOD_STATUSES)");
+            string q1 = GlPeriodsSql(lid, from, to);
+            var p = await QueryAsync(run, what + " · step 1/3 periods", q1, 100, progress, ct).ConfigureAwait(false);
+            if (!p.Success) return Fail("Periods not read: " + p.Error, q1);
+            var periods = p.Rows.Select(r => Convert.ToString(Get(r, "PERIOD_NAME"), CultureInfo.InvariantCulture)).Where(x => !string.IsNullOrEmpty(x)).Distinct().ToList();
+            if (periods.Count == 0)
+            {
+                FinanceLens.SaveIc(pod, "GL", month, scope, new List<object[]>());
+                FinanceLens.SaveIcSync(pod, "GL", month, scope, true, 0, 0, "no period of this ledger starts in this month", null, q1, sw.ElapsedMilliseconds, false, user);
+                progress?.Invoke("✓ " + what + ": no period of this ledger in this month");
+                return new { kind = "GL", month, scope, ok = true, rows = 0 };
+            }
+            string pin = "(" + string.Join(", ", periods.Select(Lit)) + ")";
+            progress?.Invoke("   period(s): " + string.Join(", ", periods));
+
+            // 2 · intercompany code combinations that moved
+            Step("step 2/3 · intercompany code combinations that moved this month (GL_BALANCES × GL_CODE_COMBINATIONS)");
+            string q2 = GlCcidSql(led, o, lid, coa, pin, true);
+            if (q2 == null) return Fail("nothing marks a line as intercompany in this ledger — choose intercompany accounts or the intercompany segment (Inter company › Settings)", null);
+            var cc = await QueryAsync(run, what + " · step 2/3 intercompany combinations that moved", q2, 200000, progress, ct).ConfigureAwait(false);
+            string how2 = "moved this month";
+            if (!cc.Success)
+            {
+                progress?.Invoke("   ⚠ GL_BALANCES: " + Short(cc.Error) + " — every intercompany combination of the chart instead");
+                string q2b = GlCcidSql(led, o, lid, coa, null, false);
+                cc = await QueryAsync(run, what + " · step 2/3 every intercompany combination", q2b, 200000, progress, ct).ConfigureAwait(false);
+                if (!cc.Success) return Fail("Intercompany code combinations not read: " + cc.Error, q2b);
+                how2 = "every intercompany combination"; q2 = q2b;
+            }
+            var map = new Dictionary<string, (string Co, string Ic, string Ac)>(StringComparer.Ordinal);
+            foreach (var r in cc.Rows)
+            {
+                string id = Convert.ToString(Get(r, "CCID"), CultureInfo.InvariantCulture);
+                if (Regex.IsMatch(id ?? "", "^[0-9]+$")) map[id] = (Convert.ToString(Get(r, "COMPANY"), CultureInfo.InvariantCulture), Convert.ToString(Get(r, "IC_COMPANY"), CultureInfo.InvariantCulture), Convert.ToString(Get(r, "ACCOUNT"), CultureInfo.InvariantCulture));
+            }
+            progress?.Invoke("   " + map.Count.ToString("N0", CultureInfo.InvariantCulture) + " intercompany code combination(s) (" + how2 + ")");
+
+            // 3 · their lines, 300 combinations per query
+            var lines = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
+            var errs = new List<string>(); bool byHeader = false; string firstSql = null;
+            var queue = new Stack<string[]>(map.Keys.OrderBy(k => k.Length).ThenBy(k => k, StringComparer.Ordinal).Chunk(GL_BATCH).Reverse());
+            var busy = new HashSet<string>(StringComparer.Ordinal); int done = 0, qn = 0;
+            while (queue.Count > 0)
+            {
+                ct.ThrowIfCancellationRequested();
+                var b = queue.Pop(); qn++;
+                Step("step 3/3 · journal lines · query " + qn + " (" + b.Length + " combination(s); " + done + " of " + map.Count + " combinations read)");
+                string sql = GlLinesSql(lid, pin, b, byHeader);
+                firstSql ??= sql;
+                if (b.Length == 1 && busy.Contains(b[0]))
+                {   // one busy combination (it alone filled a query): keyset pages
+                    var rr = await ReadAsync(run, "GL", sql, what + " · step 3/3 combination " + b[0], o, progress, ct).ConfigureAwait(false);
+                    if (!rr.Ok) { errs.Add("combination " + b[0] + ": " + rr.Error); continue; }
+                    foreach (var row in rr.Rows) Keep(row);
+                    done++; continue;
+                }
+                var r = await QueryAsync(run, what + " · step 3/3 journal lines · " + b.Length + " combination(s)", sql, GL_QUERY_CAP + 1, progress, ct).ConfigureAwait(false);
+                if (!r.Success && !byHeader && !Slow(r.Error))
+                {   // a pod whose GL_JE_LINES has no LEDGER_ID / PERIOD_NAME: the header gives them
+                    byHeader = true; progress?.Invoke("   ⚠ " + Short(r.Error) + " — ledger / period from the journal header instead");
+                    sql = GlLinesSql(lid, pin, b, true);
+                    r = await QueryAsync(run, what + " · step 3/3 journal lines (header) · " + b.Length + " combination(s)", sql, GL_QUERY_CAP + 1, progress, ct).ConfigureAwait(false);
+                }
+                bool full = r.Success && (r.Capped || r.Rows.Count > GL_QUERY_CAP);
+                if (full || (!r.Success && Slow(r.Error)))
+                {
+                    if (b.Length > 1)
+                    {
+                        int h = b.Length / 2; queue.Push(b.Skip(h).ToArray()); queue.Push(b.Take(h).ToArray());
+                        progress?.Invoke("   " + (full ? "many lines" : "slow") + " — splitting into 2 × " + h + " combination(s)");
+                    }
+                    else if (busy.Add(b[0])) { queue.Push(b); progress?.Invoke("   combination " + b[0] + " has many lines — reading it page by page"); }
+                    continue;
+                }
+                if (!r.Success) { errs.Add("query " + qn + ": " + r.Error); continue; }
+                foreach (var row in r.Rows) { row.Remove("K1"); row.Remove("K2"); Keep(row); }
+                done += b.Length;
+                if (r.Rows.Count > 0) progress?.Invoke("   " + lines.Count.ToString("N0", CultureInfo.InvariantCulture) + " line(s) so far");
+            }
+            void Keep(Dictionary<string, object> row)
+            {
+                string id = Convert.ToString(Get(row, "SRC_ID"), CultureInfo.InvariantCulture); if (string.IsNullOrEmpty(id)) return;
+                string ccid = Convert.ToString(Get(row, "CCID"), CultureInfo.InvariantCulture);
+                if (ccid != null && map.TryGetValue(ccid, out var m)) { row["FROM_COMPANY"] = m.Co; row["TO_COMPANY"] = m.Ic; row["ACCOUNT"] = m.Ac; }
+                lines[id] = row;
+            }
+            if (map.Count > 0 && done == 0 && errs.Count > 0) return Fail(string.Join(" · ", errs.Take(3)), firstSql);
+
+            // 4 · optional: category / source
+            int cat = 0;
+            if (o.UseCategory)
+            {
+                Step("step 4 · journals in an intercompany category / source");
+                string q4 = GlCategorySql(led, lid, pin);
+                var rc = await ReadAsync(run, "GL", q4, what + " · step 4 category / source", o, progress, ct).ConfigureAwait(false);
+                if (!rc.Ok) errs.Add("category / source: " + rc.Error);
+                else foreach (var row in rc.Rows) { string id = Convert.ToString(Get(row, "SRC_ID"), CultureInfo.InvariantCulture); if (!string.IsNullOrEmpty(id) && !lines.ContainsKey(id)) { lines[id] = row; cat++; } }
+            }
+
+            double sum = 0; var rows = new List<object[]>();
+            foreach (var row in lines.Values)
+            {
+                var vals = TRX_COLS.Select(c => Cell(row, c)).ToList();
+                if (vals[Array.IndexOf(TRX_COLS, "AMOUNT")] is double d) sum += d;
+                var extra = row.Where(kv => !TRX_COLS.Contains(kv.Key, StringComparer.OrdinalIgnoreCase)).ToDictionary(kv => kv.Key, kv => kv.Value);
+                vals.Add(extra.Count > 0 ? JsonSerializer.Serialize(extra) : null);
+                rows.Add(vals.ToArray());
+            }
+            FinanceLens.SaveIc(pod, "GL", month, scope, rows);
+            string summary = map.Count + " intercompany combination(s) (" + how2 + ") · " + qn + " line quer" + (qn == 1 ? "y" : "ies") + (byHeader ? " · ledger / period from the header" : "") + (o.UseCategory ? " · " + cat + " more by category / source" : "");
+            string err = errs.Count > 0 ? string.Join(" · ", errs.Take(3)) : null;
+            FinanceLens.SaveIcSync(pod, "GL", month, scope, true, rows.Count, sum, summary, err, firstSql ?? q2, sw.ElapsedMilliseconds, false, user);
+            progress?.Invoke("✓ " + what + ": " + rows.Count.ToString("N0", CultureInfo.InvariantCulture) + " line(s) · " + summary + (err != null ? " · ⚠ " + err : ""));
+            return new { kind = "GL", month, scope, ok = true, rows = rows.Count, total = sum, alt = summary, ms = sw.ElapsedMilliseconds, error = err };
+        }
+
         // ── Subledger trace: intercompany GL lines → GL_IMPORT_REFERENCES → XLA lines → subledger documents ──
         private sealed class DocDef { public int App; public string Entity; public string Label; public string[] Sqls; }
         /// <summary>Known subledger documents: application id + entity code → detail queries ({IDS} = the entity's SOURCE_ID_INT_1 values), most complete first.
