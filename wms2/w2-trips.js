@@ -29,7 +29,7 @@
     };
 
     // ── Trips board / list ───────────────────────────────────
-    W2.page('trips', {
+    var TRIPS_LIST = ({
         title: 'Trips', icon: 'fa-truck',
         render: function (main, params, live) {
             var view = W2.ls('w2.trips.view') || 'board';
@@ -51,7 +51,7 @@
                         { k: 'orders', t: 'Orders', num: true, sum: true }, { k: 'lines', t: 'Lines', num: true, sum: true }, { k: 'with_picker', t: 'With picker', num: true, sum: true },
                         { k: 'released', t: 'Released', num: true, sum: true }, { k: 'interfaced', t: 'Interfaced', num: true, sum: true }, { k: 'mra_ok', t: 'MRA ok', num: true, sum: true },
                         { k: 'printed', t: 'Printed', num: true, sum: true }, { k: 'to_cancel', t: 'Lines to cancel', num: true, sum: true }
-                    ], { onRow: function (t) { W2.go('trip', { trip: t.trip_id }); }, csv: 'trips-' + W2.date() + '.csv' });
+                    ], { onRow: function (t, e) { W2.tt.open(t.trip_id, e && (e.ctrlKey || e.metaKey)); }, csv: 'trips-' + W2.date() + '.csv' });
                     return;
                 }
                 var lanes = {}; W2.M.LANES.forEach(function (l) { lanes[l[0]] = []; });
@@ -66,13 +66,16 @@
                             (t.print_bad ? '<span class="pill x">print ' + t.print_bad + ' failed</span>' : '') + (W2.n(t.to_cancel) ? '<span class="pill w">' + t.to_cancel + ' to cancel</span>' : '') + '</div></div>';
                     }).join('') + '</div>';
                 }).join('') + '</div>';
-                body.querySelectorAll('[data-t]').forEach(function (c) { c.onclick = function () { W2.go('trip', { trip: c.dataset.t }); }; });
+                body.querySelectorAll('[data-t]').forEach(function (c) {
+                    c.onclick = function (e) { W2.tt.open(c.dataset.t, e.ctrlKey || e.metaKey); };
+                    c.onauxclick = function (e) { if (e.button === 1) { e.preventDefault(); W2.tt.open(c.dataset.t, true); } };
+                });
             });
         }
     });
 
     // ── Trip 360 ─────────────────────────────────────────────
-    W2.page('trip', {
+    var TRIP_360 = ({
         title: 'Trip 360', icon: 'fa-truck-fast',
         render: function (main, params, live) {
             var trip = String(params.trip || '');
@@ -86,7 +89,7 @@
                 var notRel = live0.filter(function (x) { return ['NOT CHECKED', 'NO LINES', 'PENDING', 'READY'].indexOf(x.stage) >= 0 && s2v.indexOf(x) < 0; });
                 var a = W2.n(t.active_lines), o = W2.n(t.orders) - W2.n(t.cancelled);
                 var tl = [['On trip', o, o], ['Pickers', t.with_picker, o], ['Released', t.released, o], ['Picked / staged', t.staged, o], ['Interfaced', t.interfaced, o], ['MRA', t.mra_ok, t.interfaced || o], ['Printed', t.printed, o]];
-                var h = '<div class="pagehead"><button class="btn sm" id="t-back"><i class="fa-solid fa-arrow-left"></i> Trips</button><h2>Trip <span class="mono">' + esc(trip) + '</span></h2>' +
+                var h = '<div class="pagehead"><button class="btn sm" id="t-back"><i class="fa-solid fa-arrow-left"></i> All trips</button><h2>Trip <span class="mono">' + esc(trip) + '</span></h2>' +
                     '<span class="muted">' + esc([t.lorry, t.loading_bay && 'bay ' + t.loading_bay, t.priority && 'priority ' + t.priority, W2.dayName(date)].filter(Boolean).join(' · ')) + '</span><span class="grow"></span>' +
                     '<button class="btn sm" id="t-ref"><i class="fa-solid fa-rotate"></i> Read this trip again</button>' +
                     '<button class="btn sm" id="t-rel"><i class="fa-solid fa-dolly"></i> Pick release</button>' +
@@ -115,7 +118,7 @@
                     '<div class="kpi ' + (W2.n(t.to_cancel) ? 'warn' : '') + '"><span class="l">Lines to cancel</span><span class="n">' + W2.fmt(t.to_cancel) + '</span><span class="s">' + W2.fmt(t.cancelled_w2) + ' cancelled by autopilot</span></div></div>' +
                     '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-file-lines"></i>Orders <small>click an order for its details</small></h3><div id="t-ord"></div></div>';
                 main.innerHTML = h;
-                main.querySelector('#t-back').onclick = function () { W2.go('trips'); };
+                main.querySelector('#t-back').onclick = function () { W2.tt.show('list'); };
                 main.querySelector('#t-ref').onclick = function () { W2.trip.refresh(trip); };
                 main.querySelector('#t-rel').onclick = function () { W2.go('pickrelease', { trip: trip }); };
                 main.querySelector('#t-mra').onclick = function () { W2.go('mra', { trip: trip }); };
@@ -133,6 +136,85 @@
                 W2.grid(main.querySelector('#t-ord'), orders, W2.ORDER_COLS(false), { onRow: function (row) { W2.orderPanel(row); }, csv: 'trip-' + trip + '.csv' });
                 if (params.order) { var x = orders.filter(function (y) { return y.order_number === params.order; })[0]; if (x) W2.orderPanel(x); }
             });
+        }
+    });
+
+    // ── Trips area with tabs: the list + one tab per opened trip (Trip 360), per instance and trip date ──
+    var TT = W2.tt = {};
+    function ttKey() { return 'w2.tt.' + W2.pod() + '|' + W2.date(); }
+    TT.get = function () {
+        var st = null; try { st = JSON.parse(sessionStorage.getItem(ttKey()) || 'null'); } catch (e) {}
+        st = st || { tabs: [], active: 'list' };
+        if (st.active !== 'list' && st.tabs.indexOf(st.active) < 0) st.active = 'list';
+        return st;
+    };
+    TT.save = function (st) { try { sessionStorage.setItem(ttKey(), JSON.stringify(st)); } catch (e) {} };
+    /** Opens a trip as a tab (background = keep the current tab on screen). */
+    TT.open = function (trip, background) {
+        trip = String(trip); var st = TT.get();
+        if (st.tabs.indexOf(trip) < 0) st.tabs.push(trip);
+        if (!background) st.active = trip;
+        TT.save(st);
+        if (background) { W2.toast('Trip ' + trip + ' opened in a tab.', 'info'); paintTabs(); return; }
+        W2.go('trips');
+    };
+    TT.show = function (tab) { var st = TT.get(); st.active = String(tab); TT.save(st); W2.go('trips'); };
+    TT.close = function (trip) {
+        var st = TT.get(), i = st.tabs.indexOf(String(trip)); if (i < 0) return;
+        st.tabs.splice(i, 1);
+        if (st.active === String(trip)) st.active = st.tabs[Math.min(i, st.tabs.length - 1)] || 'list';
+        TT.save(st); W2.go('trips');
+    };
+    TT.closeAll = function () { TT.save({ tabs: [], active: 'list' }); W2.go('trips'); };
+
+    var tripInfo = {};
+    function paintTabs() {
+        var bar = document.getElementById('tt-bar'); if (!bar) return;
+        var st = TT.get();
+        var tab = function (id, html, extra) {
+            return '<button class="tt' + (st.active === id ? ' on' : '') + '" data-tt="' + esc(id) + '"' + (extra || '') + '>' + html + '</button>';
+        };
+        bar.innerHTML = tab('list', '<i class="fa-solid fa-list"></i> All trips <span class="muted">' + (tripInfo.count != null ? tripInfo.count : '') + '</span>') +
+            st.tabs.map(function (t) {
+                var x = tripInfo[t] || {}, o = W2.n(x.orders) - W2.n(x.cancelled), p = o ? Math.round(100 * W2.n(x.interfaced) / o) : 0;
+                var risk = x.orders && (x.orders - x.with_picker > 0 || x.mra_bad || x.print_bad);
+                return tab(t, '<i class="fa-solid fa-truck' + (risk ? ' warn' : '') + '"></i> <b class="mono">' + esc(t) + '</b>' + (x.lorry ? ' <span class="muted">' + esc(x.lorry) + '</span>' : '') +
+                    '<span class="tp" title="' + p + '% interfaced"><b style="width:' + p + '%"></b></span><span class="x" data-x="' + esc(t) + '" title="Close (middle-click)">×</span>',
+                    ' title="Trip ' + esc(t) + (x.orders ? ' · ' + x.orders + ' order(s) · ' + p + '% interfaced' : '') + '"');
+            }).join('') +
+            (st.tabs.length > 1 ? '<button class="tt ghost" data-closeall title="Close every trip tab"><i class="fa-solid fa-xmark"></i> Close all</button>' : '') +
+            '<span class="grow"></span><span class="muted xs">Ctrl+click or middle-click a trip to open it in the background</span>';
+        bar.querySelectorAll('[data-tt]').forEach(function (b) {
+            b.onclick = function (e) { var x = e.target.closest('[data-x]'); if (x) { TT.close(x.dataset.x); return; } TT.show(b.dataset.tt); };
+            b.onauxclick = function (e) { if (e.button === 1 && b.dataset.tt !== 'list') { e.preventDefault(); TT.close(b.dataset.tt); } };
+        });
+        var ca = bar.querySelector('[data-closeall]'); if (ca) ca.onclick = TT.closeAll;
+    }
+
+    W2.page('trips', {
+        title: 'Trips', icon: 'fa-truck',
+        render: function (main, params, live) {
+            main.innerHTML = '<div class="ttbar" id="tt-bar"></div><div id="tt-body"></div>';
+            var body = main.querySelector('#tt-body'), st = TT.get();
+            W2.M.trips(W2.pod(), W2.date()).then(function (trips) {
+                tripInfo = { count: trips.length }; trips.forEach(function (t) { tripInfo[String(t.trip_id)] = t; });
+                if (live()) paintTabs();
+            }).catch(function () {});
+            paintTabs();
+            if (st.active === 'list') return TRIPS_LIST.render(body, params, live);
+            return TRIP_360.render(body, { trip: st.active, order: params.order }, live);
+        }
+    });
+    /** Trip 360 links (dashboard, find, orders …) open the trip as a tab of the Trips area. */
+    W2.page('trip', {
+        title: 'Trip 360', icon: 'fa-truck-fast',
+        render: function (main, params, live) {
+            var trip = String(params.trip || ''), st = TT.get();
+            if (trip) { if (st.tabs.indexOf(trip) < 0) st.tabs.push(trip); st.active = trip; TT.save(st); }
+            W2.state.page = 'trips'; W2.state.params = { order: params.order };
+            try { history.replaceState(null, '', '#trips'); } catch (e) {}
+            document.querySelectorAll('#nav button[data-p]').forEach(function (b) { b.classList.toggle('on', b.dataset.p === 'trips'); });
+            return W2.pages.trips.render(main, W2.state.params, live);
         }
     });
 

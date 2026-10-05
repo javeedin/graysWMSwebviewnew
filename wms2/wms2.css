@@ -240,3 +240,18 @@ table.steps tr.bad td { background: var(--bad-bg); }
 .actbar { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
 .actbar .btn small { margin-left: 6px; font-weight: 500; color: var(--muted); font-size: .7rem; }
 .btn.danger small { color: #fff; }
+
+/* Trips area tabs: All trips + one tab per opened trip */
+.ttbar { display: flex; align-items: flex-end; gap: 2px; border-bottom: 2px solid var(--line); margin: -4px 0 12px; overflow-x: auto; scrollbar-width: thin; }
+.ttbar .tt { flex: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-bottom: 0; background: #f8fafc; color: var(--ink2);
+    padding: 7px 10px 6px 12px; border-radius: 9px 9px 0 0; cursor: pointer; font-weight: 600; font-size: .8rem; position: relative; top: 2px; max-width: 260px; }
+.ttbar .tt:hover { background: #fff; }
+.ttbar .tt.on { background: #fff; color: var(--accent); border-color: var(--line); border-bottom: 2px solid #fff; box-shadow: inset 0 3px 0 var(--accent); }
+.ttbar .tt i.warn { color: var(--warn); }
+.ttbar .tt .tp { width: 34px; height: 4px; border-radius: 4px; background: var(--idle); overflow: hidden; display: inline-block; }
+.ttbar .tt .tp b { display: block; height: 100%; background: var(--good); }
+.ttbar .tt .x { margin-left: 2px; width: 18px; height: 18px; line-height: 17px; text-align: center; border-radius: 50%; color: var(--muted); font-size: 15px; }
+.ttbar .tt .x:hover { background: var(--bad-bg); color: var(--bad); }
+.ttbar .tt.ghost { background: none; border-color: transparent; color: var(--muted); font-weight: 500; }
+.ttbar .grow { flex: 1; min-width: 8px; }
+.ttbar > .muted { padding: 0 6px 8px; white-space: nowrap; }

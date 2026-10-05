@@ -14,7 +14,7 @@ A new warehouse module next to the WMS. Home › **WMS 2.0** opens a control tow
 
 The left menu has these pages:
 
-- **Trips**: as a board by stage, or as a list.
+- **Trips**: as a board by stage, or as a list. Each trip you open gets its own tab next to **All trips**, so several trips stay open at once. Ctrl+click or middle-click opens a trip in the background, × or middle-click on a tab closes it, and **Close all** closes them all. The tabs are kept per instance and trip date for the session.
 - **Orders**: every order of the date, with filters.
 - **Picking**: the load per picker.
 - **Pick release (day)**: release every trip of the date at once.
