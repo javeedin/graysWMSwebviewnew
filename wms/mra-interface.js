@@ -112,7 +112,7 @@
     var STATUS = ['SUCCESS', 'FAILED', 'SKIPPED', 'ALREADY_DONE'];
     var ST_LABEL = { SUCCESS: 'Success', FAILED: 'Failed', SKIPPED: 'Skipped', ALREADY_DONE: 'Already done' };
     var HIST_CSS =
-        '.mri-wrap.wide{max-width:1500px;}' +
+        
         '.mri-tabs{display:flex;gap:.4rem;align-items:center;border-bottom:2px solid #e2e8f0;}' +
         '.mri-tabs button.rf{margin-left:auto;border:1px solid #cbd5e1;border-radius:8px;padding:.35rem .8rem;margin-bottom:.3rem;font-size:.8rem;color:#334155;background:#fff;}' +
         '.mri-tabs button{background:none;border:none;border-bottom:3px solid transparent;margin-bottom:-2px;padding:.6rem 1rem;font-weight:700;color:#64748b;cursor:pointer;font-size:.9rem;}' +
@@ -449,7 +449,7 @@
         if (document.getElementById('mri-css')) return;
         var s = document.createElement('style'); s.id = 'mri-css';
         s.textContent =
-            '.mri-wrap{padding:1.25rem;max-width:1100px;margin:0 auto;font-family:inherit;}' +
+            '.mri-wrap{padding:1.25rem;margin:0;font-family:inherit;}' +
             '.mri-hero{background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;border-radius:14px;padding:1.25rem 1.5rem;display:flex;align-items:center;gap:1rem;box-shadow:0 8px 24px rgba(79,70,229,.25);}' +
             '.mri-hero .ic{width:48px;height:48px;border-radius:12px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-size:1.4rem;}' +
             '.mri-hero h2{margin:0;font-size:1.3rem;} .mri-hero p{margin:.2rem 0 0;opacity:.9;font-size:.85rem;}' +
