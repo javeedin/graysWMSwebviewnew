@@ -261,7 +261,7 @@
                 '<button class="btn primary sm" id="s-save">Save</button></div></div>' +
                 '<div class="card"><h3>About WMS 2.0</h3><div class="sm stack"><p>A new module next to the WMS — the WMS itself is not changed. It reads the same APEX endpoints and tables, keeps a copy in DuckDB on this PC (Data &amp; sync), and runs actions through the same calls as the WMS (pick release, order dialogs, MRA, printing).</p>' +
                 '<p>The trip date opens on <b>tomorrow</b> every time; the date you pick stays while the page is open.</p>' +
-                '<p>Order details, store transactions, pick confirm, ship confirm and cancelling a line by hand are the WMS dialogs copied as they are (legacy/order-dialogs.js).</p></div></div></div>';
+                '<p>Order details, store transactions, pick confirm, ship confirm and cancelling a line by hand are the WMS dialogs copied as they are. The Trip screen is the WMS trip page itself (Edit trip, Assign picker, Pick Release All, Allocate lots S2V, All shipment lines, Show lines, Profit centers, Add orders, Add to agent, Move / Remove / Print per order, Create trip) — copied from wms/ by wms2/legacy/copy-from-wms.py.</p></div></div></div>';
             main.querySelector('#s-save').onclick = function () {
                 W2.ls('w2.sync', { autoMin: +main.querySelector('#s-auto').value, shipPool: +main.querySelector('#s-pool').value, mraPar: +main.querySelector('#s-mra').value, mraCheck: main.querySelector('#s-mrachk').checked,
                     org: main.querySelector('#s-org').value.trim() || 'GRAYS INC', pendingDays: Math.max(1, +main.querySelector('#s-days').value || 30) });

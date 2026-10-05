@@ -27,11 +27,32 @@ The left menu has these pages:
 
 Press **Ctrl K** to find any trip, order, customer, picker or page.
 
-## Order details: the same WMS screens
+## Trip features: the same WMS screens
 
-**Order details** in Trip 360 opens the WMS dialogs themselves: Order Transactions for sales orders, and Store Transactions for Store to Van / Van to Store. These include sales order lines, pick release details, lots, shipment lines, pick confirm, ship confirm and cancelling lines by hand (for example lines in Awaiting Shipping).
+Everything the WMS trip page does is available in WMS 2.0, from the WMS's own code. The WMS trip page, its dialogs and the order dialogs are copied as they are into `wms2/legacy/`, so the same tested screens run. To refresh that copy after a fix in the WMS, run `python wms2/legacy/copy-from-wms.py`.
 
-They are a copy of the WMS code, kept as it is in `wms2/legacy/`, so the same tested screens run.
+**Trip 360** has an action bar. Each button opens the trip in the **Trip screen** (the WMS trip page, in the left menu) and runs the WMS action. Where the WMS needs ticked orders, the right orders are ticked for you.
+
+| WMS trip page | In WMS 2.0 |
+|---|---|
+| Assign Picker (+ date) | Trip 360 › Assign picker: the orders without a picker are ticked. Order panel › Assign / Change picker. |
+| Unassign Picker (a stub in the WMS) | Trip 360 › Unassign picker, or the order panel: tick the orders, and their picker assignment is removed. |
+| Pick Release All (with or without lots) | Trip 360 › Pick Release All: the orders not yet released are ticked. Also **Pick release (day)** for every trip of the date. |
+| Allocate Lots for S2V | Trip 360 › Allocate lots S2V: the Store to Van / Van to Store orders are ticked. |
+| Edit Trip (lorry, loading bay, priority) | Trip 360 › Edit trip |
+| Add Orders (pending orders, paste orders, fetch pending shipments) | Trip 360 › Add orders. The date is read again afterwards. |
+| All Shipment Lines (update ship date, cancel) | Trip 360 › All shipment lines |
+| Show Lines | Trip 360 › Show lines |
+| Get Profit Centers | Trip 360 › Profit centers |
+| Add to Agent | Trip 360 › Add to agent |
+| Move order to another trip | Order panel › Move to another trip |
+| Remove from trip | Order panel › Remove from trip |
+| Print (sales order / store transaction) | Order panel › Print |
+| Order / Store Transactions (lines, lots, pick confirm, ship confirm, cancel lines by hand, QOH, set data, process) | Order panel › Order details |
+| Create New Trip (Co-Pilot) | Trips › Create trip, or the Trip screen |
+| Trip summary, volume vs lorry capacity, Excel export | Trip screen |
+
+The Trip screen keeps the trips you opened as tabs. **Back** returns to where you were and reads the date again, so the dashboard shows what you changed.
 
 ## Fast: the local copy
 

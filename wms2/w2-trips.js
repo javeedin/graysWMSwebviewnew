@@ -1,5 +1,5 @@
 /* WMS 2.0 — Trips board / list, Trip 360, all orders of the date and the order side panel.
-   "Order details" opens the COPIED WMS dialogs (legacy/order-dialogs.js: editTripOrder → Order Transactions or
+   "Order details" opens the COPIED WMS dialogs (legacy/trip-workspace.js: editTripOrder → Order Transactions or
    Store Transactions) with the order's original GETTRIPDETAILS/ALL row, so the same tested screens and actions run. */
 (function () {
     'use strict';
@@ -37,10 +37,12 @@
                 if (!live()) return;
                 var h = '<div class="pagehead"><h2>Trips · ' + W2.dayName(W2.date()) + '</h2><span class="muted">' + trips.length + ' trip(s)</span><span class="grow"></span>' +
                     '<button class="btn sm ' + (view === 'board' ? 'primary' : '') + '" data-v="board"><i class="fa-solid fa-table-columns"></i> Board</button><button class="btn sm ' + (view === 'list' ? 'primary' : '') + '" data-v="list"><i class="fa-solid fa-list"></i> List</button>' +
-                    '<button class="btn sm" id="tr-rel"><i class="fa-solid fa-dolly"></i> Pick release the day</button></div><div id="tr-body"></div>';
+                    '<button class="btn sm" id="tr-rel"><i class="fa-solid fa-dolly"></i> Pick release the day</button>' +
+                    '<button class="btn sm primary" id="tr-new"><i class="fa-solid fa-plus"></i> Create trip</button></div><div id="tr-body"></div>';
                 main.innerHTML = h;
                 main.querySelectorAll('[data-v]').forEach(function (b) { b.onclick = function () { W2.ls('w2.trips.view', b.dataset.v); W2.render(); }; });
                 main.querySelector('#tr-rel').onclick = function () { W2.go('pickrelease'); };
+                main.querySelector('#tr-new').onclick = function () { W2.ws.createTrip(); };
                 var body = main.querySelector('#tr-body');
                 if (!trips.length) { body.innerHTML = '<div class="card empty"><i class="fa-solid fa-truck"></i>No trips for this date in the local copy — press Refresh.</div>'; return; }
                 if (view === 'list') {
@@ -79,13 +81,30 @@
             return Promise.all([W2.M.trips(pod, date), W2.q(W2.M.ordersSql(pod, date) + " SELECT * FROM o2 WHERE trip_id = " + W2.lit(trip) + " ORDER BY order_number")]).then(function (r) {
                 if (!live()) return;
                 var t = r[0].filter(function (x) { return String(x.trip_id) === trip; })[0] || { trip_id: trip, orders: 0 }, orders = r[1];
+                var live0 = orders.filter(function (x) { return x.stage !== 'CANCELLED'; }), num = function (x) { return x.order_number; };
+                var noPick = live0.filter(function (x) { return !x.picker; }), s2v = live0.filter(function (x) { return /store to van|van to store|s2v|v2s/i.test(x.order_type || ''); });
+                var notRel = live0.filter(function (x) { return ['NOT CHECKED', 'NO LINES', 'PENDING', 'READY'].indexOf(x.stage) >= 0 && s2v.indexOf(x) < 0; });
                 var a = W2.n(t.active_lines), o = W2.n(t.orders) - W2.n(t.cancelled);
                 var tl = [['On trip', o, o], ['Pickers', t.with_picker, o], ['Released', t.released, o], ['Picked / staged', t.staged, o], ['Interfaced', t.interfaced, o], ['MRA', t.mra_ok, t.interfaced || o], ['Printed', t.printed, o]];
                 var h = '<div class="pagehead"><button class="btn sm" id="t-back"><i class="fa-solid fa-arrow-left"></i> Trips</button><h2>Trip <span class="mono">' + esc(trip) + '</span></h2>' +
                     '<span class="muted">' + esc([t.lorry, t.loading_bay && 'bay ' + t.loading_bay, t.priority && 'priority ' + t.priority, W2.dayName(date)].filter(Boolean).join(' · ')) + '</span><span class="grow"></span>' +
                     '<button class="btn sm" id="t-ref"><i class="fa-solid fa-rotate"></i> Read this trip again</button>' +
                     '<button class="btn sm" id="t-rel"><i class="fa-solid fa-dolly"></i> Pick release</button>' +
-                    '<button class="btn sm" id="t-mra"><i class="fa-solid fa-receipt"></i> MRA</button></div>' +
+                    '<button class="btn sm" id="t-mra"><i class="fa-solid fa-receipt"></i> MRA</button>' +
+                    '<button class="btn sm primary" id="t-ws"><i class="fa-solid fa-truck-ramp-box"></i> Trip screen</button></div>' +
+                    // the WMS trip page's actions — each opens the trip screen and runs the WMS code (orders pre-ticked where it needs a selection)
+                    '<div class="actbar">' +
+                    '<button class="btn sm" data-a="assign"><i class="fa-solid fa-user-plus"></i> Assign picker<small>' + W2.fmt(noPick.length) + ' without</small></button>' +
+                    '<button class="btn sm" data-a="unassign"><i class="fa-solid fa-user-minus"></i> Unassign picker</button>' +
+                    '<button class="btn sm" data-a="pickReleaseAll"><i class="fa-solid fa-dolly"></i> Pick Release All<small>' + W2.fmt(notRel.length) + ' not released</small></button>' +
+                    '<button class="btn sm" data-a="allocateLotsForS2V"' + (s2v.length ? '' : ' disabled title="No Store to Van / Van to Store orders"') + '><i class="fa-solid fa-boxes-stacked"></i> Allocate lots S2V<small>' + s2v.length + '</small></button>' +
+                    '<button class="btn sm" data-a="openAddOrdersModalForTrip"><i class="fa-solid fa-cart-plus"></i> Add orders</button>' +
+                    '<button class="btn sm" data-a="openEditTripHeaderModal"><i class="fa-solid fa-pen"></i> Edit trip</button>' +
+                    '<button class="btn sm" data-a="showAllShipmentLines"><i class="fa-solid fa-truck-fast"></i> All shipment lines</button>' +
+                    '<button class="btn sm" data-a="showTripLines"><i class="fa-solid fa-list"></i> Show lines</button>' +
+                    '<button class="btn sm" data-a="getTripProfitCenters"><i class="fa-solid fa-sitemap"></i> Profit centers</button>' +
+                    '<button class="btn sm" data-a="saAddTripToAgent"><i class="fa-solid fa-user-gear"></i> Add to agent</button>' +
+                    '</div>' +
                     '<div class="card"><div class="tl">' + tl.map(function (s) { var cls = !s[2] ? '' : s[1] >= s[2] ? 'd' : s[1] > 0 ? 'p' : ''; return '<div class="' + cls + '">' + s[0] + '<small>' + W2.n(s[1]) + ' / ' + W2.n(s[2]) + '</small></div>'; }).join('') + '</div></div>' +
                     '<div class="kpis" style="margin-top:12px">' +
                     '<div class="kpi"><span class="l">Orders</span><span class="n">' + W2.fmt(t.orders) + '</span><span class="s">' + W2.fmt(t.lines) + ' WMS line(s)</span></div>' +
@@ -100,6 +119,17 @@
                 main.querySelector('#t-ref').onclick = function () { W2.trip.refresh(trip); };
                 main.querySelector('#t-rel').onclick = function () { W2.go('pickrelease', { trip: trip }); };
                 main.querySelector('#t-mra').onclick = function () { W2.go('mra', { trip: trip }); };
+                main.querySelector('#t-ws').onclick = function () { W2.ws.open(trip); };
+                main.querySelectorAll('[data-a]').forEach(function (b) {
+                    b.onclick = function () {
+                        var a = b.dataset.a;
+                        if (a === 'unassign') return W2.ws.unassignPicker(live0.filter(function (x) { return x.picker; })).then(function () { W2.render(); });
+                        if (a === 'assign') return W2.ws.run(trip, 'assignPickerToTrip', (noPick.length ? noPick : live0).map(num));
+                        if (a === 'pickReleaseAll') return W2.ws.run(trip, a, (notRel.length ? notRel : live0.filter(function (x) { return s2v.indexOf(x) < 0; })).map(num));
+                        if (a === 'allocateLotsForS2V') return W2.ws.run(trip, a, s2v.map(num));
+                        W2.ws.run(trip, a);
+                    };
+                });
                 W2.grid(main.querySelector('#t-ord'), orders, W2.ORDER_COLS(false), { onRow: function (row) { W2.orderPanel(row); }, csv: 'trip-' + trip + '.csv' });
                 if (params.order) { var x = orders.filter(function (y) { return y.order_number === params.order; })[0]; if (x) W2.orderPanel(x); }
             });
@@ -157,6 +187,11 @@
             '<button class="btn sm" id="op-ref"><i class="fa-solid fa-rotate"></i> Read again</button>' +
             '<button class="btn sm" id="op-mra"' + (o.stage === 'INTERFACED' ? '' : ' disabled title="MRA needs every line interfaced"') + '><i class="fa-solid fa-receipt"></i> Send to MRA</button>' +
             '<button class="btn sm" id="op-rel"><i class="fa-solid fa-dolly"></i> Pick release</button></div>' +
+            '<div class="row"><button class="btn sm" id="op-pick"><i class="fa-solid fa-user-plus"></i> ' + (o.picker ? 'Change picker' : 'Assign picker') + '</button>' +
+            (o.picker ? '<button class="btn sm" id="op-unpick"><i class="fa-solid fa-user-minus"></i> Unassign picker</button>' : '') +
+            '<button class="btn sm" id="op-move"><i class="fa-solid fa-right-left"></i> Move to another trip</button>' +
+            '<button class="btn sm" id="op-print"><i class="fa-solid fa-print"></i> Print</button>' +
+            '<button class="btn sm danger" id="op-del"><i class="fa-solid fa-trash"></i> Remove from trip</button></div>' +
             '<div class="card"><h3>Fusion shipment lines <small>' + (o.ship_checked_at ? 'read ' + W2.ago(o.ship_checked_at) : 'not read yet') + '</small></h3><div id="op-sl"></div></div>' +
             '<div class="card"><h3>WMS order lines <small>Scheduled / Manual Reservation = cancelled by the autopilot</small></h3><div id="op-ol"></div></div>' +
             '<div class="card"><h3>MRA</h3><div id="op-mralog" class="sm"></div></div>' +
@@ -172,6 +207,21 @@
         };
         d.querySelector('#op-mra').onclick = function () { if (W2.MRA) W2.MRA.send([o]); };
         d.querySelector('#op-rel').onclick = function () { W2.go('pickrelease', { trip: o.trip_id, order: on }); d.remove(); };
+        // the WMS trip page's per-order actions (copied WMS code)
+        var row = W2.legacyRow(o);
+        d.querySelector('#op-pick').onclick = function () { d.remove(); W2.ws.run(o.trip_id, 'assignPickerToTrip', [on]); };
+        var up = d.querySelector('#op-unpick'); if (up) up.onclick = function () { W2.ws.unassignPicker([o]).then(function () { d.remove(); W2.render(); }); };
+        d.querySelector('#op-move').onclick = function () {
+            window.currentTripInstance = pod;
+            window.openMoveOrderToTrip({ orderNumber: on, fromTripId: o.trip_id, instance: pod, row: row });
+            W2.ws.dirty = true; d.remove();
+        };
+        d.querySelector('#op-print').onclick = function () { window.printStoreTransaction(on, pod, o.order_type || row.ORDER_TYPE || '', o.trip_id, row.TRIP_DATE || W2.date()); };
+        d.querySelector('#op-del').onclick = function () {
+            window.currentTripInstance = pod;
+            window.deleteTripOrder(o.trip_id, on, pod);
+            W2.ws.dirty = true; d.remove();
+        };
         W2.qs([
             "SELECT line, item, line_status, bucket, requested_qty, staged_qty, shipped_qty FROM w2_ship_lines WHERE pod = " + W2.lit(pod) + " AND order_number = " + W2.lit(on) + " ORDER BY TRY_CAST(line AS DOUBLE), line",
             "SELECT line_number, item, status, ordered_qty, fulfill_line_id, CASE WHEN " + W2.M.FLAG + " THEN 1 ELSE 0 END AS flag FROM w2_order_lines WHERE pod = " + W2.lit(pod) + " AND order_number = " + W2.lit(on) + " ORDER BY TRY_CAST(line_number AS DOUBLE), line_number",
@@ -190,6 +240,12 @@
     };
 
     /** Opens the copied WMS dialog for an order with its original GETTRIPDETAILS/ALL row (same fields the WMS grid passes). */
+    W2.legacyRow = function (o) {
+        var row = {}; try { row = JSON.parse(o.raw || o.raw_json || '{}'); } catch (e) {}
+        row.ORDER_NUMBER = row.ORDER_NUMBER || o.order_number; row.TRIP_ID = row.TRIP_ID || o.trip_id; row.TRIP_DATE = row.TRIP_DATE || W2.date();
+        row.ORDER_TYPE = row.ORDER_TYPE || o.order_type; row.ACCOUNT_NAME = row.ACCOUNT_NAME || o.account_name; row.ACCOUNT_NUMBER = row.ACCOUNT_NUMBER || o.account_number;
+        return row;
+    };
     W2.openOrderDialog = function (o) {
         var row = {}; try { row = JSON.parse(o.raw || '{}'); } catch (e) {}
         row.ORDER_NUMBER = row.ORDER_NUMBER || o.order_number; row.TRIP_ID = row.TRIP_ID || o.trip_id; row.TRIP_DATE = row.TRIP_DATE || W2.date();

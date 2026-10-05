@@ -125,7 +125,7 @@
                 var keys = Object.keys(by).sort(function (a, b) { return a === '(none)' ? -1 : b === '(none)' ? 1 : by[b].length - by[a].length; });
                 var sel = params.picker || (params.filter === 'nopicker' ? '(none)' : null);
                 main.innerHTML = '<div class="pagehead"><h2>Picking · ' + W2.dayName(W2.date()) + '</h2><span class="muted">' + orders.length + ' order(s) · ' + (by['(none)'] || []).length + ' without a picker</span><span class="grow"></span>' +
-                    '<span class="muted sm">Assign pickers in the order details (Order Transactions) or the WMS trip screen — WMS 2.0 shows who picks what.</span></div>' +
+                    '<span class="muted sm">Assign or remove pickers on Trip 360 (Assign picker / Unassign picker) or the Trip screen — the orders without a picker are ticked for you.</span></div>' +
                     '<div class="grid g23"><div class="card"><h3>Pickers <small>orders · lines · done</small></h3><div id="pk-list"></div></div><div class="card"><h3 id="pk-h">' + (sel ? esc(sel) : 'Pick a picker') + '</h3><div id="pk-ord"></div></div></div>';
                 var list = main.querySelector('#pk-list');
                 list.innerHTML = keys.map(function (k) {
