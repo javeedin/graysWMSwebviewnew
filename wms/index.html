@@ -320,6 +320,9 @@
                             <div class="tab-item" data-tab="volume-summary">
                                 <span>Volume Summary</span>
                             </div>
+                            <div class="tab-item" data-tab="future-trip" title="Trip 9999 — orders without a real trip yet">
+                                <span><i class="fas fa-hourglass-half" style="color:#d97706;"></i> Future Trip</span>
+                            </div>
                         </div>
                     </div>
                     <div id="trip-tab-content" class="tab-content">
@@ -498,6 +501,10 @@
                                 <div id="volume-summary-count">0 lorries</div>
                             </div>
                             <div id="volume-summary-grid" style="height: 700px;"></div>
+                        </div>
+                        <!-- Future Trip (trip 9999) Tab Pane — wms/future-trip.js -->
+                        <div id="trip-future-trip-tab" class="tab-pane">
+                            <div id="future-trip-root"></div>
                         </div>
                     </div>
                 </div>
@@ -8575,6 +8582,7 @@
         document.write('<script src="picking-time-monitor.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="trip-details.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="trip-move.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="future-trip.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="mra-processor.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="shipping-agent.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="mra-interface.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');

@@ -52,7 +52,12 @@
         };
         (window.currentFullData || []).forEach(r => add(r, true));
         (window.tripDetailsAllData || []).forEach(r => add(r, true));
-        return Object.values(by).sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.id.localeCompare(a.id, undefined, { numeric: true }));
+        const FUTURE = String(window.FUTURE_TRIP_ID || '9999');
+        delete by[FUTURE];
+        const list = Object.values(by).sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.id.localeCompare(a.id, undefined, { numeric: true }));
+        // trip 9999 = the Future Trip (Trip Management › Future Trip): orders that have no real trip yet; always first
+        if (String(fromTripId) !== FUTURE) list.unshift({ id: FUTURE, date: '', lorry: 'Future trip — no trip yet', status: 'FUTURE', bay: '', orders: 0, future: true });
+        return list;
     }
 
     /**
@@ -126,7 +131,7 @@
             chosen = String(id || '').trim();
             Array.prototype.forEach.call(ov.querySelectorAll('[data-trip]'), el => {
                 const on = el.getAttribute('data-trip') === chosen;
-                el.style.background = on ? '#eff6ff' : ''; el.style.boxShadow = on ? 'inset 3px 0 0 #2563eb' : '';
+                el.style.background = on ? '#eff6ff' : (el.getAttribute('data-future') ? '#fffbeb' : ''); el.style.boxShadow = on ? 'inset 3px 0 0 #2563eb' : '';
             });
             const ok = !!chosen && chosen !== fromTrip;
             $('#mv-go').disabled = !ok; $('#mv-go').style.opacity = ok ? '1' : '.5';
@@ -138,8 +143,8 @@
             const q = $('#mv-q').value.trim().toLowerCase();
             const list = trips.filter(t => !q || [t.id, t.date, t.lorry, t.status, t.bay].join(' ').toLowerCase().indexOf(q) >= 0);
             $('#mv-list').innerHTML = list.length ? list.map(t =>
-                '<div data-trip="' + esc(t.id) + '" style="display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:.8rem;">' +
-                  '<i class="fas fa-truck" style="color:#2563eb;"></i>' +
+                '<div data-trip="' + esc(t.id) + '"' + (t.future ? ' data-future="1"' : '') + ' style="display:flex;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:.8rem;' + (t.future ? 'background:#fffbeb;' : '') + '">' +
+                  '<i class="fas ' + (t.future ? 'fa-hourglass-half' : 'fa-truck') + '" style="color:' + (t.future ? '#d97706' : '#2563eb') + ';"></i>' +
                   '<b style="min-width:70px;">' + esc(t.id) + '</b>' +
                   '<span style="color:#475569;min-width:84px;">' + esc(t.date || '') + '</span>' +
                   '<span style="color:#334155;flex:1;">' + esc(t.lorry || '') + (t.bay ? ' · bay ' + esc(t.bay) : '') + '</span>' +
