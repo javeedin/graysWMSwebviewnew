@@ -186,8 +186,9 @@
         var r = info.data || {}, v = info.value || '';
         el.empty().css({ whiteSpace: 'nowrap' });
         if (!v) { el.html('<span style="color:#cbd5e1;" title="No actual ship date yet — All Shipment Lines › Update Actual Ship Date">—</span>'); return; }
-        $('<span>').attr('title', 'Actual ship date sent to Fusion' + (r.ACTUAL_SHIP_SHIPMENTS ? '\nShipment(s): ' + r.ACTUAL_SHIP_SHIPMENTS : ''))
-            .css({ color: '#0369a1', fontWeight: 600 }).html('<i class="fas fa-truck-fast" style="margin-right:5px;opacity:.7"></i>' + esc(v)).appendTo(el);
+        // the date only; the time (and the shipments) on hover
+        $('<span>').attr('title', 'Actual ship date sent to Fusion: ' + v + (r.ACTUAL_SHIP_SHIPMENTS ? '\nShipment(s): ' + r.ACTUAL_SHIP_SHIPMENTS : ''))
+            .css({ color: '#0369a1', fontWeight: 600 }).html('<i class="fas fa-truck-fast" style="margin-right:5px;opacity:.7"></i>' + esc(String(v).split(' ')[0])).appendTo(el);
     }
     /** Writes one row per order × shipment of the dialog's run into WMS_ACTUAL_SHIPDATE and shows the date in the trip grid. */
     function shipRecord(ctx, shipments, dateVal, timeVal, sentText) {
