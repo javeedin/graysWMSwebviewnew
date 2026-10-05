@@ -221,7 +221,7 @@ namespace WMSApp
                 try { PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "omProgress", requestId, message = msg })); } catch { }
             }
             var sw = Stopwatch.StartNew();
-            var processor = new WMSApp.MRA.MRAProcessor(fusionUser, fusionPass, instance);
+            var processor = new WMSApp.MRA.MRAProcessor(fusionUser, fusionPass, instance) { Source = "ORDER_MGMT", AppUser = user };
             var r = await processor.ProcessMRAInterfaceAsync(order, (msg, step) => Progress(msg));
             string status = r.Success ? "INTERFACED"
                 : r.Skipped ? "NOT_REQUIRED"

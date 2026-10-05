@@ -6189,7 +6189,8 @@ window.startTripMRAInterface = async function() {
                 orderNumber: order.orderNumber,
                 fusionUsername: fusionUsername,
                 fusionPassword: fusionPassword,
-                instance: order.instance || currentTripPrintData.instanceName || 'PROD'
+                instance: order.instance || currentTripPrintData.instanceName || 'PROD',
+                source: 'WMS_AUTO_INV', tripId: currentTripPrintData.tripId ? String(currentTripPrintData.tripId) : undefined, appUser: (function(){try{return localStorage.getItem('wms_user')||sessionStorage.getItem('loggedInUser')||'';}catch(e){return '';}})()
             };
 
             addOrderMRALog('Sending request to C# backend...', 'info');
@@ -6436,7 +6437,8 @@ window.retryMRAForOrder = async function(orderIndex) {
             orderNumber: order.orderNumber,
             fusionUsername: fusionUsername,
             fusionPassword: fusionPassword,
-            instance: order.instance || currentTripPrintData.instanceName || 'PROD'
+            instance: order.instance || currentTripPrintData.instanceName || 'PROD',
+            source: 'WMS_AUTO_INV', tripId: currentTripPrintData.tripId ? String(currentTripPrintData.tripId) : undefined, appUser: (function(){try{return localStorage.getItem('wms_user')||sessionStorage.getItem('loggedInUser')||'';}catch(e){return '';}})()
         };
 
         addOrderMRALog('Sending request to C# backend...', 'info');

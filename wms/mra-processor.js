@@ -267,7 +267,9 @@ async function processMRAInterface(orderNumber, instance) {
             orderNumber: orderNumber,
             fusionUsername: fusionUsername,
             fusionPassword: fusionPassword,
-            instance: resolvedInstance
+            instance: resolvedInstance,
+            source: 'WMS_MANUAL',
+            appUser: (function(){try{return localStorage.getItem('wms_user')||sessionStorage.getItem('loggedInUser')||'';}catch(e){return '';}})()
         };
 
         addMRALog(`Sending request to C# backend...`, 'info');

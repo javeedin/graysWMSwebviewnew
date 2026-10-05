@@ -4813,6 +4813,11 @@ navPanel.Controls.Add(wmsDevButton);
                     // Shipping Agent Print Trip: one id per click → MRA_ORDER_TYPES read once for all its orders
                     if (root.TryGetProperty("batchId", out var mraBatch) && mraBatch.ValueKind == JsonValueKind.String)
                         mraProcessor.OrderTypesBatch = mraBatch.GetString();
+                    // WMS_MRA_INTERFACE_STATUS: which screen ran it, the trip, the app login (all optional)
+                    string MraStr(string n) => root.TryGetProperty(n, out var v) && (v.ValueKind == JsonValueKind.String || v.ValueKind == JsonValueKind.Number) ? v.ToString() : null;
+                    mraProcessor.Source = string.IsNullOrWhiteSpace(MraStr("source")) ? "WMS" : MraStr("source").Trim().ToUpperInvariant();
+                    mraProcessor.TripId = MraStr("tripId");
+                    mraProcessor.AppUser = MraStr("appUser");
 
                     // Process with progress updates and data callbacks
                     var result = await mraProcessor.ProcessMRAInterfaceAsync(

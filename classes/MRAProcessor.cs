@@ -38,6 +38,14 @@ namespace WMSApp.MRA
         private const string INVENTORY_ORG_ID = "300000003277749";
         private const string ORG_ID = "300000003234003";
 
+        /// <summary>Where the run started (WMS, SHIPPING_AGENT, WMS2, AI_EMPLOYEE, AI_AGENT, ORDER_MGMT …) — kept in WMS_MRA_INTERFACE_STATUS.</summary>
+        public string Instance => _instance;
+        public string Source { get; set; } = "WMS";
+        /// <summary>Trip of the order when the caller knows it; otherwise the status row looks it up in WMS_TRIP_DETAILS.</summary>
+        public string TripId { get; set; }
+        /// <summary>App login of the person / agent that ran it.</summary>
+        public string AppUser { get; set; }
+
         public MRAProcessor(
             string fusionUsername,
             string fusionPassword,
@@ -70,6 +78,8 @@ namespace WMSApp.MRA
             var sw = System.Diagnostics.Stopwatch.StartNew();
             void Mark(string step) { timings.Add($"{step} {sw.Elapsed.TotalSeconds:0.0}s"); sw.Restart(); result.Timings = string.Join(", ", timings); }
             Task<DataSet> summaryTask = null, detailsTask = null;
+            var started = DateTime.Now; var total = System.Diagnostics.Stopwatch.StartNew();
+            Dictionary<string, object> header = null; int lineCount = 0; MRAInvoiceCreationResult invoice = null; bool already = false, fusionUpdated = false;
 
             try
             {
@@ -85,6 +95,7 @@ namespace WMSApp.MRA
                 Mark("check report");
                 if (mraCheck.IsInterfaced)
                 {
+                    already = true;
                     result.Success = false;
                     result.Message = $"MRA interface is already done for order {orderNumber}";
                     result.CurrentStep = MRAProcessingStep.Completed;
@@ -112,6 +123,7 @@ namespace WMSApp.MRA
                 progressCallback?.Invoke("Checking the order type against MRA_ORDER_TYPES...", MRAProcessingStep.CheckingOrderType);
                 result.CurrentStep = MRAProcessingStep.CheckingOrderType;
 
+                try { header = ConvertDataRowToDictionary(orderSummary.Tables[1].Rows[0]); } catch { }
                 string orderTypeCode = orderSummary.Tables[1].Columns.Contains("ORDER_TYPE_CODE")
                     ? orderSummary.Tables[1].Rows[0]["ORDER_TYPE_CODE"]?.ToString()?.Trim() ?? ""
                     : "";
@@ -146,6 +158,7 @@ namespace WMSApp.MRA
                     return result;
                 }
 
+                lineCount = orderDetails.Tables[1].Rows.Count;
                 // Send order data to JavaScript for Tab 1
                 if (orderDataCallback != null)
                 {
@@ -180,6 +193,7 @@ namespace WMSApp.MRA
                 result.CurrentStep = MRAProcessingStep.CreatingMRAInvoice;
 
                 var invoiceResult = await CreateMRAInvoiceAsync(orderSummary.Tables[1], orderDetails.Tables[1], mraRequestCallback, mraResponseCallback);
+                invoice = invoiceResult;
                 Mark("mra gateway");
                 if (!invoiceResult.Success)
                 {
@@ -208,6 +222,7 @@ namespace WMSApp.MRA
                     return result;
                 }
 
+                fusionUpdated = true;
                 // Success!
                 result.Success = true;
                 result.Message = $"MRA interface completed successfully. IRN: {result.IrnCode}";
@@ -230,6 +245,8 @@ namespace WMSApp.MRA
                     if (t != null && !t.IsCompleted) _ = t.ContinueWith(x => { _ = x.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
                     else if (t != null && t.IsFaulted) _ = t.Exception;
                 System.Diagnostics.Debug.WriteLine($"[MRAProcessor] {orderNumber} timings: {result.Timings}");
+                // Every run — manual, Shipping Agent, WMS 2.0, AI Digital Employee, AI Agent, Order Management — leaves one row
+                await MRAInterfaceStatus.RecordAsync(this, result, header, lineCount, invoice, already, fusionUpdated, started, total.ElapsedMilliseconds);
             }
         }
 
@@ -763,6 +780,7 @@ namespace WMSApp.MRA
                             return new MRAInvoiceCreationResult
                             {
                                 Success = false,
+                                RequestJson = jsonData,
                                 GatewayProblem = "TIMEOUT",
                                 ErrorMessage = $"No reply from the MRA gateway within {MRA_GATEWAY_TIMEOUT_SECONDS} s ({_mraApiUrl}). " +
                                     "The request was sent, so MRA may still have created the invoice - check before resending."
@@ -773,6 +791,7 @@ namespace WMSApp.MRA
                             return new MRAInvoiceCreationResult
                             {
                                 Success = false,
+                                RequestJson = jsonData,
                                 GatewayProblem = "UNREACHABLE",
                                 ErrorMessage = $"Could not reach the MRA gateway ({_mraApiUrl}): {hex.Message}. Nothing was sent to MRA."
                             };
@@ -811,6 +830,8 @@ namespace WMSApp.MRA
                         return new MRAInvoiceCreationResult
                         {
                             Success = false,
+                            RequestJson = jsonData,
+                            HttpStatus = (int)response.StatusCode,
                             RawResponse = responseBody,
                             ErrorMessage = $"MRA did not return an IRN (HTTP {(int)response.StatusCode})" +
                                 (body.Length > 0 ? ": " + body.Substring(0, Math.Min(500, body.Length)) : "")
@@ -822,6 +843,8 @@ namespace WMSApp.MRA
                         Success = true,
                         IrnCode = irnCode,
                         QrCodeBase64 = qrCode,
+                        RequestJson = jsonData,
+                        HttpStatus = (int)response.StatusCode,
                         RawResponse = responseBody
                     };
                 }
@@ -951,6 +974,8 @@ namespace WMSApp.MRA
         public string QrCodeBase64 { get; set; }
         public string RawResponse { get; set; }
         public string ErrorMessage { get; set; }
+        public string RequestJson { get; set; }
+        public int? HttpStatus { get; set; }
     }
 
     public class OracleFusionUpdateResult

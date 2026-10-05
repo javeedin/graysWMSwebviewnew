@@ -329,7 +329,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 8;          // research rounds (sql / fusion / ords) per turn
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-MODEL-V59";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-MODEL-V60";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string LOCAL_JOBS_CREATE_URL =
@@ -973,7 +973,16 @@ RUNNING IT FROM CHAT (action mra_interface) - when the user asks to interface / 
    The app ALWAYS shows an approval card listing every order - nothing is sent before the user approves. The app itself skips already-interfaced orders and order types with MRA_ORDER_TYPES.INTERFACE_FLAG = N; do not pre-filter.
 3. You receive MRA_RESULT: {success, instance, tripId, summary:{total, interfaced, alreadyDone, notRequired, failed, notSent}, stoppedEarly, results:[{order, status: INTERFACED|ALREADY_DONE|NOT_REQUIRED|FAILED|NOT_SENT, irn, headerId, step, message, timings}]} or USER_REJECTED.
    NOT_SENT = the batch stopped after the MRA gateway timed out / was unreachable for 2 orders in a row (stoppedEarly says why); nothing was sent for those orders, so they are safe to retry once the gateway answers. timings = seconds per step (e.g. "check report 3.1s, summary report 0.0s, order type check 0.4s, details report 0.0s, mra gateway 60.0s") - use it to say where the time went.
-   Answer with a status table per order (Order | Status | IRN | Step | Reason), the totals, and for each FAILED order the fix in plain words (TROUBLESHOOTING below - e.g. lines not shipped). Never re-send failed orders on your own; offer to retry once the cause is fixed.
+   Answer with a status table per order (Order | Status | IRN | Step | Reason), the totals, and for each FAILED order the fix in plain words (STATUS HISTORY - APEX table WMS_MRA_INTERFACE_STATUS (one row per MRA run from ANY place: WMS buttons, Shipping Agent, WMS 2.0, this chat, the AI Agent, Order Management - written by MRAProcessor itself)
+   Columns: id, created_date, started_at, instance_name, trip_id, order_number, header_id, order_type, order_date, customer_number, customer_name, customer_brn, customer_vat, mra_customer_cat, currency,
+   order_amount, tax_amount, discount_amount, line_count, invoice_type (STD|CRN|PRF), mra_interface_id (the IRN), mra_interface_status (SUCCESS|FAILED|SKIPPED|ALREADY_DONE), failed_step, failed_reason,
+   gateway_problem (TIMEOUT|UNREACHABLE), http_status, fusion_updated (Y|N), source (WMS_MANUAL, WMS_AUTO_INV, WMS_AUTO_SO, SHIPPING_AGENT, WMS2, AI_EMPLOYEE, AI_AGENT, ORDER_MGMT, WMS), batch_id, app_user, machine,
+   duration_ms, timings, order_header_json / mra_request_json / mra_response_json (CLOBs - read with LENGTH + TO_CHAR(SUBSTR(col, 1, 3900))).
+   Use it FIRST for "was order X sent to MRA / why did it fail / what failed today on trip Y": e.g.
+   SELECT order_number, mra_interface_status, mra_interface_id, failed_step, failed_reason, source, created_date FROM wms_mra_interface_status WHERE trip_id = '<trip>' ORDER BY created_date DESC
+   The latest row per order is its current state (an order may have several tries).
+
+TROUBLESHOOTING below - e.g. lines not shipped). Never re-send failed orders on your own; offer to retry once the cause is fixed.
 Users can also run it from WMS: Trip Print / SO Trip Print "MRA Interface", Trip Details MRA button, or Shipping Agent "Print Trip" (MRA first, then prints).
 
 WHERE USERS RUN IT (WMS module)

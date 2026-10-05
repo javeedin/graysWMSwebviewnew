@@ -466,11 +466,12 @@ namespace WMSApp
             var results = new List<object>();
             int streak = 0;
             string stop = null;
+            string mraTrip = args.TryGetValue("trip_id", out var tEl) && (tEl.ValueKind == JsonValueKind.String || tEl.ValueKind == JsonValueKind.Number) ? tEl.ToString() : null;
             foreach (var order in orders)
             {
                 if (stop != null) { results.Add(new { order, status = "NOT_SENT", message = stop }); continue; }
                 WMSApp.MRA.MRAProcessingResult r;
-                try { r = await new WMSApp.MRA.MRAProcessor(fusionUser, fusionPass, instance).ProcessMRAInterfaceAsync(order, (m, s) => { }); }
+                try { r = await new WMSApp.MRA.MRAProcessor(fusionUser, fusionPass, instance) { Source = "AI_AGENT", AppUser = user, TripId = mraTrip }.ProcessMRAInterfaceAsync(order, (m, s) => { }); }
                 catch (Exception ex) { r = new WMSApp.MRA.MRAProcessingResult { Success = false, Message = ex.Message, CurrentStep = WMSApp.MRA.MRAProcessingStep.Failed }; }
                 string status = r.Success ? "INTERFACED" : r.Skipped ? "NOT_REQUIRED"
                     : (r.Message ?? "").IndexOf("already done", StringComparison.OrdinalIgnoreCase) >= 0 ? "ALREADY_DONE" : "FAILED";

@@ -15,7 +15,7 @@
             return { username: window.F_username, password: window.F_password };
         });
     };
-    MRA.one = function (order, pod, creds, batchId, onStep) {
+    MRA.one = function (order, pod, creds, batchId, onStep, tripId) {
         return new Promise(function (resolve) {
             var rid = 'w2_mra_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), t0 = Date.now(), log = [{ t: t0, type: 'step', text: 'Start MRA for ' + order + ' on ' + pod }], extra = {}, timer = null;
             function handler(ev) {
@@ -43,7 +43,7 @@
             }
             window.chrome.webview.addEventListener('message', handler);
             timer = setTimeout(function () { done({ status: 'FAILED', msg: 'MRA request timed out after 3 minutes' }); }, 180000);
-            window.chrome.webview.postMessage({ action: 'processMRAInterface', requestId: rid, orderNumber: order, fusionUsername: creds.username, fusionPassword: creds.password, instance: pod, batchId: batchId });
+            window.chrome.webview.postMessage({ action: 'processMRAInterface', requestId: rid, orderNumber: order, fusionUsername: creds.username, fusionPassword: creds.password, instance: pod, batchId: batchId, source: 'WMS2', tripId: tripId != null ? String(tripId) : undefined, appUser: (function(){try{return localStorage.getItem('wms_user')||sessionStorage.getItem('loggedInUser')||'';}catch(e){return '';}})() });
         });
     };
     /** Sends orders to MRA, 4 at a time (MRA_ORDER_TYPES read once for the batch); stops after two gateway problems in a row. */
@@ -57,7 +57,7 @@
         return MRA.creds().then(function (creds) {
             return W2.pool(orders, par, function (o) {
                 if (stop) { rows.push({ pod: pod, order_number: o.order_number, trip_date: date, trip_id: o.trip_id, status: 'FAILED', msg: 'Not sent: ' + stop, checked_at: W2.now(), source: 'w2' }); return; }
-                return MRA.one(o.order_number, pod, creds, batch).then(function (r) {
+                return MRA.one(o.order_number, pod, creds, batch, null, o.trip_id).then(function (r) {
                     n++; if (r.status === 'FAILED') bad++; else ok++;
                     if (r.gw) gw++; else if (r.status !== 'FAILED') gw = 0;
                     if (gw >= 2 && !stop) stop = 'the MRA gateway did not answer for 2 orders in a row — stopped sending. Retry when MRA answers.';

@@ -3619,7 +3619,9 @@ function processMRAInBackground(orderNumber, fusionUsername, fusionPassword, ins
                 orderNumber: orderNumber,
                 fusionUsername: fusionUsername,
                 fusionPassword: fusionPassword,
-                instance: instance
+                instance: instance,
+                source: 'WMS_AUTO_SO',
+                appUser: (function(){try{return localStorage.getItem('wms_user')||sessionStorage.getItem('loggedInUser')||'';}catch(e){return '';}})()
             });
         } else {
             cleanup();

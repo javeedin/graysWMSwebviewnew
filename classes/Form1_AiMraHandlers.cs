@@ -23,11 +23,13 @@ namespace WMSApp
                 string sessionId = null, apiConversation = null, instance = "PROD", tripId = "";
                 AiEngineConfig engine = null;
                 var orders = new List<string>();
+                string mraAppUser = null;
 
                 using (var doc = JsonDocument.Parse(messageJson))
                 {
                     var root = doc.RootElement;
                     approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
+                    if (root.TryGetProperty("appUser", out var uEl) && uEl.ValueKind == JsonValueKind.String) mraAppUser = uEl.GetString();
                     if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String) sessionId = sEl.GetString();
                     engine = ParseAiEngine(root);
                     if (root.TryGetProperty("apiConversation", out var acEl) && acEl.ValueKind == JsonValueKind.String) apiConversation = acEl.GetString();
@@ -89,7 +91,7 @@ namespace WMSApp
                             WMSApp.MRA.MRAProcessingResult r;
                             try
                             {
-                                var processor = new WMSApp.MRA.MRAProcessor(fusionUser, fusionPass, instance);
+                                var processor = new WMSApp.MRA.MRAProcessor(fusionUser, fusionPass, instance) { Source = "AI_EMPLOYEE", TripId = tripId, AppUser = mraAppUser };
                                 r = await processor.ProcessMRAInterfaceAsync(order,
                                     (msg, step) => { _ = onEvent(new { action = "aiChatEvent", eventType = "status", text = prefix + msg }); });
                             }
