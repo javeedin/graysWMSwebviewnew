@@ -307,6 +307,14 @@
             ].filter(Boolean);
             var act = cols.findIndex(function (c) { return c && !c.dataField && /actions/i.test(c.caption || ''); });
             cols.splice.apply(cols, [act + 1, 0].concat(lead));          // act = -1 → at the start
+            // trip / order dates: the date only (DD-MM-YYYY like the other date columns), the full value on hover
+            cols.forEach(function (c) {
+                if (!c || !/^(tripdate|trip_date|order_date)$/i.test(c.dataField || '')) return;
+                c.cellTemplate = function (el, info) {
+                    var v = info.value == null ? '' : String(info.value), m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);
+                    el.text(m ? m[3] + '-' + m[2] + '-' + m[1] : v).attr('title', v).css('white-space', 'nowrap');
+                };
+            });
             var td = cols.findIndex(function (c) { return c && /^(tripdate|trip_date)$/i.test(c.dataField || ''); });
             if (td < 0) td = cols.findIndex(function (c) { return c && /^ship_confirm_st$/i.test(c.dataField || ''); });
             cols.splice(td >= 0 ? td + 1 : cols.length, 0, { dataField: SHIP_FIELD, caption: 'Actual Ship Date', width: 150, alignment: 'center', cellTemplate: shipCell });
