@@ -13,6 +13,49 @@
         });
     }
 
+    /** No trips in DuckDB for the date: say WHY — a refresh running now (and its step), or what the last refresh read. */
+    function stepsHtml(steps) {
+        if (!steps || !steps.length) return '';
+        return '<table class="steps"><tr><th></th><th>Step</th><th>Result</th><th>Time</th></tr>' + steps.map(function (s) {
+            return '<tr class="' + (s.ok ? '' : 'bad') + '"><td>' + (s.ok ? '<i class="fa-solid fa-check" style="color:var(--good)"></i>' : '<i class="fa-solid fa-xmark" style="color:var(--bad)"></i>') +
+                '</td><td><b>' + esc(s.step) + '</b></td><td>' + esc(s.msg || (s.ok ? 'done' : 'failed')) + '</td><td class="muted">' + ((s.ms || 0) / 1000).toFixed(1) + ' s</td></tr>';
+        }).join('') + '</table>';
+    }
+    function emptyDay(main, h, pod, date, live) {
+        var S = W2.sync, cur = S.current && S.current.date === date && S.current.pod === pod ? S.current : null;
+        var mem = S.lastRun && S.lastRun.date === date && S.lastRun.pod === pod ? S.lastRun : null;
+        var get = cur || mem ? Promise.resolve(null) : W2.q("SELECT ts, steps FROM w2_sync_runs WHERE pod = " + W2.lit(pod) + " AND trip_date = " + W2.lit(date) + " ORDER BY ts DESC LIMIT 1").then(function (r) {
+            if (!r[0]) return null; var st = []; try { st = JSON.parse(r[0].steps || '[]'); } catch (e) {} return { ts: r[0].ts, steps: st };
+        }).catch(function () { return null; });
+        return get.then(function (saved) {
+            if (!live()) return;
+            var last = mem || saved, bad = last ? last.steps.filter(function (s) { return !s.ok; }) : [];
+            var tripStep = last && last.steps.filter(function (s) { return s.step === 'trips'; })[0];
+            if (cur) {
+                h += '<div class="card empty"><i class="fa-solid fa-circle-notch fa-spin"></i><b>Reading ' + W2.dayName(date) + ' (' + date + ', ' + pod + ') from APEX and Fusion…</b><br>' +
+                    'Now: <b>' + esc(cur.step || 'starting') + '</b> · ' + Math.round((Date.now() - cur.t0) / 1000) + ' s. The trips appear as soon as the trip lines are saved; Fusion shipment status and MRA follow.' +
+                    '<div style="max-width:640px;margin:10px auto 0;text-align:left">' + stepsHtml(cur.steps) + '</div></div>';
+            } else if (!last) {
+                h += '<div class="card empty"><i class="fa-solid fa-truck"></i><b>' + W2.dayName(date) + ' (' + date + ') has not been read yet.</b><br>Press <b>Refresh</b> to read the trip date from APEX and Fusion into the local copy.' +
+                    '<div class="row" style="justify-content:center;margin-top:10px"><button class="btn primary" id="d-sync"><i class="fa-solid fa-rotate"></i> Refresh ' + W2.dayName(date) + '</button></div></div>';
+            } else {
+                var why = bad.length ? bad.length + ' step(s) failed — the error is in the table.'
+                    : tripStep ? 'APEX answered: <b>' + esc(tripStep.msg) + '</b> for ' + date + ' on ' + pod + '. If the WMS shows trips for this date, check the instance (PROD / TEST) in the top bar.'
+                    : 'The last refresh did not read the trips.';
+                h += '<div class="card empty"><i class="fa-solid fa-' + (bad.length ? 'triangle-exclamation' : 'truck') + '"></i><b>No trips for ' + W2.dayName(date) + ' (' + date + ', ' + pod + ').</b><br>' + why +
+                    '<div style="max-width:680px;margin:10px auto 0;text-align:left">' + stepsHtml(last.steps) + '</div>' +
+                    '<div class="row" style="justify-content:center;margin-top:10px"><button class="btn primary" id="d-sync"><i class="fa-solid fa-rotate"></i> Refresh again</button>' +
+                    '<button class="btn" data-go=\'["data",{}]\'><i class="fa-solid fa-database"></i> Data &amp; sync</button></div></div>';
+            }
+            h += W2.archHtml();
+            main.innerHTML = h; wireGo(main);
+            var b = main.querySelector('#d-sync'); if (b) b.onclick = function () { W2.sync.day(date, { full: true }); };
+            if (cur) {   // repaint the live step list while the refresh runs
+                setTimeout(function () { if (live() && W2.state.page === 'dash') W2.render(); }, 2500);
+            }
+        });
+    }
+
     W2.page('dash', {
         title: 'Control tower', icon: 'fa-gauge-high',
         render: function (main, params, live) {
@@ -42,13 +85,7 @@
                     '<span class="tag ' + (mraOff ? 'warn' : 'good') + '" title="WMS_MRA_INTERFACE_CONFIG for ' + pod + '"><i class="fa-solid fa-flag"></i> MRA: ' + (flag ? (mraOff ? 'No' : 'Yes') : '?') + '</span>' +
                     '<span class="tag ' + (ap.on ? 'good' : '') + '" style="cursor:pointer" data-go=\'["autopilot",{}]\'><i class="fa-solid fa-robot"></i> Autopilot ' + (ap.on ? 'on' : 'off') + '</span></div>';
 
-                if (!trips.length && !orders.length) {
-                    h += '<div class="card empty"><i class="fa-solid fa-truck"></i><b>No trips for ' + W2.dayName(date) + ' (' + date + ') in the local copy.</b><br>Press <b>Refresh</b> to read the trip date from APEX and Fusion, or pick another date.' +
-                        '<div class="row" style="justify-content:center;margin-top:10px"><button class="btn primary" id="d-sync"><i class="fa-solid fa-rotate"></i> Refresh ' + W2.dayName(date) + '</button></div></div>';
-                    main.innerHTML = h; wireGo(main);
-                    main.querySelector('#d-sync').onclick = function () { W2.sync.day(date, { full: true }); };
-                    return;
-                }
+                if (!trips.length && !orders.length) return emptyDay(main, h, pod, date, live);
 
                 h += '<div class="kpis">' +
                     tile('trips', 'Trips', 'fa-truck', W2.fmt(trips.length), W2.fmt(trips.filter(function (t) { return W2.M.tripStage(t) === 'DONE'; }).length) + ' ready to go', '', ['trips', {}]) +

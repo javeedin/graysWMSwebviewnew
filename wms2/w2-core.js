@@ -382,6 +382,12 @@
     }
     W2.paintSync = function (info) {
         var el = $('t-sync'); if (!el) return;
+        var cur = W2.sync && W2.sync.current;
+        if (cur && cur.date === W2.date() && cur.pod === W2.pod()) {
+            el.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> reading' + (cur.step ? ' · ' + W2.esc(cur.step) : '') + '…';
+            el.title = cur.label; return;
+        }
+        if (info === undefined) { W2.sync.lastInfo().then(W2.paintSync); return; }
         if (!info || !info.ts) { el.innerHTML = '<span class="dot none"></span>not synced'; el.title = 'Press Refresh to read ' + W2.dayName(W2.date()) + ' from APEX and Fusion'; return; }
         var age = (Date.now() - new Date(info.ts.replace(' ', 'T')).getTime()) / 1000;
         el.innerHTML = '<span class="dot ' + (age > 600 ? 'old' : '') + '"></span>synced ' + W2.ago(info.ts);
@@ -429,6 +435,38 @@
         inp.oninput();
     };
 
+    /** WMS 2.0 keeps its copy in DuckDB through the host actions w2Status / w2Put / w2Query (Wms2Store.cs). An app built
+        before WMS 2.0 does not know them and never answers, so every screen would wait and stay empty: ask once, quickly. */
+    W2.health = function () {
+        $('main').innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i>Opening the local copy (DuckDB)…</div>';
+        return W2.call('w2Status', {}, 15000).then(function (d) {
+            if (d && d.ok === false) throw d.error || 'w2Status failed';
+            W2.state.store = d; return true;
+        }).catch(function (e) {
+            var m = String(e && e.message || e);
+            var old = /timeout|timed out|no response/i.test(m);
+            $('main').innerHTML = '<div class="callout bad"><b>' + (old ? 'This build of the app does not have WMS 2.0\'s local database yet.' : 'The local copy (DuckDB) could not be opened.') + '</b><br>' +
+                (old ? 'The page asked the app for <code>w2Status</code> and got no answer. The pages are loaded from the source folder, but the running GraysWMS.exe was built before WMS 2.0 ' +
+                    '(it needs <code>classes\\Wms2Store.cs</code> and <code>classes\\Form1_Wms2Handlers.cs</code>). <b>Rebuild the app</b> (Visual Studio › Build, or <code>dotnet build</code>) and start it again.'
+                    : W2.esc(m)) +
+                '<div class="muted" style="margin-top:8px">' + W2.esc(m) + '</div>' +
+                '<div class="row" style="margin-top:10px"><button class="btn primary" id="h-retry"><i class="fa-solid fa-rotate"></i> Try again</button></div></div>' + W2.archHtml();
+            $('h-retry').onclick = function () { W2.start(); };
+            return false;
+        });
+    };
+    /** Where the data comes from — shown on the empty / error screens. */
+    W2.archHtml = function () {
+        return '<div class="card" style="margin-top:12px"><h3><i class="fa-solid fa-diagram-project"></i> How WMS 2.0 gets its data</h3>' +
+            '<div class="arch">' +
+            '<div><b>APEX (ORDS)</b><span>trips, trip lines, pickers, print jobs, order lines, pending, MRA switch</span></div><i class="fa-solid fa-arrow-right"></i>' +
+            '<div><b>Fusion</b><span>shipment lines (REST), MRA check (BIP)</span></div><i class="fa-solid fa-arrow-right"></i>' +
+            '<div><b>App (C# host)</b><span>executeGet / executePost / executeOracleFusionGet / omBip — same calls as the WMS</span></div><i class="fa-solid fa-arrow-right"></i>' +
+            '<div><b>DuckDB on this PC</b><span>C:\\fusion\\wms2\\wms2.duckdb (w2Put)</span></div><i class="fa-solid fa-arrow-right"></i>' +
+            '<div><b>Every screen</b><span>reads DuckDB (w2Query) — fast, no waiting on APEX</span></div>' +
+            '</div><p class="muted" style="margin:8px 0 0">APEX stays the master. A refresh reads the trip date from APEX / Fusion and replaces that date in DuckDB; it runs on open and every 3 minutes.</p></div>';
+    };
+
     // ── start ─────────────────────────────────────────────────
     W2.start = function () {
         var pod = W2.ls('w2.pod') || (function () { try { return (sessionStorage.getItem('loggedInInstance') || '').toUpperCase(); } catch (e) { return ''; } })();
@@ -449,10 +487,13 @@
         W2.state.page = W2.pages[h] ? h : 'dash';
         paintNav();
         if (!W2.hasHost()) { $('main').innerHTML = '<div class="callout warn"><b>Open WMS 2.0 inside the Gray\'s WMS app.</b> It reads APEX and Fusion through the app and keeps its copy in DuckDB on this PC.</div>'; return; }
-        W2.ensureTables().then(function () {
-            W2.render();
-            W2.sync.ensureFresh();
-            W2.emit('ready');
+        W2.health().then(function (ok) {
+            if (!ok) return;
+            W2.ensureTables().then(function () {
+                W2.render();
+                W2.sync.ensureFresh();
+                W2.emit('ready');
+            });
         });
         setInterval(function () { W2.sync.lastInfo().then(W2.paintSync); }, 15000);
     };

@@ -53,14 +53,20 @@
         W2.stopping = false;
         var want = function (s) { return !opts.only || opts.only.indexOf(s) >= 0; };
         var label = (opts.full ? 'Full refresh' : 'Refresh') + ' of ' + W2.dayName(date) + ' (' + date + ', ' + pod + ')';
-        if (!opts.auto) W2.busy.start(label + ' …', function () { W2.stopping = true; W2.busy.step('Stopping after the current step…'); });
+        // the first read of a date shows the banner too: an empty screen with a silent sync behind it looks like "no data"
+        var loud = !opts.auto || opts.full;
+        if (loud) W2.busy.start(label + ' …', function () { W2.stopping = true; W2.busy.step('Stopping after the current step…'); });
+        S.current = { date: date, pod: pod, label: label, step: '', t0: t0, steps: steps };
         note('start', label);
         function step(name, fn) {
             return function () {
                 if (W2.stopping) return;
-                var s0 = Date.now(); if (!opts.auto) W2.busy.step(label + ' · ' + name + ' …');
+                S.current.step = name; W2.paintSync(); W2.emit('syncstep', name);
+                var s0 = Date.now(); if (loud) W2.busy.step(label + ' · ' + name + ' …');
                 return Promise.resolve().then(fn).then(function (msg) {
                     steps.push({ step: name, ok: true, ms: Date.now() - s0, msg: msg || '' }); note('ok', name + ': ' + (msg || 'done') + ' (' + ((Date.now() - s0) / 1000).toFixed(1) + ' s)');
+                    // trips + lines are in DuckDB: draw the screen now, the slower steps (Fusion, MRA) fill it in later
+                    if (name === 'lines' && date === W2.date() && pod === W2.pod()) W2.render();
                 }, function (e) {
                     var m = String(e && e.message || e);
                     steps.push({ step: name, ok: false, ms: Date.now() - s0, msg: m }); note('err', name + ': ' + m);
@@ -83,12 +89,16 @@
             var ms = Date.now() - t0, bad = steps.filter(function (s) { return !s.ok; });
             return W2.put('w2_sync_runs', { pod: pod, trip_date: date, kind: opts.full ? 'FULL' : 'QUICK' }, [{ pod: pod, trip_date: date, kind: opts.full ? 'FULL' : 'QUICK', ts: W2.now(), ms: String(ms), steps: JSON.stringify(steps) }]).then(function () {
                 var msg = label + ' done in ' + (ms / 1000).toFixed(1) + ' s' + (bad.length ? ' — ' + bad.length + ' step(s) failed: ' + bad.map(function (b) { return b.step; }).join(', ') : '') + (W2.stopping ? ' (stopped)' : '');
-                if (!opts.auto || bad.length) W2.busy.done(msg, bad.length > 0);
+                if (loud || bad.length) W2.busy.done(msg, bad.length > 0);
                 note(bad.length ? 'warn' : 'ok', msg);
                 return { steps: steps, ms: ms };
             });
-        }).catch(function (e) { W2.busy.done(label + ' failed: ' + e, true); }).then(function (r) {
-            S.running = null; W2.stopping = false;
+        }).catch(function (e) {
+            W2.busy.done(label + ' failed: ' + e, true);
+            steps.push({ step: 'save', ok: false, ms: 0, msg: String(e && e.message || e) });
+        }).then(function (r) {
+            S.lastRun = { date: date, pod: pod, steps: steps, ms: Date.now() - t0, ts: W2.now() };
+            S.running = null; S.current = null; W2.stopping = false;
             S.lastInfo(date).then(W2.paintSync);
             if (date === W2.date() && pod === W2.pod()) { W2.emit('synced', date); W2.render(); }
             return r;

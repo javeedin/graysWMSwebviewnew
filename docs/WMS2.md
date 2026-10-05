@@ -47,6 +47,22 @@ WMS 2.0 reads the trip date from the WMS sources. It writes every answer into a 
 
 The top bar says how old the copy is. The trip date on screen is refreshed every 3 minutes while the page is visible. **Refresh** reads it again at once. **Data & sync** shows each step, its result and its time, and lets you run one step again.
 
+### Where the data comes from
+
+```
+APEX (ORDS endpoints, AI gateway)  ┐
+Fusion (shipment lines REST, MRA BIP) ┘ → the app (C# host: executeGet / executePost / executeOracleFusionGet / omBip)
+   → WMS 2.0 page → w2Put → DuckDB C:\fusion\wms2\wms2.duckdb → every screen (w2Query)
+```
+
+APEX stays the master. DuckDB is a local copy of one trip date: a refresh reads that date again and replaces it.
+
+### When the screen is empty
+
+- **"This build of the app does not have WMS 2.0's local database yet"**: the pages come from the source folder, but the running GraysWMS.exe was built before WMS 2.0. Rebuild the app and start it again.
+- **"Reading … from APEX and Fusion"**: the first refresh of the date is running. The step it is on is shown, and the trips appear as soon as the trip lines are saved.
+- **"No trips for …"**: the last refresh finished. Its steps are listed with what each one read and any error. For example, *trips: 0 trip(s)* means APEX had no trips for that date on that instance.
+
 ## Pick release for the whole day
 
 **Pick release (day)** lists every order of every trip of the date. Orders not yet released are ticked. Click a trip chip to choose one trip only.
