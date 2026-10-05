@@ -8,15 +8,22 @@
 --   mra_at              when that try was written (DD-MM-YYYY HH24:MI)
 --   mra_tries           how many tries the order has
 --   picker_assigned_on  MAX(WMS_PICKER_ASSIGNMENT.picker_assignment_date) of the order (DD-MM-YYYY HH24:MI)
+--   actual_ship_date    latest SUCCESS WMS_ACTUAL_SHIPDATE.actual_ship_date of the order (DD-MM-YYYY HH24:MI)
+--   actual_ship_shipments  the shipments that date was sent for
+-- and PRINTING_ST moves to the end of the row (the grid shows Actual Ship Date in its place).
 --
 -- The handler query below is the current one with two changes, marked -- [91]:
 --   * picker_data also returns MAX(picker_assignment_date)
 --   * a new CTE mra_data (latest try per order of this trip, same instance) + LEFT JOIN
+--   * a new CTE ship_data (latest successful actual ship date per order, WMS_ACTUAL_SHIPDATE) + LEFT JOIN
+--   * PRINTING_ST is the last column
 -- mra_status is the FIRST column (the grid shows it right after Actions) and picker_assigned_on comes right after
 -- the picker. The page places both columns itself anyway, and reads them through the gateway while the handler
 -- does not send them — so the app works before and after this script.
 --
--- Needs: 90_mra_interface_status.sql (WMS_MRA_INTERFACE_STATUS). Run as the schema that owns the ORDS module.
+-- Needs: 90_mra_interface_status.sql (WMS_MRA_INTERFACE_STATUS) and 92_actual_shipdate.sql (WMS_ACTUAL_SHIPDATE;
+-- the page also creates it on first use). Run as the schema that owns the ORDS module. Already ran an older 91? Run it again:
+-- it sees no ship_data in the handler, backs up the current source and defines this one.
 -- Step 1 shows what runs today, step 3 saves it in WMS_ORDS_HANDLER_BACKUP before ORDS.DEFINE_HANDLER;
 -- ROLLBACK at the end puts the saved source back.
 -- ============================================================================
@@ -185,6 +192,19 @@ mra_data AS (
                            WHERE TRIP_ID = :TRIP_ID AND INSTANCE_NAME = :P_INSTANCE_NAME)
     AND instance_name = UPPER(:P_INSTANCE_NAME)
     GROUP BY order_number
+),
+-- [91] latest successful actual ship date per order (All Shipment Lines › Update Actual Ship Date writes it)
+ship_data AS (
+    SELECT
+        order_number,
+        MAX(actual_ship_date) KEEP (DENSE_RANK LAST ORDER BY created_date, id) as actual_ship_date,
+        LISTAGG(DISTINCT shipment, ', ') WITHIN GROUP (ORDER BY shipment) as actual_ship_shipments
+    FROM WMS_ACTUAL_SHIPDATE
+    WHERE status = 'SUCCESS'
+    AND order_number IN (SELECT trim(ORDER_NUMBER) FROM WMS_TRIP_DETAILS
+                         WHERE TRIP_ID = :TRIP_ID AND INSTANCE_NAME = :P_INSTANCE_NAME)
+    AND instance_name = UPPER(:P_INSTANCE_NAME)
+    GROUP BY order_number
 )
 SELECT
     mra.mra_status as MRA_STATUS,                                                       -- [91] first: right after Actions
@@ -202,8 +222,8 @@ DECODE(td.order_type,
     -- Ship Confirm Status
     scd.ship_confirm_st as SHIP_CONFIRM_ST,
 
-    -- Printing Status
-    wd.printing_st as PRINTING_ST,
+    -- [91] Actual ship date (PRINTING_ST moved to the end)
+    TO_CHAR(shp.actual_ship_date, 'DD-MM-YYYY HH24:MI') as ACTUAL_SHIP_DATE,
 
     H.trip_date tripdate,
 
@@ -278,7 +298,11 @@ DECODE(td.order_type,
     mra.mra_irn as MRA_IRN,
     mra.mra_reason as MRA_REASON,
     TO_CHAR(mra.mra_at, 'DD-MM-YYYY HH24:MI') as MRA_AT,
-    mra.mra_tries as MRA_TRIES
+    mra.mra_tries as MRA_TRIES,
+    shp.actual_ship_shipments as ACTUAL_SHIP_SHIPMENTS,
+
+    -- Printing Status (last)
+    wd.printing_st as PRINTING_ST
 
 FROM WMS_TRIP_DETAILS td
 LEFT JOIN WMS_TRIP_HEADER H ON TD.TRIP_ID = H.TRIP_ID
@@ -294,6 +318,7 @@ LEFT JOIN order_volume_data ov ON ov.SOURCE_ORDER_NUMBER = td.ORDER_NUMBER
 LEFT JOIN picker_data pd ON pd.SOURCE_ORDER_NUMBER = td.ORDER_NUMBER
 LEFT JOIN shipment_data shd ON shd.SOURCE_ORDER_NUMBER = td.ORDER_NUMBER
 LEFT JOIN mra_data mra ON mra.order_number = trim(td.ORDER_NUMBER)                      -- [91]
+LEFT JOIN ship_data shp ON shp.order_number = trim(td.ORDER_NUMBER)                     -- [91]
 WHERE td.TRIP_ID = :TRIP_ID
  AND td.INSTANCE_NAME = :P_INSTANCE_NAME
 ~';
@@ -301,6 +326,10 @@ BEGIN
   SELECT COUNT(*) INTO l_n FROM user_tables WHERE table_name = 'WMS_MRA_INTERFACE_STATUS';
   IF l_n = 0 THEN
     RAISE_APPLICATION_ERROR(-20005, 'WMS_MRA_INTERFACE_STATUS does not exist yet — run 90_mra_interface_status.sql first.');
+  END IF;
+  SELECT COUNT(*) INTO l_n FROM user_tables WHERE table_name = 'WMS_ACTUAL_SHIPDATE';
+  IF l_n = 0 THEN
+    RAISE_APPLICATION_ERROR(-20007, 'WMS_ACTUAL_SHIPDATE does not exist yet — run 92_actual_shipdate.sql first.');
   END IF;
 
   SELECT m.name, t.uri_template, h.source_type, h.items_per_page, h.mimes_allowed, h.source
@@ -314,8 +343,8 @@ BEGIN
   AND    ROWNUM = 1;
   DBMS_OUTPUT.PUT_LINE('Handler: module ' || l_module || ' · ' || l_tpl || ' · ' || l_type);
 
-  IF DBMS_LOB.INSTR(l_src, 'mra_data') > 0 THEN
-    DBMS_OUTPUT.PUT_LINE('Already has mra_data — nothing to do.');
+  IF DBMS_LOB.INSTR(l_src, 'ship_data') > 0 THEN
+    DBMS_OUTPUT.PUT_LINE('Already has mra_data + ship_data — nothing to do.');
     RETURN;
   END IF;
 
@@ -340,7 +369,7 @@ BEGIN
     p_source         => l_new,
     p_items_per_page => l_ipp,
     p_mimes_allowed  => l_mimes,
-    p_comments       => 'Trip details + MRA status + picker assigned on (91_gettripdetails_mra_picker.sql)');
+    p_comments       => 'Trip details + MRA status + picker assigned on + actual ship date (91_gettripdetails_mra_picker.sql)');
   COMMIT;
   DBMS_OUTPUT.PUT_LINE('Done — the old source is saved in WMS_ORDS_HANDLER_BACKUP.');
 END;
@@ -348,7 +377,8 @@ END;
 
 -- 4) Check: call the API for a trip, e.g.
 --    .../ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/<trip>?P_INSTANCE_NAME=PROD
---    every item now starts with "mra_status" and has "picker_assigned_on" after "picker".
+--    every item now starts with "mra_status", has "picker_assigned_on" after "picker", "actual_ship_date" after
+--    "ship_confirm_st" and ends with "printing_st".
 
 -- ROLLBACK — put the saved source back (run only if needed)
 /*
