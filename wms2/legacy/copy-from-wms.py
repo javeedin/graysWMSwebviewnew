@@ -16,7 +16,7 @@ WMS source as of this copy; check them after a big change in wms/app.js.
   vehicles.js        wms/vehicles.js (loadVehicles → window.vehiclesData, lorry capacity)
   future-trip.js     wms/future-trip.js (Picker Assigned On column, Future Trip 9999 grid + Set up trip 9999)
   new-trip.js        wms/copilot.js 296-840 (Create New Trip modal)
-  agent-assign.js    wms/shipping-agent.js 8, 89-126, 5524-5586, 5610-5613 (Add to Agent)
+  agent-assign.js    wms/shipping-agent.js 8, 89-126, 5525-5587, 5611-5614 (Add to Agent)
   markup.js          wms/index.html from <!-- Add Orders Modal --> to <!-- Edit Trip Modal --> (Add Orders / Paste /
                      Fetch pending shipments) and <!-- New Trip Modal --> to <!-- WMS Co-Pilot --> (New Trip)
   wms-legacy.css     the rules of wms/styles.css those screens use
@@ -60,8 +60,8 @@ cop = lines('wms/copilot.js')
 write('new-trip.js', head('wms/copilot.js lines 296-840 (Create New Trip)') + cut(cop, 296, 840))
 
 sa = lines('wms/shipping-agent.js')
-write('agent-assign.js', head('wms/shipping-agent.js lines 8, 89-126, 5524-5586, 5610-5613 (Add to Agent)') +
-      '(function () {\n    \'use strict\';\n' + cut(sa, 8, 8) + '\n' + cut(sa, 89, 126) + '\n' + cut(sa, 5524, 5586) + '\n' + cut(sa, 5610, 5613) +
+write('agent-assign.js', head('wms/shipping-agent.js lines 8, 89-126, 5525-5587, 5611-5614 (Add to Agent)') +
+      '(function () {\n    \'use strict\';\n' + cut(sa, 8, 8) + '\n' + cut(sa, 89, 126) + '\n' + cut(sa, 5525, 5587) + '\n' + cut(sa, 5611, 5614) +
       '\n    // the agent dashboard is not on this page\n    if (typeof window.saRefreshDashboard !== \'function\') window.saRefreshDashboard = function () { return Promise.resolve(); };\n})();')
 
 html = lines('wms/index.html')

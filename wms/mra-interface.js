@@ -560,6 +560,15 @@
         retry: function (ids) { retry(ids); },
         print: function (ids) { printOrders(ids); },
         details: function (id) { details(id); },
-        csv: function () { csv(); }
+        csv: function () { csv(); },
+        /** Opens MRA transactions history on one order (every try, last 2 years) — the MRA column of the trip grids. */
+        history: function (order, inst) {
+            var f = filters();
+            f.q = String(order || ''); f.trip = ''; f.status = ''; f.latest = false; f.from = today(-730); f.to = today(0);
+            if (inst) f.inst = String(inst).toUpperCase();
+            st.tab = 'history';
+            if (typeof window.navigateToPage === 'function') window.navigateToPage('mra-interface'); else render();
+            setTimeout(function () { render(); search(); }, 50);
+        }
     };
 })();
