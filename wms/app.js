@@ -15763,9 +15763,36 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     };
 
-    window.deleteTripOrder = function(tripId, orderNumber) {
-        console.log('[Trip Management] Delete order:', orderNumber);
-        alert('Delete Order functionality - To be implemented');
+    // Delete (Co-Pilot trip grid): remove the order from its trip (TRIPMANAGEMENT/deletetripline), then
+    // delete its WMS_PICKER_ASSIGNMENT row — the same as the Remove button in Trip Details.
+    window.deleteTripOrder = function(tripId, orderNumber, instanceName) {
+        var o = String(orderNumber == null ? '' : orderNumber).trim();
+        if (!o) { alert('Order number not found for this row.'); return; }
+        var inst = instanceName || sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'PROD';
+        if (!confirm('Remove order ' + o + ' from trip ' + tripId + '?\n\nIts picker assignment is deleted too. This cannot be undone.')) return;
+        var url = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/deletetripline?P_ORDER_NUMBER=' +
+            encodeURIComponent(o) + '&P_INSTANCE_NAME=' + encodeURIComponent(inst);
+        var note = function(m, t) { if (typeof showNotification === 'function') showNotification(m, t); else alert(m); };
+        sendMessageToCSharp({ action: 'executeDelete', fullUrl: url }, function(error, data) {
+            var result = null;
+            try { result = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) {}
+            if (error || (result && (result.status === 'error' || result.success === false))) {
+                note('Could not remove ' + o + ': ' + (error ? (error.message || error) : (result.message || JSON.stringify(result))), 'error');
+                return;
+            }
+            window.wmsClearPickerAssignment(o).then(function(c) {
+                note('Order ' + o + ' removed from trip ' + tripId + '. ' + (c.ok ? 'Picker assignment removed.' : 'Picker assignment not removed: ' + (c.error || '')), c.ok ? 'success' : 'warning');
+            });
+            try {
+                $('[id*="trip"]').find('.dx-datagrid').parent().each(function() {
+                    var g = $(this).dxDataGrid && $(this).data('dxDataGrid');
+                    if (!g) return;
+                    var ds = g.option('dataSource');
+                    if (Array.isArray(ds)) g.option('dataSource', ds.filter(function(r) { return String(r.ORDER_NUMBER || r.order_number || '').trim() !== o; }));
+                });
+            } catch (e) {}
+            if (typeof refreshTripDetails === 'function') { try { refreshTripDetails(tripId); } catch (e) {} }
+        });
     };
 
     function activateTripTab(tabId) {

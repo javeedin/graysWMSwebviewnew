@@ -1467,7 +1467,7 @@ function initializeTripDialogGrid(tripId, tripData) {
                         <button class="icon-btn" onclick='editTripOrder(${JSON.stringify(rowData)})' title="Edit">
                             <i class="fas fa-edit" style="color: #3b82f6;"></i>
                         </button>
-                        <button class="icon-btn" onclick="deleteTripOrder('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Delete">
+                        <button class="icon-btn" onclick="deleteTripOrder('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}', '${instanceName}')" title="Delete">
                             <i class="fas fa-trash" style="color: #f59e0b;"></i>
                         </button>
                     </div>
