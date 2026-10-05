@@ -92,6 +92,7 @@ Source: "dllexplorer\*";  DestDir: "{app}\dllexplorer";  Flags: ignoreversion re
 Source: "powerbi\*";      DestDir: "{app}\powerbi";      Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "aihub\*";        DestDir: "{app}\aihub";        Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "aiagent\*";      DestDir: "{app}\aiagent";      Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "wms2\*";         DestDir: "{app}\wms2";         Excludes: "tests"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "finance\*";      DestDir: "{app}\finance";      Excludes: "tests"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; AI Hub service sources only - the AI Hub page installs Python and the packages on the PC
 Source: "ai-hub\*"; DestDir: "{app}\ai-hub"; Excludes: ".venv,data,runtime,tests,__pycache__,.pytest_cache,*.pyc"; Flags: ignoreversion recursesubdirs createallsubdirs

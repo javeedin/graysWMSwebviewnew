@@ -2232,6 +2232,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleFinanceAction(wv, action, root, requestId);
                                     break;
 
+                                // WMS 2.0 (wms2/index.html): local DuckDB copy of trips, lines, prints, MRA, autopilot ledger
+                                case var w2Action when IsWms2Action(w2Action):
+                                    await HandleWms2Action(wv, action, root, requestId);
+                                    break;
+
                                 case var codeAction when IsCodeAction(codeAction):
                                     await HandleCodeAction(wv, action, root, requestId);
                                     break;

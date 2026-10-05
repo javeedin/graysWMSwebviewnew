@@ -62,6 +62,8 @@ jobs:
       - run: npx -y eslint@9 -c aiagent/eslint.config.mjs aiagent
       - name: Finance Lens engine tests
         run: node finance/tests/engine.test.js
+      - name: WMS 2.0 cancel rules (same lines as the Shipping Agent)
+        run: node wms2/tests/cancel-rules.test.js
 
   engine:
     name: Fusion Model engine (xUnit)

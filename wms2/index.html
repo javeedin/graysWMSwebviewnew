@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WMS 2.0 — Fusion Client</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- DevExtreme + jQuery: the copied WMS order / store-transaction dialogs use them (same versions as wms/index.html) -->
+    <link rel="stylesheet" href="https://cdn3.devexpress.com/jslib/23.2.6/css/dx.light.css">
+    <link rel="stylesheet" href="wms2.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn3.devexpress.com/jslib/23.2.6/js/dx.all.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+</head>
+<body>
+    <header class="top">
+        <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
+        <div class="logo">W2</div>
+        <div>
+            <h1>WMS 2.0 <span class="ver">beta</span></h1>
+            <p>Warehouse control tower: trips, picking, MRA, printing and cancellations for one trip date</p>
+        </div>
+        <div class="tools">
+            <label>Instance<select id="t-pod"><option>PROD</option><option>TEST</option></select></label>
+            <div class="datebar">
+                <button class="nav" id="t-prev" title="Previous day"><i class="fa-solid fa-chevron-left"></i></button>
+                <label>Trip date<input type="date" id="t-date"></label>
+                <button class="nav" id="t-next" title="Next day"><i class="fa-solid fa-chevron-right"></i></button>
+                <button class="chip" id="t-today">Today</button>
+                <button class="chip" id="t-tomorrow">Tomorrow</button>
+            </div>
+            <span class="syncchip" id="t-sync"><span class="dot none"></span>not synced</span>
+            <button class="btn" id="t-refresh" title="Read the trip date again from APEX and Fusion into the local copy (DuckDB)"><i class="fa-solid fa-rotate"></i> Refresh</button>
+            <button class="btn" id="t-find" title="Find a trip, order, picker or page (Ctrl K)"><i class="fa-solid fa-magnifying-glass"></i> Find <span class="xs" style="opacity:.7">Ctrl K</span></button>
+        </div>
+    </header>
+    <div class="shell">
+        <nav id="nav"></nav>
+        <div class="pane">
+            <div id="w2-busy"><i class="fa-solid fa-circle-notch fa-spin" id="w2-busy-i"></i><span class="grow" id="w2-busy-t"></span><button class="btn sm" id="w2-busy-x" style="display:none">Stop</button></div>
+            <main id="main"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i>Loading…</div></main>
+        </div>
+    </div>
+
+    <!-- copies of the tested WMS code (see the header of each file); the WMS module itself is unchanged -->
+    <script src="legacy/config.js"></script>
+    <script src="legacy/bridge.js"></script>
+    <script src="legacy/order-dialogs.js"></script>
+    <!-- WMS 2.0 -->
+    <script src="w2-cancel-rules.js"></script>
+    <script src="w2-core.js"></script>
+    <script src="w2-sync.js"></script>
+    <script src="w2-model.js"></script>
+    <script src="w2-dash.js"></script>
+    <script src="w2-trips.js"></script>
+    <script src="w2-pick.js"></script>
+    <script src="w2-autopilot.js"></script>
+    <script src="w2-pages.js"></script>
+    <script>W2.start();</script>
+</body>
+</html>

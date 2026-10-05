@@ -292,6 +292,15 @@
                 <span class="card-badge">WMS</span>
             </a>
 
+            <!-- WMS 2.0: control tower for one trip date (DuckDB copy), Trip 360, day pick release, cancellation autopilot; the WMS above is unchanged -->
+            <a href="../wms2/index.html" class="module-card"
+               style="--card-color:#0b2545; --card-bg:rgba(34,211,238,0.12); --card-text:#0b2545;">
+                <div class="card-icon">🛰️</div>
+                <div class="card-title">WMS 2.0</div>
+                <div class="card-desc">Warehouse control tower for tomorrow's trips: picking, picker assignments, MRA, printing and pending orders on one screen, Trip 360, pick release for the whole day and the cancellation autopilot.</div>
+                <span class="card-badge">BETA</span>
+            </a>
+
             <!-- Order Management -->
             <a href="../om/index.html" class="module-card"
                style="--card-color:#48bb78; --card-bg:rgba(72,187,120,0.1); --card-text:#48bb78;">
@@ -590,7 +599,7 @@
         // this package; the tiles keep their hrefs (release filter / trial badges).
         (function () {
             var GROUPS = [
-                { id: 'wms', title: 'Warehouse & Orders', icon: 'fa-warehouse', color: '#667eea', folders: ['wms', 'om', 'inventory'] },
+                { id: 'wms', title: 'Warehouse & Orders', icon: 'fa-warehouse', color: '#667eea', folders: ['wms', 'wms2', 'om', 'inventory'] },
                 { id: 'finance', title: 'Finance', icon: 'fa-sack-dollar', color: '#0d9488', folders: ['finance'] },
                 { id: 'fusion', title: 'Oracle Fusion', icon: 'fa-cloud', color: '#c74634', folders: ['fscm', 'fusionsql', 'dataload', 'fusionmodel', 'powerbi'] },
                 { id: 'ai', title: 'AI', icon: 'fa-wand-magic-sparkles', color: '#7c3aed', folders: ['aiagent', 'aihub', 'aianalysis', 'rag', 'agentflow', 'internetsearch'] },
