@@ -177,13 +177,25 @@
             if (!tpl) { el.innerHTML = '<div class="empty">No templates — open the Statement builder.</div>'; return; }
             S.tpl = tpl.id;
             return FL.data().then(function (data) {
-                var opts = FL.stmtOpts(), st = FINE.compute(tpl, data, opts);
+                var opts = FL.stmtOpts(), kind = FINE.tplKind(tpl) || (tpl.type === 'BS' ? 'BS' : tpl.type === 'PL' ? 'PL' : null);
+                // Columns: the template's own, or a column set chosen here (per statement kind, kept per PC); with a budget in the
+                // data and nothing chosen yet, the income statement opens on Month & YTD vs budget
+                var cur = FL.dims.periods.filter(function (p) { return p.period_seq === opts.period; })[0] || {};
+                var hasBud = Object.keys((data.facts || {}).BUDGET || {}).some(function (a) { return Object.keys(data.facts.BUDGET[a]).some(function (q) { var p = FL.dims.periods.filter(function (x) { return x.period_seq === +q; })[0]; return p && p.fiscal_year === cur.fiscal_year; }); });
+                var colPick = FL.ls('stmt.cols', {}), colId = kind ? colPick[kind] : null;
+                if (kind === 'PL' && colId == null && hasBud) colId = 'budget';
+                if (kind && colId && colId !== '_tpl') opts.columns = FINE.colset(kind, colId);
+                var st = FINE.compute(tpl, data, opts);
+                var budNote = !hasBud ? (colId === 'budget' ? ' · <b class="neg">no budget for ' + esc(cur.fiscal_year || '') + '</b> — baseline a plan in Planning' : '') :
+                    ' · budget: ' + (data.budgetPlans && data.budgetPlans.length ? esc(data.budgetPlans.map(function (b) { return b.name || b.id; }).join(', ')) + ' (Planning)' : 'Fusion GL');
                 S.last = { tpl: tpl, st: st, opts: opts };
                 var sub = S.detail ? subRows(tpl, data, opts, st) : null;
                 var gaps = FINE.tbGaps(tpl, data, opts.period), looseAmt = 0;
                 gaps.forEach(function (g) { looseAmt += g.amount; });
                 S.gaps = gaps;
                 el.innerHTML = FL.tb.head() +
+                    (kind ? '<label class="sm">Columns <select id="st-cols"><option value="_tpl">as in the template</option>' + FINE.COLSETS[kind === 'BS' ? 'BS' : 'PL'].map(function (c) {
+                        return '<option value="' + c.id + '"' + (colId === c.id ? ' selected' : '') + '>' + esc(c.label) + '</option>'; }).join('') + '</select></label>' : '') +
                     '<label class="sm"><input type="checkbox" id="st-zero"' + (S.hideZero ? ' checked' : '') + '> hide empty lines</label>' +
                     '<label class="sm"><input type="checkbox" id="st-det"' + (S.detail ? ' checked' : '') + '> account detail</label>' +
                     '<button class="btn sm" id="st-xl"><i class="fa-solid fa-file-excel"></i> Excel</button>' +
@@ -191,7 +203,7 @@
                     '<button class="btn sm" id="st-csv"><i class="fa-solid fa-file-csv"></i> CSV</button>' +
                     '<button class="btn sm" onclick="window.print()"><i class="fa-solid fa-print"></i> Print</button>' +
                     (tpl.simple ? '' : '<button class="btn sm" id="st-edit"><i class="fa-solid fa-pen-ruler"></i> Edit template</button>') + '</div>' +
-                    '<div class="stmt-wrap"><div class="stmt-head"><h2>' + esc(tpl.name) + '</h2><div class="sub">' + esc(FL.filterText()) + ' · period ' + esc(st.periodName) + ' · amounts in ' + FL.scaleLabel() +
+                    '<div class="stmt-wrap"><div class="stmt-head"><h2>' + esc(tpl.name) + '</h2><div class="sub">' + esc(FL.filterText()) + ' · period ' + esc(st.periodName) + ' · amounts in ' + FL.scaleLabel() + (st.columns.some(function (c) { return c.scenario === 'BUDGET'; }) || colId === 'budget' ? budNote : '') +
                     (FL.filter.cc && tpl.type === 'BS' ? ' · <b>balance sheet accounts carry no cost centre: pick All cost centres</b>' : '') + '</div></div>' +
                     (gaps.length ? '<div class="callout warn st-gap"><i class="fa-solid fa-triangle-exclamation"></i> <b>' + gaps.length + ' trial balance account(s) are not in this statement</b> — ' +
                         (Math.abs(looseAmt) >= 0.5 ? FL.num(Math.abs(looseAmt)) + ' ' + FL.scaleLabel() + ' ' + (FINE.tplKind(tpl) === 'BS' ? 'of closing balances' : 'this year') + ' the totals leave out' : 'they carry amounts in other periods') +
@@ -202,6 +214,7 @@
                     FL.stmtTable(st, { links: true, hideZero: S.hideZero, detail: S.detail, sub: sub }) + '</div>' +
                     '<p class="sm muted">Click a line name for the accounts mapped to it; click an amount to see the accounts behind it, then companies, cost centres, months and journal lines. Variances are shown favourable (+) / unfavourable (−).</p>';
                 FL.tb.wireHead(el);
+                if ($('st-cols')) $('st-cols').onchange = function () { var m = FL.ls('stmt.cols', {}); m[kind] = this.value; FL.lsSet('stmt.cols', m); FL.render(); };
                 $('st-zero').onchange = function () { S.hideZero = this.checked; FL.lsSet('stmt.hideZero', S.hideZero); FL.render(); };
                 $('st-det').onchange = function () { S.detail = this.checked; FL.render(); };
                 $('st-xl').onclick = function () { FL.excel([S.last.st], tpl.name); };

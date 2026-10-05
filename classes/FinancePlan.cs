@@ -95,10 +95,10 @@ namespace WMSApp
         {
             var t = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_plan_versions'", 1);
             if (t.Error != null || t.Rows.Count == 0 || Convert.ToInt64(t.Rows[0][0]) == 0) return new object[0];
-            var r = Query("SELECT v.version_id, v.name, v.kind, v.fiscal_year, v.status, v.rev, CAST(v.changed_at AS VARCHAR), v.changed_by, (SELECT COUNT(*) FROM fin_plan_lines l WHERE l.version_id = v.version_id) " +
+            var r = Query("SELECT v.version_id, v.name, v.kind, v.fiscal_year, v.status, v.rev, CAST(v.changed_at AS VARCHAR), v.changed_by, (SELECT COUNT(*) FROM fin_plan_lines l WHERE l.version_id = v.version_id), v.ledger " +
                 "FROM fin_plan_versions v ORDER BY v.fiscal_year DESC, v.changed_at DESC", 1000);
             return r.Rows.Select(x => new { id = Convert.ToString(x[0]), name = Convert.ToString(x[1]), kind = Convert.ToString(x[2]), year = Convert.ToInt32(x[3] ?? 0, CultureInfo.InvariantCulture),
-                status = Convert.ToString(x[4]), rev = Convert.ToInt32(x[5] ?? 0, CultureInfo.InvariantCulture), changedAt = Convert.ToString(x[6]), changedBy = Convert.ToString(x[7]), lines = Convert.ToInt64(x[8] ?? 0L) }).ToList();
+                status = Convert.ToString(x[4]), rev = Convert.ToInt32(x[5] ?? 0, CultureInfo.InvariantCulture), changedAt = Convert.ToString(x[6]), changedBy = Convert.ToString(x[7]), lines = Convert.ToInt64(x[8] ?? 0L), ledger = Convert.ToString(x[9]) }).ToList();
         }
     }
 }

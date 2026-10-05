@@ -3,7 +3,7 @@
    rule (last year + %, run-rate, annual amount spread, start + growth, driver × rate, % of another line, trend, typed in, zero) and the
    months follow it; typing a month makes the line "typed in". Saved in TWO places: APEX (WMS_FIN_PLAN_VERSIONS / _LINES / _EVENTS —
    shared by every PC, FL.apexStore.plan*) and this PC's DuckDB file (fin_plan_versions / _lines / _amounts — host finPlanSave), rev
-   tells which copy is newer. A version chosen as budget (config.json plan.budget) replaces the BUDGET scenario in every statement,
+   tells which copy is newer. Baselined versions (or ones chosen with Use as budget — config.json plan.budgets, one per ledger × year) replace the BUDGET scenario in every statement,
    KPI and variance (FL.data). Workflow Draft → Submitted → Approved (an AI admin who did not submit it) / Sent back; approved
    versions are read-only until reopened. Nothing goes to Oracle Fusion. */
 (function () {
@@ -24,21 +24,44 @@
 
     // ═════ the version chosen as budget replaces scenario BUDGET everywhere (statements, KPIs, variance, board pack) ═════
     var data0 = FL.data;
+    /** The plan versions used as the budget: one per ledger × year (a baselined version takes its place automatically).
+        config.json plan.budgets = [{id, ledger, year, name}]; the older single plan.budget is read too. */
+    PL.budgets = function () {
+        var c = (FL.config && FL.config.plan) || {}, list = (c.budgets || []).slice();
+        if (c.budget && !list.some(function (b) { return b.id === c.budget; })) list.push({ id: c.budget });
+        // entries saved without ledger / year (the older single budget) take them from the version list
+        return list.map(function (b) { var it = b.year ? null : PL.item(b.id); return it ? Object.assign({}, b, { year: it.year, ledger: it.ledger || '', name: b.name || it.name }) : b; });
+    };
+    PL.isBudget = function (id) { return PL.budgets().some(function (b) { return b.id === id; }); };
+    /** Puts a version in (on) or out of the budget list; another version of the same ledger and year is replaced */
+    PL.setBudget = function (v, on) {
+        var c = FL.config.plan = FL.config.plan || {}, all = PL.budgets();
+        var list = all.filter(function (b) { return b.id !== v.id && !(on && +b.year === +v.year && (b.ledger || '') === (v.ledger || '')); });
+        var gone = all.filter(function (b) { return b.id !== v.id && list.indexOf(b) < 0; });
+        if (on) list.push({ id: v.id, ledger: v.ledger || '', year: v.year, name: v.name });
+        c.budgets = list; delete c.budget;
+        return FL.saveConfig().then(function () { FL.cache = {}; return gone; });
+    };
     FL.data = function (extraWhere, key) {
-        var bid = FL.config && FL.config.plan && FL.config.plan.budget;
-        if (!bid) return data0.apply(this, arguments);
-        var w = FL.where('').concat(extraWhere || []), k = 'plan:' + bid + '|' + (key || w.join(' AND '));
+        var ids = PL.budgets().map(function (b) { return b.id; });
+        if (!ids.length) return data0.apply(this, arguments);
+        var w = FL.where('').concat(extraWhere || []), k = 'plan:' + ids.join(',') + '|' + (key || w.join(' AND '));
         if (FL.cache[k]) return Promise.resolve(FL.cache[k]);
         return data0.apply(this, arguments).then(function (d) {
-            return FL.sql('SELECT account, period_seq, fiscal_year, SUM(amount) AS net FROM fin_plan_amounts WHERE version_id = ' + FL.q(bid) + (w.length ? ' AND ' + w.join(' AND ') : '') +
+            return FL.sql('SELECT account, period_seq, fiscal_year, SUM(amount) AS net FROM fin_plan_amounts WHERE version_id IN (' + ids.map(FL.q).join(', ') + ')' + (w.length ? ' AND ' + w.join(' AND ') : '') +
                 ' GROUP BY ALL ORDER BY account, period_seq', 500000).then(function (r) {
-                var out = Object.assign({}, d, { facts: Object.assign({}, d.facts), budgetFrom: 'plan' }), b = out.facts.BUDGET = {}, run = {}, yr = {};
+                var out = Object.assign({}, d, { facts: Object.assign({}, d.facts), budgetFrom: 'plan' }), fus = d.facts.BUDGET || {}, b = out.facts.BUDGET = {}, run = {}, yr = {}, years = {};
                 r.rows.forEach(function (x) {
                     var a = String(x[0]), seq = +x[1];
+                    years[+x[2]] = 1;
                     if (yr[a] !== +x[2]) { yr[a] = +x[2]; run[a] = 0; }
                     run[a] += +x[3] || 0;
                     (b[a] = b[a] || {})[seq] = [+x[3] || 0, run[a]];
                 });
+                // years no plan covers keep the Fusion budget
+                var fy = {}; (d.periods || []).forEach(function (p) { fy[p.period_seq] = p.fiscal_year; });
+                Object.keys(fus).forEach(function (a) { Object.keys(fus[a]).forEach(function (q) { if (!years[fy[q]]) (b[a] = b[a] || {})[q] = fus[a][q]; }); });
+                out.budgetPlans = PL.budgets();
                 FL.cache[k] = out; return out;
             }).catch(function () { return d; });     // no plan table on this PC yet: the Fusion budget stays
         });
@@ -220,13 +243,13 @@
     PL.paint = function () { PL.paintList(); PL.paintMain(); };
     PL.paintList = function () {
         var el = $('pl-list'); if (!el) return;
-        var bud = (FL.config.plan || {}).budget, yrs = {};
+        var yrs = {};
         PL.list.forEach(function (x) { (yrs[x.year] = yrs[x.year] || []).push(x); });
         el.innerHTML = (PL.apexErr ? '<div class="callout warn sm">APEX not reachable — showing the versions on this PC. ' + esc(PL.apexErr.slice(0, 140)) + '</div>' : '') +
             (PL.list.length ? Object.keys(yrs).sort(function (a, b) { return b - a; }).map(function (y) {
                 return '<div class="pl-yr">' + esc(y) + '</div>' + yrs[y].map(function (x) {
                     var where = x.apexRev != null && x.pcRev != null ? (x.apexRev === x.pcRev ? 'APEX · this PC' : x.apexRev > x.pcRev ? 'APEX newer' : 'this PC newer') : x.apexRev != null ? 'APEX' : 'this PC only';
-                    return '<div class="pl-item' + (PL.v && PL.v.id === x.id ? ' on' : '') + '" data-id="' + esc(x.id) + '"><div class="row"><b>' + esc(x.name) + '</b><span class="grow"></span>' + (bud === x.id ? '<span class="tag good" title="Used as the budget in every statement">★ budget</span>' : '') + '</div>' +
+                    return '<div class="pl-item' + (PL.v && PL.v.id === x.id ? ' on' : '') + '" data-id="' + esc(x.id) + '"><div class="row"><b>' + esc(x.name) + '</b><span class="grow"></span>' + (PL.isBudget(x.id) ? '<span class="tag good" title="Used as the budget in every statement">★ budget</span>' : '') + '</div>' +
                         '<div class="sm muted row"><span class="tag">' + esc(KIND[x.kind] || x.kind) + '</span><span class="tag ' + (ST_TAG[x.status] || '') + '">' + esc(P.STATUS[x.status] || x.status) + '</span>' +
                         (x.profit || x.revenue ? '<span>NP ' + money(x.profit) + '</span>' : '') + '<span class="grow"></span><span title="Where it is saved · rev">' + esc(where) + '</span></div></div>';
                 }).join('');
@@ -249,7 +272,7 @@
             '<li>Every income statement account with actuals gets a line; each line follows a <b>rule</b> (last year + %, run-rate, annual amount, driver × rate, % of revenue, trend) — or type the months</li>' +
             '<li><b>Targets & goal seek</b> — set revenue growth and gross margin, or a profit target, and let the plan follow</li><li><b>Submit</b> → an admin <b>approves</b> → <b>Use as budget</b>: every statement, KPI and variance in Finance Lens then compares with it</li>' +
             '<li>During the year: <b>Plan vs actual</b> and a <b>rolling forecast</b> (actual months + the rest)</li></ol><p class="sm muted">Saved in APEX for everyone and in the DuckDB file on this PC (tables fin_plan_versions, fin_plan_lines, fin_plan_amounts — the Copilot and the SQL explorer can read them). Nothing goes to Oracle Fusion.</p></div>'; return; }
-        var can = function (a) { return P.can(v, a, who()); }, bud = (FL.config.plan || {}).budget === v.id, chk = P.checks(v, PL.ctx);
+        var can = function (a) { return P.can(v, a, who()); }, bud = PL.isBudget(v.id), chk = P.checks(v, PL.ctx);
         var t = PL.totals(), view = PL.st.view || 'grid';
         var tile = function (lbl, val, py, good) {
             var d = py ? (val - py) / Math.abs(py) * 100 : null, up = good === 'down' ? d < 0 : d > 0;
@@ -294,12 +317,21 @@
             PL.statusBefore = v.status; v.status = 'APPROVED'; v.approvedBy = who().user || ''; v.approvedAt = new Date().toISOString(); PL.save('approved');
         };
         if ($('pl-reject')) $('pl-reject').onclick = function () { var why = prompt('Why is it sent back? (the preparer sees this)'); if (!why) return; PL.statusBefore = v.status; v.status = 'REJECTED'; v.rejectNote = why; PL.save('rejected', why); };
-        if ($('pl-reopen')) $('pl-reopen').onclick = function () { var why = prompt('Why reopen the ' + (v.status === 'BASELINED' ? 'baselined' : 'approved') + ' version?'); if (!why) return; PL.statusBefore = v.status; v.status = 'DRAFT'; v.approvedBy = null; v.approvedAt = null; v.baselinedBy = null; v.baselinedAt = null; PL.save('reopened', why); };
+        if ($('pl-reopen')) $('pl-reopen').onclick = function () { var why = prompt('Why reopen the ' + (v.status === 'BASELINED' ? 'baselined' : 'approved') + ' version?'); if (!why) return; PL.statusBefore = v.status; var wasBud = PL.isBudget(v.id); v.status = 'DRAFT'; v.approvedBy = null; v.approvedAt = null; v.baselinedBy = null; v.baselinedAt = null;
+            PL.save('reopened', why).then(function () { if (wasBud) return PL.setBudget(v, false).then(function () { FL.toast('Reopened — the statements no longer use it as the budget until it is baselined again', 'ok'); PL.paint(); }); }); };
         if ($('pl-refill')) $('pl-refill').onclick = PL.refillDialog;
         if ($('pl-base')) $('pl-base').onclick = function () {
             var bad = chk.filter(function (c) { return c.level === 'bad'; });
             if (!confirm('Baseline “' + v.name + '”?\n\nIt becomes the final version: no more refills or edits (an AI admin can reopen it).' + (bad.length ? '\n\n' + bad.length + ' check(s) fail:\n' + bad.map(function (c) { return '• ' + c.text; }).join('\n') : ''))) return;
-            PL.statusBefore = v.status; v.status = 'BASELINED'; v.baselinedBy = who().user || ''; v.baselinedAt = new Date().toISOString(); PL.save('baselined');
+            PL.statusBefore = v.status; v.status = 'BASELINED'; v.baselinedBy = who().user || ''; v.baselinedAt = new Date().toISOString();
+            PL.save('baselined').then(function () {
+                // the baselined plan becomes the budget of its ledger and year in every statement, KPI and variance
+                return PL.setBudget(v, true).then(function (gone) {
+                    S.planEvent(v.id, { event: 'budget', from: v.status, to: v.status, rev: v.rev, note: 'baselined' }).catch(function () { /* trail only */ });
+                    FL.toast('Baselined — “' + v.name + '” is now the budget in the statements' + (gone.length ? ' (instead of ' + gone.map(function (b) { return b.name || b.id; }).join(', ') + ')' : ''), 'ok');
+                    PL.paint();
+                });
+            });
         };
         $('pl-bud').onclick = PL.toggleBudget;
         $('pl-kchk').onclick = function () { PL.st.view = 'checks'; keep(); PL.paintMain(); };
@@ -807,12 +839,11 @@
 
     // ═════ menu: Excel, copy, rolling forecast, recalculate, reload, delete; budget ═════
     PL.toggleBudget = function () {
-        var v = PL.v, cfg = FL.config.plan = FL.config.plan || {}, on = cfg.budget === v.id;
-        if (!on && v.status !== 'APPROVED' && !confirm('This version is not approved yet. Use it as the budget in every statement anyway?')) return;
+        var v = PL.v, on = PL.isBudget(v.id);
+        if (!on && v.status !== 'BASELINED' && v.status !== 'APPROVED' && !confirm('This version is not baselined yet. Use it as the budget in every statement anyway?')) return;
         if (!on && PL.dirty) { FL.toast('Save first — the statements read the saved version', 'err'); return; }
-        cfg.budget = on ? null : v.id;
-        FL.saveConfig().then(function () {
-            FL.cache = {}; FL.toast(on ? 'Statements use the Fusion budget again' : '“' + v.name + '” is now the budget in every statement, KPI and variance', 'ok');
+        PL.setBudget(v, !on).then(function (gone) {
+            FL.toast(on ? 'Statements no longer use “' + v.name + '” as the budget' : '“' + v.name + '” is now the ' + v.year + ' budget in every statement, KPI and variance' + (gone.length ? ' (instead of ' + gone.map(function (b) { return b.name || b.id; }).join(', ') + ')' : ''), 'ok');
             S.planEvent(v.id, { event: on ? 'budget off' : 'budget', from: v.status, to: v.status, rev: v.rev }).catch(function () { /* trail only */ });
             PL.paint();
         }).catch(function (e) { FL.toast(String(e), 'err'); });
@@ -832,9 +863,9 @@
         }
         if (a === 'delete') {
             if (!confirm('Delete “' + v.name + '” from APEX and this PC? This cannot be undone.')) return;
-            var bud = (FL.config.plan || {}).budget === v.id;
+            var bud = PL.isBudget(v.id);
             return Promise.all([S.planDelete(v.id).catch(function (e) { FL.toast('APEX: ' + e, 'err'); }), FL.call('finPlanDelete', { id: v.id })]).then(function () {
-                if (bud) { FL.config.plan.budget = null; FL.saveConfig(); FL.cache = {}; }
+                if (bud) PL.setBudget(v, false);
                 PL.v = null; PL.st.open = null; keep(); FL.toast('Deleted', 'ok'); return PL.loadList();
             }).then(PL.paint);
         }
