@@ -1,7 +1,8 @@
-/* Finance Lens — Cost allocation & activity-based costing (tab `alloc`, FL.alloc = AL; engine finance/fin-alloc-engine.js FALLOC).
-   Models (several: "Monthly overheads", "ABC customer profitability" …) live in {root}\alloc.json (finDocGet / finDocSave name `alloc`):
-   ordered rules (pool of accounts on some dimension values → receivers on a dimension by fixed %, evenly, a GL driver, a driver table
-   or the receivers' own costs), driver tables (headcount, m², orders …) and virtual dimensions (activities, products — not in the GL).
+/* Finance Lens — Cost allocation (tab `alloc`, FL.alloc = AL; engine finance/fin-alloc-engine.js FALLOC).
+   Allocation sets live in {root}\alloc.json (finDocGet / finDocSave name `alloc`): ordered rules, each made in three steps —
+   ① source accounts (ticked account codes, optionally only some values of a dimension, % of the balance), ② allocation (receivers on
+   a dimension or your own list, by percentages / equally / revenue / a number per receiver), ③ result (per account: source balance =
+   total allocated, per receiver, journal lines). A rule's numbers are kept as driver table `d_<rule id>`.
    Data: income statement rows of the chosen periods from fin_balances (company × cost centre × account) or, per ledger, from the
    extended segments (fin_gl_ext_v: company × account × every synced segment). Nothing is posted to Fusion: the result is a view
    (before / after per receiver, flows, steps, journal lines to export). The Copilot can propose rules (```alloc block, preview, Apply). */
@@ -15,19 +16,6 @@
     var save = function () { FL.lsSet('alloc', AL.st); };
     var clone = function (o) { return JSON.parse(JSON.stringify(o)); };
 
-    AL.STARTERS = [
-        { id: 'support', icon: 'fa-building', name: 'Spread a support cost centre', sub: 'e.g. HR / IT / admin costs to the cost centres they serve, by headcount',
-          make: function () { return { name: 'Support costs by headcount', pool: { accounts: { type: 'E' }, where: {} }, to: { field: AL.mainField(), method: 'driver', driver: '' }, stepDown: true }; } },
-        { id: 'revenue', icon: 'fa-sack-dollar', name: 'Overheads by revenue share', sub: 'costs on blank / default values spread by each receiver’s revenue',
-          make: function () { return { name: 'Overheads by revenue', pool: { accounts: { type: 'E' }, where: {} }, to: { field: AL.mainField(), method: 'gl', gl: { accounts: { type: 'R' } } }, stepDown: true }; } },
-        { id: 'fixed', icon: 'fa-percent', name: 'Fixed percentages', sub: 'an agreed split, e.g. 60 / 40',
-          make: function () { return { name: 'Agreed split', pool: { accounts: { type: 'E' }, where: {} }, to: { field: AL.mainField(), method: 'fixed', targets: [] }, stepDown: true }; } },
-        { id: 'abc1', icon: 'fa-gears', name: 'ABC step 1: resources → activities', sub: 'what share of each cost centre’s time goes to which activity',
-          make: function () { AL.ensureVirtual('activity', 'Activity', ['Order handling', 'Picking & packing', 'Delivery', 'Customer service']); return { name: 'Resources to activities', pool: { accounts: { type: 'E' }, where: {} }, to: { field: 'activity', method: 'fixed', targets: [] }, stepDown: true }; } },
-        { id: 'abc2', icon: 'fa-users', name: 'ABC step 2: activities → cost objects', sub: 'activity cost to customers / salespeople / products by their driver (orders, deliveries …)',
-          make: function () { AL.ensureVirtual('activity', 'Activity', ['Order handling', 'Picking & packing', 'Delivery', 'Customer service']); return { name: 'Activities to cost objects', pool: { where: { activity: [] } }, to: { field: AL.mainField(), method: 'driver', driver: '' }, stepDown: true }; } },
-        { id: 'blank', icon: 'fa-plus', name: 'Blank rule', sub: 'start from nothing', make: function () { return { name: 'New rule', pool: { where: {} }, to: { field: AL.mainField(), method: 'even' }, stepDown: true }; } }
-    ];
 
     // ── document ──
     AL.load = function () {
@@ -144,54 +132,78 @@
         try { AL.res = A.run(AL.model(), AL.rows, FL.dims.accounts || []); AL.err = null; } catch (e) { AL.res = null; AL.err = String(e && e.message || e); }
     };
 
-    // ── page ──
+    // ── page: rules on the left; each rule is three steps — ① source accounts, ② allocation, ③ result (allocated = source) ──
     FL.TABS.alloc = {
         render: function (el) {
             AL.el = el;
             if (!(FL.status && FL.status.loaded)) { el.innerHTML = '<div class="empty">Load or sync data first (Data › Trial balance sync).</div>'; return; }
-            el.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading the allocation models…</div>';
+            el.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading the allocation rules…</div>';
             return AL.load().then(AL.meta).then(function () { return AL.loadRows(); }).then(function (rows) { AL.rows = rows; AL.run(); AL.paint(); })
                 .catch(function (e) { el.innerHTML = '<div class="callout bad">' + esc(String(e && e.message || e)) + '</div>'; });
         }
     };
     AL.reload = function () { AL.loadRows().then(function (rows) { AL.rows = rows; AL.run(); AL.paint(); }).catch(function (e) { FL.toast(String(e && e.message || e), 'err'); }); };
+    AL.changed = function (keepPanel) { AL.dirty = true; AL.run(); AL.paintList(); if (!keepPanel) AL.paintMain(); else AL.paintTotals(); var b = $('al-save'); if (b) b.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save *'; };
+    AL.rule = function () { var m = AL.model(); return (m.rules || []).filter(function (r) { return r.id === AL.st.sel; })[0] || null; };
+    AL.ruleIx = function (r) { return (AL.model().rules || []).indexOf(r); };
+    /** Rows as the rule sees them: the data after the rules before it (what they moved is included) */
+    AL.before = function (r) {
+        var m = AL.model(), i = AL.ruleIx(r);
+        if (i <= 0) return (AL.rows || []).map(function (x) { return x; });
+        var tmp = clone(m); tmp.rules = m.rules.slice(0, i);
+        return A.run(tmp, AL.rows || [], FL.dims.accounts || []).work;
+    };
+    AL.step = function (r) { return AL.res ? AL.res.steps.filter(function (s) { return s.rule === r.id; })[0] : null; };
+    AL.accName = function (c) { var a = (FL.dims.accounts || []).filter(function (x) { return x.code === c; })[0]; return a ? a.name || '' : ''; };
+    AL.norm = function (r) {
+        r.pool = r.pool || {}; r.pool.where = r.pool.where || {}; r.to = r.to || { field: AL.mainField(), method: 'fixed', targets: [] };
+        if (!Array.isArray(r.pool.accounts)) {
+            var have = {}; (AL.rows || []).forEach(function (x) { have[x.account] = 1; });
+            r.pool.accounts = r.pool.accounts ? FINE.matchAccounts(r.pool.accounts, (FL.dims.accounts || []).filter(function (a) { return have[a.code]; })) : [];
+        }
+        if (r.to.method === 'cost') r.to.method = 'even';
+        if (r.to.method === 'driver' && r.to.driver && r.to.driver !== 'd_' + r.id) {
+            var m = AL.model(), d = (m.drivers || []).filter(function (x) { return x.id === r.to.driver; })[0];
+            if (d) m.drivers.push({ id: 'd_' + r.id, name: d.name, unit: d.unit, field: d.field, values: clone(d.values || {}) });
+            r.to.driver = 'd_' + r.id;
+        }
+        return r;
+    };
+    AL.newRule = function () {
+        var m = AL.model(), r = { id: A.uid('r'), name: 'Rule ' + ((m.rules || []).length + 1), active: true, pool: { accounts: [], where: {} }, to: { field: AL.mainField(), method: 'fixed', targets: [] }, stepDown: true };
+        (m.rules = m.rules || []).push(r); AL.st.sel = r.id; AL.st.step = 1; save(); AL.changed();
+    };
 
     AL.paint = function () {
-        var el = AL.el, m = AL.model(), res = AL.res, per = AL.st.periods || [];
+        var el = AL.el, m = AL.model(), per = AL.st.periods || [];
         var pname = function (q) { var p = (AL.periods || []).filter(function (x) { return x.seq === q; })[0]; return p ? p.name : q; };
         var srcSel = '<select id="al-src"><option value="cc"' + (m.source === 'cc' ? ' selected' : '') + '>Cost centres (trial balance)</option>' +
-            (AL.leds || [null]).filter(Boolean).map(function (l) { return '<option value="seg:' + l.ledger_id + '"' + (m.source === 'seg' && String(m.ledger) === String(l.ledger_id) ? ' selected' : '') + '>Segments · ' + esc(l.name || l.ledger_id) + '</option>'; }).join('') +
-            (!(AL.leds || []).length ? '<option disabled>Segments: none synced (Data › Trial balance sync › Extended segments)</option>' : '') + '</select>';
+            (AL.leds || []).map(function (l) { return '<option value="seg:' + l.ledger_id + '"' + (m.source === 'seg' && String(m.ledger) === String(l.ledger_id) ? ' selected' : '') + '>Segments · ' + esc(l.name || l.ledger_id) + '</option>'; }).join('') + '</select>';
         var chips = (AL.periods || []).slice(-24).map(function (p) { return '<button class="chip' + (per.indexOf(p.seq) >= 0 ? ' on' : '') + '" data-p="' + p.seq + '">' + esc(p.name) + '</button>'; }).join('');
-        var head = '<div class="card al-top"><div class="row" style="gap:6px;flex-wrap:wrap">' +
-            '<b><i class="fa-solid fa-share-nodes"></i> Model</b><select id="al-model">' + AL.doc.models.map(function (x) { return '<option value="' + x.id + '"' + (x.id === m.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select>' +
-            '<button class="btn sm" id="al-new" title="New model"><i class="fa-solid fa-plus"></i></button><button class="btn sm" id="al-dup" title="Duplicate"><i class="fa-solid fa-clone"></i></button>' +
-            '<button class="btn sm" id="al-ren" title="Rename"><i class="fa-solid fa-pen"></i></button><button class="btn sm" id="al-del" title="Delete"><i class="fa-solid fa-trash"></i></button>' +
+        el.innerHTML = '<div class="card al-top"><div class="row" style="gap:6px;flex-wrap:wrap">' +
+            '<b><i class="fa-solid fa-share-nodes"></i> Allocation set</b><select id="al-model">' + AL.doc.models.map(function (x) { return '<option value="' + x.id + '"' + (x.id === m.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select>' +
+            '<button class="btn sm" id="al-new" title="New set"><i class="fa-solid fa-plus"></i></button><button class="btn sm" id="al-ren" title="Rename"><i class="fa-solid fa-pen"></i></button><button class="btn sm" id="al-del" title="Delete the set"><i class="fa-solid fa-trash"></i></button>' +
             '<span class="muted sm">Data</span>' + srcSel + '<span class="grow"></span>' +
-            '<button class="btn sm" id="al-ai"><i class="fa-solid fa-wand-magic-sparkles"></i> Propose rules with AI</button>' +
-            '<button class="btn sm" id="al-xl"' + (res ? '' : ' disabled') + '><i class="fa-solid fa-file-excel"></i> Excel</button>' +
-            '<button class="btn sm" id="al-jr"' + (res ? '' : ' disabled') + '><i class="fa-solid fa-file-csv"></i> Journal</button>' +
+            '<button class="btn sm" id="al-ai"><i class="fa-solid fa-wand-magic-sparkles"></i> Suggest rules</button>' +
+            '<button class="btn sm" id="al-xl"><i class="fa-solid fa-file-excel"></i> Excel</button>' +
             '<button class="btn sm primary" id="al-save"><i class="fa-solid fa-floppy-disk"></i> Save' + (AL.dirty ? ' *' : '') + '</button></div>' +
             '<div class="row al-pers" style="gap:4px;flex-wrap:wrap;margin-top:8px"><span class="muted sm">Periods</span>' + (chips || '<span class="muted sm">none synced for this data</span>') +
-            '<a class="sm" id="al-pcur">current</a><a class="sm" id="al-pytd">year to date</a><span class="muted sm">· ' + per.map(pname).join(', ') + (FL.filter.company ? ' · company ' + esc(FL.filter.company) : '') + ' · ' + (AL.rows || []).length.toLocaleString() + ' income statement rows</span></div></div>';
-        el.innerHTML = head + '<div class="al-grid"><div class="al-left" id="al-left"></div><div class="al-right" id="al-right"></div></div>';
-        AL.paintLeft(); AL.paintRight(); AL.wireTop();
+            '<a class="sm" id="al-pcur">current</a><a class="sm" id="al-pytd">year to date</a><span class="muted sm">· ' + per.map(pname).join(', ') + ' · amounts in ' + FL.scaleLabel() + '</span></div></div>' +
+            (AL.coNote ? '<div class="callout warn sm"><i class="fa-solid fa-circle-info"></i> ' + esc(AL.coNote) + '</div>' : '') +
+            '<div class="al-grid"><div id="al-list"></div><div id="al-main"></div></div>';
+        AL.wireTop(); AL.paintList(); AL.paintMain();
     };
     AL.wireTop = function () {
         var m = AL.model();
-        $('al-model').onchange = function () { AL.st.model = this.value; AL.st.field = null; save(); AL.res = null; FL.render(); };
-        $('al-new').onclick = function () { var n = prompt('Name of the new allocation model', 'ABC customer profitability'); if (!n) return; var x = AL.newModel(n); x.source = m.source; x.ledger = m.ledger; AL.doc.models.push(x); AL.st.model = x.id; save(); AL.dirty = true; FL.render(); };
-        $('al-dup').onclick = function () { var x = clone(m); x.id = A.uid('m'); x.name = m.name + ' (copy)'; AL.doc.models.push(x); AL.st.model = x.id; save(); AL.dirty = true; FL.render(); };
-        $('al-ren').onclick = function () { var n = prompt('Rename the model', m.name); if (n) { m.name = n; AL.dirty = true; AL.paint(); } };
+        $('al-model').onchange = function () { AL.st.model = this.value; AL.st.sel = null; save(); AL.res = null; FL.render(); };
+        $('al-new').onclick = function () { var n = prompt('Name of the new allocation set', 'Overheads ' + new Date().getFullYear()); if (!n) return; var x = AL.newModel(n); x.source = m.source; x.ledger = m.ledger; AL.doc.models.push(x); AL.st.model = x.id; AL.st.sel = null; save(); AL.dirty = true; FL.render(); };
+        $('al-ren').onclick = function () { var n = prompt('Rename the set', m.name); if (n) { m.name = n; AL.dirty = true; AL.paint(); } };
         $('al-del').onclick = function () {
-            if (AL.doc.models.length < 2) { FL.toast('Keep at least one model', 'warn'); return; }
-            if (!confirm('Delete the model "' + m.name + '" and its rules?')) return;
+            if (AL.doc.models.length < 2) { FL.toast('Keep at least one set', 'warn'); return; }
+            if (!confirm('Delete the set "' + m.name + '" and its rules?')) return;
             AL.doc.models = AL.doc.models.filter(function (x) { return x !== m; }); AL.st.model = AL.doc.models[0].id; save(); AL.store().then(function () { FL.render(); });
         };
-        $('al-src').onchange = function () {
-            var v = this.value; if (v === 'cc') m.source = 'cc'; else { m.source = 'seg'; if (v.indexOf(':') > 0) m.ledger = v.split(':')[1]; }
-            AL.dirty = true; AL.st.periods = []; save(); FL.render();
-        };
+        $('al-src').onchange = function () { var v = this.value; if (v === 'cc') m.source = 'cc'; else { m.source = 'seg'; m.ledger = v.split(':')[1]; } AL.dirty = true; AL.st.periods = []; save(); FL.render(); };
         AL.el.querySelectorAll('.al-pers .chip').forEach(function (b) {
             b.onclick = function (e) {
                 var q = +b.dataset.p, p = AL.st.periods || [];
@@ -205,146 +217,290 @@
             var last = Math.max.apply(null, AL.st.periods && AL.st.periods.length ? AL.st.periods : AL.defPeriods()), y = Math.floor(last / 100);
             AL.st.periods = (AL.periods || []).filter(function (p) { return Math.floor(p.seq / 100) === y && p.seq <= last; }).map(function (p) { return p.seq; }); save(); AL.reload();
         };
-        $('al-save').onclick = function () { AL.store().then(function () { FL.toast('Allocation models saved', 'ok'); AL.paint(); }).catch(function (e) { FL.toast(String(e && e.message || e), 'err'); }); };
+        $('al-save').onclick = function () { AL.store().then(function () { FL.toast('Allocation rules saved', 'ok'); $('al-save').innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save'; }).catch(function (e) { FL.toast(String(e && e.message || e), 'err'); }); };
         $('al-ai').onclick = AL.aiDialog;
         $('al-xl').onclick = AL.excel;
-        $('al-jr').onclick = AL.journalCsv;
     };
 
-    // ── left: rules, drivers, virtual dimensions ──
-    AL.paintLeft = function () {
-        var m = AL.model(), res = AL.res, st = {};
-        (res ? res.steps : []).forEach(function (s) { st[s.rule] = s; });
-        var rules = (m.rules || []).map(function (r, i) {
-            var s = st[r.id], warn = s && s.warn && s.warn.length;
-            return '<div class="al-rule' + (r.active === false ? ' off' : '') + '" data-i="' + i + '"><div class="row" style="gap:6px"><span class="al-n">' + (i + 1) + '</span><b class="grow">' + esc(r.name || 'Rule') + '</b>' +
-                '<label class="sm" title="On / off"><input type="checkbox" class="al-on"' + (r.active === false ? '' : ' checked') + '></label>' +
-                '<button class="btn sm ghost" data-a="up" title="Earlier">▲</button><button class="btn sm ghost" data-a="down" title="Later">▼</button>' +
-                '<button class="btn sm ghost" data-a="edit" title="Edit"><i class="fa-solid fa-pen"></i></button><button class="btn sm ghost" data-a="del" title="Delete"><i class="fa-solid fa-trash"></i></button></div>' +
-                '<div class="sm muted">' + esc(A.describe(r, AL.label)) + '</div>' +
-                (s && !s.skipped ? '<div class="sm">' + (warn ? '<span class="tag warn">' + esc(s.warn.join(' · ')) + '</span> ' : '') + 'moved <b>' + money(s.allocated) + '</b> to ' + s.nTargets + ' receiver(s)' + (Math.abs(s.net) < 0.01 ? ' <span class="tag good">nets to 0</span>' : ' <span class="tag bad">off by ' + money(s.net) + '</span>') + '</div>' : '') + '</div>';
+    // ── left: the rules, one line each, with their check ──
+    AL.paintList = function () {
+        var m = AL.model(), box = $('al-list'); if (!box) return;
+        (m.rules || []).forEach(AL.norm);
+        var items = (m.rules || []).map(function (r, i) {
+            var s = AL.step(r), ok = s && !s.skipped && s.rows && Math.abs(s.unallocated) < 0.5 && Math.abs(s.net) < 0.01;
+            var badge = r.active === false ? '<span class="tag">off</span>' : !s || !s.rows ? '<span class="tag warn">no source</span>' : ok ? '<span class="tag good">✓ ' + money(s.allocated) + '</span>' : '<span class="tag bad">✗ check</span>';
+            return '<div class="al-it' + (AL.st.sel === r.id ? ' on' : '') + (r.active === false ? ' off' : '') + '" data-id="' + r.id + '"><span class="al-n">' + (i + 1) + '</span><div class="grow"><b>' + esc(r.name) + '</b><div class="sm muted">' +
+                esc(((r.pool || {}).accounts || []).length + ' account(s) → ' + AL.label((r.to || {}).field)) + '</div></div>' + badge + '</div>';
         }).join('');
-        var drivers = (m.drivers || []).map(function (d, i) {
-            var n = Object.keys(d.values || {}).length, tot = 0; Object.keys(d.values || {}).forEach(function (k) { tot += +d.values[k] || 0; });
-            return '<div class="al-drv" data-i="' + i + '"><b>' + esc(d.name || d.id) + '</b> <span class="muted sm">' + esc(AL.label(d.field)) + ' · ' + n + ' value(s) · total ' + tot.toLocaleString() + ' ' + esc(d.unit || '') + '</span>' +
-                ' <a class="sm" data-a="edit">edit</a> · <a class="sm" data-a="del">delete</a></div>';
-        }).join('');
-        var virt = (m.virtual || []).map(function (v, i) { return '<div class="al-drv" data-i="' + i + '"><b>' + esc(v.name || v.id) + '</b> <span class="muted sm">' + (v.values || []).length + ' value(s): ' + esc((v.values || []).slice(0, 5).join(', ')) + ((v.values || []).length > 5 ? ' …' : '') + '</span> <a class="sm" data-a="edit">edit</a> · <a class="sm" data-a="del">delete</a></div>'; }).join('');
-        $('al-left').innerHTML = '<div class="card"><h3><i class="fa-solid fa-list-ol"></i> Rules <small>run in this order — a later rule can move what an earlier one allocated (step-down)</small></h3>' +
-            (rules || '<p class="sm muted">No rules yet. Start with one of the patterns below, or let the AI propose a set from your cost centres and accounts.</p>') +
-            '<div class="al-starters">' + AL.STARTERS.map(function (s) { return '<button class="al-st" data-s="' + s.id + '"><i class="fa-solid ' + s.icon + '"></i><b>' + esc(s.name) + '</b><span>' + esc(s.sub) + '</span></button>'; }).join('') + '</div></div>' +
-            '<div class="card" style="margin-top:10px"><h3><i class="fa-solid fa-ruler"></i> Driver tables <small>headcount, m², orders, deliveries …</small><span class="grow"></span><button class="btn sm" id="al-dnew"><i class="fa-solid fa-plus"></i> Driver</button></h3>' +
-            (drivers || '<p class="sm muted">A driver gives every receiver a number; the cost is shared in proportion. Paste them from Excel.</p>') + '</div>' +
-            '<div class="card" style="margin-top:10px"><h3><i class="fa-solid fa-diagram-project"></i> Activities &amp; cost objects <small>dimensions that are not in the GL (ABC)</small><span class="grow"></span><button class="btn sm" id="al-vnew"><i class="fa-solid fa-plus"></i> Dimension</button></h3>' +
-            (virt || '<p class="sm muted">For activity-based costing: e.g. <i>Activity</i> = Order handling, Picking, Delivery. Cost centres → activities → customers / products.</p>') + '</div>';
-        var L = $('al-left');
-        L.querySelectorAll('.al-rule').forEach(function (card) {
-            var i = +card.dataset.i, r = m.rules[i];
-            card.querySelector('.al-on').onchange = function () { r.active = this.checked; AL.changed(); };
-            card.querySelectorAll('[data-a]').forEach(function (b) {
-                b.onclick = function () {
-                    var a = b.dataset.a;
-                    if (a === 'edit') return AL.editRule(i);
-                    if (a === 'del') { if (!confirm('Delete the rule "' + r.name + '"?')) return; m.rules.splice(i, 1); }
-                    if (a === 'up' && i > 0) { m.rules.splice(i - 1, 0, m.rules.splice(i, 1)[0]); }
-                    if (a === 'down' && i < m.rules.length - 1) { m.rules.splice(i + 1, 0, m.rules.splice(i, 1)[0]); }
-                    AL.changed();
-                };
-            });
-        });
-        L.querySelectorAll('.al-st').forEach(function (b) { b.onclick = function () { var s = AL.STARTERS.filter(function (x) { return x.id === b.dataset.s; })[0], r = s.make(); r.id = A.uid('r'); m.rules.push(r); AL.editRule(m.rules.length - 1, true); }; });
-        $('al-dnew').onclick = function () { AL.editDriver(-1); };
-        $('al-vnew').onclick = function () { AL.editVirtual(-1); };
-        L.querySelectorAll('.card:nth-child(2) .al-drv [data-a]').forEach(function (a) { a.onclick = function () { var i = +a.closest('.al-drv').dataset.i; if (a.dataset.a === 'edit') AL.editDriver(i); else if (confirm('Delete this driver?')) { m.drivers.splice(i, 1); AL.changed(); } }; });
-        L.querySelectorAll('.card:nth-child(3) .al-drv [data-a]').forEach(function (a) { a.onclick = function () { var i = +a.closest('.al-drv').dataset.i; if (a.dataset.a === 'edit') AL.editVirtual(i); else if (confirm('Delete this dimension? Rules that use it stop working.')) { m.virtual.splice(i, 1); AL.changed(); } }; });
+        box.innerHTML = '<div class="card"><h3><i class="fa-solid fa-list-ol"></i> Rules <small>run in this order</small></h3>' +
+            (items || '<p class="sm muted">No rules yet.</p>') +
+            '<button class="btn sm primary" id="al-add" style="width:100%;margin-top:6px"><i class="fa-solid fa-plus"></i> New rule</button>' +
+            ((m.rules || []).length ? '<div class="al-it' + (AL.st.sel === 'sum' ? ' on' : '') + '" data-id="sum" style="margin-top:10px"><i class="fa-solid fa-chart-pie"></i><div class="grow"><b>Result of all rules</b><div class="sm muted">before / after, flows, journal</div></div></div>' : '') + '</div>';
+        $('al-add').onclick = AL.newRule;
+        box.querySelectorAll('.al-it').forEach(function (it) { it.onclick = function () { AL.st.sel = it.dataset.id; if (AL.st.sel !== 'sum') AL.st.step = AL.st.step || 1; save(); AL.paintList(); AL.paintMain(); }; });
     };
-    AL.changed = function () { AL.dirty = true; AL.run(); AL.paint(); };
 
-    // ── right: results ──
-    AL.paintRight = function () {
-        var R = $('al-right'), res = AL.res, m = AL.model();
-        if (AL.err) { R.innerHTML = '<div class="callout bad">' + esc(AL.err) + '</div>'; return; }
-        if (!AL.rows || !AL.rows.length) { AL.whyEmpty(R); return; }
-        var exp = 0, rev = 0; AL.rows.forEach(function (r) { if (r.type === 'E') exp += r.amount; else rev -= r.amount; });
-        var note = AL.coNote ? '<div class="callout warn sm"><i class="fa-solid fa-circle-info"></i> ' + esc(AL.coNote) + '</div>' : '';
-        if (!res || !(m.rules || []).length) {
-            R.innerHTML = note + '<div class="kpis">' + kpi('Revenue', money(rev)) + kpi('Expenses', money(exp)) + kpi('Result', money(rev - exp)) + kpi('Rules', '0', 'add one on the left') + '</div>' +
-                '<div class="card" style="margin-top:10px"><h3><i class="fa-solid fa-table"></i> What you can allocate — the trial balance by <select id="al-fld0">' + AL.allFields().filter(function (f) { return !f.virtual; }).map(function (f) { return '<option value="' + f.id + '"' + (f.id === (AL.st.field || AL.mainField()) ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('') + '</select>' +
-                '<small>income statement accounts of the chosen periods</small></h3><div id="al-d0"></div></div>' +
-                '<div class="card" style="margin-top:10px"><h3><i class="fa-solid fa-list"></i> Expense accounts <small>the costs rules can move</small></h3><div id="al-d1"></div></div>' +
-                '<div class="card" style="margin-top:10px"><h3><i class="fa-solid fa-lightbulb"></i> How it works</h3><ol class="sm al-how">' +
-                '<li><b>Pool</b> — which costs move: accounts (e.g. every expense) on some values (e.g. cost centre 900 Head office).</li>' +
-                '<li><b>Receivers</b> — the dimension they move to (cost centre, salesperson, an activity …) and how: fixed %, evenly, by a GL driver (their revenue), a driver table (headcount, m², orders) or their own costs.</li>' +
-                '<li><b>Order</b> — rules run one after another: support departments first, then activities, then customers / products (step-down, ABC).</li>' +
-                '<li><b>Result</b> — before / after per receiver, the flows, journal lines to export. Every rule nets to zero, so the total profit never changes.</li></ol></div>';
-            AL.dataView();
-            $('al-fld0').onchange = function () { AL.st.field = this.value; save(); AL.dataView(); };
-            return;
+    // ── right: the selected rule's steps (or the summary) ──
+    AL.paintMain = function () {
+        var M = $('al-main'); if (!M) return;
+        if (AL.err) { M.innerHTML = '<div class="callout bad">' + esc(AL.err) + '</div>'; return; }
+        if (!AL.rows || !AL.rows.length) { AL.whyEmpty(M); return; }
+        if (AL.st.sel === 'sum') return AL.paintSummary(M);
+        var r = AL.rule(); if (r) AL.norm(r);
+        if (!r) {
+            var exp = 0, rev = 0; AL.rows.forEach(function (x) { if (x.type === 'E') exp += x.amount; else rev -= x.amount; });
+            M.innerHTML = '<div class="card al-intro"><h3><i class="fa-solid fa-share-nodes"></i> Allocate costs in three steps</h3>' +
+                '<div class="al-steps3"><div><b>1</b><span>Source accounts</span><small>tick the expense accounts whose balance you want to share out</small></div>' +
+                '<div><b>2</b><span>Allocation</span><small>who receives it and how: percentages, equally, by revenue or by a number such as headcount</small></div>' +
+                '<div><b>3</b><span>Result</span><small>every account: source balance = total allocated</small></div></div>' +
+                '<p class="sm">For these periods: expenses <b>' + money(exp) + '</b> · revenue <b>' + money(rev) + '</b>. Nothing is posted to Fusion.</p>' +
+                '<button class="btn primary" id="al-start"><i class="fa-solid fa-plus"></i> New rule</button></div>';
+            $('al-start').onclick = AL.newRule; return;
         }
-        var moved = 0, un = 0, nT = {}; res.steps.forEach(function (s) { if (s.skipped) return; moved += s.allocated; un += s.unallocated; Object.keys(s.targets || {}).forEach(function (v) { nT[v] = 1; }); });
+        var step = AL.st.step || 1, i = AL.ruleIx(r);
+        var tab = function (n, t) { return '<button class="al-tab' + (step === n ? ' on' : '') + '" data-s="' + n + '"><b>' + n + '</b> ' + t + '</button>'; };
+        M.innerHTML = '<div class="card"><div class="row" style="gap:8px;flex-wrap:wrap"><span class="al-n">' + (i + 1) + '</span><input id="al-rn" value="' + esc(r.name) + '" style="font-weight:700;min-width:220px">' +
+            '<label class="sm"><input type="checkbox" id="al-ron"' + (r.active === false ? '' : ' checked') + '> on</label><span class="grow"></span>' +
+            '<button class="btn sm ghost" id="al-rup" title="Run earlier">▲</button><button class="btn sm ghost" id="al-rdn" title="Run later">▼</button>' +
+            '<button class="btn sm ghost" id="al-rdel" title="Delete the rule"><i class="fa-solid fa-trash"></i></button></div>' +
+            '<div class="al-tabs">' + tab(1, 'Source accounts') + '<i class="fa-solid fa-chevron-right"></i>' + tab(2, 'Allocation') + '<i class="fa-solid fa-chevron-right"></i>' + tab(3, 'Result') + '</div>' +
+            '<div id="al-body"></div><div class="al-foot" id="al-foot"></div></div>';
+        $('al-rn').onchange = function () { r.name = this.value.trim() || r.name; AL.changed(true); };
+        $('al-ron').onchange = function () { r.active = this.checked; AL.changed(); };
+        $('al-rup').onclick = function () { var m = AL.model(), k = AL.ruleIx(r); if (k > 0) { m.rules.splice(k - 1, 0, m.rules.splice(k, 1)[0]); AL.changed(); } };
+        $('al-rdn').onclick = function () { var m = AL.model(), k = AL.ruleIx(r); if (k < m.rules.length - 1) { m.rules.splice(k + 1, 0, m.rules.splice(k, 1)[0]); AL.changed(); } };
+        $('al-rdel').onclick = function () { if (!confirm('Delete the rule "' + r.name + '"?')) return; var m = AL.model(); m.rules.splice(AL.ruleIx(r), 1); m.drivers = (m.drivers || []).filter(function (d) { return d.id !== 'd_' + r.id; }); AL.st.sel = null; AL.changed(); };
+        M.querySelectorAll('.al-tab').forEach(function (b) { b.onclick = function () { AL.st.step = +b.dataset.s; save(); AL.paintMain(); }; });
+        if (step === 1) AL.step1(r); else if (step === 2) AL.step2(r); else AL.step3(r);
+    };
+    AL.footer = function (r, back, next, nextTxt) {
+        var s = AL.step(r) || {};
+        $('al-foot').innerHTML = '<div class="al-tot" id="al-tot"></div><span class="grow"></span>' +
+            (back ? '<button class="btn" id="al-back"><i class="fa-solid fa-arrow-left"></i> Back</button>' : '') +
+            (next ? '<button class="btn primary" id="al-next">' + nextTxt + ' <i class="fa-solid fa-arrow-right"></i></button>' : '');
+        if (back) $('al-back').onclick = function () { AL.st.step = back; save(); AL.paintMain(); };
+        if (next) $('al-next').onclick = function () { AL.st.step = next; save(); AL.paintMain(); };
+        AL.paintTotals(); return s;
+    };
+    /** Source balance → allocated → difference, always in view under the steps */
+    AL.paintTotals = function () {
+        var r = AL.rule(), box = $('al-tot'); if (!r || !box) return;
+        var s = AL.step(r) || { pool: 0, allocated: 0, unallocated: 0 }, src = AL.sourceTotal(r), share = AL.share(r);
+        var diff = src * share - (s.allocated || 0), ok = Math.abs(diff) < 0.5 && (s.allocated || 0) !== 0;
+        box.innerHTML = '<span>Source balance <b>' + money(src) + '</b></span>' + (share !== 1 ? '<span>× ' + (share * 100).toFixed(1) + '%</span>' : '') +
+            '<span>Allocated <b>' + money(s.allocated || 0) + '</b></span><span class="' + (ok ? 'pos' : 'neg') + '">' + (ok ? '✓ equal' : '✗ difference ' + money(diff)) + '</span>';
+    };
+    AL.share = function (r) { var p = (r.pool || {}).pct; return p == null || p === '' ? 1 : (+p || 0) / 100; };
+    AL.sourceRows = function (r, rows) { return (r.pool && (r.pool.accounts || []).length) ? A.poolRows(rows || AL.before(r), r, FL.dims.accounts || []) : []; };
+    AL.sourceTotal = function (r) { var t = 0; AL.sourceRows(r).forEach(function (x) { t += x.amount; }); return t; };
+    var whereField = function (r) { var w = (r.pool || {}).where || {}; return Object.keys(w).filter(function (k) { return (w[k] || []).length; })[0] || ''; };
+
+    // ① source accounts
+    AL.step1 = function (r) {
+        var rows = AL.before(r), wf = AL.st.fromField != null && AL.st.fromRule === r.id ? AL.st.fromField : whereField(r), wv = wf ? (r.pool.where[wf] || []) : [];
+        var acc = {}, byCode = {}, showRev = !!AL.st.showRev, cls = {};
+        (FL.dims.accounts || []).forEach(function (a) { byCode[a.code] = a; });
+        rows.forEach(function (x) {
+            if (wf && wv.length && wv.indexOf(wf === 'company' ? x.company : String(x.dims[wf] == null ? '' : x.dims[wf])) < 0) return;
+            if (x.type === 'R' && !showRev) return;
+            var a = acc[x.account] = acc[x.account] || { code: x.account, type: x.type, bal: 0 }; a.bal += x.amount;
+        });
+        var sel = {}; (r.pool.accounts || []).forEach(function (c) { sel[c] = 1; });
+        var list = Object.keys(acc).map(function (k) { var a = acc[k], o = byCode[k] || {}; a.name = o.name || ''; a.cls = o['class'] || ''; cls[a.cls] = (cls[a.cls] || 0) + 1; return a; })
+            .filter(function (a) { return Math.abs(a.bal) >= 0.5 || sel[a.code]; }).sort(function (a, b) { return (sel[b.code] ? 1 : 0) - (sel[a.code] ? 1 : 0) || Math.abs(b.bal) - Math.abs(a.bal); });
+        var fields = AL.allFields().filter(function (f) { return !f.virtual || AL.ruleIx(r) > 0; });
+        $('al-body').innerHTML = '<p class="sm">Tick the accounts whose balance this rule shares out. Balances are for the periods above' + (AL.ruleIx(r) > 0 ? ', after the rules before this one' : '') + '.</p>' +
+            '<div class="row" style="gap:6px;flex-wrap:wrap"><span class="sm">Take the balances of</span><select id="s1-wf"><option value="">every ' + esc(AL.label(AL.mainField()).toLowerCase()) + ' (all of it)</option>' +
+            fields.map(function (f) { return '<option value="' + f.id + '"' + (f.id === wf ? ' selected' : '') + '>only some ' + esc(f.name) + ' values</option>'; }).join('') + '</select>' +
+            '<span class="sm">· allocate</span><input id="s1-pct" type="number" min="0" max="100" step="0.1" value="' + esc(r.pool.pct == null ? 100 : r.pool.pct) + '" style="width:70px"><span class="sm">% of the balance</span>' +
+            '<label class="sm"><input type="checkbox" id="s1-rev"' + (showRev ? ' checked' : '') + '> show revenue accounts</label></div>' +
+            (wf ? '<div id="s1-wbox" style="margin-top:6px">' + AL.picker('s1-where', wf, wv) + '</div>' : '') +
+            '<div class="row" style="gap:6px;margin:8px 0;flex-wrap:wrap"><input type="search" id="s1-q" placeholder="Search account or name" style="min-width:220px"><a class="sm" id="s1-all">tick shown</a> · <a class="sm" id="s1-none">clear</a>' +
+            Object.keys(cls).filter(Boolean).sort().map(function (c) { return '<button class="chip" data-c="' + esc(c) + '">' + esc(c) + ' (' + cls[c] + ')</button>'; }).join('') + '</div>' +
+            '<div class="scroll" style="max-height:52vh"><table class="t al-acc"><thead><tr><th style="width:28px"><input type="checkbox" id="s1-hd"></th><th>Account</th><th>Name</th><th>Class</th><th class="n">Balance</th></tr></thead><tbody>' +
+            list.map(function (a) { return '<tr data-c="' + esc(a.code) + '" data-k="' + esc(a.cls) + '" data-s="' + esc((a.code + ' ' + a.name + ' ' + a.cls).toLowerCase()) + '" class="' + (sel[a.code] ? 'on' : '') + '"><td><input type="checkbox"' + (sel[a.code] ? ' checked' : '') + '></td><td>' + esc(a.code) + '</td><td>' + esc(a.name) + '</td><td class="muted">' + esc(a.cls) + '</td><td class="n">' + money(a.bal) + '</td></tr>'; }).join('') +
+            '</tbody><tfoot><tr><td></td><td colspan="3" id="s1-sum"></td><td class="n" id="s1-tot"></td></tr></tfoot></table></div>';
+        var B = $('al-body'), tb = B.querySelector('.al-acc tbody');
+        var apply = function (first) {
+            var codes = [].filter.call(tb.querySelectorAll('tr'), function (tr) { return tr.querySelector('input').checked; }).map(function (tr) { return tr.dataset.c; });
+            r.pool.accounts = codes; var t = 0; codes.forEach(function (c) { t += (acc[c] || {}).bal || 0; });
+            tb.querySelectorAll('tr').forEach(function (tr) { tr.classList.toggle('on', tr.querySelector('input').checked); });
+            $('s1-sum').innerHTML = '<b>' + codes.length + '</b> account(s) ticked · source balance'; $('s1-tot').innerHTML = '<b>' + money(t) + '</b>';
+            if (first !== true) AL.changed(true);
+        };
+        tb.onchange = function () { apply(); };
+        tb.querySelectorAll('tr').forEach(function (tr) { tr.onclick = function (e) { if (e.target.tagName === 'INPUT') return; var c = tr.querySelector('input'); c.checked = !c.checked; apply(); }; });
+        var shown = function () { return [].filter.call(tb.querySelectorAll('tr'), function (tr) { return tr.style.display !== 'none'; }); };
+        $('s1-q').oninput = function () { var q = this.value.toLowerCase(); tb.querySelectorAll('tr').forEach(function (tr) { tr.style.display = !q || tr.dataset.s.indexOf(q) >= 0 ? '' : 'none'; }); };
+        $('s1-all').onclick = function () { shown().forEach(function (tr) { tr.querySelector('input').checked = true; }); apply(); };
+        $('s1-none').onclick = function () { tb.querySelectorAll('input').forEach(function (x) { x.checked = false; }); apply(); };
+        $('s1-hd').onchange = function () { var on = this.checked; shown().forEach(function (tr) { tr.querySelector('input').checked = on; }); apply(); };
+        B.querySelectorAll('.chip[data-c]').forEach(function (c) { c.onclick = function () { tb.querySelectorAll('tr').forEach(function (tr) { if (tr.dataset.k === c.dataset.c) tr.querySelector('input').checked = true; }); apply(); }; });
+        $('s1-pct').onchange = function () { var v = +this.value; r.pool.pct = v === 100 ? undefined : Math.max(0, Math.min(100, v)); AL.changed(true); };
+        $('s1-rev').onchange = function () { AL.st.showRev = this.checked; save(); AL.step1(r); };
+        $('s1-wf').onchange = function () { r.pool.where = {}; AL.st.fromField = this.value; AL.st.fromRule = r.id; AL.changed(true); AL.step1(r); };
+        if ($('s1-where')) { AL.wirePicker($('s1-where')); $('s1-where').addEventListener('change', function () { r.pool.where = {}; var v = AL.picked($('s1-where')); if (v.length) r.pool.where[wf] = v; AL.changed(true); AL.step1(r); }); }
+        apply(true);
+        AL.footer(r, 0, 2, 'Next: allocation');
+    };
+
+    // ② allocation
+    AL.step2 = function (r) {
+        var m = AL.model(), to = r.to = r.to || {}, f = to.field || AL.mainField(), meth = to.method || 'fixed';
+        if (meth === 'driver' || meth === 'number') { meth = 'driver'; to.driver = 'd_' + r.id; }
+        var drv = (m.drivers || []).filter(function (d) { return d.id === 'd_' + r.id; })[0];
+        var own = whereField(r) === f ? r.pool.where[f] || [] : [];
+        var vals = AL.values(f).filter(function (v) { return v.value !== '' || meth !== 'gl'; });
+        var tSel = {}; (to.targets || []).forEach(function (t) { tSel[typeof t === 'object' ? t.value : t] = typeof t === 'object' ? t.pct : 1; });
+        var s = AL.step(r) || { targets: {} }, fields = AL.allFields();
+        var M = { fixed: ['fa-percent', 'Percentages', 'you type each receiver’s %'], even: ['fa-equals', 'Equally', 'same amount to every ticked receiver'],
+            gl: ['fa-sack-dollar', 'By revenue', 'in proportion to each receiver’s revenue'], driver: ['fa-hashtag', 'By a number', 'headcount, m², orders … you type per receiver'] };
+        var closed = {};   // values an earlier rule emptied (step-down): they receive nothing
+        if (r.stepDown !== false) (m.rules || []).slice(0, AL.ruleIx(r)).forEach(function (x) { if (x.active !== false) (((x.pool || {}).where || {})[f] || []).forEach(function (v) { closed[v] = x.name; }); });
+        var input = function (v) {
+            if (own.indexOf(v.value) >= 0) return '<span class="muted sm">source</span>';
+            if (closed[v.value]) return '<span class="muted sm" title="Step-down: a value an earlier rule shared out receives nothing">emptied by ' + esc(closed[v.value]) + '</span>';
+            if (meth === 'fixed') return '<input type="number" step="0.01" min="0" class="s2-in" value="' + esc(tSel[v.value] != null ? tSel[v.value] : '') + '" placeholder="%" style="width:90px">';
+            if (meth === 'driver') return '<input type="number" step="any" min="0" class="s2-in" value="' + esc(drv && drv.values[v.value] != null ? drv.values[v.value] : '') + '" style="width:90px">';
+            if (meth === 'gl') return '<input type="checkbox" class="s2-ck"' + (!(to.targets || []).length || tSel[v.value] ? ' checked' : '') + '> ' + money(v.rev);
+            return '<input type="checkbox" class="s2-ck"' + (!(to.targets || []).length || tSel[v.value] ? ' checked' : '') + '>';
+        };
+        $('al-body').innerHTML = '<p class="sm">Who receives the source balance, and how it is shared. The share and amount columns are worked out as you type.</p>' +
+            '<div class="row" style="gap:8px;flex-wrap:wrap"><span class="sm">Allocate to</span><select id="s2-f">' + fields.map(function (x) { return '<option value="' + x.id + '"' + (x.id === f ? ' selected' : '') + '>' + esc(x.name) + (x.virtual ? ' (your list)' : '') + '</option>'; }).join('') +
+            '<option value="__new">＋ your own list of receivers…</option></select>' + (fields.length < 2 ? '<span class="sm muted">only Company is in the data — sync extended segments (department, salesperson …) or make your own list</span>' : '') + '</div>' +
+            '<div class="al-meth">' + Object.keys(M).map(function (k) { return '<button class="' + (k === meth ? 'on' : '') + '" data-m="' + k + '"><i class="fa-solid ' + M[k][0] + '"></i><b>' + M[k][1] + '</b><span>' + M[k][2] + '</span></button>'; }).join('') + '</div>' +
+            (meth === 'driver' ? '<label class="sm">What the number is <input id="s2-unit" value="' + esc(drv ? drv.unit || drv.name : 'headcount') + '" style="width:160px"></label> <a class="sm" id="s2-paste">paste from Excel</a>' : '') +
+            '<div class="row" style="gap:6px;margin:6px 0"><input type="search" id="s2-q" placeholder="Search receivers" style="min-width:200px">' + (meth === 'fixed' ? '<a class="sm" id="s2-even">split evenly over the filled ones</a>' : meth === 'even' || meth === 'gl' ? '<a class="sm" id="s2-all">tick all</a> · <a class="sm" id="s2-none">none</a>' : '') + '</div>' +
+            '<div class="scroll" style="max-height:50vh"><table class="t al-rcv"><thead><tr><th>' + esc(AL.label(f)) + '</th><th>' + (meth === 'fixed' ? 'Percentage' : meth === 'driver' ? esc(drv ? drv.unit || 'Number' : 'Number') : meth === 'gl' ? 'Revenue' : 'Receives') + '</th><th class="n">Share</th><th class="n">Amount</th></tr></thead><tbody>' +
+            vals.map(function (v) { var a = s.targets[v.value]; return '<tr data-v="' + esc(v.value) + '" data-s="' + esc((v.value + ' ' + ((AL.names[f] || {})[v.value] || '')).toLowerCase()) + '"><td>' + esc(AL.vname(f, v.value)) + '</td><td>' + input(v) + '</td><td class="n s2-sh">' + (a && s.allocated ? pct(a / s.allocated * 100) : '') + '</td><td class="n s2-am">' + (a ? money(a) : '') + '</td></tr>'; }).join('') +
+            '</tbody><tfoot><tr><td><b>Total</b></td><td id="s2-in"></td><td class="n" id="s2-sh"></td><td class="n" id="s2-am"></td></tr></tfoot></table></div>';
+        var B = $('al-body'), tb = B.querySelector('.al-rcv tbody');
+        var collect = function () {
+            var trs = [].slice.call(tb.querySelectorAll('tr'));
+            if (meth === 'fixed') to.targets = trs.map(function (tr) { var x = tr.querySelector('.s2-in'); return x && +x.value > 0 ? { value: tr.dataset.v, pct: +x.value } : null; }).filter(Boolean);
+            else if (meth === 'driver') {
+                var vs = {}; trs.forEach(function (tr) { var x = tr.querySelector('.s2-in'); if (x && x.value !== '' && +x.value > 0) vs[tr.dataset.v] = +x.value; });
+                m.drivers = (m.drivers || []).filter(function (d) { return d.id !== 'd_' + r.id; }).concat([{ id: 'd_' + r.id, name: ($('s2-unit') || {}).value || 'Number', unit: ($('s2-unit') || {}).value || '', field: f, values: vs }]);
+                to.driver = 'd_' + r.id; to.targets = [];
+            } else {
+                var on = trs.filter(function (tr) { var c = tr.querySelector('.s2-ck'); return c && c.checked; }).map(function (tr) { return tr.dataset.v; });
+                to.targets = on.length === trs.filter(function (tr) { return tr.querySelector('.s2-ck'); }).length ? [] : on.length ? on : ['\u0000none'];
+            }
+            AL.changed(true); refresh();
+        };
+        var refresh = function () {
+            var st = AL.step(r) || { targets: {} }, tIn = 0;
+            tb.querySelectorAll('tr').forEach(function (tr) { var a = st.targets[tr.dataset.v]; tr.querySelector('.s2-sh').textContent = a && st.allocated ? pct(a / st.allocated * 100) : ''; tr.querySelector('.s2-am').textContent = a ? money(a) : ''; tr.classList.toggle('on', !!a); });
+            tb.querySelectorAll('.s2-in').forEach(function (x) { tIn += +x.value || 0; });
+            $('s2-in').innerHTML = meth === 'fixed' ? '<b class="' + (Math.abs(tIn - 100) < 0.01 ? 'pos' : 'neg') + '">' + tIn.toFixed(2) + '%</b>' + (tIn && Math.abs(tIn - 100) >= 0.01 ? ' <span class="sm muted">shares are scaled to 100 %</span>' : '') : meth === 'driver' ? '<b>' + tIn.toLocaleString() + '</b>' : '';
+            $('s2-sh').innerHTML = st.allocated ? '<b>100%</b>' : ''; $('s2-am').innerHTML = '<b>' + money(st.allocated || 0) + '</b>';
+            AL.paintTotals();
+        };
+        tb.addEventListener('change', collect);
+        tb.addEventListener('input', function (e) { if (e.target.classList.contains('s2-in')) { clearTimeout(AL.t2); AL.t2 = setTimeout(collect, 350); } });
+        $('s2-q').oninput = function () { var q = this.value.toLowerCase(); tb.querySelectorAll('tr').forEach(function (tr) { tr.style.display = !q || tr.dataset.s.indexOf(q) >= 0 ? '' : 'none'; }); };
+        $('s2-f').onchange = function () {
+            if (this.value === '__new') return AL.newList(r);
+            to.field = this.value; to.targets = []; if (meth === 'driver') m.drivers = (m.drivers || []).filter(function (d) { return d.id !== 'd_' + r.id; });
+            AL.changed(true); AL.step2(r);
+        };
+        B.querySelectorAll('.al-meth button').forEach(function (b) { b.onclick = function () { to.method = b.dataset.m; to.targets = []; if (to.method === 'gl') to.gl = { accounts: { type: 'R' } }; if (to.method === 'driver') to.driver = 'd_' + r.id; AL.changed(true); AL.step2(r); }; });
+        if ($('s2-even')) $('s2-even').onclick = function () { var ins = [].filter.call(tb.querySelectorAll('.s2-in'), function (x) { return +x.value > 0; }); if (!ins.length) ins = [].slice.call(tb.querySelectorAll('.s2-in')); var n = ins.length; ins.forEach(function (x, k) { x.value = k === n - 1 ? (100 - Math.round(10000 / n) / 100 * (n - 1)).toFixed(2) : (Math.round(10000 / n) / 100).toFixed(2); }); collect(); };
+        if ($('s2-all')) $('s2-all').onclick = function () { tb.querySelectorAll('tr').forEach(function (tr) { if (tr.style.display !== 'none' && tr.querySelector('.s2-ck')) tr.querySelector('.s2-ck').checked = true; }); collect(); };
+        if ($('s2-none')) $('s2-none').onclick = function () { tb.querySelectorAll('.s2-ck').forEach(function (x) { x.checked = false; }); collect(); };
+        if ($('s2-unit')) $('s2-unit').onchange = collect;
+        if ($('s2-paste')) $('s2-paste').onclick = function () {
+            var t = prompt('Paste two columns from Excel: receiver code, number (one per line)'); if (!t) return;
+            t.split(/\r?\n/).forEach(function (l) { var p = l.split(/\t|;|,(?=\s*-?\d)/); if (p.length < 2) return; var tr = tb.querySelector('tr[data-v="' + CSS.escape(p[0].trim()) + '"] .s2-in'); if (tr) tr.value = +String(p[1]).replace(/\s/g, '') || ''; });
+            collect();
+        };
+        refresh();
+        AL.footer(r, 1, 3, 'Next: result');
+    };
+    /** "Your own list" — receivers that are not in the GL (activities, branches, products …) */
+    AL.newList = function (r) {
+        FL.modal('<i class="fa-solid fa-list"></i> Your own list of receivers', '<label>Name <input id="nl-name" value="Activity"></label><p class="sm muted">One receiver per line — e.g. activities (Order handling, Picking, Delivery) or branches. A later rule can share these on again (activity-based costing).</p><textarea id="nl-vals" rows="8" style="width:100%"></textarea>',
+            '<button class="btn sm" id="nl-cancel">Cancel</button><button class="btn sm primary" id="nl-ok">Use this list</button>');
+        $('nl-cancel').onclick = function () { FL.closeModal(); AL.step2(r); };
+        $('nl-ok').onclick = function () {
+            var m = AL.model(), name = $('nl-name').value.trim() || 'List', vals = $('nl-vals').value.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+            if (!vals.length) { FL.toast('Type at least one receiver', 'warn'); return; }
+            var base = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'list', id = base, n = 2; while (AL.allFields().some(function (f) { return f.id === id; })) id = base + n++;
+            (m.virtual = m.virtual || []).push({ id: id, name: name, values: vals });
+            r.to.field = id; r.to.targets = []; if (r.to.method === 'gl') r.to.method = 'fixed';
+            FL.closeModal(); AL.changed(true); AL.step2(r);
+        };
+    };
+
+    // ③ result: per source account, balance = total allocated; per receiver the amounts
+    AL.step3 = function (r) {
+        var s = AL.step(r) || {}, f = (r.to || {}).field, share = AL.share(r), res = AL.res;
+        var srcAcc = {}; AL.sourceRows(r).forEach(function (x) { srcAcc[x.account] = (srcAcc[x.account] || 0) + x.amount; });
+        var byAcc = {}, tg = {};
+        (res ? res.lines : []).forEach(function (l) {
+            if (l.src !== r.id || l.side !== 'in') return;
+            var a = byAcc[l.origin] = byAcc[l.origin] || { code: l.origin, t: {}, total: 0 }, v = f === 'company' ? l.company : String(l.dims[f]);
+            a.t[v] = (a.t[v] || 0) + l.amount; a.total += l.amount; tg[v] = (tg[v] || 0) + l.amount;
+        });
+        var tgs = Object.keys(tg).sort(function (a, b) { return tg[b] - tg[a]; }), shown = tgs.slice(0, 10), rest = tgs.slice(10);
+        var list = Object.keys(srcAcc).map(function (c) { var a = byAcc[c] || { t: {}, total: 0 }; return { code: c, name: AL.accName(c), src: srcAcc[c], want: srcAcc[c] * share, t: a.t, total: a.total, diff: srcAcc[c] * share - a.total }; })
+            .sort(function (a, b) { return Math.abs(b.src) - Math.abs(a.src); });
+        var tSrc = 0, tAll = 0; list.forEach(function (a) { tSrc += a.src; tAll += a.total; });
+        var ok = list.length && list.every(function (a) { return Math.abs(a.diff) < 0.5; });
+        var oth = function (a) { var t = 0; rest.forEach(function (v) { t += a.t[v] || 0; }); return t; };
+        $('al-body').innerHTML = (!list.length ? '<div class="callout warn">No source balance — tick accounts in step 1.</div>' :
+            '<div class="al-check ' + (ok ? 'ok' : 'bad') + '"><i class="fa-solid ' + (ok ? 'fa-circle-check' : 'fa-triangle-exclamation') + '"></i><div><b>' + (ok ? 'Every account is fully allocated' : 'Not everything is allocated') + '</b><br>' +
+            'Source balance ' + money(tSrc) + (share !== 1 ? ' × ' + (share * 100).toFixed(1) + '% = ' + money(tSrc * share) : '') + ' · allocated ' + money(tAll) + ' · difference ' + money(tSrc * share - tAll) +
+            (s.warn && s.warn.length ? '<br><span class="sm">' + esc(s.warn.join(' · ')) + '</span>' : '') + '</div></div>') +
+            '<div class="scroll" style="max-height:56vh"><table class="t al-res"><thead><tr><th>Account</th><th>Name</th><th class="n">Source balance</th>' +
+            shown.map(function (v) { return '<th class="n" title="' + esc(AL.vname(f, v)) + '">' + esc(AL.vname(f, v).slice(0, 18)) + '</th>'; }).join('') + (rest.length ? '<th class="n">' + rest.length + ' others</th>' : '') +
+            '<th class="n">Total allocated</th><th class="n">Difference</th></tr></thead><tbody>' +
+            list.map(function (a) {
+                return '<tr><td>' + esc(a.code) + '</td><td>' + esc(a.name) + '</td><td class="n"><b>' + money(a.src) + '</b></td>' + shown.map(function (v) { return '<td class="n">' + (a.t[v] ? money(a.t[v]) : '') + '</td>'; }).join('') +
+                    (rest.length ? '<td class="n">' + money(oth(a)) + '</td>' : '') + '<td class="n"><b>' + money(a.total) + '</b></td><td class="n ' + (Math.abs(a.diff) < 0.5 ? 'pos' : 'neg') + '">' + (Math.abs(a.diff) < 0.5 ? '✓ 0' : money(a.diff)) + '</td></tr>';
+            }).join('') + '</tbody><tfoot><tr><td><b>Total</b></td><td>' + list.length + ' account(s)</td><td class="n"><b>' + money(tSrc) + '</b></td>' + shown.map(function (v) { return '<td class="n"><b>' + money(tg[v]) + '</b></td>'; }).join('') +
+            (rest.length ? '<td class="n"><b>' + money(rest.reduce(function (t, v) { return t + tg[v]; }, 0)) + '</b></td>' : '') + '<td class="n"><b>' + money(tAll) + '</b></td><td class="n"><b>' + money(tSrc * share - tAll) + '</b></td></tr></tfoot></table></div>' +
+            '<details style="margin-top:10px"><summary class="sm">Journal lines of this rule (credit the source, debit the receivers)</summary><div id="s3-jr"></div></details>';
+        if (list.length && res) {
+            var jr = A.journal({ lines: res.lines.filter(function (l) { return l.src === r.id; }) }, f ? [f] : []);
+            FL.grid($('s3-jr'), [{ label: 'Company', key: 'company' }, { label: 'Account', key: 'account' }, { label: AL.label(f), get: function (o) { return AL.vname(f, o.dims[f]); }, val: function (o) { return o.dims[f]; } },
+                { label: 'Debit', n: 1, money: 1, get: function (o) { return money(o.dr); }, val: function (o) { return o.dr; } }, { label: 'Credit', n: 1, money: 1, get: function (o) { return money(o.cr); }, val: function (o) { return o.cr; } }], jr, { id: 's3-jr', csv: 'allocation-' + r.name.replace(/\W+/g, '-') + '.csv', height: 320 });
+        }
+        AL.footer(r, 2, 0);
+        var m = AL.model(), k = AL.ruleIx(r);
+        $('al-foot').insertAdjacentHTML('beforeend', k < m.rules.length - 1 ? '<button class="btn primary" id="al-nr">Next rule <i class="fa-solid fa-arrow-right"></i></button>' : '<button class="btn" id="al-nr2"><i class="fa-solid fa-plus"></i> Another rule</button> <button class="btn primary" id="al-sum">Result of all rules</button>');
+        if ($('al-nr')) $('al-nr').onclick = function () { AL.st.sel = m.rules[k + 1].id; AL.st.step = 1; save(); AL.paintList(); AL.paintMain(); };
+        if ($('al-nr2')) $('al-nr2').onclick = AL.newRule;
+        if ($('al-sum')) $('al-sum').onclick = function () { AL.st.sel = 'sum'; save(); AL.paintList(); AL.paintMain(); };
+    };
+
+    // ── result of all rules ──
+    AL.paintSummary = function (M) {
+        var res = AL.res, m = AL.model(), exp = 0; AL.rows.forEach(function (x) { if (x.type === 'E') exp += x.amount; });
         var flds = AL.allFields(), lastTo = ((m.rules || []).filter(function (r) { return r.active !== false; }).slice(-1)[0] || {}).to || {};
         var field = AL.st.field && flds.some(function (f) { return f.id === AL.st.field; }) ? AL.st.field : lastTo.field || AL.mainField();
         var sum = A.summary(res, field), loss = sum.filter(function (o) { return o.revenue > 0 && o.before >= 0 && o.after < 0; });
-        R.innerHTML = note + '<div class="kpis">' + kpi('Expenses in scope', money(exp)) + kpi('Cost moved', money(moved), res.steps.filter(function (s) { return !s.skipped; }).length + ' step(s) · cost can move twice (step-down / ABC)') +
-            kpi('Not allocated', money(un), un ? 'no driver for some pools' : 'everything placed', Math.abs(un) >= 0.5 ? 'neg' : 'pos') +
-            kpi('Receivers', Object.keys(nT).length) + kpi('Check', res.ok ? '✓ OK' : '✗', res.ok ? 'profit unchanged by every rule' : 'a rule does not net to zero', res.ok ? 'pos' : 'neg') + '</div>' +
-            (res.warnings.length ? '<div class="callout warn sm"><i class="fa-solid fa-triangle-exclamation"></i> ' + res.warnings.map(esc).join('<br>') + '</div>' : '') +
-            (loss.length ? '<div class="callout bad sm"><i class="fa-solid fa-arrow-trend-down"></i> <b>' + loss.length + ' ' + esc(AL.label(field)) + ' value(s) turn loss-making once costs are allocated</b>: ' + loss.slice(0, 6).map(function (o) { return esc(AL.vname(field, o.value)) + ' (' + money(o.after) + ')'; }).join(', ') + '</div>' : '') +
-            '<div class="card" style="margin-top:10px"><h3><i class="fa-solid fa-water"></i> Where the cost flows <small>thickness = amount · biggest 60 flows · hover for details</small></h3><div id="al-sk" class="al-sk"></div></div>' +
-            '<div class="card" style="margin-top:10px"><h3><i class="fa-solid fa-table"></i> Before and after by <select id="al-fld">' + flds.map(function (f) { return '<option value="' + f.id + '"' + (f.id === field ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('') + '</select>' +
-            '<small>click a row for what it gave and received</small></h3><div class="chartbox short"><canvas id="al-ch"></canvas></div><div id="al-sum"></div></div>' +
-            '<div class="card" style="margin-top:10px"><h3><i class="fa-solid fa-shoe-prints"></i> Steps</h3><div id="al-steps"></div></div>' +
-            '<div class="card" style="margin-top:10px"><h3><i class="fa-solid fa-book"></i> Allocation journal <small>debit receivers, credit the pools · export with Journal</small></h3><div id="al-lines"></div></div>';
-        $('al-fld').onchange = function () { AL.st.field = this.value; save(); AL.paintRight(); };
-        AL.sankey($('al-sk'));
-        var cols = [{ label: AL.label(field), get: function (o) { return AL.vname(field, o.value); }, val: function (o) { return o.value; } },
-            { label: 'Revenue', n: 1, key: 'revenue', get: function (o) { return money(o.revenue); }, val: function (o) { return o.revenue; } },
-            { label: 'Direct cost', n: 1, get: function (o) { return money(o.direct); }, val: function (o) { return o.direct; } },
-            { label: 'Allocated in', n: 1, get: function (o) { return money(o.inAmt); }, val: function (o) { return o.inAmt; } },
-            { label: 'Allocated out', n: 1, get: function (o) { return money(o.outAmt); }, val: function (o) { return o.outAmt; } },
-            { label: 'Fully loaded cost', n: 1, get: function (o) { return money(o.loaded); }, val: function (o) { return o.loaded; } },
-            { label: 'Result before', n: 1, get: function (o) { return money(o.before); }, val: function (o) { return o.before; } },
-            { label: 'Result after', n: 1, html: 1, get: function (o) { return '<span class="' + (o.after < 0 ? 'neg' : '') + '">' + money(o.after) + '</span>'; }, val: function (o) { return o.after; } },
+        var srcT = 0, allT = 0; (m.rules || []).forEach(function (r) { if (r.active === false) return; var s = AL.step(r) || {}; srcT += AL.sourceTotal(r) * AL.share(r); allT += s.allocated || 0; });
+        M.innerHTML = '<div class="card"><h3><i class="fa-solid fa-chart-pie"></i> Result of all rules</h3>' +
+            '<div class="al-check ' + (Math.abs(srcT - allT) < 0.5 ? 'ok' : 'bad') + '"><i class="fa-solid ' + (Math.abs(srcT - allT) < 0.5 ? 'fa-circle-check' : 'fa-triangle-exclamation') + '"></i><div><b>Source balances ' + money(srcT) + ' · allocated ' + money(allT) + ' · difference ' + money(srcT - allT) + '</b><br><span class="sm">Total profit is unchanged — allocation only moves cost between receivers. Expenses in these periods: ' + money(exp) + '.</span></div></div>' +
+            (loss.length ? '<div class="callout bad sm"><b>' + loss.length + ' ' + esc(AL.label(field)) + ' value(s) turn loss-making after allocation</b>: ' + loss.slice(0, 6).map(function (o) { return esc(AL.vname(field, o.value)) + ' (' + money(o.after) + ')'; }).join(', ') + '</div>' : '') +
+            '<h4 style="margin:12px 0 4px">Before and after by <select id="al-fld">' + flds.map(function (f) { return '<option value="' + f.id + '"' + (f.id === field ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('') + '</select> <small class="muted">click a row for what it gave and received</small></h4><div id="al-sum"></div>' +
+            '<h4 style="margin:12px 0 4px">Where the cost flows</h4><div id="al-sk" class="al-sk"></div>' +
+            '<h4 style="margin:12px 0 4px">Journal of all rules</h4><div id="al-lines"></div></div>';
+        $('al-fld').onchange = function () { AL.st.field = this.value; save(); AL.paintMain(); };
+        var mc = function (label, key, extra) { return Object.assign({ label: label, n: 1, money: 1, get: function (o) { return money(o[key]); }, val: function (o) { return o[key]; } }, extra || {}); };
+        FL.grid($('al-sum'), [{ label: AL.label(field), get: function (o) { return AL.vname(field, o.value); }, val: function (o) { return o.value; } },
+            mc('Revenue', 'revenue'), mc('Direct cost', 'direct'), mc('Allocated in', 'inAmt'), mc('Allocated out', 'outAmt'), mc('Cost after allocation', 'loaded'),
+            mc('Result before', 'before'), mc('Result after', 'after'),
             { label: 'Margin before %', n: 1, sum: false, get: function (o) { return pct(o.mBefore); }, val: function (o) { return o.mBefore; } },
-            { label: 'Margin after %', n: 1, sum: false, get: function (o) { return pct(o.mAfter); }, val: function (o) { return o.mAfter; } }];
-        FL.grid($('al-sum'), cols, sum, { id: 'al-sum', csv: 'allocation-' + field + '.csv', height: 420, click: function (o) { AL.trace(field, o.value); } });
-        var top = sum.filter(function (o) { return o.revenue || o.loaded; }).slice(0, 15);
-        FL.chart('al-ch', { type: 'bar', data: { labels: top.map(function (o) { return AL.vname(field, o.value).slice(0, 22); }), datasets: [
-            { label: 'Result before', data: top.map(function (o) { return Math.round(o.before); }), backgroundColor: 'rgba(148,163,184,.7)' },
-            { label: 'Result after allocation', data: top.map(function (o) { return Math.round(o.after); }), backgroundColor: top.map(function (o) { return o.after < 0 ? 'rgba(220,38,38,.75)' : 'rgba(29,78,216,.75)'; }) }] },
-            options: { maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { ticks: { callback: function (v) { return FL.compact(v); } } } } } });
-        FL.grid($('al-steps'), [{ label: '#', get: function (s) { return String(res.steps.indexOf(s) + 1); } }, { label: 'Rule', key: 'name' },
-            { label: 'Pool', n: 1, get: function (s) { return s.skipped ? 'off' : money(s.pool); }, val: function (s) { return s.pool; } },
-            { label: 'Allocated', n: 1, get: function (s) { return money(s.allocated); }, val: function (s) { return s.allocated; } },
-            { label: 'Not allocated', n: 1, get: function (s) { return money(s.unallocated); }, val: function (s) { return s.unallocated; } },
-            { label: 'Receivers', n: 1, sum: false, get: function (s) { return s.nTargets == null ? '' : String(s.nTargets); }, val: function (s) { return s.nTargets; } },
-            { label: 'Nets to 0', html: 1, get: function (s) { return s.skipped ? '' : Math.abs(s.net) < 0.01 ? '<span class="tag good">✓</span>' : '<span class="tag bad">' + money(s.net) + '</span>'; } },
-            { label: 'Notes', get: function (s) { return (s.warn || []).join(' · '); } }], res.steps, { id: 'al-steps', totals: false });
+            { label: 'Margin after %', n: 1, sum: false, get: function (o) { return pct(o.mAfter); }, val: function (o) { return o.mAfter; } }], sum, { id: 'al-sum', csv: 'allocation-' + field + '.csv', height: 420, click: function (o) { AL.trace(field, o.value); } });
+        AL.sankey($('al-sk'));
         var used = AL.usedFields(), jr = A.journal(res, used);
         FL.grid($('al-lines'), [{ label: 'Rule', get: function (o) { return AL.ruleName(o.rule); } }, { label: 'Company', key: 'company' }, { label: 'Account', key: 'account' }]
             .concat(used.map(function (f) { return { label: AL.label(f), get: function (o) { return AL.vname(f, o.dims[f]); }, val: function (o) { return o.dims[f]; } }; }))
-            .concat([{ label: 'Debit', n: 1, get: function (o) { return money(o.dr); }, val: function (o) { return o.dr; } }, { label: 'Credit', n: 1, get: function (o) { return money(o.cr); }, val: function (o) { return o.cr; } }]),
-            jr, { id: 'al-lines', csv: 'allocation-journal.csv', height: 360 });
+            .concat([mc('Debit', 'dr'), mc('Credit', 'cr')]), jr, { id: 'al-lines', csv: 'allocation-journal.csv', height: 360 });
     };
-    /** Before any rule: the trial balance rows by a dimension and the expense accounts */
-    AL.dataView = function () {
-        var f = $('al-fld0') ? $('al-fld0').value : AL.mainField(), by = {}, acc = {}, byCode = {};
-        (FL.dims.accounts || []).forEach(function (a) { byCode[a.code] = a; });
-        AL.rows.forEach(function (r) {
-            var v = f === 'company' ? r.company : r.dims[f] == null ? '' : r.dims[f], o = by[v] = by[v] || { value: v, rev: 0, exp: 0 };
-            if (r.type === 'R') o.rev -= r.amount; else { o.exp += r.amount; var a = acc[r.account] = acc[r.account] || { code: r.account, exp: 0, n: {} }; a.exp += r.amount; a.n[v] = 1; }
-        });
-        FL.grid($('al-d0'), [{ label: AL.label(f), get: function (o) { return AL.vname(f, o.value); }, val: function (o) { return o.value; } },
-            { label: 'Revenue', n: 1, get: function (o) { return money(o.rev); }, val: function (o) { return o.rev; } },
-            { label: 'Expenses', n: 1, get: function (o) { return money(o.exp); }, val: function (o) { return o.exp; } },
-            { label: 'Result', n: 1, html: 1, get: function (o) { return '<span class="' + (o.rev - o.exp < 0 ? 'neg' : '') + '">' + money(o.rev - o.exp) + '</span>'; }, val: function (o) { return o.rev - o.exp; } }],
-            Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return b.exp - a.exp; }), { id: 'al-d0', csv: 'allocation-data.csv', height: 380 });
-        FL.grid($('al-d1'), [{ label: 'Account', key: 'code' }, { label: 'Name', get: function (a) { return (byCode[a.code] || {}).name || ''; } }, { label: 'Class', get: function (a) { return (byCode[a.code] || {})['class'] || ''; } },
-            { label: 'Amount', n: 1, get: function (a) { return money(a.exp); }, val: function (a) { return a.exp; } },
-            { label: AL.label(f) + ' values', n: 1, sum: false, get: function (a) { return String(Object.keys(a.n).length); }, val: function (a) { return Object.keys(a.n).length; } }],
-            Object.keys(acc).map(function (k) { return acc[k]; }).sort(function (a, b) { return b.exp - a.exp; }), { id: 'al-d1', csv: 'allocation-expense-accounts.csv', height: 320 });
-    };
-    /** Nothing to allocate: say why (no periods, the company filter, only balance sheet rows, nothing synced) */
+
     AL.whyEmpty = function (R) {
         var m = AL.model(), per = AL.st.periods || [];
         R.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i> Checking why there is nothing…</div>';
@@ -461,147 +617,6 @@
         return t;
     };
 
-    // ── rule editor ──
-    AL.editRule = function (i, isNew) {
-        var m = AL.model(), r = clone(m.rules[i]); r.pool = r.pool || {}; r.pool.where = r.pool.where || {}; r.to = r.to || {};
-        var flds = AL.allFields(), wf = Object.keys(r.pool.where).filter(function (k) { return k !== 'company'; })[0] || (r.to.field === 'activity' ? AL.mainField() : AL.mainField());
-        var fsel = function (id, cur, any) { return '<select id="' + id + '">' + (any ? '<option value="">— none —</option>' : '') + flds.map(function (f) { return '<option value="' + f.id + '"' + (f.id === cur ? ' selected' : '') + '>' + esc(f.name) + (f.virtual ? ' (not in GL)' : '') + '</option>'; }).join('') + '</select>'; };
-        var html = '<div class="al-ed"><label>Name <input id="re-name" value="' + esc(r.name || '') + '" style="width:60%"></label>' +
-            '<div class="al-sec"><h4>1 · Pool — which costs move</h4>' +
-            '<label>Accounts <input id="re-acc" value="' + esc(specIn(r.pool.accounts)) + '" placeholder="type:E = every expense · 6000-6999 · 61*, !6150 · class:Staff costs" style="width:60%"></label> <span class="sm muted" id="re-accn"></span>' +
-            '<div class="row" style="gap:8px;margin:6px 0"><span class="sm">On these</span>' + fsel('re-wf', wf) + '<span class="sm muted">values (none ticked = all)</span>' +
-            '<label class="sm">· % of the pool <input id="re-pct" type="number" min="0" max="100" step="0.1" value="' + esc(r.pool.pct == null ? 100 : r.pool.pct) + '" style="width:70px"></label></div>' +
-            '<div id="re-wbox">' + AL.picker('re-where', wf, r.pool.where[wf]) + '</div></div>' +
-            '<div class="al-sec"><h4>2 · Receivers — where it goes and how</h4><div class="row" style="gap:8px;flex-wrap:wrap"><span class="sm">Dimension</span>' + fsel('re-tf', r.to.field) +
-            '<span class="sm">Method</span><select id="re-m">' + Object.keys(A.METHODS).map(function (k) { return '<option value="' + k + '"' + (k === (r.to.method || 'even') ? ' selected' : '') + '>' + esc(A.METHODS[k]) + '</option>'; }).join('') + '</select>' +
-            '<label class="sm"><input type="checkbox" id="re-pc"' + (r.to.perCompany === false ? '' : ' checked') + '> within each company</label></div><div id="re-how" style="margin-top:6px"></div></div>' +
-            '<div class="al-sec"><h4>3 · Posting</h4><label class="sm">Credit the pool on account <input id="re-out" value="' + esc((r.post || {}).out || '') + '" placeholder="same account" style="width:120px"></label> ' +
-            '<label class="sm">Debit receivers on account <input id="re-in" value="' + esc((r.post || {})['in'] || '') + '" placeholder="same account" style="width:120px"></label> ' +
-            '<label class="sm"><input type="checkbox" id="re-sd"' + (r.stepDown === false ? '' : ' checked') + '> step-down: values emptied by earlier rules receive nothing</label></div>' +
-            '<div class="al-sec"><h4>Preview <small class="muted">on the loaded periods, after the rules before this one</small></h4><div id="re-pv" class="sm"></div></div></div>';
-        FL.modal('<i class="fa-solid fa-share-nodes"></i> ' + (isNew ? 'New rule' : 'Edit rule'), html, '<button class="btn sm" id="re-cancel">Cancel</button><button class="btn sm primary" id="re-ok"><i class="fa-solid fa-check"></i> Use this rule</button>');
-        var B = $('m-body');
-        var read = function () {
-            var x = clone(r); x.name = $('re-name').value.trim() || 'Rule';
-            x.pool = { accounts: specOut($('re-acc').value), where: {}, pct: +$('re-pct').value };
-            var w = AL.picked($('re-where')); if (w.length) x.pool.where[$('re-wf').value] = w;
-            if (x.pool.pct === 100) delete x.pool.pct;
-            x.to = { field: $('re-tf').value, method: $('re-m').value, perCompany: $('re-pc').checked };
-            var how = $('re-how');
-            if (x.to.method === 'fixed' && !how.querySelector('#re-fx')) x.to.targets = r.to.method === 'fixed' ? clone(r.to.targets || []) : [];
-            else if (x.to.method === 'fixed') x.to.targets = [].map.call(how.querySelectorAll('tr[data-v]'), function (tr) { return { value: tr.dataset.v, pct: +tr.querySelector('input').value || 0 }; }).filter(function (t) { return t.pct > 0; });
-            else { var only = AL.picked($('re-only')); if (only.length) x.to.targets = only; }
-            var ex = $('re-ex') ? $('re-ex').value.split(/[,;\n]+/).map(function (s) { return s.trim(); }).filter(Boolean) : []; if (ex.length) x.to.exclude = ex;
-            if (x.to.method === 'gl') x.to.gl = $('re-gla') ? { accounts: specOut($('re-gla').value), sign: $('re-gls').value } : (r.to.gl || { accounts: { type: 'R' } });
-            if (x.to.method === 'driver') x.to.driver = $('re-drv') ? $('re-drv').value : (r.to.driver || '');
-            x.post = {}; if ($('re-out').value.trim()) x.post.out = $('re-out').value.trim(); if ($('re-in').value.trim()) x.post['in'] = $('re-in').value.trim();
-            x.stepDown = $('re-sd').checked;
-            return x;
-        };
-        var paintHow = function () {
-            var meth = $('re-m').value, tf = $('re-tf').value, cur = read(), h = '';
-            if (meth === 'fixed') {
-                var t = (cur.to.targets && cur.to.targets.length ? cur.to.targets : (r.to.method === 'fixed' ? r.to.targets : [])) || [];
-                h = '<table class="t" id="re-fx"><thead><tr><th>' + esc(AL.label(tf)) + '</th><th class="n">%</th><th></th></tr></thead><tbody>' + t.map(function (x) { return '<tr data-v="' + esc(x.value) + '"><td>' + esc(AL.vname(tf, x.value)) + '</td><td class="n"><input type="number" step="0.01" value="' + esc(x.pct) + '" style="width:80px"></td><td><a data-x>×</a></td></tr>'; }).join('') + '</tbody></table>' +
-                    '<div class="row" style="gap:6px;margin-top:4px"><select id="re-fxadd"><option value="">＋ add a receiver…</option>' + AL.values(tf).map(function (v) { return '<option value="' + esc(v.value) + '">' + esc(AL.vname(tf, v.value)) + '</option>'; }).join('') + '</select>' +
-                    '<a class="sm" id="re-fxeven">split evenly</a><span class="sm" id="re-fxsum"></span></div>';
-            } else {
-                h = (meth === 'gl' ? '<label class="sm">Driver accounts <input id="re-gla" value="' + esc(specIn((cur.to.gl || r.to.gl || {}).accounts || { type: 'R' })) + '" style="width:260px" placeholder="type:R = revenue"></label> <select id="re-gls"><option value="abs">their size (revenue as positive)</option><option value="debit"' + (((r.to.gl || {}).sign) === 'debit' ? ' selected' : '') + '>debit amounts only</option></select><br>' : '') +
-                    (meth === 'driver' ? '<label class="sm">Driver table <select id="re-drv">' + (m.drivers || []).map(function (d) { return '<option value="' + d.id + '"' + (d.id === r.to.driver ? ' selected' : '') + '>' + esc(d.name) + ' (' + esc(AL.label(d.field)) + ')</option>'; }).join('') + '<option value="">— none —</option></select></label> <a class="sm" id="re-drvnew">＋ new driver table</a><br>' : '') +
-                    (meth === 'cost' ? '<p class="sm muted">Each receiver gets a share equal to its share of the expenses it already carries (after the earlier rules).</p>' : '') +
-                    '<div class="sm" style="margin-top:4px">Only these receivers <span class="muted">(none ticked = every value' + (meth === 'gl' ? ' with driver amounts' : meth === 'driver' ? ' in the driver table' : '') + ')</span></div>' + AL.picker('re-only', tf, (r.to.method !== 'fixed' && r.to.field === tf ? r.to.targets : []) || [], {}) +
-                    '<label class="sm">Never to <input id="re-ex" value="' + esc((r.to.exclude || []).join(', ')) + '" placeholder="values, comma separated" style="width:260px"></label>';
-            }
-            $('re-how').innerHTML = h;
-            AL.wirePicker($('re-only'));
-            var fx = $('re-fx');
-            if (fx) {
-                var sumP = function () { var s = 0; fx.querySelectorAll('input').forEach(function (x) { s += +x.value || 0; }); $('re-fxsum').innerHTML = ' total <b class="' + (Math.abs(s - 100) < 0.01 ? 'pos' : 'neg') + '">' + s.toFixed(2) + '%</b>' + (Math.abs(s - 100) >= 0.01 && s > 0 ? ' — shares are scaled to 100 %' : ''); preview(); };
-                fx.querySelectorAll('[data-x]').forEach(function (a) { a.onclick = function () { a.closest('tr').remove(); sumP(); }; });
-                fx.querySelectorAll('input').forEach(function (x) { x.oninput = sumP; });
-                $('re-fxadd').onchange = function () { var v = this.value; if (!v || fx.querySelector('tr[data-v="' + CSS.escape(v) + '"]')) return; var tr = document.createElement('tr'); tr.dataset.v = v; tr.innerHTML = '<td>' + esc(AL.vname(tf, v)) + '</td><td class="n"><input type="number" step="0.01" value="0" style="width:80px"></td><td><a data-x>×</a></td>'; fx.querySelector('tbody').appendChild(tr); tr.querySelector('[data-x]').onclick = function () { tr.remove(); sumP(); }; tr.querySelector('input').oninput = sumP; this.value = ''; sumP(); };
-                $('re-fxeven').onclick = function () { var ins = fx.querySelectorAll('input'), n = ins.length; ins.forEach(function (x, j) { x.value = n ? (j === n - 1 ? (100 - Math.round(10000 / n) / 100 * (n - 1)).toFixed(2) : (Math.round(10000 / n) / 100).toFixed(2)) : 0; }); sumP(); };
-                sumP();
-            }
-            if ($('re-drvnew')) $('re-drvnew').onclick = function () { r = read(); m.rules[i] = r; AL.editDriver(-1, { field: tf, back: function () { AL.editRule(i, isNew); } }); };
-            B.querySelectorAll('#re-how input, #re-how select').forEach(function (x) { x.addEventListener('change', preview); });
-        };
-        var preview = function () {
-            var x = read(), accs = A.accSet(x.pool.accounts, FL.dims.accounts || []);
-            $('re-accn').textContent = accs ? Object.keys(accs).length + ' account(s)' : 'every account';
-            try {
-                var tmp = clone(m); tmp.rules = m.rules.slice(0, i).concat([Object.assign(x, { id: x.id || 'pv', active: true })]);
-                var res = A.run(tmp, AL.rows || [], FL.dims.accounts || []), s = res.steps[res.steps.length - 1];
-                var tg = Object.keys(s.targets || {}).map(function (v) { return { v: v, a: s.targets[v] }; }).sort(function (a, b) { return b.a - a.a; });
-                $('re-pv').innerHTML = 'Pool <b>' + money(s.pool) + '</b> on ' + s.rows + ' row(s) · moved <b>' + money(s.allocated) + '</b> to ' + tg.length + ' receiver(s)' + (s.unallocated ? ' · <span class="neg">' + money(s.unallocated) + ' not allocated</span>' : '') +
-                    (s.warn.length ? '<br><span class="tag warn">' + esc(s.warn.join(' · ')) + '</span>' : '') +
-                    (tg.length ? '<div class="al-pvbars">' + tg.slice(0, 12).map(function (t) { return '<div><span>' + esc(AL.vname(x.to.field, t.v).slice(0, 40)) + '</span><i style="width:' + Math.max(1, t.a / tg[0].a * 100).toFixed(0) + '%"></i><b>' + money(t.a) + '</b> <span class="muted">' + (s.allocated ? (t.a / s.allocated * 100).toFixed(1) + '%' : '') + '</span></div>'; }).join('') + (tg.length > 12 ? '<div class="muted">… ' + (tg.length - 12) + ' more</div>' : '') + '</div>' : '');
-            } catch (e) { $('re-pv').textContent = String(e && e.message || e); }
-        };
-        AL.wirePicker($('re-where'));
-        $('re-wf').onchange = function () { $('re-wbox').innerHTML = AL.picker('re-where', this.value, []); AL.wirePicker($('re-where')); $('re-where').addEventListener('change', preview); preview(); };
-        $('re-tf').onchange = paintHow; $('re-m').onchange = paintHow;
-        ['re-acc', 're-pct', 're-pc'].forEach(function (id) { $(id).addEventListener('change', preview); });
-        $('re-where').addEventListener('change', preview);
-        paintHow(); preview();
-        $('re-cancel').onclick = function () { if (isNew) m.rules.splice(i, 1); FL.closeModal(); AL.paint(); };
-        $('re-ok').onclick = function () {
-            var x = read();
-            if (x.to.method === 'driver' && !x.to.driver) { FL.toast('Choose or create a driver table', 'warn'); return; }
-            if (x.to.method === 'fixed' && !(x.to.targets || []).length) { FL.toast('Add the receivers and their %', 'warn'); return; }
-            x.id = r.id || A.uid('r'); m.rules[i] = x; FL.closeModal(); AL.changed();
-        };
-    };
-
-    // ── driver tables ──
-    AL.editDriver = function (i, opt) {
-        opt = opt || {};
-        var m = AL.model(), d = i >= 0 ? clone(m.drivers[i]) : { id: A.uid('d'), name: 'Headcount', unit: 'people', field: opt.field || AL.mainField(), values: {} };
-        var flds = AL.allFields();
-        var body = function () {
-            var vals = AL.values(d.field);
-            Object.keys(d.values || {}).forEach(function (v) { if (!vals.some(function (x) { return String(x.value) === v; })) vals.push({ value: v }); });
-            return '<table class="t"><thead><tr><th>' + esc(AL.label(d.field)) + '</th><th class="n">' + esc(d.unit || 'value') + '</th><th class="n">share</th></tr></thead><tbody>' + vals.map(function (v) {
-                return '<tr><td>' + esc(AL.vname(d.field, v.value)) + '</td><td class="n"><input type="number" step="any" data-v="' + esc(v.value) + '" value="' + esc(d.values[v.value] == null ? '' : d.values[v.value]) + '" style="width:100px"></td><td class="n muted dv-sh"></td></tr>';
-            }).join('') + '</tbody></table>';
-        };
-        FL.modal('<i class="fa-solid fa-ruler"></i> Driver table', '<div class="row" style="gap:8px;flex-wrap:wrap"><label>Name <input id="dv-name" value="' + esc(d.name) + '"></label><label>Unit <input id="dv-unit" value="' + esc(d.unit || '') + '" style="width:100px"></label>' +
-            '<label>For <select id="dv-f">' + flds.map(function (f) { return '<option value="' + f.id + '"' + (f.id === d.field ? ' selected' : '') + '>' + esc(f.name) + '</option>'; }).join('') + '</select></label></div>' +
-            '<details style="margin:8px 0"><summary class="sm">Paste from Excel (two columns: value, number)</summary><textarea id="dv-paste" rows="5" style="width:100%" placeholder="100\t12\n200\t8"></textarea><button class="btn sm" id="dv-apply">Fill</button></details>' +
-            '<div class="scroll" style="max-height:48vh" id="dv-t">' + body() + '</div>',
-            '<button class="btn sm" id="dv-cancel">Cancel</button><button class="btn sm primary" id="dv-ok"><i class="fa-solid fa-check"></i> Save driver</button>');
-        var share = function () { var ins = $('dv-t').querySelectorAll('input'), t = 0; ins.forEach(function (x) { t += +x.value || 0; }); ins.forEach(function (x) { x.closest('tr').querySelector('.dv-sh').textContent = t && +x.value ? (+x.value / t * 100).toFixed(1) + '%' : ''; }); };
-        var collect = function () { var v = {}; $('dv-t').querySelectorAll('input').forEach(function (x) { if (x.value !== '' && !isNaN(+x.value)) v[x.dataset.v] = +x.value; }); d.values = v; };
-        var wire = function () { $('dv-t').querySelectorAll('input').forEach(function (x) { x.oninput = share; }); share(); };
-        wire();
-        $('dv-f').onchange = function () { collect(); d.field = this.value; $('dv-t').innerHTML = body(); wire(); };
-        $('dv-apply').onclick = function () {
-            collect();
-            $('dv-paste').value.split(/\r?\n/).forEach(function (l) { var p = l.split(/\t|;|,(?=\s*-?\d)/); if (p.length >= 2 && p[0].trim() && !isNaN(+String(p[1]).replace(/\s/g, ''))) d.values[p[0].trim()] = +String(p[1]).replace(/\s/g, ''); });
-            $('dv-t').innerHTML = body(); wire();
-        };
-        $('dv-cancel').onclick = function () { FL.closeModal(); if (opt.back) opt.back(); };
-        $('dv-ok').onclick = function () {
-            collect(); d.name = $('dv-name').value.trim() || 'Driver'; d.unit = $('dv-unit').value.trim();
-            if (!Object.keys(d.values).length) { FL.toast('Enter at least one number', 'warn'); return; }
-            if (i >= 0) m.drivers[i] = d; else (m.drivers = m.drivers || []).push(d);
-            if (opt.back) { var rule = m.rules.filter(function (x) { return x.to && x.to.method === 'driver' && !x.to.driver; })[0]; if (rule) rule.to.driver = d.id; }
-            AL.dirty = true; FL.closeModal(); if (opt.back) opt.back(); else AL.changed();
-        };
-    };
-    AL.editVirtual = function (i) {
-        var m = AL.model(), v = i >= 0 ? clone(m.virtual[i]) : { id: '', name: 'Activity', values: [] };
-        FL.modal('<i class="fa-solid fa-diagram-project"></i> Dimension not in the GL', '<label>Name <input id="vd-name" value="' + esc(v.name) + '"></label>' +
-            '<p class="sm muted">One value per line — activities (Order handling, Picking, Delivery) or cost objects (product families, channels).</p><textarea id="vd-vals" rows="10" style="width:100%">' + esc((v.values || []).join('\n')) + '</textarea>',
-            '<button class="btn sm primary" id="vd-ok"><i class="fa-solid fa-check"></i> Save</button>');
-        $('vd-ok').onclick = function () {
-            v.name = $('vd-name').value.trim() || 'Activity';
-            if (!v.id) { var base = v.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'dim', id = base, n = 2; while (AL.allFields().some(function (f) { return f.id === id; })) id = base + n++; v.id = id; }
-            v.values = $('vd-vals').value.split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
-            if (i >= 0) m.virtual[i] = v; else (m.virtual = m.virtual || []).push(v);
-            FL.closeModal(); AL.changed();
-        };
-    };
 
     // ── exports ──
     AL.journalCsv = function () {
@@ -628,8 +643,8 @@
     };
 
     // ── AI: propose rules ──
-    AL.GUIDE = 'Answer with ONE ```alloc block holding JSON {"rules":[…],"drivers":[…],"virtual":[…]} (only what you add). rule = {"name","pool":{"accounts": "type:E" or a code list / ranges like "6000-6999, !6150","where":{"<field>":["values"]},"pct":100},' +
-        '"to":{"field":"<field>","method":"fixed|even|gl|driver|cost","targets":[values] or for fixed [{"value","pct"}],"exclude":[values],"gl":{"accounts":"type:R"},"driver":"<driver id>","perCompany":true},"stepDown":true}. ' +
+    AL.GUIDE = 'Answer with ONE ```alloc block holding JSON {"rules":[…],"drivers":[…],"virtual":[…]} (only what you add). rule = {"name","pool":{"accounts": [list of account codes from expenseAccounts],"where":{"<field>":["values"]},"pct":100},' +
+        '"to":{"field":"<field>","method":"fixed|even|gl|driver","targets":[values] or for fixed [{"value","pct"}],"exclude":[values],"gl":{"accounts":"type:R"},"driver":"<driver id>","perCompany":true},"stepDown":true}. ' +
         'driver = {"id","name","unit","field","values":{"<value>":number}} — only with numbers you can justify from the data (e.g. revenue, counts of rows); otherwise leave values empty and say what the user must fill. virtual = {"id","name","values":[…]} for activities / cost objects not in the GL. ' +
         'Rules run in order (step-down: support / head-office pools first, then activities, then cost objects). Use only fields and values from the context. Explain each rule in one line before the block.';
     AL.aiDialog = function () {

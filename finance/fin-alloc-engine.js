@@ -102,8 +102,9 @@
                 var x = r.amount * pct; st.pool += x; st.rows++;
                 var key = to.perCompany !== false ? r.company : '*';
                 var w = wCache[key] || (wCache[key] = A.weights(rule, ctx, to.perCompany !== false ? r.company : null));
-                // never back to itself — when the pool is defined on the receiving dimension (or not by any dimension)
-                var wfs = Object.keys(where0).filter(function (k) { return (where0[k] || []).length; }), selfDim = !wfs.length || wfs.indexOf(f) >= 0;
+                // never back to itself — only when the pool names its values on the receiving dimension (department 900 → departments);
+                // a pool of whole accounts is shared over every receiver, its own part included
+                var wfs = Object.keys(where0).filter(function (k) { return (where0[k] || []).length; }), selfDim = wfs.indexOf(f) >= 0;
                 var own = selfDim ? val(r, f) : ''; if (own && w[own] != null && to.method !== 'fixed') { w = Object.assign({}, w); delete w[own]; }
                 var tot = 0; Object.keys(w).forEach(function (v) { tot += w[v]; });
                 if (!(tot > 0)) { st.unallocated += x; return; }
@@ -116,7 +117,7 @@
                     var d = Object.assign({}, r.dims); d[f] = v;
                     add.push({ company: r.company, account: rule.post && rule.post['in'] ? String(rule.post['in']) : r.account, type: r.type, dims: d, amount: y, src: rule.id, side: 'in', origin: r.account });
                     st.targets[v] = (st.targets[v] || 0) + y;
-                    var fromLbl = wfs.length ? wfs.map(function (k) { return k + '=' + val(r, k); }).join(' ') : own ? f + '=' + own : 'pool';
+                    var fromLbl = wfs.length ? wfs.map(function (k) { return k + '=' + val(r, k); }).join(' ') : val(r, f) !== '' ? f + '=' + val(r, f) : 'pool';
                     var fk = rule.id + '|' + fromLbl + '|' + f + '=' + v;
                     var fl = flows[fk] = flows[fk] || { rule: rule.id, step: seq, from: fromLbl, to: f + '=' + v, toField: f, toValue: v, amount: 0 };
                     fl.amount += y;

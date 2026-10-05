@@ -395,7 +395,7 @@ FL.grid = function (el, cols, rows, opts) {
             if (!sums[i]) return '<td' + (i === 0 && lead ? ' class="fg-tl"' : '') + '>' + (i === 0 && lead ? 'Total · ' + list.length.toLocaleString() : '') + '</td>';
             var t = 0, dp = 0, any = false;
             list.forEach(function (r) { var v = raw(c, r); if (v == null || v === '') return; var x = +v; if (isNaN(x)) return; any = true; t += x; var s0 = String(v), k = s0.indexOf('.'); if (k >= 0) dp = Math.max(dp, Math.min(2, s0.length - k - 1)); });
-            return '<td class="n">' + (any ? FINE.fmt(t, 'num', { decimals: dp }) : '') + '</td>';
+            return '<td class="n">' + (any ? (c.money ? FL.num(t) : FINE.fmt(t, 'num', { decimals: dp })) : '') + '</td>';   // money: raw value, shown in the Amounts scale
         }).join('') + '</tr>';
     };
     var body = function () {

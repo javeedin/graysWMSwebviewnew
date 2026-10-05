@@ -55,35 +55,26 @@ templates and mapping stay).
   monitors, risk highlights). Print / save as PDF, or save the HTML.
 
 
-## Cost allocation & activity-based costing
+## Cost allocation
 
-Reports › **Cost allocation** spreads costs from where they are booked to where they are caused — without posting anything
-to Fusion. Every rule nets to zero, so total profit never changes; only who carries the cost does.
+Reports › **Cost allocation** shares the balance of chosen accounts out to departments (or salespeople, companies, or a
+list you type) — without posting anything to Fusion. Rules sit on the left and run in order; each rule has three steps:
 
-- **Models** — keep several (e.g. *Monthly overheads*, *ABC customer profitability*); saved in the finance folder
-  (`alloc.json`). Data: the income statement of the chosen periods by cost centre, or by a ledger's extended segments
-  (department, salesperson, product line …). Pick periods with the chips (Ctrl+click for several, *year to date*).
-  Before you add a rule the page shows **what you can allocate**: the trial balance of those periods by any dimension
-  (revenue, expenses, result) and the expense accounts. The header *Company* applies only when that company belongs to
-  the chosen ledger; otherwise all its companies are shown and a note says so. If there is nothing, the page says why
-  (segments not synced for the ledger or the periods, only balance sheet rows, the company filter).
-- **Rules run in order** (step-down): support and head-office pools first, then activities, then customers / products.
-  A value a rule has emptied receives nothing from later rules.
-  - *Pool* — which costs: accounts (`type:E` = every expense, ranges like `6000-6999, !6150`, `class:Staff costs`),
-    on which values of a dimension, and what % of them.
-  - *Receivers* — the dimension and the method: **fixed %**, **evenly**, a **GL driver** (e.g. each receiver's revenue,
-    per company), a **driver table** (headcount, m², orders, deliveries — paste from Excel) or **their own costs**.
-  - Optional posting accounts (e.g. *allocations out / in*); otherwise the cost keeps its own account.
-  - The rule editor previews the result live on your data.
-- **Activity-based costing** — add a dimension that is not in the GL (*Activity*: Order handling, Picking, Delivery),
-  move cost-centre costs onto activities (fixed %, e.g. from time surveys), then activities onto customers / salespeople /
-  products by their driver (orders, lines, deliveries). Starter patterns set this up.
-- **Results** — cost moved, not allocated (with the reason), receivers, the balance check, who turns loss-making after
-  allocation, a **flow diagram** (Sankey: thickness = amount, colour = rule), before / after by any dimension (revenue,
-  direct cost, allocated in / out, fully loaded cost, result and margin before / after — click a row for what it
-  received and gave), steps, the allocation journal (CSV) and Excel.
-- **AI** — *Propose rules with AI* reads your values, expense accounts and current rules and proposes a set (with
-  drivers and activities); you see them first and add them, replace your rules or open them as a new model.
+1. **Source accounts** — tick the accounts whose balance you want to share (search, *tick shown*, or a class chip such as
+   *Staff costs*). Optionally take the balances of only some departments, and allocate a % of the balance. The footer
+   shows the source balance.
+2. **Allocation** — choose who receives it (*Allocate to* a dimension, or *your own list* — e.g. activities that a later
+   rule shares on to customers) and how: **Percentages**, **Equally**, **By revenue** or **By a number** (headcount, m²,
+   orders — type or paste them). Share and amount per receiver update as you type; the footer shows
+   *Source balance · Allocated · ✓ equal*.
+3. **Result** — one row per source account: its balance, the amount each receiver got, the total allocated and the
+   difference (✓ 0 when everything is allocated), with totals and the journal lines (credit the source, debit the
+   receivers).
+
+*Result of all rules* checks that all source balances = all allocations, shows each receiver's result before and after
+(and who turns loss-making), the cost flow diagram and the full journal. *Suggest rules* lets the Copilot propose rules
+you review first. A department that an earlier rule shared out receives nothing from later rules (step-down).
+
 ## Statement builder
 
 An income statement or balance sheet is **main groups → sections → accounts**:

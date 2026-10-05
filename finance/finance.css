@@ -714,29 +714,35 @@ body.fl-maxed { overflow: hidden; }
 .sp-misshint { margin-top: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: #92400e; }
 .sp-mdot { width: 10px; height: 10px; border-radius: 3px; border: 1px dashed #94a3b8; display: inline-block; }
 
-/* ── cost allocation (fin-alloc.js) ── */
-.al-grid { display: grid; grid-template-columns: minmax(320px, 400px) 1fr; gap: 12px; margin-top: 10px; align-items: start; }
-@media (max-width: 1100px) { .al-grid { grid-template-columns: 1fr; } }
-.al-rule { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: var(--card); }
-.al-rule.off { opacity: .55; }
-.al-rule .al-n { display: inline-flex; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: .72rem; font-weight: 700; align-items: center; justify-content: center; }
-.al-rule .btn.ghost { padding: 1px 5px; }
-.al-starters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
-.al-st { text-align: left; border: 1px dashed var(--line); background: transparent; border-radius: 8px; padding: 7px 8px; cursor: pointer; color: inherit; display: grid; grid-template-columns: 20px 1fr; column-gap: 6px; }
-.al-st:hover { border-color: var(--accent); background: var(--accent-bg); }
-.al-st i { grid-row: span 2; color: var(--accent); margin-top: 2px; }
-.al-st b { font-size: .78rem; } .al-st span { font-size: .7rem; color: var(--muted); }
-.al-drv { padding: 4px 0; border-bottom: 1px dashed var(--line); font-size: .84rem; }
+/* ── cost allocation (fin-alloc.js): rules list + three steps ── */
+.al-grid { display: grid; grid-template-columns: minmax(260px, 320px) 1fr; gap: 12px; margin-top: 10px; align-items: start; }
+.al-grid > * { min-width: 0; }
+@media (max-width: 1000px) { .al-grid { grid-template-columns: 1fr; } }
+.al-n { display: inline-flex; width: 24px; height: 24px; flex: none; border-radius: 50%; background: var(--accent); color: #fff; font-size: .74rem; font-weight: 700; align-items: center; justify-content: center; }
+.al-it { display: flex; gap: 8px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; cursor: pointer; }
+.al-it:hover { border-color: var(--accent); } .al-it.on { border-color: var(--accent); background: var(--accent-bg); } .al-it.off { opacity: .55; }
+.al-it .grow { flex: 1; min-width: 0; } .al-it b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.al-tabs { display: flex; align-items: center; gap: 8px; margin: 12px 0; flex-wrap: wrap; color: var(--muted); }
+.al-tab { border: 1px solid var(--line); background: var(--card); color: inherit; border-radius: 99px; padding: 6px 14px; cursor: pointer; font-weight: 600; }
+.al-tab b { display: inline-flex; width: 20px; height: 20px; border-radius: 50%; background: var(--line); color: var(--ink2); align-items: center; justify-content: center; font-size: .72rem; margin-right: 4px; }
+.al-tab.on { border-color: var(--accent); color: var(--accent); } .al-tab.on b { background: var(--accent); color: #fff; }
+.al-foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; flex-wrap: wrap; }
+.al-tot { display: flex; gap: 14px; flex-wrap: wrap; font-size: .86rem; }
+.al-acc tbody tr, .al-rcv tbody tr { cursor: pointer; } .al-acc tr.on td, .al-rcv tr.on td { background: var(--accent-bg); }
+.al-acc tfoot td, .al-rcv tfoot td, .al-res tfoot td { border-top: 2px solid var(--line); background: var(--card); position: sticky; bottom: 0; }
+.al-meth { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin: 10px 0; }
+.al-meth button { text-align: left; border: 1px solid var(--line); background: var(--card); color: inherit; border-radius: 8px; padding: 8px 10px; cursor: pointer; display: grid; grid-template-columns: 22px 1fr; column-gap: 6px; }
+.al-meth button i { grid-row: span 2; color: var(--accent); margin-top: 3px; } .al-meth button span { font-size: .74rem; color: var(--muted); }
+.al-meth button.on { border-color: var(--accent); background: var(--accent-bg); box-shadow: 0 0 0 1px var(--accent) inset; }
+.al-check { display: flex; gap: 10px; align-items: flex-start; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.al-check i { font-size: 1.3rem; margin-top: 2px; }
+.al-check.ok { background: var(--good-bg); color: var(--good); } .al-check.bad { background: var(--bad-bg); color: var(--bad); }
+.al-steps3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0; }
+@media (max-width: 700px) { .al-steps3 { grid-template-columns: 1fr; } }
+.al-steps3 div { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; grid-template-columns: 30px 1fr; column-gap: 8px; }
+.al-steps3 b { grid-row: span 2; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #fff; display: flex; align-items: center; justify-content: center; }
+.al-steps3 span { font-weight: 700; } .al-steps3 small { color: var(--muted); }
 .al-sk { overflow-x: auto; color: var(--ink2); }
 .al-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
-.al-how li { margin-bottom: 4px; }
-.al-ed .al-sec { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-top: 8px; }
-.al-ed h4 { margin: 0 0 6px; font-size: .86rem; }
-.al-pick { margin-top: 4px; }
-.al-pick .al-pl { max-height: 190px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; margin-top: 4px; columns: 2; font-size: .8rem; }
+.al-pick .al-pl { max-height: 170px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; margin-top: 4px; columns: 2; font-size: .8rem; }
 .al-pick .al-pl label { display: block; break-inside: avoid; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.al-pvbars div { display: grid; grid-template-columns: 220px 1fr 110px 60px; gap: 6px; align-items: center; font-size: .78rem; margin: 2px 0; }
-.al-pvbars i { display: block; height: 10px; background: var(--accent); border-radius: 3px; opacity: .75; }
-.al-pvbars span:first-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.al-grid > * { min-width: 0; }
-.al-right .kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
