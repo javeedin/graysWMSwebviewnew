@@ -389,13 +389,13 @@
         cal.forEach(function (p) { var y = Math.floor(p.seq / 100); if (years.indexOf(y) < 0) years.push(y); });
         if (years.indexOf(L.year) < 0) { var lt = T.latest(); L.year = lt ? Math.floor(lt.seq / 100) : years[years.length - 1]; }
         L.years = years;
-        // companies (under the ledger): remembered per ledger; first time = the header's company, else the ledger's first ([] = all)
+        // companies (under the ledger): remembered per ledger; first time = all ([] = all)
         var cos = l.companies || [];
         if (L.cosLedger !== String(l.id)) {
             L.cosLedger = String(l.id);
             var kept = FL.ls('tbl.cos.' + l.id, null);
-            var hdr = FL.filter && FL.filter.company ? cos.filter(function (c) { return T.ck(c.value) === T.ck(FL.filter.company); })[0] : null;
-            L.cos = Array.isArray(kept) ? kept.filter(function (v) { return cos.some(function (c) { return c.value === v; }); }) : hdr ? [hdr.value] : cos.length ? [cos[0].value] : [];
+            // nothing chosen yet = every company of the ledger (a sync reads only the companies a period is missing)
+            L.cos = Array.isArray(kept) ? kept.filter(function (v) { return cos.some(function (c) { return c.value === v; }); }) : [];
         }
         if ($('ts-cos')) $('ts-cos').innerHTML = cos.length ? '<label class="chip"><input type="checkbox" id="ts-all"' + (L.cos.length ? '' : ' checked') + '> all ' + cos.length + '</label>' + cos.map(function (c) {
             return '<label class="chip' + (L.cos.indexOf(c.value) >= 0 ? ' on' : '') + '"><input type="checkbox" class="ts-co" value="' + esc(c.value) + '"' + (L.cos.indexOf(c.value) >= 0 ? ' checked' : '') + '> <b>' + esc(c.value) + '</b> ' + esc(c.legalEntity || c.name || '') + '</label>';
@@ -466,6 +466,33 @@
         });
         return cells;
     };
+    /** Which of the ledger's companies the synced periods hold: { all: [codes], have: [codes], short: [seqs missing a company] } */
+    T.coverageOf = function (cells) {
+        var l = T.ledgerObj(), all = (l && l.companies || []).map(function (c) { return c.value; }), have = {}, short = [];
+        Object.keys(cells).forEach(function (q) {
+            var c = cells[q]; all.forEach(function (v) { if (c.all || c.cos[T.ck(v)]) have[T.ck(v)] = 1; });
+            if (!c.all && all.some(function (v) { return !c.cos[T.ck(v)]; })) short.push(+q);
+        });
+        return { all: all, have: all.filter(function (v) { return have[T.ck(v)]; }), short: short.sort() };
+    };
+    /** Banner when the synced periods hold fewer companies than the ledger has — statements then show only those */
+    T.coverage = function (cells) {
+        var cv = T.coverageOf(cells); if (cv.all.length < 2 || !cv.short.length) return '';
+        var miss = cv.all.filter(function (v) { return cv.have.indexOf(v) < 0; }), admin = FL.who && FL.who.admin;
+        return '<div class="callout warn ts-cover"><b><i class="fa-solid fa-building"></i> ' + (cv.have.length === cv.all.length ? 'Some periods' : 'Synced for ' + cv.have.length + ' of ' + cv.all.length + ' companies') + '</b>' +
+            (cv.have.length ? ' (' + esc(cv.have.slice(0, 8).join(', ') + (cv.have.length > 8 ? ' …' : '')) + ')' : '') + ' — ' + cv.short.length + ' synced period(s) lack ' +
+            (miss.length ? esc(miss.slice(0, 8).join(', ') + (miss.length > 8 ? ' … (' + miss.length + ')' : '')) : 'some companies') + ', so the statements, KPIs and Overview show only the companies on this PC. ' +
+            (admin ? '<button class="btn sm primary" data-allcos="' + cv.short.join(',') + '"><i class="fa-solid fa-cloud-arrow-down"></i> Sync all ' + cv.all.length + ' companies</button> <span class="sm muted">only the missing companies are read</span>' : '<span class="sm muted">ask an AI admin to sync every company</span>') + '</div>';
+    };
+    /** Tick every company of the ledger and sync the given periods (only what each period is missing) */
+    T.syncAllCos = function (seqs) {
+        var l = T.ledgerObj(); if (!l) return;
+        L.cos = []; FL.lsSet('tbl.cos.' + l.id, []);
+        document.querySelectorAll('.ts-co').forEach(function (c) { c.checked = false; c.closest('.chip') && c.closest('.chip').classList.remove('on'); });
+        if ($('ts-all')) $('ts-all').checked = true;
+        T.setSum();
+        return T.sync(seqs, false);
+    };
     /** state of one period: done / part / none, plus live (queued / running / failed) while a sync runs */
     T.stateOf = function (p, cells, want) {
         var c = cells[p.seq], lv = T.live && T.live.per[p.name];
@@ -508,8 +535,10 @@
             tiles = '<div class="callout warn ts-recode"><b><i class="fa-solid fa-triangle-exclamation"></i> Company codes may have lost their leading zeros</b> — the company list was read before the app kept them ' +
                 '(Fusion <code>01</code> was saved as <code>1</code>). Syncs still match both, but run <b>Discover</b> again in Fusion setup so the codes are exact, then <b>Overwrite</b> the periods synced before. ' +
                 '<button class="btn sm primary" data-redisc><i class="fa-solid fa-magnifying-glass"></i> Fusion setup › Discover</button></div>' + tiles;
+        tiles = T.coverage(cells) + tiles;
         views.forEach(function (x) {
             var box = $(x + '-board'); box.classList.toggle('ts-board-tbl', L.view === 'table'); box.innerHTML = vt + tiles;
+            box.querySelectorAll('[data-allcos]').forEach(function (b) { b.onclick = function () { T.syncAllCos(b.dataset.allcos.split(',').map(Number)); }; });
             var card = box.closest('.ts-main'); if (card) card.classList.toggle('ts-tblmode', L.view === 'table');   // table: every action is on its row, the bulk bar is hidden
             box.querySelectorAll('.ts-extbtn').forEach(function (b) { b.onclick = function () { T.extDialog(); }; });
             box.querySelectorAll('[data-redisc]').forEach(function (b) { b.onclick = function () { FL.dataTab.dataSetup(); }; });

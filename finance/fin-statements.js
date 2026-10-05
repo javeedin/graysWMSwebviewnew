@@ -49,6 +49,35 @@
         if (q('#sb-tpl')) q('#sb-tpl').onchange = function () { S.go(S.kind(), this.value); };
         if (q('#sb-build')) q('#sb-build').onclick = function () { FL.builder.open(S.tpl); };
         if (q('#sb-new')) q('#sb-new').onclick = function () { FL.builder.create(S.kind()); };
+        S.coverHint(el);
+    };
+    /** "Synced for 1 of 12 companies" under the bar: the ledger has companies the synced trial balances do not hold */
+    S.coverHint = function (el) {
+        var ctx = el.querySelector('.sb-ctx'), leds = FL.dims.ledgers || [], have = FL.dims.companies || []; if (!ctx || !leds.length || !FL.fusion || !FL.fusion.getDisc) return;
+        var ck = function (v) { v = String(v == null ? '' : v); return /^[0-9]+$/.test(v) ? (v.replace(/^0+/, '') || '0') : v; };
+        var pod = FL.tbsync && FL.tbsync.st ? FL.tbsync.st.pod || '' : '';
+        FL.fusion.getDisc(pod).then(function (r) {
+            if (!r || !r.disc || !el.isConnected) return;
+            var lc = FL.dims.ledgerCompanies || [], out = [];
+            leds.filter(function (l) { return !FL.filter.ledger || l.code === FL.filter.ledger; }).forEach(function (l) {
+                var dl = (r.disc.ledgers || []).filter(function (x) { return String(x.id) === String(l.code); })[0]; if (!dl) return;
+                var all = (dl.companies || []).map(function (c) { return c.value; }); if (all.length < 2) return;
+                var mine = lc.length ? lc.filter(function (x) { return x.ledger === l.code; }).map(function (x) { return x.company; }) : have.map(function (c) { return c.code; });
+                var got = all.filter(function (v) { return mine.some(function (m) { return ck(m) === ck(v); }); });
+                if (got.length < all.length) out.push({ led: l, dl: dl, got: got, all: all });
+            });
+            if (!out.length) return;
+            var d = document.createElement('div'); d.className = 'callout warn sb-cover';
+            d.innerHTML = out.map(function (o) {
+                return '<b><i class="fa-solid fa-building"></i> ' + esc(o.led.name) + ': synced for ' + o.got.length + ' of ' + o.all.length + ' companies</b>' + (o.got.length ? ' (' + esc(o.got.slice(0, 6).join(', ') + (o.got.length > 6 ? ' …' : '')) + ')' : '') +
+                    ' — these figures cover only those companies. <button class="btn sm" data-cov="' + esc(o.dl.id) + '"><i class="fa-solid fa-cloud-arrow-down"></i> Sync the other ' + (o.all.length - o.got.length) + '</button>';
+            }).join('<br>');
+            ctx.parentNode.insertBefore(d, ctx.nextSibling);
+            d.querySelectorAll('[data-cov]').forEach(function (b) { b.onclick = function () {
+                if (FL.tbsync && FL.tbsync.st) { FL.lsSet('tbl.pod', pod); FL.lsSet('tbl.ledger', String(b.dataset.cov)); FL.tbsync.st.pod = pod; FL.tbsync.st.ledger = String(b.dataset.cov); }
+                FL.show('data'); setTimeout(function () { if (FL.dataTab) FL.dataTab.go('tbsync'); }, 50);
+            }; });
+        }).catch(function () {});
     };
 
     /** Formats a cell of a computed statement */
