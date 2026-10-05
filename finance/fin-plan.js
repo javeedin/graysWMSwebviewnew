@@ -98,16 +98,56 @@
     // ═════ actuals the rules read (fin_balances, income statement accounts, 3 years before the plan → its end) ═════
     PL.prepare = function () {
         var v = PL.v, first = v.periods[0].period_seq, last = v.periods[v.periods.length - 1].period_seq;
-        var w = ["b.scenario = 'ACTUAL'", 'b.period_seq >= ' + (first - 300), 'b.period_seq <= ' + last, "a.account_type IN ('R', 'E')"];
+        var acc = {}; FL.dims.accounts.forEach(function (a) { acc[a.code] = a; });
+        // income statement accounts by the types the page knows (Fusion's, else worked out from the name — FINE.guessType):
+        // fin_accounts.account_type in DuckDB is often empty for synced trial balances, so it is not used as a filter
+        var isPl = function (c) { var a = acc[c]; return a && (a.account_type === 'R' || a.account_type === 'E'); };
+        // company codes may have lost their leading zeros on one side ("1" vs "01"): matched without them
+        var nz = function (c) { return String(c == null ? '' : c).replace(/^0+/, '') || '0'; }, coBack = {};
+        v.companies.forEach(function (c) { coBack[nz(c)] = c; });
+        var w = ["b.scenario = 'ACTUAL'", 'b.period_seq >= ' + (first - 300), 'b.period_seq <= ' + last];
         if (v.ledger && FL.status.hasLedgers) w.push('b.ledger = ' + FL.q(v.ledger));
-        if (v.companies.length) w.push('b.company IN (' + v.companies.map(FL.q).join(', ') + ')');
-        return FL.rows('SELECT b.company, ' + (v.grain === 'cc' ? 'b.cost_centre' : "''") + ' AS cc, b.account, b.period_seq AS seq, SUM(b.period_net) AS net FROM fin_balances b JOIN fin_accounts a ON a.code = b.account WHERE ' +
+        if (v.companies.length) w.push("COALESCE(NULLIF(ltrim(CAST(b.company AS VARCHAR), '0'), ''), '0') IN (" + v.companies.map(function (c) { return FL.q(nz(c)); }).join(', ') + ')');
+        return FL.rows('SELECT b.company, ' + (v.grain === 'cc' ? 'b.cost_centre' : "''") + ' AS cc, b.account, b.period_seq AS seq, SUM(b.period_net) AS net FROM fin_balances b WHERE ' +
             w.join(' AND ') + ' GROUP BY ALL', 500000).then(function (rows) {
-            var acc = {}; FL.dims.accounts.forEach(function (a) { acc[a.code] = a; });
-            PL.ctx = { accounts: acc, hist: P.histFrom(rows, v.grain) };
+            var pl = rows.filter(function (r) { return isPl(String(r.account)); });
+            pl.forEach(function (r) { r.company = coBack[nz(r.company)] || r.company; r.account = String(r.account); });
+            PL.ctx = { accounts: acc, hist: P.histFrom(pl, v.grain) };
             PL.ctx.lastActual = P.lastActual(PL.ctx.hist);
+            PL.ctx.read = { rows: rows.length, plRows: pl.length, accounts: Object.keys(rows.reduce(function (o, r) { o[r.account] = 1; return o; }, {})).length, lines: Object.keys(PL.ctx.hist).length };
             PL.tpl = PL.pickTpl();
         });
+    };
+    /** Why a plan has no lines: what DuckDB holds for its ledger / companies / years, step by step */
+    PL.diag = function () {
+        var v = PL.v, first = v.periods[0].period_seq, last = v.periods[v.periods.length - 1].period_seq, nz = function (c) { return String(c).replace(/^0+/, '') || '0'; };
+        var base = "FROM fin_balances b WHERE b.scenario = 'ACTUAL'", led = v.ledger && FL.status.hasLedgers ? ' AND b.ledger = ' + FL.q(v.ledger) : '';
+        var cos = v.companies.length ? " AND COALESCE(NULLIF(ltrim(CAST(b.company AS VARCHAR), '0'), ''), '0') IN (" + v.companies.map(function (c) { return FL.q(nz(c)); }).join(', ') + ')' : '';
+        var yrs = ' AND b.period_seq >= ' + (first - 300) + ' AND b.period_seq <= ' + last;
+        return FL.call('finQueries', { queries: [
+            'SELECT COUNT(*), MIN(period_seq), MAX(period_seq) ' + base,
+            'SELECT COUNT(*) ' + base + led,
+            'SELECT COUNT(*) ' + base + led + cos,
+            'SELECT COUNT(*), MIN(period_seq), MAX(period_seq) ' + base + led + cos + yrs,
+            'SELECT DISTINCT b.ledger, b.company ' + base + ' ORDER BY 1, 2 LIMIT 40'
+        ] }).then(function (r) {
+            var x = function (i, j) { var q = r.results[i]; return q && q.rows && q.rows[0] ? q.rows[0][j || 0] : null; };
+            return { all: x(0), from: x(0, 1), to: x(0, 2), ledger: x(1), companies: x(2), years: x(3), yFrom: x(3, 1), yTo: x(3, 2),
+                pairs: (r.results[4].rows || []).map(function (q) { return (q[0] || '') + ' · ' + q[1]; }), read: PL.ctx.read || {} };
+        });
+    };
+    PL.diagHtml = function (d) {
+        var v = PL.v, step = function (ok, txt) { return '<li class="' + (ok ? 'pos' : 'neg') + '">' + (ok ? '✓ ' : '✗ ') + txt + '</li>'; }, n = function (x) { return (+x || 0).toLocaleString(); };
+        var led = (FL.dims.ledgers.filter(function (l) { return l.code === v.ledger; })[0] || {}).name || v.ledger;
+        return '<div class="callout warn"><b>No plan lines — this is what the DuckDB file on this PC holds:</b><ul class="sm" style="margin:6px 0">' +
+            step(d.all > 0, 'actual balances: ' + n(d.all) + (d.all ? ' (' + FL.periodName(d.from) + ' – ' + FL.periodName(d.to) + ')' : ' — sync trial balances first (Data › Trial balance sync)')) +
+            (v.ledger ? step(d.ledger > 0, 'of ledger ' + esc(led) + ': ' + n(d.ledger)) : '') +
+            step(d.companies > 0, 'of companies ' + esc(v.companies.join(', ')) + ': ' + n(d.companies)) +
+            step(d.years > 0, 'in the 3 years before the plan up to ' + esc(v.periods[v.periods.length - 1].period_name) + ': ' + n(d.years) + (d.years ? ' (' + FL.periodName(d.yFrom) + ' – ' + FL.periodName(d.yTo) + ')' : '')) +
+            step(d.read.plRows > 0, 'on income statement accounts (revenue / expense): ' + n(d.read.plRows) + ' of ' + n(d.read.rows) + ' rows, ' + n(d.read.lines) + ' account line(s)') +
+            '</ul>' + (d.pairs.length ? '<div class="sm muted">Ledger · company pairs in the file: ' + esc(d.pairs.join(', ')) + '</div>' : '') +
+            (P.can(v, 'edit', who()) && d.read.lines ? '<div class="row" style="margin-top:6px"><button class="btn primary sm" id="pd-fill"><i class="fa-solid fa-wand-magic"></i> Fill the plan from these actuals (last year + 0 %)</button></div>' :
+                '<div class="sm" style="margin-top:6px">Fix the step marked ✗ — e.g. make a new plan for the ledger / companies that have data, or sync their trial balances — then <a id="pd-again">check again</a>.</div>') + '</div>';
     };
     PL.pickTpl = function () {
         var want = (FL.config.plan || {}).tpl, list = FL.templates.filter(function (t) { return FINE.tplKind(t) === 'PL'; });
@@ -289,6 +329,15 @@
             (st ? '' : '<div class="callout warn">No income statement template — make one in the Statement builder.</div>') +
             '<div class="scroll pl-gridwrap"><table class="t pl-t"><thead><tr><th class="pl-lbl">Line</th><th>Rule</th>' + v.periods.map(function (p) { return '<th class="n">' + esc(p.period_name) + '</th>'; }).join('') +
             '<th class="n">Year</th><th class="n">Last year</th><th class="n">Δ %</th></tr></thead><tbody id="pg-body"></tbody></table></div></div>';
+        if (!v.lines.length) {
+            box.insertAdjacentHTML('afterbegin', '<div id="pd-box"><div class="sm muted"><i class="fa-solid fa-circle-notch fa-spin"></i> Checking the DuckDB file…</div></div>');
+            PL.diag().then(function (d) {
+                if (!$('pd-box')) return;
+                $('pd-box').innerHTML = PL.diagHtml(d);
+                if ($('pd-fill')) $('pd-fill').onclick = function () { P.seed(v, PL.ctx, { method: 'py', pct: 0 }); PL.changed(true); FL.toast(v.lines.length + ' line(s) from the actuals — save to keep them', 'ok'); };
+                if ($('pd-again')) $('pd-again').onclick = function () { PL.prepare().then(function () { PL.paintMain(); }); };
+            }).catch(function (e) { if ($('pd-box')) $('pd-box').innerHTML = '<div class="callout bad">' + esc(String(e && e.message || e)) + '</div>'; });
+        }
         $('pg-co').onchange = function () { PL.st.co = this.value; keep(); PL.viewGrid(box); };
         if ($('pg-cc')) $('pg-cc').onchange = function () { PL.st.cc = this.value; keep(); PL.viewGrid(box); };
         $('pg-exp').onclick = function () { PL.st.expandAll = !PL.st.expandAll; PL.open = {}; keep(); PL.viewGrid(box); };
@@ -828,6 +877,7 @@
                 }
                 P.seed(v, PL.ctx, how === 'py' ? { method: 'py', pct: pct } : how === 'runrate' ? { method: 'runrate', n: 3 } : how === 'trend' ? { method: 'trend' } : { method: 'zero' });
             }).then(function () {
+                if (!v.lines.length) FL.toast('No actuals found for these companies — the Plan tab shows what the DuckDB file holds', 'err');
                 FL.closeModal(); PL.baseRev = 0; PL.st.open = v.id; PL.st.view = 'grid'; PL.st.co = cos.length === 1 ? cos[0] : ''; PL.st.cc = ''; keep();
                 return PL.save('created', 'New ' + (KIND[v.kind] || v.kind).toLowerCase() + ', ' + v.lines.length + ' lines, start: ' + how);
             }).catch(function (e) { FL.toast(String(e && e.message || e), 'err'); $('nv-go').disabled = false; $('nv-go').textContent = 'Create'; });

@@ -690,4 +690,6 @@ Left menu › **Planning › Budgets & forecasts**. A plan is a version of the i
 - **Use as budget** — every statement, KPI, variance and the board pack then compare with this version instead of the Fusion budget.
 - **Excel** — download the plan, change the months, upload it back.
 
+If a plan has no lines, the Plan view shows what the DuckDB file on this PC holds for its ledger, companies and years (step by step, with the ledger · company pairs that do have data) and a button to fill the plan from those actuals.
+
 Where it is kept: **APEX** (WMS_FIN_PLAN_VERSIONS, WMS_FIN_PLAN_LINES, WMS_FIN_PLAN_EVENTS — shared by every PC, `apex_sql/86_finance_planning.sql`) and **this PC's DuckDB file** (fin_plan_versions, fin_plan_lines, fin_plan_amounts — the SQL explorer and the Copilot can query them). Each save raises the revision; the newer copy wins when a version is opened and the other copy is brought up to date. Nothing is sent to Oracle Fusion.
