@@ -16,8 +16,8 @@ WMS source as of this copy; check them after a big change in wms/app.js.
   vehicles.js        wms/vehicles.js (loadVehicles → window.vehiclesData, lorry capacity)
   new-trip.js        wms/copilot.js 296-840 (Create New Trip modal)
   agent-assign.js    wms/shipping-agent.js 8, 89-126, 5524-5586, 5610-5613 (Add to Agent)
-  markup.js          wms/index.html 1353-1545 (Add Orders / Paste / Fetch pending shipments) and
-                     8316-8424 (New Trip) inserted into the page
+  markup.js          wms/index.html from <!-- Add Orders Modal --> to <!-- Edit Trip Modal --> (Add Orders / Paste /
+                     Fetch pending shipments) and <!-- New Trip Modal --> to <!-- WMS Co-Pilot --> (New Trip)
   wms-legacy.css     the rules of wms/styles.css those screens use
 """
 import json
@@ -64,8 +64,15 @@ write('agent-assign.js', head('wms/shipping-agent.js lines 8, 89-126, 5524-5586,
       '\n    // the agent dashboard is not on this page\n    if (typeof window.saRefreshDashboard !== \'function\') window.saRefreshDashboard = function () { return Promise.resolve(); };\n})();')
 
 html = lines('wms/index.html')
-markup = cut(html, 1353, 1545) + '\n' + cut(html, 8316, 8424)
-write('markup.js', head('wms/index.html lines 1353-1545 and 8316-8424 (Add Orders, Paste Orders, Fetch Pending Shipments, New Trip)') +
+def between(lines_, start, stop):
+    a = next(i for i, l in enumerate(lines_) if start in l)
+    b = next(i for i in range(a + 1, len(lines_)) if stop in lines_[i])
+    return '\n'.join(lines_[a:b]).rstrip()
+
+
+# found by their comments, so edits elsewhere in wms/index.html do not shift them
+markup = between(html, '<!-- Add Orders Modal -->', '<!-- Edit Trip Modal -->') + '\n' + between(html, '<!-- New Trip Modal -->', '<!-- WMS Co-Pilot -->')
+write('markup.js', head('wms/index.html: Add Orders, Paste Orders, Fetch Pending Shipments and New Trip modals (found by their comments)') +
       '(function () {\n    var html = ' + json.dumps(markup) + ';\n'
       '    function put() { var d = document.createElement(\'div\'); d.id = \'w2-legacy-markup\'; d.innerHTML = html; document.body.appendChild(d); }\n'
       '    if (document.body) put(); else document.addEventListener(\'DOMContentLoaded\', put);\n})();')
