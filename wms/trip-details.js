@@ -1198,6 +1198,8 @@ function removeOrderFromTrip(order) {
     console.log('[Trip Details] Calling delete API:', apiUrl);
 
     function onSuccess() {
+        // its picker assignment goes too (WMS_PICKER_ASSIGNMENT)
+        if (window.wmsClearPickerAssignment) window.wmsClearPickerAssignment(orderNumber);
         // Remove from local data
         tripOrdersData = tripOrdersData.filter(o => o.source_order_number !== orderNumber);
 

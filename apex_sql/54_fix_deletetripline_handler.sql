@@ -53,10 +53,15 @@ BEGIN
     END;
 
     -- 3) picker assignment cleanup (best-effort)
+    --    No instance filter: the picker row stores INSTANCE = the instance TYPE
+    --    (e.g. 'TEST'/'PROD'), which is not always the trip's instance name, so
+    --    the old "AND instance = :P_INSTANCE_NAME" left rows behind. Keep the row
+    --    only while the order is still on another trip line.
     BEGIN
         DELETE FROM wms_picker_assignment
-        WHERE source_order_number = :P_ORDER_NUMBER
-          AND instance = :P_INSTANCE_NAME;
+        WHERE TRIM(source_order_number) = TRIM(:P_ORDER_NUMBER)
+          AND NOT EXISTS (SELECT 1 FROM wms_trip_details t
+                          WHERE TRIM(t.order_number) = TRIM(:P_ORDER_NUMBER));
         v_pickers := SQL%ROWCOUNT;
     EXCEPTION
         WHEN OTHERS THEN v_pickers := -1;

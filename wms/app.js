@@ -5779,7 +5779,11 @@ document.addEventListener('DOMContentLoaded', function() {
                                         if (typeof refreshTripDetails === 'function') refreshTripDetails(tripIdFromRow);
                                     }
                                     res.innerHTML = '<div style="color:#15803d;font-weight:700;"><i class="fas fa-check-circle"></i> Order ' + escHtml(orderNumber) + ' removed.</div>';
-                                    setTimeout(close, 1100);
+                                    // its picker assignment goes too (WMS_PICKER_ASSIGNMENT)
+                                    if (window.wmsClearPickerAssignment) window.wmsClearPickerAssignment(orderNumber).then(function(c) {
+                                        res.insertAdjacentHTML('beforeend', c.ok ? '<div style="color:#15803d;font-size:11px;">Picker assignment removed.</div>' : '<div style="color:#b45309;font-size:11px;">Picker assignment not removed: ' + escHtml(c.error || '') + '</div>');
+                                    });
+                                    setTimeout(close, 1600);
                                 });
                             };
                         })
@@ -15732,6 +15736,31 @@ document.addEventListener('DOMContentLoaded', function() {
     window.checkFusionStatus = function(orderNumber) {
         console.log('[Store Transactions] Check fusion status for:', orderNumber);
         alert('Check Fusion Status functionality - To be implemented');
+    };
+
+    /**
+     * After an order is removed from a trip: delete its picker assignment (WMS_PICKER_ASSIGNMENT) too, so the picker /
+     * loading bay of the old trip does not stay behind. Matched by order number (trimmed) and only when the order is no
+     * longer on any trip line. Runs through the app's APEX gateway (ai/executewrite); never blocks the removal itself.
+     * Resolves {ok, rows} or {ok:false, error}.
+     */
+    window.wmsClearPickerAssignment = function(orderNumber) {
+        return new Promise(function(resolve) {
+            var o = String(orderNumber == null ? '' : orderNumber).trim();
+            if (!o || !(window.chrome && window.chrome.webview) || typeof sendMessageToCSharp !== 'function') { resolve({ ok: false, error: 'not available' }); return; }
+            var q = "'" + o.replace(/'/g, "''") + "'";
+            var sql = 'DELETE FROM wms_picker_assignment WHERE TRIM(source_order_number) = ' + q +
+                ' AND NOT EXISTS (SELECT 1 FROM wms_trip_details t WHERE TRIM(t.order_number) = ' + q + ')';
+            var user = 'WMS'; try { user = localStorage.getItem('wms_user') || sessionStorage.getItem('loggedInUser') || 'WMS'; } catch (e) { /* storage blocked */ }
+            sendMessageToCSharp({ action: 'executePost', fullUrl: 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/executewrite',
+                body: JSON.stringify({ appUser: user, sql: sql }) }, function(err, data) {
+                if (err) { console.warn('[Trip] picker assignment not cleared for ' + o + ':', err); resolve({ ok: false, error: String(err) }); return; }
+                var r = null; try { r = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { /* plain text */ }
+                if (r && r.success === false) { console.warn('[Trip] picker assignment not cleared for ' + o + ':', r.error || r.message); resolve({ ok: false, error: r.error || r.message }); return; }
+                console.log('[Trip] picker assignment cleared for ' + o, r);
+                resolve({ ok: true, rows: r && (r.rowsAffected != null ? r.rowsAffected : r.rows) });
+            });
+        });
     };
 
     window.deleteTripOrder = function(tripId, orderNumber) {
