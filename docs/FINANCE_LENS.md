@@ -674,3 +674,20 @@ Click any customer on Debtors (or supplier on Creditors, or a party in Working c
 ## Segment P&L: periods without segments
 
 The period list shows every month whose trial balance is synced. Months whose extended segments (Salesperson, Item profit centre …) are not synced yet show **dashed** — click them to pick some (or none for all) and press **Sync segments**: Trial balance sync opens on that ledger and reads the segments for those months, one after another. Come back to Segment P&L and they can be chosen.
+
+## Planning & budgets
+
+Left menu › **Planning › Budgets & forecasts**. A plan is a version of the income statement for one fiscal year, per company (or per company × cost centre) × account × month.
+
+- **New plan** — kind (*Budget* = the target for a year, *Forecast* = where this year will land, *Scenario* = what if), fiscal year (a year that is not loaded yet takes the months of the latest full year, moved forward), ledger, companies, grain, and how every line starts: last year + %, run-rate, trend, empty, or a copy of another version. Lines = every income statement account with actuals in the last 24 months.
+- **Plan** — the lines of your income statement template × months, the year, last year and the change. ▸ opens a line into its plan lines: type a month (the line becomes *Typed*), type the year total (spread like last year), or paste a block from Excel. The chip on each line is its **rule**: last year + %, run-rate, annual amount (even / like last year), start + growth, driver × rate, % of another line (e.g. cost of sales 61 % of revenue), trend, typed, zero — with a preview against last year, and *Apply to* one line, every line of the statement line, or the account in every company. Amounts follow the **Amounts** choice in the main toolbar.
+- **Drivers** — headcount, volumes, m² … per month; a *Driver × rate* line multiplies them (headcount × salary per head).
+- **Targets & goal seek** — revenue growth, gross margin and cost growth (overall or per class) set the rules of every line; goal seek finds the factor on operating costs / every cost / cost of sales / revenue that reaches a net-profit target.
+- **Plan vs actual** — once the months are synced: plan against actual by line and a cumulative profit chart; **Make a rolling forecast** = the actual months + the rest of the year (keep the plan, run-rate, trend or last year).
+- **Checks** — no revenue, lines far from last year, lines with actuals that the plan left out (add them in one click), months below zero, margin change.
+- **AI** — write the assumptions in plain words ("revenue +8 % from the new price list, salaries +5 %, travel −20 %"); the Copilot turns them into rules you preview before applying. *AI review* challenges the plan like a CFO.
+- **Workflow** — Draft → Submit → an AI admin who did not submit it approves (or sends it back with a reason); approved versions are read-only until reopened. Every step is in **History**.
+- **Use as budget** — every statement, KPI, variance and the board pack then compare with this version instead of the Fusion budget.
+- **Excel** — download the plan, change the months, upload it back.
+
+Where it is kept: **APEX** (WMS_FIN_PLAN_VERSIONS, WMS_FIN_PLAN_LINES, WMS_FIN_PLAN_EVENTS — shared by every PC, `apex_sql/86_finance_planning.sql`) and **this PC's DuckDB file** (fin_plan_versions, fin_plan_lines, fin_plan_amounts — the SQL explorer and the Copilot can query them). Each save raises the revision; the newer copy wins when a version is opened and the other copy is brought up to date. Nothing is sent to Oracle Fusion.

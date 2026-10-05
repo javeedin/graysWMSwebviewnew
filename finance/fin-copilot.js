@@ -61,6 +61,11 @@
             'Add a table of the 10 largest expense accounts with the change versus the comparison',
             'Make every widget year-to-date', 'Explain what the numbers on this page say, in 5 bullets', 'Remove the widgets that show nothing and tidy the layout'] };
         if (FL.wcp && FL.wcp.KIND[tab]) { var wk = FL.wcp.KIND[tab]; return { title: { AR: 'Debtors', AP: 'Creditors', INV: 'Inventory' }[wk], items: FL.wcp.prompts(wk) }; }
+        if (tab === 'plan' && FL.plan && FL.plan.v) return { title: 'Plan: ' + FL.plan.v.name, items: [
+            'Which assumptions in this plan are the riskiest, and how much profit is at stake?',
+            'Compare this plan with the last 12 months of actuals: which lines grow much faster than their trend?',
+            'What would net profit be if revenue came in 5% under plan and costs stayed as planned?',
+            'Write the budget narrative for the board: revenue, margin, costs, profit — 6 bullets'] };
         if (tab === 'alloc' && FL.alloc && FL.alloc.doc) return { title: 'Cost allocation: ' + FL.alloc.model().name, items: [
             'Is this allocation fair? Which rule moves the most cost and is its driver the right one?',
             'Which receivers turn loss-making after allocation, and which cost pool causes it?',
@@ -215,6 +220,7 @@
             if (FL.tab === 'segpl' && FL.segpl && FL.segpl.ai && FL.segpl.st.groups && FL.segpl.st.groups.length) { try { out.segmentPL = FL.segpl.ai.context(); } catch (e) { /* not loaded */ } }
             if (FL.tab === 'pages' && FL.pages && FL.pages.cur) { var dc = FL.pages.designContext(); out.openPage = dc.page; out.pageParameters = dc.parameters_now;
                 out.pageGuide = 'The user is on their own page "' + FL.pages.cur.name + '" (My pages). When they ask to add, change or remove something on it, follow this guide and answer with ONE ```page block of the whole page:\n' + FL.pages.GUIDE; }
+            if (FL.tab === 'plan' && FL.plan && FL.plan.v && FL.plan.ctx) { try { out.planning = FL.plan.context(); } catch (e) { /* not drawn yet */ } }
             if (FL.tab === 'alloc' && FL.alloc && FL.alloc.doc) { try { out.costAllocation = FL.alloc.context(); out.costAllocationGuide = 'The user is on Cost allocation. To add or change rules answer with ONE ```alloc block: ' + FL.alloc.GUIDE; } catch (e) { /* not loaded */ } }
             if (FL.wcp && FL.wcp.KIND[FL.tab]) { try { out.thisPage = FL.wcp.context(); } catch (e) { /* not drawn yet */ } }
             return FL.wc ? FL.wc.summary().then(function (w) { if (w) out.workingCapital = w; return out; }) : out;

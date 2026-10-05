@@ -344,5 +344,60 @@ test('IFRS pack: statements balance, cash flow ties to cash, equity ties, both p
     var rb = r.soce.blocks[r.soce.blocks.length - 1]; near(rb.rows[rb.rows.length - 1].v[3], r.sfp.equity[0], 1);
 });
 
+test('planning: periods, seeding last year + %, rules, % of revenue, checks, goal seek, rolling forecast, sheet round trip, workflow', function () {
+    var PL = require('../fin-plan-engine.js'), accts = {}; data.accounts.forEach(function (a) { accts[a.code] = a; });
+    var hist = PL.histFrom(raw.facts.filter(function (r) { return r[0] === 'ACTUAL'; }).map(function (r) { return { company: 'C1', account: r[1], seq: r[2], net: r[3] }; }), 'account');
+    var ctx = { accounts: accts, hist: hist };
+    // a year that is not loaded: the latest full year moved forward (names too)
+    var per = PL.periodsFor(2027, data.periods);
+    assert.strictEqual(per.length, 12); assert.strictEqual(per[0].period_seq, 202701); assert.strictEqual(per[11].period_name, 'Dec-27');
+    assert.strictEqual(PL.periodsFor(2026, data.periods)[0].period_seq, 202601);
+    var v = { id: 'v1', name: 'Budget 2027', kind: 'BUDGET', year: 2027, grain: 'account', companies: ['C1'], periods: per, drivers: [], lines: [] };
+    PL.seed(v, ctx, { method: 'py', pct: 10 });
+    assert.ok(v.lines.length >= 20 && v.lines.every(function (l) { var a = accts[l.account]; return a.account_type === 'R' || a.account_type === 'E'; }));
+    // last year + 10 %, month by month, in the natural sign (revenue stays a credit)
+    var rev = v.lines.filter(function (l) { return l.account === '4000'; })[0];
+    near(rev.m[2], hist['C1||4000'][202603] * 1.1, 0.02); assert.ok(rev.m[2] < 0);
+    var t = PL.totals(v, ctx); near(t.sum.rev, t.sum.pyRev * 1.1, 1); near(t.sum.np, t.sum.pyNp * 1.1, 1);
+    // facts: monthly nets and the year-to-date end balance
+    var f = PL.facts(v, 'BUDGET'); near(f.BUDGET['4000'][202712][1], rev.m.reduce(function (a, b) { return a + b; }, 0), 0.05);
+    // cost of sales as 60 % of revenue of the same company
+    var cos = v.lines.filter(function (l) { return l.account === '5000'; })[0]; cos.rule = { method: 'pctof', of: 'type:R', pct: 60 }; PL.compute(v, ctx);
+    near(cos.m[0], t.rev[0] * 0.6, 0.05);
+    // other rules: annual spread, growth, driver, run-rate, trend, zero
+    var x = v.lines.filter(function (l) { return l.account === '6000'; })[0];
+    x.rule = { method: 'annual', amount: 1200, spread: 'even' }; PL.compute(v, ctx); near(x.m[5], 100, 0.001);
+    x.rule = { method: 'annual', amount: 1200, spread: 'season' }; PL.compute(v, ctx); near(x.m.reduce(function (a, b) { return a + b; }, 0), 1200, 0.05);
+    x.rule = { method: 'growth', start: 100, pct: 1 }; PL.compute(v, ctx); near(x.m[11], 100 * Math.pow(1.01, 11), 0.01);
+    v.drivers.push({ id: 'hc', name: 'Headcount', values: [10, 10, 10, 11, 11, 11, 12, 12, 12, 12, 12, 12] });
+    x.rule = { method: 'driver', driver: 'hc', rate: 2500 }; PL.compute(v, ctx); near(x.m[3], 27500, 0.001);
+    x.rule = { method: 'runrate', n: 3 }; PL.compute(v, ctx); var h = hist['C1||6000']; near(x.m[0], (h[202610] + h[202611] + h[202612]) / 3, 0.02);
+    x.rule = { method: 'trend' }; PL.compute(v, ctx); assert.ok(x.m.every(function (q) { return isFinite(q); }));
+    x.rule = { method: 'zero' }; PL.compute(v, ctx); assert.ok(x.m.every(function (q) { return q === 0; }));
+    // checks: the zeroed line with real actuals last year is flagged
+    var chk = PL.checks(v, ctx); assert.ok(chk.some(function (c) { return /nothing planned/.test(c.text); }));
+    // goal seek: operating costs move so that profit hits the target
+    x.rule = { method: 'py', pct: 0 }; PL.compute(v, ctx);
+    var target = PL.totals(v, ctx).sum.np + 50000, g = PL.goalSeek(v, ctx, target, 'opex');
+    assert.ok(!g.error, g.error); near(PL.totals(v, ctx).sum.np, target, 1); assert.ok(g.factor < 1);
+    // targets: revenue +5 %, gross margin 40 %
+    PL.applyTargets(v, ctx, { revGrowth: 5, grossMargin: 40 }); var t2 = PL.totals(v, ctx);
+    near(t2.sum.rev, t2.sum.pyRev * 1.05, 1); near(t2.sum.cos, t2.sum.rev * 0.6, Math.abs(t2.sum.rev) * 1e-6);
+    // rolling forecast on the loaded year: months to June are the actuals
+    var b26 = { id: 'b26', name: 'Budget 2026', year: 2026, grain: 'account', companies: ['C1'], periods: PL.periodsFor(2026, data.periods), drivers: [], lines: [] };
+    PL.seed(b26, ctx, { method: 'py', pct: 0 });
+    var fc = PL.rolling(b26, ctx, 202606, { method: 'runrate', n: 3 }), fr = fc.lines.filter(function (l) { return l.account === '4000'; })[0];
+    near(fr.m[3], hist['C1||4000'][202604], 0.01); near(fr.m[8], (hist['C1||4000'][202604] + hist['C1||4000'][202605] + hist['C1||4000'][202606]) / 3, 0.05);
+    assert.strictEqual(fc.kind, 'FORECAST');
+    var va = PL.variance(b26, ctx); assert.strictEqual(va.months, 12); assert.ok(va.rows.length === b26.lines.length);
+    // sheet round trip: change one month, read it back
+    var sh = PL.toSheet(v, ctx), i0 = sh.head.indexOf(per[0].period_name), row = sh.rows.filter(function (r) { return r[2] === '4000'; })[0];
+    row[i0] = 123456; var res = PL.fromSheet(v, ctx, sh.head, sh.rows); assert.ok(!res.error); assert.strictEqual(res.changed, 1);
+    near(v.lines.filter(function (l) { return l.account === '4000'; })[0].m[0], -123456, 0.001);
+    // workflow: the person who submitted cannot approve
+    var w = { status: 'SUBMITTED', submittedBy: 'ann' };
+    assert.ok(!PL.can(w, 'approve', { user: 'ann', admin: true })); assert.ok(PL.can(w, 'approve', { user: 'bob', admin: true })); assert.ok(!PL.can(w, 'edit', {}));
+});
+
 console.log('\n' + (n - fail) + '/' + n + ' passed');
 process.exit(fail ? 1 : 0);

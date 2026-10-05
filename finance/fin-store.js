@@ -236,4 +236,119 @@
             }).catch(function () { return null; });
         });
     };
+
+    // ═════ Planning (finance/fin-plan.js): budget / forecast / scenario versions, shared by every PC ═════
+    //   WMS_FIN_PLAN_VERSIONS  one row per version: name, kind, year, ledger, currency, status, rev, workflow, the rest as JSON (CLOB)
+    //   WMS_FIN_PLAN_LINES     one row per version × company × cost centre × account: months as JSON, rule, adj, note, total
+    //   WMS_FIN_PLAN_EVENTS    the trail: created / saved / submitted / approved / sent back / reopened, by whom, when, note
+    // The same version is written to this PC's DuckDB file (fin_plan_*) by the host; rev says which copy is newer.
+    var PLAN_TABLES = {
+        WMS_FIN_PLAN_VERSIONS: 'CREATE TABLE wms_fin_plan_versions (version_id VARCHAR2(60) NOT NULL, name VARCHAR2(200), kind VARCHAR2(20), fiscal_year NUMBER, ledger_code VARCHAR2(100), ' +
+            'currency VARCHAR2(15), status VARCHAR2(20), rev NUMBER, actual_through NUMBER, lines_count NUMBER, total_revenue NUMBER, total_profit NUMBER, meta_json CLOB, ' +
+            'created_by VARCHAR2(100), created_at DATE DEFAULT SYSDATE, changed_by VARCHAR2(100), changed_at DATE DEFAULT SYSDATE, submitted_by VARCHAR2(100), submitted_at DATE, ' +
+            'approved_by VARCHAR2(100), approved_at DATE, CONSTRAINT wms_fin_plan_versions_pk PRIMARY KEY (version_id))',
+        WMS_FIN_PLAN_LINES: 'CREATE TABLE wms_fin_plan_lines (version_id VARCHAR2(60) NOT NULL, line_no NUMBER, company VARCHAR2(150), cost_centre VARCHAR2(150), account VARCHAR2(150) NOT NULL, ' +
+            'method VARCHAR2(30), rule_json VARCHAR2(2000), adj NUMBER, note VARCHAR2(1000), total NUMBER, amounts VARCHAR2(4000))',
+        WMS_FIN_PLAN_EVENTS: 'CREATE TABLE wms_fin_plan_events (version_id VARCHAR2(60) NOT NULL, event_at DATE DEFAULT SYSDATE, event_by VARCHAR2(100), event VARCHAR2(30), ' +
+            'status_from VARCHAR2(20), status_to VARCHAR2(20), rev NUMBER, note VARCHAR2(2000))'
+    };
+    var planReady = null;
+    A.planEnsure = function () {
+        if (planReady) return planReady;
+        planReady = A.read("SELECT table_name FROM user_tables WHERE table_name IN ('WMS_FIN_PLAN_VERSIONS', 'WMS_FIN_PLAN_LINES', 'WMS_FIN_PLAN_EVENTS')").then(function (rows) {
+            var have = {}; rows.forEach(function (r) { have[r.TABLE_NAME] = 1; });
+            return Object.keys(PLAN_TABLES).filter(function (t) { return !have[t]; }).reduce(function (p, t) { return p.then(function () { return A.write(PLAN_TABLES[t]); }); }, Promise.resolve());
+        }).catch(function (e) { planReady = null; throw e; });
+        return planReady;
+    };
+    var clobOf = function (s) { var parts = []; for (var j = 0; j < s.length; j += 1000) parts.push('TO_CLOB(' + lit(s.slice(j, j + 1000)) + ')'); return parts.join(' || ') || 'EMPTY_CLOB()'; };
+    /** Every version in APEX (no lines): [{id, name, kind, year, ledger, currency, status, rev, lines, revenue, profit, changedAt, changedBy, …}] */
+    A.planList = function () {
+        return A.planEnsure().then(function () {
+            return A.read("SELECT version_id, name, kind, fiscal_year, ledger_code, currency, status, rev, actual_through, lines_count, total_revenue, total_profit, created_by, " +
+                "TO_CHAR(changed_at, 'YYYY-MM-DD HH24:MI') changed_on, changed_by, submitted_by, TO_CHAR(submitted_at, 'YYYY-MM-DD HH24:MI') submitted_on, approved_by, " +
+                "TO_CHAR(approved_at, 'YYYY-MM-DD HH24:MI') approved_on FROM wms_fin_plan_versions ORDER BY fiscal_year DESC, changed_at DESC", 1000);
+        }).then(function (rows) {
+            return rows.map(function (r) {
+                return { id: r.VERSION_ID, name: r.NAME, kind: r.KIND, year: +r.FISCAL_YEAR, ledger: r.LEDGER_CODE, currency: r.CURRENCY, status: r.STATUS, rev: +r.REV || 0,
+                    actualThrough: r.ACTUAL_THROUGH ? +r.ACTUAL_THROUGH : null, lines: +r.LINES_COUNT || 0, revenue: +r.TOTAL_REVENUE || 0, profit: +r.TOTAL_PROFIT || 0, createdBy: r.CREATED_BY,
+                    changedAt: r.CHANGED_ON, changedBy: r.CHANGED_BY, submittedBy: r.SUBMITTED_BY, submittedAt: r.SUBMITTED_ON, approvedBy: r.APPROVED_BY, approvedAt: r.APPROVED_ON, where: 'APEX' };
+            });
+        });
+    };
+    /** One version with its lines (the JSON part read back in 4,000-character pieces) */
+    A.planLoad = function (id) {
+        return A.planEnsure().then(function () {
+            return A.read('SELECT LENGTH(meta_json) json_len, rev FROM wms_fin_plan_versions WHERE version_id = ' + lit(id), 1);
+        }).then(function (r) {
+            if (!r.length) return null;
+            var len = +r[0].JSON_LEN || 0, cols = [];
+            for (var i = 1; i <= len; i += 4000) cols.push('TO_CHAR(SUBSTR(meta_json, ' + i + ', 4000)) p' + cols.length);
+            var groups = []; for (var g = 0; g < cols.length; g += 20) groups.push(cols.slice(g, g + 20));
+            return Promise.all(groups.map(function (gr) { return A.read('SELECT ' + gr.join(', ') + ' FROM wms_fin_plan_versions WHERE version_id = ' + lit(id), 1); })).then(function (parts) {
+                var s = ''; parts.forEach(function (rows, gi) { groups[gi].forEach(function (_, j) { s += (rows[0] || {})['P' + (gi * 20 + j)] || ''; }); });
+                var v = JSON.parse(s || '{}'); v.rev = +r[0].REV || v.rev || 0;
+                return A.read('SELECT company, cost_centre, account, method, rule_json, adj, note, amounts FROM wms_fin_plan_lines WHERE version_id = ' + lit(id) + ' ORDER BY line_no', 200000).then(function (ls) {
+                    v.lines = ls.map(function (l) {
+                        var rule = null; try { rule = l.RULE_JSON ? JSON.parse(l.RULE_JSON) : null; } catch (e) { rule = null; }
+                        var m = []; try { m = JSON.parse(l.AMOUNTS || '[]'); } catch (e) { m = []; }
+                        return { company: l.COMPANY || '', cc: l.COST_CENTRE === '-' ? '' : l.COST_CENTRE || '', account: l.ACCOUNT, rule: rule || { method: l.METHOD || 'manual' }, adj: l.ADJ == null ? 1 : +l.ADJ, note: l.NOTE || '', m: m };
+                    });
+                    return v;
+                });
+            });
+        });
+    };
+    A.planRev = function (id) {
+        return A.planEnsure().then(function () { return A.read('SELECT rev FROM wms_fin_plan_versions WHERE version_id = ' + lit(id), 1); }).then(function (r) { return r.length ? +r[0].REV || 0 : null; });
+    };
+    /** Saves a whole version (replaces its lines). sums = {revenue, profit}. onStep(done, total) */
+    A.planSave = function (v, sums, onStep) {
+        var by = (FL.who || {}).user || appUser() || 'WMS', id = v.id, meta = {};
+        Object.keys(v).forEach(function (k) { if (k !== 'lines') meta[k] = v[k]; });
+        var json = JSON.stringify(meta), pieces = []; for (var i = 0; i < json.length; i += 20000) pieces.push(json.slice(i, i + 20000));
+        var d = function (s) { return s ? "TO_DATE(" + lit(String(s).replace('T', ' ').slice(0, 16)) + ", 'YYYY-MM-DD HH24:MI')" : 'NULL'; };
+        var setCols = 'name = ' + lit(cut(v.name, 200)) + ', kind = ' + lit(v.kind) + ', fiscal_year = ' + num(v.year) + ', ledger_code = ' + lit(cut(v.ledger, 100)) + ', currency = ' + lit(v.currency) +
+            ', status = ' + lit(v.status || 'DRAFT') + ', rev = ' + num(v.rev || 0) + ', actual_through = ' + num(v.actualThrough) + ', lines_count = ' + num(v.lines.length) + ', total_revenue = ' + num(sums.revenue) +
+            ', total_profit = ' + num(sums.profit) + ', changed_by = ' + lit(by) + ', changed_at = SYSDATE, submitted_by = ' + lit(v.submittedBy) + ', submitted_at = ' + d(v.submittedAt) +
+            ', approved_by = ' + lit(v.approvedBy) + ', approved_at = ' + d(v.approvedAt);
+        var step = function (p, sql) { return p.then(function () { return A.write(sql); }); };
+        return A.planEnsure().then(function () {
+            var p = Promise.resolve(), total = Math.ceil(v.lines.length / 40) + pieces.length + 2, done = 0, tick = function () { done++; if (onStep) onStep(done, total); };
+            p = step(p, 'MERGE INTO wms_fin_plan_versions t USING (SELECT ' + lit(id) + ' version_id FROM dual) s ON (t.version_id = s.version_id) ' +
+                'WHEN NOT MATCHED THEN INSERT (version_id, created_by, created_at) VALUES (' + lit(id) + ', ' + lit(v.owner || by) + ', SYSDATE)').then(tick);
+            // the MERGE adds the row when it is new; the columns and the JSON are set here
+            p = step(p, 'UPDATE wms_fin_plan_versions SET ' + setCols + ', meta_json = ' + clobOf(pieces[0] || '') + ' WHERE version_id = ' + lit(id)).then(tick);
+            pieces.slice(1).forEach(function (pc) { p = step(p, 'UPDATE wms_fin_plan_versions SET meta_json = meta_json || ' + clobOf(pc) + ' WHERE version_id = ' + lit(id)).then(tick); });
+            p = step(p, 'DELETE FROM wms_fin_plan_lines WHERE version_id = ' + lit(id));
+            for (var k = 0; k < v.lines.length; k += 40) {
+                (function (chunk, at) {
+                    p = step(p, 'INSERT INTO wms_fin_plan_lines (version_id, line_no, company, cost_centre, account, method, rule_json, adj, note, total, amounts) ' +
+                        chunk.map(function (l, j) {
+                            var m = (l.m || []).map(function (x) { return Math.round((+x || 0) * 100) / 100; }), tot = m.reduce(function (a, b) { return a + b; }, 0);
+                            return 'SELECT ' + [lit(id), num(at + j + 1), lit(cut(l.company, 150)), lit(cut(l.cc || '-', 150)), lit(cut(l.account, 150)), lit(cut((l.rule || {}).method || 'manual', 30)),
+                                lit(cut(JSON.stringify(l.rule || { method: 'manual' }), 2000)), num(l.adj == null ? 1 : l.adj), lit(cut(l.note, 1000)), num(tot), lit(cut(JSON.stringify(m), 4000))].join(', ') + ' FROM dual';
+                        }).join(' UNION ALL ')).then(tick);
+                })(v.lines.slice(k, k + 40), k);
+            }
+            return p;
+        });
+    };
+    A.planDelete = function (id) {
+        return A.planEnsure().then(function () { return A.write('DELETE FROM wms_fin_plan_lines WHERE version_id = ' + lit(id)); })
+            .then(function () { return A.write('DELETE FROM wms_fin_plan_versions WHERE version_id = ' + lit(id)); });
+    };
+    /** ev = {event, from, to, rev, note} */
+    A.planEvent = function (id, ev) {
+        var by = (FL.who || {}).user || appUser() || 'WMS';
+        return A.planEnsure().then(function () {
+            return A.write('INSERT INTO wms_fin_plan_events (version_id, event_at, event_by, event, status_from, status_to, rev, note) VALUES (' +
+                [lit(id), 'SYSDATE', lit(by), lit(cut(ev.event, 30)), lit(ev.from), lit(ev.to), num(ev.rev), lit(cut(ev.note, 2000))].join(', ') + ')');
+        });
+    };
+    A.planEvents = function (id) {
+        return A.planEnsure().then(function () {
+            return A.read("SELECT TO_CHAR(event_at, 'YYYY-MM-DD HH24:MI') at_text, event_by, event, status_from, status_to, rev, note FROM wms_fin_plan_events WHERE version_id = " + lit(id) + ' ORDER BY event_at DESC', 500);
+        }).then(function (rows) { return rows.map(function (r) { return { at: r.AT_TEXT, by: r.EVENT_BY, event: r.EVENT, from: r.STATUS_FROM, to: r.STATUS_TO, rev: r.REV, note: r.NOTE }; }); });
+    };
 })();

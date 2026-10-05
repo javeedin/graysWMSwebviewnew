@@ -22,7 +22,7 @@ namespace WMSApp
     /// Statement templates, KPIs and monitors are JSON documents next to it (templates.json, config.json).
     /// Folder: %APPDATA%\GraysWMS\Finance\settings.json "root", default C:\fusion\finance.
     /// </summary>
-    public static class FinanceLens
+    public static partial class FinanceLens
     {
         private static readonly object _lock = new object();
         private static DuckDBConnection _session;
@@ -1223,11 +1223,11 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             {
                 Exec(conn, SEGVAL_TABLE); Exec(conn, TB_TABLE); Exec(conn, RAW_SYNC_TABLE); Exec(conn, CCID_TABLE); Exec(conn, ACCT_SYNC_TABLE); Exec(conn, TBP_TABLE); Exec(conn, TBL_TABLE);
                 Exec(conn, WC_PARTIES_TABLE); Exec(conn, WC_STOCK_TABLE); Exec(conn, WC_SNAP_TABLE); Exec(conn, EXT_TABLE); Exec(conn, EXT_SYNC_TABLE); Exec(conn, EXT_ACCT_TABLE); Exec(conn, CCID_SYNC_TABLE); Exec(conn, CCB_TABLE); Exec(conn, CCB_SYNC_TABLE);
-                Exec(conn, WC_NAMES_TABLE); Exec(conn, ITEMS_TABLE); Exec(conn, ITEM_DFF_TABLE);
+                Exec(conn, WC_NAMES_TABLE); Exec(conn, ITEMS_TABLE); Exec(conn, ITEM_DFF_TABLE); EnsurePlanTables(conn);
                 Exec(conn, "ATTACH " + Lit(DbPath.Replace('\\', '/')) + " AS prev (READ_ONLY)");
                 try
                 {
-                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances", "fin_gl_balances_acct_sync", "fin_gl_balances_acct", "fin_tb_periods", "fin_tb_ledgers", "fin_wc_parties", "fin_wc_stock", "fin_wc_snapshots", "fin_gl_balances_ext", "fin_gl_balances_ext_sync", "fin_gl_ext_acct_status", "fin_ccid_sync", "fin_gl_ccid_bal", "fin_gl_ccid_bal_sync", "fin_wc_names", "fin_items", "fin_item_dff", "fin_wc_history" })
+                    foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances", "fin_gl_balances_acct_sync", "fin_gl_balances_acct", "fin_tb_periods", "fin_tb_ledgers", "fin_wc_parties", "fin_wc_stock", "fin_wc_snapshots", "fin_gl_balances_ext", "fin_gl_balances_ext_sync", "fin_gl_ext_acct_status", "fin_ccid_sync", "fin_gl_ccid_bal", "fin_gl_ccid_bal_sync", "fin_wc_names", "fin_items", "fin_item_dff", "fin_wc_history", "fin_plan_versions", "fin_plan_lines", "fin_plan_amounts" })
                     {
                         using var c = conn.CreateCommand();
                         c.CommandText = "SELECT COUNT(*) FROM information_schema.tables WHERE table_catalog = 'prev' AND table_name = '" + t + "'";

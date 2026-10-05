@@ -380,6 +380,23 @@ namespace WMSApp
                             data = await FinanceWorkingCapital.CostTablesAsync(FinRunner(PipeSrvStr(root, "pod")), cts.Token);
                             break;
                         }
+                    case "finPlanSave":         // Planning: one version (header, lines, monthly amounts) → DuckDB fin_plan_* (the page also saves it in APEX)
+                        {
+                            int n = await Task.Run(() => FinanceLens.SavePlan(root, user));
+                            string ev = PipeSrvStr(root, "event");
+                            if (!string.IsNullOrEmpty(ev))
+                                AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_plan_" + ev, Outcome = "OK",
+                                    Target = root.TryGetProperty("version", out var pv) ? (pv.TryGetProperty("name", out var pn) ? pn.GetString() : "") : "" });
+                            data = new { ok = true, lines = n };
+                            break;
+                        }
+                    case "finPlanDelete":
+                        await Task.Run(() => FinanceLens.DeletePlan(PipeSrvStr(root, "id")));
+                        data = new { ok = true };
+                        break;
+                    case "finPlanList":
+                        data = new { ok = true, versions = await Task.Run(() => FinanceLens.PlanList()) };
+                        break;
                     case "finTbSave":           // keep a live trial balance in DuckDB (fin_tb_live)
                         data = new { ok = true, rows = await Task.Run(() => FinanceLens.SaveTb(root, user)) };
                         break;
