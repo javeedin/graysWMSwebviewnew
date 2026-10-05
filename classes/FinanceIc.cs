@@ -34,6 +34,7 @@ namespace WMSApp
         {
             public string Id { get; set; } public string Name { get; set; }
             public string Company { get; set; } public string Account { get; set; } public string Ic { get; set; }
+            public string CoaId { get; set; }
         }
         public sealed class Options
         {
@@ -101,12 +102,12 @@ namespace WMSApp
             return "(" + string.Join(" OR ", parts) + ")";
         }
         /// <summary>Lines that are intercompany in the GL: an intercompany account, a counterparty in the intercompany segment, or the category / source.</summary>
-        public static string GlFilter(LedgerSeg led, Options o, bool withHeader)
+        public static string GlFilter(LedgerSeg led, Options o, bool withHeader, string c = "c")
         {
             var parts = new List<string>();
             string ic = Seg(led.Ic), ac = Seg(led.Account);
-            if (ic != null) parts.Add("LTRIM(NVL(c." + ic + ", '0'), '0') IS NOT NULL AND UPPER(c." + ic + ") NOT IN ('T', 'NONE', 'NA', 'N/A', 'DEFAULT')");
-            if (ac != null) { var l = InList("c." + ac, o.IcAccounts ?? new()); if (l != null) parts.Add(l); }
+            if (ic != null) parts.Add("LTRIM(NVL(" + c + "." + ic + ", '0'), '0') IS NOT NULL AND UPPER(" + c + "." + ic + ") NOT IN ('T', 'NONE', 'NA', 'N/A', 'DEFAULT')");
+            if (ac != null) { var l = InList(c + "." + ac, o.IcAccounts ?? new()); if (l != null) parts.Add(l); }
             if (withHeader && o.UseCategory) parts.Add("UPPER(h.JE_CATEGORY) LIKE '%INTERCO%' OR UPPER(h.JE_SOURCE) LIKE '%INTERCO%'");
             return parts.Count == 0 ? null : "(" + string.Join(" OR ", parts.Select(p => "(" + p + ")")) + ")";
         }
@@ -199,20 +200,39 @@ namespace WMSApp
                     }
                 case "GL":
                     {
+                        // Only intercompany lines, read the cheap way round:
+                        //  A = the chart's intercompany code combinations (segment / accounts) → their lines of the ledger's period(s) of the month
+                        //      (GL_JE_LINES by CODE_COMBINATION_ID + PERIOD_NAME, indexed) → the header for posted actuals;
+                        //  B = (when "category / source" is on) lines of journals whose category or source says Intercompany that are NOT already in A.
+                        // Never GL_JE_LINES.EFFECTIVE_DATE (no index: it scanned every line of the ledger) and never a function per line of the month.
                         if (led == null) break;
                         string co = Seg(led.Company), ac = Seg(led.Account), ic = Seg(led.Ic);
                         if (co == null || ac == null) break;
-                        string f = GlFilter(led, o, true); if (f == null) break;
                         string lid = Regex.IsMatch(led.Id ?? "", "^[0-9]+$") ? led.Id : "0";
-                        string sel = "SELECT TO_CHAR(l.JE_HEADER_ID) || '-' || TO_CHAR(l.JE_LINE_NUM) AS SRC_ID, h.NAME AS DOC_NUMBER, l.JE_LINE_NUM AS LINE_NUM, h.JE_CATEGORY AS DOC_TYPE, " +
-                            "TO_CHAR(h.DEFAULT_EFFECTIVE_DATE, 'YYYY-MM-DD') AS DOC_DATE, TO_CHAR(l.EFFECTIVE_DATE, 'YYYY-MM-DD') AS GL_DATE, h.STATUS AS STATUS, c." + co + " AS FROM_COMPANY, " +
+                        string coa = Regex.IsMatch(led.CoaId ?? "", "^[0-9]+$") ? led.CoaId : null;
+                        string periods = "(SELECT ps.PERIOD_NAME FROM GL_PERIOD_STATUSES ps WHERE ps.APPLICATION_ID = 101 AND ps.LEDGER_ID = " + lid +
+                            " AND ps.START_DATE >= " + from + " AND ps.START_DATE < " + to + " AND NVL(ps.ADJUSTMENT_PERIOD_FLAG, 'N') = 'N')";
+                        string cols = "l.JE_HEADER_ID AS K1, l.JE_LINE_NUM AS K2, TO_CHAR(l.JE_HEADER_ID) || '-' || TO_CHAR(l.JE_LINE_NUM) AS SRC_ID, h.NAME AS DOC_NUMBER, l.JE_LINE_NUM AS LINE_NUM, h.JE_CATEGORY AS DOC_TYPE, " +
+                            "TO_CHAR(h.DEFAULT_EFFECTIVE_DATE, 'YYYY-MM-DD') AS DOC_DATE, TO_CHAR(NVL(l.EFFECTIVE_DATE, h.DEFAULT_EFFECTIVE_DATE), 'YYYY-MM-DD') AS GL_DATE, h.STATUS AS STATUS, c." + co + " AS FROM_COMPANY, " +
                             (ic != null ? "c." + ic : "NULL") + " AS TO_COMPANY, h.CURRENCY_CODE AS CURRENCY, NVL(l.ENTERED_DR, 0) - NVL(l.ENTERED_CR, 0) AS AMOUNT_ENTERED, " +
-                            "NVL(l.ACCOUNTED_DR, 0) - NVL(l.ACCOUNTED_CR, 0) AS AMOUNT, c." + ac + " AS ACCOUNT, h.JE_SOURCE AS REFERENCE, l.PERIOD_NAME AS REF2, NVL(l.DESCRIPTION, h.DESCRIPTION) AS DESCRIPTION, TO_CHAR(h.LEDGER_ID) AS LEDGER_ID " +
-                            "FROM GL_JE_HEADERS h JOIN GL_JE_LINES l ON l.JE_HEADER_ID = h.JE_HEADER_ID JOIN GL_CODE_COMBINATIONS c ON c.CODE_COMBINATION_ID = l.CODE_COMBINATION_ID " +
-                            "WHERE h.LEDGER_ID = " + lid + " AND h.ACTUAL_FLAG = 'A' AND h.STATUS = 'P' AND l.EFFECTIVE_DATE >= " + from + " AND l.EFFECTIVE_DATE < " + to + " AND ";
-                        list.Add(("posted journal lines", sel + f));
-                        var f2 = GlFilter(led, new Options { IcAccounts = o.IcAccounts, UseCategory = false }, false);
-                        if (f2 != null && f2 != f) list.Add(("posted journal lines (accounts / segment only)", sel + f2));
+                            "NVL(l.ACCOUNTED_DR, 0) - NVL(l.ACCOUNTED_CR, 0) AS AMOUNT, c." + ac + " AS ACCOUNT, h.JE_SOURCE AS REFERENCE, h.PERIOD_NAME AS REF2, NVL(l.DESCRIPTION, h.DESCRIPTION) AS DESCRIPTION, TO_CHAR(h.LEDGER_ID) AS LEDGER_ID";
+                        string segF = GlFilter(led, new Options { IcAccounts = o.IcAccounts, UseCategory = false }, false, "c");
+                        string cat = "(UPPER(h.JE_CATEGORY) LIKE '%INTERCO%' OR UPPER(h.JE_SOURCE) LIKE '%INTERCO%')";
+                        string posted = " AND h.ACTUAL_FLAG = 'A' AND h.STATUS = 'P'";
+                        string partB = "SELECT /*+ LEADING(h) USE_NL(l c) */ " + cols + " FROM GL_JE_HEADERS h JOIN GL_JE_LINES l ON l.JE_HEADER_ID = h.JE_HEADER_ID JOIN GL_CODE_COMBINATIONS c ON c.CODE_COMBINATION_ID = l.CODE_COMBINATION_ID " +
+                            "WHERE h.LEDGER_ID = " + lid + " AND h.PERIOD_NAME IN " + periods + posted + " AND " + cat;
+                        if (segF != null)
+                        {
+                            string partA = "SELECT /*+ LEADING(c l h) USE_NL(l h) */ " + cols + " FROM GL_CODE_COMBINATIONS c JOIN GL_JE_LINES l ON l.CODE_COMBINATION_ID = c.CODE_COMBINATION_ID JOIN GL_JE_HEADERS h ON h.JE_HEADER_ID = l.JE_HEADER_ID " +
+                                "WHERE " + (coa != null ? "c.CHART_OF_ACCOUNTS_ID = " + coa + " AND " : "") + "NVL(c.SUMMARY_FLAG, 'N') = 'N' AND " + segF +
+                                " AND l.LEDGER_ID = " + lid + " AND l.PERIOD_NAME IN " + periods + posted;
+                            string notA = " AND (CASE WHEN " + segF + " THEN 1 ELSE 0 END) = 0";
+                            if (o.UseCategory) list.Add(("intercompany code combinations + journals in an intercompany category / source", partA + " UNION ALL " + partB + notA));
+                            list.Add(("intercompany code combinations", partA));
+                            // a pod whose GL_JE_LINES has no LEDGER_ID / PERIOD_NAME: the header gives them
+                            list.Add(("intercompany code combinations (period from the header)", partA.Replace(" AND l.LEDGER_ID = " + lid + " AND l.PERIOD_NAME IN " + periods, " AND h.LEDGER_ID = " + lid + " AND h.PERIOD_NAME IN " + periods)));
+                        }
+                        if (o.UseCategory) list.Add(("journals in an intercompany category / source only", partB));
                         break;
                     }
                 case "BAL":
@@ -246,10 +266,15 @@ namespace WMSApp
             var all = new List<Dictionary<string, object>>();
             int size = Math.Clamp(o.PageSize <= 0 ? 5000 : o.PageSize, 200, 50000), page = 0, tries = 0;
             long done = 0;
+            // GL: keyset pages on (JE_HEADER_ID, JE_LINE_NUM) — each page starts where the last one ended (no ROW_NUMBER over the whole month every page)
+            bool keyset = kind == "GL" && Regex.IsMatch(sql, @"\bAS K1\b") && Regex.IsMatch(sql, @"\bAS K2\b");
+            object k1 = null, k2 = null;
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
-                string pq = "SELECT * FROM (SELECT q.*, ROW_NUMBER() OVER (ORDER BY " + OrderKey(kind) + ") AS RN__ FROM (" + sql + ") q) WHERE RN__ > " + done + " AND RN__ <= " + (done + size);
+                string pq = keyset
+                    ? "SELECT * FROM (SELECT q.* FROM (" + sql + ") q" + (k1 == null ? "" : " WHERE (q.K1 > " + Num(k1) + " OR (q.K1 = " + Num(k1) + " AND q.K2 > " + Num(k2) + "))") + " ORDER BY q.K1, q.K2) WHERE ROWNUM <= " + size
+                    : "SELECT * FROM (SELECT q.*, ROW_NUMBER() OVER (ORDER BY " + OrderKey(kind) + ") AS RN__ FROM (" + sql + ") q) WHERE RN__ > " + done + " AND RN__ <= " + (done + size);
                 string id = "ic_" + Guid.NewGuid().ToString("N").Substring(0, 8);
                 progress?.Invoke("\u0001" + JsonSerializer.Serialize(new { t = "sql", id, what = what + (page > 0 ? " · page " + (page + 1) : ""), sql = pq }));
                 var sw = Stopwatch.StartNew();
@@ -265,8 +290,9 @@ namespace WMSApp
                 }
                 tries = 0;
                 if (page == 0 && r.Rows.Count > 0)
-                    progress?.Invoke("\u0001" + JsonSerializer.Serialize(new { t = "sample", id, what, columns = r.Rows[0].Keys.Where(k => k != "RN__").ToList(), rows = r.Rows.Take(5).Select(x => x.Where(kv => kv.Key != "RN__").Select(kv => kv.Value).ToList()).ToList() }));
-                foreach (var row in r.Rows) { row.Remove("RN__"); all.Add(row); }
+                    progress?.Invoke("\u0001" + JsonSerializer.Serialize(new { t = "sample", id, what, columns = r.Rows[0].Keys.Where(k => k != "RN__" && k != "K1" && k != "K2").ToList(), rows = r.Rows.Take(5).Select(x => x.Where(kv => kv.Key != "RN__" && kv.Key != "K1" && kv.Key != "K2").Select(kv => kv.Value).ToList()).ToList() }));
+                if (keyset && r.Rows.Count > 0) { var lr = r.Rows[^1]; k1 = Get(lr, "K1"); k2 = Get(lr, "K2"); }
+                foreach (var row in r.Rows) { row.Remove("RN__"); row.Remove("K1"); row.Remove("K2"); all.Add(row); }
                 done += r.Rows.Count; page++;
                 if (r.Rows.Count < size) return (true, null, all, false);
                 progress?.Invoke("   " + what + " · " + done.ToString("N0", CultureInfo.InvariantCulture) + " rows so far");
@@ -274,6 +300,7 @@ namespace WMSApp
             }
         }
 
+        private static string Num(object v) { var t = Convert.ToString(v, CultureInfo.InvariantCulture) ?? "0"; return Regex.IsMatch(t, @"^-?[0-9]+(\.[0-9]+)?$") ? t : "0"; }
         private static object Get(Dictionary<string, object> row, string col)
         {
             if (row.TryGetValue(col, out var v)) return v;

@@ -66,7 +66,7 @@
     IC.icAccounts = function () { var c = IC.cfg(); return c.icAccounts.length ? c.icAccounts : IC.classed(); };
     IC.options = function (months, kinds) {
         var c = IC.cfg();
-        return { pod: S.pod || '', months: months, kinds: kinds, ledgers: IC.ledgers().map(function (l) { return { id: l.id, name: l.name, company: l.company, account: l.account, ic: l.ic }; }),
+        return { pod: S.pod || '', months: months, kinds: kinds, ledgers: IC.ledgers().map(function (l) { return { id: l.id, name: l.name, company: l.company, account: l.account, ic: l.ic, coaId: l.coaId }; }),
             icAccounts: IC.icAccounts(), icCustomers: c.customers, icSuppliers: c.suppliers, crossLeOnly: c.crossLe, useCategory: c.useCategory, pageSize: c.pageSize, queries: c.queries };
     };
 
@@ -217,7 +217,8 @@
         if (IC.live) { FL.toast('An intercompany sync is already running', 'info'); return Promise.resolve(); }
         if (!plan.length && !withEnt) { FL.toast('Nothing to sync — every month asked is on this PC', 'info'); return Promise.resolve(); }
         var cfg = IC.cfg(), log = FL.fusion.progress('Inter company sync' + (label ? ' · ' + label : '') + '…', 'finIcSync');
-        IC.live = { cur: null, queue: {} };
+        IC.live = { cur: null, queue: {}, q: null, last: null };
+        clearInterval(IC.nowTick); IC.nowTick = setInterval(IC.paintNow, 1000);
         plan.forEach(function (p) { p.kinds.forEach(function (k) { IC.live.queue[k + '|' + p.month] = 1; }); });
         if (withEnt) IC.live.queue['ENT|0'] = 1;
         IC.paintBoard();
@@ -228,6 +229,7 @@
             var mo = p.month ? [p.month] : [];
             return FL.call('finIcSync', { options: IC.options(mo, kinds) }, 3.1 * 3600000, function (m) {
                 log(m);
+                if (String(m || '').charAt(0) === '\u0001') { try { IC.track(JSON.parse(m.slice(1))); } catch (e) { /* not an event */ } }
                 var mm = /^\[\d+\/\d+\] ▶ ([^·]+?)(?: · (\d{4})-(\d{2}))?(?: · |$)/.exec(String(m || ''));
                 if (mm) {
                     var kk = Object.keys(HOST_LABEL).filter(function (h) { return mm[1].indexOf(h) === 0; })[0];
@@ -243,7 +245,7 @@
         var chain = steps.reduce(function (pr, p, i) { return pr.then(function () { if (!stopped) return one(p, i).catch(function (e) { stopped = String(e && e.message || e); }); }); }, Promise.resolve());
         return chain.then(function () {
             FL.fusion.finish(stopped);
-            IC.live = null;
+            IC.live = null; clearInterval(IC.nowTick); IC.paintNow();
             var uniq = {}; copied = copied.filter(function (c) { var k = c.kind + '|' + c.month; if (uniq[k]) return false; uniq[k] = 1; return true; });
             if (failed.length) FL.toast(failed.length + ' read(s) failed — ' + failed[0], 'err'); else if (!stopped) FL.toast('Intercompany data synced', 'ok');
             if (stopped) FL.toast(stopped, 'err');
@@ -252,6 +254,62 @@
             IC.paintBoard();
             if (cfg.apex && copied.length) return A.copyMany(copied).then(function () { IC.paintBoard(); IC.md(); });
             IC.md();
+        });
+    };
+    /** Live: which Fusion query runs now (from the host's sql / end events) */
+    IC.track = function (ev) {
+        var L = IC.live; if (!L) return;
+        if (ev.t === 'sql') L.q = { id: ev.id, what: ev.what, sql: ev.sql, t0: Date.now() };
+        else if (ev.t === 'end' && L.q && L.q.id === ev.id) { L.last = IC.lastQ = { what: L.q.what, sql: L.q.sql, ms: ev.ms, rows: ev.rows, error: ev.error }; L.q = null; }
+        IC.paintNow();
+    };
+    IC.paintNow = function () {
+        var box = $('ic-now'); if (!box) return;
+        var L = IC.live, q = L && L.q, last = (L && L.last) || IC.lastQ;
+        if (!q && !last) { box.innerHTML = ''; return; }
+        var open = box.querySelector('details') && box.querySelector('details').open;
+        var it = q || last, secs = q ? Math.round((Date.now() - q.t0) / 1000) : Math.round((last.ms || 0) / 1000);
+        box.innerHTML = '<div class="callout ' + (q ? '' : last.error ? 'bad' : 'good') + ' ic-now"><b>' + (q ? '<span class="ts-spin">⟳</span> Asking Fusion now' : last.error ? '⚠ Last query failed' : '✓ Last query') + '</b> · ' + esc(it.what) +
+            ' · <b>' + secs + ' s</b>' + (q ? '' : ' · ' + (last.rows || 0).toLocaleString() + ' rows') + (last && last.error && !q ? '<div class="sm">' + esc(String(last.error).slice(0, 300)) + '</div>' : '') +
+            '<details' + (open ? ' open' : '') + '><summary class="sm">SQL sent to Fusion</summary><pre class="ic-sql">' + esc(it.sql) + '</pre><button class="btn sm" id="ic-nowcp">Copy</button></details></div>';
+        if ($('ic-nowcp')) $('ic-nowcp').onclick = function () { try { navigator.clipboard.writeText(it.sql); FL.toast('Copied', 'ok'); } catch (e) { /* no clipboard */ } };
+    };
+    /** The SQL of one month × kind: what ran last time (rr_ic_sync, per ledger) and what the next sync sends, with Count rows / Test / Copy */
+    IC.sqlDialog = function (kind, month) {
+        var leds = kind === 'GL' || kind === 'BAL' ? IC.ledgers() : [null];
+        FL.modal('<i class="fa-solid fa-code"></i> ' + esc((KN[kind] || [kind, kind])[1]) + ' · ' + mname(month) + ' — SQL', '<div id="ic-sqd"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div>');
+        var ran = FL.rows('SELECT scope, ok, rows_read, ms, alt, error, sql, CAST(fetched_at AS VARCHAR) AS at FROM rr_ic_sync WHERE pod = ' + q(S.pod || '') + ' AND kind = ' + q(kind) + ' AND month = ' + (+month)).catch(function () { return []; });
+        var next = Promise.all(leds.map(function (l) {
+            return FL.call('finIcSql', { kind: kind, month: month, ledger: l ? l.id : null, options: IC.options([month], [kind]) }).then(function (r) { return { led: l, alts: r.alternatives || [] }; }).catch(function (e) { return { led: l, alts: [], error: String(e) }; });
+        }));
+        Promise.all([ran, next]).then(function (rr) {
+            var box = $('ic-sqd'); if (!box) return;
+            var blocks = [], all = [];
+            var blk = function (title, sql, meta) { var i = all.length; all.push(sql); return '<div class="card"><div class="row"><b>' + title + '</b><span class="grow"></span>' +
+                '<button class="btn sm" data-cnt="' + i + '" title="SELECT COUNT(*) FROM (this query) in Fusion — how big it is">Count rows</button> <button class="btn sm" data-run="' + i + '">▶ Test (first 50 rows)</button> <button class="btn sm" data-cp="' + i + '">Copy</button></div>' +
+                (meta ? '<div class="sm muted">' + meta + '</div>' : '') + '<pre class="ic-sql">' + esc(sql) + '</pre><div data-out="' + i + '"></div></div>'; };
+            rr[0].forEach(function (x) {
+                if (!x.sql) return;
+                blocks.push(blk('Ran last time' + (x.scope !== '*' ? ' · ledger ' + esc(x.scope) : ''), x.sql, (x.ok ? '✓ ' + (+x.rows_read || 0).toLocaleString() + ' rows' : '⚠ failed: ' + esc(String(x.error || '').slice(0, 200))) +
+                    (x.ms ? ' · ' + Math.round(x.ms / 1000) + ' s' : '') + ' · ' + esc(x.alt || '') + ' · ' + esc(String(x.at || '').slice(0, 16))));
+            });
+            rr[1].forEach(function (n) {
+                if (n.error) { blocks.push('<div class="callout bad">' + esc(n.error) + '</div>'); return; }
+                n.alts.forEach(function (a, i) { blocks.push(blk((i === 0 ? 'Next sync sends' : 'Fallback ' + i) + (n.led ? ' · ' + esc(n.led.name) : ''), a.sql, esc(a.label) + (i > 0 ? ' — used only when the one before fails' : ''))); });
+                if (!n.alts.length) blocks.push('<div class="callout warn">No query: ' + (kind === 'GL' || kind === 'BAL' ? 'nothing marks a line as intercompany in this ledger — choose the intercompany segment or accounts in Settings.' : 'none') + '</div>');
+            });
+            box.innerHTML = '<p class="sm muted">The sync wraps each query in pages (' + (kind === 'GL' ? 'keyset on JE_HEADER_ID, JE_LINE_NUM — each page starts after the last line read' : 'ROW_NUMBER over the key') + ', ' + IC.cfg().pageSize.toLocaleString() + ' rows per page).</p>' + blocks.join('');
+            box.querySelectorAll('[data-cp]').forEach(function (b) { b.onclick = function () { try { navigator.clipboard.writeText(all[+b.dataset.cp]); FL.toast('Copied', 'ok'); } catch (e) { /* no clipboard */ } }; });
+            var go = function (b, sql, count) {
+                var out = box.querySelector('[data-out="' + b.dataset.cnt + '"],[data-out="' + b.dataset.run + '"]'); out.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> asking Fusion…'; var t0 = Date.now();
+                FL.call('finFusionRun', { pod: S.pod || '', sql: count ? 'SELECT COUNT(*) AS N FROM (' + sql + ')' : sql }, 600000).then(function (x) {
+                    var s2 = ((Date.now() - t0) / 1000).toFixed(1) + ' s';
+                    out.innerHTML = !x.ok ? '<div class="callout bad sm">' + esc(x.error) + ' · ' + s2 + '</div>' : count ? '<p class="pos"><b>' + Number((x.sample[0] || [])[0] || 0).toLocaleString() + '</b> row(s) · ' + s2 + '</p>'
+                        : '<p class="sm pos">' + x.rows + ' row(s) in ' + s2 + '</p><div class="scroll" style="max-height:260px">' + FL.table(x.columns.map(function (c, i) { return { label: c, get: function (row) { return row[i]; } }; }), x.sample) + '</div>';
+                }).catch(function (e) { out.innerHTML = '<div class="callout bad sm">' + esc(e) + '</div>'; });
+            };
+            box.querySelectorAll('[data-cnt]').forEach(function (b) { b.onclick = function () { go(b, all[+b.dataset.cnt], true); }; });
+            box.querySelectorAll('[data-run]').forEach(function (b) { b.onclick = function () { go(b, all[+b.dataset.run], false); }; });
         });
     };
     IC.remove = function (months, kinds) {
@@ -308,7 +366,7 @@
     IC.viewSync = function (body) {
         body.innerHTML = '<div class="card"><h3><i class="fa-solid fa-list-check"></i> Inter company checklist</h3><div id="ic-md"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div></div>' +
             '<div class="card"><div class="row"><h3 style="margin:0"><i class="fa-solid fa-calendar-days"></i> ' + S.year + ' by month</h3><span class="grow"></span><span id="ic-bacts"></span></div>' +
-            '<div id="ic-board" class="scroll"></div>' +
+            '<div id="ic-now"></div><div id="ic-board" class="scroll"></div>' +
             '<details class="ts-det"' + (FL.ls('ic.det', false) ? ' open' : '') + ' id="ic-det"><summary class="sm"><i class="fa-solid fa-list-check"></i> Details — every query, its SQL, sample rows and the log</summary><div id="fu-prog"></div></details></div>';
         $('ic-det').ontoggle = function () { FL.lsSet('ic.det', this.open); };
         if (FL.fusion.run) FL.fusion.paint();
@@ -328,7 +386,8 @@
                 var st = IC.stateOf(k, m), c = (IC.cells || {})[k + '|' + m];
                 var line = st === 'done' ? (c.rows || 0).toLocaleString() + ' rows' : st === 'part' ? c.ok + ' of ' + c.scopes + ' ledgers' : st === 'failed' ? 'failed' : st === 'running' ? 'reading…' : st === 'queued' ? 'waiting' : st === 'future' ? '' : 'not synced';
                 var tip = c ? (c.rows || 0).toLocaleString() + ' rows · total ' + money(c.total) + ' · read ' + String(c.at).replace('T', ' ').slice(0, 16) + (c.alts.length ? '\nquery: ' + c.alts.join(' · ') : '') + (c.errors.length ? '\n' + c.errors.join('\n') : '') : '';
-                return '<td class="ic-c ' + st + '" data-k="' + k + '" data-m="' + m + '" title="' + esc(tip) + '"><span class="ic-ci">' + ICON[st] + '</span> <span class="sm">' + esc(line) + '</span></td>';
+                return '<td class="ic-c ' + st + '" data-k="' + k + '" data-m="' + m + '" title="' + esc(tip) + '"><span class="ic-ci">' + ICON[st] + '</span> <span class="sm">' + esc(line) + '</span>' +
+                    (st !== 'future' ? ' <a class="ic-sqlb" data-sql="' + k + '|' + m + '" title="The SQL this cell runs in Fusion (and ran last time)">&lt;/&gt;</a>' : '') + '</td>';
             }).join('');
             var reads = ks.filter(function (k) { var c = (IC.cells || {})[k + '|' + m]; return c && c.ok; }), inA = reads.filter(function (k) { var a = ap[k + '|' + m]; return a && a.same === a.reads; }).length;
             var apx = ap.error ? '<span class="muted sm" title="' + esc(ap.error) + '">?</span>' : !reads.length ? '' : inA === reads.length ? '<span class="pos" title="Every read of this month is in APEX">✓</span>' :
@@ -355,6 +414,7 @@
         box.querySelectorAll('[data-sync]').forEach(function (b) { b.onclick = function () { var m = +b.dataset.sync; IC.sync(IC.missing(ks, [m]), !(IC.cells || {})['ENT|0'], mname(m)); }; });
         box.querySelectorAll('[data-over]').forEach(function (b) { b.onclick = function () { var m = +b.dataset.over; IC.sync([{ month: m, kinds: ks }], false, mname(m) + ' again'); }; });
         box.querySelectorAll('[data-del]').forEach(function (b) { b.onclick = function () { IC.remove([+b.dataset.del]); }; });
+        box.querySelectorAll('[data-sql]').forEach(function (a) { a.onclick = function (ev) { ev.stopPropagation(); var p = a.dataset.sql.split('|'); IC.sqlDialog(p[0], +p[1]); }; });
         box.querySelectorAll('td.ic-c.done, td.ic-c.part').forEach(function (td) { td.onclick = function () { S.view = 'trx'; S.kind = td.dataset.k; S.month = +td.dataset.m; FL.lsSet('ic.view', 'trx'); FL.lsSet('ic.kind', S.kind); IC.render($('main')); }; });
     };
     /** The checklist: what an intercompany sync needs, each with its state and the button that fixes it */

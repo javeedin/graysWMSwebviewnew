@@ -859,3 +859,6 @@ body.fl-maxed { overflow: hidden; }
 .ic-sql { white-space: pre-wrap; font-size: 12px; background: #0f172a; color: #e2e8f0; padding: 8px 10px; border-radius: 6px; max-height: 260px; overflow: auto; }
 .ic-note { font-size: .74rem; }
 .ic-mf { flex-wrap: wrap; margin-bottom: 8px; }
+.ic-sqlb { font-family: monospace; font-size: .72rem; font-weight: 700; color: var(--accent); cursor: pointer; margin-left: 4px; padding: 0 3px; border-radius: 4px; }
+.ic-sqlb:hover { background: var(--accent-bg); }
+.ic-now pre.ic-sql { max-height: 220px; }

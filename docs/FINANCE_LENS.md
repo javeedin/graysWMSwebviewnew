@@ -693,6 +693,14 @@ tables `rr_ic_*`) and copied to APEX (tables `RR_IC_*`). It works before any GL 
 | GL journal lines | posted GL_JE_LINES of each ledger | the intercompany segment holds a counterparty, the account is an intercompany account, or the journal category / source says Intercompany |
 | GL balances | GL_BALANCES | the same combinations, by company × account × counterparty, at the month end |
 
+**See the SQL.** Every month × kind cell on the board has a `</>` button: the query that ran last time (per ledger,
+with rows and seconds) and what the next sync sends, with *Count rows* (how big it is in Fusion), ▶ *Test* and *Copy*.
+While a sync runs, the strip above the board shows the query being asked right now, how long it has been running, and its SQL.
+
+GL journal lines are read only for intercompany code combinations (the intercompany segment holds a counterparty, or the
+account is an intercompany account) in the ledger's period of the month, plus journals whose category / source says
+Intercompany — never every line of the month.
+
 Each kind tries its queries in order: when a table or column is missing on your pod it falls back to a simpler one
 (Settings › Queries shows them, ▶ *Test in Fusion*, or replace them with your own).
 
