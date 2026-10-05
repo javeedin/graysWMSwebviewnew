@@ -14,6 +14,7 @@ WMS source as of this copy; check them after a big change in wms/app.js.
   trip-move.js       wms/trip-move.js (move an order to another trip)
   pickers.js         wms/pickers.js (loadPickers → window.pickersData)
   vehicles.js        wms/vehicles.js (loadVehicles → window.vehiclesData, lorry capacity)
+  future-trip.js     wms/future-trip.js (Picker Assigned On column, Future Trip 9999 grid + Set up trip 9999)
   new-trip.js        wms/copilot.js 296-840 (Create New Trip modal)
   agent-assign.js    wms/shipping-agent.js 8, 89-126, 5524-5586, 5610-5613 (Add to Agent)
   markup.js          wms/index.html from <!-- Add Orders Modal --> to <!-- Edit Trip Modal --> (Add Orders / Paste /
@@ -52,7 +53,7 @@ app = lines('wms/app.js')
 write('trip-workspace.js', head('wms/app.js lines 5108-15807 (Trip Details page, its actions and the order dialogs)') +
       '(function () {\n' + cut(app, 5108, 15807) + '\n})();')
 
-for f in ['trip-details.js', 'trip-move.js', 'pickers.js', 'vehicles.js']:
+for f in ['trip-details.js', 'trip-move.js', 'pickers.js', 'vehicles.js', 'future-trip.js']:
     write(f, head('wms/' + f) + '\n'.join(lines('wms/' + f)))
 
 cop = lines('wms/copilot.js')

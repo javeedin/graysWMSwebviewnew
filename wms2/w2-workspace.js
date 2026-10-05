@@ -35,6 +35,7 @@
         return render.apply(this, arguments);
     };
 
+    WS.feed = function () { return feedLegacy(); };
     /** The WMS keeps the trips of the search in currentFullData (Edit Trip, Add Orders and Move read it). */
     function feedLegacy() {
         var pod = W2.pod(), date = W2.date();
@@ -170,6 +171,29 @@
     function resync() { if (!W2.sync.running) W2.sync.day(W2.date(), { only: ['trips', 'lines', 'pickers', 'print'], auto: true }); }
     window.fetchTripsData = resync;
     window.fetchTrips = resync;
+
+    // Future Trip (trip 9999): the WMS Future Trip grid (legacy/future-trip.js, copied verbatim) on its own page, for the
+    // instance in the top bar. Move lists the trips of the date on screen (fed from DuckDB) — or type the trip id.
+    W2.page('futuretrip', {
+        title: 'Future trip', icon: 'fa-hourglass-half',
+        render: function (main) {
+            var F = window.FutureTrip;
+            if (!F) { main.innerHTML = '<div class="callout bad">The Future Trip code is not loaded.</div>'; return; }
+            main.innerHTML = '<div class="pagehead"><h2><i class="fa-solid fa-hourglass-half" style="color:#d97706"></i> Future trip <span class="mono">' + (window.FUTURE_TRIP_ID || '9999') + '</span></h2>' +
+                '<span class="muted">orders without a real trip yet · ' + esc(W2.pod()) + '</span></div>' +
+                '<div class="w2-ft"><div id="future-trip-root"></div></div>';
+            F.instance = W2.pod();      // the top bar's instance, not the WMS page's own select
+            WS.dirty = true;             // a move / delete here changes the trips of the date: read it again when leaving
+            return WS.feed().then(function () { F.load(); });
+        }
+    });
+    /** Orders on trip 9999 for the nav badge (APEX gateway, no DuckDB copy). */
+    WS.futureCount = function () {
+        return W2.apexRows("SELECT COUNT(DISTINCT order_number) AS n FROM wms_trip_details WHERE trip_id = 9999 AND instance_name = " + W2.lit(W2.pod()), 1)
+            .then(function (r) { var n = +((r[0] || {}).N || 0); W2.badges({ futuretrip: { n: n, cls: 'warn' } }); return n; }, function () { return null; });
+    };
+    W2.on('ready', function () { WS.futureCount(); });
+    W2.on('pod', function () { WS.futureCount(); });
 
     // old links to the separate trip screen now land on the trip tabs
     W2.page('tripws', {
