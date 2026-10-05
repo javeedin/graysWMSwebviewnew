@@ -693,6 +693,18 @@ tables `rr_ic_*`) and copied to APEX (tables `RR_IC_*`). It works before any GL 
 | GL journal lines | posted GL_JE_LINES of each ledger | the intercompany segment holds a counterparty, the account is an intercompany account, or the journal category / source says Intercompany |
 | GL balances | GL_BALANCES | the same combinations, by company × account × counterparty, at the month end |
 
+**Subledger trace (From GL · subledgers).** After *GL journal lines*, the task *Subledger trace* follows every intercompany GL
+line back to where it came from, in 5 logged steps: the month's GL lines on this PC → GL_IMPORT_REFERENCES (which subledger
+entries were posted into each GL line) → XLA accounting lines with their document id → names of the subledgers and document
+types → the documents themselves (AP invoices and payments, AR transactions, receipts and adjustments; other types such as
+cost management keep what the accounting says). The view *From GL · subledgers* shows how much is traced, where the
+intercompany GL comes from by subledger and pair of companies, and every document — click one to see the document, its
+accounting lines and the GL lines. GL lines with no subledger are manual journals (handled later).
+
+**Log.** Every query of every task is kept on this PC (90 days) and in APEX: which task, which step, rows, seconds and the
+SQL. The *Log* view picks a sync run and shows time per task, the slowest query and every query (click for the SQL, Copy,
+Count rows, ▶ Test). The `</>` dialog of a month × kind starts with every query its last run sent.
+
 **See the SQL.** Every month × kind cell on the board has a `</>` button: the query that ran last time (per ledger,
 with rows and seconds) and what the next sync sends, with *Count rows* (how big it is in Fusion), ▶ *Test* and *Copy*.
 While a sync runs, the strip above the board shows the query being asked right now, how long it has been running, and its SQL.

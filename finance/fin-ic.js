@@ -11,12 +11,12 @@
 (function () {
     var IC = FL.ic = {};
     var KINDS = [['FUN', 'Intercompany (FUN)', 'fa-right-left'], ['AR', 'Receivables', 'fa-file-invoice-dollar'], ['AP', 'Payables', 'fa-file-invoice'],
-        ['INV', 'Inventory transfers', 'fa-truck-ramp-box'], ['GL', 'GL journal lines', 'fa-book'], ['BAL', 'GL balances', 'fa-scale-balanced']];
+        ['INV', 'Inventory transfers', 'fa-truck-ramp-box'], ['GL', 'GL journal lines', 'fa-book'], ['XLA', 'Subledger trace', 'fa-sitemap'], ['BAL', 'GL balances', 'fa-scale-balanced']];
     var KN = {}; KINDS.forEach(function (k) { KN[k[0]] = k; });
-    var HOST_LABEL = { 'Legal entities': 'ENT', 'Intercompany transactions': 'FUN', 'Receivables': 'AR', 'Payables': 'AP', 'Inventory transfers': 'INV', 'GL journal lines': 'GL', 'GL balances': 'BAL' };
+    var HOST_LABEL = { 'Legal entities': 'ENT', 'Intercompany transactions': 'FUN', 'Receivables': 'AR', 'Payables': 'AP', 'Inventory transfers': 'INV', 'GL journal lines': 'GL', 'Subledger trace': 'XLA', 'GL balances': 'BAL' };
     var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    var VIEWS = [['sync', 'fa-rotate', 'Sync & checklist'], ['overview', 'fa-diagram-project', 'Overview'], ['recon', 'fa-scale-balanced', 'Reconciliation'],
-        ['match', 'fa-link', 'Matching'], ['trx', 'fa-table-list', 'Transactions'], ['settings', 'fa-sliders', 'Settings']];
+    var VIEWS = [['sync', 'fa-rotate', 'Sync & checklist'], ['overview', 'fa-diagram-project', 'Overview'], ['trace', 'fa-sitemap', 'From GL · subledgers'], ['recon', 'fa-scale-balanced', 'Reconciliation'],
+        ['match', 'fa-link', 'Matching'], ['trx', 'fa-table-list', 'Transactions'], ['log', 'fa-scroll', 'Log'], ['settings', 'fa-sliders', 'Settings']];
     var STATUS = { MATCHED: ['pos', 'Matched'], TIMING: ['info', 'Timing'], DIFF: ['warn', 'Amounts differ'], SELL_ONLY: ['neg', 'No payable'], BUY_ONLY: ['neg', 'No receivable'],
         OK: ['pos', 'Nets to nil'], ONE_SIDED: ['neg', 'One side only'], CURRENCY: ['info', 'Two currencies'], COMPLETE: ['pos', 'AR + AP'], NO_AP: ['warn', 'No AP'], NO_AR: ['warn', 'No AR'], NOT_FOUND: ['neg', 'Invoices not found'], GL_ONLY: ['info', 'GL only'] };
     var today = new Date(), thisMonth = today.getFullYear() * 100 + today.getMonth() + 1;
@@ -99,7 +99,10 @@
     var A = IC.apex = {};
     var TCOLS = ['src_id', 'doc_number', 'line_num', 'doc_type', 'doc_date', 'gl_date', 'status', 'from_le', 'from_bu', 'from_org', 'from_company', 'to_le', 'to_bu', 'to_org', 'to_company',
         'party_number', 'party_name', 'currency', 'amount_entered', 'amount', 'account', 'item', 'quantity', 'reference', 'ref2', 'description', 'ledger_id'];
-    var NUMC = { line_num: 1, amount_entered: 1, amount: 1, quantity: 1, opening: 1, dr: 1, cr: 1, closing: 1, rows_read: 1, total: 1, month: 1 };
+    var NUMC = { line_num: 1, amount_entered: 1, amount: 1, quantity: 1, opening: 1, dr: 1, cr: 1, closing: 1, rows_read: 1, total: 1, month: 1, entered: 1, accounted: 1, doc_amount: 1, ic_amount: 1, xla_lines: 1, ms: 1 };
+    var XCOLS = ['gl_src_id', 'link_id', 'app_id', 'ae_header_id', 'ae_line_num', 'event_id', 'event_type', 'entity_code', 'source_id', 'source_id2', 'transaction_number', 'accounting_class', 'party_type', 'party_id', 'currency', 'entered', 'accounted', 'accounting_date', 'description', 'from_company', 'to_company', 'account', 'legal_entity_id', 'je_category'];
+    var DCOLS = ['app_id', 'app_name', 'entity_code', 'entity_name', 'source_id', 'doc_number', 'doc_type', 'doc_date', 'party_number', 'party_name', 'currency', 'doc_amount', 'ic_amount', 'from_company', 'to_company', 'org_id', 'legal_entity_id', 'status', 'description', 'reference', 'xla_lines', 'detail'];
+    var LCOLS = ['pod', 'run_id', 'logged_at', 'kind', 'month', 'scope', 'step', 'what', 'sql', 'rows_read', 'ms', 'ok', 'error'];
     var TRX_DDL = function (t) {
         return 'CREATE TABLE ' + t + ' (pod VARCHAR2(20), kind VARCHAR2(10), month NUMBER, scope VARCHAR2(40), ' + TCOLS.map(function (c) {
             return c + (NUMC[c] ? ' NUMBER' : c === 'description' ? ' VARCHAR2(1000)' : c === 'party_name' || c === 'item' ? ' VARCHAR2(400)' : ' VARCHAR2(240)'); }).join(', ') + ', fetched_at DATE)';
@@ -111,6 +114,10 @@
         RR_IC_FUN: TRX_DDL('rr_ic_fun'), RR_IC_AR: TRX_DDL('rr_ic_ar'), RR_IC_AP: TRX_DDL('rr_ic_ap'), RR_IC_INV: TRX_DDL('rr_ic_inv'), RR_IC_GL: TRX_DDL('rr_ic_gl'),
         RR_IC_BAL: 'CREATE TABLE rr_ic_bal (pod VARCHAR2(20), month NUMBER, scope VARCHAR2(40), ledger_id VARCHAR2(40), period_name VARCHAR2(30), company VARCHAR2(60), account VARCHAR2(60), ic_company VARCHAR2(60), ' +
             'currency VARCHAR2(15), opening NUMBER, dr NUMBER, cr NUMBER, closing NUMBER, fetched_at DATE)',
+        RR_IC_XLA: 'CREATE TABLE rr_ic_xla (pod VARCHAR2(20), month NUMBER, scope VARCHAR2(40), ' + XCOLS.map(function (c) { return c + (NUMC[c] ? ' NUMBER' : c === 'description' ? ' VARCHAR2(1000)' : ' VARCHAR2(240)'); }).join(', ') + ', fetched_at DATE)',
+        RR_IC_DOCS: 'CREATE TABLE rr_ic_docs (pod VARCHAR2(20), month NUMBER, scope VARCHAR2(40), ' + DCOLS.map(function (c) { return c + (NUMC[c] ? ' NUMBER' : c === 'description' ? ' VARCHAR2(1000)' : c === 'party_name' ? ' VARCHAR2(400)' : ' VARCHAR2(240)'); }).join(', ') + ', fetched_at DATE)',
+        RR_IC_LOG: 'CREATE TABLE rr_ic_log (pod VARCHAR2(20), run_id VARCHAR2(40), logged_at DATE, kind VARCHAR2(10), month NUMBER, scope VARCHAR2(40), step VARCHAR2(400), what VARCHAR2(400), sql VARCHAR2(4000), ' +
+            'rows_read NUMBER, ms NUMBER, ok CHAR(1), error VARCHAR2(1000))',
         RR_IC_NOTES: 'CREATE TABLE rr_ic_notes (pod VARCHAR2(20) NOT NULL, kind VARCHAR2(10) NOT NULL, src_id VARCHAR2(100) NOT NULL, month NUMBER, status VARCHAR2(20), note VARCHAR2(2000), ' +
             'noted_by VARCHAR2(100), noted_at DATE DEFAULT SYSDATE, CONSTRAINT rr_ic_notes_pk PRIMARY KEY (pod, kind, src_id))'
     };
@@ -127,8 +134,10 @@
     var lit = function (v, c) {
         if (v == null || v === '') return 'NULL';
         if (NUMC[c]) { var n = +v; return isFinite(n) ? String(n) : 'NULL'; }
-        if (c === 'fetched_at') return "TO_DATE('" + String(v).slice(0, 19).replace('T', ' ') + "', 'YYYY-MM-DD HH24:MI:SS')";
-        var s = String(v); s = s.length > (c === 'description' ? 1000 : 400) ? s.slice(0, c === 'description' ? 1000 : 400) : s;
+        if (c === 'fetched_at' || c === 'logged_at') return "TO_DATE('" + String(v).slice(0, 19).replace('T', ' ') + "', 'YYYY-MM-DD HH24:MI:SS')";
+        if (c === 'ok') return v === true || v === 'true' || v === 'Y' ? "'Y'" : "'N'";
+        var max = c === 'sql' ? 3900 : c === 'description' || c === 'error' ? 1000 : 400;
+        var s = String(v); s = s.length > max ? s.slice(0, max) : s;
         return "'" + s.replace(/'/g, "''") + "'";
     };
     /** INSERT … SELECT … FROM dual UNION ALL in pieces of ~30 KB */
@@ -148,20 +157,27 @@
     A.copy = function (kind, month, onStep) {
         var reads = IC.rawStatus.filter(function (x) { return x.kind === kind && +x.month === +month && x.ok; });
         if (!reads.length) return Promise.resolve(0);
-        var dt = kind === 'ENT' ? 'rr_ic_entities' : kind === 'BAL' ? 'rr_ic_bal' : 'rr_ic_' + kind.toLowerCase(), at = "strftime(fetched_at, '%Y-%m-%d %H:%M:%S') AS fetched_at";
-        var cols = kind === 'ENT' ? ['pod', 'ent_type', 'id', 'code', 'name', 'le_id', 'party_id', 'ledger_id', 'bu_id', 'companies', 'fetched_at']
-            : kind === 'BAL' ? ['pod', 'month', 'scope', 'ledger_id', 'period_name', 'company', 'account', 'ic_company', 'currency', 'opening', 'dr', 'cr', 'closing', 'fetched_at']
-            : ['pod', 'kind', 'month', 'scope'].concat(TCOLS, ['fetched_at']);
-        var sel = kind === 'BAL' ? "SELECT * EXCLUDE (fetched_at), COALESCE(opening, 0) + COALESCE(dr, 0) - COALESCE(cr, 0) AS closing, " + at
-            : "SELECT * EXCLUDE (fetched_at" + (kind === 'ENT' ? '' : ', extra_json') + "), " + at;
+        var at = "strftime(fetched_at, '%Y-%m-%d %H:%M:%S') AS fetched_at", mw = kind === 'ENT' ? '' : ' AND month = ' + (+month);
+        var jobs = kind === 'ENT' ? [{ t: 'rr_ic_entities', cols: ['pod', 'ent_type', 'id', 'code', 'name', 'le_id', 'party_id', 'ledger_id', 'bu_id', 'companies', 'fetched_at'], sel: "SELECT * EXCLUDE (fetched_at), " + at }]
+            : kind === 'BAL' ? [{ t: 'rr_ic_bal', cols: ['pod', 'month', 'scope', 'ledger_id', 'period_name', 'company', 'account', 'ic_company', 'currency', 'opening', 'dr', 'cr', 'closing', 'fetched_at'],
+                sel: "SELECT * EXCLUDE (fetched_at), COALESCE(opening, 0) + COALESCE(dr, 0) - COALESCE(cr, 0) AS closing, " + at }]
+            : kind === 'XLA' ? [{ t: 'rr_ic_xla', cols: ['pod', 'month', 'scope'].concat(XCOLS, ['fetched_at']), sel: "SELECT * EXCLUDE (fetched_at), " + at },
+                { t: 'rr_ic_docs', cols: ['pod', 'month', 'scope'].concat(DCOLS, ['fetched_at']), sel: "SELECT * EXCLUDE (fetched_at), " + at }]
+            : [{ t: 'rr_ic_' + kind.toLowerCase(), cols: ['pod', 'kind', 'month', 'scope'].concat(TCOLS, ['fetched_at']), sel: "SELECT * EXCLUDE (fetched_at, extra_json), " + at }];
+        // the queries the task ran go along (RR_IC_LOG: every query of this kind × month)
+        jobs.push({ t: 'rr_ic_log', cols: LCOLS, sel: "SELECT * EXCLUDE (logged_at), strftime(logged_at, '%Y-%m-%d %H:%M:%S') AS logged_at", extra: " AND kind = " + q(kind), mw: ' AND month = ' + (+month), log: 1 });
         var total = 0;
         return A.ensure().then(function () {
-            return FL.rows(sel + ' FROM ' + dt + ' WHERE pod = ' + q(S.pod || '') + (kind === 'ENT' ? '' : ' AND month = ' + (+month)), 500000);
-        }).then(function (rows) {
-            total = rows.length;
-            rows.forEach(function (r) { r.pod = podKey(); });
-            var del = 'DELETE FROM ' + dt + ' WHERE pod = ' + q(podKey()) + (kind === 'ENT' ? '' : ' AND month = ' + (+month));
-            return FL.apexStore.write(del).then(function () { return A.insert(dt.toUpperCase(), cols, rows, onStep); });
+            return jobs.reduce(function (p, j) {
+                return p.then(function () {
+                    var w = ' WHERE pod = ' + q(S.pod || '') + (j.log ? j.extra + j.mw : mw);
+                    return FL.rows(j.sel + ' FROM ' + j.t + w, 500000).catch(function () { return []; }).then(function (rows) {
+                        if (!j.log) total += rows.length;
+                        rows.forEach(function (r) { r.pod = podKey(); });
+                        return FL.apexStore.write('DELETE FROM ' + j.t + ' WHERE pod = ' + q(podKey()) + (j.log ? j.extra + j.mw : mw)).then(function () { return A.insert(j.t.toUpperCase(), j.cols, rows, onStep); });
+                    });
+                });
+            }, Promise.resolve());
         }).then(function () {
             return reads.reduce(function (p, x) {
                 return p.then(function () {
@@ -276,17 +292,28 @@
     };
     /** The SQL of one month × kind: what ran last time (rr_ic_sync, per ledger) and what the next sync sends, with Count rows / Test / Copy */
     IC.sqlDialog = function (kind, month) {
-        var leds = kind === 'GL' || kind === 'BAL' ? IC.ledgers() : [null];
+        var leds = kind === 'GL' || kind === 'BAL' || kind === 'XLA' ? IC.ledgers() : [null];
         FL.modal('<i class="fa-solid fa-code"></i> ' + esc((KN[kind] || [kind, kind])[1]) + ' · ' + mname(month) + ' — SQL', '<div id="ic-sqd"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div>');
         var ran = FL.rows('SELECT scope, ok, rows_read, ms, alt, error, sql, CAST(fetched_at AS VARCHAR) AS at FROM rr_ic_sync WHERE pod = ' + q(S.pod || '') + ' AND kind = ' + q(kind) + ' AND month = ' + (+month)).catch(function () { return []; });
         var next = Promise.all(leds.map(function (l) {
             return FL.call('finIcSql', { kind: kind, month: month, ledger: l ? l.id : null, options: IC.options([month], [kind]) }).then(function (r) { return { led: l, alts: r.alternatives || [] }; }).catch(function (e) { return { led: l, alts: [], error: String(e) }; });
         }));
-        Promise.all([ran, next]).then(function (rr) {
+        var logged = FL.rows('SELECT logged_at, scope, step, what, sql, rows_read, ms, ok, error FROM rr_ic_log WHERE pod = ' + q(S.pod || '') + ' AND kind = ' + q(kind) + ' AND month = ' + (+month) +
+            ' AND run_id = (SELECT MAX(run_id) FROM rr_ic_log WHERE pod = ' + q(S.pod || '') + ' AND kind = ' + q(kind) + ' AND month = ' + (+month) + ') ORDER BY logged_at', 5000).catch(function () { return []; });
+        Promise.all([ran, next, logged]).then(function (rr) {
             var box = $('ic-sqd'); if (!box) return;
             var blocks = [], all = [];
+            if (rr[2].length) {
+                var lg = rr[2], tms = lg.reduce(function (a, r) { return a + (+r.ms || 0); }, 0);
+                blocks.push('<div class="card"><b>Every query of the last run</b> <span class="sm muted">' + lg.length + ' queries · ' + Math.round(tms / 1000) + ' s in total · click a row for its SQL</span>' +
+                    '<table class="t ic-lgt"><thead><tr><th>Time</th><th>Ledger</th><th>Step / query</th><th class="n">Rows</th><th class="n">s</th><th></th></tr></thead><tbody>' + lg.map(function (r, i) {
+                        return '<tr class="click" data-lg="' + i + '"><td>' + esc(String(r.logged_at).replace('T', ' ').slice(11, 19)) + '</td><td>' + esc(r.scope) + '</td><td>' + esc(r.what) + '</td><td class="n">' + (+r.rows_read || 0).toLocaleString() + '</td><td class="n">' + ((+r.ms || 0) / 1000).toFixed(1) + '</td><td>' + (r.ok ? '✓' : '<span class="neg" title="' + esc(r.error || '') + '">⚠</span>') + '</td></tr>';
+                    }).join('') + '</tbody></table></div>');
+                setTimeout(function () { box.querySelectorAll('[data-lg]').forEach(function (tr) { tr.onclick = function () { var r = lg[+tr.dataset.lg]; IC.sqlShow(r.what, r.sql, (r.ok ? '✓ ' : '⚠ ' + (r.error || '') + ' · ') + (+r.rows_read || 0) + ' rows · ' + ((+r.ms || 0) / 1000).toFixed(1) + ' s · ' + (r.step || '')); }; }); }, 0);
+            }
             var blk = function (title, sql, meta) { var i = all.length; all.push(sql); return '<div class="card"><div class="row"><b>' + title + '</b><span class="grow"></span>' +
-                '<button class="btn sm" data-cnt="' + i + '" title="SELECT COUNT(*) FROM (this query) in Fusion — how big it is">Count rows</button> <button class="btn sm" data-run="' + i + '">▶ Test (first 50 rows)</button> <button class="btn sm" data-cp="' + i + '">Copy</button></div>' +
+                (/\{[^}]*\}/.test(sql) || /^-- DuckDB/.test(sql) ? '<span class="sm muted">' + (/^-- DuckDB/.test(sql) ? 'runs on this PC' : 'template — the ids are filled in while it runs (the Log shows each real query)') + '</span> ' :
+                '<button class="btn sm" data-cnt="' + i + '" title="SELECT COUNT(*) FROM (this query) in Fusion — how big it is">Count rows</button> <button class="btn sm" data-run="' + i + '">▶ Test (first 50 rows)</button> ') + '<button class="btn sm" data-cp="' + i + '">Copy</button></div>' +
                 (meta ? '<div class="sm muted">' + meta + '</div>' : '') + '<pre class="ic-sql">' + esc(sql) + '</pre><div data-out="' + i + '"></div></div>'; };
             rr[0].forEach(function (x) {
                 if (!x.sql) return;
@@ -298,7 +325,8 @@
                 n.alts.forEach(function (a, i) { blocks.push(blk((i === 0 ? 'Next sync sends' : 'Fallback ' + i) + (n.led ? ' · ' + esc(n.led.name) : ''), a.sql, esc(a.label) + (i > 0 ? ' — used only when the one before fails' : ''))); });
                 if (!n.alts.length) blocks.push('<div class="callout warn">No query: ' + (kind === 'GL' || kind === 'BAL' ? 'nothing marks a line as intercompany in this ledger — choose the intercompany segment or accounts in Settings.' : 'none') + '</div>');
             });
-            box.innerHTML = '<p class="sm muted">The sync wraps each query in pages (' + (kind === 'GL' ? 'keyset on JE_HEADER_ID, JE_LINE_NUM — each page starts after the last line read' : 'ROW_NUMBER over the key') + ', ' + IC.cfg().pageSize.toLocaleString() + ' rows per page).</p>' + blocks.join('');
+            box.innerHTML = '<p class="sm muted">' + (kind === 'XLA' ? 'The trace runs its steps one after another in batches (300 GL lines, 500 link ids, 500 document ids per query); every real query is in the list above and in the Log.'
+                : 'The sync wraps each query in pages (' + (kind === 'GL' ? 'keyset on JE_HEADER_ID, JE_LINE_NUM — each page starts after the last line read' : 'ROW_NUMBER over the key') + ', ' + IC.cfg().pageSize.toLocaleString() + ' rows per page).') + '</p>' + blocks.join('');
             box.querySelectorAll('[data-cp]').forEach(function (b) { b.onclick = function () { try { navigator.clipboard.writeText(all[+b.dataset.cp]); FL.toast('Copied', 'ok'); } catch (e) { /* no clipboard */ } }; });
             var go = function (b, sql, count) {
                 var out = box.querySelector('[data-out="' + b.dataset.cnt + '"],[data-out="' + b.dataset.run + '"]'); out.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> asking Fusion…'; var t0 = Date.now();
@@ -354,12 +382,12 @@
         var n = Object.keys(IC.cells || {}).filter(function (k) { return IC.cells[k].ok && k.indexOf('ENT|') !== 0; }).length;
         if ($('ic-sum')) $('ic-sum').textContent = n ? n + ' month × kind read(s) on this PC' : 'nothing synced yet';
         var v = S.view;
-        if (v !== 'sync' && v !== 'settings' && !IC.synced().length) {
+        if (v !== 'sync' && v !== 'settings' && v !== 'log' && !IC.synced().length) {
             body.innerHTML = '<div class="card empty"><i class="fa-solid fa-cloud-arrow-down"></i><p>No intercompany data for ' + S.year + ' on this PC yet.</p><button class="btn primary" id="ic-gosync">Sync &amp; checklist</button></div>';
             $('ic-gosync').onclick = function () { S.view = 'sync'; FL.lsSet('ic.view', 'sync'); FL.render(); };
             return Promise.resolve();
         }
-        return ({ sync: IC.viewSync, overview: IC.viewOverview, recon: IC.viewRecon, match: IC.viewMatch, trx: IC.viewTrx, settings: IC.viewSettings }[v] || IC.viewSync)(body);
+        return ({ sync: IC.viewSync, overview: IC.viewOverview, trace: IC.viewTrace, log: IC.viewLog, recon: IC.viewRecon, match: IC.viewMatch, trx: IC.viewTrx, settings: IC.viewSettings }[v] || IC.viewSync)(body);
     };
 
     // ═════ Sync & checklist ═════
@@ -530,13 +558,13 @@
                     : '<p class="pos"><i class="fa-solid fa-circle-check"></i> Everything agrees for this month.</p>') + '</div>' +
                 '<div class="card"><h3><i class="fa-solid fa-circle-nodes"></i> Who trades with whom</h3><div id="ic-net"></div><p class="sm muted">Arrow width = AR billed + inventory shipped from one company to the other; red = the pair\'s GL balances do not net to nil.</p></div></div>' +
                 '<div class="card"><div class="row"><h3 style="margin:0"><i class="fa-solid fa-table-cells"></i> Flows · from (rows) → to (columns)</h3><span class="grow"></span><label class="sm">Show <select id="ic-mxk">' +
-                    KINDS.filter(function (k) { return k[0] !== 'BAL'; }).map(function (k) { return '<option value="' + k[0] + '"' + (k[0] === (S.mxk || 'AR') ? ' selected' : '') + '>' + k[1] + '</option>'; }).join('') + '</select></label></div><div id="ic-mx" class="scroll"></div></div>' +
+                    KINDS.filter(function (k) { return k[0] !== 'BAL' && k[0] !== 'XLA'; }).map(function (k) { return '<option value="' + k[0] + '"' + (k[0] === (S.mxk || 'AR') ? ' selected' : '') + '>' + k[1] + '</option>'; }).join('') + '</select></label></div><div id="ic-mx" class="scroll"></div></div>' +
                 '<div class="card"><h3><i class="fa-solid fa-chart-column"></i> ' + S.year + ' — intercompany volume by month</h3><div style="height:260px"><canvas id="ic-tr"></canvas></div></div>';
             box.querySelectorAll('[data-go]').forEach(function (li) { li.onclick = function () { IC.go(li.dataset.go); }; });
             IC.network($('ic-net'), a);
             var mx = function () { IC.matrixHtml($('ic-mx'), a.t.filter(function (x) { return x.kind === (S.mxk || 'AR'); })); };
             $('ic-mxk').onchange = function () { S.mxk = this.value; mx(); }; mx();
-            var ms = IC.months(S.year), ds = KINDS.filter(function (k) { return k[0] !== 'BAL'; }).map(function (k, i) {
+            var ms = IC.months(S.year), ds = KINDS.filter(function (k) { return k[0] !== 'BAL' && k[0] !== 'XLA'; }).map(function (k, i) {
                 return { label: k[1], backgroundColor: FL.PAL.series[i % FL.PAL.series.length], data: ms.map(function (mm) { var r = trend.filter(function (x) { return +x.month === mm && x.kind === k[0]; })[0]; return r ? +r.v : 0; }), stack: 's' };
             });
             FL.chart('ic-tr', { type: 'bar', data: { labels: ms.map(function (mm) { return MON[(mm % 100) - 1]; }), datasets: ds }, options: { scales: { x: { stacked: true }, y: Object.assign({ stacked: true }, FL.moneyAxis()) } } });
@@ -694,7 +722,7 @@
     // ═════ Transactions ═════
     IC.viewTrx = function (body) {
         if (S.month == null) IC.pickMonth();
-        body.innerHTML = '<div class="row card">' + IC.monthBar(true) + '<div class="seg" id="ic-tk"><button data-k="" class="' + (!S.kind ? 'on' : '') + '">All</button>' + KINDS.filter(function (k) { return k[0] !== 'BAL'; }).map(function (k) {
+        body.innerHTML = '<div class="row card">' + IC.monthBar(true) + '<div class="seg" id="ic-tk"><button data-k="" class="' + (!S.kind ? 'on' : '') + '">All</button>' + KINDS.filter(function (k) { return k[0] !== 'BAL' && k[0] !== 'XLA'; }).map(function (k) {
             return '<button data-k="' + k[0] + '" class="' + (S.kind === k[0] ? 'on' : '') + '"><i class="fa-solid ' + k[2] + '"></i> ' + k[1] + '</button>'; }).join('') + '<button data-k="BAL" class="' + (S.kind === 'BAL' ? 'on' : '') + '"><i class="fa-solid fa-scale-balanced"></i> GL balances</button></div></div>' +
             '<div class="card" id="ic-tg"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div>';
         IC.wireMonth();
@@ -765,6 +793,112 @@
             FL.saveConfig().then(function () { FL.toast('Inter company settings saved', 'ok'); }).catch(function (e) { FL.toast(String(e), 'err'); });
         };
         return Promise.resolve();
+    };
+
+    // ═════ From GL · subledgers (task Subledger trace: intercompany GL line → XLA → document) ═════
+    IC.viewTrace = function (body) {
+        var m = IC.pickMonth(), w = ' WHERE pod = ' + q(S.pod || '') + ' AND month = ' + (+m);
+        body.innerHTML = '<div class="row card">' + IC.monthBar(false) + '<span class="grow"></span><span class="sm muted">Every intercompany GL line traced to the subledger accounting behind it (GL_IMPORT_REFERENCES → XLA) and to its document.</span></div><div id="ic-tr"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div>';
+        IC.wireMonth();
+        return Promise.all([
+            FL.rows('SELECT scope, COUNT(*) AS n, SUM(amount) AS amt FROM rr_ic_gl' + w + ' GROUP BY 1').catch(function () { return []; }),
+            FL.rows('SELECT scope, COUNT(DISTINCT gl_src_id) AS linked, COUNT(*) AS lines FROM rr_ic_xla' + w + ' GROUP BY 1').catch(function () { return []; }),
+            FL.rows('SELECT * FROM rr_ic_docs' + w + ' ORDER BY abs(ic_amount) DESC', 100000).catch(function () { return []; }),
+            FL.rows('SELECT g.* FROM rr_ic_gl g' + w.replace('WHERE pod', 'WHERE g.pod').replace('AND month', 'AND g.month') + ' AND g.src_id NOT IN (SELECT gl_src_id FROM rr_ic_xla x' + w + ' AND x.gl_src_id IS NOT NULL) ORDER BY abs(g.amount) DESC', 20000).catch(function () { return []; }),
+            IC.names()
+        ]).then(function (rr) {
+            var box = $('ic-tr'); if (!box) return;
+            var glN = rr[0].reduce(function (a, r) { return a + (+r.n || 0); }, 0), linked = rr[1].reduce(function (a, r) { return a + (+r.linked || 0); }, 0), xl = rr[1].reduce(function (a, r) { return a + (+r.lines || 0); }, 0);
+            var docs = rr[2], un = rr[3], st = (IC.cells || {})['XLA|' + m];
+            if (!st) { box.innerHTML = '<div class="card callout warn">The subledger trace has not run for ' + mname(m) + ' — Sync &amp; checklist › <b>Subledger trace</b> (it reads the GL journal lines of the month first).</div>'; return; }
+            var bySrc = {}; docs.forEach(function (d) { var k = (d.app_name || d.app_id) + ' · ' + (d.entity_name || d.entity_code); var o = bySrc[k] = bySrc[k] || { src: k, app: d.app_name || d.app_id, docs: 0, lines: 0, amt: 0, detail: d.detail }; o.docs++; o.lines += +d.xla_lines || 0; o.amt += +d.ic_amount || 0; });
+            var srcs = Object.keys(bySrc).map(function (k) { return bySrc[k]; }).sort(function (a, b) { return Math.abs(b.amt) - Math.abs(a.amt); });
+            var unAmt = un.reduce(function (a, r) { return a + (+r.amount || 0); }, 0), pct = glN ? Math.round(linked / glN * 100) : 0;
+            var tile = function (l, v, sub, cls) { return '<div class="kpi ' + (cls || '') + '"><div class="k-l">' + esc(l) + '</div><div class="k-v">' + v + '</div><div class="k-d muted">' + sub + '</div></div>'; };
+            box.innerHTML = '<div class="kpis">' + tile('Intercompany GL lines', glN.toLocaleString(), 'of ' + rr[0].length + ' ledger(s)') +
+                tile('Traced to a subledger', pct + ' %', linked.toLocaleString() + ' line(s)', pct >= 95 ? 'good' : '') + tile('Subledger accounting lines', xl.toLocaleString(), 'XLA') +
+                tile('Documents', docs.length.toLocaleString(), srcs.length + ' document type(s)') + tile('GL lines without a subledger', un.length.toLocaleString(), FL.compact(unAmt) + ' · manual journals (later)', un.length ? '' : 'good') + '</div>' +
+                '<div class="ic-g2"><div class="card"><h3><i class="fa-solid fa-sitemap"></i> Where the intercompany GL comes from</h3><div id="ic-trs"></div></div>' +
+                '<div class="card"><h3><i class="fa-solid fa-table-cells"></i> Pair of companies × subledger</h3><div id="ic-trm" class="scroll"></div></div></div>' +
+                '<div class="card"><div class="row"><h3 style="margin:0"><i class="fa-solid fa-file-lines"></i> Documents</h3><span class="grow"></span><div class="seg" id="ic-trf"><button data-a="" class="' + (!S.trApp ? 'on' : '') + '">All</button>' +
+                srcs.map(function (x) { return x.app; }).filter(function (a, i, arr) { return arr.indexOf(a) === i; }).map(function (a) { return '<button data-a="' + esc(a) + '" class="' + (S.trApp === a ? 'on' : '') + '">' + esc(a) + '</button>'; }).join('') + '</div></div><div id="ic-trd"></div></div>' +
+                (un.length ? '<details class="card"><summary><b>GL lines without a subledger (' + un.length + ')</b> <span class="sm muted">manual journals — handled later</span></summary><div id="ic-tru"></div></details>' : '');
+            $('ic-trs').innerHTML = FL.table([{ label: 'Source', get: function (r) { return r.src; } }, { label: 'Documents', n: 1, get: function (r) { return r.docs.toLocaleString(); } }, { label: 'XLA lines', n: 1, get: function (r) { return r.lines.toLocaleString(); } },
+                { label: 'Intercompany amount', n: 1, get: function (r) { return money(r.amt); } }, { label: 'Details from', get: function (r) { return r.detail === 'XLA only' ? 'XLA (no detail query yet)' : r.detail; } }], srcs);
+            var apps = srcs.map(function (x) { return x.app; }).filter(function (a, i, arr) { return arr.indexOf(a) === i; }), pairs = {};
+            docs.forEach(function (d) { var p = (d.from_company || '?') + ' → ' + (d.to_company || '?'); (pairs[p] = pairs[p] || {})[d.app_name || d.app_id] = ((pairs[p] || {})[d.app_name || d.app_id] || 0) + (+d.ic_amount || 0); });
+            $('ic-trm').innerHTML = '<table class="t"><thead><tr><th>Pair</th>' + apps.map(function (a) { return '<th class="n">' + esc(a) + '</th>'; }).join('') + '</tr></thead><tbody>' + Object.keys(pairs).sort().map(function (p) {
+                return '<tr><th>' + esc(p) + '</th>' + apps.map(function (a) { var v = pairs[p][a]; return '<td class="n">' + (v ? FL.compact(v) : '') + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table>';
+            var drawDocs = function () {
+                FL.grid($('ic-trd'), [{ label: 'Subledger', key: 'app_name' }, { label: 'Type', get: function (r) { return r.doc_type || r.entity_name; } }, { label: 'Document', key: 'doc_number' }, { label: 'Date', key: 'doc_date' },
+                    { label: 'Party', key: 'party_name' }, { label: 'From', get: function (r) { return IC.co(r.from_company); }, val: function (r) { return r.from_company; }, html: 1 }, { label: 'To', get: function (r) { return IC.co(r.to_company); }, val: function (r) { return r.to_company; }, html: 1 },
+                    { label: 'Currency', key: 'currency' }, { label: 'Document amount', n: 1, sum: false, get: function (r) { return money(r.doc_amount); }, val: function (r) { return r.doc_amount; } },
+                    { label: 'Intercompany amount', n: 1, money: 1, get: function (r) { return money(r.ic_amount); }, val: function (r) { return r.ic_amount; } }, { label: 'XLA lines', n: 1, key: 'xla_lines' }, { label: 'Status', key: 'status' }, { label: 'Details from', key: 'detail' }],
+                    docs.filter(function (d) { return !S.trApp || (d.app_name || d.app_id) === S.trApp; }), { id: 'ic-trd', csv: 'intercompany-subledger-documents-' + m, click: function (r) { IC.traceDoc(r, m); } });
+            };
+            drawDocs();
+            box.querySelectorAll('#ic-trf button').forEach(function (b) { b.onclick = function () { S.trApp = b.dataset.a; box.querySelectorAll('#ic-trf button').forEach(function (x) { x.classList.toggle('on', x === b); }); drawDocs(); }; });
+            if ($('ic-tru')) FL.grid($('ic-tru'), IC.trxCols(), un, { id: 'ic-tru', csv: 'intercompany-gl-without-subledger-' + m });
+        });
+    };
+    /** One document: its accounting lines and the GL lines they were posted in */
+    IC.traceDoc = function (d, m) {
+        var w = ' WHERE pod = ' + q(S.pod || '') + ' AND month = ' + (+m) + ' AND scope = ' + q(d.scope) + ' AND app_id = ' + q(d.app_id) + ' AND entity_code = ' + q(d.entity_code) + ' AND ' + (d.source_id ? 'source_id = ' + q(d.source_id) : 'transaction_number = ' + q(d.doc_number));
+        Promise.all([FL.rows('SELECT * FROM rr_ic_xla' + w + ' ORDER BY ae_header_id, ae_line_num'),
+            FL.rows('SELECT * FROM rr_ic_v WHERE kind = \'GL\' AND pod = ' + q(S.pod || '') + ' AND month = ' + (+m) + ' AND src_id IN (SELECT gl_src_id FROM rr_ic_xla' + w + ')')]).then(function (rr) {
+            FL.modal('<i class="fa-solid fa-sitemap"></i> ' + esc((d.doc_type || d.entity_name) + ' ' + (d.doc_number || '')),
+                '<div class="ic-trace"><div class="card"><h4>① Document · ' + esc(d.app_name || '') + '</h4><table class="t">' + [['Type', d.doc_type || d.entity_name], ['Number', d.doc_number], ['Date', d.doc_date], ['Party', (d.party_number ? d.party_number + ' ' : '') + (d.party_name || '')],
+                    ['Currency', d.currency], ['Document amount', money(d.doc_amount)], ['Intercompany amount', money(d.ic_amount)], ['From → to', (d.from_company || '?') + ' → ' + (d.to_company || '?')], ['Status', d.status], ['Description', d.description], ['Internal id', d.entity_code + ' ' + (d.source_id || '')], ['Details from', d.detail]]
+                    .map(function (x) { return '<tr><th>' + x[0] + '</th><td>' + esc(x[1] == null ? '' : x[1]) + '</td></tr>'; }).join('') + '</table></div>' +
+                '<div class="card"><h4>② Subledger accounting (XLA)</h4><div id="ic-td1"></div></div><div class="card"><h4>③ GL journal lines</h4><div id="ic-td2"></div></div></div>');
+            FL.grid($('ic-td1'), [{ label: 'Event', key: 'event_type' }, { label: 'Class', key: 'accounting_class' }, { label: 'Date', key: 'accounting_date' }, { label: 'Account', key: 'account' }, { label: 'From', key: 'from_company' }, { label: 'To', key: 'to_company' },
+                { label: 'Currency', key: 'currency' }, { label: 'Entered', n: 1, sum: false, get: function (r) { return money(r.entered); }, val: function (r) { return r.entered; } }, { label: 'Accounted', n: 1, money: 1, get: function (r) { return money(r.accounted); }, val: function (r) { return r.accounted; } },
+                { label: 'Description', key: 'description' }, { label: 'GL line', key: 'gl_src_id' }], rr[0], { id: 'ic-td1' });
+            FL.grid($('ic-td2'), IC.trxCols(), rr[1], { id: 'ic-td2' });
+        });
+    };
+
+    // ═════ Log: every query of every task ═════
+    IC.viewLog = function (body) {
+        body.innerHTML = '<div class="row card"><label class="sm">Run <select id="ic-lrun"><option value="">loading…</option></select></label><div class="seg" id="ic-lk"><button data-k="" class="' + (!S.logK ? 'on' : '') + '">All tasks</button>' +
+            [['ENT', 'Legal entities']].concat(KINDS).map(function (k) { return '<button data-k="' + k[0] + '" class="' + (S.logK === k[0] ? 'on' : '') + '">' + esc(k[1]) + '</button>'; }).join('') + '</div><span class="grow"></span><span class="sm muted">Every query each task ran in Fusion (and on this PC), with its step, rows and time — kept 90 days.</span></div>' +
+            '<div id="ic-lsum"></div><div class="card" id="ic-lg"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i></div></div>';
+        body.querySelectorAll('#ic-lk button').forEach(function (b) { b.onclick = function () { S.logK = b.dataset.k; IC.view(); }; });
+        return FL.rows("SELECT run_id, MIN(logged_at) AS t0, MAX(logged_at) AS t1, COUNT(*) AS n, SUM(ms) AS ms, COUNT(*) FILTER (WHERE NOT ok) AS bad FROM rr_ic_log WHERE pod = " + q(S.pod || '') + " GROUP BY 1 ORDER BY 2 DESC LIMIT 60").catch(function () { return []; }).then(function (runs) {
+            if (!runs.length) { $('ic-lg').innerHTML = '<div class="empty">No queries logged yet — every sync from now on is logged here.</div>'; $('ic-lrun').innerHTML = ''; return; }
+            if (!S.logRun || !runs.some(function (r) { return r.run_id === S.logRun; })) S.logRun = runs[0].run_id;
+            $('ic-lrun').innerHTML = runs.map(function (r) { return '<option value="' + esc(r.run_id) + '"' + (r.run_id === S.logRun ? ' selected' : '') + '>' + esc(String(r.t0).replace('T', ' ').slice(0, 19)) + ' · ' + r.n + ' queries · ' + Math.round((+r.ms || 0) / 1000) + ' s' + (+r.bad ? ' · ' + r.bad + ' failed' : '') + '</option>'; }).join('');
+            $('ic-lrun').onchange = function () { S.logRun = this.value; IC.view(); };
+            return FL.rows('SELECT logged_at, kind, month, scope, step, what, sql, rows_read, ms, ok, error FROM rr_ic_log WHERE pod = ' + q(S.pod || '') + ' AND run_id = ' + q(S.logRun) + (S.logK ? ' AND kind = ' + q(S.logK) : '') + ' ORDER BY logged_at', 50000).then(function (rows) {
+                var tot = rows.reduce(function (a, r) { return a + (+r.ms || 0); }, 0), slow = rows.slice().sort(function (a, b) { return (+b.ms || 0) - (+a.ms || 0); })[0];
+                var byK = {}; rows.forEach(function (r) { var o = byK[r.kind] = byK[r.kind] || { n: 0, ms: 0, rows: 0, bad: 0 }; o.n++; o.ms += +r.ms || 0; o.rows += +r.rows_read || 0; if (!r.ok) o.bad++; });
+                $('ic-lsum').innerHTML = '<div class="kpis">' + Object.keys(byK).map(function (k) { var o = byK[k]; return '<div class="kpi' + (o.bad ? ' bad' : '') + '"><div class="k-l">' + esc(k === 'ENT' ? 'Legal entities' : (KN[k] || [k, k])[1]) + '</div><div class="k-v">' + Math.round(o.ms / 1000) + ' s</div><div class="k-d muted">' + o.n + ' queries · ' + o.rows.toLocaleString() + ' rows' + (o.bad ? ' · ' + o.bad + ' failed' : '') + '</div></div>'; }).join('') +
+                    (slow ? '<div class="kpi"><div class="k-l">Slowest query</div><div class="k-v">' + Math.round((+slow.ms || 0) / 1000) + ' s</div><div class="k-d muted">' + esc(String(slow.what || '').slice(0, 80)) + '</div></div>' : '') + '<div class="kpi"><div class="k-l">Total in Fusion</div><div class="k-v">' + Math.round(tot / 1000) + ' s</div><div class="k-d muted">' + rows.length + ' queries</div></div></div>';
+                FL.grid($('ic-lg'), [{ label: 'Time', get: function (r) { return String(r.logged_at).replace('T', ' ').slice(11, 19); }, val: function (r) { return r.logged_at; } },
+                    { label: 'Task', get: function (r) { return r.kind === 'ENT' ? 'Legal entities' : (KN[r.kind] || [r.kind, r.kind])[1]; }, val: function (r) { return r.kind; } }, { label: 'Month', get: function (r) { return +r.month ? mname(r.month) : ''; }, val: function (r) { return r.month; } },
+                    { label: 'Ledger', key: 'scope' }, { label: 'Step', key: 'step' }, { label: 'Query', key: 'what' }, { label: 'Rows', n: 1, key: 'rows_read' },
+                    { label: 'Seconds', n: 1, sum: false, get: function (r) { return ((+r.ms || 0) / 1000).toFixed(1); }, val: function (r) { return (+r.ms || 0) / 1000; } },
+                    { label: 'Result', get: function (r) { return r.ok ? '<span class="ic-st pos">ok</span>' : '<span class="ic-st neg" title="' + esc(r.error || '') + '">failed</span>'; }, val: function (r) { return r.ok ? 'ok' : 'failed ' + (r.error || ''); }, html: 1 }],
+                    rows, { id: 'ic-log', csv: 'intercompany-queries-' + S.logRun, max: 2000, click: function (r) { IC.sqlShow(r.what, r.sql, (r.ok ? '✓ ' : '⚠ ' + (r.error || '') + ' · ') + (+r.rows_read || 0).toLocaleString() + ' rows · ' + ((+r.ms || 0) / 1000).toFixed(1) + ' s · ' + (r.step || '')); } });
+            });
+        });
+    };
+    /** One query: the SQL, Copy, Count rows, ▶ Test */
+    IC.sqlShow = function (what, sql, meta) {
+        var local = /^-- DuckDB/.test(sql || '');
+        FL.modal('<i class="fa-solid fa-code"></i> ' + esc(what || 'Query'), '<p class="sm muted">' + esc(meta || '') + '</p><pre class="ic-sql">' + esc(sql || '') + '</pre><div class="row"><button class="btn sm" id="ic-sq-cp">Copy</button>' +
+            (local ? '<span class="sm muted">ran on this PC (DuckDB)</span>' : '<button class="btn sm" id="ic-sq-cnt">Count rows</button><button class="btn sm" id="ic-sq-run">▶ Test (first 50 rows)</button>') + '</div><div id="ic-sq-out"></div>');
+        $('ic-sq-cp').onclick = function () { try { navigator.clipboard.writeText(sql); FL.toast('Copied', 'ok'); } catch (e) { /* no clipboard */ } };
+        var go = function (count) {
+            var out = $('ic-sq-out'); out.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> asking Fusion…'; var t0 = Date.now();
+            FL.call('finFusionRun', { pod: S.pod || '', sql: count ? 'SELECT COUNT(*) AS N FROM (' + sql + ')' : sql }, 600000).then(function (x) {
+                var s2 = ((Date.now() - t0) / 1000).toFixed(1) + ' s';
+                out.innerHTML = !x.ok ? '<div class="callout bad sm">' + esc(x.error) + ' · ' + s2 + '</div>' : count ? '<p class="pos"><b>' + Number((x.sample[0] || [])[0] || 0).toLocaleString() + '</b> row(s) · ' + s2 + '</p>'
+                    : '<p class="sm pos">' + x.rows + ' row(s) in ' + s2 + '</p><div class="scroll" style="max-height:260px">' + FL.table(x.columns.map(function (c, i) { return { label: c, get: function (row) { return row[i]; } }; }), x.sample) + '</div>';
+            }).catch(function (e) { out.innerHTML = '<div class="callout bad sm">' + esc(e) + '</div>'; });
+        };
+        if ($('ic-sq-cnt')) $('ic-sq-cnt').onclick = function () { go(true); };
+        if ($('ic-sq-run')) $('ic-sq-run').onclick = function () { go(false); };
     };
 
     /** For the Copilot: the month on screen in numbers */
