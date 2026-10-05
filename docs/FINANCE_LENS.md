@@ -676,6 +676,52 @@ Click any customer on Debtors (or supplier on Creditors, or a party in Working c
 
 The period list shows every month whose trial balance is synced. Months whose extended segments (Salesperson, Item profit centre …) are not synced yet show **dashed** — click them to pick some (or none for all) and press **Sync segments**: Trial balance sync opens on that ledger and reads the segments for those months, one after another. Come back to Segment P&L and they can be chosen.
 
+## Inter company
+
+Left menu › **Inter company**. Every intercompany transaction of Oracle Fusion, month by month, kept on this PC (DuckDB,
+tables `rr_ic_*`) and copied to APEX (tables `RR_IC_*`). It works before any GL load.
+
+**What is synced** (one month at a time, by the GL date):
+
+| Kind | From Fusion | "Intercompany" means |
+|------|-------------|----------------------|
+| Legal entities | XLE_ENTITY_PROFILES (+ GL_LEGAL_ENTITIES_BSVS = its companies), business units, inventory organisations | names both sides and maps them to companies |
+| Intercompany (FUN) | FUN_TRX_BATCHES × FUN_TRX_HEADERS | every transaction of the Intercompany module (initiator → recipient, its AR / AP invoice numbers) |
+| Receivables | RA_CUSTOMER_TRX_ALL (+ the receivable distribution) | the customer's party is a legal entity of the group, customer type *I*, or a customer you listed |
+| Payables | AP_INVOICES_ALL | the supplier's party is a legal entity, supplier type INTERCOMPANY, invoice source Intercompany, or listed |
+| Inventory transfers | INV_MATERIAL_TXNS (shipping side) | transfers between organisations of different legal entities |
+| GL journal lines | posted GL_JE_LINES of each ledger | the intercompany segment holds a counterparty, the account is an intercompany account, or the journal category / source says Intercompany |
+| GL balances | GL_BALANCES | the same combinations, by company × account × counterparty, at the month end |
+
+Each kind tries its queries in order: when a table or column is missing on your pod it falls back to a simpler one
+(Settings › Queries shows them, ▶ *Test in Fusion*, or replace them with your own).
+
+**Sync & checklist** — the checklist says what is ready (legal entities, ledgers, the intercompany segment of each chart,
+intercompany accounts, customers / suppliers, months synced per kind, APEX copy) with the button that fixes each row. The
+month board (Jan–Dec × kind) shows ✓ rows, ◐ some ledgers, ⚠ failed (hover for the reason), ✗ not synced, live ⟳ while
+reading. *Sync* a month, *Overwrite* it, *Sync n missing* for one kind, or *Sync all missing*. Stop (yellow banner) ends the
+current month and drops the rest. Click a synced cell to see its transactions.
+
+**Overview** — the month in numbers (billed, booked by the buyers, % matched, not agreed, pairs out of balance, inventory
+shipped, FUN), *What needs attention* (click a line to go to it), *Who trades with whom* (arrows = flow, red = the pair's
+balances do not agree), the from × to matrix (click a cell for every document of the pair) and the volume by month.
+
+**Reconciliation** — company A's balance with B plus B's balance with A must be nil. Pairs: *Nets to nil*, *Amounts differ*,
+*One side only*, *Two currencies* (compare after translation). Balances on intercompany accounts without a counterparty are
+listed separately — they cannot be paired.
+
+**Matching** — each receivable of the seller is matched to the buyer's payable: same pair of companies, then the document
+number / reference, else the amount. *Timing* = the other side booked it in the month before / after (window in months).
+*No payable* / *No receivable* / *Amounts differ* are the items to chase. Click a row to see both sides and write a note
+(OPEN / EXPLAINED / TO FIX) — notes are kept in APEX, so every PC sees them. *Intercompany (FUN) → AR / AP* checks that every
+Intercompany module transaction produced its invoices.
+
+**Settings** (AI admins) — ledgers and their intercompany segment, intercompany accounts (empty = accounts classed
+*Intercompany* in Account mapping), extra customers / suppliers, inventory only between legal entities, GL category / source
+rule, automatic APEX copy, rows per page, queries.
+
+The CFO Copilot gets the month's matching and reconciliation, and can query `rr_ic_v`, `rr_ic_bal_v`, `rr_ic_entities`.
+
 ## Planning & budgets
 
 Left menu › **Planning › Budgets & forecasts**. A plan is a version of the income statement for one fiscal year, per company (or per company × cost centre) × account × month.

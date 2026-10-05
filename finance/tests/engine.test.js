@@ -410,5 +410,34 @@ test('planning: periods, seeding last year + %, rules, % of revenue, checks, goa
     var bl = { status: 'BASELINED', owner: 'ann' }; assert.ok(!PL.can(bl, 'refill', { admin: true })); assert.ok(!PL.can(bl, 'edit', { admin: true })); assert.ok(PL.can(bl, 'reopen', { admin: true })); assert.ok(!PL.can(bl, 'reopen', { user: 'ann' }));
 });
 
+test('inter company: AR vs AP matching, FUN links, pair reconciliation, findings', function () {
+    var FIC = require('../fin-ic-engine.js');
+    var r = function (o) { return Object.assign({ currency: 'MUR', month: 202603 }, o); };
+    var ar = [r({ doc_number: 'IC-1', from_co: '01', to_co: '02', amount: 1000, amount_entered: 1000 }), r({ doc_number: 'IC-2', from_co: '01', to_co: '02', amount: 500, amount_entered: 500 }),
+        r({ doc_number: 'IC-3', from_co: '01', to_co: '03', amount: 300, amount_entered: 300 }), r({ doc_number: 'X9', from_co: '01', to_co: '02', amount: 77, amount_entered: 77 }),
+        r({ doc_number: 'IC-5', from_co: '1', to_co: '2', amount: 250, amount_entered: 250 })];
+    var ap = [r({ doc_number: 'ic 1', from_co: '01', to_co: '02', amount: 1000, amount_entered: 1000 }), r({ doc_number: 'IC-2', from_co: '01', to_co: '02', amount: 450, amount_entered: 450 }),
+        r({ doc_number: 'ZZ', reference: 'IC-3', from_co: '01', to_co: '03', amount: 300, amount_entered: 300, month: 202604 }), r({ doc_number: 'NEW', from_co: '02', to_co: '01', amount: 90, amount_entered: 90 }),
+        r({ doc_number: 'whatever', from_co: '01', to_co: '02', amount: 250, amount_entered: 250 })];
+    var m = FIC.match(ar, ap, { month: 202603, tol: 1 }), st = {};
+    m.rows.forEach(function (x) { st[(x.sell || x.buy).doc_number] = x.status; });
+    assert.strictEqual(st['IC-1'], 'MATCHED'); assert.strictEqual(st['IC-2'], 'DIFF'); assert.strictEqual(st['IC-3'], 'TIMING');
+    assert.strictEqual(st.X9, 'SELL_ONLY'); assert.strictEqual(st.NEW, 'BUY_ONLY'); assert.strictEqual(st['IC-5'], 'MATCHED');   // by amount, codes without zeros
+    assert.strictEqual(m.rows.filter(function (x) { return x.status === 'DIFF'; })[0].diff, 50);
+    assert.deepStrictEqual(m.counts, { MATCHED: 2, TIMING: 1, DIFF: 1, SELL_ONLY: 1, BUY_ONLY: 1 });
+    var fl = FIC.funLinks([{ reference: 'IC-1', ref2: 'IC 1', amount: 1000 }, { reference: 'IC-9', ref2: null, amount: 5 }, { amount: 3 }], ar, ap);
+    assert.deepStrictEqual(fl.map(function (x) { return x.status; }), ['COMPLETE', 'NOT_FOUND', 'GL_ONLY']);
+    var rc = FIC.recon([{ company: '01', ic_company: '02', closing: 6300, currency: 'MUR' }, { company: '02', ic_company: '01', closing: -6000, currency: 'MUR' },
+        { company: '01', ic_company: '03', closing: 300, currency: 'MUR' }, { company: '03', ic_company: '01', closing: -300, currency: 'EUR' },
+        { company: '01', ic_company: '04', closing: 10, currency: 'MUR' }, { company: '01', ic_company: '000', closing: 99, currency: 'MUR' }], { tol: 1 });
+    var ps = {}; rc.pairs.forEach(function (p) { ps[p.a + '-' + p.b] = p; });
+    assert.strictEqual(ps['01-02'].status, 'DIFF'); assert.strictEqual(ps['01-02'].diff, 300); assert.strictEqual(ps['01-03'].status, 'CURRENCY');
+    assert.strictEqual(ps['01-04'].status, 'ONE_SIDED'); assert.strictEqual(rc.noCounterparty['1'], 99);
+    var mx = FIC.matrix(ar.concat(ap)); assert.strictEqual(mx.v['01']['02'], 1000 + 500 + 77 + 1000 + 450 + 250); assert.strictEqual(mx.v['1']['2'], 250);
+    var fd = FIC.findings({ match: m, recon: rc, funLinks: fl, glNoParty: { n: 2, amount: 40 } });
+    assert.strictEqual(fd[0].sev, 'bad'); assert.ok(fd.some(function (x) { return x.go === 'recon:DIFF'; })); assert.ok(fd.some(function (x) { return x.go === 'trx:GL'; }));
+    assert.ok(FIC.isDefault('000') && FIC.isDefault('T') && !FIC.isDefault('02'));
+});
+
 console.log('\n' + (n - fail) + '/' + n + ' passed');
 process.exit(fail ? 1 : 0);

@@ -41,6 +41,8 @@
     /** Prompts that fit the page on screen — a click puts the prompt in the box (edit it, Enter sends); nothing runs by itself */
     C.pagePrompts = function () {
         var G = FL.segpl, tab = FL.tab;
+        if (tab === 'ic') return { title: 'Inter company', items: ['Which pairs of companies do not agree this month, and why?', 'List the intercompany invoices the buyer has not booked yet, biggest first.',
+            'Summarise intercompany trading by pair of companies for this year (rr_ic_v), with the trend by month.', 'Which differences are timing only, and which need a correction?', 'Draft the intercompany elimination entries for this month.'] };
         if (tab === 'segai' && G && G.ai) return { title: 'AI Agent', items: G.ai.SUGGEST.concat(['What changed most versus last month, and why?']) };
         if (tab === 'segpl' && G && G.st && G.st.groups && G.st.groups.length) {
             var seg = G.label(G.st.groups[0]), sl = seg.toLowerCase(), fx = null;
@@ -220,6 +222,7 @@
             if (FL.tab === 'segpl' && FL.segpl && FL.segpl.ai && FL.segpl.st.groups && FL.segpl.st.groups.length) { try { out.segmentPL = FL.segpl.ai.context(); } catch (e) { /* not loaded */ } }
             if (FL.tab === 'pages' && FL.pages && FL.pages.cur) { var dc = FL.pages.designContext(); out.openPage = dc.page; out.pageParameters = dc.parameters_now;
                 out.pageGuide = 'The user is on their own page "' + FL.pages.cur.name + '" (My pages). When they ask to add, change or remove something on it, follow this guide and answer with ONE ```page block of the whole page:\n' + FL.pages.GUIDE; }
+            if (FL.tab === 'ic' && FL.ic && FL.ic.last) { try { out.intercompany = FL.ic.context(); } catch (e) { /* not drawn yet */ } }
             if (FL.tab === 'plan' && FL.plan && FL.plan.v && FL.plan.ctx) { try { out.planning = FL.plan.context(); } catch (e) { /* not drawn yet */ } }
             if (FL.tab === 'alloc' && FL.alloc && FL.alloc.doc) { try { out.costAllocation = FL.alloc.context(); out.costAllocationGuide = 'The user is on Cost allocation. To add or change rules answer with ONE ```alloc block: ' + FL.alloc.GUIDE; } catch (e) { /* not loaded */ } }
             if (FL.wcp && FL.wcp.KIND[FL.tab]) { try { out.thisPage = FL.wcp.context(); } catch (e) { /* not drawn yet */ } }

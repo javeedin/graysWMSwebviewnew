@@ -260,6 +260,7 @@ FL.render = function () {
         // before any load: the Data workspace, and the trial balance live from Fusion under Statements
         if (FL.tab === 'data' && FL.TABS.data) FL.TABS.data.render($('main'));
         else if (FL.tab === 'statements' && FL.tb) FL.tb.empty($('main'));
+        else if (FL.tab === 'ic' && FL.TABS.ic) return Promise.resolve(FL.TABS.ic.render($('main'))).catch(function (e) { $('main').innerHTML = '<div class="callout bad">' + esc(e && e.message || e) + '</div>'; });   // intercompany needs no GL load
         else FL.welcome();
         return Promise.resolve();
     }

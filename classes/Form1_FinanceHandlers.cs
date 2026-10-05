@@ -27,13 +27,13 @@ namespace WMSApp
         private static readonly System.Threading.AsyncLocal<FinJob> _finSlot = new();
         private static readonly HashSet<string> FIN_SYNCS = new(StringComparer.Ordinal)
         {
-            "finFusionSync", "finTbSync", "finTbExtSync", "finCcidSync", "finBiccLoad", "finWcSync", "finWcItems", "finFusionDiscover", "finUcmDownload", "finFusionCheck"
+            "finFusionSync", "finTbSync", "finTbExtSync", "finCcidSync", "finBiccLoad", "finWcSync", "finWcItems", "finFusionDiscover", "finUcmDownload", "finFusionCheck", "finIcSync"
         };
         private static string FinLabel(string action) => action switch
         {
             "finTbSync" => "A trial balance sync", "finTbExtSync" => "An extended segments sync", "finCcidSync" => "A code combinations sync",
             "finFusionSync" => "A full GL load", "finBiccLoad" => "A BICC load", "finWcSync" => "A working capital sync", "finWcItems" => "An item master sync",
-            "finFusionDiscover" => "A discovery", "finUcmDownload" => "A UCM download", "finFusionCheck" => "A Fusion check", _ => "This action"
+            "finFusionDiscover" => "A discovery", "finUcmDownload" => "A UCM download", "finFusionCheck" => "A Fusion check", "finIcSync" => "An intercompany sync", _ => "This action"
         };
 
         private System.Threading.CancellationTokenSource FinNewCts(TimeSpan limit)
@@ -323,6 +323,40 @@ namespace WMSApp
                             var res = await Task.Run(() => FinanceWorkingCapital.SyncAsync(FinRunner(o.Pod), o, FinProgress(wv, requestId), cts.Token));
                             AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_wc_sync", Outcome = "OK", DurationMs = sw.ElapsedMilliseconds, Target = o.Pod ?? "", Detail = string.Join(",", o.Kinds ?? new List<string>()) });
                             data = new { ok = true, results = res, buckets = FinanceWorkingCapital.BucketNames(o.Buckets) };
+                            break;
+                        }
+                    case "finIcSync":           // Inter company: FUN / AR / AP / INV / GL / BAL per month (+ legal entities) from Fusion → DuckDB rr_ic_*
+                        {
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can load finance data." }; break; }
+                            var o = JsonSerializer.Deserialize<FinanceIntercompany.Options>(root.TryGetProperty("options", out var oe) ? oe.GetRawText() : "{}", new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new FinanceIntercompany.Options();
+                            var cts = FinNewCts(TimeSpan.FromHours(3));
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            var res = await Task.Run(() => FinanceIntercompany.SyncAsync(FinRunner(o.Pod), o, user, FinProgress(wv, requestId), cts.Token));
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_ic_sync", Outcome = "OK", DurationMs = sw.ElapsedMilliseconds, Target = o.Pod ?? "",
+                                Detail = string.Join(",", o.Kinds ?? new List<string>()) + " · " + string.Join(",", o.Months ?? new List<int>()) });
+                            data = new { ok = true, results = res };
+                            break;
+                        }
+                    case "finIcStatus":         // the intercompany reads kept on this PC (month board, checklist)
+                        data = await Task.Run(() => FinanceLens.IcStatus(PipeSrvStr(root, "pod") ?? ""));
+                        break;
+                    case "finIcDelete":         // forget intercompany months / kinds on this PC
+                        {
+                            if (!await AiControl.IsAdminAsync(user)) { data = new { ok = false, error = "Only an AI admin can change the finance data." }; break; }
+                            var ks = root.TryGetProperty("kinds", out var ke) && ke.ValueKind == JsonValueKind.Array ? ke.EnumerateArray().Select(x => x.GetString()).ToList() : new List<string>();
+                            var ms = root.TryGetProperty("months", out var mse) && mse.ValueKind == JsonValueKind.Array ? mse.EnumerateArray().Select(x => x.GetInt32()).ToList() : new List<int>();
+                            data = await Task.Run(() => FinanceLens.IcDelete(PipeSrvStr(root, "pod") ?? "", ks, ms));
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_ic_delete", Outcome = "OK", Target = PipeSrvStr(root, "pod") ?? "", Detail = string.Join(",", ks) + " · " + string.Join(",", ms) });
+                            break;
+                        }
+                    case "finIcSql":            // the queries one kind × month (× ledger) would run — nothing is sent to Fusion
+                        {
+                            var o = JsonSerializer.Deserialize<FinanceIntercompany.Options>(root.TryGetProperty("options", out var oe) ? oe.GetRawText() : "{}", new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new FinanceIntercompany.Options();
+                            string kind = (PipeSrvStr(root, "kind") ?? "").ToUpperInvariant();
+                            int month = root.TryGetProperty("month", out var mo) && mo.ValueKind == JsonValueKind.Number ? mo.GetInt32() : DateTime.Today.Year * 100 + DateTime.Today.Month;
+                            var led = (o.Ledgers ?? new()).FirstOrDefault(l => l.Id == PipeSrvStr(root, "ledger")) ?? (o.Ledgers ?? new()).FirstOrDefault();
+                            var subs = kind == "ENT" ? new[] { "ENT", "ENT_BU", "ENT_ORG" } : new[] { kind };
+                            data = new { ok = true, kind, month, alternatives = subs.SelectMany(k => FinanceIntercompany.Alternatives(k, month, led, o)).Select(a => new { label = a.Label, sql = a.Sql }).ToList() };
                             break;
                         }
                     case "finWcDetail":         // the open items of one customer / supplier, or the on-hand lines of one item, live (≤ 500)
