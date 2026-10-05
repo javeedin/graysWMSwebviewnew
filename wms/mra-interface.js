@@ -239,8 +239,8 @@
         if (H.more) html += '<div style="font-size:.75rem;color:#a16207;margin-top:.4rem;">Showing the newest ' + MAX_ROWS + ' — narrow the dates or add a trip to see the rest.</div>';
         if (!rows.length) return html + '<div class="mrh-tw"><div class="mrh-empty">No MRA runs match these filters.</div></div>';
         var all = rows.every(function (r) { return H.sel[r.ID]; });
-        html += '<div class="mrh-tw"><table class="mrh-t"><thead><tr><th><input type="checkbox" id="mrh-all"' + (all ? ' checked' : '') + '></th>' +
-            '<th>When</th><th>Inst</th><th>Trip</th><th>Order</th><th>Customer</th><th class="num">Amount</th><th>Type</th><th>Status</th><th>MRA IRN</th><th>Failed step / reason</th><th>Source</th><th></th></tr></thead><tbody>' +
+        html += '<div class="mrh-tw"><table class="mrh-t"><thead><tr><th><input type="checkbox" id="mrh-all"' + (all ? ' checked' : '') + '></th><th></th>' +
+            '<th>When</th><th>Inst</th><th>Trip</th><th>Order</th><th>Customer</th><th class="num">Amount</th><th>Type</th><th>Status</th><th>MRA IRN</th><th>Failed step / reason</th><th>Source</th></tr></thead><tbody>' +
             rows.map(function (r) {
                 var live = H.live[r.ID], busy = H.busy[r.ID];
                 var stc = live ? live.cls : r.MRA_INTERFACE_STATUS;
@@ -248,6 +248,11 @@
                 var why = (r.FAILED_STEP ? r.FAILED_STEP + ' · ' : '') + (r.FAILED_REASON || '') + (r.GATEWAY_PROBLEM ? ' [' + r.GATEWAY_PROBLEM + ']' : '') + (live && live.msg ? ' — ' + live.msg : ''); why = why.replace(/^ — /, '');
                 var cust = (r.CUSTOMER_NAME || '') + (r.CUSTOMER_NUMBER ? ' (' + r.CUSTOMER_NUMBER + ')' : '');
                 return '<tr class="' + (H.sel[r.ID] ? 'sel' : '') + '"><td><input type="checkbox" data-id="' + esc(r.ID) + '"' + (H.sel[r.ID] ? ' checked' : '') + '></td>' +
+                    '<td><div class="mrh-act">' +
+                        '<button class="mrh-btn g s" title="Interface to MRA again" onclick="MraInterface.retry([' + JSON.stringify(String(r.ID)).replace(/"/g, '&quot;') + '])"' + (busy ? ' disabled' : '') + '><i class="fas fa-paper-plane"></i></button>' +
+                        '<button class="mrh-btn b s" title="Print order" onclick="MraInterface.print([' + JSON.stringify(String(r.ID)).replace(/"/g, '&quot;') + '])"' + (busy ? ' disabled' : '') + '><i class="fas fa-print"></i></button>' +
+                        '<button class="mrh-btn n s" title="Details, MRA request and answer" onclick="MraInterface.details(' + JSON.stringify(String(r.ID)).replace(/"/g, '&quot;') + ')"><i class="fas fa-magnifying-glass"></i></button>' +
+                    '</div></td>' +
                     '<td>' + esc(r.CREATED_AT) + (Number(r.TRIES) > 1 ? '<span class="sub" title="Runs of this order in the range">×' + esc(r.TRIES) + '</span>' : '') + '</td>' +
                     '<td>' + esc(r.INSTANCE_NAME) + '</td>' +
                     '<td title="' + esc(r.TRIP_DATE ? 'Trip date ' + r.TRIP_DATE : '') + '">' + esc(r.TRIP_ID || '') + '</td>' +
@@ -258,11 +263,7 @@
                     '<td class="cut n" style="font-size:.72rem;" title="' + esc(r.MRA_INTERFACE_ID || '') + '">' + esc(r.MRA_INTERFACE_ID || '') + '</td>' +
                     '<td class="cut w' + (r.FAILED_REASON || r.GATEWAY_PROBLEM ? ' why' : '') + '" title="' + esc(why) + '">' + esc(why) + '</td>' +
                     '<td class="cut n mrh-src" title="' + esc((r.SOURCE || '') + ' · ' + (r.APP_USER || '')) + '">' + esc(r.SOURCE || '') + (r.APP_USER ? ' · ' + esc(r.APP_USER) : '') + '</td>' +
-                    '<td><div class="mrh-act">' +
-                        '<button class="mrh-btn g s" title="Interface to MRA again" onclick="MraInterface.retry([' + JSON.stringify(String(r.ID)).replace(/"/g, '&quot;') + '])"' + (busy ? ' disabled' : '') + '><i class="fas fa-paper-plane"></i></button>' +
-                        '<button class="mrh-btn b s" title="Print order" onclick="MraInterface.print([' + JSON.stringify(String(r.ID)).replace(/"/g, '&quot;') + '])"' + (busy ? ' disabled' : '') + '><i class="fas fa-print"></i></button>' +
-                        '<button class="mrh-btn n s" title="Details, MRA request and answer" onclick="MraInterface.details(' + JSON.stringify(String(r.ID)).replace(/"/g, '&quot;') + ')"><i class="fas fa-magnifying-glass"></i></button>' +
-                    '</div></td></tr>';
+                    '</tr>';
             }).join('') + '</tbody></table></div>';
         return html;
     }
