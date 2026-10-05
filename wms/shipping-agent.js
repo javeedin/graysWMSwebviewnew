@@ -1943,29 +1943,134 @@
     // then prints only the orders MRA accepted, already had, or whose order type is not interfaced
     // (MRA_ORDER_TYPES INTERFACE_FLAG = N). A failed MRA order is never printed.
     window._saMra = window._saMra || {};                  // { tripId: { order: {st, irn, msg} } }
-    function saMraBadge(r) {
+    function saMraBadge(r, tripId, order) {
         if (!r) return '<span style="color:#94a3b8;font-size:9px;">—</span>';
-        const tip = esc((r.irn ? 'IRN ' + r.irn + (r.msg ? ' — ' : '') : '') + (r.msg || ''));
+        const tip = esc((r.irn ? 'IRN ' + r.irn + (r.msg ? ' — ' : '') : '') + (r.msg || '') + (r.secs ? ` (${r.secs.toFixed(1)} s)` : ''));
         const b = {
             RUNNING: ['<i class="fas fa-spinner fa-spin"></i> MRA…', '#ede9fe', '#6d28d9'],
+            QUEUED:  ['<i class="far fa-clock"></i> Waiting', '#f1f5f9', '#64748b'],
             DONE:    ['<i class="fas fa-check"></i> Interfaced', '#dcfce7', '#15803d'],
             ALREADY: ['<i class="fas fa-check-double"></i> Done', '#dcfce7', '#15803d'],
             SKIPPED: ['<i class="fas fa-minus-circle"></i> Not req.', '#f1f5f9', '#475569'],
             OFF:     ['<i class="fas fa-power-off"></i> MRA off', '#fef9c3', '#a16207'],
             FAILED:  ['<i class="fas fa-times-circle"></i> Failed', '#fef2f2', '#b91c1c']
         }[r.st] || ['—', '#f1f5f9', '#94a3b8'];
-        return `<span onclick="saMraDetails(this)" data-tip="${tip}" title="${tip}" style="display:inline-flex;align-items:center;gap:3px;background:${b[1]};color:${b[2]};border-radius:10px;padding:2px 8px;font-size:9px;font-weight:700;cursor:${r.st === 'RUNNING' ? 'default' : 'pointer'};white-space:nowrap;">${b[0]}</span>`;
+        const live = r.st === 'RUNNING' && r.step ? ` <span style="font-weight:500;opacity:.8;">${esc(r.step)}</span>` : '';
+        const key = tripId != null ? ` data-trip="${esc(String(tripId))}" data-order="${esc(String(order))}"` : '';
+        const icon = 'display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;border:none;cursor:pointer;font-size:9px;padding:0;';
+        const logBtn = key && (r.log && r.log.length || r.st === 'FAILED')
+            ? `<button type="button"${key} onclick="saMraLog(this)" title="MRA log — every step, timings, the MRA request and answer" style="${icon}background:#e0e7ff;color:#4338ca;"><i class="fas fa-file-alt"></i></button>` : '';
+        const retryBtn = key && r.st === 'FAILED'
+            ? `<button type="button"${key} onclick="saMraRetry(this)" title="Retry MRA for this order — printed straight away when MRA accepts it" style="${icon}background:#fee2e2;color:#b91c1c;"><i class="fas fa-redo"></i></button>` : '';
+        return `<span style="display:inline-flex;align-items:center;gap:3px;"><span onclick="saMraDetails(this)"${key} data-tip="${tip}" title="${tip}" style="display:inline-flex;align-items:center;gap:3px;background:${b[1]};color:${b[2]};border-radius:10px;padding:2px 8px;font-size:9px;font-weight:700;cursor:${r.st === 'RUNNING' ? 'default' : 'pointer'};white-space:nowrap;">${b[0]}${live}</span>${logBtn}${retryBtn}</span>`;
     }
-    function saMraBadgeFor(tripId, order) { return saMraBadge(((window._saMra || {})[tripId] || {})[order]); }
+    function saMraBadgeFor(tripId, order) { return saMraBadge(((window._saMra || {})[tripId] || {})[order], tripId, order); }
     function saMraSet(tripId, order, r) {
         (window._saMra[tripId] = window._saMra[tripId] || {})[order] = r;
         const cell = document.querySelector(`#sa-order-row-${CSS.escape(String(tripId))}-${CSS.escape(String(order))} [data-col="mra"]`);
-        if (cell) cell.innerHTML = saMraBadge(r);
+        if (cell) cell.innerHTML = saMraBadge(r, tripId, order);
     }
     window.saMraDetails = function(el) {
-        const row = el.closest('tr[id^="sa-order-row-"]'); if (!row) return;
+        if (el.dataset.trip && el.dataset.order) {
+            const r = ((window._saMra[el.dataset.trip] || {})[el.dataset.order]) || null;
+            if (r && (r.log && r.log.length || r.st === 'FAILED')) { saMraLog(el); return; }
+        }
         const tip = el.getAttribute('data-tip') || '';
         if (tip) alert(tip);
+    };
+    // Plain-words reason for a failed MRA order, from the step it stopped at and the message
+    function saMraWhy(r) {
+        const m = r.msg || '', st = r.stepCode || '';
+        if (r.gw === 'TIMEOUT') return 'The MRA gateway took longer than 60 s to answer. MRA may have created the invoice — Retry checks that first and will not send it twice.';
+        if (r.gw === 'UNREACHABLE') return 'The MRA gateway could not be reached, so nothing was sent. Safe to retry when MRA is back.';
+        if (/^Not sent/i.test(m)) return 'Nothing was sent for this order: the gateway was down for the orders before it. Safe to retry.';
+        if (/not closed|not shipped|line\(s\)/i.test(m) || st === 'ValidatingOrderLines') return 'Some order lines are not shipped / closed in Fusion yet. Ship them first, then Retry.';
+        if (/summary not found|details not found/i.test(m)) return 'The Fusion report returned no data for this order (wrong instance, or the order is not in that BU / org).';
+        if (/MRA_ORDER_TYPES/i.test(m)) return 'The order type could not be checked against MRA_ORDER_TYPES.';
+        if (/update Fusion/i.test(m)) return 'MRA accepted the invoice, but writing the IRN back to Fusion failed. Retry finds it as already done at MRA.';
+        if (/timed out after/i.test(m)) return 'The app got no answer for this order in time. Retry is safe — the first step checks whether MRA already has it.';
+        return '';
+    }
+    window.saMraLog = function(el) {
+        const tripId = el.dataset.trip, order = el.dataset.order;
+        const r = ((window._saMra[tripId] || {})[order]) || {};
+        document.getElementById('sa-mra-log-dlg')?.remove();
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-mra-log-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:10050;display:flex;align-items:center;justify-content:center;padding:16px;';
+        const col = { error: '#b91c1c', warning: '#a16207', success: '#15803d', step: '#4338ca', info: '#334155' };
+        const t0 = r.log && r.log.length ? r.log[0].t : 0;
+        const lines = (r.log || []).map(l => `<div style="display:flex;gap:8px;padding:3px 0;border-bottom:1px dashed #e2e8f0;">
+                <span style="color:#94a3b8;min-width:52px;text-align:right;">+${((l.t - t0) / 1000).toFixed(1)}s</span>
+                <span style="color:${col[l.type] || col.info};white-space:pre-wrap;word-break:break-word;flex:1;">${esc(l.text)}</span></div>`).join('')
+            || '<div style="color:#94a3b8;">No log for this order (it was settled before this session or not sent).</div>';
+        const why = r.st === 'FAILED' ? saMraWhy(r) : '';
+        const timings = r.timings ? `<div style="margin-top:6px;font-size:11px;color:#475569;"><b>Time per step:</b> ${esc(r.timings)}</div>` : '';
+        const json = (o) => esc(JSON.stringify(o, null, 2) || '');
+        const reqRes = (r.req || r.res) ? `<details style="margin-top:8px;"><summary style="cursor:pointer;font-weight:700;font-size:12px;">MRA request &amp; answer</summary>
+                ${r.req ? `<div style="font-size:11px;margin:6px 0 2px;color:#64748b;">Request${r.reqUrl ? ' → ' + esc(r.reqUrl) : ''}</div><pre style="max-height:180px;overflow:auto;background:#f8fafc;padding:8px;border-radius:6px;font-size:10px;">${json(r.req)}</pre>` : ''}
+                ${r.res ? `<div style="font-size:11px;margin:6px 0 2px;color:#64748b;">Answer</div><pre style="max-height:180px;overflow:auto;background:#f8fafc;padding:8px;border-radius:6px;font-size:10px;">${json(r.res)}</pre>` : ''}</details>` : '';
+        dlg.innerHTML = `<div style="background:#fff;border-radius:12px;width:min(760px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,.3);">
+            <div style="padding:12px 16px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:10px;">
+                <i class="fas fa-file-alt" style="color:#4338ca;"></i>
+                <div style="flex:1;"><div style="font-weight:800;">MRA log — order ${esc(order)}</div>
+                    <div style="font-size:11px;color:#64748b;">Trip ${esc(tripId)} · ${esc(r.st || '—')}${r.secs ? ' · ' + r.secs.toFixed(1) + ' s' : ''}${r.tries > 1 ? ' · try ' + r.tries : ''}${r.at ? ' · ' + esc(r.at) : ''}</div></div>
+                <button type="button" id="sa-mra-log-x" style="border:none;background:none;font-size:18px;cursor:pointer;color:#64748b;">✕</button></div>
+            <div style="padding:12px 16px;overflow:auto;flex:1;">
+                ${r.msg ? `<div style="padding:8px 10px;border-radius:8px;background:${r.st === 'FAILED' ? '#fef2f2' : '#f0fdf4'};color:${r.st === 'FAILED' ? '#991b1b' : '#166534'};font-size:12px;font-weight:600;">${esc(r.msg)}</div>` : ''}
+                ${why ? `<div style="margin-top:6px;padding:8px 10px;border-radius:8px;background:#fffbeb;color:#92400e;font-size:12px;"><i class="fas fa-lightbulb"></i> ${esc(why)}</div>` : ''}
+                ${timings}
+                <div style="margin-top:10px;font-family:Consolas,monospace;font-size:11px;">${lines}</div>
+                ${reqRes}
+            </div>
+            <div style="padding:10px 16px;border-top:1px solid #e2e8f0;display:flex;gap:8px;justify-content:flex-end;">
+                <button type="button" id="sa-mra-log-copy" style="padding:6px 12px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;cursor:pointer;"><i class="fas fa-copy"></i> Copy log</button>
+                ${r.st === 'FAILED' ? `<button type="button" id="sa-mra-log-retry" style="padding:6px 12px;border:none;background:#b91c1c;color:#fff;border-radius:6px;cursor:pointer;"><i class="fas fa-redo"></i> Retry &amp; print</button>` : ''}
+            </div></div>`;
+        document.body.appendChild(dlg);
+        const close = () => dlg.remove();
+        dlg.addEventListener('click', e => { if (e.target === dlg) close(); });
+        dlg.querySelector('#sa-mra-log-x').onclick = close;
+        dlg.querySelector('#sa-mra-log-copy').onclick = () => {
+            const txt = [`MRA log — order ${order} (trip ${tripId}) — ${r.st}`, r.msg || '', r.timings ? 'Timings: ' + r.timings : '']
+                .concat((r.log || []).map(l => `+${((l.t - t0) / 1000).toFixed(1)}s [${l.type}] ${l.text}`))
+                .concat(r.req ? ['Request: ' + JSON.stringify(r.req)] : []).concat(r.res ? ['Answer: ' + JSON.stringify(r.res)] : []).join('\n');
+            navigator.clipboard?.writeText(txt).then(() => showNotification('MRA log copied.', 'success'), () => {});
+        };
+        const rb = dlg.querySelector('#sa-mra-log-retry');
+        if (rb) rb.onclick = () => { close(); saMraRetry(el); };
+    };
+    // Retry one failed order: MRA again (its first step checks whether MRA already has it, so nothing
+    // is sent twice), and print it at once when MRA clears it — the same rule as Print Trip.
+    window.saMraRetry = async function(el) {
+        const tripId = el.dataset.trip, order = el.dataset.order;
+        const prev = ((window._saMra[tripId] || {})[order]) || {};
+        if (prev.st === 'RUNNING') return;
+        const row = document.getElementById(`sa-order-row-${tripId}-${order}`);
+        const instanceName = prev.inst || row?.getAttribute('data-inst') || 'PROD';
+        let creds;
+        try { creds = await saMraCredentials(); }
+        catch (e) { showNotification('MRA needs the Fusion credentials: ' + e.message, 'error'); return; }
+        saMraSet(tripId, order, { st: 'RUNNING', step: 'retry', inst: instanceName });
+        const r = await saMraInterfaceOrder(order, instanceName, creds, (live) => saMraSet(tripId, order, Object.assign({ st: 'RUNNING', inst: instanceName }, live)));
+        r.tries = (prev.tries || 1) + 1;
+        r.inst = instanceName;
+        saMraSet(tripId, order, r);
+        const agent = window._saCurrentAgent;
+        if (agent) saLogActivity(agent.ID, tripId, null, 'MRA', r.st === 'FAILED' ? 'FAILED' : 'SUCCESS', 1, `MRA retry ${order}: ${r.st}${r.msg ? ' — ' + r.msg : ''}`, null, null);
+        if (r.st === 'FAILED') { showNotification(`MRA still failed for ${order}: ${r.msg}`, 'error'); return; }
+        let tripDate = new Date().toISOString().split('T')[0];
+        const dataRow = row?.querySelector('[data-row]');
+        if (dataRow) {
+            try { tripDate = JSON.parse(decodeURIComponent(escape(atob(dataRow.getAttribute('data-row'))))).TRIP_DATE || tripDate; }
+            catch (e) { try { tripDate = JSON.parse(dataRow.getAttribute('data-row')).TRIP_DATE || tripDate; } catch (e2) {} }
+        }
+        try {
+            await saPrintOrder(order, tripId, tripDate, instanceName, true);
+            showNotification(`MRA ${r.st === 'DONE' ? 'interfaced' : r.st === 'ALREADY' ? 'already had' : 'not required for'} ${order} — printed.`, 'success');
+        } catch (e) {
+            showNotification(`MRA is fine for ${order}, but printing failed: ${e.message}`, 'warning');
+        }
     };
     // ─── MRA interface switch (Yes / No) ──────────────────────
     // WMS_MRA_INTERFACE_CONFIG holds one row per instance (PROD / TEST) with INTERFACE_FLAG Y or N
@@ -2080,30 +2185,58 @@
         if (typeof fetchFusionCredentialsForBatchMRA === 'function') return await fetchFusionCredentialsForBatchMRA();
         throw new Error('Fusion credentials are not available');
     }
-    /** One order through the C# MRA processor → { st, irn, msg } */
-    function saMraInterfaceOrder(orderNumber, instanceName, creds) {
+    /** One order through the C# MRA processor → { st, irn, msg, log, timings, secs }. onLive(partial) gets each step. */
+    const SA_MRA_STEPS = { CheckingMRAStatus: 'check', FetchingOrderSummary: 'summary', CheckingOrderType: 'type', FetchingOrderDetails: 'lines',
+        ValidatingOrderLines: 'validate', CreatingMRAInvoice: 'gateway', UpdatingFusionOrder: 'Fusion update' };
+    function saMraInterfaceOrder(orderNumber, instanceName, creds, onLive) {
         return new Promise(resolve => {
             if (!window.chrome?.webview) { resolve({ st: 'FAILED', msg: 'WebView2 not available' }); return; }
             const requestId = 'sa_mra_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+            const started = Date.now();
+            const log = [{ t: started, type: 'step', text: `Start MRA for ${orderNumber} on ${instanceName || 'PROD'}` }];
+            const extra = {};
             let timer = null;
             const handler = function(event) {
                 let data = event.data;
                 if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { return; } }
                 if (!data || data.requestId !== requestId) return;
+                const now = Date.now();
+                if (data.action === 'mraProcessingProgress') {
+                    log.push({ t: now, type: 'step', text: data.message || data.step });
+                    if (onLive) try { onLive({ step: SA_MRA_STEPS[data.step] || '', log }); } catch (e) {}
+                    return;
+                }
+                if (data.action === 'mraLog') { log.push({ t: now, type: data.type || 'info', text: String(data.message || '').slice(0, 4000) }); return; }
+                if (data.action === 'mraRequestData') { extra.req = data.request; extra.reqUrl = data.endpoint; log.push({ t: now, type: 'info', text: 'Sent to the MRA gateway' + (data.endpoint ? ' (' + data.endpoint + ')' : '') }); return; }
+                if (data.action === 'mraResponseData') { extra.res = data.response; log.push({ t: now, type: data.success ? 'success' : 'error', text: 'MRA gateway answered: ' + (data.success ? 'OK' : 'error') }); return; }
+                if (data.action === 'mraOrderData') { log.push({ t: now, type: 'info', text: `Order read from Fusion: ${(data.lines || []).length} line(s)` }); return; }
                 if (data.action === 'error') { done({ st: 'FAILED', msg: data.message || 'MRA processing error' }); return; }
                 if (data.action !== 'processMRAInterfaceResponse') return;
                 if (data.timings) console.log(`[ShippingAgent] MRA ${orderNumber} timings: ${data.timings}`);
-                if (data.success) done({ st: 'DONE', irn: data.irnCode || '', msg: data.message || '' });
-                else if (data.skipped) done({ st: 'SKIPPED', msg: data.message || 'Order type not interfaced to MRA' });
-                else if (/already done/i.test(data.message || '')) done({ st: 'ALREADY', msg: data.message });
-                else done({ st: 'FAILED', msg: data.message || 'MRA interface failed', step: data.currentStep, gw: data.gatewayProblem || null });
+                const base = { timings: data.timings || '', stepCode: data.currentStep || '' };
+                if (data.errorDetails && !data.success) log.push({ t: now, type: 'error', text: 'Details: ' + String(data.errorDetails).slice(0, 2000) });
+                if (data.success) done(Object.assign(base, { st: 'DONE', irn: data.irnCode || '', msg: data.message || '' }));
+                else if (data.skipped) done(Object.assign(base, { st: 'SKIPPED', msg: data.message || 'Order type not interfaced to MRA' }));
+                else if (/already done/i.test(data.message || '')) done(Object.assign(base, { st: 'ALREADY', msg: data.message }));
+                else done(Object.assign(base, { st: 'FAILED', msg: data.message || 'MRA interface failed', step: data.currentStep, gw: data.gatewayProblem || null }));
             };
-            function done(r) { clearTimeout(timer); window.chrome.webview.removeEventListener('message', handler); resolve(r); }
+            function done(r) {
+                clearTimeout(timer); window.chrome.webview.removeEventListener('message', handler);
+                const end = Date.now();
+                log.push({ t: end, type: r.st === 'FAILED' ? 'error' : 'success', text: `${r.st}: ${r.msg || ''}`.trim() });
+                resolve(Object.assign(r, extra, { log, secs: (end - started) / 1000, at: new Date(end).toLocaleTimeString() }));
+            }
             window.chrome.webview.addEventListener('message', handler);
             timer = setTimeout(() => done({ st: 'FAILED', msg: 'MRA request timed out after 3 minutes' }), 180000);
             window.chrome.webview.postMessage({ action: 'processMRAInterface', requestId, orderNumber,
                 fusionUsername: creds.username, fusionPassword: creds.password, instance: instanceName || 'PROD' });
         });
+    }
+    // How many orders go to MRA at the same time (each order already runs its 3 Fusion reports in parallel).
+    // Per PC in localStorage 'sa.mra.parallel' (1–6), default 4.
+    function saMraParallel() {
+        let n = 4; try { n = parseInt(localStorage.getItem('sa.mra.parallel') || '4', 10) || 4; } catch (e) {}
+        return Math.max(1, Math.min(6, n));
     }
 
     window.saPrintTrip = async function(tripId, instanceName) {
@@ -2168,20 +2301,44 @@
         const mra = { DONE: 0, ALREADY: 0, SKIPPED: 0, FAILED: 0 };
         const toPrint = mraOn ? [] : printable.slice();
         let gwStreak = 0, gwStop = null;   // two MRA gateway timeouts / connection errors in a row = gateway down: stop sending
-        for (let i = 0; mraOn && i < printable.length; i++) {
-            const o = printable[i];
+        // Several orders at the same time (saMraParallel), results kept in trip order so printing order does not change.
+        const results = new Array(printable.length);
+        const todo = [];
+        printable.forEach((o, i) => {
             const prev = ((window._saMra[tripId] || {})[o.orderNumber]) || null;
-            let r;
-            if (prev && (prev.st === 'DONE' || prev.st === 'ALREADY' || prev.st === 'SKIPPED')) r = prev;   // this session already settled it
-            else if (gwStop) { r = { st: 'FAILED', msg: 'Not sent: ' + gwStop }; saMraSet(tripId, o.orderNumber, r); }
-            else {
-                setBtn(`<i class="fas fa-spinner fa-spin"></i> MRA ${i + 1}/${printable.length}`, true);
-                saMraSet(tripId, o.orderNumber, { st: 'RUNNING' });
-                r = await saMraInterfaceOrder(o.orderNumber, instanceName, creds);
-                saMraSet(tripId, o.orderNumber, r);
-                if (r.gw) gwStreak++; else if (r.st === 'DONE' || r.step === 'CreatingMRAInvoice') gwStreak = 0;
-                if (gwStreak >= 2) gwStop = `the MRA gateway did not answer for ${gwStreak} orders in a row — stopped sending; nothing was sent for this order. Print Trip again when MRA answers.`;
-            }
+            if (mraOn && prev && (prev.st === 'DONE' || prev.st === 'ALREADY' || prev.st === 'SKIPPED')) results[i] = prev;   // this session already settled it
+            else if (mraOn) { todo.push(i); saMraSet(tripId, o.orderNumber, { st: 'QUEUED', tries: prev?.tries || 0, inst: instanceName }); }
+        });
+        let finished = 0;
+        const t0 = Date.now();
+        const paint = () => setBtn(`<i class="fas fa-spinner fa-spin"></i> MRA ${finished}/${todo.length}` + (finished ? ` · ${Math.round((Date.now() - t0) / 1000)}s` : ''), true);
+        if (mraOn && todo.length) {
+            paint();
+            let next = 0;
+            const worker = async () => {
+                while (next < todo.length) {
+                    const i = todo[next++], o = printable[i];
+                    const prev = ((window._saMra[tripId] || {})[o.orderNumber]) || {};
+                    let r;
+                    if (gwStop) r = { st: 'FAILED', msg: 'Not sent: ' + gwStop, log: [{ t: Date.now(), type: 'warning', text: 'Not sent: ' + gwStop }] };
+                    else {
+                        saMraSet(tripId, o.orderNumber, { st: 'RUNNING', inst: instanceName });
+                        r = await saMraInterfaceOrder(o.orderNumber, instanceName, creds,
+                            live => saMraSet(tripId, o.orderNumber, Object.assign({ st: 'RUNNING', inst: instanceName }, live)));
+                        if (r.gw) gwStreak++; else if (r.st === 'DONE' || r.step === 'CreatingMRAInvoice') gwStreak = 0;
+                        if (gwStreak >= 2 && !gwStop) gwStop = `the MRA gateway did not answer for ${gwStreak} orders in a row — stopped sending; nothing was sent for this order. Use Retry when MRA answers.`;
+                    }
+                    r.tries = (prev.tries || 0) + 1; r.inst = instanceName;
+                    saMraSet(tripId, o.orderNumber, r);
+                    results[i] = r;
+                    finished++; paint();
+                }
+            };
+            await Promise.all(Array.from({ length: Math.min(saMraParallel(), todo.length) }, worker));
+            console.log(`[ShippingAgent] MRA for ${todo.length} orders of trip ${tripId} took ${((Date.now() - t0) / 1000).toFixed(1)} s (${saMraParallel()} at a time)`);
+        }
+        for (let i = 0; mraOn && i < printable.length; i++) {
+            const o = printable[i], r = results[i];
             mra[r.st] = (mra[r.st] || 0) + 1;
             if (r.st !== 'FAILED') toPrint.push(o);
             else console.warn(`[ShippingAgent] MRA failed for ${o.orderNumber}: ${r.msg}`);
@@ -2213,7 +2370,7 @@
             saLogActivity(agent.ID, tripId, null, 'PRINT', 'SUCCESS', 1,
                 `Trip print done — ${printed} printed, ${mra.FAILED} held back (MRA failed), ${notReady} not fully interfaced`, null, null);
         }
-        const mraText = !mraOn ? `MRA interface is OFF for ${instanceName || 'PROD'} (MRA: No) — printed without MRA` : `MRA: ${mra.DONE} interfaced, ${mra.ALREADY} already done, ${mra.SKIPPED} not required` + (mra.FAILED ? `, ${mra.FAILED} FAILED (not printed — click the red badge for the reason)` : '');
+        const mraText = !mraOn ? `MRA interface is OFF for ${instanceName || 'PROD'} (MRA: No) — printed without MRA` : `MRA: ${mra.DONE} interfaced, ${mra.ALREADY} already done, ${mra.SKIPPED} not required` + (mra.FAILED ? `, ${mra.FAILED} FAILED (not printed — use the log icon for the reason and Retry to send it again)` : '');
         showNotification(`${mraText}. Printed ${printed}` + (notReady ? `, ${notReady} not ready` : '') + '.', mra.FAILED ? 'warning' : 'success');
     };
 

@@ -473,12 +473,23 @@ namespace WMSApp.MRA
         /// 'N' or a type missing from the table means "do not interface" (Excluded). When the table cannot
         /// be read the order is NOT sent either (Excluded = false, so it shows as a failure to retry).
         /// </summary>
+        // MRA_ORDER_TYPES hardly ever changes: read it once per 5 minutes instead of once per order
+        // (a trip of 40 orders made 40 identical APEX calls).
+        private const int ORDER_TYPES_CACHE_MINUTES = 5;
+        private static (DateTime At, List<Dictionary<string, string>> Rows, List<string> Names)? _orderTypesCache;
+
         private async Task<(bool Allowed, bool Excluded, string Message)> CheckOrderTypeAsync(string orderType, Action<string, string> logCallback)
         {
             if (string.IsNullOrWhiteSpace(orderType))
                 return (false, false, "Cannot check MRA_ORDER_TYPES: the order summary has no ORDER_TYPE_CODE - not sent to MRA");
             try
             {
+                List<Dictionary<string, string>> rows; List<string> names;
+                var cached = _orderTypesCache;
+                if (cached != null && DateTime.UtcNow - cached.Value.At < TimeSpan.FromMinutes(ORDER_TYPES_CACHE_MINUTES))
+                { rows = cached.Value.Rows; names = cached.Value.Names; }
+                else
+                {
                 using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
                 string body = JsonConvert.SerializeObject(new { sql = "SELECT * FROM mra_order_types", maxRows = 1000, appUser = Environment.UserName });
                 var resp = await http.PostAsync(APEX_QUERY_URL, new StringContent(body, Encoding.UTF8, "application/json"));
@@ -489,7 +500,7 @@ namespace WMSApp.MRA
 
                 var cols = (root["columns"] as Newtonsoft.Json.Linq.JArray ?? new Newtonsoft.Json.Linq.JArray())
                     .Select(c => (c.Type == Newtonsoft.Json.Linq.JTokenType.Object ? c.Value<string>("name") : c.ToString())?.ToUpperInvariant() ?? "").ToList();
-                var rows = new List<Dictionary<string, string>>();
+                rows = new List<Dictionary<string, string>>();
                 foreach (var r in (Newtonsoft.Json.Linq.JArray)root["rows"])
                 {
                     var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -497,7 +508,9 @@ namespace WMSApp.MRA
                     else if (r is Newtonsoft.Json.Linq.JObject obj) foreach (var p in obj.Properties()) d[p.Name.ToUpperInvariant()] = p.Value?.ToString();
                     rows.Add(d);
                 }
-                var names = cols.Count > 0 ? cols : (rows.FirstOrDefault()?.Keys.ToList() ?? new List<string>());
+                names = cols.Count > 0 ? cols : (rows.FirstOrDefault()?.Keys.ToList() ?? new List<string>());
+                _orderTypesCache = (DateTime.UtcNow, rows, names);
+                }
                 string flagCol = names.FirstOrDefault(c => c == "INTERFACE_FLAG")
                               ?? names.FirstOrDefault(c => c.Contains("INTERFACE") && c.Contains("FLAG"))
                               ?? names.FirstOrDefault(c => c.Contains("INTERFACE"));
