@@ -307,14 +307,15 @@
         credsP.catch(function () { credsP = null; });
         return credsP;
     }
-    function mraOne(r, c, batch) {
+    /** One order through MRAProcessor; onStep(text) gets the live steps. */
+    function mraOne(r, c, batch, onStep, source) {
         return new Promise(function (resolve) {
             var rid = 'mrh_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), timer = null;
             function done(x) { clearTimeout(timer); window.chrome.webview.removeEventListener('message', h); resolve(x); }
             function h(ev) {
                 var d = ev.data; if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { return; } }
                 if (!d || d.requestId !== rid) return;
-                if (d.action === 'mraProcessingProgress') { H.live[r.ID] = { cls: 'RUN', text: 'Running', msg: d.message || d.step }; render(); return; }
+                if (d.action === 'mraProcessingProgress') { if (onStep) onStep(d.message || d.step || ''); return; }
                 if (d.action === 'error') { done({ st: 'FAILED', msg: d.message || 'MRA processing error' }); return; }
                 if (d.action !== 'processMRAInterfaceResponse') return;
                 if (d.success) done({ st: 'SUCCESS', msg: 'IRN ' + (d.irnCode || '') });
@@ -325,7 +326,7 @@
             window.chrome.webview.addEventListener('message', h);
             timer = setTimeout(function () { done({ st: 'FAILED', msg: 'No answer within 3 minutes' }); }, 180000);
             window.chrome.webview.postMessage({ action: 'processMRAInterface', requestId: rid, orderNumber: r.ORDER_NUMBER, fusionUsername: c.username, fusionPassword: c.password,
-                instance: r.INSTANCE_NAME || 'PROD', batchId: batch, source: 'WMS_MRA_HISTORY', tripId: r.TRIP_ID ? String(r.TRIP_ID) : undefined, appUser: appUser() });
+                instance: r.INSTANCE_NAME || 'PROD', batchId: batch, source: source || 'WMS_MRA_HISTORY', tripId: r.TRIP_ID ? String(r.TRIP_ID) : undefined, appUser: appUser() });
         });
     }
     function retry(ids) {
@@ -346,7 +347,7 @@
                 var r = queue.shift(); if (!r) return Promise.resolve();
                 if (stop) { res.NOT_SENT++; H.live[r.ID] = { cls: 'FAILED', text: 'Not sent', msg: stop }; delete H.busy[r.ID]; render(); return next(); }
                 H.live[r.ID] = { cls: 'RUN', text: 'Running' }; render();
-                return mraOne(r, c, batch).then(function (x) {
+                return mraOne(r, c, batch, function (step) { H.live[r.ID] = { cls: 'RUN', text: 'Running', msg: step }; render(); }).then(function (x) {
                     res[x.st] = (res[x.st] || 0) + 1;
                     if (x.gw) gwStreak++; else gwStreak = 0;
                     if (gwStreak >= 2) stop = 'the MRA gateway did not answer twice in a row — stopped; nothing was sent for this order, safe to retry later.';
@@ -561,6 +562,14 @@
         print: function (ids) { printOrders(ids); },
         details: function (id) { details(id); },
         csv: function () { csv(); },
+        /** Interfaces one order from another screen (the trip grids' Interface button): {order, instance, tripId},
+            onStep(text) → {st: SUCCESS | FAILED | SKIPPED | ALREADY_DONE, msg, gw}. */
+        interfaceOrder: function (o, onStep, source) {
+            if (!window.chrome || !window.chrome.webview) return Promise.resolve({ st: 'FAILED', msg: 'Open this inside the Gray\'s WMS app.' });
+            return fusionCreds().then(function (c) {
+                return mraOne({ ORDER_NUMBER: o.order, INSTANCE_NAME: o.instance, TRIP_ID: o.tripId }, c, 'trip_' + Date.now(), onStep, source || 'WMS_TRIP_GRID');
+            }, function (e) { return { st: 'FAILED', msg: e.message }; });
+        },
         /** Opens MRA transactions history on one order (every try, last 2 years) — the MRA column of the trip grids. */
         history: function (order, inst) {
             var f = filters();

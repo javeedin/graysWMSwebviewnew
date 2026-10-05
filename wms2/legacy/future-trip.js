@@ -93,26 +93,58 @@
             throw e;
         });
     };
-    var MRA_LOOK = {
-        SUCCESS: ['#dcfce7', '#15803d', 'fa-circle-check', 'Success'], ALREADY_DONE: ['#e0f2fe', '#0369a1', 'fa-check-double', 'Done'],
-        FAILED: ['#fee2e2', '#b91c1c', 'fa-circle-xmark', 'Failed'], SKIPPED: ['#f1f5f9', '#475569', 'fa-forward', 'Skipped']
-    };
+    /** MRA cell: ✔ when MRA has the order (SUCCESS / ALREADY_DONE — click = its history), otherwise an Interface button
+        that runs MRAProcessor for that order right here (FAILED = red, the reason on hover; SKIPPED = order type not sent). */
+    var MRA_OK = { SUCCESS: 1, ALREADY_DONE: 1 };
+    function mraTip(r, s) {
+        var t = [s ? s.replace('_', ' ') : 'Not sent to MRA yet'];
+        if (r.MRA_IRN) t.push('IRN: ' + r.MRA_IRN);
+        if (r.MRA_REASON) t.push('Reason: ' + r.MRA_REASON);
+        if (r.MRA_AT) t.push('Last try: ' + r.MRA_AT + (r.MRA_TRIES > 1 ? ' · ' + r.MRA_TRIES + ' tries' : ''));
+        return t;
+    }
+    function mraHistory(r) { if (window.MraInterface && MraInterface.history) MraInterface.history(orderOf(r), r.instance_name || r.INSTANCE_NAME); }
     function mraCell(el, info) {
-        var r = info.data || {}, s = String(r[MRA_FIELD] || '').toUpperCase(), lk = MRA_LOOK[s];
-        if (!s) { el.html('<span style="color:#cbd5e1;" title="Not sent to MRA yet">—</span>'); return; }
-        lk = lk || ['#fef9c3', '#a16207', 'fa-circle-question', s];
-        var tip = [s.replace('_', ' ')];
-        if (r.MRA_IRN) tip.push('IRN: ' + r.MRA_IRN);
-        if (r.MRA_REASON) tip.push('Reason: ' + r.MRA_REASON);
-        if (r.MRA_AT) tip.push('Last try: ' + r.MRA_AT + (r.MRA_TRIES > 1 ? ' · ' + r.MRA_TRIES + ' tries' : ''));
-        tip.push('Click: MRA history of this order');
-        $('<span>').attr('title', tip.join('\n')).css({ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '1px 8px', borderRadius: '999px',
-            fontSize: '.72rem', fontWeight: 700, background: lk[0], color: lk[1], cursor: 'pointer', whiteSpace: 'nowrap' })
-            .html('<i class="fas ' + lk[2] + '"></i>' + esc(lk[3]) + (r.MRA_TRIES > 1 ? '<sup style="opacity:.7">' + r.MRA_TRIES + '</sup>' : ''))
+        var r = info.data || {}, s = String(r[MRA_FIELD] || '').toUpperCase();
+        el.empty().css({ whiteSpace: 'nowrap' });
+        if (r._mraBusy) {
+            $('<span>').attr('title', r._mraBusy).css({ color: '#a16207', fontSize: '.72rem', fontWeight: 700 })
+                .html('<i class="fas fa-spinner fa-spin"></i> ' + esc(String(r._mraBusy).slice(0, 22))).appendTo(el);
+            return;
+        }
+        if (MRA_OK[s]) {
+            $('<span>').attr('title', mraTip(r, s).concat('Click: MRA history of this order').join('\n'))
+                .css({ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '26px', height: '26px', borderRadius: '50%',
+                    background: '#dcfce7', color: '#15803d', cursor: 'pointer', fontSize: '.95rem' })
+                .html('<i class="fas fa-check"></i>')
+                .on('click', function (e) { e.stopPropagation(); mraHistory(r); }).appendTo(el);
+            return;
+        }
+        var failed = s === 'FAILED', skipped = s === 'SKIPPED';
+        var tip = mraTip(r, s).concat(skipped ? 'Click: try MRA again (the app skips order types MRA does not take)' : 'Click: interface this order to MRA now');
+        $('<button type="button">').attr('title', tip.join('\n'))
+            .css({ border: '1px solid ' + (failed ? '#fca5a5' : skipped ? '#cbd5e1' : '#a5b4fc'), background: failed ? '#fef2f2' : skipped ? '#f8fafc' : '#eef2ff',
+                color: failed ? '#b91c1c' : skipped ? '#64748b' : '#4338ca', borderRadius: '6px', padding: '2px 8px', fontSize: '.72rem', fontWeight: 700, cursor: 'pointer' })
+            .html('<i class="fas ' + (failed ? 'fa-rotate-right' : 'fa-paper-plane') + '"></i> ' + (failed ? 'Retry' : 'Interface'))
             .on('click', function (e) {
                 e.stopPropagation();
-                if (window.MraInterface && MraInterface.history) MraInterface.history(orderOf(r), r.instance_name || r.INSTANCE_NAME);
+                if (!window.MraInterface || !MraInterface.interfaceOrder) { note('MRA Interface page script is not loaded — refresh the page.', 'error'); return; }
+                var o = orderOf(r), inst = r.instance_name || r.INSTANCE_NAME || window.currentTripInstance || 'PROD';
+                if (!window.confirm('Interface order ' + o + ' (' + inst + ') to MRA now?' + (failed && r.MRA_REASON ? '\n\nLast try failed: ' + r.MRA_REASON : ''))) return;
+                r._mraBusy = 'Starting…'; mraCell(el, info);
+                MraInterface.interfaceOrder({ order: o, instance: inst, tripId: r.trip_id || r.TRIP_ID }, function (step) { r._mraBusy = step || 'Running…'; mraCell(el, info); })
+                    .then(function (x) {
+                        delete r._mraBusy;
+                        r[MRA_FIELD] = x.st; r.MRA_AT = new Date().toLocaleString(); r.MRA_TRIES = (Number(r.MRA_TRIES) || 0) + 1;
+                        if (x.st === 'SUCCESS') { r.MRA_IRN = String(x.msg || '').replace(/^IRN\s*/, ''); r.MRA_REASON = ''; }
+                        else if (!MRA_OK[x.st]) r.MRA_REASON = x.msg || '';
+                        mraCell(el, info);
+                        note('MRA ' + o + ': ' + (MRA_OK[x.st] ? 'interfaced' : x.st === 'SKIPPED' ? 'skipped (order type not sent to MRA)' : 'failed — ' + (x.msg || '')),
+                            MRA_OK[x.st] ? 'success' : x.st === 'SKIPPED' ? 'info' : 'error');
+                    });
             }).appendTo(el);
+        if (s) $('<i class="fas fa-clock-rotate-left">').attr('title', 'MRA history of this order').css({ marginLeft: '6px', color: '#94a3b8', cursor: 'pointer' })
+            .on('click', function (e) { e.stopPropagation(); mraHistory(r); }).appendTo(el);
     }
     function apiVal(r, k) { return Object.prototype.hasOwnProperty.call(r, k) ? r[k] : (Object.prototype.hasOwnProperty.call(r, k.toUpperCase()) ? r[k.toUpperCase()] : undefined); }
 
@@ -150,7 +182,7 @@
             cols.splice(at >= 0 ? at + 1 : cols.length, 0, { dataField: DATE_FIELD, caption: 'Picker Assigned On', width: 135, alignment: 'center',
                 cellTemplate: function (el, info) { el.text(info.value || '—').css({ color: info.value ? '#0f766e' : '#94a3b8', whiteSpace: 'nowrap' }); } });
             var act = cols.findIndex(function (c) { return c && !c.dataField && /actions/i.test(c.caption || ''); });
-            cols.splice(act >= 0 ? act + 1 : 0, 0, { dataField: MRA_FIELD, caption: 'MRA', width: 105, alignment: 'center', cellTemplate: mraCell });
+            cols.splice(act >= 0 ? act + 1 : 0, 0, { dataField: MRA_FIELD, caption: 'MRA', width: 118, alignment: 'center', cellTemplate: mraCell });
             grid.option('columns', cols);
             grid.refresh();
         }).catch(function (e) { console.warn('[Trip extras] not added:', e); });
