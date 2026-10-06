@@ -220,7 +220,7 @@
             return items.map(function (l) {
                 return { pod: pod, trip_date: date, order_number: order, line: String(l.OrderLineNumber || l.LineNumber || l.SourceLineNumber || l.ShipmentLine || ''), item: l.Item || l.ItemNumber || '',
                     line_status: l.LineStatus || '', line_status_code: l.LineStatusCode || '', bucket: S.bucket(l), requested_qty: String(l.RequestedQuantity || 0), staged_qty: String(l.StagedQuantity || 0),
-                    shipped_qty: String(l.ShippedQuantity || 0), shipment_line: String(l.ShipmentLine || ''), fulfill_line_id: String(l.FulfillmentLineId || l.SourceShipmentId || '') };
+                    shipped_qty: String(l.ShippedQuantity || 0), shipment_line: String(l.ShipmentLine || ''), shipment: l.Shipment == null ? '' : String(l.Shipment), fulfill_line_id: String(l.FulfillmentLineId || l.SourceShipmentId || '') };
             });
         });
     };

@@ -94,6 +94,7 @@
     W2.post = function (url, body, ms) { return W2.call('executePost', { fullUrl: url, body: typeof body === 'string' ? body : JSON.stringify(body || {}) }, ms || 120000).then(parse); };
     W2.fusionUrl = function (path, pod) { return (W2.FUSION[pod || W2.pod()] || W2.FUSION.PROD) + path; };
     W2.fusionGet = function (url, pod) { return W2.call('executeOracleFusionGet', { fullUrl: url, instance: pod || W2.pod() }, 120000).then(parse); };
+    W2.fusionPost = function (url, body, pod) { return W2.call('executeOracleFusionPost', { fullUrl: url, body: JSON.stringify(body), instance: pod || W2.pod() }, 120000).then(parse); };
     W2.fusionPatch = function (url, body, pod) { return W2.call('executeOracleFusionPatch', { fullUrl: url, body: JSON.stringify(body), instance: pod || W2.pod() }, 120000).then(parse); };
     // ── APEX gateway (read / write) ───────────────────────────
     W2.apexRows = function (sql, max) {

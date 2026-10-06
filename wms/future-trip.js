@@ -191,6 +191,27 @@
             .css({ color: '#0369a1', fontWeight: 600 }).html('<i class="fas fa-truck-fast" style="margin-right:5px;opacity:.7"></i>' + esc(String(v).split(' ')[0])).appendTo(el);
     }
     /** Writes one row per order × shipment of the dialog's run into WMS_ACTUAL_SHIPDATE and shows the date in the trip grid. */
+    /** Shared with WMS 2.0 (Pick release › Actual ship date): writes one row per order × shipment into WMS_ACTUAL_SHIPDATE.
+        recs: [{instance, trip_id, trip_date, order_number, header_id, order_date, order_type, customer_number, customer_name,
+                shipment, line_count, date 'YYYY-MM-DD', time 'HH:MM', sent (text sent to Fusion), ok, error, source}] */
+    window.wmsRecordShipDates = function (recs) {
+        var sel = (recs || []).map(function (x) {
+            return 'SELECT ' + [lit(String(x.instance || 'PROD').toUpperCase()), lit(x.trip_id || ''), dateSql(x.trip_date), lit(x.order_number || ''), lit(x.header_id || ''), dateSql(x.order_date),
+                lit(x.order_type || ''), lit(x.customer_number || ''), lit(String(x.customer_name || '').slice(0, 400)), lit(x.shipment || ''), Number(x.line_count) || 0,
+                "TO_DATE(" + lit(x.date + ' ' + (x.time || '00:00')) + ", 'YYYY-MM-DD HH24:MI')", lit(x.sent || ''),
+                lit(x.ok ? 'SUCCESS' : 'FAILED'), lit(String(x.error || '').slice(0, 3900)), lit(user()), lit(x.source || 'WMS')].join(', ') + ' FROM dual';
+        });
+        if (!sel.length) return Promise.resolve(0);
+        var chunks = []; for (var i = 0; i < sel.length; i += 40) chunks.push(sel.slice(i, i + 40));
+        return shipEnsure().then(function () {
+            return chunks.reduce(function (p, c) {
+                return p.then(function () {
+                    return apexWrite('INSERT INTO wms_actual_shipdate (instance_name, trip_id, trip_date, order_number, header_id, order_date, order_type, ' +
+                        'customer_number, customer_name, shipment, line_count, actual_ship_date, actual_ship_date_tz, status, error_message, app_user, source) ' + c.join(' UNION ALL '));
+                });
+            }, Promise.resolve());
+        }).then(function () { return sel.length; });
+    };
     function shipRecord(ctx, shipments, dateVal, timeVal, sentText) {
         var tripId = String(ctx.tripId || ''), inst = String(ctx.instance || window.currentTripInstance || 'PROD').toUpperCase();
         var result = {};
@@ -209,24 +230,15 @@
             keys[k].n++;
         });
         var tripRow = gridRows[0] || {}, tripDate = pick(tripRow, ['trip_date', 'tripdate', 'TRIP_DATE']) || '';
-        var dateSqlSent = "TO_DATE(" + lit(dateVal + ' ' + timeVal) + ", 'YYYY-MM-DD HH24:MI')";
-        var sel = Object.keys(keys).map(function (k) {
+        var recs = Object.keys(keys).map(function (k) {
             var x = keys[k], r = byOrder[x.o] || {}, res = result[x.shp];
-            return 'SELECT ' + [lit(inst), lit(tripId), dateSql(tripDate), lit(x.o), lit(x.hid), dateSql(pick(r, ['order_date', 'ORDER_DATE'])),
-                lit(pick(r, ['order_type', 'ORDER_TYPE']) || ''), lit(pick(r, ['account_number', 'ACCOUNT_NUMBER']) || ''),
-                lit(String(pick(r, ['account_name', 'ACCOUNT_NAME']) || x.cust || '').slice(0, 400)), lit(x.shp), x.n, dateSqlSent, lit(sentText),
-                lit(res.ok ? 'SUCCESS' : 'FAILED'), lit(String(res.err || '').slice(0, 3900)), lit(user()), "'WMS_ASL'"].join(', ') + ' FROM dual';
+            return { instance: inst, trip_id: tripId, trip_date: tripDate, order_number: x.o, header_id: x.hid, order_date: pick(r, ['order_date', 'ORDER_DATE']),
+                order_type: pick(r, ['order_type', 'ORDER_TYPE']), customer_number: pick(r, ['account_number', 'ACCOUNT_NUMBER']), customer_name: pick(r, ['account_name', 'ACCOUNT_NAME']) || x.cust,
+                shipment: x.shp, line_count: x.n, date: dateVal, time: timeVal, sent: sentText, ok: res.ok, error: res.err, source: 'WMS_ASL' };
         });
-        if (!sel.length) return Promise.resolve();
-        var chunks = []; for (var i = 0; i < sel.length; i += 40) chunks.push(sel.slice(i, i + 40));
-        return shipEnsure().then(function () {
-            return chunks.reduce(function (p, c) {
-                return p.then(function () {
-                    return apexWrite('INSERT INTO wms_actual_shipdate (instance_name, trip_id, trip_date, order_number, header_id, order_date, order_type, ' +
-                        'customer_number, customer_name, shipment, line_count, actual_ship_date, actual_ship_date_tz, status, error_message, app_user, source) ' + c.join(' UNION ALL '));
-                });
-            }, Promise.resolve());
-        }).then(function () {
+        if (!recs.length) return Promise.resolve();
+        var sel = recs;
+        return window.wmsRecordShipDates(recs).then(function () {
             // show it in the trip grid at once
             var shown = dateVal.split('-').reverse().join('-') + ' ' + timeVal, n = 0;
             Object.keys(keys).forEach(function (k) {

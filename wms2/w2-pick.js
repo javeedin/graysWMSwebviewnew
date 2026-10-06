@@ -28,6 +28,51 @@
             .then(function (r) { steps.push(W2.items(r).length || (r && r.count) || 0); return { ok: true, msg: steps[0] + ' line(s) · ' + steps[1] + ' pick(s) · ' + steps[2] + ' lot row(s)' }; });
     };
 
+    /** Actual ship date for orders: read each order's shipments live, POST shipmentTransactionRequests (ShipmentUpdate) once per
+        shipment — exactly the WMS All Shipment Lines › Update Actual Ship Date call — and record one row per order × shipment in
+        APEX WMS_ACTUAL_SHIPDATE (window.wmsRecordShipDates, legacy/future-trip.js). onOrder(o, text, ok) reports progress. */
+    P.shipDate = function (list, pod, date, d, t, say, onOrder) {
+        var sent = d + 'T' + t + ':00+04:00', byOrder = {}, shipments = {}, lines = [];
+        return W2.pool(list, 6, function (o) {
+            return W2.sync.shipOne(pod, date, o.order_number).then(function (rows) {
+                lines = lines.concat(rows);
+                var per = {};
+                rows.forEach(function (r) { if (r.shipment && r.bucket !== 'CANCELLED') per[r.shipment] = (per[r.shipment] || 0) + 1; });
+                byOrder[o.order_number] = per;
+                Object.keys(per).forEach(function (sh) { (shipments[sh] = shipments[sh] || []).push(o.order_number); });
+                if (!Object.keys(per).length) onOrder(o, 'no shipment yet — pick release it first', false);
+            }, function (e) { byOrder[o.order_number] = {}; onOrder(o, 'could not read its shipments: ' + e, false); });
+        }).then(function () {
+            var list2 = Object.keys(shipments), res = {}, n = 0;
+            say('dim', list2.length + ' shipment(s) for ' + list.length + ' order(s) — sending ' + sent);
+            var url = W2.fusionUrl('/fscmRestApi/resources/11.13.18.05/shipmentTransactionRequests', pod);
+            return W2.pool(list2, 3, function (sh) {
+                return W2.fusionPost(url, { ActionCode: 'ShipmentUpdate', shipments: [{ Shipment: sh, ActualShipDate: sent }] }, pod).then(function (r) {
+                    var err = r && typeof r === 'object' ? (r['o:errorDetails'] ? JSON.stringify(r['o:errorDetails']).slice(0, 300) : r.ErrorExplanation || (r.status && +r.status >= 400 ? (r.title || 'HTTP ' + r.status) + (r.detail ? ': ' + r.detail : '') : '')) : '';
+                    res[sh] = { ok: !err, err: err };
+                }, function (e) { res[sh] = { ok: false, err: String(e) }; }).then(function () {
+                    n++; W2.busy.step('Actual ship date · shipment ' + n + ' of ' + list2.length);
+                    say(res[sh].ok ? 'ok' : 'err', 'Shipment ' + sh + ' (' + shipments[sh].join(', ') + '): ' + (res[sh].ok ? 'updated' : res[sh].err));
+                });
+            }).then(function () {
+                var recs = [];
+                list.forEach(function (o) {
+                    var per = byOrder[o.order_number] || {}, shs = Object.keys(per); if (!shs.length) return;
+                    var good = shs.filter(function (sh) { return res[sh] && res[sh].ok; });
+                    shs.forEach(function (sh) {
+                        recs.push({ instance: pod, trip_id: o.trip_id, trip_date: date, order_number: o.order_number, order_type: o.order_type, customer_number: o.account_number,
+                            customer_name: o.account_name, shipment: sh, line_count: per[sh], date: d, time: t, sent: sent, ok: !!(res[sh] && res[sh].ok), error: res[sh] && res[sh].err, source: 'WMS2_PICK' });
+                    });
+                    onOrder(o, good.length === shs.length ? 'updated (' + shs.join(', ') + ')' : good.length + ' of ' + shs.length + ' shipment(s) updated', good.length === shs.length);
+                });
+                var save = typeof window.wmsRecordShipDates === 'function' ? window.wmsRecordShipDates(recs) : Promise.reject('wmsRecordShipDates is not loaded');
+                return save.then(function (k) { say('dim', k + ' row(s) saved in WMS_ACTUAL_SHIPDATE'); }, function (e) { say('err', 'Sent to Fusion but not saved in WMS_ACTUAL_SHIPDATE: ' + e); })
+                    .then(function () { return W2.put('w2_ship_lines', { pod: pod, order_number: list.map(function (o) { return o.order_number; }) }, lines).catch(function () {}); })
+                    .then(function () { return { shipments: list2.length, ok: list2.filter(function (sh) { return res[sh].ok; }).length }; });
+            });
+        });
+    };
+
     // ── Pick release for the day ─────────────────────────────
     W2.page('pickrelease', {
         title: 'Pick release (day)', icon: 'fa-dolly',
@@ -50,20 +95,57 @@
                     '<span class="grow"></span><span class="sm muted">Trips:</span>' + trips.map(function (t) { return '<button class="btn sm" data-trip="' + esc(t) + '">' + esc(t) + '</button>'; }).join('') +
                     '<button class="btn sm" id="pr-notrel">All not released</button><button class="btn sm" id="pr-none">None</button></div>' +
                     '<div class="row" style="margin-top:10px"><button class="btn primary" id="pr-go"><i class="fa-solid fa-dolly"></i> Pick release <span id="pr-n">0</span> order(s)</button>' +
-                    '<button class="btn" id="pr-retry"><i class="fa-solid fa-rotate-right"></i> Retry failed</button><span class="grow"></span><span class="sm muted" id="pr-prog"></span></div></div>' +
+                    '<button class="btn" id="pr-retry"><i class="fa-solid fa-rotate-right"></i> Retry failed</button><span class="grow"></span><span class="sm muted" id="pr-prog"></span></div>' +
+                    '<div class="row" style="margin-top:10px;padding-top:10px;border-top:1px dashed #e2e8f0"><span class="sm" style="font-weight:700"><i class="fa-solid fa-truck-fast"></i> Actual ship date</span>' +
+                    '<input type="date" class="f" id="pr-sd" value="' + esc(date) + '"><input type="time" class="f" id="pr-st" value="' + esc(new Date().toTimeString().slice(0, 5)) + '">' +
+                    '<button class="btn" id="pr-sgo"><i class="fa-solid fa-calendar-check"></i> Update ship date · <span id="pr-sn">0</span> order(s)</button>' +
+                    '<span class="sm muted">for the ticked orders (tick a trip above for all its orders) — every shipment of each order is updated in Fusion and saved in WMS_ACTUAL_SHIPDATE</span></div></div>' +
                     '<div style="margin-top:12px" id="pr-grid"></div><div class="card" style="margin-top:12px"><h3>Run log</h3><div class="log" id="pr-log"><div class="dim">Nothing run yet.</div></div></div>';
                 main.querySelector('#pr-mode').value = set.mode;
                 var save = function () { set = { mode: main.querySelector('#pr-mode').value, wh: main.querySelector('#pr-wh').value.trim() || 'GIC', par: +main.querySelector('#pr-par').value }; W2.ls('w2.pick', set); };
                 ['pr-mode', 'pr-wh', 'pr-par'].forEach(function (id) { main.querySelector('#' + id).onchange = save; });
-                var count = function () { main.querySelector('#pr-n').textContent = g.selected().filter(function (o) { return !o.s2v; }).length; };
+                var count = function () { main.querySelector('#pr-n').textContent = g.selected().filter(function (o) { return !o.s2v; }).length; main.querySelector('#pr-sn').textContent = g.selected().length; };
                 var g = W2.grid(main.querySelector('#pr-grid'), orders, [
-                    { k: 'trip_id', t: 'Trip' }, { k: 'order_number', t: 'Order', fmt: function (v, o) { return '<b class="mono">' + esc(v) + '</b>' + (o.s2v ? ' <span class="pill v" title="Store to Van / Van to Store: the WMS allocates lots for these (Store Transactions)">S2V</span>' : ''); } },
+                    { k: 'trip_id', t: 'Trip' }, { k: 'order_number', t: 'Order', fmt: function (v, o) { return '<a href="#" class="mono" data-od="' + esc(v) + '" title="Open the order details" style="font-weight:700;color:#4f46e5;text-decoration:none">' + esc(v) + '</a>' + (o.s2v ? ' <span class="pill v" title="Store to Van / Van to Store: the WMS allocates lots for these (Store Transactions)">S2V</span>' : ''); } },
                     { k: 'account_name', t: 'Customer' }, { k: 'wms_lines', t: 'Lines', num: true, sum: true }, { k: 'picker', t: 'Picker' },
                     { k: 'stage', t: 'Fusion status', fmt: function (v) { return W2.stagePill(v); } },
+                    { k: 'ship_date', t: 'Actual ship date', fmt: function (v, o) { return v ? '<span title="' + esc(v + (o.ship_shp ? ' · shipment(s) ' + o.ship_shp : '')) + '" style="color:#0369a1;font-weight:600;white-space:nowrap"><i class="fa-solid fa-truck-fast" style="opacity:.7"></i> ' + esc(String(v).split(' ')[0]) + '</span>' : (o.ship_msg ? '<span class="pill x" title="' + esc(o.ship_msg) + '">' + esc(o.ship_msg.slice(0, 40)) + '</span>' : '<span class="muted">—</span>'); } },
                     { k: 'last', t: 'Pick release', fmt: function (v, o) { return v ? '<span class="pill ' + (o.last_ok === 'OK' ? 'ok' : o.last_ok === 'RUNNING' ? 'v' : 'x') + '" title="' + esc(v) + '">' + esc(v.slice(0, 60)) + '</span>' : (o.s2v ? '<button class="btn sm" data-s2v="' + esc(o.order_number) + '">Store transaction</button>' : ''); } }
                 ], { select: true, key: 'order_number', preselect: pre, onSelect: count, csv: 'pick-release-' + date + '.csv', max: 2000,
-                    after: function (box) { box.querySelectorAll('[data-s2v]').forEach(function (b) { b.onclick = function () { W2.openOrderDialog(orders.filter(function (o) { return o.order_number === b.dataset.s2v; })[0]); }; }); } });
+                    after: function (box) { box.querySelectorAll('[data-od]').forEach(function (a) { a.onclick = function (e) { e.preventDefault(); e.stopPropagation(); W2.openOrderDialog(orders.filter(function (o) { return o.order_number === a.dataset.od; })[0]); }; }); box.querySelectorAll('[data-s2v]').forEach(function (b) { b.onclick = function () { W2.openOrderDialog(orders.filter(function (o) { return o.order_number === b.dataset.s2v; })[0]); }; }); } });
                 count();
+                var loadShip = function () {
+                    if (typeof window.wmsShipDates !== 'function') return Promise.resolve();
+                    return window.wmsShipDates(orders.map(function (o) { return o.order_number; }), pod).then(function (m) {
+                        if (!live()) return;
+                        orders.forEach(function (o) { var x = m[o.order_number]; o.ship_date = x ? x.d : ''; o.ship_shp = x ? x.shp : ''; });
+                        g.redraw();
+                    }, function (e) { console.warn('[Pick release] actual ship dates not read:', e); });
+                };
+                loadShip();
+                main.querySelector('#pr-sgo').onclick = function () {
+                    var sel = g.selected(), d = main.querySelector('#pr-sd').value, t = main.querySelector('#pr-st').value || '00:00';
+                    if (!sel.length) { W2.toast('Tick the orders (or a trip) to update.', 'warning'); return; }
+                    if (!d) { W2.toast('Choose the actual ship date.', 'warning'); return; }
+                    var tr = Array.from(new Set(sel.map(function (o) { return o.trip_id; })));
+                    W2.confirm('Update actual ship date', '<p>Set the actual ship date of <b>' + sel.length + '</b> order(s) on trip(s) <b>' + esc(tr.join(', ')) + '</b> (' + pod + ') to <b>' + esc(d.split('-').reverse().join('-') + ' ' + t) + '</b>?</p><p class="muted sm">Each order\'s shipments are read live from Fusion; every shipment gets one ShipmentUpdate (shipmentTransactionRequests), like All Shipment Lines › Update Actual Ship Date. Orders without a shipment yet are skipped. Every result is saved in WMS_ACTUAL_SHIPDATE.</p>', 'Update').then(function (y) {
+                        if (!y) return;
+                        var t0 = Date.now(), okN = 0, badN = 0;
+                        W2.busy.start('Actual ship date · ' + sel.length + ' order(s) …');
+                        say('dim', 'Actual ship date ' + d + ' ' + t + ' for ' + sel.length + ' order(s) on trip(s) ' + tr.join(', '));
+                        sel.forEach(function (o) { o.ship_msg = ''; });
+                        P.shipDate(sel, pod, date, d, t, say, function (o, text, ok) {
+                            if (ok) { okN++; o.ship_date = d.split('-').reverse().join('-') + ' ' + t; o.ship_msg = ''; } else { badN++; o.ship_msg = text; }
+                            say(ok ? 'ok' : 'warn', o.trip_id + ' · ' + o.order_number + ': ' + text);
+                        }).then(function (r) {
+                            g.redraw();
+                            var msg = 'Actual ship date: ' + okN + ' order(s) updated' + (badN ? ', ' + badN + ' not' : '') + ' · ' + r.ok + ' of ' + r.shipments + ' shipment(s) in ' + Math.round((Date.now() - t0) / 1000) + ' s';
+                            say(badN ? 'warn' : 'ok', msg); W2.busy.done(msg, badN > 0);
+                            W2.call('aiAudit', { source: 'WMS2', actionKey: 'actual_ship_date', outcome: badN ? 'PARTIAL' : 'OK', instance: pod, refId: 'DATE:' + date, target: sel.length + ' order(s)', detail: msg }).catch(function () {});
+                            return loadShip();
+                        }, function (e) { W2.busy.done('Actual ship date failed: ' + e, true); say('err', String(e)); });
+                    });
+                };
                 main.querySelectorAll('[data-trip]').forEach(function (b) { b.onclick = function () { g.select(orders.filter(function (o) { return o.trip_id === b.dataset.trip && !o.s2v; }).map(function (o) { return o.order_number; })); count(); }; });
                 main.querySelector('#pr-notrel').onclick = function () { g.select(orders.filter(function (o) { return notRel(o) && !o.s2v; }).map(function (o) { return o.order_number; })); count(); };
                 main.querySelector('#pr-none').onclick = function () { g.select([]); count(); };
