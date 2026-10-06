@@ -436,7 +436,7 @@ FX.start = function (opts) {
     document.title = 'Fusion ' + m.label + ' — Gray\'s';
     document.body.innerHTML =
         '<header class="top"><a class="back" href="index.html" title="Fusion SCM"><i class="fa-solid fa-arrow-left"></i></a><div class="logo"><i class="fa-solid ' + m.icon + '"></i></div>' +
-        '<div><h1>Fusion ' + esc(m.label) + ' <span class="ver">v12.0.0</span></h1><p>' + esc(opts.sub || '') + ' · <span>' + esc(FX.user) + '</span> · <button class="inst ' + FX.instance + '" id="fx-inst" title="Fusion pod — click to switch">' + FX.instance + '</button></p></div>' +
+        '<div><h1>Fusion ' + esc(m.label) + ' <span class="ver">v12.1.0</span></h1><p>' + esc(opts.sub || '') + ' · <span>' + esc(FX.user) + '</span> · <button class="inst ' + FX.instance + '" id="fx-inst" title="Fusion pod — click to switch">' + FX.instance + '</button></p></div>' +
         '<nav class="jump">' + FX.MODULES.map(function (x) { return '<a href="' + x.file + '" class="' + (x.id === m.id ? 'on' : '') + '"><i class="fa-solid ' + x.icon + '"></i> ' + esc(x.label.split(' ')[0]) + '</a>'; }).join('') + '<a href="../Home/index.html" title="Home"><i class="fa-solid fa-house"></i></a></nav></header>' +
         '<div class="shell"><nav class="nav" id="fx-nav"></nav><main class="main" id="fx-main"></main></div>' +
         '<div class="modal-bg" id="modal" hidden><div class="modal" id="modal-box"></div></div><div class="busy" id="busy" hidden><div><i class="fa-solid fa-circle-notch fa-spin"></i><span id="busy-t"></span></div></div><div class="toast" id="toast"></div>';

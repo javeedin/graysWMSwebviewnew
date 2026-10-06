@@ -1,7 +1,7 @@
 @echo off
 REM ============================================================
 REM  package-release.bat
-REM  Creates a single zip: fusionclientweb.zip  (v12.0.0 client package)
+REM  Creates a single zip: fusionclientweb.zip  (v12.1.0 client package)
 REM  Extract INTO C:\fusion\fusionclientweb\ and it creates:
 REM    C:\fusion\fusionclientweb\graysWMSwebviewnew\
 REM       Home\         (launcher - shows only the modules in this package)
