@@ -30,11 +30,13 @@
             D.cur = D.doc.packs.filter(function (p) { return p.id === id; })[0] || D.doc.packs[0];
             el.innerHTML = '<div class="pk-shell"><aside class="card pk-list"><div class="row"><h3 style="margin:0"><i class="fa-solid fa-book-open"></i> Board packs</h3><span class="grow"></span><button class="btn sm primary" id="pk-new" title="A new pack with the standard sections"><i class="fa-solid fa-plus"></i> New</button></div><div id="pk-items"></div>' +
                 '<p class="sm muted" style="margin-top:12px">Each pack is a design. It is built from the data of the period in the header and shared as one interactive HTML file — left menu, statements that open into accounts, search, CSV and print — by download or e-mail.</p>' +
+                '<button class="btn sm" style="width:100%;margin-top:6px" id="pk-archv"><i class="fa-solid fa-box-archive"></i> Archive — what the board received</button>' +
                 '<button class="btn sm" style="width:100%;margin-top:6px" onclick="FL.mail.setup()"><i class="fa-solid fa-envelope-circle-check"></i> E-mail setup</button></aside>' +
                 '<div class="pk-main"><div class="card pk-head" id="pk-head"></div><div class="pk-cols"><div class="pk-left" id="pk-left"></div><div class="card pk-prev"><div class="row"><b><i class="fa-regular fa-eye"></i> Preview</b><span class="sm muted" id="pk-pstat"></span><span class="grow"></span>' +
                 '<div class="seg sm"><button data-v="desktop"' + (D.view === 'desktop' ? ' class="on"' : '') + '><i class="fa-solid fa-desktop"></i></button><button data-v="phone"' + (D.view === 'phone' ? ' class="on"' : '') + '><i class="fa-solid fa-mobile-screen"></i></button></div>' +
                 '<button class="btn sm" id="pk-refresh"><i class="fa-solid fa-rotate"></i></button><button class="btn sm" id="pk-full" title="Open the preview full screen"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button></div>' +
-                '<div class="pk-frame ' + D.view + '"><iframe id="pk-f" title="Board pack preview"></iframe></div></div></div></div></div>';
+                '<div class="pk-frame ' + D.view + '"><iframe id="pk-f" title="Board pack preview"></iframe></div></div></div><div class="card" id="pk-arch" style="display:none"></div></div></div>';
+            $('pk-archv').onclick = function () { D.showArchive(!D.archiveOpen); };
             $('pk-new').onclick = function () { var p = P().newPack('Board pack ' + (D.doc.packs.length + 1)); D.doc.packs.push(p); D.cur = p; FL.lsSet('pack.cur', p.id); D.touch(true); D.paint(); };
             $('pk-refresh').onclick = function () { D.preview(); };
             $('pk-full').onclick = function () { if (D.built) FL.packView(D.built.html, { title: D.cur.title || D.cur.name }); };
@@ -46,7 +48,14 @@
         });
     };
 
-    D.paint = function () { D.paintList(); D.paintHead(); D.paintLeft(); D.preview(); };
+    D.showArchive = function (on) {
+        D.archiveOpen = on;
+        document.querySelector('.pk-cols').style.display = on ? 'none' : ''; $('pk-head').style.display = on ? 'none' : ''; $('pk-arch').style.display = on ? '' : 'none';
+        $('pk-archv').classList.toggle('primary', on);
+        if (on) FL.packArchive.render($('pk-arch'));
+    };
+    D.paint = function () {
+        if (D.archiveOpen) D.showArchive(false); D.paintList(); D.paintHead(); D.paintLeft(); D.preview(); };
 
     D.paintList = function () {
         var box = $('pk-items'); if (!box) return;
@@ -65,6 +74,8 @@
             '<button class="btn sm" id="pk-save"' + (D.dirty ? '' : ' disabled') + '><i class="fa-solid fa-floppy-disk"></i> Save</button>' +
             '<button class="btn sm ghost" id="pk-dup" title="Duplicate"><i class="fa-regular fa-copy"></i></button><button class="btn sm ghost" id="pk-del" title="Delete this design"><i class="fa-solid fa-trash"></i></button>' +
             '<span class="grow"></span><span class="sm muted">' + esc(FL.filterText()) + ' · ' + esc(FL.periodName(FL.filter.period)) + '</span>' +
+            '<button class="btn" id="pk-multi" title="One pack per ledger, all companies of each"><i class="fa-solid fa-layer-group"></i> For ledgers…</button>' +
+            '<button class="btn" id="pk-arc" title="Save this pack with comments in the APEX archive — a record of what the board received"><i class="fa-solid fa-box-archive"></i> Save to archive</button>' +
             '<button class="btn" id="pk-dl"><i class="fa-solid fa-download"></i> Download HTML</button>' +
             '<button class="btn primary" id="pk-mail"><i class="fa-solid fa-paper-plane"></i> E-mail…</button></div>';
         $('pk-name').oninput = function () { D.cur.name = this.value; D.dirty = true; D.paintList(); };
@@ -76,8 +87,18 @@
             if (!confirm('Delete the board pack design "' + D.cur.name + '"?')) return;
             D.doc.packs = D.doc.packs.filter(function (p) { return p !== D.cur; }); D.cur = D.doc.packs[0]; D.store().then(D.paint);
         };
-        $('pk-dl').onclick = function () { D.ensureBuilt().then(function (b) { FL.download(b.file, new Blob([b.html], { type: 'text/html' })); }); };
-        $('pk-mail').onclick = function () { D.ensureBuilt().then(function (b) { FL.mail.compose(D.cur, b, function () { D.cur.lastSent = new Date().toISOString().slice(0, 10); D.store(); }); }); };
+        $('pk-dl').onclick = function () { D.ensureBuilt().then(function (b) { FL.download(b.file, new Blob([b.html], { type: 'text/html' })); setTimeout(function () { FL.packArchive.ask(D.cur, b, { event: 'DOWNLOADED', detail: b.file }); }, 600); }); };
+        $('pk-mail').onclick = function () {
+            D.ensureBuilt().then(function (b) {
+                FL.mail.compose(D.cur, b, function (r) {
+                    D.cur.lastSent = new Date().toISOString().slice(0, 10); D.store();
+                    var e = D.cur.email || {};
+                    setTimeout(function () { FL.packArchive.ask(D.cur, b, { event: 'EMAILED', detail: (r.result === 'draft' ? 'opened in Outlook for ' : 'sent to ') + [e.to, e.cc].filter(Boolean).join('; ') + ' via ' + r.via + (r.by ? ' (' + r.by + ')' : '') }); }, 1300);
+                });
+            });
+        };
+        $('pk-arc').onclick = function () { D.ensureBuilt().then(function (b) { FL.packArchive.ask(D.cur, b, {}); }); };
+        $('pk-multi').onclick = function () { FL.packArchive.multi(D.cur); };
     };
 
     var opt = function (v, l, cur) { return '<option value="' + esc(v) + '"' + (String(cur) === String(v) ? ' selected' : '') + '>' + esc(l) + '</option>'; };

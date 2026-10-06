@@ -253,7 +253,8 @@
                         options: { scales: { y: FL.moneyAxis(), y2: Object.assign(FL.moneyAxis(), { position: 'right', grid: { display: false } }) } } }, 1200, 420);
                 } catch (e) { console.warn('[pack] trend chart', e); }
             }
-            var model = { logo: lg, period: pname, per: per, tiles: tiles, keyLines: keyLines, highlights: hl, attention: attention, trendPng: trendPng, scaleLabel: FL.scaleLabel(), filter: FL.filterText() };
+            var led = (FL.dims.ledgers || []).filter(function (l) { return String(l.code) === String(FL.filter.ledger || ''); })[0];
+            var model = { ledger: FL.filter.ledger || '', ledgerName: led ? (led.name || led.code) + (led.currency ? ' · ' + led.currency : '') : '', company: FL.filter.company || '', scale: FL.filter.scale, logo: lg, period: pname, per: per, tiles: tiles, keyLines: keyLines, highlights: hl, attention: attention, trendPng: trendPng, scaleLabel: FL.scaleLabel(), filter: FL.filterText() };
 
             var out = [], chain = Promise.resolve();
             (pack.sections || []).filter(function (s) { return s.on !== false; }).forEach(function (sec) {
