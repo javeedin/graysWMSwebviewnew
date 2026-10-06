@@ -91,6 +91,10 @@
         .mod .tx { min-width: 0; }
         .mod .tx b { display: block; font-size: .82rem; }
         .mod .tx small { display: block; font-size: .7rem; color: var(--muted); line-height: 1.35; }
+        .mod .tiles { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+        .mod .tiles span { font-size: .64rem; background: #eef2f7; color: #334155; border-radius: 6px; padding: 1px 6px; }
+        .mod .tx .tag { display: block; }
+        .mod .tag.new { color: #7c3aed; }
         .mod .tag { font-size: .62rem; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; color: var(--accent); }
         .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 10px; font-size: .85rem; display: none; z-index: 10; }
         @media (max-width: 800px) { .stages { grid-template-columns: 1fr 1fr; } .opts input[type=text] { width: 100%; } }
@@ -199,7 +203,7 @@ var MODS = [
     { key: 'fusionsql', label: 'Fusion SQL', note: 'Live read-only SQL on Oracle Fusion', always: true },
     { key: 'Inventory', label: 'Inventory', note: 'Items, onhand, transactions, receiving' },
     { key: 'om', label: 'Order Management', note: 'Sales orders and fulfilment' },
-    { key: 'fscm', label: 'Fusion SCM', note: 'Fusion Order Management, Purchasing, Inventory, Costing, Setup' },
+    { key: 'fscm', label: 'Fusion SCM', note: 'Fusion Order Management, Shipping, Purchasing, Inventory, Costing, Setup (one folder)' },
     { key: 'aianalysis', label: 'AI Digital Employee', note: 'AI chat, agents, approvals' },
     { key: 'dataload', label: 'Data Loading', note: 'FBDI templates, Fusion REST loads' },
     { key: 'fusionmodel', label: 'Fusion Model', note: 'DuckDB dataset, dashboards, Ask AI' },
@@ -222,6 +226,22 @@ var MOD_PRESETS = {
 };
 var MOD_ON = lsGet('admin.modules', null) || MOD_PRESETS.default.slice();
 var MOD_INFO = {};   // key -> { exists, sizeMb } from the host
+// Modules the host found on the Home page that this list does not know yet (a new Home tile = a new module):
+// added with the tile's title and text, ticked once (remembered in admin.modules.seen) so a new module ships by default.
+function addFoundModules(list) {
+    var seen = lsGet('admin.modules.seen', null), first = seen == null; seen = seen || [];
+    list.forEach(function (h) {
+        if (!h.exists) return;
+        var m = MODS.filter(function (x) { return x.key.toLowerCase() === String(h.key).toLowerCase(); })[0];
+        var t = (h.tiles || [])[0] || {};
+        if (!m) { MODS.push(m = { key: h.key, label: t.title || h.key, note: t.desc || 'Found on the Home page', found: true }); }
+        if (seen.indexOf(h.key) < 0) {
+            seen.push(h.key);
+            if (!first && m.found && MOD_ON.indexOf(h.key) < 0) { MOD_ON.push(h.key); lsSet('admin.modules', MOD_ON); }
+        }
+    });
+    lsSet('admin.modules.seen', seen);
+}
 function modAvail(m) { return m.always || !MOD_INFO[m.key] || MOD_INFO[m.key].exists; }
 function modIsOn(m) { return m.always || (MOD_ON.indexOf(m.key) >= 0 && modAvail(m)); }
 function renderMods() {
@@ -231,7 +251,10 @@ function renderMods() {
             (gone ? ' title="Folder not found in the repository"' : '') + '>' +
             '<input type="checkbox" data-mod="' + m.key + '"' + (on ? ' checked' : '') + (m.always || gone ? ' disabled' : '') + '>' +
             '<span class="tx"><b>' + esc(m.label) + '</b><small>' + esc(m.note) + '</small>' +
+            (info && info.tiles && info.tiles.length > 1 ? '<span class="tiles" title="Home tiles in this module">' + info.tiles.map(function (t) { return '<span>' + esc(t.title) + '</span>'; }).join('') + '</span>' : '') +
             (m.always ? '<span class="tag">Always included</span>' : info && info.exists ? '<small>' + info.sizeMb + ' MB</small>' : gone ? '<span class="tag" style="color:var(--err)">Not in repo</span>' : '') +
+            (m.found ? '<span class="tag new">New · found on the Home page</span>' : '') +
+            (info && info.exists && info.inInstaller === false ? '<span class="tag" style="color:#b45309" title="installer.iss has no line for this folder — the ZIP carries it, the setup .exe does not">Not in installer.iss</span>' : '') +
             '</span></label>';
     }).join('');
     var picked = MODS.filter(modIsOn), mb = picked.reduce(function (t, m) { return t + ((MOD_INFO[m.key] || {}).sizeMb || 0); }, 0);
@@ -264,7 +287,8 @@ function loadInfo() {
             (d.dotnet ? '<span class="chip ok"><i class="fa-solid fa-check"></i> .NET SDK</span>' : '<span class="chip err" title="Install the .NET 8 SDK"><i class="fa-solid fa-xmark"></i> .NET SDK</span>');
         $('o-rag').disabled = !d.ragExe;
         $('o-rag').parentNode.title = d.ragExe ? 'Adds the AI Knowledge Base service (~150 MB)' : 'rag_service.exe is not built on this PC';
-        MOD_INFO = {}; (d.modules || []).forEach(function (m) { MOD_INFO[m.key] = m; }); renderMods();
+        MOD_INFO = {}; (d.modules || []).forEach(function (m) { MOD_INFO[m.key] = m; });
+        addFoundModules(d.modules || []); renderMods();
         $('b-run').disabled = !d.repoRoot || d.running;
         if (d.running && !POLL) startPolling();
     }).catch(function (e) { $('f-repo').textContent = String(e); $('b-run').disabled = true; });

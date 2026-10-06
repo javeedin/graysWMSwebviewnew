@@ -174,15 +174,67 @@ namespace WMSApp
             "aihub", "aiagent", "finance", "wms2", "teachme", "aianalysis", "formsdesigner", "agentflow", "internetsearch"
         };
 
-        private static object AdminModuleFolders(string repo) =>
-            AdminModuleKeys().Select(k =>
+        /// <summary>The Home page's tiles grouped by the folder they open: every module-card link "../folder/page.html".
+        /// A new module = a new Home tile, so the Create ZIP list finds it without a code change.</summary>
+        private static System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<(string title, string page, string desc)>> AdminHomeTiles(string repo)
+        {
+            var map = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<(string, string, string)>>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                string html = File.ReadAllText(Path.Combine(repo, "Home", "index.html"));
+                string Text(string block, string cls)
+                {
+                    var m = System.Text.RegularExpressions.Regex.Match(block, "class=\"" + cls + "\"[^>]*>(.*?)</div>", System.Text.RegularExpressions.RegexOptions.Singleline);
+                    return m.Success ? System.Net.WebUtility.HtmlDecode(System.Text.RegularExpressions.Regex.Replace(m.Groups[1].Value, "<[^>]+>", "")).Trim() : null;
+                }
+                foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(html,
+                    "<a\\s+href=\"\\.\\./([A-Za-z0-9_-]+)/([^\"]+)\"[^>]*class=\"module-card\"[^>]*>(.*?)</a>", System.Text.RegularExpressions.RegexOptions.Singleline))
+                {
+                    string folder = m.Groups[1].Value;
+                    if (!map.TryGetValue(folder, out var list)) map[folder] = list = new System.Collections.Generic.List<(string, string, string)>();
+                    list.Add((Text(m.Groups[3].Value, "card-title") ?? folder, m.Groups[2].Value, Text(m.Groups[3].Value, "card-desc")));
+                }
+            }
+            catch (Exception ex) { Debug.WriteLine("[Admin] Home tiles: " + ex.Message); }
+            return map;
+        }
+
+        /// <summary>Every module the ZIP can carry: the known list plus every other folder a Home tile opens.</summary>
+        private static string[] AdminAllModuleKeys(string repo)
+        {
+            var keys = AdminModuleKeys().ToList();
+            // never a release module of their own: wms is always in, rag is the separate option (no static field: Form1 rule)
+            var notModules = new[] { "wms", "admin", "home", "rag" };
+            if (repo != null)
+                foreach (var f in AdminHomeTiles(repo).Keys)
+                    if (!notModules.Contains(f, StringComparer.OrdinalIgnoreCase) && !keys.Contains(f, StringComparer.OrdinalIgnoreCase)
+                        && System.Text.RegularExpressions.Regex.IsMatch(f, "^[A-Za-z0-9_-]{1,40}$"))
+                        keys.Add(f);
+            return keys.ToArray();
+        }
+
+        private static object AdminModuleFolders(string repo)
+        {
+            var tiles = AdminHomeTiles(repo);
+            string iss = null;
+            try { iss = File.ReadAllText(Path.Combine(repo, "installer.iss")); } catch { }
+            var known = AdminModuleKeys();
+            return AdminAllModuleKeys(repo).Select(k =>
             {
                 var d = new DirectoryInfo(Path.Combine(repo, k));
                 bool ok = d.Exists && File.Exists(Path.Combine(d.FullName, "index.html"));
                 double mb = 0;
                 if (ok) try { mb = Math.Round(d.EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length) / 1048576.0, 1); } catch { }
-                return new { key = k, exists = ok, sizeMb = mb };
+                tiles.TryGetValue(k, out var t);
+                return new
+                {
+                    key = k, exists = ok, sizeMb = mb,
+                    discovered = !known.Contains(k, StringComparer.OrdinalIgnoreCase),
+                    inInstaller = iss == null ? (bool?)null : iss.IndexOf("\"" + k + "\\*\"", StringComparison.OrdinalIgnoreCase) >= 0,
+                    tiles = (t ?? new System.Collections.Generic.List<(string title, string page, string desc)>()).Select(x => new { title = x.title, page = x.page, desc = x.desc }).ToList()
+                };
             }).ToList();
+        }
 
         private object AdminStartRelease(bool includeRag, string comment, List<string> modules)
         {
@@ -195,7 +247,7 @@ namespace WMSApp
             string moduleList = null;
             if (modules != null)
             {
-                var known = AdminModuleKeys();
+                var known = AdminAllModuleKeys(repo);
                 var bad = modules.Where(m => !known.Contains(m, StringComparer.OrdinalIgnoreCase)).ToList();
                 if (bad.Count > 0) return new { ok = false, error = "Unknown module: " + string.Join(", ", bad) };
                 var pick = known.Where(k => k == "fusionsql" || modules.Contains(k, StringComparer.OrdinalIgnoreCase)).ToList();
