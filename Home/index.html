@@ -179,6 +179,10 @@
         .search { position: relative; flex: 0 1 380px; min-width: 240px; z-index: 1; }
         .search i { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: #6366f1; }
         .search input { width: 100%; border: 0; border-radius: 12px; padding: 12px 40px 12px 38px; font: inherit; font-size: .92rem; color: #1e1b4b; box-shadow: 0 6px 20px rgba(0,0,0,.18); outline: none; }
+        /* the greeting banner is hidden: only the module search stays, as a slim box on the right */
+        .hero { background: none; box-shadow: none; padding: 0; border-radius: 0; color: inherit; justify-content: flex-end; margin-bottom: 12px; }
+        .hero::after, .hero-text { display: none; }
+        .hero .search input { border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(15,23,42,.06); padding-top: 9px; padding-bottom: 9px; }
         .search kbd { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font: 600 .68rem 'Segoe UI'; color: #64748b; border: 1px solid #cbd5e1; border-radius: 5px; padding: 1px 6px; background: #f8fafc; }
 
         /* quick rows: pinned + recent */
@@ -227,7 +231,7 @@
 
         @media (max-width: 640px) {
             .main { padding: 14px; }
-            .hero { padding: 18px; }
+            .hero { padding: 0; }
             .header { padding: 0 14px; }
             .fusion-logo-tagline, .user-details { display: none; }
         }
