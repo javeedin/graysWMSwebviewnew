@@ -26,6 +26,8 @@ namespace WMSApp
     ///                    Continue; a step marked "stop" (the Submit button) is never pressed - the run stops there for the
     ///                    person to check and submit, then watches the page for the capture rule (e.g. the SR number)
     ///   teachContinue / teachStop
+    ///   engine           native (the Teach Me window) or playwright / playwright-headless (TeachPlaywright: installed Edge,
+    ///                    own profile, screenshots + trace per run; teachRunFolder opens them)
     ///   teachAiFill      Claude fills the lesson's variables from the person's notes (kill switch, audited TEACHME)
     /// </summary>
     public partial class Form1
@@ -77,10 +79,12 @@ namespace WMSApp
                             var steps = root.TryGetProperty("steps", out var st) && st.ValueKind == JsonValueKind.Array ? st.EnumerateArray().Select(x => x.Clone()).ToList() : new List<JsonElement>();
                             string url = PStr(root, "url"), capture = PStr(root, "capture"), runId = PStr(root, "runId") ?? Guid.NewGuid().ToString("N");
                             if (!TeachUrlOk(url)) { data = new { ok = false, error = "The lesson needs a start address that begins with https://" }; break; }
-                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "TEACHME", Action = "teach_run", Detail = (PStr(root, "title") ?? "") + " · " + steps.Count + " steps · " + url });
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "TEACHME", Action = "teach_run", Detail = (PStr(root, "title") ?? "") + " · " + steps.Count + " steps · " + (PStr(root, "engine") ?? "native") + " · " + url });
                             _tmRunCts = new CancellationTokenSource();
                             var ct = _tmRunCts.Token;
-                            _ = TeachRunAsync(runId, url, steps, capture, ct);
+                            string engine = PStr(root, "engine") ?? "native";
+                            if (engine != "native" && engine != "playwright" && engine != "playwright-headless") engine = "native";
+                            _ = TeachRunAsync(runId, url, steps, capture, engine, ct);
                             data = new { ok = true, runId };
                             break;
                         }
@@ -94,6 +98,15 @@ namespace WMSApp
                         data = new { ok = true, window = _tmForm != null && !_tmForm.IsDisposed, recording = _tmRecording, running = _tmRunCts != null, url = TeachUrl(), db = TeachStore.DbPath };
                         break;
                     case "teachAiFill": data = await TeachAiFillAsync(root, user); break;
+                    case "teachRunFolder":
+                        {
+                            string rid = PStr(root, "runId") ?? "";
+                            string dir = System.IO.Path.Combine(TeachPlaywright.Root, "runs", rid);
+                            if (!System.Text.RegularExpressions.Regex.IsMatch(rid, "^[A-Za-z0-9_-]{4,60}$") || !System.IO.Directory.Exists(dir)) { data = new { ok = false, error = "No screenshots for this run." }; break; }
+                            Process.Start(new ProcessStartInfo("explorer.exe", "\"" + dir + "\"") { UseShellExecute = true });
+                            data = new { ok = true };
+                            break;
+                        }
                     default: data = new { ok = false, error = "Unknown action " + action }; break;
                 }
             }
@@ -223,21 +236,6 @@ namespace WMSApp
             return false;
         }
 
-        private async Task<bool> TeachSignedInAsync(CancellationToken ct, string runId)
-        {
-            bool told = false;
-            var until = DateTime.UtcNow.AddMinutes(10);
-            while (DateTime.UtcNow < until)
-            {
-                ct.ThrowIfCancellationRequested();
-                await TeachWaitNavAsync(ct);
-                if ((await TeachEvalAsync("!!(window.__tm && __tm.signIn())")) != "true") return true;
-                if (!told) { TeachEvent(new { kind = "run", runId, state = "login", message = "Sign in in the Teach Me window - the lesson carries on by itself after the sign-in." }); told = true; }
-                await Task.Delay(2000, ct);
-            }
-            return false;
-        }
-
         private async Task<JsonElement?> TeachCallAsync(string fn, object arg, int timeoutMs, CancellationToken ct)
         {
             string token = Guid.NewGuid().ToString("N");
@@ -261,17 +259,78 @@ namespace WMSApp
 
         private static string TS(JsonElement e, string n) => e.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
-        private async Task TeachRunAsync(string runId, string url, List<JsonElement> steps, string capture, CancellationToken ct)
+        /// <summary>The native engine: the Teach Me window (WebView2) and the injected agent script.</summary>
+        private sealed class TeachNativeDriver : ITeachDriver
+        {
+            private readonly Form1 f;
+            public TeachNativeDriver(Form1 form) { f = form; }
+            public string Name => "Native (Teach Me window)";
+            public string Folder => null;
+            public bool Headless => false;
+            public async Task OpenAsync(string url, CancellationToken ct)
+            {
+                await f.OnUi(async () => { await f.TeachWindowAsync(url); return true; });
+                await Task.Delay(800, ct);
+                await f.TeachWaitNavAsync(ct);
+            }
+            public async Task<bool> SignInPageAsync() { await f.TeachWaitNavAsync(CancellationToken.None); return (await f.TeachEvalAsync("!!(window.__tm && __tm.signIn())")) == "true"; }
+            public async Task<TeachStepResult> RunStepAsync(JsonElement s, int timeoutMs, CancellationToken ct)
+            {
+                await f.TeachWaitNavAsync(ct);
+                if (!await f.TeachAgentReadyAsync(ct)) return new TeachStepResult { Ok = false, Error = "The page did not load." };
+                var res = await f.TeachCallAsync("run", s, timeoutMs + 3000, ct);
+                if (!res.HasValue) return new TeachStepResult { Ok = false, Error = "No answer from the page" };
+                var r = res.Value;
+                return new TeachStepResult
+                {
+                    Ok = r.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True,
+                    Error = TS(r, "error"),
+                    SignIn = r.TryGetProperty("signIn", out var si) && si.ValueKind == JsonValueKind.True
+                };
+            }
+            public async Task<string> ScanAsync(string regex)
+            {
+                await f.TeachWaitNavAsync(CancellationToken.None);
+                var hit = await f.TeachCallAsync("scan", regex, 2500, CancellationToken.None);
+                return hit.HasValue ? TS(hit.Value, "value") : null;
+            }
+            public async Task AfterStepAsync(int index, string op, CancellationToken ct)
+            {
+                await Task.Delay(op == "click" || op == "key" ? 700 : 250, ct);
+                await f.TeachWaitNavAsync(ct);
+            }
+            public Task CloseAsync(bool keepOpen) => Task.CompletedTask;
+        }
+
+        private async Task TeachRunAsync(string runId, string url, List<JsonElement> steps, string capture, string engine, CancellationToken ct)
         {
             string final = "error", message = null, captured = null;
             int n = steps.Count;
+            ITeachDriver d = engine == "playwright" ? new TeachPlaywright(runId, false)
+                           : engine == "playwright-headless" ? new TeachPlaywright(runId, true)
+                           : new TeachNativeDriver(this);
+            bool keepOpen = false;
             try
             {
-                TeachEvent(new { kind = "run", runId, state = "start", n, message = "Opening " + url });
-                await OnUi(async () => { await TeachWindowAsync(url); return true; });
-                await Task.Delay(800, ct);
-                await TeachWaitNavAsync(ct);
-                if (!await TeachSignedInAsync(ct, runId)) throw new TimeoutException("No sign-in after 10 minutes.");
+                TeachEvent(new { kind = "run", runId, state = "start", n, engine = d.Name, message = "Opening " + url + " with " + d.Name });
+                await d.OpenAsync(url, ct);
+
+                async Task<bool> SignedIn()
+                {
+                    bool told = false;
+                    var until = DateTime.UtcNow.AddMinutes(10);
+                    while (DateTime.UtcNow < until)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        if (!await d.SignInPageAsync()) return true;
+                        if (d.Headless) throw new InvalidOperationException("The site asks to sign in, and a headless run cannot show the sign-in. Run the lesson once with \"Playwright (visible)\" and sign in there - the sign-in is kept for later headless runs.");
+                        if (!told) { TeachEvent(new { kind = "run", runId, state = "login", message = "Sign in in the " + (d is TeachPlaywright ? "Edge" : "Teach Me") + " window - the lesson carries on by itself after the sign-in." }); told = true; }
+                        await Task.Delay(2000, ct);
+                    }
+                    return false;
+                }
+
+                if (!await SignedIn()) throw new TimeoutException("No sign-in after 10 minutes.");
                 bool stoppedForPerson = false;
                 for (int i = 0; i < n; i++)
                 {
@@ -282,62 +341,61 @@ namespace WMSApp
                     bool optional = s.TryGetProperty("optional", out var opt) && opt.ValueKind == JsonValueKind.True;
                     if (stopHere)
                     {
-                        TeachEvent(new { kind = "run", runId, i, n, state = "ready", message = "Everything is filled in. Check the page, then press \"" + what + "\" yourself - Teach Me never submits." });
+                        TeachEvent(new { kind = "run", runId, i, n, state = "ready", message = d.Headless
+                            ? "Filled in up to \"" + what + "\" - a headless run stops here and nobody can press it. Run it visible to submit."
+                            : "Everything is filled in. Check the page, then press \"" + what + "\" yourself - Teach Me never submits." });
                         stoppedForPerson = true;
+                        keepOpen = !d.Headless;
                         break;
                     }
                     if (op == "pause" || op == "upload")
                     {
-                        TeachEvent(new { kind = "run", runId, i, n, state = "pause", message = TS(s, "note") ?? (op == "upload" ? "Attach the file(s) in the Teach Me window, then press Continue." : "Do this step yourself, then press Continue.") });
+                        if (d.Headless) throw new InvalidOperationException("Step " + (i + 1) + " needs a person (" + (op == "upload" ? "attach a file" : TS(s, "note") ?? "pause") + ") - run this lesson visible.");
+                        TeachEvent(new { kind = "run", runId, i, n, state = "pause", message = TS(s, "note") ?? (op == "upload" ? "Attach the file(s) in the browser window, then press Continue." : "Do this step yourself, then press Continue.") });
                         if (!await TeachWaitContinueAsync(ct)) throw new OperationCanceledException();
                         continue;
                     }
                     TeachEvent(new { kind = "run", runId, i, n, state = "step", message = what });
-                    await TeachWaitNavAsync(ct);
-                    if (!await TeachAgentReadyAsync(ct)) throw new InvalidOperationException("The page did not load.");
                     int timeout = s.TryGetProperty("timeout", out var to) && to.TryGetInt32(out var tt) ? Math.Clamp(tt, 1000, 120000) : 20000;
-                    var res = await TeachCallAsync("run", s, timeout + 3000, ct);
-                    bool ok = res.HasValue && res.Value.TryGetProperty("ok", out var okv) && okv.ValueKind == JsonValueKind.True;
-                    if (!ok && res.HasValue && res.Value.TryGetProperty("signIn", out var si) && si.ValueKind == JsonValueKind.True)
+                    var res = await d.RunStepAsync(s, timeout, ct);
+                    if (!res.Ok && res.SignIn)
                     {
-                        if (!await TeachSignedInAsync(ct, runId)) throw new TimeoutException("No sign-in after 10 minutes.");
-                        res = await TeachCallAsync("run", s, timeout + 3000, ct);
-                        ok = res.HasValue && res.Value.TryGetProperty("ok", out okv) && okv.ValueKind == JsonValueKind.True;
+                        if (!await SignedIn()) throw new TimeoutException("No sign-in after 10 minutes.");
+                        res = await d.RunStepAsync(s, timeout, ct);
                     }
-                    if (!ok)
+                    if (!res.Ok)
                     {
-                        string err = res.HasValue ? TS(res.Value, "error") : "No answer from the page";
-                        if (optional) { TeachEvent(new { kind = "run", runId, i, n, state = "skip", message = "Skipped (optional): " + err }); continue; }
-                        TeachEvent(new { kind = "run", runId, i, n, state = "help", message = "Step " + (i + 1) + " (" + what + "): " + err + ". Do it by hand in the Teach Me window, then press Continue." });
+                        if (optional) { TeachEvent(new { kind = "run", runId, i, n, state = "skip", message = "Skipped (optional): " + res.Error }); continue; }
+                        if (d.Headless) throw new InvalidOperationException("Step " + (i + 1) + " (" + what + "): " + res.Error);
+                        TeachEvent(new { kind = "run", runId, i, n, state = "help", message = "Step " + (i + 1) + " (" + what + "): " + res.Error + ". Do it by hand in the browser window, then press Continue." });
                         if (!await TeachWaitContinueAsync(ct)) throw new OperationCanceledException();
                         continue;
                     }
                     TeachEvent(new { kind = "run", runId, i, n, state = "done", message = what });
-                    await Task.Delay(op == "click" || op == "key" ? 700 : 250, ct);
-                    await TeachWaitNavAsync(ct);
+                    await d.AfterStepAsync(i, op, ct);
                 }
                 final = stoppedForPerson ? "ready" : "finished";
-                if (!string.IsNullOrWhiteSpace(capture))
+                if (!string.IsNullOrWhiteSpace(capture) && !(stoppedForPerson && d.Headless))
                 {
                     TeachEvent(new { kind = "run", runId, state = "watch", message = "Watching the page for the result (" + capture + ") …" });
-                    var until = DateTime.UtcNow.AddMinutes(30);
+                    var until = DateTime.UtcNow.AddMinutes(stoppedForPerson ? 30 : 1);
                     while (DateTime.UtcNow < until && captured == null)
                     {
                         ct.ThrowIfCancellationRequested();
-                        await TeachWaitNavAsync(ct);
-                        var hit = await TeachCallAsync("scan", capture, 2500, ct);
-                        if (hit.HasValue && TS(hit.Value, "value") is string v && v.Length > 0) captured = v;
+                        var v = await d.ScanAsync(capture);
+                        if (!string.IsNullOrEmpty(v)) captured = v;
                         else await Task.Delay(2500, ct);
                     }
-                    if (captured != null) final = "captured";
+                    if (captured != null) { final = "captured"; keepOpen = false; }
                 }
             }
-            catch (OperationCanceledException) { final = "stopped"; message = "Stopped."; }
-            catch (Exception ex) { final = "error"; message = ex.Message; Debug.WriteLine("[TeachMe] run: " + ex); }
+            catch (OperationCanceledException) { final = "stopped"; message = "Stopped."; keepOpen = false; }
+            catch (Exception ex) { final = "error"; message = ex.Message; keepOpen = false; Debug.WriteLine("[TeachMe] run: " + ex); }
             finally
             {
+                try { await d.CloseAsync(keepOpen); } catch { }
                 _tmRunCts = null; _tmContinue = null;
-                TeachEvent(new { kind = "run", runId, state = "end", final, message, captured });
+                TeachEvent(new { kind = "run", runId, state = "end", final, message, captured, engine = d.Name, folder = d.Folder != null && System.IO.Directory.Exists(d.Folder) ? runId : null });
             }
         }
 

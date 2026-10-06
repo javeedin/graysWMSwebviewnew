@@ -319,6 +319,7 @@
             '<button class="btn primary" id="h-save"><i class="fa-solid fa-floppy-disk"></i> Save</button>' +
             '<button class="btn" id="h-dup" title="Copy this lesson"><i class="fa-regular fa-copy"></i></button>' +
             '<button class="btn" id="h-exp" title="Download as JSON"><i class="fa-solid fa-download"></i></button>' +
+            (l.kind === 'navigation' ? '<button class="btn" id="h-pw" title="Export as a Playwright C# script"><i class="fa-solid fa-code"></i> Playwright</button>' : '') +
             '<button class="btn danger" id="h-del" title="Remove"><i class="fa-regular fa-trash-can"></i></button>';
         $('h-title').oninput = function () { l.title = this.value; TM.dirty = true; };
         $('h-title').onchange = function () { TM.paintHead(); TM.paintTree(); };
@@ -328,6 +329,7 @@
             TM.cur = c; TM.dirty = true; TM.paintTree(); TM.paintMain();
         };
         $('h-exp').onclick = function () { var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(l, null, 2)], { type: 'application/json' })); a.download = (l.title || 'lesson').replace(/[^\w-]+/g, '_') + '.lesson.json'; a.click(); };
+        if ($('h-pw')) $('h-pw').onclick = function () { TM.exportPlaywright(l); };
         $('h-del').onclick = function () {
             TM.modal('Remove lesson', '<p>Remove <b>' + esc(l.title) + '</b>? It is marked as removed in APEX and on this PC (its runs stay).</p>', [['Cancel', ''], ['Remove', 'ok', 'primary']]).then(function (r) {
                 if (r.button !== 'ok') return;
@@ -335,6 +337,59 @@
                 (l.version ? TM.save(true) : Promise.resolve()).then(function () { TM.lessons = TM.lessons.filter(function (x) { return x !== l; }); TM.cur = null; TM.dirty = false; TM.paintTree(); TM.paintMain(); });
             });
         };
+    };
+
+    /** The lesson as a stand-alone Playwright C# program (NuGet Microsoft.Playwright, installed Edge); variables become arguments. */
+    TM.exportPlaywright = function (l) {
+        var q = function (x) { return '"' + String(x == null ? '' : x).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, '\\n') + '"'; };
+        var val = function (x) {
+            var parts = String(x == null ? '' : x).split(/(\{\{\s*\w+\s*\}\})/).filter(function (p) { return p !== ''; });
+            if (!parts.length) return '""';
+            return parts.map(function (p) { var m = /^\{\{\s*(\w+)\s*\}\}$/.exec(p); return m ? 'V(' + q(m[1]) + ')' : q(p); }).join(' + ');
+        };
+        var loc = function (t) {
+            t = t || {};
+            var f = t.frame ? 'page.Frames.First(f => f.Url.Contains(' + q(t.frame) + '))' : 'page.MainFrame';
+            if (t.label) return f + '.GetByLabel(' + q(t.label) + ', new() { Exact = true })';
+            var role = { button: 'Button', a: 'Link', link: 'Link', option: 'Option', menuitem: 'Menuitem', tab: 'Tab', checkbox: 'Checkbox', radio: 'Radio' }[t.role || t.tag];
+            if (t.text && role) return f + '.GetByRole(AriaRole.' + role + ', new() { Name = ' + q(t.text) + ', Exact = true })';
+            if (t.placeholder) return f + '.GetByPlaceholder(' + q(t.placeholder) + ', new() { Exact = true })';
+            if (t.id) return f + '.Locator(' + q('[id="' + t.id + '"]') + ')';
+            if (t.name) return f + '.Locator(' + q((t.tag || '*') + '[name="' + t.name + '"]') + ')';
+            if (t.text) return f + '.GetByText(' + q(t.text) + ', new() { Exact = true })';
+            return f + '.Locator(' + q(t.css || 'body') + ')';
+        };
+        var lines = [];
+        (l.steps || []).forEach(function (s, i) {
+            var c = '// ' + (i + 1) + '. ' + (s.op === 'pause' ? s.note : TM.stepText(s));
+            if (s.stop) { lines.push(c + ' - STOP: a person presses this (Teach Me never submits)', 'Console.WriteLine("Filled in - check the page and press it yourself."); Console.ReadLine();'); return; }
+            var L = loc(s.t) + '.First';
+            lines.push(c);
+            if (s.op === 'fill') lines.push('await ' + L + '.FillAsync(' + val(s.value) + ');');
+            else if (s.op === 'select') lines.push('await ' + L + '.SelectOptionAsync(new SelectOptionValue { Label = ' + val(s.optText || s.value) + ' });');
+            else if (s.op === 'check') lines.push('await ' + L + '.SetCheckedAsync(' + (String(s.value) === 'true') + ');');
+            else if (s.op === 'key') lines.push('await ' + L + '.PressAsync("Enter");');
+            else if (s.op === 'pause' || s.op === 'upload') lines.push('Console.WriteLine(' + q(s.note || 'Do this step yourself, then press Enter') + '); Console.ReadLine();');
+            else lines.push('await ' + L + '.ClickAsync();');
+        });
+        var vars = (l.vars || []).map(function (v) { return '//   ' + v.name + ' = ' + (v.label || '') + (v.def ? ' (default: ' + v.def + ')' : ''); });
+        var code = ['// ' + l.title + ' - exported from Gray\'s WMS Teach Me (' + new Date().toISOString().slice(0, 10) + ')',
+            '// dotnet new console; dotnet add package Microsoft.Playwright; paste this into Program.cs; dotnet run -- name=value ...',
+            '// Variables (pass as name=value arguments):'].concat(vars.length ? vars : ['//   (none)']).concat([
+            'using System;', 'using System.Linq;', 'using Microsoft.Playwright;', '',
+            'var vals = args.Select(a => a.Split(\'=\', 2)).Where(p => p.Length == 2).ToDictionary(p => p[0], p => p[1]);',
+            'string V(string n) => vals.TryGetValue(n, out var v) ? v : ' + '(new System.Collections.Generic.Dictionary<string, string> { ' + (l.vars || []).map(function (v) { return '[' + q(v.name) + '] = ' + q(v.def || ''); }).join(', ') + ' }.TryGetValue(n, out var d) ? d : "");',
+            'using var pw = await Playwright.CreateAsync();',
+            'await using var ctx = await pw.Chromium.LaunchPersistentContextAsync(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TeachMePlaywright"), new() { Channel = "msedge", Headless = false });',
+            'var page = ctx.Pages.FirstOrDefault() ?? await ctx.NewPageAsync();',
+            'await page.GotoAsync(' + q(l.startUrl) + ');',
+            'Console.WriteLine("Sign in if asked, then press Enter."); Console.ReadLine();', ''
+        ]).concat(lines).concat(l.capture && l.capture.regex ? ['', '// ' + (l.capture.label || 'result') + ' read from the page', 'var m = System.Text.RegularExpressions.Regex.Match(await page.Locator("body").InnerTextAsync(), ' + q(l.capture.regex) + ');',
+            'Console.WriteLine(m.Success ? ' + q((l.capture.label || 'Result') + ': ') + ' + (m.Groups.Count > 1 ? m.Groups[1].Value : m.Value) : "Not found on the page.");'] : []);
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([code.join('\r\n')], { type: 'text/plain' }));
+        a.download = (l.title || 'lesson').replace(/[^\w-]+/g, '_') + '.Program.cs'; a.click();
+        TM.toast('Playwright C# script downloaded.', 'ok');
     };
 
     // ── tab: lesson (notes) ─────────────────────────────────────
@@ -513,12 +568,16 @@
                     : (v.long || /desc|steps|error|impact|notes/.test(v.name) ? '<textarea data-v="' + esc(v.name) + '" rows="4">' + esc(val) + '</textarea>' : '<input type="text" data-v="' + esc(v.name) + '" value="' + esc(val) + '">');
                 return '<label class="' + (/<textarea/.test(input) ? 'wide' : '') + '" title="' + esc(v.hint || '') + '">' + esc(v.label || v.name) + input + (v.hint ? '<span style="text-transform:none;font-weight:400">' + esc(v.hint) + '</span>' : '') + '</label>';
             }).join('') : '<p class="muted">This lesson has no variables — it repeats exactly what you taught.</p>') + '</div></div>' +
+            '<div class="card"><h3><i class="fa-solid fa-gears"></i> Run with</h3><div class="engines">' + TM.ENGINES.map(function (e) {
+                return '<label class="eng' + (TM.engineOf(l) === e.id ? ' on' : '') + '"><input type="radio" name="r-eng" value="' + e.id + '"' + (TM.engineOf(l) === e.id ? ' checked' : '') + '><i class="fa-solid ' + e.icon + '"></i><span><b>' + e.label + '</b><small>' + e.note + '</small></span></label>';
+            }).join('') + '</div>' + (TM.engineOf(l) === 'playwright-headless' && stop ? '<div class="banner warn" style="margin:8px 0 0"><i class="fa-solid fa-hand"></i> Headless runs stop at the ✋ step and nobody can press it — use it for lessons that only read, or run visible to submit.</div>' : '') + '</div>' +
             '<div class="card"><div class="row"><button class="btn primary" id="r-go"' + (busy || !l.steps.length ? ' disabled' : '') + '><i class="fa-solid fa-play"></i> Run lesson</button>' +
             '<button class="btn" id="r-cont"' + (busy && r.waiting ? '' : ' disabled') + '><i class="fa-solid fa-forward"></i> Continue</button>' +
             '<button class="btn danger" id="r-stop"' + (busy ? '' : ' disabled') + '><i class="fa-solid fa-stop"></i> Stop</button>' +
             '<button class="btn" id="r-copy"><i class="fa-regular fa-copy"></i> Copy all values</button><span class="grow"></span><span class="muted sm">The app never presses a ✋ step.</span></div></div>' +
             '<div id="r-live"></div>';
         el.querySelectorAll('[data-v]').forEach(function (inp) { inp.oninput = inp.onchange = function () { vals[inp.dataset.v] = inp.value; }; });
+        el.querySelectorAll('input[name=r-eng]').forEach(function (r) { r.onchange = function () { l.engine = r.value; lsSet('teachme.engine', r.value); TM.touch(); TM.paintMain(); }; });
         $('r-ai').oninput = function () { TM.aiText = this.value; };
         $('r-fill').onclick = function () { TM.aiFill(this); };
         $('r-go').onclick = TM.startRun;
@@ -544,6 +603,12 @@
             .catch(function (e) { $('r-ainote').textContent = String(e); })
             .then(function () { btn.disabled = false; });
     };
+    TM.ENGINES = [
+        { id: 'native', icon: 'fa-window-maximize', label: 'Native — Teach Me window', note: 'The app\'s own browser, same window you taught in. You watch every step; nothing to install.' },
+        { id: 'playwright', icon: 'fa-masks-theater', label: 'Playwright — Edge, visible', note: 'Microsoft Playwright drives the installed Edge: smarter element finding, auto-waits, a screenshot per step and a trace file.' },
+        { id: 'playwright-headless', icon: 'fa-ghost', label: 'Playwright — headless', note: 'No window: for lessons that only read or need no person. Sign in once with the visible Playwright run first.' }
+    ];
+    TM.engineOf = function (l) { var e = l.engine || lsGet('teachme.engine', 'native'); return TM.ENGINES.some(function (x) { return x.id === e; }) ? e : 'native'; };
     TM.resolve = function (s, vals) { return String(s == null ? '' : s).replace(/\{\{\s*(\w+)\s*\}\}/g, function (m, n) { return vals[n] != null ? vals[n] : ''; }); };
     TM.startRun = function () {
         var l = TM.cur, vals = TM.values[l.id] || {};
@@ -564,7 +629,8 @@
             var runId = newId('R');
             TM.run = { id: runId, lessonId: l.id, lessonTitle: l.title, lessonVersion: l.version, startedAt: now(), log: [], values: JSON.parse(JSON.stringify(vals)), n: steps.length, i: -1, state: 'start' };
             TM.paintMain();
-            hostOk('teachRun', { runId: runId, url: l.startUrl, steps: steps, capture: l.capture && l.capture.regex || '', title: l.title }).catch(function (e) {
+            TM.run.engine = TM.engineOf(l);
+            hostOk('teachRun', { runId: runId, url: l.startUrl, steps: steps, capture: l.capture && l.capture.regex || '', title: l.title, engine: TM.run.engine }).catch(function (e) {
                 TM.run.ended = true; TM.run.final = 'error'; TM.run.message = String(e); TM.paintMain();
             });
         });
@@ -581,15 +647,17 @@
             : r.state === 'watch' ? ['info', 'fa-eye', r.message]
             : ['info', 'fa-circle-notch fa-spin', 'Step ' + (r.i + 1) + ' of ' + r.n + (r.message ? ': ' + r.message : '')];
         box.innerHTML = '<div class="banner ' + head[0] + '"><i class="fa-solid ' + head[1] + '"></i><div class="grow">' + esc(head[2]) + (r.ended ? '' : '<div style="height:5px;background:rgba(0,0,0,.08);border-radius:3px;margin-top:6px"><div style="height:5px;border-radius:3px;background:currentColor;width:' + pct + '%"></div></div>') + '</div></div>' +
+            (r.ended && r.folder ? '<div class="card"><div class="row"><i class="fa-solid fa-images" style="color:var(--accent)"></i><span>Screenshots of every step and a Playwright trace (open it with <code>playwright show-trace trace.zip</code> or trace.playwright.dev).</span><span class="grow"></span><button class="btn sm" id="r-folder"><i class="fa-regular fa-folder-open"></i> Open folder</button></div></div>' : '') +
             (r.captured ? '<div class="card"><h3><i class="fa-solid fa-hashtag"></i> ' + esc(TM.cur.capture.label || 'Result') + '</h3><div class="row"><span class="captured">' + esc(r.captured) + '</span><button class="btn sm" id="r-capcopy"><i class="fa-regular fa-copy"></i> Copy</button></div></div>' : '') +
             '<div class="card"><h3><i class="fa-solid fa-list-check"></i> What happened</h3><div class="log">' + r.log.map(function (x) {
                 return '<div><time>' + esc(x.at.slice(11)) + '</time><span class="chip ' + ({ done: 'ok', error: 'err', help: 'warn', pause: 'warn', login: 'warn', skip: '', ready: 'ok', captured: 'ok' }[x.state] || 'info') + '">' + esc(x.state) + '</span><span>' + esc(x.message || '') + '</span></div>';
             }).join('') + '</div></div>';
+        var fo = $('r-folder'); if (fo) fo.onclick = function () { hostOk('teachRunFolder', { runId: r.folder }).catch(function (e) { TM.toast(String(e), 'err'); }); };
         var c = $('r-capcopy'); if (c) c.onclick = function () { navigator.clipboard.writeText(r.captured).then(function () { TM.toast('Copied.'); }); };
     };
     TM.finishRun = function (r) {
         var rec = { id: r.id, lessonId: r.lessonId, lessonTitle: r.lessonTitle, lessonVersion: r.lessonVersion, runBy: TM.user, startedAt: r.startedAt, finishedAt: now(),
-                    status: r.final, result: r.captured || (r.final === 'error' ? (r.message || '').slice(0, 400) : ''), values: JSON.stringify(r.values), log: JSON.stringify(r.log) };
+                    status: r.final + (r.engine && r.engine !== 'native' ? ' · ' + r.engine : ''), result: r.captured || (r.final === 'error' ? (r.message || '').slice(0, 400) : ''), values: JSON.stringify(r.values), log: JSON.stringify(r.log) };
         hostOk('teachRunSave', { run: rec }).catch(function (e) { TM.toast('Run not saved on this PC: ' + e, 'err'); });
         A.saveRun(rec).catch(function (e) { TM.toast('Run not saved in APEX: ' + e, 'err'); });
     };
@@ -619,7 +687,7 @@
         if (e.kind === 'run' && TM.run && (!e.runId || e.runId === TM.run.id)) {
             var r = TM.run;
             if (e.state === 'end') {
-                r.ended = true; r.final = e.final; r.message = e.message; if (e.captured) r.captured = e.captured;
+                r.ended = true; r.final = e.final; r.message = e.message; if (e.captured) r.captured = e.captured; r.folder = e.folder; r.engineName = e.engine;
                 r.log.push({ at: now(), state: e.final, message: e.message || (e.captured ? 'Read ' + e.captured : '') });
                 TM.finishRun(r);
                 if (e.captured) TM.toast((TM.cur && TM.cur.capture && TM.cur.capture.label || 'Result') + ': ' + e.captured, 'ok');

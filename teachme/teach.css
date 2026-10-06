@@ -99,6 +99,11 @@ textarea.notes { min-height: 260px; font-family: var(--mono); font-size: .8rem; 
 .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #dc2626; animation: blink 1s infinite; }
 @keyframes blink { 50% { opacity: .2; } }
 
+.engines { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; }
+.eng { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--line); border-radius: 10px; padding: 10px; cursor: pointer; }
+.eng.on { border-color: var(--accent); background: var(--accent-bg); }
+.eng input { margin-top: 3px; } .eng i { color: var(--accent); margin-top: 2px; width: 16px; }
+.eng small { display: block; color: var(--muted); font-size: .74rem; }
 .vars { width: 100%; border-collapse: collapse; font-size: .82rem; }
 .vars th { text-align: left; font-size: .66rem; text-transform: uppercase; color: var(--muted); padding: 6px; border-bottom: 1px solid var(--line); }
 .vars td { padding: 4px 6px; border-bottom: 1px solid var(--line2); vertical-align: top; }

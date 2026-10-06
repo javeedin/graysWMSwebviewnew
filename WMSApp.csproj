@@ -54,6 +54,7 @@
     <PackageReference Include="Microsoft.Identity.Client" Version="4.90.1" />
     <PackageReference Include="Microsoft.Identity.Client.Extensions.Msal" Version="4.90.1" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Playwright" Version="1.63.0" />
   </ItemGroup>
 
   <!-- Web content files bundled into single-file publish -->
