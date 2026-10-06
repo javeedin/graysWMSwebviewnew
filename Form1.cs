@@ -1803,6 +1803,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     HandleOpenExternalUrl(root);
                                     break;
 
+                                case "closeThisTab":            // a page's own Close button (e.g. a board pack opened in its own tab)
+                                    if (!CloseTabOf(wv) && wv.CoreWebView2.CanGoBack) wv.CoreWebView2.GoBack();
+                                    break;
+
                                 case "executeOracleFusionPost":
                                     await HandleOracleFusionPostRequest(wv, messageJson, requestId);
                                     break;
@@ -2379,6 +2383,7 @@ navPanel.Controls.Add(wmsDevButton);
                 wv.CoreWebView2.NavigationStarting += CoreWebView2_NavigationStarting;
                 wv.CoreWebView2.NavigationCompleted += CoreWebView2_NavigationCompleted;
                 wv.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
+                wv.CoreWebView2.WindowCloseRequested += (s2, e2) => CloseTabOf(wv);   // window.close() in a page (e.g. a board pack opened in its own tab) closes that tab
                 StartupMark("navigate " + Path.GetFileName(Path.GetDirectoryName(new Uri(url).LocalPath) ?? "") + "/" + Path.GetFileName(new Uri(url).LocalPath));
                 wv.Source = new Uri(url);
             }
@@ -6179,6 +6184,20 @@ navPanel.Controls.Add(wmsDevButton);
                     return tab.WebView;
             }
             return null;
+        }
+
+        /// <summary>Closes the tab that shows this WebView — never the last one (that would close the app).</summary>
+        private bool CloseTabOf(WebView2 wv)
+        {
+            try
+            {
+                CustomTabButton tab = null; int tabs = 0;
+                foreach (Control ctrl in tabBar.Controls) if (ctrl is CustomTabButton t) { tabs++; if (ReferenceEquals(t.WebView, wv)) tab = t; }
+                if (tab == null || tabs < 2) return false;
+                BeginInvoke(new Action(() => TabButton_CloseClicked(tab, EventArgs.Empty)));
+                return true;
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[Tabs] close: " + ex.Message); return false; }
         }
 
         private CustomTabButton GetCurrentTab()
