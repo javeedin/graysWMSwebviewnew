@@ -3,7 +3,8 @@
      1. main lines: status contains SCHEDULED or MANUAL RESERVATION
      2. their child lines: numbered sub-lines first (3 → 3.1, 3.2 …); only when there are none, the BOGO promo items of the
         main item (ARMODULE/BOGO: main item → promo items)
-     3. a child already cancelled / shipped / interfaced is skipped, so is a child without a fulfillment line id
+     3. a child already cancelled / shipped / interfaced is skipped, so is a child without a fulfillment line id — a child in
+        Awaiting Shipping (the usual state of a BOGO item whose main line waits for a Manual Reservation) IS cancelled with it
      4. Fusion gets { lines: [{ FulfillLineId, OrderedQuantity: 0, CancelReason: 'OUT OF STOCK' }] } on
         salesOrdersForOrderHub/OPS:{order} (PATCH) — main lines without an id are left out and reported.
    Pure functions (no DOM, no host): used by w2-autopilot.js and tested by wms2/tests/cancel-rules.test.js. */
@@ -20,8 +21,9 @@
     R.key = function (l) { return String(R.fid(l) || ('LN:' + R.lineNum(l) + ':' + R.lineItem(l))); };
     /** Task 2's rule for a main line. */
     R.flagged = function (l) { var s = R.lineStatus(l).toUpperCase(); return s.indexOf('SCHEDULED') >= 0 || s.indexOf('MANUAL RESERVATION') >= 0; };
-    /** Child lines past the point of no return. */
-    R.childBlocked = function (status) { var s = String(status || '').toUpperCase(); return s.indexOf('CANCEL') >= 0 || s.indexOf('SHIP') >= 0 || s.indexOf('INTERFAC') >= 0; };
+    /** Child lines past the point of no return: cancelled, shipped, interfaced. "Awaiting Shipping" is NOT one of them —
+        it is cancelled together with its main line (SHIPPED, not SHIP, so SHIPPING does not match). */
+    R.childBlocked = function (status) { var s = String(status || '').toUpperCase(); return s.indexOf('CANCEL') >= 0 || s.indexOf('SHIPPED') >= 0 || s.indexOf('INTERFAC') >= 0; };
 
     /**
      * One order: all its lines + the BOGO map { MAINITEM: [promoItem, …] } (upper case) →

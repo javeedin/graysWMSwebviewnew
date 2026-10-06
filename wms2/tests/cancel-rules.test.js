@@ -31,8 +31,10 @@ const o2 = [L('7', 'JUICE1', 'Scheduled', 201), L('7.1', 'X', 'Booked', 202), L(
 eq(R.expand(o2, bogo).lines.map(l => R.lineNum(l.line) + ':' + l.via), ['7:MAIN', '7.1:SUB-LINE'], 'sub-lines before BOGO');
 // a child without id is skipped
 const o3 = [L('9', 'A', 'Scheduled', 301), L('9.1', 'B', 'Booked', null)];
-// like the agent (saChildBlocked: SHIP), a child line in Awaiting Shipping is never cancelled with its main line
-eq(R.expand([L('10', 'A', 'Scheduled', 401), L('10.1', 'B', 'Awaiting Shipping', 402)], {}).skipped.map(s => s.reason), ['status "Awaiting Shipping" not cancellable'], 'awaiting shipping child kept');
+// like the agent (saChildBlocked: SHIPPED), a child line in Awaiting Shipping IS cancelled with its main line; a Shipped one is not
+eq(R.expand([L('10', 'A', 'Manual Reservation Required', 401), L('10.1', 'B', 'Awaiting Shipping', 402)], {}).lines.map(x => x.via), ['MAIN', 'SUB-LINE'], 'awaiting shipping child cancelled with its main line');
+eq(R.expand([L('10', 'A', 'Scheduled', 401), L('10.1', 'B', 'Shipped', 402)], {}).skipped.map(s => s.reason), ['status "Shipped" not cancellable'], 'shipped child kept');
+eq(R.expand([L('12', 'MAINX', 'Manual Reservation Required', 601), L('13', 'PROMOX', 'Awaiting Shipping', 602)], { MAINX: ['PROMOX'] }).lines.map(x => x.via), ['MAIN', 'BOGO'], 'awaiting shipping BOGO item cancelled with its main item');
 eq(R.expand([L('11', 'A', 'Awaiting Shipping', 501)], {}).lines.length, 0, 'awaiting shipping main line is not cancelled');
 eq(R.expand(o3, {}).skipped.map(s => s.reason), ['missing FULFILL_LINE_ID'], 'child without id');
 // nothing flagged → nothing

@@ -221,7 +221,7 @@
     // Child lines already past the point of no return are skipped (with a warning)
     function saChildBlocked(status) {
         const s = (status || '').toUpperCase();
-        return s.includes('CANCEL') || s.includes('SHIP') || s.includes('INTERFAC');
+        return s.includes('CANCEL') || s.includes('SHIPPED') || s.includes('INTERFAC');   // Awaiting Shipping children ARE cancelled with their main line
     }
 
     // Expands flagged main lines with their child lines.

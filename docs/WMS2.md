@@ -104,7 +104,8 @@ It runs 1–4 orders at a time, with a live log and **Retry failed**. The releas
 The autopilot cancels lines automatically, with the Shipping Agent's rules:
 
 - Main lines in **Scheduled** or **Manual Reservation Required** are cancelled with their numbered sub-lines (3 → 3.1, 3.2). If a line has no sub-lines, its BOGO promo items are cancelled with it.
-- Lines in **Awaiting Shipping** are never cancelled by the autopilot, and neither are child lines already shipped, interfaced or cancelled. Cancel those by hand in the order details.
+- Sub-lines and BOGO items in **Awaiting Shipping** are cancelled together with their main line. This is their usual state when the main line waits for a Manual Reservation.
+- A main line in **Awaiting Shipping** is never cancelled by the autopilot. Neither are child lines already shipped, interfaced or cancelled. Cancel those by hand in the order details.
 - Fusion receives the same request as before: quantity 0, reason OUT OF STOCK.
 
 How a run works:
@@ -115,7 +116,7 @@ How a run works:
 
 Controls and safeguards:
 
-- **ON / OFF** is set per instance, with a reason, and is shared by every PC. The settings are also shared: run every n minutes, trips of today and/or tomorrow, and a safety stop after a number of lines per run.
+- **ON / OFF** is set per instance, with a reason, and is shared by every PC. The settings are also shared: run every 45, 60, 90, 120, 180 or 240 minutes (45 at least, because a run reads, cancels and checks each order live), trips of today and/or tomorrow, and a safety stop after a number of lines per run.
 - Only one PC cancels at a time (a lease in APEX).
 - The AI kill switch (AI Digital Employee › Control) stops the autopilot too.
 - **Check (no cancel)** shows what a run would cancel. **Run now** runs once for the date on screen.

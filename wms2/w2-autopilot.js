@@ -34,7 +34,7 @@
     };
 
     // ── settings (shared in APEX) ────────────────────────────
-    AP.DEFAULTS = { on: false, every: 5, today: true, tomorrow: true, maxLines: 300 };
+    AP.DEFAULTS = { on: false, every: 45, today: true, tomorrow: true, maxLines: 300 };
     AP.load = function () {
         var pod = W2.pod();
         return AP.ensure().then(function () {
@@ -46,6 +46,7 @@
                 if (r.SETTING_KEY === 'AUTOPILOT_OPTIONS') { try { Object.assign(s, JSON.parse(r.SETTING_VALUE || '{}'), { on: s.on }); } catch (e) {} }
                 if (r.SETTING_KEY === 'AUTOPILOT_' + pod + '_REASON') s.reason = r.SETTING_VALUE;
             });
+            s.every = Math.max(45, +s.every || 45);       // a run takes a while (live read + PATCH + check per order): 45 min at least
             AP.settings = s;
             return s;
         }).catch(function (e) { AP.settings = Object.assign({}, AP.DEFAULTS, { pod: pod, error: String(e) }); return AP.settings; });
@@ -304,7 +305,7 @@
     function tick() {
         if (!AP.settings || !AP.settings.on || AP.running || W2.sync.running) return;
         if (AP.nextAt && Date.now() < AP.nextAt) return;
-        AP.nextAt = Date.now() + (AP.settings.every || 5) * 60000;
+        AP.nextAt = Date.now() + (AP.settings.every || 45) * 60000;
         AP.run({}).then(function () { AP.pullLog().catch(function () {}); });
     }
     W2.on('ready', function () {
@@ -329,12 +330,12 @@
                     (s.error ? '<div class="callout bad">Could not read the autopilot settings from APEX: ' + esc(s.error) + '</div>' : '') +
                     '<div class="callout ' + (s.on ? 'good' : 'warn') + '">' + (s.on ? '<b>On</b> — every ' + s.every + ' min it cancels Scheduled / Manual Reservation lines on the trips of ' + [s.today && 'today', s.tomorrow && 'tomorrow'].filter(Boolean).join(' and ') + ', with the Shipping Agent\'s rules (sub-lines, BOGO items). Switched on by ' + esc(s.by || '?') + ' ' + esc(s.at || '') + (s.reason ? ' — ' + esc(s.reason) : '') + '.'
                         : '<b>Off</b> — nothing is cancelled automatically on ' + pod + '. Switch it on to cancel the lines the Shipping Agent cancels, with no approval card.') +
-                    ' Lines in <b>Awaiting Shipping</b> are never cancelled by the autopilot (open the order details to cancel those by hand). Each order is read live just before the cancel and checked after it. The AI kill switch stops it.</div>' +
+                    ' A main line in <b>Awaiting Shipping</b> is never cancelled by the autopilot (open the order details to cancel it by hand); a sub-line / BOGO item in Awaiting Shipping is cancelled together with its Scheduled / Manual Reservation main line. Each order is read live just before the cancel and checked after it. The AI kill switch stops it.</div>' +
                     '<div class="grid g3" style="margin-top:12px"><div class="card"><h3>Status</h3>' + AP.tile(ap) +
                     '<div class="xs muted" style="margin-top:6px">' + (ap.lease ? 'Lease: ' + esc(ap.lease.HOLDER) + ' until ' + esc(ap.lease.UNTIL) : 'Lease: not taken yet') + ' · this PC: ' + esc(AP.me()) + '</div>' +
                     '<div class="row" style="margin-top:10px"><button class="btn" id="ap-dry"><i class="fa-solid fa-magnifying-glass"></i> Check (no cancel)</button><button class="btn danger" id="ap-run"><i class="fa-solid fa-play"></i> Run now</button></div></div>' +
                     '<div class="card"><h3>Settings <small>shared by every PC</small></h3><div class="stack sm">' +
-                    '<label>Run every <select class="f" id="ap-every">' + [2, 3, 5, 10, 15, 30].map(function (n) { return '<option' + (n == s.every ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select> minutes</label>' +
+                    '<label>Run every <select class="f" id="ap-every">' + [45, 60, 90, 120, 180, 240].map(function (n) { return '<option' + (n == s.every ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select> minutes</label>' +
                     '<label><input type="checkbox" id="ap-today"' + (s.today ? ' checked' : '') + '> trips dated today</label><label><input type="checkbox" id="ap-tom"' + (s.tomorrow ? ' checked' : '') + '> trips dated tomorrow</label>' +
                     '<label>Stop a run after <input class="f" id="ap-max" type="number" min="10" max="5000" value="' + (s.maxLines || 300) + '" style="width:80px"> lines (safety)</label>' +
                     '<button class="btn sm" id="ap-save">Save settings</button></div></div>' +
