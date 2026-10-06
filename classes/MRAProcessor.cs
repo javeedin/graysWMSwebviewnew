@@ -24,6 +24,9 @@ namespace WMSApp.MRA
         // call cost 100 s; one shared client also reuses the connection between orders.
         public const int MRA_GATEWAY_TIMEOUT_SECONDS = 60;
         private static readonly HttpClient MraHttp = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        // The Fusion order update (step 6) used a new HttpClient per order: a new TLS connection to Fusion every time.
+        // One shared client keeps the connection open between orders (the 4 parallel workers of MraBatch share it).
+        private static readonly HttpClient FusionHttp = new HttpClient(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5), MaxConnectionsPerServer = 8 }) { Timeout = TimeSpan.FromSeconds(120) };
 
         // Report paths
         private const string MRA_CHECK_REPORT = "/Custom/DEXPRESS/ORDER MANAGEMENT/POS_RERPOTS/MRA_TRX_NO_CHECK_BIP.xdo";
@@ -893,21 +896,17 @@ namespace WMSApp.MRA
                 string json = JsonConvert.SerializeObject(updateRequest, Formatting.Indented);
                 System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Update JSON: {json}");
 
-                using (var client = new HttpClient())
                 {
-                    client.BaseAddress = new Uri(baseUrl);
                     var byteArray = Encoding.ASCII.GetBytes($"{_fusionUsername}:{_fusionPassword}");
-                    client.DefaultRequestHeaders.Authorization =
-                        new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", Convert.ToBase64String(byteArray));
-
-                    var request = new HttpRequestMessage
+                    using var request = new HttpRequestMessage
                     {
                         Method = new HttpMethod("PATCH"),
-                        RequestUri = new Uri(endpoint, UriKind.Relative),
+                        RequestUri = new Uri(baseUrl + endpoint),
                         Content = new StringContent(json, Encoding.UTF8, "application/json")
                     };
+                    request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", Convert.ToBase64String(byteArray));
 
-                    HttpResponseMessage response = await client.SendAsync(request);
+                    using HttpResponseMessage response = await FusionHttp.SendAsync(request);
                     string result = await response.Content.ReadAsStringAsync();
 
                     if (response.StatusCode == System.Net.HttpStatusCode.OK)

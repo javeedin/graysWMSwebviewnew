@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -73,13 +74,35 @@ namespace WMSApp
                     {
                         // same as the Shipping Agent's Print Trip: 4 orders at a time, MRA_ORDER_TYPES read once for the batch,
                         // results in the approved order, stop after two gateway problems in a row (MraBatch)
-                        int n = orders.Count;
-                        string P(int i, string order) => $"MRA {i + 1}/{n} · order {order}: ";
+                        // one live line for the whole batch (4 orders run at once): done / failed counts + what each running order is doing
+                        int n = orders.Count, doneN = 0, okN = 0, badN = 0;
+                        var running = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
+                        var watch = System.Diagnostics.Stopwatch.StartNew();
+                        object pg = new object(); long lastPost = 0;
+                        void Post(bool force)
+                        {
+                            lock (pg)
+                            {
+                                if (!force && watch.ElapsedMilliseconds - lastPost < 700) return;   // at most ~1 update a second
+                                lastPost = watch.ElapsedMilliseconds;
+                            }
+                            double sec = watch.Elapsed.TotalSeconds, per = doneN > 0 ? sec / doneN : 0;
+                            string eta = doneN > 0 && doneN < n ? $" · about {Math.Ceiling(per * (n - doneN) / 60.0)} min left" : "";
+                            string now = string.Join(" | ", running.Select(kv => kv.Key + ": " + kv.Value).Take(4));
+                            _ = onEvent(new { action = "aiChatEvent", eventType = "status",
+                                text = $"MRA {doneN}/{n} done ({okN} ok, {badN} not ok) · {running.Count} at once · {Math.Round(sec)} s{eta}" + (now.Length > 0 ? " — " + now : "") });
+                        }
                         var (items, gatewayStop) = await WMSApp.MRA.MraBatch.RunAsync(orders,
                             order => new WMSApp.MRA.MRAProcessor(fusionUser, fusionPass, instance) { Source = "AI_EMPLOYEE", TripId = tripId, AppUser = mraAppUser },
-                            (i, order) => { _ = onEvent(new { action = "aiChatEvent", eventType = "status", text = P(i, order) + "starting…" }); },
-                            (i, order, msg) => { _ = onEvent(new { action = "aiChatEvent", eventType = "status", text = P(i, order) + msg }); },
-                            (i, it) => { _ = onEvent(new { action = "aiChatEvent", eventType = "status", text = P(i, it.Order) + it.Status.Replace('_', ' ').ToLowerInvariant() }); });
+                            (i, order) => { running[order] = "starting"; Post(false); },
+                            (i, order, msg) => { running[order] = (msg ?? "").TrimEnd('.', ' ').Replace("Updating Fusion Order Management", "updating Fusion order"); Post(false); },
+                            (i, it) =>
+                            {
+                                running.TryRemove(it.Order, out _);
+                                Interlocked.Increment(ref doneN);
+                                if (it.Status == "INTERFACED" || it.Status == "ALREADY_DONE" || it.Status == "NOT_REQUIRED") Interlocked.Increment(ref okN); else Interlocked.Increment(ref badN);
+                                Post(true);
+                            });
                         int interfaced = 0, already = 0, notRequired = 0, failed = 0, notSent = 0;
                         var results = new List<object>();
                         foreach (var it in items)
