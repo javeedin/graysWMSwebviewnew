@@ -538,5 +538,22 @@ test('paste mapping: a main group column puts existing lines under it', function
     assert.strictEqual(t.rows.filter(function (x) { return x.id === 'TA'; })[0].formula, 'NCA + CA');
 });
 
+test('drill: the months behind a QTD / YTD / full-year cell add up to it', function () {
+    var pl = FINE.autoTemplates()[0], rev = pl.rows.filter(function (r) { return r.type === 'accounts'; })[0], np = pl.rows.filter(function (r) { return r.type === 'formula'; }).slice(-1)[0];
+    [{ id: 'q', range: 'QTD' }, { id: 'y', range: 'YTD' }, { id: 'f', range: 'FY', at: 'PY' }].forEach(function (c) {
+        [rev, np].forEach(function (row) {
+            var m = FINE.explainMonths(pl, data, { period: last, columns: [c] }, row.id, c.id);
+            assert.ok(m.months.length >= 1, c.range);
+            if (row.format && row.format !== 'num') return;
+            assert.ok(Math.abs(m.sum - m.total) < 0.01, row.id + ' ' + c.range + ': months ' + m.sum + ' vs cell ' + m.total);
+        });
+    });
+    var y = FINE.explainMonths(pl, data, { period: last, columns: [{ id: 'y', range: 'YTD' }] }, rev.id, 'y');
+    var accSum = y.accounts.reduce(function (s, a) { return s + a.total; }, 0);
+    assert.ok(Math.abs(accSum - y.total) < 0.01, 'accounts × months add up to the cell');
+    var fy = FINE.explainMonths(pl, data, { period: last, columns: [{ id: 'f', range: 'FY', at: 'PY' }] }, rev.id, 'f');
+    assert.strictEqual(fy.months.length, 12, 'last full year = 12 months');
+});
+
 console.log('\n' + (n - fail) + '/' + n + ' passed');
 process.exit(fail ? 1 : 0);

@@ -505,24 +505,83 @@ FL.waterfall = function (id, steps) {
 };
 
 // ═════ drill: cell → accounts → company / cost centre / period → journal lines ═════
-FL.drillCell = function (tpl, opts, rowId, colId) {
+FL.drillCell = function (tpl, opts, rowId, colId, view) {
     var col = (opts.columns || tpl.columns || []).filter(function (c) { return c.id === colId; })[0];
     var row = tpl.rows.filter(function (r) { return r.id === rowId; })[0];
     if (!col || !row || col.kind) return;
     return FL.data().then(function (data) {
-        var parts = FINE.explain(tpl, data, opts, rowId, colId), seqs = FINE.windowSeqs(col, data, opts.period);
+        var hasAcc = row.type === 'accounts' || row.type === 'group';
+        var parts = hasAcc ? FINE.explain(tpl, data, opts, rowId, colId) : [], seqs = FINE.windowSeqs(col, data, opts.period);
+        var mx = FINE.explainMonths(tpl, data, Object.assign({}, opts, { scale: FL.filter.scale || 1 }), rowId, colId);
         var total = parts.reduce(function (s, x) { return s + x.amount; }, 0);
         var ctx = { tpl: tpl, row: row, col: col, seqs: seqs, label: row.label + ' · ' + FINE.colLabel(col, data._pi, opts.period) };
-        FL.drillCtx = ctx; FL.drillOpts = opts;
-        var html = '<div class="crumbs">' + esc(tpl.name) + ' › <b>' + esc(ctx.label) + '</b> · ' + esc(FL.filterText()) + '</div>' +
-            '<p class="sm muted">' + parts.length + ' account(s), total ' + FL.num(total) + ' (' + FL.scaleLabel() + '). Click an account for companies, cost centres, months and journal lines.</p>' +
-            FL.table([{ label: 'Account', key: 'code' }, { label: 'Name', key: 'name' }, { label: 'Amount', n: 1, get: function (r) { return FL.num(r.amount); } },
-                { label: 'Share', n: 1, get: function (r) { return total ? (r.amount / total * 100).toFixed(1) + '%' : ''; } }], parts, { click: true });
-        FL.modal('<i class="fa-solid fa-magnifying-glass-chart"></i> Drill-down', html,
-            '<button class="btn sm" onclick="FL.csv(\'drill-accounts.csv\', [\'account\',\'name\',\'amount\'], FL.drillParts.map(function(p){return [p.code,p.name,p.amount.toFixed(2)];}))"><i class="fa-solid fa-file-csv"></i> CSV</button>');
-        FL.drillParts = parts;
-        FL.wireRows($('m-body'), parts, function (p) { FL.drillAccount(p.code, ctx); });
+        FL.drillCtx = ctx; FL.drillOpts = opts; FL.drillParts = parts; FL.drillMx = mx;
+        view = view || FL.drillView || 'months'; if (!hasAcc && view !== 'months') view = 'months';
+        var f = function (v) { return v == null ? '' : FINE.fmt(v, row.format, { decimals: (FL.filter.scale || 1) >= 1000000 ? 1 : 0 }); };
+        var tabs = '<div class="seg" style="margin:6px 0 10px">' + [['months', 'By month'], ['accounts', 'By account'], ['matrix', 'Accounts × months']].filter(function (x) { return hasAcc || x[0] === 'months'; })
+            .map(function (x) { return '<button class="' + (view === x[0] ? 'on' : '') + '" data-dv="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>';
+        var html = '<div class="crumbs">' + esc(tpl.name) + ' › <b>' + esc(ctx.label) + '</b> · ' + esc(FL.filterText()) + '</div>' + tabs, csv;
+        if (view === 'months' && mx) {
+            var ms = mx.months, n = ms.length, avg = n ? ms.reduce(function (a, m) { return a + m.value; }, 0) / n : 0;
+            var big = ms.reduce(function (b, m) { return Math.abs(m.value) > Math.abs(b.value) ? m : b; }, ms[0] || { value: 0 });
+            var what = mx.balance ? 'the month-end balance of each month' : mx.pct ? 'the value of each month on its own' : n + ' month(s) add up to this amount';
+            html += '<p class="sm muted" style="margin:0 0 6px">' + esc(ctx.label) + ' = <b>' + f(mx.total) + '</b> (' + FL.scaleLabel() + ') — ' + what +
+                (mx.additive && Math.abs((mx.sum || 0) - (mx.total || 0)) > 0.5 ? ' <span class="pm-st conflict">months add up to ' + f(mx.sum) + '</span>' : mx.additive ? ' <span class="pm-st ok">✓ months add up</span>' : '') + '</p>' +
+                '<div class="chartbox short"><canvas id="drillc"></canvas></div>' +
+                '<div class="scroll"><table class="t"><thead><tr><th>Month</th><th class="n">Amount</th>' + (mx.additive ? '<th class="n">Running total</th><th class="n">Share</th>' : '') +
+                '<th class="n">Same month last year</th><th class="n">Δ vs last year</th>' + (mx.additive ? '<th class="n">vs month average</th>' : '') + '</tr></thead><tbody>' +
+                ms.map(function (m, i) {
+                    var d = m.py != null ? m.value - m.py : null, dp = m.py ? d / Math.abs(m.py) * 100 : null, va = avg ? (m.value - avg) / Math.abs(avg) * 100 : null;
+                    var flag = mx.additive && n >= 3 && va != null && Math.abs(va) >= 40 ? ' <span class="pm-st ' + (va > 0 ? 'kind' : 'map') + '" title="far from the average month">' + (va > 0 ? '▲' : '▼') + ' ' + Math.round(Math.abs(va)) + '%</span>' : '';
+                    var good = row.favourable === 'down' ? -1 : 1;
+                    return '<tr class="' + (hasAcc ? 'click' : '') + '" data-i="' + i + '"' + (m === big && n > 1 ? ' style="background:#fefce8"' : '') + '><td>' + esc(m.name) + (m === big && n > 1 ? ' <span class="sm muted">largest</span>' : '') + '</td><td class="n"><b>' + f(m.value) + '</b></td>' +
+                        (mx.additive ? '<td class="n">' + f(m.cum) + '</td><td class="n">' + (mx.total ? (m.value / mx.total * 100).toFixed(1) + '%' : '') + '</td>' : '') +
+                        '<td class="n">' + f(m.py) + '</td><td class="n" style="color:' + (d == null || !d ? 'inherit' : d * good > 0 ? 'var(--good,#16a34a)' : 'var(--bad,#dc2626)') + '">' + (d == null ? '' : (mx.pct ? (d >= 0 ? '+' : '') + d.toFixed(1) + ' pts' : f(d) + (dp != null ? ' · ' + (dp >= 0 ? '+' : '') + dp.toFixed(1) + '%' : ''))) + '</td>' +
+                        (mx.additive ? '<td class="n">' + (va == null ? '' : (va >= 0 ? '+' : '') + va.toFixed(0) + '%') + flag + '</td>' : '') + '</tr>';
+                }).join('') +
+                (mx.additive ? '<tr style="font-weight:700;border-top:2px solid var(--ink,#0f172a)"><td>Total</td><td class="n">' + f(mx.sum) + '</td><td></td><td class="n">100%</td><td class="n">' + f(ms.reduce(function (a, m) { return a + (m.py || 0); }, 0)) + '</td><td></td><td></td></tr>' : '') +
+                '</tbody></table></div>' + (hasAcc ? '<p class="sm muted">Click a month for its accounts → companies / cost centres → journal lines.</p>' : '');
+            csv = function () { FL.csv('drill-months.csv', ['month', 'amount', 'running_total', 'same_month_last_year'], ms.map(function (m) { return [m.name, m.value, m.cum == null ? '' : m.cum, m.py == null ? '' : m.py]; })); };
+        } else if (view === 'matrix' && mx) {
+            var mm = mx.months;
+            html += '<p class="sm muted" style="margin:0 0 6px">Each account month by month (' + FL.scaleLabel() + ') — ' + mx.accounts.length + ' account(s). Click an account for companies, cost centres and journal lines.</p>' +
+                '<div class="scroll" style="max-height:60vh"><table class="t"><thead><tr><th>Account</th><th>Name</th>' + mm.map(function (m) { return '<th class="n">' + esc(m.name) + '</th>'; }).join('') + '<th class="n">' + (mx.additive ? 'Total' : 'Last') + '</th></tr></thead><tbody>' +
+                mx.accounts.map(function (a, i) { return '<tr class="click" data-i="' + i + '"><td class="mono">' + esc(a.code) + '</td><td>' + esc(a.name) + '</td>' + a.months.map(function (v) { return '<td class="n">' + (Math.abs(v) > 0.004 ? f(v) : '–') + '</td>'; }).join('') + '<td class="n"><b>' + f(a.total) + '</b></td></tr>'; }).join('') +
+                '<tr style="font-weight:700;border-top:2px solid var(--ink,#0f172a)"><td colspan="2">' + esc(row.label) + '</td>' + mm.map(function (m) { return '<td class="n">' + f(m.value) + '</td>'; }).join('') + '<td class="n">' + f(mx.additive ? mx.sum : mx.total) + '</td></tr></tbody></table></div>';
+            csv = function () { FL.csv('drill-accounts-by-month.csv', ['account', 'name'].concat(mm.map(function (m) { return m.name; })).concat(['total']), mx.accounts.map(function (a) { return [a.code, a.name].concat(a.months).concat([a.total]); })); };
+        } else {
+            html += '<p class="sm muted">' + parts.length + ' account(s), total ' + FL.num(total) + ' (' + FL.scaleLabel() + '). Click an account for companies, cost centres, months and journal lines.</p>' +
+                FL.table([{ label: 'Account', key: 'code' }, { label: 'Name', key: 'name' }, { label: 'Amount', n: 1, get: function (r) { return FL.num(r.amount); } },
+                    { label: 'Share', n: 1, get: function (r) { return total ? (r.amount / total * 100).toFixed(1) + '%' : ''; } }], parts, { click: true });
+            csv = function () { FL.csv('drill-accounts.csv', ['account', 'name', 'amount'], parts.map(function (p) { return [p.code, p.name, p.amount.toFixed(2)]; })); };
+        }
+        FL.modal('<i class="fa-solid fa-magnifying-glass-chart"></i> Drill-down', html, '<button class="btn sm" id="dr-csv"><i class="fa-solid fa-file-csv"></i> CSV</button>');
+        $('dr-csv').onclick = csv;
+        document.querySelectorAll('#m-body [data-dv]').forEach(function (b) { b.onclick = function () { FL.drillView = b.dataset.dv; FL.drillCell(tpl, opts, rowId, colId, b.dataset.dv); }; });
+        if (view === 'months' && mx) {
+            var ds = [{ type: 'bar', label: FINE.colLabel(col, data._pi, opts.period), data: mx.months.map(function (m) { return m.value; }), backgroundColor: FL.PAL.act, borderRadius: 3, order: 2 },
+                { type: 'line', label: 'Same month last year', data: mx.months.map(function (m) { return m.py; }), borderColor: FL.PAL.py, backgroundColor: FL.PAL.py, pointRadius: 3, order: 1 }];
+            if (mx.additive && mx.months.length > 1) ds.push({ type: 'line', label: 'Running total', data: mx.months.map(function (m) { return m.cum; }), borderColor: '#7c3aed', borderDash: [5, 4], pointRadius: 0, yAxisID: 'y1', order: 0 });
+            var sc = { y: FL.moneyAxis() }; if (ds.length > 2) sc.y1 = Object.assign(FL.moneyAxis(), { position: 'right', grid: { display: false } });
+            FL.chart('drillc', { type: 'bar', data: { labels: mx.months.map(function (m) { return m.name; }), datasets: ds }, options: { scales: sc, plugins: { legend: { labels: { boxWidth: 10, font: { size: 10 } } } } } });
+            FL.charts.drill = FL.charts.drillc;
+            if (hasAcc) FL.wireRows($('m-body'), mx.months, function (m) { FL.drillMonth(m, ctx, data); });
+        } else if (view === 'matrix' && mx) FL.wireRows($('m-body'), mx.accounts, function (a) { FL.drillAccount(a.code, ctx); });
+        else FL.wireRows($('m-body'), parts, function (p) { FL.drillAccount(p.code, ctx); });
     }).catch(function (e) { FL.toast(String(e), 'err'); });
+};
+/** One month of a drilled cell: its accounts for that month → companies / cost centres → journal lines */
+FL.drillMonth = function (m, ctx, data) {
+    var mcol = { id: 'mm', scenario: ctx.col.scenario || 'ACTUAL', range: ctx.col.range === 'BAL' || ctx.col.range === 'OPEN' ? 'BAL' : 'MTD' };
+    var parts = FINE.explain(ctx.tpl, data, Object.assign({}, FL.drillOpts, { period: m.seq, columns: [mcol] }), ctx.row.id, 'mm'), total = parts.reduce(function (s, x) { return s + x.amount; }, 0);
+    var mctx = Object.assign({}, ctx, { seqs: [m.seq], label: ctx.row.label + ' · ' + m.name });
+    var html = '<div class="crumbs"><a id="dm-back">' + esc(ctx.label) + '</a> › <b>' + esc(m.name) + '</b></div>' +
+        '<p class="sm muted">' + parts.length + ' account(s) in ' + esc(m.name) + ', total ' + FL.num(total) + ' (' + FL.scaleLabel() + '). Click an account for companies, cost centres and journal lines.</p>' +
+        FL.table([{ label: 'Account', key: 'code' }, { label: 'Name', key: 'name' }, { label: 'Amount', n: 1, get: function (r) { return FL.num(r.amount); } },
+            { label: 'Share', n: 1, get: function (r) { return total ? (r.amount / total * 100).toFixed(1) + '%' : ''; } }], parts, { click: true });
+    FL.modal('<i class="fa-solid fa-magnifying-glass-chart"></i> ' + esc(m.name), html);
+    $('dm-back').onclick = function () { FL.drillCell(ctx.tpl, FL.drillOpts, ctx.row.id, ctx.col.id, 'months'); };
+    FL.wireRows($('m-body'), parts, function (p) { FL.drillAccount(p.code, mctx); });
 };
 FL.drillAccount = function (code, ctx) {
     var acc = FL.dims.accounts.filter(function (a) { return a.code === code; })[0] || { name: code };

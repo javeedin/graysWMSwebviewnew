@@ -300,6 +300,37 @@
         return Object.keys(acc).map(function (k) { return { code: k, name: names[k] || k, amount: acc[k] }; }).sort(function (a, b) { return Math.abs(b.amount) - Math.abs(a.amount); });
     };
 
+    /** The months behind one cell (any row — accounts, group, formula, %): [{seq, name, value, py, cum}] + {total, additive, accounts}.
+        Each month is the same line computed for that month alone (MTD; month-end balance for balance columns), py = the same month a
+        year earlier, cum = running total (additive lines only); accounts = {code: [value per month]} for accounts / group rows. */
+    FINE.explainMonths = function (tpl, data, opts, rowId, colId) {
+        var pi = data._pi || (data._pi = FINE.periodIndex(data.periods));
+        var col = (opts.columns || tpl.columns || []).filter(function (c) { return c.id === colId; })[0];
+        var row = (tpl.rows || []).filter(function (r) { return r.id === rowId; })[0];
+        if (!col || !row || col.kind) return null;
+        var seqs = FINE.windowSeqs(col, data, opts.period), sc = col.scenario || 'ACTUAL';
+        var bal = col.range === 'BAL' || col.range === 'OPEN', pct = row.format && row.format !== 'num';
+        var mCols = [{ id: 'm', scenario: sc, range: bal ? 'BAL' : 'MTD' }, { id: 'p', scenario: sc, range: bal ? 'BAL' : 'MTD', at: 'PY' }];
+        var cell = FINE.compute(tpl, data, Object.assign({}, opts, { columns: [col] })).rows.filter(function (r) { return r.id === rowId; })[0];
+        var additive = !bal && !pct && row.type !== 'check';
+        var out = [], cum = 0, accounts = {}, names = {}, scale = opts.scale || tpl.scale || 1;   // compute shows scaled values, explain raw ones
+        (data.accounts || []).forEach(function (a) { names[a.code] = a.name; });
+        if (col.range === 'OPEN' && seqs.length) seqs = [pi.list[Math.max(0, pi.bySeq[seqs[0]] - 1)].period_seq];
+        seqs.forEach(function (seq, k) {
+            var o = Object.assign({}, opts, { period: seq, columns: mCols }), st = FINE.compute(tpl, data, o), r = st.rows.filter(function (x) { return x.id === rowId; })[0] || { values: [] };
+            var v = r.values[0] || 0, p = r.values[1];
+            cum += v;
+            out.push({ seq: seq, name: pi.list[pi.bySeq[seq]].period_name, value: v, py: p == null ? null : p, cum: additive ? cum : null });
+            if (row.type === 'accounts' || row.type === 'group') FINE.explain(tpl, data, Object.assign({}, opts, { period: seq, columns: [mCols[0]] }), rowId, 'm').forEach(function (a) {
+                (accounts[a.code] = accounts[a.code] || { code: a.code, name: names[a.code] || a.code, months: seqs.map(function () { return 0; }) }).months[k] = a.amount / scale;
+            });
+        });
+        var acc = Object.keys(accounts).map(function (c) { var a = accounts[c]; a.total = additive ? a.months.reduce(function (x, y) { return x + y; }, 0) : a.months[a.months.length - 1]; return a; })
+            .sort(function (a, b) { return Math.abs(b.total) - Math.abs(a.total); });
+        return { months: out, total: cell && cell.values ? cell.values[0] : null, additive: additive, balance: bal, pct: pct, accounts: acc,
+            sum: additive ? cum : null, label: FINE.colLabel(col, pi, opts.period) };
+    };
+
     /** Period window (period_seq list) of a column — for drill-down SQL. */
     FINE.windowSeqs = function (col, data, cur) {
         var pi = data._pi || (data._pi = FINE.periodIndex(data.periods)), w = FINE.windowOf(col, pi, cur);

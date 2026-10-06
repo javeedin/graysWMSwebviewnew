@@ -113,7 +113,7 @@
             st.columns.forEach(function (c, i) {
                 var v = r.values[i], cls = [];
                 if (c.kind === 'var' && v != null && Math.abs(v) > 1e-9) cls.push(v > 0 ? 'fav' : 'unf');
-                var drill = opts.links && c.kind === 'value' && (r.type === 'accounts' || r.type === 'group') && v != null;
+                var drill = opts.links && c.kind === 'value' && /^(accounts|group|formula|check)$/.test(r.type) && v != null;
                 if (drill) cls.push('v');
                 h += '<td class="' + cls.join(' ') + '"' + (drill ? ' data-col="' + esc(c.id) + '"' : '') + '>' + FL.cellText(r, c, v) + '</td>';
             });
