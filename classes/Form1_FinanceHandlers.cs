@@ -429,6 +429,17 @@ namespace WMSApp
                         await Task.Run(() => FinanceLens.DeletePlan(PipeSrvStr(root, "id")));
                         data = new { ok = true };
                         break;
+                    case "finNotesList":        // statement notes on this PC (fin_notes; the page merges them with APEX WMS_FIN_NOTES)
+                        data = new { ok = true, notes = await Task.Run(() => FinanceLens.ListNotes()) };
+                        break;
+                    case "finNotesSave":
+                        {
+                            int nn = await Task.Run(() => FinanceLens.SaveNotes(root.TryGetProperty("notes", out var nl) ? nl : default));
+                            string ev = PipeSrvStr(root, "event");
+                            if (!string.IsNullOrEmpty(ev)) AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = "fin_note_" + ev, Outcome = "OK", Target = PipeSrvStr(root, "target") });
+                            data = new { ok = true, saved = nn };
+                            break;
+                        }
                     case "finPlanList":
                         data = new { ok = true, versions = await Task.Run(() => FinanceLens.PlanList()) };
                         break;

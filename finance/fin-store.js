@@ -351,4 +351,49 @@
             return A.read("SELECT TO_CHAR(event_at, 'YYYY-MM-DD HH24:MI') at_text, event_by, event, status_from, status_to, rev, note FROM wms_fin_plan_events WHERE version_id = " + lit(id) + ' ORDER BY event_at DESC', 500);
         }).then(function (rows) { return rows.map(function (r) { return { at: r.AT_TEXT, by: r.EVENT_BY, event: r.EVENT, from: r.STATUS_FROM, to: r.STATUS_TO, rev: r.REV, note: r.NOTE }; }); });
     };
+
+    // ═════ Statement notes (finance/fin-notes.js): any number per period or for every period, shared by every PC ═════
+    //   WMS_FIN_NOTES  one row per note (body CLOB up to 16,000 characters); rev says which copy is newer (this PC keeps fin_notes in
+    //   DuckDB); a deleted note stays with removed = 'Y' so the deletion reaches every PC. changed_at is text (ISO) — reads may not
+    //   contain the word the gateway refuses, so no column is named after it.
+    var NOTES_TABLE = 'CREATE TABLE wms_fin_notes (note_id VARCHAR2(60) NOT NULL, scope VARCHAR2(10), period_seq NUMBER, ledger_code VARCHAR2(100), company VARCHAR2(150), ' +
+        'template_id VARCHAR2(60), row_id VARCHAR2(60), row_label VARCHAR2(300), kind VARCHAR2(20), title VARCHAR2(300), body CLOB, sort_no NUMBER, rev NUMBER, removed CHAR(1) DEFAULT \'N\', ' +
+        'created_by VARCHAR2(100), created_at VARCHAR2(30), changed_by VARCHAR2(100), changed_at VARCHAR2(30), CONSTRAINT wms_fin_notes_pk PRIMARY KEY (note_id))';
+    var notesReady = null;
+    A.notesEnsure = function () {
+        if (notesReady) return notesReady;
+        notesReady = A.read("SELECT table_name FROM user_tables WHERE table_name = 'WMS_FIN_NOTES'").then(function (rows) { if (!rows.length) return A.write(NOTES_TABLE); })
+            .catch(function (e) { notesReady = null; throw e; });
+        return notesReady;
+    };
+    A.notesList = function () {
+        return A.notesEnsure().then(function () {
+            return A.read('SELECT note_id, scope, period_seq, ledger_code, company, template_id, row_id, row_label, kind, title, sort_no, rev, removed, created_by, created_at, changed_by, changed_at, ' +
+                'LENGTH(body) blen, TO_CHAR(SUBSTR(body, 1, 4000)) b1, TO_CHAR(SUBSTR(body, 4001, 4000)) b2, TO_CHAR(SUBSTR(body, 8001, 4000)) b3, TO_CHAR(SUBSTR(body, 12001, 4000)) b4 FROM wms_fin_notes', 20000);
+        }).then(function (rows) {
+            return rows.map(function (r) {
+                return { id: r.NOTE_ID, scope: r.SCOPE || 'PERIOD', period: r.PERIOD_SEQ == null ? null : +r.PERIOD_SEQ, ledger: r.LEDGER_CODE || '', company: r.COMPANY || '', tpl: r.TEMPLATE_ID || '',
+                    row: r.ROW_ID || '', rowLabel: r.ROW_LABEL || '', kind: r.KIND || 'note', title: r.TITLE || '', body: (r.B1 || '') + (r.B2 || '') + (r.B3 || '') + (r.B4 || ''), sort: +r.SORT_NO || 0,
+                    rev: +r.REV || 0, removed: r.REMOVED === 'Y', createdBy: r.CREATED_BY, createdAt: r.CREATED_AT, changedBy: r.CHANGED_BY, changedAt: r.CHANGED_AT };
+            });
+        });
+    };
+    /** Upserts notes (only over an older or equal rev) */
+    A.notesSave = function (notes) {
+        return A.notesEnsure().then(function () {
+            return notes.reduce(function (p, n) {
+                return p.then(function () {
+                    var body = cut(n.body, 16000);
+                    var vals = { scope: lit(n.scope === 'GLOBAL' ? 'GLOBAL' : 'PERIOD'), period_seq: n.scope === 'GLOBAL' ? 'NULL' : num(n.period), ledger_code: lit(cut(n.ledger, 100)), company: lit(cut(n.company, 150)),
+                        template_id: lit(cut(n.tpl, 60)), row_id: lit(cut(n.row, 60)), row_label: lit(cut(n.rowLabel, 300)), kind: lit(cut(n.kind || 'note', 20)), title: lit(cut(n.title, 300)), body: clobOf(body),
+                        sort_no: num(n.sort || 0), rev: num(n.rev || 0), removed: lit(n.removed ? 'Y' : 'N'), created_by: lit(cut(n.createdBy, 100)), created_at: lit(cut(n.createdAt, 30)),
+                        changed_by: lit(cut(n.changedBy, 100)), changed_at: lit(cut(n.changedAt, 30)) };
+                    var keys = Object.keys(vals);
+                    return A.write('MERGE INTO wms_fin_notes t USING (SELECT ' + lit(n.id) + ' note_id FROM dual) s ON (t.note_id = s.note_id) ' +
+                        'WHEN MATCHED THEN UPDATE SET ' + keys.map(function (k) { return 't.' + k + ' = ' + vals[k]; }).join(', ') + ' WHERE NVL(t.rev, 0) <= ' + num(n.rev || 0) +
+                        ' WHEN NOT MATCHED THEN INSERT (note_id, ' + keys.join(', ') + ') VALUES (' + lit(n.id) + ', ' + keys.map(function (k) { return vals[k]; }).join(', ') + ')');
+                });
+            }, Promise.resolve());
+        });
+    };
 })();

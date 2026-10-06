@@ -954,3 +954,18 @@ table.st tr.segsub td { background: #f5f8ff; font-size: .74rem; } table.st .st-s
 .pk-logoprev { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 4px; }
 .pk-lp { position: relative; border-radius: 8px; min-height: 86px; display: flex; align-items: center; justify-content: center; padding: 10px 8px 18px; overflow: hidden; }
 .pk-lp small { position: absolute; left: 6px; bottom: 3px; color: rgba(255,255,255,.7); font-size: .66rem; }
+/* Statement notes (fin-notes.js) */
+.st-nadd { visibility: hidden; margin-left: 6px; color: var(--muted); cursor: pointer; font-size: .8rem; }
+table.st tr:hover .st-nadd { visibility: visible; } .st-nadd:hover { color: var(--accent); }
+sup.st-nref { color: var(--accent); font-weight: 700; cursor: pointer; margin-left: 2px; }
+#st-notes .st-nc { background: var(--accent); color: #fff; border-radius: 99px; padding: 0 6px; font-size: .7rem; margin-left: 3px; }
+.st-notes { margin-top: 18px; } .st-notes h3 { margin: 0 0 8px; font-size: .95rem; }
+.st-note { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; padding: 8px 12px; margin: 6px 0; background: #fff; transition: box-shadow .3s; }
+.st-note.flash { box-shadow: 0 0 0 3px var(--accent-bg); }
+.st-nh { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .82rem; }
+.st-nno { font-weight: 800; color: var(--muted); min-width: 16px; }
+.st-nk { font-weight: 700; font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+.st-nl { background: var(--bg); border-radius: 5px; padding: 0 6px; font-size: .75rem; }
+.st-ns, .st-nby { color: var(--muted); font-size: .75rem; }
+.st-nb { font-size: .86rem; margin-top: 3px; } .st-nb p { margin: 3px 0; } .st-nb ul { margin: 3px 0; padding-left: 18px; }
+@media print { .st-nadd, .st-note .icon { display: none !important; } }

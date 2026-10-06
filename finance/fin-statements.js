@@ -357,6 +357,7 @@
                     '<button class="btn sm" id="st-xl"><i class="fa-solid fa-file-excel"></i> Excel</button>' +
                     '<button class="btn sm" id="st-xla" title="Every template in one workbook"><i class="fa-solid fa-file-excel"></i> All statements</button>' +
                     '<button class="btn sm" id="st-csv"><i class="fa-solid fa-file-csv"></i> CSV</button>' +
+                    '<button class="btn sm" id="st-notes" title="Notes for this period or every period — on the statement or on a line; saved in APEX and on this PC"><i class="fa-regular fa-note-sticky"></i> Notes</button>' +
                     '<button class="btn sm" onclick="window.print()"><i class="fa-solid fa-print"></i> Print</button>' +
                     (tpl.simple ? '' : '<button class="btn sm" id="st-edit"><i class="fa-solid fa-pen-ruler"></i> Edit template</button>') + '</div>' +
                     '<div class="stmt-wrap"><div class="stmt-head"><h2>' + esc(tpl.name) + '</h2><div class="sub">' + esc(FL.filterText()) + ' · period ' + esc(st.periodName) + ' · amounts in ' + FL.scaleLabel() + (st.columns.some(function (c) { return c.scenario === 'BUDGET'; }) || colId === 'budget' ? budNote : '') +
@@ -398,6 +399,7 @@
                 if ($('st-gaps')) $('st-gaps').onclick = function () { FL.tbGapDialog(tpl, gaps); };
                 if ($('st-gapall')) $('st-gapall').onclick = function () { FL.tbGapApply(tpl, gaps.filter(function (g) { return g.suggest; }).map(function (g) { return { code: g.code, to: g.suggest.id }; }), gaps.filter(function (g) { return !g.suggest; }).length); };
                 el.querySelectorAll('td.lbl').forEach(function (td) { td.onclick = function () { FL.rowMap(tpl, td.parentNode.dataset.row); }; });
+                if (FL.notes) { $('st-notes').onclick = function () { FL.notes.panel(tpl, st); }; FL.notes.decorate(el, tpl, st).catch(function (e) { console.warn('[Notes]', e); }); }
                 el.querySelectorAll('td.v').forEach(function (td) {
                     td.onclick = function () { FL.drillCell(tpl, opts, td.parentNode.dataset.row, td.dataset.col); };
                 });
