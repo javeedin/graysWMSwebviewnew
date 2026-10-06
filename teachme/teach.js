@@ -624,11 +624,23 @@
             'Create one <b>input variable</b> per value below with exactly these names: <span class="mono">' + (names.length ? names.map(esc).join(', ') : '(no variables yet)') + '</span>. ' +
             'Run hands them over and Power Automate Desktop runs the flow on its own — Windows asks you to allow it the first time. Nothing comes back to the app, so type the result (e.g. the SR number) in when the flow is done. ' +
             'The flow id is in Power Automate Desktop › the flow\'s ⋮ › Properties › Details (Run URL).</div></div>' +
-            '<div class="row" style="margin-top:8px"><button class="btn sm" id="p-copy"><i class="fa-regular fa-copy"></i> Copy the input variable names</button></div></div>';
+            '<details style="margin-top:10px"' + (l.pad.flowName || l.pad.flowId ? '' : ' open') + '><summary><b>First time: create the flow in Power Automate Desktop</b></summary><ol class="sm" style="margin:6px 0 0 18px;padding:0;line-height:1.7">' +
+            '<li><b>Open Power Automate Desktop</b> (button below) and sign in.</li>' +
+            '<li><b>+ New flow</b> → name it exactly <span class="mono">' + esc(l.pad.flowName || '(type the flow name above first)') + '</span> → Create. The designer opens.</li>' +
+            '<li>In the <b>Variables</b> pane (right) → <b>+</b> → <b>Input</b>: add one input variable per value, with exactly these names: <span class="mono">' + (names.length ? names.map(esc).join(', ') : '(no variables yet)') + '</span> (Data type Text).</li>' +
+            '<li>Build the steps: <b>Recorder</b> (top bar) → Start recording → do the task in the browser / program → Finish. Then replace each typed value in the recorded actions with its variable, e.g. <span class="mono">%summary%</span>.</li>' +
+            '<li>Stop before the final Submit / Save if a person should check it (leave that click out of the flow).</li>' +
+            '<li><b>Save</b> the flow. Back here, press <b>Run lesson</b>.</li></ol>' +
+            '<p class="muted sm" style="margin:4px 0 0">If Power Automate says <i>“A flow with the specified name or ID wasn\'t found”</i>, the flow is not created / saved yet, or its name differs (spelling, spaces) — or put the flow id instead.</p></details>' +
+            '<div class="row" style="margin-top:8px"><button class="btn sm" id="p-open"><i class="fa-solid fa-diagram-project"></i> Open Power Automate Desktop</button>' +
+            '<button class="btn sm" id="p-copyname"><i class="fa-regular fa-copy"></i> Copy the flow name</button>' +
+            '<button class="btn sm" id="p-copy"><i class="fa-regular fa-copy"></i> Copy the input variable names</button></div></div>';
     };
     TM.wirePad = function (l) {
         var set = function (k) { return function () { l.pad[k] = this.value.trim(); TM.touch(); var g = $('r-go'); if (g) g.disabled = !(l.pad.flowName || l.pad.flowId) || (TM.run && !TM.run.ended); }; };
         $('p-name').oninput = set('flowName'); $('p-id').oninput = set('flowId'); $('p-env').oninput = set('envId');
+        $('p-open').onclick = function () { hostOk('teachPadOpen').catch(function (e) { TM.toast(String(e), 'err'); }); };
+        $('p-copyname').onclick = function () { if (!l.pad.flowName) { TM.toast('Type the flow name first.', 'err'); return; } navigator.clipboard.writeText(l.pad.flowName).then(function () { TM.toast('Flow name copied — paste it as the name of the new flow.'); }); };
         $('p-copy').onclick = function () { navigator.clipboard.writeText(l.vars.map(function (v) { return v.name; }).join('\n')).then(function () { TM.toast('Copied — create these as input variables in the flow.'); }); };
     };
     TM.startPad = function () {
@@ -679,7 +691,7 @@
         var box = $('r-live'), r = TM.run; if (!box || !r || !TM.cur || r.lessonId !== TM.cur.id) { if (box) box.innerHTML = ''; return; }
         var pct = r.n ? Math.round(Math.max(0, r.i + 1) / r.n * 100) : 0;
         var head = r.ended
-            ? ({ captured: ['ok', 'fa-circle-check', (TM.cur.capture && TM.cur.capture.label || 'Result') + ' read from the page'], ready: ['ok', 'fa-hand', 'Filled in — you pressed (or still press) the final button yourself'], finished: ['ok', 'fa-circle-check', 'All steps done'], launched: ['ok', 'fa-diagram-project', 'Power Automate Desktop is running the flow (allow it if Windows asks)'],
+            ? ({ captured: ['ok', 'fa-circle-check', (TM.cur.capture && TM.cur.capture.label || 'Result') + ' read from the page'], ready: ['ok', 'fa-hand', 'Filled in — you pressed (or still press) the final button yourself'], finished: ['ok', 'fa-circle-check', 'All steps done'], launched: ['ok', 'fa-diagram-project', 'Handed to Power Automate Desktop (allow it if Windows asks). If it says the flow wasn\'t found, create and save a flow with exactly this name first — see “First time” above.'],
                 stopped: ['warn', 'fa-stop', 'Stopped'], error: ['err', 'fa-triangle-exclamation', r.message || 'Failed'] }[r.final] || ['info', 'fa-info', r.final])
             : r.state === 'login' ? ['warn', 'fa-key', 'Sign in in the Teach Me window — the run carries on by itself']
             : r.state === 'pause' || r.state === 'help' ? ['warn', 'fa-hand', r.message]

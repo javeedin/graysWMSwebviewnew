@@ -97,6 +97,7 @@ namespace WMSApp
                             break;
                         }
                     case "teachPadRun": data = TeachPadRun(root, user); break;
+                    case "teachPadOpen": data = TeachPadOpen(); break;
                     case "teachContinue": _tmContinue?.TrySetResult(true); data = new { ok = true }; break;
                     case "teachStop":
                         _tmRunCts?.Cancel();
@@ -126,6 +127,22 @@ namespace WMSApp
                 data = new { ok = false, error = ex.Message };
             }
             PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "teachResponse", requestId, data }));
+        }
+
+        /// <summary>Opens the Power Automate Desktop console (to create the flow): the installed PAD.Console.Host.exe, else its URL scheme.</summary>
+        private static object TeachPadOpen()
+        {
+            foreach (var root in new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles) })
+            {
+                if (string.IsNullOrEmpty(root)) continue;
+                string exe = System.IO.Path.Combine(root, "Power Automate Desktop", "PAD.Console.Host.exe");
+                if (System.IO.File.Exists(exe)) { Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true }); return new { ok = true, how = "exe" }; }
+            }
+            try { Process.Start(new ProcessStartInfo("ms-powerautomate:/console") { UseShellExecute = true }); return new { ok = true, how = "url" }; }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                return new { ok = false, error = "Power Automate Desktop is not installed. Install Power Automate (free, Microsoft Store), sign in once, then try again." };
+            }
         }
 
         /// <summary>Starts a Power Automate Desktop flow by URL with the lesson's values as input arguments.</summary>
