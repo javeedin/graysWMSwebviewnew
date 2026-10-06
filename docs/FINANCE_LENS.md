@@ -50,10 +50,35 @@ templates and mapping stay).
 - **Statement builder** — see *Statement builder* below; the advanced *Template designer* (formulas, ranges, styles
   row by row) opens from it.
 - **Data** — sync status against Fusion, chart of accounts and segment values, Fusion setup, BICC, account mapping, SQL explorer, folder.
-- **Board pack** (header button) — title, sections, statements and an editable commentary → a print-ready pack
+- **Board packs** (header button, Reports › Board packs) — design packs, share them as one interactive HTML file or by e-mail (see *Board packs and e-mail* below)
   (cover, executive summary with KPI tiles and attention points, KPI table, charts, statements, cost centres,
   monitors, risk highlights). Print / save as PDF, or save the HTML.
 
+
+## Board packs and e-mail
+
+**Design** (Reports › Board packs): pick or create a pack on the left. Set the title, company, who prepared it, the amounts, a colour theme and a logo. The **Sections** list is the menu of the pack, in order — drag a section (or ▲▼) to move it, untick it to leave it out, rename it, and open ⚙ for its settings:
+
+| Section | What it shows | Settings |
+|---|---|---|
+| Summary | cover, headline KPIs, highlights, attention points, your commentary, 12-month trend | tiles / highlights / attention on or off, commentary (Markdown; *write a draft from the numbers*) |
+| Trial balance | opening, debits, credits, net, closing debit / credit, with the two checks | range (month, quarter, year to date, 12 months), by type (opens into accounts) or every account |
+| Statement | any template — income statement, balance sheet, cash flow, your own | template, columns, lines open into accounts, hide empty lines |
+| KPIs · Charts · Monitors · Text | the KPI table, trend / margins / profit bridge, monitor status, a page of your own text | charts to include, the text |
+
+The preview on the right is the real file (desktop or phone). **Download HTML** saves it.
+
+**The interactive file** opens in any browser, also offline: a menu on the left (Summary, Trial Balance, Income Statement, Balance Sheet, Cash Flow …), one page at a time, lines that open into their accounts (*Expand all*), a search box per page, CSV per table, Print (this page) or *Print all*, light / dark, and a phone layout.
+
+**E-mail setup** (envelope icon in the header — an amber dot means the chosen way is not ready yet):
+
+- **Outlook on this PC** — the classic Outlook desktop app. The message opens for a last look (recommended) or is sent at once. Nothing to sign in.
+- **Microsoft 365 (Outlook online)** — sends from your Office 365 mailbox through Microsoft Graph, also without Outlook installed. *Sign in with Microsoft 365* once. It needs an Azure app registration (Mobile and desktop, redirect `http://localhost`, public client flows on, delegated **Mail.Send** + **User.Read**; **Mail.Send.Shared** to send from a shared mailbox). Leave the IDs blank to use the Power BI app registration once Mail.Send is added to it.
+- **SMTP** — `smtp.office365.com:587` for Office 365 (Authenticated SMTP must be allowed for the mailbox), or Outlook.com / Gmail. The password is encrypted for your Windows account on this PC.
+
+Sender name, reply-to, default To / Cc and a signature apply to every message; *Save & send a test* checks the way you chose.
+
+**E-mail a pack** (*E-mail…*): recipients (addresses used before are suggested), subject (`{PERIOD}`, `{TITLE}`, `{COMPANY}`), a message, and what goes in the body — KPI tiles, the income statement at a glance (month, YTD, YTD budget, YTD last year), the trend chart, highlights — plus the interactive pack as an attachment. The preview shows the message as it will look in Outlook. *Send*, or *Open in Outlook* to review it there. Every send is audited.
 
 ## IFRS pack
 

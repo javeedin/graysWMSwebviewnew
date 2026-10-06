@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -537,6 +538,40 @@ namespace WMSApp
                         _finAskCts?.Cancel();
                         data = new { ok = true };
                         break;
+                    // ── board pack e-mail (FinanceMail.cs): Outlook desktop, Microsoft 365 (Graph) or SMTP, set up per PC ──
+                    case "finMailStatus":
+                        data = await FinanceMail.StatusAsync(user);
+                        break;
+                    case "finMailSave":
+                        {
+                            var ms = JsonSerializer.Deserialize<FinanceMail.Settings>(PipeSrvStr(root, "settings") ?? "{}", new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new FinanceMail.Settings();
+                            FinanceMail.Save(ms);
+                            string pw = PipeSrvStr(root, "smtpPassword");
+                            if (ms.Method == "SMTP" || !string.IsNullOrEmpty(pw)) { if (!string.IsNullOrWhiteSpace(ms.SmtpUser)) SmtpVault.Save(ms.SmtpServer, ms.SmtpPort, ms.SmtpUser, pw); }
+                            data = await FinanceMail.StatusAsync(user);
+                            break;
+                        }
+                    case "finMailSignIn":
+                        using (var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5)))
+                            data = new { ok = true, account = await FinanceMail.SignInAsync(user, cts.Token) };
+                        break;
+                    case "finMailSignOut":
+                        await FinanceMail.SignOutAsync(user);
+                        data = new { ok = true };
+                        break;
+                    case "finMailTest":
+                    case "finMailSend":
+                        {
+                            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+                            object r;
+                            FinanceMail.Message msg = null;
+                            if (action == "finMailTest") r = await FinanceMail.TestAsync(user, PipeSrvStr(root, "method"), PipeSrvStr(root, "to"), cts.Token);
+                            else { msg = FinanceMail.FromJson(root); r = await FinanceMail.SendAsync(user, msg, PipeSrvStr(root, "method"), cts.Token); }
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = action == "finMailTest" ? "mail_test" : "pack_email", Outcome = "OK",
+                                Detail = msg == null ? "test" : (msg.Subject + " → " + string.Join("; ", FinanceMail.Addresses(msg.To).Concat(FinanceMail.Addresses(msg.Cc)))) });
+                            data = r;
+                            break;
+                        }
                     case "finWho":
                         data = new { ok = true, user, admin = await AiControl.IsAdminAsync(user) };
                         break;

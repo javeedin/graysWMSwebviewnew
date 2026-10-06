@@ -175,7 +175,7 @@ FL.init = function () {
     if ($('nav-tg')) $('nav-tg').onclick = function () { navMin = !document.body.classList.contains('nav-min'); FL.lsSet('nav.min', navMin); setNav(navMin); setTimeout(function () { window.dispatchEvent(new Event('resize')); }, 200); };
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') { if (FL.maxi.cur) FL.maxi.close(); else FL.closeModal(); } });
     FL.maxi.watch();
-    $('b-pack').onclick = function () { FL.packDialog(); };
+    $('b-pack').onclick = function () { FL.show('packs'); };
     $('b-ask').onclick = function () { FL.copilot.toggle(); };
     if (!hasHost()) { $('main').innerHTML = '<div class="empty"><i class="fa-solid fa-plug-circle-xmark"></i>Open Finance Lens inside the Gray\'s WMS app.</div>'; return; }
     FL.call('finWho').then(function (w) { FL.who = w; }).catch(function () { /* older host */ });
@@ -260,6 +260,7 @@ FL.render = function () {
         // before any load: the Data workspace, and the trial balance live from Fusion under Statements
         if (FL.tab === 'data' && FL.TABS.data) FL.TABS.data.render($('main'));
         else if (FL.tab === 'statements' && FL.tb) FL.tb.empty($('main'));
+        else if (FL.tab === 'packs' && FL.TABS.packs) return Promise.resolve(FL.TABS.packs.render($('main'))).catch(function (e) { $('main').innerHTML = '<div class="callout bad">' + esc(e && e.message || e) + '</div>'; });   // designs and e-mail setup work before any data
         else if (FL.tab === 'ic' && FL.TABS.ic) return Promise.resolve(FL.TABS.ic.render($('main'))).catch(function (e) { $('main').innerHTML = '<div class="callout bad">' + esc(e && e.message || e) + '</div>'; });   // intercompany needs no GL load
         else FL.welcome();
         return Promise.resolve();

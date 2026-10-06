@@ -48,6 +48,7 @@
         c.destroy(); cv.remove();
         return url;
     }
+    FL.chartImg = chartImg;
 
     FL.buildPack = function (o) {
         var per = FL.filter.period, pname = FL.periodName(per), cfg = FL.config, tm = FL.tplMap();
