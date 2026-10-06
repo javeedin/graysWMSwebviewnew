@@ -53,7 +53,7 @@
     FL.buildPack = function (o) {
         var per = FL.filter.period, pname = FL.periodName(per), cfg = FL.config, tm = FL.tplMap();
         return FL.data().then(function (data) {
-            var kv = FINE.kpis(cfg.kpis, tm, data, per), pi = data._pi, i = pi.bySeq[per];
+            var pi = data._pi || (data._pi = FINE.periodIndex(data.periods)), kv = FINE.kpis(cfg.kpis, tm, data, per), i = pi.bySeq[per];
             var kPm = i > 0 ? FINE.kpis(cfg.kpis, tm, data, pi.list[i - 1].period_seq) : {}, kPy = i >= 12 ? FINE.kpis(cfg.kpis, tm, data, pi.list[i - 12].period_seq) : {};
             var mon = FINE.monitor(cfg.monitors, kv);
             var parts = [], on = function (s) { return o.on.indexOf(s) >= 0; };

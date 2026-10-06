@@ -163,7 +163,7 @@
         var th = P.THEMES[pack.theme] || P.THEMES.navy, step = onStep || function () { };
         var done = function (x) { FL.filter.scale = keepScale; return x; };
         return FL.data().then(function (data) {
-            var kv = {}, kPy = {}, kPm = {}, pi = data._pi, i = pi.bySeq[per];
+            var kv = {}, kPy = {}, kPm = {}, pi = data._pi || (data._pi = FINE.periodIndex(data.periods)), i = pi.bySeq[per];
             try { kv = FINE.kpis(cfg.kpis, tm, data, per); if (i > 0) kPm = FINE.kpis(cfg.kpis, tm, data, pi.list[i - 1].period_seq); var pyS = pi.bySeq[per - 100]; if (pyS != null) kPy = FINE.kpis(cfg.kpis, tm, data, per - 100); } catch (e) { console.warn('[pack] KPIs', e); }
             var kdef = function (id) { return (cfg.kpis || []).filter(function (k) { return k.id === id; })[0]; };
             var head = (cfg.headline || []).map(kdef).filter(Boolean).slice(0, 8);
