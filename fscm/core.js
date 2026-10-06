@@ -422,6 +422,7 @@ FX.formVals = function (prefix, fields) {
 // ── shell ──────────────────────────────────────────────────────
 FX.MODULES = [
     { id: 'om', file: 'om.html', label: 'Order Management', icon: 'fa-cart-flatbed', c: ['#fb923c', '#c2410c'] },
+    { id: 'ship', file: 'shipping.html', label: 'Shipping', icon: 'fa-truck-fast', c: ['#2dd4bf', '#0f766e'] },
     { id: 'purchasing', file: 'purchasing.html', label: 'Purchasing', icon: 'fa-file-invoice', c: ['#60a5fa', '#1d4ed8'] },
     { id: 'inventory', file: 'inventory.html', label: 'Inventory', icon: 'fa-boxes-stacked', c: ['#34d399', '#047857'] },
     { id: 'costing', file: 'costing.html', label: 'Costing', icon: 'fa-coins', c: ['#fbbf24', '#b45309'] },
