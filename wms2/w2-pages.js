@@ -83,45 +83,107 @@
             (d.res ? '<details><summary>MRA answer</summary><pre class="log">' + esc(JSON.stringify(d.res, null, 2)) + '</pre></details>' : ''), null, 760);
     };
 
+    var ST_MAP = { SUCCESS: 'DONE', ALREADY_DONE: 'ALREADY', FAILED: 'FAILED', SKIPPED: 'SKIPPED' };
+    /** Every try of one order from WMS_MRA_INTERFACE_STATUS (all PCs, all screens) in a dialog. */
+    MRA.history = function (order, pod) {
+        var m = W2.modal('MRA tries — ' + esc(order), '<div id="mh-g"><div class="muted">Reading WMS_MRA_INTERFACE_STATUS…</div></div>', null, 980);
+        W2.apexRows("SELECT id, TO_CHAR(created_date, 'DD-MM-YYYY HH24:MI:SS') AS at, trip_id, mra_interface_status AS status, mra_interface_id AS irn, failed_step, " +
+            "SUBSTR(failed_reason, 1, 1000) AS reason, gateway_problem, http_status, source, app_user, machine, ROUND(duration_ms / 1000, 1) AS secs " +
+            "FROM wms_mra_interface_status WHERE order_number = " + W2.lit(order) + " AND instance_name = " + W2.lit(pod) + " ORDER BY created_date DESC, id DESC", 200).then(function (rows) {
+            var box = (m && m.querySelector ? m : document).querySelector('#mh-g'); if (!box) return;
+            W2.grid(box, rows.map(function (r) { var o = {}; Object.keys(r).forEach(function (k) { o[k.toLowerCase()] = r[k]; }); return o; }), [
+                { k: 'at', t: 'When' }, { k: 'status', t: 'Status', fmt: function (v) { return W2.mraPill(ST_MAP[v] || v); } }, { k: 'irn', t: 'IRN' }, { k: 'trip_id', t: 'Trip' },
+                { k: 'failed_step', t: 'Failed step' }, { k: 'reason', t: 'Reason', fmt: function (v) { return v ? '<span title="' + esc(v) + '">' + esc(String(v).slice(0, 90)) + '</span>' : ''; } },
+                { k: 'gateway_problem', t: 'Gateway' }, { k: 'source', t: 'Source' }, { k: 'app_user', t: 'User' }, { k: 'secs', t: 'Secs', num: true }
+            ], { empty: 'No try in WMS_MRA_INTERFACE_STATUS for this order.', csv: 'mra-' + order + '.csv' });
+        }, function (e) { var box = document.querySelector('#mh-g'); if (box) box.innerHTML = '<div class="callout bad">' + esc(String(e)) + '</div>'; });
+    };
+    MRA.print = function (list, date) {
+        return W2.pool(list, 1, function (o) {
+            return W2.call('printOrder', { orderNumber: o.order_number, tripId: o.trip_id, tripDate: date }, 120000)
+                .then(function (r) { if (r && r.success === false) throw r.message || 'print failed'; W2.toast('Print job sent for ' + o.order_number + '.', 'success'); }).catch(function (e) { W2.toast('Print ' + o.order_number + ' failed: ' + e, 'error'); });
+        }).then(function () { W2.sync.day(date, { only: ['print'], auto: true }); });
+    };
+
     W2.page('mra', {
         title: 'MRA', icon: 'fa-receipt',
         render: function (main, params, live) {
-            var pod = W2.pod();
+            var pod = W2.pod(), date = W2.date();
             return Promise.all([W2.M.orders(), W2.q("SELECT upper(interface_flag) AS flag, changed_by, changed_at FROM w2_mra_flag WHERE upper(instance_name) = " + W2.lit(pod)),
                 W2.q("SELECT order_number, status, irn, msg, checked_at, source, secs, timings, log FROM w2_mra WHERE pod = " + W2.lit(pod))]).then(function (r) {
                 if (!live()) return;
                 var flag = r[1][0] || {}, logs = {}; r[2].forEach(function (x) { if (!logs[x.order_number] || x.checked_at > logs[x.order_number].checked_at) logs[x.order_number] = x; });
-                var all = r[0].filter(function (o) { return o.stage === 'INTERFACED' || o.mra; });
-                var f = params.filter || 'todo';
-                var list = all.filter(function (o) { return f === 'all' ? true : f === 'failed' ? (o.mra === 'FAILED' || o.mra === 'CHECK FAILED') : f === 'done' ? DONE.indexOf(o.mra) >= 0 : o.stage === 'INTERFACED' && DONE.indexOf(o.mra) < 0; });
-                if (params.trip) list = list.filter(function (o) { return o.trip_id === params.trip; });
-                main.innerHTML = '<div class="pagehead"><h2>MRA · ' + W2.dayName(W2.date()) + '</h2>' +
-                    '<span class="tag ' + (flag.flag === 'N' ? 'warn' : 'good') + '"><i class="fa-solid fa-flag"></i> MRA interface: ' + (flag.flag ? (flag.flag === 'N' ? 'No' : 'Yes') : '?') + (flag.changed_by ? ' · ' + esc(flag.changed_by) + ' ' + esc(flag.changed_at || '') : '') + '</span><span class="grow"></span>' +
-                    ['todo', 'failed', 'done', 'all'].map(function (k) { return '<button class="btn sm ' + (f === k ? 'primary' : '') + '" data-f="' + k + '">' + { todo: 'To send', failed: 'Failed', done: 'Done', all: 'All' }[k] + '</button>'; }).join('') + '</div>' +
-                    (flag.flag === 'N' ? '<div class="callout warn">MRA interface is switched off for ' + pod + ' (WMS › MRA Interface) — the Shipping Agent prints without MRA. You can still send orders here.</div>' : '') +
-                    '<div class="row" style="margin:10px 0"><button class="btn primary" id="m-send"><i class="fa-solid fa-paper-plane"></i> Send ticked to MRA</button><button class="btn" id="m-check"><i class="fa-solid fa-magnifying-glass"></i> Check ticked (MRA report)</button>' +
-                    '<span class="muted sm">Only fully interfaced orders can go to MRA. The check reads MRA_TRX_NO_CHECK_BIP — nothing is sent.</span></div><div id="m-grid"></div>';
-                main.querySelectorAll('[data-f]').forEach(function (b) { b.onclick = function () { W2.go('mra', { filter: b.dataset.f, trip: params.trip }); }; });
-                var g = W2.grid(main.querySelector('#m-grid'), list, [
-                    { k: 'trip_id', t: 'Trip' }, { k: 'order_number', t: 'Order', fmt: function (v) { return '<b class="mono">' + esc(v) + '</b>'; } }, { k: 'account_name', t: 'Customer' }, { k: 'order_type', t: 'Type' },
-                    { k: 'stage', t: 'Fusion status', fmt: function (v) { return W2.stagePill(v); } }, { k: 'mra', t: 'MRA', fmt: function (v) { return W2.mraPill(v); } },
-                    { k: 'mra_msg', t: 'Message' }, { k: 'mra_at', t: 'When', fmt: function (v) { return v ? W2.ago(v) : ''; } },
-                    { k: 'order_number', t: '', fmt: function (v) { return logs[v] && logs[v].log ? '<button class="btn sm" data-log="' + esc(v) + '"><i class="fa-solid fa-file-lines"></i> Log</button>' : ''; } }
-                ], { select: true, key: 'order_number', preselect: f === 'todo' || f === 'failed' ? list.filter(function (o) { return o.stage === 'INTERFACED'; }).map(function (o) { return o.order_number; }) : [], csv: 'mra-' + W2.date() + '.csv', onRow: function (o) { W2.orderPanel(o); },
-                    after: function (box) { box.querySelectorAll('[data-log]').forEach(function (b) { b.onclick = function () { MRA.showLog(b.dataset.log, logs[b.dataset.log]); }; }); } });
-                main.querySelector('#m-send').onclick = function () {
-                    var sel = g.selected().filter(function (o) { return o.stage === 'INTERFACED'; });
-                    if (!sel.length) { W2.toast('Tick fully interfaced orders.', 'warning'); return; }
-                    W2.confirm('Send ' + sel.length + ' order(s) to MRA', '<p>Interface ' + sel.length + ' order(s) to the Mauritius Revenue Authority now (' + pod + '). Orders MRA already has are not sent twice.</p>', 'Send to MRA').then(function (y) { if (y) MRA.send(sel); });
-                };
-                main.querySelector('#m-check').onclick = function () {
-                    var sel = g.selected(); if (!sel.length) { W2.toast('Tick orders to check.', 'warning'); return; }
-                    W2.busy.start('Checking ' + sel.length + ' order(s) with the MRA report…');
-                    var rows = [];
-                    W2.pool(sel, 3, function (o) { return W2.sync.mraCheckOne(pod, o.order_number).then(function (st) { rows.push({ pod: pod, order_number: o.order_number, trip_date: W2.date(), trip_id: o.trip_id, status: st, checked_at: W2.now(), source: 'check' }); }, function (e) { rows.push({ pod: pod, order_number: o.order_number, trip_date: W2.date(), trip_id: o.trip_id, status: 'CHECK FAILED', msg: String(e), checked_at: W2.now(), source: 'check' }); }); })
-                        .then(function () { return W2.put('w2_mra', { pod: pod, order_number: rows.map(function (r) { return r.order_number; }) }, rows); })
-                        .then(function () { W2.busy.done(rows.length + ' order(s) checked.'); W2.render(); });
-                };
+                var orders = r[0].filter(function (o) { return o.stage !== 'CANCELLED'; });
+                // the MRA status table: latest try per order, from every PC and every screen (WMS, Shipping Agent, AI, WMS 2.0 …)
+                var stP = typeof window.wmsMraStatuses === 'function' ? window.wmsMraStatuses(orders.map(function (o) { return o.order_number; }), pod).catch(function (e) { console.warn('[W2 MRA] status table:', e); return {}; }) : Promise.resolve({});
+                return stP.then(function (st) {
+                    if (!live()) return;
+                    orders.forEach(function (o) {
+                        var x = st[o.order_number];
+                        o.st = x ? x.s : ''; o.st_irn = x ? x.irn : ''; o.st_why = x ? x.why : ''; o.st_at = x ? x.at : ''; o.st_n = x ? x.n : 0;
+                        o.mra_eff = x && x.s ? (ST_MAP[x.s] || x.s) : (o.mra || '');
+                        o.mra_done = DONE.indexOf(o.mra_eff) >= 0;
+                    });
+                    var f = params.filter || 'todo';
+                    var list = orders.filter(function (o) {
+                        return f === 'all' ? true : f === 'failed' ? (o.mra_eff === 'FAILED' || o.mra_eff === 'CHECK FAILED') : f === 'done' ? o.mra_done : o.stage === 'INTERFACED' && !o.mra_done;
+                    });
+                    if (params.trip) list = list.filter(function (o) { return o.trip_id === params.trip; });
+                    var cnt = { todo: orders.filter(function (o) { return o.stage === 'INTERFACED' && !o.mra_done; }).length, failed: orders.filter(function (o) { return o.mra_eff === 'FAILED'; }).length, done: orders.filter(function (o) { return o.mra_done; }).length, all: orders.length };
+                    main.innerHTML = '<div class="pagehead"><h2>MRA · ' + W2.dayName(date) + '</h2>' +
+                        '<span class="tag ' + (flag.flag === 'N' ? 'warn' : 'good') + '"><i class="fa-solid fa-flag"></i> MRA interface: ' + (flag.flag ? (flag.flag === 'N' ? 'No' : 'Yes') : '?') + (flag.changed_by ? ' · ' + esc(flag.changed_by) + ' ' + esc(flag.changed_at || '') : '') + '</span><span class="grow"></span>' +
+                        ['todo', 'failed', 'done', 'all'].map(function (k) { return '<button class="btn sm ' + (f === k ? 'primary' : '') + '" data-f="' + k + '">' + { todo: 'To send', failed: 'Failed', done: 'Done', all: 'All' }[k] + ' <span class="muted">' + cnt[k] + '</span></button>'; }).join('') + '</div>' +
+                        (flag.flag === 'N' ? '<div class="callout warn">MRA interface is switched off for ' + pod + ' (WMS › MRA Interface) — the Shipping Agent prints without MRA. You can still send orders here.</div>' : '') +
+                        '<div class="row" style="margin:10px 0"><button class="btn primary" id="m-send"><i class="fa-solid fa-paper-plane"></i> Interface ticked to MRA</button><button class="btn" id="m-print"><i class="fa-solid fa-print"></i> Print ticked</button>' +
+                        '<button class="btn" id="m-check"><i class="fa-solid fa-magnifying-glass"></i> Check ticked (MRA report)</button>' +
+                        '<span class="muted sm">MRA column = the latest try in WMS_MRA_INTERFACE_STATUS (every PC and screen). Retry checks first that MRA does not already have the order, so nothing is sent twice.</span></div><div id="m-grid"></div>';
+                    main.querySelectorAll('[data-f]').forEach(function (b) { b.onclick = function () { W2.go('mra', { filter: b.dataset.f, trip: params.trip }); }; });
+                    var byNum = {}; orders.forEach(function (o) { byNum[o.order_number] = o; });
+                    var g = W2.grid(main.querySelector('#m-grid'), list, [
+                        { k: 'order_number', t: '', fmt: function (v, o) {
+                            var failed = o.mra_eff === 'FAILED';
+                            return '<span style="white-space:nowrap">' + (o.mra_done ? '' : '<button class="btn sm ' + (failed ? 'danger' : '') + '" data-retry="' + esc(v) + '" title="' + (failed ? 'Retry — last try failed: ' + esc(o.st_why || o.mra_msg || '') : 'Interface this order to MRA now') + '"><i class="fa-solid ' + (failed ? 'fa-rotate-right' : 'fa-paper-plane') + '"></i> ' + (failed ? 'Retry' : 'Interface') + '</button> ') +
+                                '<button class="btn sm" data-print="' + esc(v) + '" title="Print the order (Fusion PDF + print job)"><i class="fa-solid fa-print"></i></button> ' +
+                                '<button class="btn sm" data-hist="' + esc(v) + '" title="Every MRA try of this order (WMS_MRA_INTERFACE_STATUS)"><i class="fa-solid fa-clock-rotate-left"></i></button>' +
+                                (logs[v] && logs[v].log ? ' <button class="btn sm" data-log="' + esc(v) + '" title="Log of the last send from this PC"><i class="fa-solid fa-file-lines"></i></button>' : '') + '</span>';
+                        } },
+                        { k: 'trip_id', t: 'Trip' }, { k: 'order_number', t: 'Order', fmt: function (v) { return '<a href="#" class="mono" data-od="' + esc(v) + '" style="font-weight:700;color:#4f46e5;text-decoration:none" title="Open the order details">' + esc(v) + '</a>'; } },
+                        { k: 'account_name', t: 'Customer' }, { k: 'order_type', t: 'Type' },
+                        { k: 'stage', t: 'Fusion status', fmt: function (v) { return W2.stagePill(v); } },
+                        { k: 'mra_eff', t: 'MRA', fmt: function (v, o) { return (v ? W2.mraPill(v) : '<span class="muted">not sent</span>') + (o.st_n > 1 ? ' <span class="muted sm" title="tries">×' + o.st_n + '</span>' : ''); } },
+                        { k: 'st_irn', t: 'IRN', fmt: function (v) { return v ? '<span class="mono sm" title="' + esc(v) + '">' + esc(String(v).slice(0, 18)) + (String(v).length > 18 ? '…' : '') + '</span>' : ''; } },
+                        { k: 'st_why', t: 'Failed reason', fmt: function (v, o) { var t = v || (o.mra_eff === 'FAILED' ? o.mra_msg : ''); return t ? '<span title="' + esc(t) + '">' + esc(String(t).slice(0, 70)) + '</span>' : ''; } },
+                        { k: 'st_at', t: 'Last try', fmt: function (v, o) { return v || (o.mra_at ? W2.ago(o.mra_at) : ''); } }
+                    ], { select: true, key: 'order_number', preselect: f === 'todo' || f === 'failed' ? list.filter(function (o) { return o.stage === 'INTERFACED'; }).map(function (o) { return o.order_number; }) : [], csv: 'mra-' + date + '.csv', onRow: function (o) { W2.orderPanel(o); },
+                        after: function (box) {
+                            box.querySelectorAll('[data-log]').forEach(function (b) { b.onclick = function () { MRA.showLog(b.dataset.log, logs[b.dataset.log]); }; });
+                            box.querySelectorAll('[data-hist]').forEach(function (b) { b.onclick = function () { MRA.history(b.dataset.hist, pod); }; });
+                            box.querySelectorAll('[data-od]').forEach(function (a) { a.onclick = function (e) { e.preventDefault(); e.stopPropagation(); W2.openOrderDialog(byNum[a.dataset.od]); }; });
+                            box.querySelectorAll('[data-retry]').forEach(function (b) { b.onclick = function () { send([byNum[b.dataset.retry]]); }; });
+                            box.querySelectorAll('[data-print]').forEach(function (b) { b.onclick = function () { print([byNum[b.dataset.print]]); }; });
+                        } });
+                    function send(sel) {
+                        var notIf = sel.filter(function (o) { return o.stage !== 'INTERFACED'; }), done = sel.filter(function (o) { return o.mra_done; });
+                        W2.confirm('Interface ' + sel.length + ' order(s) to MRA', '<p>Interface <b>' + sel.length + '</b> order(s) to the Mauritius Revenue Authority now (' + pod + ').</p>' +
+                            (notIf.length ? '<p class="callout warn">' + notIf.length + ' of them are not fully interfaced in Fusion yet — MRA will most likely refuse them.</p>' : '') +
+                            (done.length ? '<p class="muted sm">' + done.length + ' already reached MRA — the first step checks that, so they are not sent twice.</p>' : '') +
+                            (flag.flag === 'N' ? '<p class="muted sm">The MRA switch is OFF for ' + pod + ' — this sends them anyway.</p>' : ''), 'Send to MRA').then(function (y) { if (y) MRA.send(sel); });
+                    }
+                    function print(sel) {
+                        var bad = sel.filter(function (o) { return o.mra_eff === 'FAILED' || (!o.mra_done && flag.flag !== 'N'); });
+                        W2.confirm('Print ' + sel.length + ' order(s)', '<p>Print <b>' + sel.length + '</b> order(s)?</p>' + (bad.length ? '<p class="callout warn">' + bad.length + ' of them have not reached MRA (not fiscalised). Print anyway?</p>' : ''), 'Print').then(function (y) { if (y) MRA.print(sel, date); });
+                    }
+                    main.querySelector('#m-send').onclick = function () { var sel = g.selected(); if (!sel.length) { W2.toast('Tick the orders to interface.', 'warning'); return; } send(sel); };
+                    main.querySelector('#m-print').onclick = function () { var sel = g.selected(); if (!sel.length) { W2.toast('Tick the orders to print.', 'warning'); return; } print(sel); };
+                    main.querySelector('#m-check').onclick = function () {
+                        var sel = g.selected(); if (!sel.length) { W2.toast('Tick orders to check.', 'warning'); return; }
+                        W2.busy.start('Checking ' + sel.length + ' order(s) with the MRA report…');
+                        var rows = [];
+                        W2.pool(sel, 3, function (o) { return W2.sync.mraCheckOne(pod, o.order_number).then(function (st) { rows.push({ pod: pod, order_number: o.order_number, trip_date: date, trip_id: o.trip_id, status: st, checked_at: W2.now(), source: 'check' }); }, function (e) { rows.push({ pod: pod, order_number: o.order_number, trip_date: date, trip_id: o.trip_id, status: 'CHECK FAILED', msg: String(e), checked_at: W2.now(), source: 'check' }); }); })
+                            .then(function () { return W2.put('w2_mra', { pod: pod, order_number: rows.map(function (r) { return r.order_number; }) }, rows); })
+                            .then(function () { W2.busy.done(rows.length + ' order(s) checked.'); W2.render(); });
+                    };
+                });
             });
         }
     });
