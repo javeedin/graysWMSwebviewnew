@@ -62,6 +62,7 @@ namespace WMSApp
         private string _loggedInUsername;
         private string _loggedInPassword;
         private string _loggedInInstance;
+        private string _loggedInUserType;      // from the /login answer (e.g. FINANCE) — Home shows Finance Lens only to FINANCE users
         private string _loggedInDateTime;
         private bool _isLoggedIn = false;
 
@@ -352,6 +353,7 @@ try
                     _loggedInUsername = loginForm.Username;
                     _loggedInPassword = loginForm.Password;
                     _loggedInInstance = loginForm.InstanceName;
+                    _loggedInUserType = loginForm.UserType;
                     _loggedInDateTime = DateTime.Now.ToString("MMM dd, yyyy hh:mm:ss tt");
                     _isLoggedIn = true;
 
@@ -371,6 +373,7 @@ try
             _loggedInUsername = null;
             _loggedInPassword = null;
             _loggedInInstance = null;
+            _loggedInUserType = null;
             _loggedInDateTime = null;
 
             System.Diagnostics.Debug.WriteLine("[LOGOUT] User session cleared successfully");
@@ -392,6 +395,7 @@ try
                         localStorage.removeItem('password');
                         localStorage.removeItem('instanceName');
                         localStorage.removeItem('loginTime');
+                        localStorage.removeItem('userType');
                         localStorage.removeItem('fusionCloudUsername');
                         localStorage.removeItem('fusionCloudPassword');
                         localStorage.removeItem('fusionInstance');
@@ -505,8 +509,10 @@ try
                                 _loggedInUsername = username;
                                 _loggedInPassword = password;
                                 _loggedInInstance = instanceName;
+                                _loggedInUserType = LoginForm.ReadUserType(jsonResponse);
                                 _loggedInDateTime = DateTime.Now.ToString("MMM dd, yyyy hh:mm:ss tt");
                                 _isLoggedIn = true;
+                                string escapedType = (_loggedInUserType ?? "").Replace("\\", "\\\\").Replace("'", "\\'");
 
                                 // Send success response to JavaScript by calling the global function directly
                                 string escapedUsername = username.Replace("\\", "\\\\").Replace("'", "\\'");
@@ -515,7 +521,7 @@ try
                                 await wv.CoreWebView2.ExecuteScriptAsync($@"
                                     console.log('[C# -> JS] Calling handleLoginResponse with success...');
                                     if (typeof window.handleLoginResponse === 'function') {{
-                                        window.handleLoginResponse(true, '{escapedUsername}', '{escapedInstance}', '');
+                                        window.handleLoginResponse(true, '{escapedUsername}', '{escapedInstance}', '', '{escapedType}');
                                     }} else {{
                                         console.error('[C# -> JS] handleLoginResponse function not found!');
                                     }}
@@ -6452,6 +6458,7 @@ navPanel.Controls.Add(wmsDevButton);
                     localStorage.setItem('fusionCloudUsername', '{username}');
                     localStorage.setItem('fusionCloudPassword', '{password}');
                     localStorage.setItem('fusionInstance', '{instance}');
+                    {(string.IsNullOrEmpty(_loggedInUserType) ? "localStorage.removeItem('userType');" : "localStorage.setItem('userType', '" + _loggedInUserType.Replace("\\", "").Replace("'", "") + "');")}
                     console.log('[C# INJECT] localStorage values set:');
                     console.log('[C# INJECT] loggedIn:', localStorage.getItem('loggedIn'));
                     console.log('[C# INJECT] username:', localStorage.getItem('username'));

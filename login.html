@@ -449,6 +449,8 @@
                             localStorage.setItem('fusionInstance', instanceName);
                             localStorage.setItem('loginTime', new Date().toISOString());
 
+                            saveUserType(userTypeOf(user));
+
                             // Store user details if available
                             if (user.user_id) localStorage.setItem('userId', user.user_id);
                             if (user.full_name) localStorage.setItem('fullName', user.full_name);
@@ -475,7 +477,20 @@
         });
 
         // Global function that C# can call directly
-        window.handleLoginResponse = function(success, username, instanceName, error) {
+        // The user's type from the /login answer (e.g. FINANCE): Home shows Finance Lens only to FINANCE users.
+        function saveUserType(t) {
+            t = String(t || '').trim().toUpperCase();
+            if (t) localStorage.setItem('userType', t); else localStorage.removeItem('userType');
+        }
+        function userTypeOf(row) {
+            if (!row) return '';
+            var names = ['user_type', 'usertype', 'type', 'user_role', 'role', 'user_category', 'category', 'department'];
+            for (var i = 0; i < names.length; i++)
+                for (var k in row) if (k.toLowerCase() === names[i] && typeof row[k] === 'string' && row[k].trim()) return row[k];
+            return '';
+        }
+
+        window.handleLoginResponse = function(success, username, instanceName, error, userType) {
             log('handleLoginResponse called: success=' + success + ', username=' + username);
 
             if (success) {
@@ -488,6 +503,7 @@
                 localStorage.setItem('instanceName', instanceName || 'PROD');
                 localStorage.setItem('fusionInstance', instanceName || 'PROD');
                 localStorage.setItem('loginTime', new Date().toISOString());
+                saveUserType(userType);
 
                 // Redirect after delay
                 setTimeout(function() {

@@ -31,6 +31,31 @@ namespace WMSApp
         public string Username { get; private set; }
         public string Password { get; private set; }
         public string InstanceName { get; private set; }
+        /// <summary>The user's type from the login answer (e.g. FINANCE), upper case; null when the answer has none.</summary>
+        public string UserType { get; private set; }
+
+        /// <summary>Reads the user type from the first row of the /login answer: the first text field named
+        /// user_type / usertype / type / user_role / role / user_category / category / department (any case).</summary>
+        public static string ReadUserType(string json)
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("items", out var items) || items.ValueKind != System.Text.Json.JsonValueKind.Array) return null;
+                foreach (var row in items.EnumerateArray())
+                {
+                    if (row.ValueKind != System.Text.Json.JsonValueKind.Object) return null;
+                    foreach (var name in new[] { "user_type", "usertype", "type", "user_role", "role", "user_category", "category", "department" })
+                        foreach (var p in row.EnumerateObject())
+                            if (string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == System.Text.Json.JsonValueKind.String
+                                && !string.IsNullOrWhiteSpace(p.Value.GetString()))
+                                return p.Value.GetString().Trim().ToUpperInvariant();
+                    return null;
+                }
+            }
+            catch { }
+            return null;
+        }
         public string BusinessUnit { get; private set; }
         public string InventoryOrg { get; private set; }
         public bool LoginSuccessful { get; private set; }
@@ -379,6 +404,7 @@ namespace WMSApp
                         // Check if response has data (successful login)
                         if (!string.IsNullOrWhiteSpace(jsonResponse) && jsonResponse.Length > 10)
                         {
+                            UserType = ReadUserType(jsonResponse);
                             System.Diagnostics.Debug.WriteLine($"[LOGIN] ✓ Login SUCCESSFUL");
                             System.Diagnostics.Debug.WriteLine($"[LOGIN] ========================================");
                             return true;

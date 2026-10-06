@@ -10,6 +10,13 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 </head>
 <body>
+    <script>
+        // Finance Lens is for FINANCE users only (user type from the login, saved by login.html / the host).
+        (function () {
+            var t = ''; try { t = (localStorage.getItem('userType') || '').trim().toUpperCase(); } catch (e) { }
+            if (t !== 'FINANCE') { window.FIN_BLOCKED = true; location.replace('../Home/index.html?blocked=finance'); }
+        })();
+    </script>
     <header class="top">
         <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
         <div class="logo"><i class="fa-solid fa-magnifying-glass-dollar"></i></div>
