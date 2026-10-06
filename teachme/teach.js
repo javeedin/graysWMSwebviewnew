@@ -555,9 +555,10 @@
         var l = TM.cur, vals = TM.values[l.id] = TM.values[l.id] || {};
         l.vars.forEach(function (v) { if (vals[v.name] == null) vals[v.name] = v.def || ''; });
         var r = TM.run && TM.run.lessonId === l.id ? TM.run : null, busy = r && !r.ended;
-        var stop = (l.steps || []).filter(function (s) { return s.stop; })[0];
-        el.innerHTML = (l.steps.length ? '' : '<div class="banner warn"><i class="fa-solid fa-triangle-exclamation"></i> Nothing to run yet — teach the clicks first.</div>') +
-            (l.steps.length && !stop ? '<div class="banner warn"><i class="fa-solid fa-hand"></i> No step is marked ✋. The run will press every step — mark the Submit click in Teach the clicks if it should stop there.</div>' : '') +
+        var stop = (l.steps || []).filter(function (s) { return s.stop; })[0], pad = TM.engineOf(l) === 'pad';
+        l.pad = l.pad || {};
+        el.innerHTML = (pad ? '' : l.steps.length ? '' : '<div class="banner warn"><i class="fa-solid fa-triangle-exclamation"></i> Nothing to run yet — teach the clicks first.</div>') +
+            (!pad && l.steps.length && !stop ? '<div class="banner warn"><i class="fa-solid fa-hand"></i> No step is marked ✋. The run will press every step — mark the Submit click in Teach the clicks if it should stop there.</div>' : '') +
             '<div class="card"><h3><i class="fa-solid fa-wand-magic-sparkles"></i> Tell the AI what happened <span class="muted sm">— it fills the values below</span></h3>' +
             '<textarea id="r-ai" rows="5" style="width:100%" placeholder="Paste the error, the e-mail, the steps — anything the form needs.">' + esc(TM.aiText || '') + '</textarea>' +
             '<div class="row" style="margin-top:8px"><button class="btn" id="r-fill"><i class="fa-solid fa-wand-magic-sparkles"></i> Fill with AI</button><span class="muted sm" id="r-ainote"></span></div></div>' +
@@ -571,7 +572,8 @@
             '<div class="card"><h3><i class="fa-solid fa-gears"></i> Run with</h3><div class="engines">' + TM.ENGINES.map(function (e) {
                 return '<label class="eng' + (TM.engineOf(l) === e.id ? ' on' : '') + '"><input type="radio" name="r-eng" value="' + e.id + '"' + (TM.engineOf(l) === e.id ? ' checked' : '') + '><i class="fa-solid ' + e.icon + '"></i><span><b>' + e.label + '</b><small>' + e.note + '</small></span></label>';
             }).join('') + '</div>' + (TM.engineOf(l) === 'playwright-headless' && stop ? '<div class="banner warn" style="margin:8px 0 0"><i class="fa-solid fa-hand"></i> Headless runs stop at the ✋ step and nobody can press it — use it for lessons that only read, or run visible to submit.</div>' : '') + '</div>' +
-            '<div class="card"><div class="row"><button class="btn primary" id="r-go"' + (busy || !l.steps.length ? ' disabled' : '') + '><i class="fa-solid fa-play"></i> Run lesson</button>' +
+            (pad ? TM.padCard(l) : '') +
+            '<div class="card"><div class="row"><button class="btn primary" id="r-go"' + (busy || !(pad ? (l.pad.flowName || l.pad.flowId) : l.steps.length) ? ' disabled' : '') + '><i class="fa-solid fa-play"></i> Run lesson</button>' +
             '<button class="btn" id="r-cont"' + (busy && r.waiting ? '' : ' disabled') + '><i class="fa-solid fa-forward"></i> Continue</button>' +
             '<button class="btn danger" id="r-stop"' + (busy ? '' : ' disabled') + '><i class="fa-solid fa-stop"></i> Stop</button>' +
             '<button class="btn" id="r-copy"><i class="fa-regular fa-copy"></i> Copy all values</button><span class="grow"></span><span class="muted sm">The app never presses a ✋ step.</span></div></div>' +
@@ -580,7 +582,8 @@
         el.querySelectorAll('input[name=r-eng]').forEach(function (r) { r.onchange = function () { l.engine = r.value; lsSet('teachme.engine', r.value); TM.touch(); TM.paintMain(); }; });
         $('r-ai').oninput = function () { TM.aiText = this.value; };
         $('r-fill').onclick = function () { TM.aiFill(this); };
-        $('r-go').onclick = TM.startRun;
+        $('r-go').onclick = pad ? TM.startPad : TM.startRun;
+        if (pad) TM.wirePad(l);
         $('r-cont').onclick = function () { hostOk('teachContinue').then(function () { if (TM.run) TM.run.waiting = false; TM.paintMain(); }); };
         $('r-stop').onclick = function () { hostOk('teachStop'); };
         $('r-copy').onclick = function () {
@@ -606,8 +609,45 @@
     TM.ENGINES = [
         { id: 'native', icon: 'fa-window-maximize', label: 'Native — Teach Me window', note: 'The app\'s own browser, same window you taught in. You watch every step; nothing to install.' },
         { id: 'playwright', icon: 'fa-masks-theater', label: 'Playwright — Edge, visible', note: 'Microsoft Playwright drives the installed Edge: smarter element finding, auto-waits, a screenshot per step and a trace file.' },
-        { id: 'playwright-headless', icon: 'fa-ghost', label: 'Playwright — headless', note: 'No window: for lessons that only read or need no person. Sign in once with the visible Playwright run first.' }
+        { id: 'playwright-headless', icon: 'fa-ghost', label: 'Playwright — headless', note: 'No window: for lessons that only read or need no person. Sign in once with the visible Playwright run first.' },
+        { id: 'pad', icon: 'fa-diagram-project', label: 'Power Automate Desktop', note: 'Starts a desktop flow you built in Microsoft\'s Power Automate Desktop, with these values as its inputs. Can also drive Windows programs, not only web pages.' }
     ];
+
+    // ── engine: Power Automate Desktop ──────────────────────────
+    TM.padCard = function (l) {
+        var names = l.vars.map(function (v) { return v.name; });
+        return '<div class="card"><h3><i class="fa-solid fa-diagram-project"></i> Power Automate Desktop flow</h3>' +
+            '<div class="form"><label>Flow name<input type="text" id="p-name" value="' + esc(l.pad.flowName || '') + '" placeholder="e.g. Raise Oracle SR"></label>' +
+            '<label>Flow id <span style="text-transform:none;font-weight:400">(optional — more exact than the name)</span><input type="text" id="p-id" value="' + esc(l.pad.flowId || '') + '" placeholder="1a2b3c4d-…"></label>' +
+            '<label>Environment id <span style="text-transform:none;font-weight:400">(optional, with the id)</span><input type="text" id="p-env" value="' + esc(l.pad.envId || '') + '" placeholder="Default-…"></label></div>' +
+            '<div class="banner info" style="margin:10px 0 0"><i class="fa-solid fa-circle-info"></i><div class="grow sm">How it works: build the flow once in Power Automate Desktop (its own recorder and designer — Teach Me\'s steps are not used). ' +
+            'Create one <b>input variable</b> per value below with exactly these names: <span class="mono">' + (names.length ? names.map(esc).join(', ') : '(no variables yet)') + '</span>. ' +
+            'Run hands them over and Power Automate Desktop runs the flow on its own — Windows asks you to allow it the first time. Nothing comes back to the app, so type the result (e.g. the SR number) in when the flow is done. ' +
+            'The flow id is in Power Automate Desktop › the flow\'s ⋮ › Properties › Details (Run URL).</div></div>' +
+            '<div class="row" style="margin-top:8px"><button class="btn sm" id="p-copy"><i class="fa-regular fa-copy"></i> Copy the input variable names</button></div></div>';
+    };
+    TM.wirePad = function (l) {
+        var set = function (k) { return function () { l.pad[k] = this.value.trim(); TM.touch(); var g = $('r-go'); if (g) g.disabled = !(l.pad.flowName || l.pad.flowId) || (TM.run && !TM.run.ended); }; };
+        $('p-name').oninput = set('flowName'); $('p-id').oninput = set('flowId'); $('p-env').oninput = set('envId');
+        $('p-copy').onclick = function () { navigator.clipboard.writeText(l.vars.map(function (v) { return v.name; }).join('\n')).then(function () { TM.toast('Copied — create these as input variables in the flow.'); }); };
+    };
+    TM.startPad = function () {
+        var l = TM.cur, vals = TM.values[l.id] || {};
+        if (TM.dirty) { TM.toast('Save the lesson first.', 'err'); return; }
+        var inputs = {}; l.vars.forEach(function (v) { inputs[v.name] = String(vals[v.name] == null ? '' : vals[v.name]); });
+        var runId = newId('R');
+        TM.run = { id: runId, lessonId: l.id, lessonTitle: l.title, lessonVersion: l.version, startedAt: now(), log: [], values: JSON.parse(JSON.stringify(vals)), n: 1, i: -1, state: 'start', engine: 'pad' };
+        TM.run.log.push({ at: now(), state: 'start', message: 'Handing ' + Object.keys(inputs).length + ' value(s) to Power Automate Desktop flow "' + (l.pad.flowName || l.pad.flowId) + '"' });
+        TM.paintMain();
+        hostOk('teachPadRun', { flowName: l.pad.flowName, flowId: l.pad.flowId, envId: l.pad.envId, inputs: inputs, title: l.title }).then(function (d) {
+            var r = TM.run; r.ended = true; r.final = 'launched'; r.i = 0; r.padWaiting = true;
+            r.log.push({ at: now(), state: 'ready', message: 'Started: ' + d.url });
+            TM.paintMain();
+        }).catch(function (e) {
+            var r = TM.run; r.ended = true; r.final = 'error'; r.message = String(e); r.log.push({ at: now(), state: 'error', message: String(e) });
+            TM.finishRun(r); TM.paintMain();
+        });
+    };
     TM.engineOf = function (l) { var e = l.engine || lsGet('teachme.engine', 'native'); return TM.ENGINES.some(function (x) { return x.id === e; }) ? e : 'native'; };
     TM.resolve = function (s, vals) { return String(s == null ? '' : s).replace(/\{\{\s*(\w+)\s*\}\}/g, function (m, n) { return vals[n] != null ? vals[n] : ''; }); };
     TM.startRun = function () {
@@ -639,7 +679,7 @@
         var box = $('r-live'), r = TM.run; if (!box || !r || !TM.cur || r.lessonId !== TM.cur.id) { if (box) box.innerHTML = ''; return; }
         var pct = r.n ? Math.round(Math.max(0, r.i + 1) / r.n * 100) : 0;
         var head = r.ended
-            ? ({ captured: ['ok', 'fa-circle-check', (TM.cur.capture && TM.cur.capture.label || 'Result') + ' read from the page'], ready: ['ok', 'fa-hand', 'Filled in — you pressed (or still press) the final button yourself'], finished: ['ok', 'fa-circle-check', 'All steps done'],
+            ? ({ captured: ['ok', 'fa-circle-check', (TM.cur.capture && TM.cur.capture.label || 'Result') + ' read from the page'], ready: ['ok', 'fa-hand', 'Filled in — you pressed (or still press) the final button yourself'], finished: ['ok', 'fa-circle-check', 'All steps done'], launched: ['ok', 'fa-diagram-project', 'Power Automate Desktop is running the flow (allow it if Windows asks)'],
                 stopped: ['warn', 'fa-stop', 'Stopped'], error: ['err', 'fa-triangle-exclamation', r.message || 'Failed'] }[r.final] || ['info', 'fa-info', r.final])
             : r.state === 'login' ? ['warn', 'fa-key', 'Sign in in the Teach Me window — the run carries on by itself']
             : r.state === 'pause' || r.state === 'help' ? ['warn', 'fa-hand', r.message]
@@ -648,11 +688,16 @@
             : ['info', 'fa-circle-notch fa-spin', 'Step ' + (r.i + 1) + ' of ' + r.n + (r.message ? ': ' + r.message : '')];
         box.innerHTML = '<div class="banner ' + head[0] + '"><i class="fa-solid ' + head[1] + '"></i><div class="grow">' + esc(head[2]) + (r.ended ? '' : '<div style="height:5px;background:rgba(0,0,0,.08);border-radius:3px;margin-top:6px"><div style="height:5px;border-radius:3px;background:currentColor;width:' + pct + '%"></div></div>') + '</div></div>' +
             (r.ended && r.folder ? '<div class="card"><div class="row"><i class="fa-solid fa-images" style="color:var(--accent)"></i><span>Screenshots of every step and a Playwright trace (open it with <code>playwright show-trace trace.zip</code> or trace.playwright.dev).</span><span class="grow"></span><button class="btn sm" id="r-folder"><i class="fa-regular fa-folder-open"></i> Open folder</button></div></div>' : '') +
+            (r.padWaiting ? '<div class="card"><h3><i class="fa-solid fa-hashtag"></i> When the flow is done</h3><div class="row"><input type="text" id="p-res" placeholder="' + esc(TM.cur.capture && TM.cur.capture.label || 'Result') + ' (optional)" style="flex:1"><button class="btn primary sm" id="p-save"><i class="fa-solid fa-floppy-disk"></i> Save run</button></div></div>' : '') +
             (r.captured ? '<div class="card"><h3><i class="fa-solid fa-hashtag"></i> ' + esc(TM.cur.capture.label || 'Result') + '</h3><div class="row"><span class="captured">' + esc(r.captured) + '</span><button class="btn sm" id="r-capcopy"><i class="fa-regular fa-copy"></i> Copy</button></div></div>' : '') +
             '<div class="card"><h3><i class="fa-solid fa-list-check"></i> What happened</h3><div class="log">' + r.log.map(function (x) {
                 return '<div><time>' + esc(x.at.slice(11)) + '</time><span class="chip ' + ({ done: 'ok', error: 'err', help: 'warn', pause: 'warn', login: 'warn', skip: '', ready: 'ok', captured: 'ok' }[x.state] || 'info') + '">' + esc(x.state) + '</span><span>' + esc(x.message || '') + '</span></div>';
             }).join('') + '</div></div>';
         var fo = $('r-folder'); if (fo) fo.onclick = function () { hostOk('teachRunFolder', { runId: r.folder }).catch(function (e) { TM.toast(String(e), 'err'); }); };
+        var ps = $('p-save'); if (ps) ps.onclick = function () {
+            var v = $('p-res').value.trim(); r.padWaiting = false; r.final = v ? 'captured' : 'finished'; if (v) r.captured = v;
+            r.log.push({ at: now(), state: r.final, message: v ? 'Result typed in: ' + v : 'Flow done' }); TM.finishRun(r); TM.paintMain();
+        };
         var c = $('r-capcopy'); if (c) c.onclick = function () { navigator.clipboard.writeText(r.captured).then(function () { TM.toast('Copied.'); }); };
     };
     TM.finishRun = function (r) {

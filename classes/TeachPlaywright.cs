@@ -42,7 +42,14 @@ namespace WMSApp
         public bool Headless { get; }
         private IPlaywright _pw;
         private IBrowserContext _ctx;
-        private IPage Page => _ctx.Pages.LastOrDefault(p => !p.IsClosed);
+        private volatile bool _closed;            // the person closed the Edge window (or Edge died)
+        /// <summary>The run's page, or null once the window is gone.</summary>
+        private IPage PageOrNull
+        {
+            get { try { return _ctx == null || _closed ? null : _ctx.Pages.LastOrDefault(p => !p.IsClosed); } catch { return null; } }
+        }
+        /// <summary>The run's page; a clear error (not a null reference) when the Edge window was closed.</summary>
+        private IPage Page => PageOrNull ?? throw new InvalidOperationException("The Edge window of this run was closed, so the run cannot go on. Run the lesson again (and leave the window open until it finishes).");
 
         public TeachPlaywright(string runId, bool headless)
         {
@@ -60,7 +67,11 @@ namespace WMSApp
             // the app is published as one file: Playwright looks for its driver (.playwright) next to the exe
             if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("PLAYWRIGHT_DRIVER_SEARCH_PATH")))
                 Environment.SetEnvironmentVariable("PLAYWRIGHT_DRIVER_SEARCH_PATH", AppContext.BaseDirectory);
-            _pw = await Playwright.CreateAsync();
+            try { _pw = await Playwright.CreateAsync(); }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("Playwright's driver did not start (" + ex.Message.Split('\n')[0] + "). The app folder must contain the .playwright folder - rebuild or reinstall the app. Use the Native engine meanwhile.");
+            }
             try
             {
                 var opts = new BrowserTypeLaunchPersistentContextOptions { Channel = "msedge", Headless = Headless, ViewportSize = ViewportSize.NoViewport, Args = new[] { "--start-maximized" } };
@@ -73,8 +84,10 @@ namespace WMSApp
             {
                 throw new InvalidOperationException("Playwright could not start Microsoft Edge (" + ex.Message.Split('\n')[0] + "). Is Edge installed, and is no other Playwright run using the profile? Use the Native engine meanwhile.");
             }
-            await _ctx.Tracing.StartAsync(new TracingStartOptions { Screenshots = true, Snapshots = true, Title = "Teach Me run" });
-            var page = Page ?? await _ctx.NewPageAsync();
+            _ctx.Close += (_, _) => _closed = true;
+            try { await _ctx.Tracing.StartAsync(new TracingStartOptions { Screenshots = true, Snapshots = true, Title = "Teach Me run" }); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[TeachMe] trace: " + ex.Message); }   // a run without a trace is still a run
+            var page = PageOrNull ?? await _ctx.NewPageAsync();
             await page.GotoAsync(url, new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded, Timeout = 60000 });
         }
 
@@ -82,7 +95,9 @@ namespace WMSApp
         {
             try
             {
-                var pw = Page.Locator("input[type=password]");
+                var page = PageOrNull;
+                if (page == null) return false;
+                var pw = page.Locator("input[type=password]");
                 int n = await pw.CountAsync();
                 for (int i = 0; i < Math.Min(n, 5); i++) if (await pw.Nth(i).IsVisibleAsync()) return true;
             }
@@ -186,21 +201,29 @@ namespace WMSApp
                 }
                 return new TeachStepResult { Ok = true };
             }
-            catch (PlaywrightException ex) { return new TeachStepResult { Ok = false, Error = ex.Message.Split('\n')[0] }; }
+            catch (PlaywrightException ex)
+            {
+                _ = Page;                    // the window was closed during the step: say so instead of "Target closed"
+                return new TeachStepResult { Ok = false, Error = ex.Message.Split('\n')[0] };
+            }
         }
 
         public async Task AfterStepAsync(int index, string op, CancellationToken ct)
         {
-            try { await Page.WaitForLoadStateAsync(LoadState.DOMContentLoaded, new PageWaitForLoadStateOptions { Timeout = 30000 }); } catch { }
+            var page = Page;
+            try { await page.WaitForLoadStateAsync(LoadState.DOMContentLoaded, new PageWaitForLoadStateOptions { Timeout = 30000 }); } catch { }
             if (op == "click" || op == "key") await Task.Delay(500, ct);
-            try { await Page.ScreenshotAsync(new PageScreenshotOptions { Path = Path.Combine(Folder, "step-" + (index + 1).ToString("00") + ".png") }); } catch { }
+            page = PageOrNull;               // a click may have opened a new tab
+            if (page == null) return;
+            try { await page.ScreenshotAsync(new PageScreenshotOptions { Path = Path.Combine(Folder, "step-" + (index + 1).ToString("00") + ".png") }); } catch { }
         }
 
         public async Task<string> ScanAsync(string regex)
         {
             Regex re;
             try { re = new Regex(regex, RegexOptions.None, TimeSpan.FromSeconds(2)); } catch { return null; }
-            foreach (var f in Page.Frames)
+            var page = Page;
+            foreach (var f in page.Frames)
             {
                 try
                 {
@@ -215,11 +238,17 @@ namespace WMSApp
 
         public async Task CloseAsync(bool keepOpen)
         {
-            try { if (_ctx != null) await _ctx.Tracing.StopAsync(new TracingStopOptions { Path = Path.Combine(Folder, "trace.zip") }); } catch { }
-            try { if (_ctx != null) await Page.ScreenshotAsync(new PageScreenshotOptions { Path = Path.Combine(Folder, "last.png") }); } catch { }
+            if (_ctx != null && !_closed)
+            {
+                try { await _ctx.Tracing.StopAsync(new TracingStopOptions { Path = Path.Combine(Folder, "trace.zip") }); } catch { }
+                var page = PageOrNull;
+                if (page != null) try { await page.ScreenshotAsync(new PageScreenshotOptions { Path = Path.Combine(Folder, "last.png") }); } catch { }
+            }
             if (keepOpen) return;          // the person still works in the window (e.g. presses Submit); it closes with the window
-            try { if (_ctx != null) await _ctx.CloseAsync(); } catch { }
+            try { if (_ctx != null && !_closed) await _ctx.CloseAsync(); } catch { }
             try { _pw?.Dispose(); } catch { }
+            _ctx = null; _pw = null;
+            if (_last == this) _last = null;
         }
     }
 }

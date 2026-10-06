@@ -28,6 +28,10 @@ namespace WMSApp
     ///   teachContinue / teachStop
     ///   engine           native (the Teach Me window) or playwright / playwright-headless (TeachPlaywright: installed Edge,
     ///                    own profile, screenshots + trace per run; teachRunFolder opens them)
+    ///   teachPadRun      engine "Power Automate Desktop": starts a desktop flow the person built in PAD through its URL
+    ///                    launcher (ms-powerautomate:/console/flow/run?…), the lesson's variables as the flow's input
+    ///                    arguments. PAD runs it on its own (Windows asks to confirm the first time); nothing comes back
+    ///                    to the app, so the person types the result in.
     ///   teachAiFill      Claude fills the lesson's variables from the person's notes (kill switch, audited TEACHME)
     /// </summary>
     public partial class Form1
@@ -88,6 +92,7 @@ namespace WMSApp
                             data = new { ok = true, runId };
                             break;
                         }
+                    case "teachPadRun": data = TeachPadRun(root, user); break;
                     case "teachContinue": _tmContinue?.TrySetResult(true); data = new { ok = true }; break;
                     case "teachStop":
                         _tmRunCts?.Cancel();
@@ -116,6 +121,40 @@ namespace WMSApp
                 data = new { ok = false, error = ex.Message };
             }
             PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "teachResponse", requestId, data }));
+        }
+
+        /// <summary>Starts a Power Automate Desktop flow by URL with the lesson's values as input arguments.</summary>
+        private object TeachPadRun(JsonElement root, string user)
+        {
+            string flowId = (PStr(root, "flowId") ?? "").Trim(), envId = (PStr(root, "envId") ?? "").Trim(), flowName = (PStr(root, "flowName") ?? "").Trim();
+            if (flowId.Length > 0 && !Guid.TryParse(flowId, out _)) return new { ok = false, error = "The flow id must look like 1a2b3c4d-…  (Power Automate Desktop › flow › Properties › Details, \"Run URL\")." };
+            if (envId.Length > 0 && !System.Text.RegularExpressions.Regex.IsMatch(envId, "^[A-Za-z0-9-]{1,80}$")) return new { ok = false, error = "The environment id has characters it cannot have." };
+            if (flowId.Length == 0 && (flowName.Length == 0 || flowName.Length > 200)) return new { ok = false, error = "Give the flow's name (as in Power Automate Desktop) or its id." };
+            var inputs = new Dictionary<string, string>();
+            if (root.TryGetProperty("inputs", out var inp) && inp.ValueKind == JsonValueKind.Object)
+                foreach (var p in inp.EnumerateObject())
+                {
+                    if (inputs.Count >= 50) break;
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(p.Name, "^[A-Za-z_][A-Za-z0-9_]{0,60}$")) continue;   // PAD variable names
+                    string v = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : p.Value.ToString();
+                    inputs[p.Name] = v.Length > 8000 ? v.Substring(0, 8000) : v;
+                }
+            var url = new StringBuilder("ms-powerautomate:/console/flow/run?");
+            if (flowId.Length > 0) { if (envId.Length > 0) url.Append("environmentid=").Append(envId).Append('&'); url.Append("workflowid=").Append(flowId); }
+            else url.Append("workflowName=").Append(Uri.EscapeDataString(flowName));
+            url.Append("&source=Other");
+            if (inputs.Count > 0) url.Append("&inputArguments=").Append(Uri.EscapeDataString(JsonSerializer.Serialize(inputs)));
+            if (url.Length > 30000) return new { ok = false, error = "The values are too long to hand to Power Automate Desktop (URL limit) - shorten the long texts." };
+            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "TEACHME", Action = "teach_pad_run", Detail = (PStr(root, "title") ?? "") + " · flow " + (flowId.Length > 0 ? flowId : flowName) + " · " + inputs.Count + " input(s)" });
+            try { Process.Start(new ProcessStartInfo(url.ToString()) { UseShellExecute = true }); }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                return new { ok = false, error = "Windows has no Power Automate Desktop to hand the flow to. Install Power Automate (free with Windows 10/11, Microsoft Store), sign in once, then try again." };
+            }
+            // the URL with the values left out - for the log
+            string shown = url.ToString(); int ia = shown.IndexOf("&inputArguments=", StringComparison.Ordinal);
+            if (ia > 0) shown = shown.Substring(0, ia) + "&inputArguments=(" + inputs.Count + " values)";
+            return new { ok = true, url = shown, inputs = inputs.Keys };
         }
 
         private static bool TeachUrlOk(string url) =>
@@ -382,7 +421,9 @@ namespace WMSApp
                     while (DateTime.UtcNow < until && captured == null)
                     {
                         ct.ThrowIfCancellationRequested();
-                        var v = await d.ScanAsync(capture);
+                        string v;
+                        try { v = await d.ScanAsync(capture); }
+                        catch (InvalidOperationException) when (stoppedForPerson) { message = "The browser window was closed before the result appeared."; keepOpen = false; break; }
                         if (!string.IsNullOrEmpty(v)) captured = v;
                         else await Task.Delay(2500, ct);
                     }
