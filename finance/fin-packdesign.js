@@ -190,8 +190,8 @@
         return P().build(D.cur, function (m) { if ($('pk-pstat')) $('pk-pstat').textContent = m; }).then(function (b) {
             if (n !== D._n) return;
             D.built = b; D.builtFor = JSON.stringify(D.cur) + FL.filter.period + FL.filterText();
-            var keep = (f.contentWindow && f.contentWindow.location && f.contentWindow.location.hash) || '';
-            f.srcdoc = b.html + (keep ? '<script>location.hash=' + JSON.stringify(keep) + '<\/script>' : '');
+            var keep = ''; try { var on = f.contentDocument && f.contentDocument.querySelector('section.on'); keep = on ? on.id : ''; } catch (e) { /* not loaded */ }
+            f.srcdoc = keep ? b.html.replace('<script>', '<script>window.PACK_START=' + JSON.stringify(keep) + ';') : b.html;   // stay on the section shown
             $('pk-pstat').textContent = b.sections.length + ' sections · ' + Math.round(b.html.length / 1024) + ' KB';
         }).catch(function (e) { if ($('pk-pstat')) $('pk-pstat').textContent = 'failed: ' + (e && e.message || e); console.error(e); });
     };
