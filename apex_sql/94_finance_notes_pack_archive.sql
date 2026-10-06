@@ -64,3 +64,25 @@ CREATE TABLE wms_fin_pack_events (
     detail     VARCHAR2(4000)
 );
 CREATE INDEX wms_fin_pack_events_ix ON wms_fin_pack_events (archive_id);
+
+-- The seal (also installed by the page): once a pack's fingerprint is written (the last step of a save), its file, fingerprint and
+-- figures cannot be changed and no pack can be deleted — an admin voids it instead (status / void_reason may change). Events are
+-- append-only.
+CREATE OR REPLACE TRIGGER wms_fin_pack_archive_seal
+BEFORE UPDATE OR DELETE ON wms_fin_pack_archive FOR EACH ROW
+BEGIN
+    IF DELETING THEN
+        RAISE_APPLICATION_ERROR(-20901, 'Archived board packs cannot be deleted - void them instead');
+    END IF;
+    IF :OLD.sha256 IS NOT NULL AND (UPDATING('HTML') OR UPDATING('SHA256') OR UPDATING('MODEL_JSON') OR UPDATING('DESIGN_JSON')
+        OR UPDATING('SAVED_BY') OR UPDATING('SAVED_AT') OR UPDATING('PERIOD_SEQ') OR UPDATING('LEDGER_CODE')) THEN
+        RAISE_APPLICATION_ERROR(-20902, 'This board pack is sealed: its file, fingerprint and figures cannot be changed');
+    END IF;
+END;
+/
+CREATE OR REPLACE TRIGGER wms_fin_pack_events_seal
+BEFORE UPDATE OR DELETE ON wms_fin_pack_events FOR EACH ROW
+BEGIN
+    RAISE_APPLICATION_ERROR(-20903, 'Board pack events can only be added');
+END;
+/

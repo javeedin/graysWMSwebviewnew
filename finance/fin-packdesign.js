@@ -87,13 +87,19 @@
             if (!confirm('Delete the board pack design "' + D.cur.name + '"?')) return;
             D.doc.packs = D.doc.packs.filter(function (p) { return p !== D.cur; }); D.cur = D.doc.packs[0]; D.store().then(D.paint);
         };
-        $('pk-dl').onclick = function () { D.ensureBuilt().then(function (b) { FL.download(b.file, new Blob([b.html], { type: 'text/html' })); setTimeout(function () { FL.packArchive.ask(D.cur, b, { event: 'DOWNLOADED', detail: b.file }); }, 600); }); };
+        $('pk-dl').onclick = function () {
+            D.ensureBuilt().then(function (b) {
+                var st = FL.packs.stamp(b, { kind: 'DOWNLOAD', by: (FL.who && FL.who.user) || '' });
+                FL.download(st.file, new Blob([st.html], { type: 'text/html' }));
+                setTimeout(function () { FL.packArchive.ask(D.cur, st, { event: 'DOWNLOADED', detail: st.file }); }, 600);
+            });
+        };
         $('pk-mail').onclick = function () {
             D.ensureBuilt().then(function (b) {
                 FL.mail.compose(D.cur, b, function (r) {
                     D.cur.lastSent = new Date().toISOString().slice(0, 10); D.store();
                     var e = D.cur.email || {};
-                    setTimeout(function () { FL.packArchive.ask(D.cur, b, { event: 'EMAILED', detail: (r.result === 'draft' ? 'opened in Outlook for ' : 'sent to ') + [e.to, e.cc].filter(Boolean).join('; ') + ' via ' + r.via + (r.by ? ' (' + r.by + ')' : '') }); }, 1300);
+                    setTimeout(function () { FL.packArchive.ask(D.cur, r.stamped || b, { event: 'EMAILED', detail: (r.result === 'draft' ? 'opened in Outlook for ' : 'sent to ') + [e.to, e.cc].filter(Boolean).join('; ') + ' via ' + r.via + (r.by ? ' (' + r.by + ')' : '') }); }, 1300);
                 });
             });
         };

@@ -123,21 +123,28 @@
             ['mc-intro', 'mc-tiles', 'mc-lines', 'mc-chart', 'mc-hl', 'mc-att', 'mc-logo'].filter($).forEach(function (id) { $(id).oninput = $(id).onchange = function () { clearTimeout(M._pt); M._pt = setTimeout(paint, 250); }; });
             paint();
             var send = function (how, display) {
-                var o = opts(true), mail = FL.packs.emailHtml(pack, built.model, o), att = [];
-                if (o.attached) att.push({ name: built.file, contentType: 'text/html', base64: b64(built.html) });
-                if (o.logo) att.push({ name: 'logo.png', contentType: 'image/png', cid: LOGO, base64: built.model.logo.png.split(',')[1] });
-                if (o.chart) att.push({ name: 'trend.png', contentType: 'image/png', cid: CID, base64: built.model.trendPng.split(',')[1] });
                 var to2 = $('mc-to').value.trim();
                 if (!to2 && !(how === 'OUTLOOK' && display)) { FL.toast('Add at least one recipient', 'err'); $('mc-to').focus(); return; }
                 Object.assign(pack.email, { to: to2, cc: $('mc-cc').value.trim(), bcc: $('mc-bcc').value.trim(), subject: subjTemplate(pack, $('mc-subj').value, built), intro: $('mc-intro').value,
                     tiles: $('mc-tiles').checked, lines: $('mc-lines').checked, chart: $('mc-chart').checked, hl: $('mc-hl').checked, logo: !$('mc-logo') || $('mc-logo').checked, attach: $('mc-att').checked });
                 var btns = document.querySelectorAll('#mc-send, #mc-review'); btns.forEach(function (b) { b.disabled = true; });
                 $('mc-msg').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> ' + (display ? 'Opening Outlook…' : 'Sending…');
-                FL.call('finMailSend', { method: how, display: !!display, to: to2, cc: pack.email.cc, bcc: pack.email.bcc, subject: $('mc-subj').value, html: mail.html, attachments: att }, 600000).then(function (r) {
-                    var txt = r.result === 'draft' ? 'Opened in Outlook — check it and press Send there.' : 'Sent' + (r.by ? ' from ' + r.by : '') + ' to ' + to2;
-                    $('mc-msg').innerHTML = '<span class="pos">✓ ' + esc(txt) + '</span>'; FL.toast(txt, 'ok');
-                    if (onSent) onSent(r);
-                    if (r.result !== 'draft') setTimeout(FL.closeModal, 1200);
+                // the copy that leaves: the pack + its distribution page and document ID; its fingerprint goes in the e-mail and the archive
+                var via = { GRAPH: 'Microsoft 365', SMTP: 'SMTP', OUTLOOK: 'Outlook' }[how] || how;
+                var stamped = FL.packs.stamp(built, { to: to2, cc: pack.email.cc, by: (M.st && M.st.graphAccount) || (FL.who && FL.who.user) || '', via: via, kind: 'EMAIL' });
+                FL.packArchive.sha256(stamped.html).then(function (sha) {
+                    var o = opts(true); o.fingerprint = $('mc-att').checked ? sha : null; o.docId = stamped.docId; if (o.attached) o.attached = stamped.file;
+                    var mail = FL.packs.emailHtml(pack, built.model, o), att = [];
+                    if (o.attached) att.push({ name: stamped.file, contentType: 'text/html', base64: b64(stamped.html) });
+                    if (o.logo) att.push({ name: 'logo.png', contentType: 'image/png', cid: LOGO, base64: built.model.logo.png.split(',')[1] });
+                    if (o.chart) att.push({ name: 'trend.png', contentType: 'image/png', cid: CID, base64: built.model.trendPng.split(',')[1] });
+                    return FL.call('finMailSend', { method: how, display: !!display, to: to2, cc: pack.email.cc, bcc: pack.email.bcc, subject: $('mc-subj').value, html: mail.html, attachments: att }, 600000).then(function (r) {
+                        var txt = r.result === 'draft' ? 'Opened in Outlook — check it and press Send there.' : 'Sent' + (r.by ? ' from ' + r.by : '') + ' to ' + to2;
+                        $('mc-msg').innerHTML = '<span class="pos">✓ ' + esc(txt) + '</span>'; FL.toast(txt, 'ok');
+                        r.stamped = stamped; r.sha = sha;
+                        if (onSent) onSent(r);
+                        if (r.result !== 'draft') setTimeout(FL.closeModal, 1200);
+                    });
                 }).catch(function (e2) { $('mc-msg').innerHTML = '<span class="neg">✗ ' + esc(String(e2 && e2.message || e2)) + '</span>'; })
                     .then(function () { btns.forEach(function (b) { b.disabled = false; }); });
             };

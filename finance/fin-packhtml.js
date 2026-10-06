@@ -245,7 +245,7 @@
             var keepScale = FL.filter.scale; if (pack.scale) FL.filter.scale = +pack.scale;
             var html = page(pack, first.th, first.pname, out, first.lg); FL.filter.scale = keepScale;
             var file = ((pack.title || pack.name || 'Board pack') + ' ' + first.pname + (multi ? ' ' + parts.length + ' ledgers' : '')).replace(/[^\w .-]+/g, '').replace(/\s+/g, ' ').trim() + '.html';
-            return { html: html, file: file, model: model, sections: out.map(function (x) { return (x.group ? x.group + ' › ' : '') + x.sec.title; }) };
+            return { html: html, file: file, model: model, sections: out.map(function (x) { return (x.group ? x.group + ' › ' : '') + x.sec.title; }), _pg: { pack: pack, th: first.th, pname: first.pname, out: out, lg: first.lg, scale: pack.scale } };
         }).catch(function (e) { restore(); throw e; });
     };
     function buildOne(pack, onStep, raw) {
@@ -296,7 +296,7 @@
                     if (sec.type === 'summary') {
                         var o = sec.opts || {};
                         var h = '<div class="hero"><div><div class="eyebrow">' + esc(pack.company || '') + '</div><h1>' + esc(pack.title || pack.name) + '</h1><div class="per">' + esc(pname) + '</div>' +
-                            '<div class="meta">' + esc(model.filter) + ' · amounts in ' + esc(model.scaleLabel) + (pack.by ? ' · prepared by ' + esc(pack.by) : '') + ' · ' + new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) + '</div></div>' +
+                            '<div class="meta">' + esc(model.filter) + ' · amounts in ' + esc(model.scaleLabel) + (pack.by ? ' · prepared by ' + esc(pack.by) : '') + ' · ' + new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) + '</div>' + '<!--DIST-->' + '</div>' +
                             (lg ? '<img class="logo" src="' + esc(lg.src) + '" alt="" style="' + P.logoCss(lg, 'cover') + '">' : '') + '</div>';
                         if (o.kpis !== false && tiles.length) h += '<div class="tiles">' + tiles.map(function (t) { return '<div class="tile"><div class="tl">' + esc(t.label) + '</div><div class="tv">' + t.value + '</div><div class="td ' + (t.good == null ? '' : t.good ? 'pos' : 'neg') + '">' + esc(t.delta) + '</div></div>'; }).join('') + '</div>';
                         if (o.note) h += '<h3>Commentary</h3><div class="note">' + md(o.note) + '</div>';
@@ -350,13 +350,13 @@
             return chain.then(function () {
                 var file = ((pack.title || pack.name || 'Board pack') + ' ' + pname).replace(/[^\w .-]+/g, '').replace(/\s+/g, ' ').trim() + '.html';
                 if (raw) return done({ out: out, model: model, lg: lg, pname: pname, th: th });
-                return done({ html: page(pack, th, pname, out, lg), file: file, model: model, sections: out.map(function (x) { return x.sec.title; }) });
+                return done({ html: page(pack, th, pname, out, lg), file: file, model: model, sections: out.map(function (x) { return x.sec.title; }), _pg: { pack: pack, th: th, pname: pname, out: out, lg: lg, scale: pack.scale } });
             });
         }).catch(function (e) { done(); throw e; });
     }
 
     /** The self-contained interactive page */
-    function page(pack, th, pname, out, lg) {
+    function page(pack, th, pname, out, lg, dist) {
         var css = ':root{--a:' + th.a + ';--b:' + th.b + ';--c:' + th.c + ';--bg:#f4f6fb;--card:#fff;--ink:#0f172a;--mut:#64748b;--line:#e5e9f2;--row:#f8fafc}' +
             'html[data-theme=dark]{--bg:#0b1020;--card:#121a2e;--ink:#e5e9f5;--mut:#93a0bb;--line:#24304d;--row:#17213a}' +
             '*{box-sizing:border-box}body{margin:0;font:14px/1.5 "Segoe UI",system-ui,-apple-system,Arial,sans-serif;background:var(--bg);color:var(--ink)}' +
@@ -384,7 +384,7 @@
             'tr.none td{text-align:center!important;color:var(--mut);padding:18px}.prose{max-width:820px}.prose h2.mh{font-size:20px}.pnotes{margin-top:18px}.pnotes h4{margin:0 0 8px;color:var(--a)}.pnote{display:flex;gap:12px;background:var(--row);border-left:4px solid var(--b);border-radius:8px;padding:9px 14px;margin:6px 0;font-size:13px}.pnote p{margin:3px 0}.pno{font-weight:800;color:var(--mut);min-width:18px}.pnh{font-size:12px;margin-bottom:2px}sup.nref{color:var(--b);font-weight:700;font-size:10px}.foot{color:var(--mut);font-size:12px;margin-top:26px;text-align:center}.foot .pw{margin-top:6px;font-size:12.5px;letter-spacing:.02em}.foot .pw b{color:var(--b)}html[data-theme=dark] .foot .pw b{color:#93c5fd}nav .pwn{font-size:11px;opacity:.65;text-align:center;padding-top:8px}.mtop{display:none}' +
             '@media (max-width:860px){.app{grid-template-columns:1fr}nav{position:sticky;height:auto;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;padding:8px;z-index:5}nav .co,nav .tt,nav .pp,nav .grow,nav .logo,nav .pwn{display:none}nav .ng{border:0;margin:0;padding:8px 6px;white-space:nowrap}nav a{white-space:nowrap;padding:8px 10px}nav .tools{border:0;padding:0}main{padding:16px}table.st td:first-child{min-width:170px}.two{grid-template-columns:1fr}.hero{padding:20px}.sh input{width:100%}}' +
             '@media print{@page{size:A4 landscape;margin:10mm}nav,.sh input,.sh .btn{display:none!important}.app{display:block}main{padding:0}section{display:none;page-break-after:always}section.on,body.all section{display:block}tr.acc.show{display:table-row}.card{border:0;box-shadow:none;padding:0}table.st th{background:#13315c!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}.hero,.tile{-webkit-print-color-adjust:exact;print-color-adjust:exact}}';
-        var nav = out.map(function (x, k) { var t = P.TYPES[x.sec.type] || {}; return (x.group && (!k || out[k - 1].group !== x.group) ? '<div class="ng">' + esc(x.group) + '</div>' : '') + '<a data-s="' + k + '" href="#' + esc(x.sec.id) + '">' + P.svg(t.icon) + '<span>' + esc(x.sec.title) + '</span></a>'; }).join('');
+        var nav = out.map(function (x, k) { var t = P.TYPES[x.sec.type] || {}; if (x.sec.icon) t = { icon: x.sec.icon }; return (x.group && (!k || out[k - 1].group !== x.group) ? '<div class="ng">' + esc(x.group) + '</div>' : '') + '<a data-s="' + k + '" href="#' + esc(x.sec.id) + '">' + P.svg(t.icon) + '<span>' + esc(x.sec.title) + '</span></a>'; }).join('');
         var secs = out.map(function (x, k) {
             var tools = (x.search ? '<input type="search" placeholder="Search this page…" data-q="' + k + '">' : '') + (x.collapsible ? '<button class="btn" data-x="' + k + '" title="Open or close every line">Expand all</button>' : '') +
                 (x.csv ? '<button class="btn" data-csv="' + k + '">' + P.svg('dl', 14) + ' CSV</button>' : '') + '<button class="btn" data-pr="1">' + P.svg('print', 14) + ' Print</button>';
@@ -411,8 +411,36 @@
             '<title>' + esc((pack.title || pack.name) + ' — ' + pname) + '</title><style>' + css + '</style></head><body><div class="app"><nav>' +
             (lg ? '<img class="logo" src="' + esc(lg.src) + '" alt="" style="' + P.logoCss(lg, 'menu') + '">' : '') + '<div class="co">' + esc(pack.company || '') + '</div><div class="tt">' + esc(pack.title || pack.name) + '</div><div><span class="pp">' + esc(pname) + '</span></div>' + nav +
             '<span class="grow"></span><div class="tools"><button id="prall" title="Print every page of the pack">' + P.svg('print', 14) + ' Print all</button><button id="theme" title="Light / dark">' + P.svg('moon', 14) + '</button></div><div class="pwn">Powered by Fusion Client</div></nav>' +
-            '<main>' + secs + '<div class="foot">' + esc(pack.company || '') + ' · ' + esc(pack.title || pack.name) + ' · ' + esc(pname) + ' · generated on ' + esc(new Date().toLocaleString('en-GB')) + ' from the general ledger<div class="pw">Powered by <b>Fusion Client</b></div></div></main></div><script>' + js + '</script></body></html>';
+            '<main>' + (dist ? secs.split('<!--DIST-->').join('<div class="meta" style="margin-top:8px">Document ' + esc(dist.docId) + (dist.to.length + dist.cc.length ? ' · issued to ' + esc(dist.to.concat(dist.cc).slice(0, 4).join(', ') + (dist.to.length + dist.cc.length > 4 ? ' and ' + (dist.to.length + dist.cc.length - 4) + ' more' : '')) : '') + '</div>') : secs) +
+            '<div class="foot">' + (dist ? 'Document ' + esc(dist.docId) + ' · ' : '') + esc(pack.company || '') + ' · ' + esc(pack.title || pack.name) + ' · ' + esc(pname) + ' · generated on ' + esc(new Date().toLocaleString('en-GB')) + ' from the general ledger<div class="pw">Powered by <b>Fusion Client</b></div></div></main></div><script>' + js + '</script></body></html>';
     }
+
+    /** A document ID for one issued copy: BP-yyyymmdd-XXXX */
+    P.docId = function () { var d = new Date(), p = function (x) { return String(x).padStart(2, '0'); }; return 'BP-' + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + Math.random().toString(36).slice(2, 6).toUpperCase(); };
+    /** The copy that leaves the app: the pack + a "Distribution & control" page (document ID, who it went to, by whom, how, when) and a
+        line on the cover. info = {docId, to, cc, by, via, kind: 'EMAIL' | 'DOWNLOAD', status}. Bcc is never written into the document.
+        → a new built object {html, file, model, sections, docId, distribution} — fingerprint THIS html (the stamp is part of it). */
+    P.stamp = function (built, info) {
+        var g = built._pg; if (!g) return built;
+        info = info || {}; var docId = info.docId || P.docId(), when = new Date().toLocaleString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        var FLs = function (list) { try { return (list || '').split(/[;,\n]/).map(function (a) { return a.trim(); }).filter(Boolean); } catch (e) { return []; } };
+        var to = FLs(info.to), cc = FLs(info.cc), rows = to.map(function (a) { return ['To', a]; }).concat(cc.map(function (a) { return ['Cc', a]; }));
+        var dist = { docId: docId, to: to, cc: cc, by: info.by || '', via: info.via || '', kind: info.kind || 'EMAIL', at: when };
+        var html = '<div class="card"><table class="st kp"><tbody>' +
+            [['Document ID', '<b>' + esc(docId) + '</b>'], ['Board pack', esc((g.pack.title || g.pack.name) + ' · ' + g.pname)], ['Covers', esc(built.model.ledgerName || built.model.filter)],
+                ['Issued', esc(when)], ['Issued by', esc(dist.by || (FL.who && FL.who.user) || '')], ['How', esc(dist.kind === 'EMAIL' ? 'E-mail' + (dist.via ? ' (' + dist.via + ')' : '') : 'Downloaded file')]]
+                .map(function (r) { return '<tr><td class="l" style="width:200px;color:var(--mut)">' + r[0] + '</td><td class="l">' + r[1] + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+            (rows.length ? '<h3>Distribution list</h3><div class="card"><table class="st kp"><thead><tr><th class="l" style="width:80px"></th><th class="l">Recipient</th></tr></thead><tbody>' +
+                rows.map(function (r) { return '<tr><td class="l">' + r[0] + '</td><td class="l">' + esc(r[1]) + '</td></tr>'; }).join('') + '</tbody></table></div>' :
+                '<h3>Distribution list</h3><p class="muted">This copy was ' + (dist.kind === 'DOWNLOAD' ? 'downloaded' : 'issued') + ' without a recorded list of recipients.</p>') +
+            '<h3>Checking this document</h3><div class="note"><p>This copy is recorded in the Finance Lens board pack archive under <b>' + esc(docId) + '</b>. Its SHA-256 fingerprint is written in the e-mail it came with and in the archive; ' +
+            'Finance Lens › Board packs › Archive › <i>Verify</i> recomputes it — the same fingerprint means this is exactly the file that was issued.</p></div>';
+        var out = g.out.concat([{ sec: { id: 'distribution', type: 'text', title: 'Distribution & control' }, html: html, group: '' }]);
+        out[out.length - 1].sec.icon = 'bell';
+        var keep = FL.filter.scale; if (g.scale) FL.filter.scale = +g.scale;
+        var page2 = page(g.pack, g.th, g.pname, out, g.lg, dist); FL.filter.scale = keep;
+        return Object.assign({}, built, { html: page2, docId: docId, distribution: dist, sections: built.sections.concat(['Distribution & control']), file: built.file.replace(/\.html$/, ' ' + docId + '.html') });
+    };
 
     /** Outlook-safe message body. opts: {intro, tiles, keyLines, highlights, chart: 'cid:…' | data URL | null, attached: file name} */
     P.emailHtml = function (pack, model, opts) {
@@ -459,6 +487,8 @@
         if (hl.length) h += '<tr><td style="padding:12px 30px 4px;' + F + 'font-size:15px;font-weight:bold;color:' + th.a + '">Highlights</td></tr><tr><td style="padding:2px 30px 8px;' + F + 'font-size:13px;line-height:1.55;color:#1e293b"><ul style="margin:0;padding-left:18px">' + hl.slice(0, 8).map(function (x) { return '<li style="margin:3px 0">' + esc(x) + '</li>'; }).join('') + '</ul></td></tr>';
         if (opts.attached) h += '<tr><td style="padding:14px 30px 8px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f1f5f9;border-radius:8px"><tr><td style="padding:12px 16px;' + F + 'font-size:13px;color:#0f172a">' +
             '&#128206; <b>The full interactive pack is attached:</b> ' + esc(opts.attached) + '<br><span style="color:#64748b">Open it in any browser — the menu on the left shows the ' + esc((opts.sections || []).join(', ')) + '. Lines open into accounts, every table has search and CSV, and Print gives the whole pack.</span></td></tr></table></td></tr>';
+        if (opts.fingerprint) h += '<tr><td style="padding:10px 30px 4px;' + F + 'font-size:11px;color:#64748b">Document <b>' + esc(opts.docId || '') + '</b> &middot; fingerprint (SHA-256) of the attached pack:<br><span style="font-family:Consolas,monospace;font-size:10.5px;color:#334155;word-break:break-all">' + esc(opts.fingerprint) + '</span><br>' +
+            'Keep this e-mail: the same fingerprint in Finance Lens › Board packs › Archive › Verify proves the pack has not been changed since it was sent.</td></tr>';
         h += '<tr><td style="padding:18px 30px 24px;' + F + 'font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0">' + esc(pack.company || '') + ' &middot; ' + esc(pack.title || pack.name) + ' &middot; ' + esc(model.period) + ' &middot; from the general ledger<div style="margin-top:6px;font-size:12px;color:#64748b">Powered by <b style="color:' + th.b + '">Fusion Client</b></div></td></tr>' +
             '</table></td></tr></table></body></html>';
         return { html: h, subject: fill((pack.email || {}).subject || '{TITLE} · {PERIOD}') };

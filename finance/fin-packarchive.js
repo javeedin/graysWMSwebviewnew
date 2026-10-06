@@ -24,13 +24,30 @@
             'saved_by VARCHAR2(100), saved_at VARCHAR2(30), CONSTRAINT wms_fin_pack_archive_pk PRIMARY KEY (archive_id))',
         WMS_FIN_PACK_EVENTS: 'CREATE TABLE wms_fin_pack_events (archive_id VARCHAR2(60) NOT NULL, event_at VARCHAR2(30), event_by VARCHAR2(100), event VARCHAR2(20), detail VARCHAR2(4000))'
     };
+    // Once a pack is sealed (its fingerprint written, the last step of a save) the database refuses any change to the file, the
+    // fingerprint and the figures, and any delete — only status / void reason may change. Events can only be added.
+    var SEAL = ["CREATE OR REPLACE TRIGGER wms_fin_pack_archive_seal BEFORE UPDATE OR DELETE ON wms_fin_pack_archive FOR EACH ROW BEGIN " +
+        "IF DELETING THEN RAISE_APPLICATION_ERROR(-20901, 'Archived board packs cannot be deleted - void them instead'); END IF; " +
+        "IF :OLD.sha256 IS NOT NULL AND (UPDATING('HTML') OR UPDATING('SHA256') OR UPDATING('MODEL_JSON') OR UPDATING('DESIGN_JSON') OR UPDATING('SAVED_BY') OR UPDATING('SAVED_AT') OR UPDATING('PERIOD_SEQ') OR UPDATING('LEDGER_CODE')) THEN " +
+        "RAISE_APPLICATION_ERROR(-20902, 'This board pack is sealed: its file, fingerprint and figures cannot be changed'); END IF; END;",
+        "CREATE OR REPLACE TRIGGER wms_fin_pack_events_seal BEFORE UPDATE OR DELETE ON wms_fin_pack_events FOR EACH ROW BEGIN " +
+        "RAISE_APPLICATION_ERROR(-20903, 'Board pack events can only be added'); END;"];
+    R.sealed = null;
+    R.ensureSeal = function () {
+        return A().read("SELECT trigger_name, status FROM user_triggers WHERE trigger_name IN ('WMS_FIN_PACK_ARCHIVE_SEAL', 'WMS_FIN_PACK_EVENTS_SEAL')").then(function (rows) {
+            if (rows.length === 2 && rows.every(function (r) { return r.STATUS === 'ENABLED'; })) { R.sealed = true; return; }
+            return SEAL.reduce(function (p, q) { return p.then(function () { return A().write(q); }); }, Promise.resolve())
+                .then(function () { return A().read("SELECT COUNT(*) n FROM user_triggers WHERE trigger_name IN ('WMS_FIN_PACK_ARCHIVE_SEAL', 'WMS_FIN_PACK_EVENTS_SEAL') AND status = 'ENABLED'"); })
+                .then(function (r) { R.sealed = !!(r.length && +r[0].N === 2); });
+        }).catch(function (e) { R.sealed = false; console.warn('[Archive] database seal not installed:', e); });
+    };
     var ready = null;
     R.ensure = function () {
         if (ready) return ready;
         ready = A().read("SELECT table_name FROM user_tables WHERE table_name IN ('WMS_FIN_PACK_ARCHIVE', 'WMS_FIN_PACK_EVENTS')").then(function (rows) {
             var have = {}; rows.forEach(function (r) { have[r.TABLE_NAME] = 1; });
             return Object.keys(TABLES).filter(function (t) { return !have[t]; }).reduce(function (p, t) { return p.then(function () { return A().write(TABLES[t]); }); }, Promise.resolve());
-        }).catch(function (e) { ready = null; throw e; });
+        }).then(function () { return R.ensureSeal(); }).catch(function (e) { ready = null; throw e; });
         return ready;
     };
 
@@ -69,9 +86,9 @@
     };
     /** Saves a built pack: rec = {pack, built, status, meeting, comments, event, detail}; onStep(done, total) */
     R.save = function (rec, onStep) {
-        var b = rec.built, m = b.model, pack = rec.pack, id = 'bp' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        var b = rec.built, m = b.model, pack = rec.pack, id = b.docId || ('bp' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
         var model = { period: m.period, per: m.per, ledger: m.ledger, ledgerName: m.ledgerName, company: m.company, filter: m.filter, scaleLabel: m.scaleLabel, tiles: m.tiles, keyLines: m.keyLines,
-            highlights: m.highlights, attention: m.attention, sections: b.sections, notes: FL.notes && FL.notes.all ? (FL.notes.all || []).filter(function (n) { return !n.removed && (n.scope === 'GLOBAL' || +n.period === +m.per); }).map(function (n) { return { kind: n.kind, title: n.title, line: n.rowLabel, body: n.body, scope: n.scope }; }) : [] };
+            highlights: m.highlights, attention: m.attention, sections: b.sections, distribution: b.distribution || null, ledgers: m.ledgers || null, notes: FL.notes && FL.notes.all ? (FL.notes.all || []).filter(function (n) { return !n.removed && (n.scope === 'GLOBAL' || +n.period === +m.per); }).map(function (n) { return { kind: n.kind, title: n.title, line: n.rowLabel, body: n.body, scope: n.scope }; }) : [] };
         var design = Object.assign({}, pack); delete design.logo;   // the logo is in the HTML already
         var html = b.html, chunks = []; for (var i = 0; i < html.length; i += 20000) chunks.push(html.slice(i, i + 20000));
         var total = chunks.length + 4, done = 0, tick = function () { done++; if (onStep) onStep(done, total); };
@@ -79,13 +96,14 @@
             rec.sha = sha;
             var cols = { pack_id: lit(cut(pack.id, 60)), pack_name: lit(cut(pack.name, 200)), title: lit(cut(pack.title || pack.name, 300)), company_name: lit(cut(pack.company, 200)), ledger_code: lit(cut(m.ledger, 100)),
                 ledger_name: lit(cut(m.ledgerName, 300)), company: lit(cut(m.company, 150)), period_seq: num(m.per), period_name: lit(m.period), filter_text: lit(cut(m.filter, 400)), amounts_in: lit(m.scaleLabel),
-                sha256: lit(sha), html_len: num(html.length), status: lit(rec.status || 'ISSUED'), meeting_date: lit(cut(rec.meeting, 20)), comments: lit(cut(rec.comments, 4000)), saved_by: lit(who()), saved_at: lit(now()) };
+                sha256: 'NULL', html_len: num(html.length), status: lit(rec.status || 'ISSUED'), meeting_date: lit(cut(rec.meeting, 20)), comments: lit(cut(rec.comments, 4000)), saved_by: lit(who()), saved_at: lit(now()) };
             var k = Object.keys(cols);
             return A().write('INSERT INTO wms_fin_pack_archive (archive_id, ' + k.join(', ') + ', html, model_json, design_json) VALUES (' + lit(id) + ', ' + k.map(function (x) { return cols[x]; }).join(', ') + ', ' +
                 clobOf(chunks[0] || '') + ', ' + clobOf(JSON.stringify(model).slice(0, 18000)) + ', ' + clobOf(JSON.stringify(design).slice(0, 18000)) + ')').then(tick)
                 .then(function () { return chunks.slice(1).reduce(function (p, ch) { return p.then(function () { return A().write('UPDATE wms_fin_pack_archive SET html = html || ' + clobOf(ch) + ' WHERE archive_id = ' + lit(id)); }).then(tick); }, Promise.resolve()); })
                 .then(function () { return A().read('SELECT LENGTH(html) n FROM wms_fin_pack_archive WHERE archive_id = ' + lit(id), 1); })
                 .then(function (r) { tick(); if (!r.length || +r[0].N !== html.length) throw new Error('The file was not stored completely (' + (r[0] && r[0].N) + ' of ' + html.length + ' characters) — try again'); })
+                .then(function () { return A().write('UPDATE wms_fin_pack_archive SET sha256 = ' + lit(sha) + ' WHERE archive_id = ' + lit(id) + ' AND sha256 IS NULL'); })   // the seal
                 .then(function () { return R.event(id, 'SAVED', (STATUS[rec.status] || STATUS.ISSUED)[0] + (rec.comments ? ' · ' + rec.comments : '')); }).then(tick)
                 .then(function () { return rec.event ? R.event(id, rec.event, rec.detail || '') : null; }).then(tick)
                 .then(function () { return { id: id, sha: sha }; });
@@ -151,14 +169,15 @@
         R.list().then(function (rows) {
             R.rows = rows;
             var per = {}; rows.forEach(function (r) { per[r.PERIOD_NAME] = 1; });
-            box.innerHTML = '<div class="row"><h3 style="margin:0"><i class="fa-solid fa-box-archive"></i> Board pack archive</h3><span class="sm muted">every pack saved — the exact file, its fingerprint, figures, comments and who received it</span><span class="grow"></span>' +
+            box.innerHTML = '<div class="row"><h3 style="margin:0"><i class="fa-solid fa-box-archive"></i> Board pack archive</h3><span class="sm muted">every pack saved — the exact file, its fingerprint, figures, comments and who received it</span>' +
+                (R.sealed ? ' <span class="tag good" title="Database triggers refuse any change or delete of a saved pack (only status / void can change)"><i class="fa-solid fa-lock"></i> sealed in the database</span>' : R.sealed === false ? ' <span class="tag warn" title="The database lock could not be installed from the app — run apex_sql/94_finance_notes_pack_archive.sql in SQL Developer">not sealed in the database</span>' : '') + '<span class="grow"></span>' +
                 '<input id="ar-q" placeholder="search title, ledger, comments, person…" style="width:260px"><select id="ar-fs"><option value="">every status</option>' + Object.keys(STATUS).map(function (k) { return '<option value="' + k + '">' + STATUS[k][0] + '</option>'; }).join('') + '</select></div>' +
                 (rows.length ? '' : '<p class="sm muted" style="margin-top:12px">Nothing saved yet. Download or e-mail a pack and keep a record when asked, or use <b>Save to archive</b>.</p>') + '<div id="ar-grid" style="margin-top:10px"></div>';
             var paint = function () {
                 var q = $('ar-q').value.toLowerCase(), fs = $('ar-fs').value;
                 var list = rows.filter(function (r) { return (!fs || r.STATUS === fs) && (!q || [r.TITLE, r.PACK_NAME, r.LEDGER_NAME, r.COMMENTS, r.SAVED_BY, r.PERIOD_NAME].join(' ').toLowerCase().indexOf(q) >= 0); });
-                $('ar-grid').innerHTML = '<table class="t"><thead><tr><th>Saved</th><th>Period</th><th>Pack</th><th>Ledger</th><th>Status</th><th>Meeting</th><th>Comments</th><th>By</th><th class="n">Events</th><th>Fingerprint</th></tr></thead><tbody>' +
-                    list.map(function (r) { var s = STATUS[r.STATUS] || STATUS.ISSUED; return '<tr class="click" data-id="' + esc(r.ARCHIVE_ID) + '"><td>' + esc(String(r.SAVED_AT || '').slice(0, 16)) + '</td><td>' + esc(r.PERIOD_NAME) + '</td><td><b>' + esc(r.TITLE) + '</b></td><td>' + esc(r.LEDGER_NAME || r.FILTER_TEXT) + (r.COMPANY ? ' · ' + esc(r.COMPANY) : '') + '</td><td><span class="tag ' + s[1] + '">' + s[0] + '</span></td><td>' + esc(r.MEETING_DATE || '') + '</td><td class="sm">' + esc(cut(r.COMMENTS || '', 90)) + '</td><td>' + esc(r.SAVED_BY) + '</td><td class="n">' + (+r.EVENTS || 0) + '</td><td class="mono sm">' + esc(String(r.SHA256 || '').slice(0, 12)) + '</td></tr>'; }).join('') + '</tbody></table>';
+                $('ar-grid').innerHTML = '<table class="t"><thead><tr><th>Document</th><th>Saved</th><th>Period</th><th>Pack</th><th>Ledger</th><th>Status</th><th>Meeting</th><th>Comments</th><th>By</th><th class="n">Events</th><th>Fingerprint</th></tr></thead><tbody>' +
+                    list.map(function (r) { var s = STATUS[r.STATUS] || STATUS.ISSUED; return '<tr class="click" data-id="' + esc(r.ARCHIVE_ID) + '"><td class="mono sm">' + esc(/^BP-/.test(r.ARCHIVE_ID) ? r.ARCHIVE_ID : '') + '</td><td>' + esc(String(r.SAVED_AT || '').slice(0, 16)) + '</td><td>' + esc(r.PERIOD_NAME) + '</td><td><b>' + esc(r.TITLE) + '</b></td><td>' + esc(r.LEDGER_NAME || r.FILTER_TEXT) + (r.COMPANY ? ' · ' + esc(r.COMPANY) : '') + '</td><td><span class="tag ' + s[1] + '">' + s[0] + '</span></td><td>' + esc(r.MEETING_DATE || '') + '</td><td class="sm">' + esc(cut(r.COMMENTS || '', 90)) + '</td><td>' + esc(r.SAVED_BY) + '</td><td class="n">' + (+r.EVENTS || 0) + '</td><td class="mono sm">' + esc(String(r.SHA256 || '').slice(0, 12)) + '</td></tr>'; }).join('') + '</tbody></table>';
                 $('ar-grid').querySelectorAll('tr[data-id]').forEach(function (tr) { tr.onclick = function () { R.detail(tr.dataset.id); }; });
             };
             $('ar-q').oninput = paint; $('ar-fs').onchange = paint; paint();
@@ -252,7 +271,7 @@
                 var get = function (b) { return res[+b.dataset[Object.keys(b.dataset)[0]]]; };
                 document.querySelectorAll('[data-mv]').forEach(function (b) { b.onclick = function () { var x = get(b); FL.packView(x.built.html, { title: pack.title + ' · ' + x.code }); }; });
                 document.querySelectorAll('[data-md]').forEach(function (b) { b.onclick = function () { var x = get(b); FL.download(x.built.file.replace(/\.html$/, ' ' + x.code + '.html'), new Blob([x.built.html], { type: 'text/html' })); }; });
-                document.querySelectorAll('[data-mm]').forEach(function (b) { b.onclick = function () { var x = get(b); FL.mail.compose(pack, x.built, function (r) { R.ask(pack, x.built, { event: 'EMAILED', detail: 'to ' + ((pack.email || {}).to || '') + ' via ' + r.via }); }); }; });
+                document.querySelectorAll('[data-mm]').forEach(function (b) { b.onclick = function () { var x = get(b); FL.mail.compose(pack, x.built, function (r) { R.ask(pack, r.stamped || x.built, { event: 'EMAILED', detail: 'to ' + ((pack.email || {}).to || '') + ' via ' + r.via }); }); }; });
                 document.querySelectorAll('[data-ma]').forEach(function (b) { b.onclick = function () { R.ask(pack, get(b).built, {}); }; });
                 $('mg-dlall').onclick = function () { res.filter(function (x) { return x.built; }).forEach(function (x, i) { setTimeout(function () { FL.download(x.built.file.replace(/\.html$/, ' ' + x.code + '.html'), new Blob([x.built.html], { type: 'text/html' })); }, i * 400); }); };
                 $('mg-arall').onclick = function () { R.askAll(pack, res.filter(function (x) { return x.built; })); };
