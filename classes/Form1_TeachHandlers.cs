@@ -32,6 +32,10 @@ namespace WMSApp
     ///                    launcher (ms-powerautomate:/console/flow/run?…), the lesson's variables as the flow's input
     ///                    arguments. PAD runs it on its own (Windows asks to confirm the first time); nothing comes back
     ///                    to the app, so the person types the result in.
+    ///   teachAiBuild     "Ask AI" lesson: Claude writes a whole navigation lesson (notes, variables, steps, the ✋ Save step)
+    ///                    from a name (e.g. "Create a business unit"), the Fusion instance address and a source the person
+    ///                    pastes (Oracle documentation, their own steps) or an https address the host reads; it may answer
+    ///                    with questions first. The steps are a draft from documentation, not recorded - the first run checks them.
     ///   teachAiFill      Claude fills the lesson's variables from the person's notes (kill switch, audited TEACHME)
     /// </summary>
     public partial class Form1
@@ -103,6 +107,7 @@ namespace WMSApp
                         data = new { ok = true, window = _tmForm != null && !_tmForm.IsDisposed, recording = _tmRecording, running = _tmRunCts != null, url = TeachUrl(), db = TeachStore.DbPath };
                         break;
                     case "teachAiFill": data = await TeachAiFillAsync(root, user); break;
+                    case "teachAiBuild": data = await TeachAiBuildAsync(root, user); break;
                     case "teachRunFolder":
                         {
                             string rid = PStr(root, "runId") ?? "";
@@ -441,6 +446,135 @@ namespace WMSApp
         }
 
         // ── AI ─────────────────────────────────────────────────────
+        private static readonly System.Net.Http.HttpClient TeachHttp = new() { Timeout = TimeSpan.FromSeconds(30) };
+
+        /// <summary>Reads an https page for an "Ask AI" source: text only, ≤ 2 MB read, ≤ 60,000 characters kept.</summary>
+        private static async Task<string> TeachReadSourceAsync(string url)
+        {
+            if (!TeachUrlOk(url)) throw new InvalidOperationException("The source address must begin with https://");
+            using var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Get, url);
+            req.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) GraysWMS-TeachMe");
+            using var resp = await TeachHttp.SendAsync(req, System.Net.Http.HttpCompletionOption.ResponseHeadersRead);
+            if (!resp.IsSuccessStatusCode) throw new InvalidOperationException("The source address answered " + (int)resp.StatusCode + " " + resp.ReasonPhrase + ". Copy the page's text and paste it instead.");
+            var type = resp.Content.Headers.ContentType?.MediaType ?? "";
+            if (type.Length > 0 && !type.StartsWith("text/", StringComparison.OrdinalIgnoreCase) && !type.Contains("html") && !type.Contains("json") && !type.Contains("xml"))
+                throw new InvalidOperationException("The source address is a " + type + " file - open it and paste its text instead.");
+            await using var st = await resp.Content.ReadAsStreamAsync();
+            var buf = new byte[2 * 1024 * 1024]; int n = 0, r;
+            while (n < buf.Length && (r = await st.ReadAsync(buf.AsMemory(n, buf.Length - n))) > 0) n += r;
+            string html = Encoding.UTF8.GetString(buf, 0, n);
+            string text = System.Text.RegularExpressions.Regex.Replace(html, "<(script|style|noscript|svg)[^>]*>[\\s\\S]*?</\\1>", " ", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            text = System.Text.RegularExpressions.Regex.Replace(text, "<(br|/p|/div|/li|/h[1-6]|/tr)[^>]*>", "\n", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            text = System.Text.RegularExpressions.Regex.Replace(text, "<[^>]+>", " ");
+            text = System.Net.WebUtility.HtmlDecode(text);
+            text = System.Text.RegularExpressions.Regex.Replace(text, "[ \\t]+", " ");
+            text = System.Text.RegularExpressions.Regex.Replace(text, "\\s*\n\\s*(\\n\\s*)+", "\n\n").Trim();
+            return text.Length > 60000 ? text.Substring(0, 60000) : text;
+        }
+
+        /// <summary>Claude writes a navigation lesson (notes, variables, steps) from a name, the instance and a source.</summary>
+        private async Task<object> TeachAiBuildAsync(JsonElement root, string user)
+        {
+            string name = (PStr(root, "name") ?? "").Trim(), subject = (PStr(root, "subject") ?? "").Trim(), baseUrl = (PStr(root, "baseUrl") ?? "").Trim().TrimEnd('/');
+            string instance = PStr(root, "instance") ?? "", source = PStr(root, "source") ?? "", sourceUrl = (PStr(root, "sourceUrl") ?? "").Trim(), extra = PStr(root, "extra") ?? "";
+            if (name.Length == 0) return new { ok = false, error = "Give the script a name - what should it do (e.g. Create a business unit)?" };
+            if (!TeachUrlOk(baseUrl)) return new { ok = false, error = "The Fusion address must begin with https://" };
+            if (!await AiControl.IsEnabledAsync(user)) return new { ok = false, error = "The AI is paused (AI Digital Employee › Control)." };
+            string key = WMSApp.FusionSql.FusionSqlStore.LoadAiKey();
+            if (string.IsNullOrEmpty(key)) return new { ok = false, error = "No Claude API key saved (Fusion SQL › Ask AI › gear)." };
+            string fetched = null;
+            if (sourceUrl.Length > 0)
+            {
+                try { fetched = await TeachReadSourceAsync(sourceUrl); }
+                catch (Exception ex) when (ex is InvalidOperationException || ex is System.Net.Http.HttpRequestException || ex is TaskCanceledException)
+                { return new { ok = false, error = "Could not read the source address: " + ex.Message }; }
+            }
+            if (source.Length > 60000) source = source.Substring(0, 60000);
+            var answers = new StringBuilder();
+            if (root.TryGetProperty("answers", out var an) && an.ValueKind == JsonValueKind.Array)
+                foreach (var a in an.EnumerateArray().Take(30))
+                    answers.Append("- ").Append(PStr(a, "question")).Append(" → ").Append(PStr(a, "answer")).Append('\n');
+            var msg = new StringBuilder();
+            msg.Append("SCRIPT NAME: ").Append(name).Append('\n');
+            msg.Append("SUBJECT: ").Append(subject.Length > 0 ? subject : "Oracle Fusion setups").Append('\n');
+            msg.Append("INSTANCE: ").Append(instance).Append("  FUSION ADDRESS: ").Append(baseUrl).Append('\n');
+            if (extra.Trim().Length > 0) msg.Append("\nWHAT THE PERSON ADDED:\n").Append(DllInspector.Redact(extra.Length > 8000 ? extra.Substring(0, 8000) : extra)).Append('\n');
+            if (answers.Length > 0) msg.Append("\nANSWERS TO YOUR QUESTIONS:\n").Append(DllInspector.Redact(answers.ToString()));
+            if (source.Trim().Length > 0) msg.Append("\nSOURCE (typed or pasted by the person):\n").Append(DllInspector.Redact(source)).Append('\n');
+            if (fetched != null) msg.Append("\nSOURCE (read from ").Append(sourceUrl).Append("):\n").Append(DllInspector.Redact(fetched)).Append('\n');
+            if (source.Trim().Length == 0 && fetched == null) msg.Append("\nNO SOURCE GIVEN - use your own knowledge of Oracle Fusion Cloud and say so in assumptions.\n");
+            bool askFirst = PBool(root, "askFirst");
+            msg.Append(askFirst && answers.Length == 0 ? "\nIf something you need is missing, ask (questions) and leave lesson null.\n" : "\nBuild the lesson now; put what you had to assume in assumptions.\n");
+
+            string model = WMSApp.FusionSql.FusionSqlStore.LoadConfig().AiModel;
+            if (string.IsNullOrWhiteSpace(model)) model = "claude-opus-5";
+            var sw = Stopwatch.StartNew();
+            var client = new AnthropicClient { ApiKey = key };
+            var resp = await client.Messages.Create(new MessageCreateParams
+            {
+                Model = model,
+                MaxTokens = 16000,
+                System = TEACH_BUILD_PROMPT,
+                Messages = new List<MessageParam> { new MessageParam { Role = Role.User, Content = msg.ToString() } },
+            });
+            var answer = new StringBuilder();
+            foreach (ContentBlock block in resp.Content)
+                if (block.TryPickText(out TextBlock t)) answer.Append(t.Text);
+            long tin = resp.Usage == null ? 0 : Convert.ToInt64(resp.Usage.InputTokens), tout = resp.Usage == null ? 0 : Convert.ToInt64(resp.Usage.OutputTokens);
+            double? cost = null;
+            try { cost = await AiControl.CostAsync(model, tin, tout, 0, 0, user); } catch { }
+            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "TEACHME", Action = "teach_ai_build", Outcome = "OK", Model = model, TokensIn = tin, TokensOut = tout, CostUsd = cost, DurationMs = sw.ElapsedMilliseconds, Detail = name + " · " + instance + " · source " + (source.Length + (fetched?.Length ?? 0)) + " chars" });
+            string s = answer.ToString();
+            int i0 = s.IndexOf('{'), i1 = s.LastIndexOf('}');
+            if (i0 < 0 || i1 <= i0) return new { ok = false, error = resp.StopReason?.ToString() == "max_tokens" ? "Claude's answer was cut off - give a shorter source or split the script." : "Claude did not return a lesson." };
+            try
+            {
+                using var doc = JsonDocument.Parse(s.Substring(i0, i1 - i0 + 1));
+                return new { ok = true, result = doc.RootElement.Clone(), cost, sourceChars = source.Length + (fetched?.Length ?? 0), fetched = fetched != null };
+            }
+            catch (JsonException) { return new { ok = false, error = "Claude's answer was not valid JSON - try again." }; }
+        }
+
+        private const string TEACH_BUILD_PROMPT =
+            "You write automation scripts (\"lessons\") that a browser assistant replays in Oracle Fusion Cloud Applications, mostly setup " +
+            "tasks (business units, legal entities, inventory organizations, subinventories, payment terms, lookups, profile options …). " +
+            "You get the script name, the instance and its Fusion address (BASE), and a source: Oracle documentation, the person's own " +
+            "steps, or nothing. Answer with ONE JSON object only, no prose around it:\n" +
+            "{\"questions\": [{\"name\": \"snake_case\", \"question\": \"…\", \"options\": \"a,b\" (optional)}],\n" +
+            " \"lesson\": null | {\"title\": \"…\", \"subject\": \"Oracle Fusion setups › <area>\", \"tags\": \"comma, words\",\n" +
+            "   \"notes\": \"Markdown: ## Purpose, ## Before you start (prerequisite setups, roles / privileges needed), ## Navigation " +
+            "(the exact path, e.g. Setup and Maintenance › Search: Manage Business Unit), ## Fields (each field: what to enter, rules, " +
+            "examples), ## After saving (how to check it worked, what to set up next), ## Source (where this came from)\",\n" +
+            "   \"startUrl\": \"{{fusion_url}}/fscmUI/faces/FuseWelcome\",\n" +
+            "   \"vars\": [{\"name\": \"snake_case\", \"label\": \"Label\", \"hint\": \"what to enter, format, example\", \"options\": \"a,b,c\" (only a fixed list), " +
+            "\"def\": \"default\" (only when sensible), \"ai\": true, \"long\": false, \"required\": true}],\n" +
+            "   \"steps\": [{\"op\": \"click|fill|select|check|key|pause\", \"t\": {\"tag\": \"input|textarea|select|button|a|span|div\", " +
+            "\"label\": \"field label exactly as on screen\", \"text\": \"button / link text exactly as on screen\", \"role\": \"button|link|tab|menuitem|option|combobox\", " +
+            "\"placeholder\": \"…\"}, \"value\": \"{{var}} or a fixed value\", \"optText\": \"{{var}}\" (select: the visible option), \"note\": \"why / what to look at\", " +
+            "\"optional\": false, \"stop\": false, \"timeout\": 20000}],\n" +
+            "   \"capture\": {\"regex\": \"\", \"label\": \"\"}},\n" +
+            " \"assumptions\": [\"…\"], \"checks\": [\"what the person should verify in the first run\"]}\n" +
+            "RULES:\n" +
+            "- The first variable is always fusion_url (label \"Fusion instance\", def = BASE, options = the addresses the person gave if more than one); " +
+            "the start address uses {{fusion_url}}. Never a variable or step for the user name or password - the person signs in by hand.\n" +
+            "- Navigate like a person: from the home page open Setup and Maintenance (Navigator or Settings and Actions menu), open the " +
+            "Tasks panel / Search, type the task name (e.g. Manage Business Unit), press Enter, click the task link; then Create (+ icon: " +
+            "text \"Create\", role button), fill the fields, and the final \"Save and Close\" / \"Submit\" step has stop: true - the assistant " +
+            "never presses it, the person checks and presses it. Use a pause step (op pause, note = instruction) where a choice needs a " +
+            "person (e.g. picking a value in a search dialog when the LOV needs a search, uploading a file, choosing a scope set).\n" +
+            "- Targets: use the visible label text exactly as Oracle Fusion shows it (label for inputs, text for buttons / links / tabs); " +
+            "Fusion element ids change between sessions, so never rely on ids or CSS. A list-of-values field is a fill (type the value) " +
+            "followed, when needed, by a click on the matching option (role option, text {{var}}). Dropdowns (choice lists) are select with optText.\n" +
+            "- One variable per value the person must decide (name, code, legal entity, location, default set, manager, dates …); every " +
+            "fill / select of such a value uses {{var}}. Mark ai: false for values the AI cannot know from a description (e.g. internal codes). " +
+            "Required fields of the setup get required: true. Dates: hint the format the UI expects (e.g. m/d/yy).\n" +
+            "- Ask questions (and lesson null) only when you cannot build a sensible script without the answer, e.g. which of several " +
+            "setup tasks is meant, or a choice that changes the navigation; ask at most 5. Values the person types at run time are " +
+            "variables, not questions.\n" +
+            "- If the source is missing or thin, use your knowledge of Oracle Fusion Cloud (current Redwood / ADF pages) and list every " +
+            "guess in assumptions. Steps are a draft: put in checks what to watch on the first run (e.g. a label that may differ).\n" +
+            "- Never add steps that delete data, and never add more than one Save / Submit (one script = one record). Keep notes concise and practical.";
+
         private const string TEACH_FILL_PROMPT =
             "You fill in the variables of a lesson that a person taught a web assistant (for example how to raise an Oracle Support " +
             "Service Request). You get the lesson (subject, title, the teacher's notes) with its variables (name, label, hint, " +

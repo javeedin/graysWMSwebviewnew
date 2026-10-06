@@ -382,7 +382,7 @@
             'using var pw = await Playwright.CreateAsync();',
             'await using var ctx = await pw.Chromium.LaunchPersistentContextAsync(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TeachMePlaywright"), new() { Channel = "msedge", Headless = false });',
             'var page = ctx.Pages.FirstOrDefault() ?? await ctx.NewPageAsync();',
-            'await page.GotoAsync(' + q(l.startUrl) + ');',
+            'await page.GotoAsync(' + val(l.startUrl) + ');',
             'Console.WriteLine("Sign in if asked, then press Enter."); Console.ReadLine();', ''
         ]).concat(lines).concat(l.capture && l.capture.regex ? ['', '// ' + (l.capture.label || 'result') + ' read from the page', 'var m = System.Text.RegularExpressions.Regex.Match(await page.Locator("body").InnerTextAsync(), ' + q(l.capture.regex) + ');',
             'Console.WriteLine(m.Success ? ' + q((l.capture.label || 'Result') + ': ') + ' + (m.Groups.Count > 1 ? m.Groups[1].Value : m.Value) : "Not found on the page.");'] : []);
@@ -395,7 +395,7 @@
     // ── tab: lesson (notes) ─────────────────────────────────────
     TM.viewLesson = function (el) {
         var l = TM.cur, subjects = Array.from(new Set(TM.lessons.map(function (x) { return x.subject; }).filter(Boolean))).sort();
-        el.innerHTML = '<div class="card"><div class="form">' +
+        el.innerHTML = TM.aiBanner(l) + '<div class="card"><div class="form">' +
             '<label>Subject<input type="text" id="f-subject" list="subjects" value="' + esc(l.subject) + '" placeholder="e.g. Oracle Support, Fusion navigation, WMS"></label><datalist id="subjects">' + subjects.map(function (s) { return '<option value="' + esc(s) + '">'; }).join('') + '</datalist>' +
             '<label>Tags<input type="text" id="f-tags" value="' + esc(l.tags) + '" placeholder="words to find it by"></label>' +
             '<label class="wide">' + (l.kind === 'navigation' ? 'Notes for this lesson (what it is for, what to check)' : 'What you want to teach') +
@@ -431,7 +431,7 @@
             (l.steps.length ? '<button class="btn sm danger" id="t-clear"><i class="fa-regular fa-trash-can"></i> Clear all</button>' : '') + '</h3><div class="steps" id="t-steps"></div></div>';
         $('t-url').oninput = function () { l.startUrl = this.value.trim(); TM.touch(); };
         $('t-open').onclick = function () {
-            var u = l.startUrl || TM.lastUrl; if (!/^https:\/\//i.test(u || '')) { TM.toast('Type a start address that begins with https://', 'err'); return; }
+            var u = TM.startOf(l) || TM.lastUrl; if (!/^https:\/\//i.test(u || '')) { TM.toast('Type a start address that begins with https://', 'err'); return; }
             hostOk('teachOpen', { url: u }).catch(function (e) { TM.toast(String(e), 'err'); });
         };
         $('t-here').onclick = function () { if (!TM.lastUrl) { TM.toast('Open the browser first.', 'err'); return; } l.startUrl = TM.lastUrl; $('t-url').value = l.startUrl; TM.touch(); };
@@ -492,8 +492,8 @@
     };
     TM.toggleRecord = function () {
         var l = TM.cur, on = !(TM.recording && TM.recFor === l.id);
-        if (on && !l.startUrl && !TM.lastUrl) { TM.toast('Type the start address and press Open browser first.', 'err'); return; }
-        var go = on && !TM.lastUrl ? hostOk('teachOpen', { url: l.startUrl }).then(function () { return new Promise(function (r) { setTimeout(r, 1500); }); }) : Promise.resolve();
+        if (on && !TM.startOf(l) && !TM.lastUrl) { TM.toast('Type the start address and press Open browser first.', 'err'); return; }
+        var go = on && !TM.lastUrl ? hostOk('teachOpen', { url: TM.startOf(l) }).then(function () { return new Promise(function (r) { setTimeout(r, 1500); }); }) : Promise.resolve();
         go.then(function () { return hostOk('teachRecord', { on: on }); }).then(function (d) {
             TM.recording = !!d.recording; TM.recFor = TM.recording ? l.id : null;
             if (TM.recording && !l.startUrl && d.url) { l.startUrl = d.url; TM.touch(); }
@@ -670,7 +670,7 @@
             TM.run = { id: runId, lessonId: l.id, lessonTitle: l.title, lessonVersion: l.version, startedAt: now(), log: [], values: JSON.parse(JSON.stringify(vals)), n: steps.length, i: -1, state: 'start' };
             TM.paintMain();
             TM.run.engine = TM.engineOf(l);
-            hostOk('teachRun', { runId: runId, url: l.startUrl, steps: steps, capture: l.capture && l.capture.regex || '', title: l.title, engine: TM.run.engine }).catch(function (e) {
+            hostOk('teachRun', { runId: runId, url: TM.startOf(l, vals), steps: steps, capture: l.capture && l.capture.regex || '', title: l.title, engine: TM.run.engine }).catch(function (e) {
                 TM.run.ended = true; TM.run.final = 'error'; TM.run.message = String(e); TM.paintMain();
             });
         });
@@ -746,12 +746,150 @@
         }
     };
 
+    // ── start address with {{variables}} (e.g. {{fusion_url}}) ──
+    TM.startOf = function (l, vals) {
+        var v = Object.assign({}, vals || {});
+        (l.vars || []).forEach(function (x) { if (!String(v[x.name] || '').trim() && x.def) v[x.name] = x.def; });
+        return TM.resolve(l.startUrl || '', v).trim();
+    };
+
+    // ── Ask AI: build a whole lesson (e.g. an Oracle Fusion setup) ──
+    TM.FUSION = { PROD: 'https://efmh.fa.em3.oraclecloud.com', TEST: 'https://efmh-test.fa.em3.oraclecloud.com' };
+    TM.fusionUrl = function (inst) { return lsGet('teachme.fusion.' + inst, TM.FUSION[inst] || ''); };
+    TM.aiBanner = function (l) {
+        if (!l.ai) return '';
+        var a = l.ai, li = function (x) { return '<li>' + esc(x) + '</li>'; };
+        return '<div class="banner warn" style="align-items:flex-start"><i class="fa-solid fa-wand-magic-sparkles" style="margin-top:3px"></i><div class="grow"><b>Built by AI' + (a.at ? ' on ' + esc(a.at.replace('T', ' ').slice(0, 16)) : '') + '</b> from ' + esc(a.source || 'its own knowledge') +
+            '. The steps are written from that source, not recorded — the first run shows whether every field is found. A step that is not found: do it by hand, press Continue, then fix or re-record that step.' +
+            (a.checks && a.checks.length ? '<div style="margin-top:6px"><b>Check on the first run</b><ul style="margin:2px 0 0 18px;padding:0">' + a.checks.map(li).join('') + '</ul></div>' : '') +
+            (a.assumptions && a.assumptions.length ? '<details style="margin-top:6px"><summary>What the AI assumed (' + a.assumptions.length + ')</summary><ul style="margin:2px 0 0 18px;padding:0">' + a.assumptions.map(li).join('') + '</ul></details>' : '') +
+            '</div><button class="btn sm" id="ai-ok" title="Hide this note once the lesson has run well">Checked ✓</button></div>';
+    };
+    document.addEventListener('click', function (e) { if (e.target && e.target.id === 'ai-ok' && TM.cur && TM.cur.ai) { TM.cur.ai.checked = true; delete TM.cur.ai; TM.touch(); TM.paintMain(); } });
+
+    TM.aiForm = null;
+    TM.askAi = function () {
+        var f = TM.aiForm = TM.aiForm || { name: '', subject: 'Oracle Fusion setups', inst: lsGet('teachme.inst', 'TEST'), source: '', sourceUrl: '', extra: '', askFirst: true, fileName: '' };
+        var insts = ['PROD', 'TEST', 'OTHER'];
+        TM.modal('<i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent)"></i> Ask AI to build a script',
+            '<div class="form">' +
+            '<label class="wide">Script name — what should it do?<input type="text" id="ai-name" value="' + esc(f.name) + '" placeholder="e.g. Create a new business unit" list="ai-ideas"></label>' +
+            '<datalist id="ai-ideas">' + ['Create a new business unit', 'Create a legal entity', 'Create an inventory organization', 'Create a subinventory', 'Create a location', 'Create payment terms', 'Create a lookup code', 'Set a profile option value', 'Create a customer account', 'Create a supplier', 'Assign a data access set', 'Create an item', 'Open an inventory period', 'Create a price list']
+                .map(function (x) { return '<option value="' + esc(x) + '">'; }).join('') + '</datalist>' +
+            '<label>Subject<input type="text" id="ai-subj" value="' + esc(f.subject) + '"></label>' +
+            '<label>Instance<select id="ai-inst">' + insts.map(function (i) { return '<option' + (i === f.inst ? ' selected' : '') + '>' + i + '</option>'; }).join('') + '</select></label>' +
+            '<label class="wide">Fusion address of this instance<input type="url" id="ai-url" value="' + esc(TM.fusionUrl(f.inst)) + '" placeholder="https://xxxx.fa.em3.oraclecloud.com"></label>' +
+            '<label class="wide">Source — paste Oracle\'s documentation or type the steps the way you do it<textarea id="ai-src" rows="8" placeholder="e.g. the Oracle Help Center page for Manage Business Units, an implementation guide, your own notes: Setup and Maintenance > Manage Business Unit > Create …">' + esc(f.source) + '</textarea></label>' +
+            '<label class="wide">…or a source address (https) the app reads<input type="url" id="ai-srcurl" value="' + esc(f.sourceUrl) + '" placeholder="https://docs.oracle.com/…"></label>' +
+            '<div class="wide row"><label class="btn sm" style="cursor:pointer"><i class="fa-regular fa-file-lines"></i> Load a text file<input type="file" id="ai-file" accept=".txt,.md,.html,.htm,.csv,.json,.xml" hidden></label><span class="muted sm" id="ai-fname">' + esc(f.fileName ? 'Loaded: ' + f.fileName : 'txt, md, html, csv — for a PDF or Word file copy its text in') + '</span></div>' +
+            '<label class="wide">Anything else (your company\'s rules, default values, what to leave out)<textarea id="ai-extra" rows="2">' + esc(f.extra) + '</textarea></label>' +
+            '<label class="wide" style="flex-direction:row;align-items:center;gap:8px;text-transform:none;font-weight:600"><input type="checkbox" id="ai-ask"' + (f.askFirst ? ' checked' : '') + '> Ask me first when something it needs is missing</label>' +
+            '</div><p class="muted sm" style="margin:8px 0 0">The AI writes the notes, the values it will ask for at every run (business unit name, legal entity …) and the clicks. It stops before Save and Close — you check and press it. Your Fusion user and password are never sent.</p>',
+            [['Cancel', ''], ['<i class="fa-solid fa-wand-magic-sparkles"></i> Build the script', 'ok', 'primary']]).then(function (r) {
+                if (r.button !== 'ok') return;
+                TM.aiBuild();
+            });
+        var keep = function () {
+            f.name = $('ai-name').value.trim(); f.subject = $('ai-subj').value.trim(); f.source = $('ai-src').value; f.sourceUrl = $('ai-srcurl').value.trim();
+            f.extra = $('ai-extra').value; f.askFirst = $('ai-ask').checked; f.url = $('ai-url').value.trim();
+        };
+        ['ai-name', 'ai-subj', 'ai-src', 'ai-srcurl', 'ai-extra', 'ai-url'].forEach(function (id) { $(id).addEventListener('input', keep); });
+        $('ai-ask').onchange = keep;
+        $('ai-inst').onchange = function () { f.inst = this.value; lsSet('teachme.inst', f.inst); $('ai-url').value = TM.fusionUrl(f.inst); keep(); };
+        $('ai-file').onchange = function () {
+            var file = this.files && this.files[0]; if (!file) return;
+            if (file.size > 3 * 1024 * 1024) { TM.toast('That file is too big — copy the part you need.', 'err'); return; }
+            var rd = new FileReader();
+            rd.onload = function () {
+                var t = String(rd.result || '');
+                if (/\.html?$/i.test(file.name)) { var d = new DOMParser().parseFromString(t, 'text/html'); d.querySelectorAll('script,style').forEach(function (x) { x.remove(); }); t = d.body ? d.body.innerText || d.body.textContent : t; }
+                $('ai-src').value = ($('ai-src').value.trim() ? $('ai-src').value + '\n\n' : '') + t.trim(); f.fileName = file.name; $('ai-fname').textContent = 'Loaded: ' + file.name + ' (' + t.length.toLocaleString() + ' characters)'; keep();
+            };
+            rd.readAsText(file);
+        };
+        keep();
+    };
+    TM.aiBuild = function (answers) {
+        var f = TM.aiForm;
+        if (!f.name) { TM.toast('Give the script a name.', 'err'); return TM.askAi(); }
+        if (!/^https:\/\//i.test(f.url || '')) { TM.toast('The Fusion address must begin with https://', 'err'); return TM.askAi(); }
+        if (f.inst !== 'OTHER') lsSet('teachme.fusion.' + f.inst, f.url);
+        f.answers = answers || f.answers || [];
+        $('main').innerHTML = '<div class="card"><div class="empty"><i class="fa-solid fa-wand-magic-sparkles fa-beat-fade"></i><b>Building “' + esc(f.name) + '”…</b><br><span class="sm">Claude is reading ' +
+            (f.sourceUrl ? 'the source address' : f.source.trim() ? 'your source (' + f.source.length.toLocaleString() + ' characters)' : 'its own knowledge of Oracle Fusion') + ' and writing the notes, values and clicks. This takes up to a minute.</span></div></div>';
+        var other = ['PROD', 'TEST'].filter(function (i) { return i !== f.inst; }).map(function (i) { return i + ' = ' + TM.fusionUrl(i); }).join(', ');
+        return hostOk('teachAiBuild', { name: f.name, subject: f.subject, instance: f.inst, baseUrl: f.url, source: f.source, sourceUrl: f.sourceUrl,
+                                        extra: (f.extra || '') + (other ? '\nOther instances: ' + other : ''), answers: f.answers, askFirst: f.askFirst && !answers })
+            .then(function (d) {
+                var res = d.result || {}, qs = (res.questions || []).filter(function (q) { return q && q.question; });
+                if (!res.lesson && qs.length) return TM.aiQuestions(qs, d);
+                if (!res.lesson) throw 'Claude did not return a lesson.';
+                TM.aiCreate(res, d);
+            })
+            .catch(function (e) { TM.paintMain(); TM.toast(String(e), 'err'); });
+    };
+    TM.aiQuestions = function (qs, d) {
+        TM.paintMain();
+        return TM.modal('<i class="fa-solid fa-circle-question" style="color:var(--accent)"></i> The AI needs to know', '<p class="muted sm">Answer what you can — leave a box empty to let it assume.</p><div class="form">' + qs.slice(0, 5).map(function (q, i) {
+            var opts = String(q.options || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+            return '<label class="wide" style="text-transform:none">' + esc(q.question) + (opts.length ? '<select data-q="' + i + '"><option value=""></option>' + opts.map(function (o) { return '<option>' + esc(o) + '</option>'; }).join('') + '</select>' : '<input type="text" data-q="' + i + '">') + '</label>';
+        }).join('') + '</div>' + (d.cost ? '<p class="muted sm">Cost so far $' + (+d.cost).toFixed(4) + '</p>' : ''), [['Cancel', ''], ['Build with these answers', 'ok', 'primary']]).then(function (r) {
+            if (r.button !== 'ok') return;
+            var ans = [];
+            r.box.querySelectorAll('[data-q]').forEach(function (x) { ans.push({ question: qs[+x.dataset.q].question, answer: x.value.trim() || '(not known — assume)' }); });
+            TM.aiBuild(ans);
+        });
+    };
+    TM.aiCreate = function (res, d) {
+        var f = TM.aiForm, src = res.lesson, l = TM.blank('navigation'), str = function (x, n) { return x == null ? '' : String(x).slice(0, n || 4000); };
+        l.title = str(src.title, 300) || f.name;
+        l.subject = str(src.subject, 200) || f.subject || 'Oracle Fusion setups';
+        l.tags = str(src.tags, 300);
+        l.notes = str(src.notes, 40000);
+        l.startUrl = str(src.startUrl, 500) || '{{fusion_url}}/fscmUI/faces/FuseWelcome';
+        var names = {};
+        l.vars = (Array.isArray(src.vars) ? src.vars : []).filter(function (v) { return v && /^[A-Za-z_]\w{0,40}$/.test(v.name || '') && !names[v.name] && (names[v.name] = 1) && !/pass(word)?|pwd|secret/i.test(v.name); }).slice(0, 40).map(function (v) {
+            return { name: v.name, label: str(v.label, 120) || v.name, hint: str(v.hint, 500), options: str(v.options, 2000), def: str(v.def, 2000), ai: v.ai !== false, long: !!v.long, required: !!v.required };
+        });
+        var fu = l.vars.filter(function (v) { return v.name === 'fusion_url'; })[0];
+        if (!fu) { fu = { name: 'fusion_url', label: 'Fusion instance', ai: false }; l.vars.unshift(fu); }
+        fu.ai = false; fu.def = fu.def && /^https:\/\//i.test(fu.def) ? fu.def : f.url;
+        fu.options = Array.from(new Set([f.url].concat(['PROD', 'TEST'].map(TM.fusionUrl)).filter(Boolean))).join(',');
+        fu.hint = fu.hint || 'PROD or TEST — the address the script opens';
+        if (!/^https:\/\//i.test(TM.startOf(l))) l.startUrl = '{{fusion_url}}/fscmUI/faces/FuseWelcome';
+        var OPS = { click: 1, fill: 1, select: 1, check: 1, key: 1, pause: 1, upload: 1 };
+        l.steps = (Array.isArray(src.steps) ? src.steps : []).filter(function (s) { return s && OPS[s.op]; }).slice(0, 120).map(function (s) {
+            var t = s.t || {}, o = { op: s.op, ai: true };
+            if (s.op !== 'pause') { o.t = {}; ['tag', 'label', 'text', 'role', 'placeholder', 'name'].forEach(function (k) { if (t[k]) o.t[k] = str(t[k], 300); }); }
+            if (s.value != null && s.value !== '') o.value = str(s.value, 4000);
+            if (s.optText) o.optText = str(s.optText, 300);
+            if (s.note) o.note = str(s.note, 500);
+            if (s.optional) o.optional = true;
+            if (s.stop) o.stop = true;
+            if (+s.timeout) o.timeout = Math.max(1000, Math.min(120000, +s.timeout));
+            if (o.op === 'click' && o.t && /^\s*(save|save and close|save and submit|submit|submit for approval)\s*$/i.test(o.t.text || o.t.label || '')) o.stop = true;
+            return o;
+        }).filter(function (s) { return s.op === 'pause' || (s.t && (s.t.label || s.t.text || s.t.placeholder || s.t.name)); });
+        // never press past the first ✋: everything after it is dropped (one script = one record)
+        var firstStop = -1; l.steps.forEach(function (s, i) { if (s.stop && firstStop < 0) firstStop = i; });
+        if (firstStop >= 0) l.steps = l.steps.slice(0, firstStop + 1);
+        if (src.capture && src.capture.regex) { try { new RegExp(src.capture.regex); l.capture = { regex: str(src.capture.regex, 300), label: str(src.capture.label, 80) }; } catch (e) { } }
+        l.ai = { at: now(), by: TM.user, name: f.name, instance: f.inst, source: f.sourceUrl ? f.sourceUrl : f.source.trim() ? (f.fileName || 'the text you gave') + ' (' + f.source.length.toLocaleString() + ' characters)' : 'its own knowledge (no source given)',
+                 assumptions: (res.assumptions || []).map(function (x) { return str(x, 400); }).slice(0, 20), checks: (res.checks || []).map(function (x) { return str(x, 400); }).slice(0, 20), cost: d.cost || 0 };
+        TM.cur = l; TM.tab = 'lesson'; TM.subject = l.subject; lsSet('teachme.cur', l.id);
+        TM.save(true).then(function () {
+            TM.paintTree(); TM.paintMain();
+            TM.toast('“' + l.title + '” built: ' + l.steps.length + ' steps, ' + l.vars.length + ' values — saved in APEX and on this PC' + (d.cost ? ' · $' + (+d.cost).toFixed(4) : '') + '.', 'ok');
+        });
+        TM.aiForm = Object.assign({}, f, { name: '', source: '', sourceUrl: '', extra: '', fileName: '', answers: [] });
+    };
+
     // ── start ───────────────────────────────────────────────────
     $('who').textContent = TM.user;
     $('q').oninput = TM.paintTree;
     $('new').onclick = function (e) { e.stopPropagation(); $('newmenu').hidden = !$('newmenu').hidden; };
     document.addEventListener('click', function () { $('newmenu').hidden = true; });
-    $('newmenu').querySelectorAll('[data-new]').forEach(function (b) { b.onclick = function () { $('newmenu').hidden = true; TM.create(b.dataset.new); }; });
+    $('newmenu').querySelectorAll('[data-new]').forEach(function (b) { b.onclick = function () { $('newmenu').hidden = true; if (b.dataset.new === 'ai') TM.askAi(); else TM.create(b.dataset.new); }; });
     $('modal').addEventListener('mousedown', function (e) { if (e.target === $('modal')) $('modal').hidden = true; });
     document.addEventListener('keydown', function (e) { if ((e.ctrlKey || e.metaKey) && e.key === 's' && TM.cur) { e.preventDefault(); TM.save(); } });
     window.addEventListener('beforeunload', function (e) { if (TM.dirty) { e.preventDefault(); e.returnValue = ''; } });
