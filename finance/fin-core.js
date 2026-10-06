@@ -522,26 +522,35 @@ FL.drillCell = function (tpl, opts, rowId, colId, view) {
             .map(function (x) { return '<button class="' + (view === x[0] ? 'on' : '') + '" data-dv="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>';
         var html = '<div class="crumbs">' + esc(tpl.name) + ' › <b>' + esc(ctx.label) + '</b> · ' + esc(FL.filterText()) + '</div>' + tabs, csv;
         if (view === 'months' && mx) {
-            var ms = mx.months, n = ms.length, avg = n ? ms.reduce(function (a, m) { return a + m.value; }, 0) / n : 0;
+            var ms = mx.months, n = ms.length, avg = n ? ms.reduce(function (a, m) { return a + m.value; }, 0) / n : 0, ytdOn = !mx.balance && ms.some(function (m) { return m.ytd != null; });
             var big = ms.reduce(function (b, m) { return Math.abs(m.value) > Math.abs(b.value) ? m : b; }, ms[0] || { value: 0 });
             var what = mx.balance ? 'the month-end balance of each month' : mx.pct ? 'the value of each month on its own' : n + ' month(s) add up to this amount';
             html += '<p class="sm muted" style="margin:0 0 6px">' + esc(ctx.label) + ' = <b>' + f(mx.total) + '</b> (' + FL.scaleLabel() + ') — ' + what +
                 (mx.additive && Math.abs((mx.sum || 0) - (mx.total || 0)) > 0.5 ? ' <span class="pm-st conflict">months add up to ' + f(mx.sum) + '</span>' : mx.additive ? ' <span class="pm-st ok">✓ months add up</span>' : '') + '</p>' +
                 '<div class="chartbox short"><canvas id="drillc"></canvas></div>' +
-                '<div class="scroll"><table class="t"><thead><tr><th>Month</th><th class="n">Amount</th>' + (mx.additive ? '<th class="n">Running total</th><th class="n">Share</th>' : '') +
-                '<th class="n">Same month last year</th><th class="n">Δ vs last year</th>' + (mx.additive ? '<th class="n">vs month average</th>' : '') + '</tr></thead><tbody>' +
+                '<div class="scroll"><table class="t"><thead><tr><th>Month</th><th class="n">' + (mx.balance ? 'Balance' : 'Month') + '</th>' + (ytdOn ? '<th class="n">YTD</th>' : '') + (mx.additive ? '<th class="n">Share</th>' : '') +
+                '<th class="n">' + (mx.balance ? 'Last year' : 'Month last year') + '</th>' + (ytdOn ? '<th class="n">YTD last year</th>' : '') + '<th class="n">' + (ytdOn ? 'Δ YTD vs last year' : 'Δ vs last year') + '</th>' +
+                (mx.additive ? '<th class="n">vs month average</th>' : '') + '</tr></thead><tbody>' +
                 ms.map(function (m, i) {
-                    var d = m.py != null ? m.value - m.py : null, dp = m.py ? d / Math.abs(m.py) * 100 : null, va = avg ? (m.value - avg) / Math.abs(avg) * 100 : null;
+                    var cur = ytdOn ? m.ytd : m.value, ly = ytdOn ? m.pyYtd : m.py, noLy = ly == null || Math.abs(ly) < 0.005;
+                    var d = noLy ? null : cur - ly, dp = noLy ? null : d / Math.abs(ly) * 100, va = avg ? (m.value - avg) / Math.abs(avg) * 100 : null;
                     var flag = mx.additive && n >= 3 && va != null && Math.abs(va) >= 40 ? ' <span class="pm-st ' + (va > 0 ? 'kind' : 'map') + '" title="far from the average month">' + (va > 0 ? '▲' : '▼') + ' ' + Math.round(Math.abs(va)) + '%</span>' : '';
                     var good = row.favourable === 'down' ? -1 : 1;
                     return '<tr class="' + (hasAcc ? 'click' : '') + '" data-i="' + i + '"' + (m === big && n > 1 ? ' style="background:#fefce8"' : '') + '><td>' + esc(m.name) + (m === big && n > 1 ? ' <span class="sm muted">largest</span>' : '') + '</td><td class="n"><b>' + f(m.value) + '</b></td>' +
-                        (mx.additive ? '<td class="n">' + f(m.cum) + '</td><td class="n">' + (mx.total ? (m.value / mx.total * 100).toFixed(1) + '%' : '') + '</td>' : '') +
-                        '<td class="n">' + f(m.py) + '</td><td class="n" style="color:' + (d == null || !d ? 'inherit' : d * good > 0 ? 'var(--good,#16a34a)' : 'var(--bad,#dc2626)') + '">' + (d == null ? '' : (mx.pct ? (d >= 0 ? '+' : '') + d.toFixed(1) + ' pts' : f(d) + (dp != null ? ' · ' + (dp >= 0 ? '+' : '') + dp.toFixed(1) + '%' : ''))) + '</td>' +
+                        (ytdOn ? '<td class="n">' + f(m.ytd) + '</td>' : '') + (mx.additive ? '<td class="n">' + (mx.total ? (m.value / mx.total * 100).toFixed(1) + '%' : '') + '</td>' : '') +
+                        '<td class="n">' + f(m.py) + '</td>' + (ytdOn ? '<td class="n">' + f(m.pyYtd) + '</td>' : '') +
+                        '<td class="n" style="color:' + (d == null || !d ? 'inherit' : d * good > 0 ? 'var(--good,#16a34a)' : 'var(--bad,#dc2626)') + '">' +
+                        (d == null ? (ly == null && m.py == null ? '' : '<span class="sm muted" title="nothing for last year in the data">no LY data</span>') : (mx.pct ? (d >= 0 ? '+' : '') + d.toFixed(1) + ' pts' : f(d) + (dp != null ? ' · ' + (dp >= 0 ? '+' : '') + dp.toFixed(1) + '%' : ''))) + '</td>' +
                         (mx.additive ? '<td class="n">' + (va == null ? '' : (va >= 0 ? '+' : '') + va.toFixed(0) + '%') + flag + '</td>' : '') + '</tr>';
                 }).join('') +
-                (mx.additive ? '<tr style="font-weight:700;border-top:2px solid var(--ink,#0f172a)"><td>Total</td><td class="n">' + f(mx.sum) + '</td><td></td><td class="n">100%</td><td class="n">' + f(ms.reduce(function (a, m) { return a + (m.py || 0); }, 0)) + '</td><td></td><td></td></tr>' : '') +
-                '</tbody></table></div>' + (hasAcc ? '<p class="sm muted">Click a month for its accounts → companies / cost centres → journal lines.</p>' : '');
-            csv = function () { FL.csv('drill-months.csv', ['month', 'amount', 'running_total', 'same_month_last_year'], ms.map(function (m) { return [m.name, m.value, m.cum == null ? '' : m.cum, m.py == null ? '' : m.py]; })); };
+                (mx.additive && n ? (function () {
+                    var lm = ms[n - 1], ly = lm.pyYtd, noLy = ly == null || Math.abs(ly) < 0.005, d = noLy ? null : lm.ytd - ly;
+                    return '<tr style="font-weight:700;border-top:2px solid var(--ink,#0f172a)"><td>Total</td><td class="n">' + f(mx.sum) + '</td>' + (ytdOn ? '<td class="n">' + f(lm.ytd) + '</td>' : '') + '<td class="n">100%</td><td class="n">' +
+                        f(ms.reduce(function (a, m) { return a + (m.py || 0); }, 0)) + '</td>' + (ytdOn ? '<td class="n">' + f(ly) + '</td>' : '') + '<td class="n">' + (d == null ? '' : f(d) + ' · ' + (d / Math.abs(ly) * 100 >= 0 ? '+' : '') + (d / Math.abs(ly) * 100).toFixed(1) + '%') + '</td><td></td></tr>';
+                })() : '') +
+                '</tbody></table></div>' +
+                (hasAcc ? '<p class="sm muted">Month = that month alone; YTD = from the start of the financial year to that month. Click a month for its accounts → companies / cost centres → journal lines.</p>' : '');
+            csv = function () { FL.csv('drill-months.csv', ['month', 'month_amount', 'ytd', 'month_last_year', 'ytd_last_year'], ms.map(function (m) { return [m.name, m.value, m.ytd == null ? '' : m.ytd, m.py == null ? '' : m.py, m.pyYtd == null ? '' : m.pyYtd]; })); };
         } else if (view === 'matrix' && mx) {
             var mm = mx.months;
             html += '<p class="sm muted" style="margin:0 0 6px">Each account month by month (' + FL.scaleLabel() + ') — ' + mx.accounts.length + ' account(s). Click an account for companies, cost centres and journal lines.</p>' +
@@ -561,7 +570,11 @@ FL.drillCell = function (tpl, opts, rowId, colId, view) {
         if (view === 'months' && mx) {
             var ds = [{ type: 'bar', label: FINE.colLabel(col, data._pi, opts.period), data: mx.months.map(function (m) { return m.value; }), backgroundColor: FL.PAL.act, borderRadius: 3, order: 2 },
                 { type: 'line', label: 'Same month last year', data: mx.months.map(function (m) { return m.py; }), borderColor: FL.PAL.py, backgroundColor: FL.PAL.py, pointRadius: 3, order: 1 }];
-            if (mx.additive && mx.months.length > 1) ds.push({ type: 'line', label: 'Running total', data: mx.months.map(function (m) { return m.cum; }), borderColor: '#7c3aed', borderDash: [5, 4], pointRadius: 0, yAxisID: 'y1', order: 0 });
+            if (!mx.balance && !mx.pct && mx.months.some(function (m) { return m.ytd != null; })) {
+                ds[0].label = 'Month'; ds[1].label = 'Month last year';
+                ds.push({ type: 'line', label: 'YTD', data: mx.months.map(function (m) { return m.ytd; }), borderColor: '#7c3aed', backgroundColor: '#7c3aed', pointRadius: 2, yAxisID: 'y1', order: 0 },
+                    { type: 'line', label: 'YTD last year', data: mx.months.map(function (m) { return m.pyYtd; }), borderColor: '#a78bfa', borderDash: [5, 4], pointRadius: 0, yAxisID: 'y1', order: 0 });
+            }
             var sc = { y: FL.moneyAxis() }; if (ds.length > 2) sc.y1 = Object.assign(FL.moneyAxis(), { position: 'right', grid: { display: false } });
             FL.chart('drillc', { type: 'bar', data: { labels: mx.months.map(function (m) { return m.name; }), datasets: ds }, options: { scales: sc, plugins: { legend: { labels: { boxWidth: 10, font: { size: 10 } } } } } });
             FL.charts.drill = FL.charts.drillc;

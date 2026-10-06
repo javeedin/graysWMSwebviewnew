@@ -551,6 +551,10 @@ test('drill: the months behind a QTD / YTD / full-year cell add up to it', funct
     var y = FINE.explainMonths(pl, data, { period: last, columns: [{ id: 'y', range: 'YTD' }] }, rev.id, 'y');
     var accSum = y.accounts.reduce(function (s, a) { return s + a.total; }, 0);
     assert.ok(Math.abs(accSum - y.total) < 0.01, 'accounts × months add up to the cell');
+    y.months.forEach(function (m, k) {   // YTD column = the year-to-date of each month, i.e. the running total from the year start
+        assert.ok(Math.abs(m.ytd - m.cum) < 0.01, 'YTD at ' + m.name + ' ' + m.ytd + ' vs running ' + m.cum);
+        if (k === y.months.length - 1) assert.ok(Math.abs(m.ytd - y.total) < 0.01, 'last month YTD = the cell');
+    });
     var fy = FINE.explainMonths(pl, data, { period: last, columns: [{ id: 'f', range: 'FY', at: 'PY' }] }, rev.id, 'f');
     assert.strictEqual(fy.months.length, 12, 'last full year = 12 months');
 });
