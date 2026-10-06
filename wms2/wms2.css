@@ -33,6 +33,8 @@ a { color: var(--accent); }
 .syncchip { font-size: .72rem; color: #cbd5e1; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .syncchip .dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; box-shadow: 0 0 0 3px rgba(74,222,128,.25); }
 .syncchip .dot.old { background: #fbbf24; box-shadow: 0 0 0 3px rgba(251,191,36,.25); }
+.newpill { font-size: .72rem; border: 0; border-radius: 999px; padding: 3px 10px; background: #fbbf24; color: #1f2937; font-weight: 600; cursor: pointer; animation: w2pulse 2s ease-in-out 3; }
+@keyframes w2pulse { 50% { box-shadow: 0 0 0 5px rgba(251,191,36,.3); } }
 .syncchip .dot.none { background: #94a3b8; box-shadow: none; }
 
 /* ── shell: left menu + pane ── */

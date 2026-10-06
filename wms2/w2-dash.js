@@ -60,7 +60,7 @@
         title: 'Control tower', icon: 'fa-gauge-high',
         render: function (main, params, live) {
             var pod = W2.pod(), date = W2.date();
-            main.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i>Reading ' + W2.dayName(date) + ' from the local copy…</div>';
+            if (!W2.state.soft) main.innerHTML = '<div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i>Reading ' + W2.dayName(date) + ' from the local copy…</div>';
             return Promise.all([
                 W2.M.orders(pod, date), W2.M.trips(pod, date),
                 W2.qs([

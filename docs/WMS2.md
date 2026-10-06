@@ -70,7 +70,7 @@ WMS 2.0 reads the trip date from the WMS sources. It writes every answer into a 
 - MRA status;
 - pending orders.
 
-The top bar says how old the copy is. The trip date on screen is refreshed every 3 minutes while the page is visible. **Refresh** reads it again at once. **Data & sync** shows each step, its result and its time, and lets you run one step again.
+The top bar says how old the copy is. The trip date on screen is refreshed every 3 minutes while the page is visible. A background refresh does not redraw the screen unless the data changed; while you are working (rows ticked, typing, a dialog open, a trip page, or you used the page in the last minute) it waits and a yellow **New data · show** button appears in the top bar instead. **Refresh** reads it again at once. **Data & sync** shows each step, its result and its time, and lets you run one step again.
 
 ### Where the data comes from
 

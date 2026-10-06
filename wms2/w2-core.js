@@ -360,15 +360,63 @@
         W2.render();
     };
     var renderSeq = 0;
-    W2.render = function () {
+    /** Draws the page. opts.soft (background refresh): no "reading…" placeholder, the scroll position is kept. */
+    W2.render = function (opts) {
         var p = W2.pages[W2.state.page]; if (!p) return;
-        var seq = ++renderSeq, main = $('main');
+        var soft = !!(opts && opts.soft);
+        var seq = ++renderSeq, main = $('main'), top = main.scrollTop;
         if (W2.charts) W2.charts.forEach(function (c) { try { c.destroy(); } catch (e) {} });
         W2.charts = [];
+        W2.newData(false);
+        if (soft) main.style.minHeight = main.scrollHeight + 'px';
+        W2.state.soft = soft;
         Promise.resolve().then(function () { return p.render(main, W2.state.params, function () { return seq === renderSeq; }); }).catch(function (e) {
             if (seq !== renderSeq) return;
             main.innerHTML = '<div class="callout bad"><b>This page could not be drawn.</b> ' + W2.esc(e && e.message || e) + '</div>';
             console.error('[W2] render', e);
+        }).then(function () {
+            if (seq !== renderSeq) return;
+            W2.state.soft = false;
+            if (soft) { main.style.minHeight = ''; main.scrollTop = top; }
+            W2.dataSig().then(function (sig) { if (seq === renderSeq) lastSig = sig; });
+        });
+    };
+
+    // ── background refresh without flicker ────────────────────
+    // A background refresh (every few minutes) or an autopilot run used to redraw the page each time.
+    // Now: nothing is redrawn when the date's data did not change; when it did and the user is busy
+    // (rows ticked, typing, a dialog open, a trip's WMS page, touched in the last minute) a "New data"
+    // pill waits in the top bar; otherwise the page is redrawn in place (same scroll, no placeholder).
+    var lastSig = null, lastTouch = 0;
+    ['pointerdown', 'keydown', 'wheel', 'input'].forEach(function (ev) { document.addEventListener(ev, function () { lastTouch = Date.now(); }, true); });
+    W2.dataSig = function () {
+        var pod = W2.pod(), date = W2.date();
+        if (!W2.M || !W2.M.ordersSql) return Promise.resolve(null);
+        return W2.q(W2.M.ordersSql(pod, date) + " SELECT COUNT(*) AS n, md5(COALESCE(string_agg(o2::VARCHAR, '|' ORDER BY order_number), '')) AS h FROM o2")
+            .then(function (r) { return r && r[0] ? pod + '|' + date + '|' + r[0].n + '|' + r[0].h : null; }).catch(function () { return null; });
+    };
+    W2.busyUser = function () {
+        var main = $('main');
+        if (Date.now() - lastTouch < 60000) return 'you used the page in the last minute';
+        if (/^(trips|trip|tripws|futuretrip)$/.test(W2.state.page)) return 'a trip page is open';
+        if (document.querySelector('.w2-modal, .w2-drawer, .qf, .dx-overlay-wrapper, .modal.show, .modal[style*="block"], .modal[style*="flex"]')) return 'a dialog is open';
+        if (main.querySelector('input[type=checkbox]:checked')) return 'rows are ticked';
+        var a = document.activeElement; if (a && main.contains(a) && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)) return 'you are typing';
+        if ([].some.call(main.querySelectorAll('input[data-f]'), function (i) { return i.value; })) return 'a grid filter is set';
+        return '';
+    };
+    W2.newData = function (on, why) {
+        var b = $('t-new'); if (!b) return;
+        b.style.display = on ? '' : 'none';
+        if (on) b.title = 'The data of ' + W2.date() + ' changed in the background. Not redrawn because ' + why + ' — click to show it.';
+    };
+    /** Called after a background sync / autopilot run: redraw only when something changed. */
+    W2.refresh = function () {
+        if (!W2.pages[W2.state.page]) return Promise.resolve();
+        return W2.dataSig().then(function (sig) {
+            if (sig && sig === lastSig) return;
+            var why = W2.busyUser();
+            if (why) W2.newData(true, why); else W2.render({ soft: true });
         });
     };
     W2.chart = function (canvas, cfg) { if (typeof Chart === 'undefined' || !canvas) return null; var c = new Chart(canvas, cfg); W2.charts.push(c); return c; };
@@ -391,7 +439,7 @@
         if (info === undefined) { W2.sync.lastInfo().then(W2.paintSync); return; }
         if (!info || !info.ts) { el.innerHTML = '<span class="dot none"></span>not synced'; el.title = 'Press Refresh to read ' + W2.dayName(W2.date()) + ' from APEX and Fusion'; return; }
         var age = (Date.now() - new Date(info.ts.replace(' ', 'T')).getTime()) / 1000;
-        el.innerHTML = '<span class="dot ' + (age > 600 ? 'old' : '') + '"></span>synced ' + W2.ago(info.ts);
+        el.innerHTML = '<span class="dot ' + (age > 600 ? 'old' : '') + '"></span>synced ' + (age < 60 ? 'just now' : W2.ago(info.ts));
         el.title = 'Local copy (DuckDB) of ' + W2.date() + ' · ' + W2.pod() + ' read ' + info.ts + (info.ms ? ' in ' + (info.ms / 1000).toFixed(1) + ' s' : '');
     };
 
@@ -484,6 +532,7 @@
         $('t-tomorrow').onclick = function () { W2.setDate(W2.addDays(W2.today(), 1)); };
         $('t-refresh').onclick = function () { W2.sync.day(W2.date(), { full: true }); };
         $('t-find').onclick = W2.find;
+        $('t-new').onclick = function () { W2.render({ soft: true }); };
         var h = (location.hash || '').replace('#', '');
         W2.state.page = W2.pages[h] ? h : 'dash';
         paintNav();

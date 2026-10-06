@@ -240,7 +240,7 @@
                 if (opts.manual) W2.busy.done(msg, !!err || sum.failed > 0);
                 AP.status = msg; AP.lastRun = { at: ended, msg: msg };
                 AP.running = null; W2.stopping = false;
-                W2.emit('autopilot'); if (W2.state.page === 'autopilot' || W2.state.page === 'dash') W2.render();
+                W2.emit('autopilot'); if (opts.manual && W2.state.page === 'autopilot') W2.render(); else if (W2.state.page === 'autopilot' || W2.state.page === 'dash') W2.refresh();
                 return { runId: runId, sum: sum, err: err };
             });
         }

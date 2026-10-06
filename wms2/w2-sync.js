@@ -66,7 +66,7 @@
                 return Promise.resolve().then(fn).then(function (msg) {
                     steps.push({ step: name, ok: true, ms: Date.now() - s0, msg: msg || '' }); note('ok', name + ': ' + (msg || 'done') + ' (' + ((Date.now() - s0) / 1000).toFixed(1) + ' s)');
                     // trips + lines are in DuckDB: draw the screen now, the slower steps (Fusion, MRA) fill it in later
-                    if (name === 'lines' && date === W2.date() && pod === W2.pod()) W2.render();
+                    if (name === 'lines' && loud && date === W2.date() && pod === W2.pod()) W2.render();
                 }, function (e) {
                     var m = String(e && e.message || e);
                     steps.push({ step: name, ok: false, ms: Date.now() - s0, msg: m }); note('err', name + ': ' + m);
@@ -100,7 +100,7 @@
             S.lastRun = { date: date, pod: pod, steps: steps, ms: Date.now() - t0, ts: W2.now() };
             S.running = null; S.current = null; W2.stopping = false;
             S.lastInfo(date).then(W2.paintSync);
-            if (date === W2.date() && pod === W2.pod()) { W2.emit('synced', date); W2.render(); }
+            if (date === W2.date() && pod === W2.pod()) { W2.emit('synced', date); if (loud) W2.render(); else W2.refresh(); }
             return r;
         });
         return S.running;
