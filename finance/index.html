@@ -11,10 +11,10 @@
 </head>
 <body>
     <script>
-        // Finance Lens is for FINANCE users only (user type from the login, saved by login.html / the host).
+        // Finance Lens is for FINANCE and ADMIN users only (user type from the login, saved by login.html / the host).
         (function () {
             var t = ''; try { t = (localStorage.getItem('userType') || '').trim().toUpperCase(); } catch (e) { }
-            if (t !== 'FINANCE') { window.FIN_BLOCKED = true; location.replace('../Home/index.html?blocked=finance'); }
+            if (t !== 'FINANCE' && t !== 'ADMIN') { window.FIN_BLOCKED = true; location.replace('../Home/index.html?blocked=finance'); }
         })();
     </script>
     <header class="top">

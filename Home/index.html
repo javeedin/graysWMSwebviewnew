@@ -603,9 +603,10 @@
     </script>
     <script>
         // User type from the login (login.html / the host save localStorage 'userType' from the /login answer):
-        // FINANCE users see Finance Lens and the AI Digital Employee only; everyone else never sees Finance Lens. Runs before the sections are built.
+        // FINANCE users see Finance Lens and the AI Digital Employee only; ADMIN sees everything; everyone else never sees Finance Lens. Runs before the sections are built.
         (function () {
             var type = ''; try { type = (localStorage.getItem('userType') || '').trim().toUpperCase(); } catch (e) { }
+            if (type === 'ADMIN') return;   // ADMIN users see every module, Finance Lens included
             var finance = type === 'FINANCE';
             document.querySelectorAll('.modules-grid .module-card').forEach(function (card) {
                 var m = /\.\.\/([^\/]+)\//.exec(card.getAttribute('href') || ''), f = m ? m[1].toLowerCase() : '';
