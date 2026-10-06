@@ -119,6 +119,7 @@ SHIP.viewShipConfirm = function (el) {
     document.head.appendChild(css);
     FX.start({
         module: 'ship',
+        noJump: true,
         sub: 'Pick release, picks and ship confirm — live from Oracle Fusion',
         views: [
             { id: 'shiplines', group: 'Shipping', label: 'Shipment Lines', icon: 'fa-truck-ramp-box', desc: 'Pending shipment lines — pick release, pick slips, ship confirm.', render: FOM.viewShipLines },

@@ -428,7 +428,7 @@ FX.MODULES = [
     { id: 'costing', file: 'costing.html', label: 'Costing', icon: 'fa-coins', c: ['#fbbf24', '#b45309'] },
     { id: 'setup', file: 'setup.html', label: 'Setup & Diagnostics', icon: 'fa-screwdriver-wrench', c: ['#a78bfa', '#6d28d9'] }
 ];
-/** opts: { module: 'om', title, sub, views: [{id, label, icon, group, render(el)}] } */
+/** opts: { module: 'om', title, sub, noJump (only the Home icon in the top bar), views: [{id, label, icon, group, render(el)}] } */
 FX.start = function (opts) {
     FX.user = (function () { try { return (sessionStorage.getItem('loggedInUser') || localStorage.getItem('loggedInUser') || localStorage.getItem('username') || 'UNKNOWN').toUpperCase(); } catch (e) { return 'UNKNOWN'; } })();
     FX.instance = lsGet('fx_instance', null) || (function () { try { var v = (sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'PROD').toUpperCase(); return v === 'TEST' ? 'TEST' : 'PROD'; } catch (e) { return 'PROD'; } })();
@@ -438,7 +438,7 @@ FX.start = function (opts) {
     document.body.innerHTML =
         '<header class="top"><a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a><div class="logo"><i class="fa-solid ' + m.icon + '"></i></div>' +
         '<div><h1>Fusion ' + esc(m.label) + ' <span class="ver">v12.1.0</span></h1><p>' + esc(opts.sub || '') + ' · <span>' + esc(FX.user) + '</span> · <button class="inst ' + FX.instance + '" id="fx-inst" title="Fusion pod — click to switch">' + FX.instance + '</button></p></div>' +
-        '<nav class="jump">' + FX.MODULES.map(function (x) { return '<a href="' + x.file + '" class="' + (x.id === m.id ? 'on' : '') + '"><i class="fa-solid ' + x.icon + '"></i> ' + esc(x.label.split(' ')[0]) + '</a>'; }).join('') + '<a href="../Home/index.html" title="Home"><i class="fa-solid fa-house"></i></a></nav></header>' +
+        '<nav class="jump">' + (opts.noJump ? [] : FX.MODULES).map(function (x) { return '<a href="' + x.file + '" class="' + (x.id === m.id ? 'on' : '') + '"><i class="fa-solid ' + x.icon + '"></i> ' + esc(x.label.split(' ')[0]) + '</a>'; }).join('') + '<a href="../Home/index.html" title="Home"><i class="fa-solid fa-house"></i></a></nav></header>' +
         '<div class="shell"><nav class="nav" id="fx-nav"></nav><main class="main" id="fx-main"></main></div>' +
         '<div class="modal-bg" id="modal" hidden><div class="modal" id="modal-box"></div></div><div class="busy" id="busy" hidden><div><i class="fa-solid fa-circle-notch fa-spin"></i><span id="busy-t"></span></div></div><div class="toast" id="toast"></div>';
     FX.views = opts.views;
