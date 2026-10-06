@@ -488,5 +488,55 @@ test('paste mapping: parse, validate, create missing groups, apply, build a new 
     assert.strictEqual(built.tpl.type, 'BS'); assert.ok(built.tpl.rows.some(function (r) { return r.type === 'check'; }));
 });
 
+test('structure: main groups suggested, totals added, balance sheet lines split out, duplicates resolved', function () {
+    var A = function (c, n, t, k) { return { code: c, name: n, account_type: t, class: k }; };
+    var acc = [A('400', 'Sales', 'R', 'Revenue'), A('410', 'Interest income', 'R', 'Other income'), A('500', 'Cost of goods sold', 'E', 'Cost of sales'), A('600', 'Salaries', 'E', 'Staff costs'),
+        A('650', 'Bank interest', 'E', 'Finance costs'), A('690', 'Income tax', 'E', 'Tax'), A('100', 'Plant', 'A', 'Fixed assets'), A('120', 'Debtors', 'A', 'Receivables'),
+        A('130', 'Bank', 'A', 'Cash'), A('300', 'Share capital', 'O', 'Share capital'), A('210', 'Long term loan', 'L', 'Long-term borrowings'), A('200', 'Creditors', 'L', 'Payables')];
+    var L = function (id, label, a) { return { id: id, type: 'accounts', label: label, accounts: a }; };
+    // a flat "income statement" holding balance sheet lines too (as loaded from a paste), 600 in two lines
+    var t = { id: 'G', name: 'Income statement — grays', type: 'PL', columns: [{ id: 'y', range: 'YTD' }], rows: [L('REVENUE', 'Revenue', ['400']), L('OTHER', 'Other income', ['410']), L('COS', 'Cost of sales', ['500']),
+        L('STAFF', 'Staff', ['600']), L('ADMIN', 'Admin', ['600']), L('INT', 'Interest', ['650']), L('TAXL', 'Tax', ['690']), L('PPE', 'PLANT AND EQUIPMENT', ['100']), L('TR', 'TRADE RECEIVABLES', ['120']),
+        L('CASH', 'CASH AND CASH EQUIVALENTS', ['130']), L('SC', 'STATED CAPITAL', ['300']), L('LTB', 'LONG TERM BORROWINGS', ['210']), L('TP', 'TRADE AND OTHER PAYABLES', ['200'])] };
+    var sg = FINE.structureSuggest(t, acc), m = {}; sg.lines.forEach(function (l) { m[l.id] = l.main + '/' + l.kind; });
+    assert.deepStrictEqual(m, { REVENUE: 'REV/PL', OTHER: 'OI/PL', COS: 'COGS/PL', STAFF: 'OPEX/PL', ADMIN: 'OPEX/PL', INT: 'FIN/PL', TAXL: 'TAX/PL', PPE: 'NCA/BS', TR: 'CA/BS', CASH: 'CA/BS', SC: 'EQ/BS', LTB: 'NCL/BS', TP: 'CL/BS' });
+    assert.deepStrictEqual(sg.dup.map(function (d) { return d.code + ':' + d.rows.join('|'); }), ['600:STAFF|ADMIN']);
+    assert.ok(!sg.hasCalc);
+    var res = FINE.structureApply(t, sg, { split: true, keep: { 600: 'STAFF' } }, acc);
+    var f = {}; t.rows.forEach(function (r) { if (r.type === 'formula') f[r.id] = r.formula; });
+    assert.deepStrictEqual(f, { GP: 'REV - COGS', GP_M: 'PCT(GP, REV)', EBIT: 'GP + OI - OPEX', EBIT_M: 'PCT(EBIT, REV)', PBT: 'EBIT - FIN', NP: 'PBT - TAX', NP_M: 'PCT(NP, REV)' });
+    assert.deepStrictEqual(FINE.accountLines([t], acc)['600'].map(function (x) { return x.row; }), ['STAFF'], 'the account stays in the chosen line only');
+    assert.strictEqual(t.rows.filter(function (r) { return r.id === 'STAFF'; })[0].parent, 'OPEX');
+    var bs = res.other; assert.strictEqual(bs.type, 'BS');
+    var bf = {}; bs.rows.forEach(function (r) { if (r.type === 'formula' || r.type === 'check') bf[r.id] = r.formula; });
+    assert.deepStrictEqual(bf, { TA: 'NCA + CA', TL: 'NCL + CL', TEL: 'EQ + TL', CHK: 'TA - TEL' });
+    assert.ok(bs.rows.some(function (r) { return r.label === 'Profit for the year' && r.parent === 'EQ'; }), 'equity carries the profit for the year');
+    // the result balances on real numbers: every account has a balance; assets = equity + liabilities + profit
+    var data = { accounts: acc, periods: [{ period_seq: 202601, period_name: 'Jan-26', year: 2026, num: 1 }], facts: { ACTUAL: {} } };
+    var bal = { 400: -1000, 410: -50, 500: 600, 600: 200, 650: 30, 690: 40, 100: 800, 120: 300, 130: 120, 300: -500, 210: -300, 200: -240 };
+    Object.keys(bal).forEach(function (c) { data.facts.ACTUAL[c] = { 202601: [bal[c], bal[c]] }; });
+    var st = FINE.compute(bs, data, { period: 202601, columns: [{ id: 'b', range: 'BAL' }] }), chk = st.rows.filter(function (r) { return r.type === 'check'; })[0];
+    assert.ok(Math.abs(chk.values[0]) < 0.01, 'balance sheet checks to nil: ' + chk.values[0]);
+    var pl = FINE.compute(t, data, { period: 202601, columns: [{ id: 'y', range: 'YTD' }] }), np = pl.rows.filter(function (r) { return r.id === 'NP'; })[0];
+    assert.strictEqual(np.values[0], 180, 'net profit = 1050 − 600 − 200 − 30 − 40');
+    // a pasted custom main group joins the totals like its anchor
+    var t2 = { type: 'PL', rows: [L('S', 'Sales', ['400']), { id: 'H_OVH', type: 'header', label: 'Overheads' }, Object.assign(L('R', 'Rent', ['600']), { parent: 'OVH' }), { id: 'OVH', type: 'group', label: 'Total overheads' }] };
+    var s2 = FINE.structureSuggest(t2, acc); FINE.structureApply(t2, s2, {}, acc);
+    assert.strictEqual(t2.rows.filter(function (r) { return r.id === 'EBIT'; })[0].formula, 'REV - OVERHEADS');
+});
+
+test('paste mapping: a main group column puts existing lines under it', function () {
+    var acc = [{ code: '100', name: 'Plant', account_type: 'A' }, { code: '110', name: 'Software', account_type: 'A' }, { code: '120', name: 'Debtors', account_type: 'A' }];
+    var t = { type: 'BS', rows: [{ id: 'PPE', type: 'accounts', label: 'Plant and equipment', accounts: ['100'] }, { id: 'INT', type: 'accounts', label: 'Intangible assets', accounts: ['110'] }, { id: 'TR', type: 'accounts', label: 'Trade receivables', accounts: ['120'] }] };
+    var v = FINE.pasteValidate(t, FINE.pasteParse('Account\tGroup\tMain group\n100\tPlant and equipment\tNon-current assets\n110\tIntangible assets\tNon-current assets\n120\tTrade receivables\tCurrent assets'), acc);
+    var r = FINE.pasteApply(t, v, {}, acc);
+    assert.deepStrictEqual(r.regrouped, ['PPE', 'INT', 'TR']);
+    assert.deepStrictEqual(t.rows.map(function (x) { return x.id + (x.parent ? '<' + x.parent : ''); }), ['H_NON_CURRENT_ASSETS', 'PPE<NON_CURRENT_ASSETS', 'INT<NON_CURRENT_ASSETS', 'NON_CURRENT_ASSETS', 'H_CURRENT_ASSETS', 'TR<CURRENT_ASSETS', 'CURRENT_ASSETS']);
+    // then main groups & totals: the pasted mains are kept and added up
+    var sg = FINE.structureSuggest(t, acc); FINE.structureApply(t, sg, {}, acc);
+    assert.deepStrictEqual(sg.lines.map(function (l) { return l.main; }), ['NCA', 'NCA', 'CA'], 'standard names are recognised');
+    assert.strictEqual(t.rows.filter(function (x) { return x.id === 'TA'; })[0].formula, 'NCA + CA');
+});
+
 console.log('\n' + (n - fail) + '/' + n + ' passed');
 process.exit(fail ? 1 : 0);

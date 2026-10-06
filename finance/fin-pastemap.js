@@ -11,7 +11,7 @@
 
     /** Opens the dialog for template t (the draft being edited). done(result) is called after Load. */
     PM.open = function (t, done) {
-        PM.t = t; PM.done = done; PM.v = null; PM.dec = {}; PM.mode = 'into';
+        PM.t = t; PM.done = done; PM.v = null; PM.dec = {}; PM.pick = {}; PM.mode = 'into';
         PM.step1();
     };
     PM.head = function (n) {
@@ -21,7 +21,7 @@
         var t = PM.t;
         FL.modal('<i class="fa-solid fa-paste"></i> Paste mapping', PM.head(1) +
             '<div class="grid g2" style="align-items:start"><div>' +
-            '<p class="sm" style="margin-top:0">Copy two columns from Excel — <b>account</b> and its <b>group</b> — and paste them below. A third column <b>main group</b> is optional (where a new group goes). A header row is recognised; tabs, <code>;</code> or <code>,</code> separate the columns.</p>' +
+            '<p class="sm" style="margin-top:0">Copy two columns from Excel — <b>account</b> and its <b>group</b> — and paste them below. A third column <b>main group</b> is optional — e.g. <i>Non-current assets</i> for Plant and equipment: the group is put under it (the main group is created when it does not exist). A header row is recognised; tabs, <code>;</code> or <code>,</code> separate the columns.</p>' +
             '<textarea id="pm-ta" class="pm-ta" placeholder="Account&#9;Group&#10;401000&#9;Revenue&#10;402000&#9;Export revenue&#10;611000&#9;Utilities&#9;Operating expenses">' + esc(PM.text) + '</textarea>' +
             '<div class="row" style="margin-top:6px"><label class="btn sm"><i class="fa-solid fa-file-excel"></i> Load Excel / CSV<input type="file" id="pm-file" accept=".xlsx,.csv,.txt" hidden></label>' +
             '<button class="btn sm" id="pm-cur" title="Fill the box with this template\'s current mapping (account ⇥ line) — edit it in Excel and paste it back"><i class="fa-solid fa-download"></i> Current mapping</button>' +
@@ -56,7 +56,7 @@
             var p = FINE.pasteParse(PM.text);
             if (!p.rows.length) { FL.toast('Nothing to check — paste account and group columns first.', 'err'); return; }
             PM.v = FINE.pasteValidate(PM.mode === 'new' ? { type: 'CUSTOM', rows: [] } : PM.t, p, FL.dims.accounts);
-            PM.dec = {}; PM.filter = 'all';
+            PM.dec = {}; PM.pick = {}; PM.filter = 'all';
             PM.step2();
         };
     };
@@ -115,7 +115,17 @@
             }).join('') + '</tbody></table></div>';
         if (v.missing.length && !isNew) h += '<div class="callout warn sm" style="margin-top:8px"><b>' + v.missing.length + ' account(s) of this statement are in no line and not in the paste</b> — ' + v.missing.slice(0, 12).map(function (a) { return esc(a.code + ' ' + (a.name || '')); }).join(', ') + (v.missing.length > 12 ? ' …' : '') + '</div>';
         if (s.unknown) h += '<div class="callout bad sm" style="margin-top:8px">Accounts not in the synced chart are left out' + (isNew ? ' of the checks but kept in the template (they show once synced)' : '') + '. Leading zeros do not matter (<code>4000</code> = <code>04000</code>).</div>';
-        if (s.conflict) h += '<div class="callout warn sm" style="margin-top:8px">An account pasted under two groups goes to the <b>first</b> one.</div>';
+        if (s.conflict) {
+            // an account must sit in one group only: the user picks which (the first pasted one by default)
+            var cg = {}; v.rows.forEach(function (r) { if (r.status === 'conflict') { var o = cg[r.code] = cg[r.code] || { code: r.code, name: r.name, groups: [] }; if (o.groups.indexOf(r.group) < 0) o.groups.push(r.group); } });
+            PM.pick = PM.pick || {};
+            h += '<div class="callout warn sm" style="margin-top:8px"><b>' + Object.keys(cg).length + ' account(s) are pasted under more than one group</b> — an account can be in one group only. Choose the group for each:' +
+                '<table class="pm-tab" style="margin-top:6px"><thead><tr><th>Account</th><th>Name</th><th>Group it goes to</th></tr></thead><tbody>' +
+                Object.keys(cg).map(function (c) {
+                    var o = cg[c], cur = PM.pick[c] || FINE.pasteKey(o.groups[0]); PM.pick[c] = cur;
+                    return '<tr><td class="mono">' + esc(c) + '</td><td>' + esc(o.name) + '</td><td><select data-pick="' + esc(c) + '">' + o.groups.map(function (g) { return '<option value="' + esc(FINE.pasteKey(g)) + '"' + (FINE.pasteKey(g) === cur ? ' selected' : '') + '>' + esc(g) + '</option>'; }).join('') + '</select></td></tr>';
+                }).join('') + '</tbody></table></div>';
+        }
         if (!isNew) h += '<label class="sm" style="display:block;margin-top:8px"><input type="checkbox" id="pm-exact"' + (PM.exact ? ' checked' : '') + '> The paste is the complete list for the lines it names — accounts not pasted are taken off those lines</label>';
         FL.modal('<i class="fa-solid fa-paste"></i> Paste mapping · ' + esc(isNew ? 'new template "' + PM.name + '"' : PM.t.name), h,
             '<button class="btn" id="pm-back"><i class="fa-solid fa-arrow-left"></i> Back</button><button class="btn primary" id="pm-load"' + (s.ok + s.conflict + s.duplicate ? '' : ' disabled') + '><i class="fa-solid fa-file-import"></i> ' + (isNew ? 'Build template' : 'Load into template') + '</button>');
@@ -132,6 +142,7 @@
             };
         });
         var ex = $('pm-exact'); if (ex) ex.onchange = function () { PM.exact = ex.checked; };
+        document.querySelectorAll('#m-body [data-pick]').forEach(function (x) { x.onchange = function () { PM.pick[x.dataset.pick] = x.value; }; });
         $('pm-back').onclick = PM.step1;
         $('pm-load').onclick = PM.load;
     };
@@ -152,7 +163,7 @@
         }
         var conflicts = v.groups.filter(function (g) { var d = PM.dec[g.key]; return d.action === 'map' && !d.to; });
         if (conflicts.length) { FL.toast('Choose a line for ' + conflicts[0].name, 'err'); return; }
-        var res = FINE.pasteApply(PM.t, v, PM.dec, FL.dims.accounts, { exact: !!PM.exact });
+        var res = FINE.pasteApply(PM.t, v, PM.dec, FL.dims.accounts, { exact: !!PM.exact, pick: PM.pick || {} });
         PM.result(PM.t, res);
         if (PM.done) PM.done(res);
     };
@@ -165,7 +176,10 @@
             ((res.linked || []).length ? '<p class="sm">Added to the totals: ' + res.linked.map(function (l) { return '<b>' + esc(l.id) + '</b> in ' + esc(l.row) + ' <code>' + esc(l.formula) + '</code>'; }).join('<br>') + '</p>' : '') +
             ((res.unlinked || []).length ? '<div class="callout warn sm"><b>Add ' + res.unlinked.map(esc).join(', ') + ' to a total</b> — no formula of a line like it was found, so the totals do not include ' + (res.unlinked.length > 1 ? 'them' : 'it') + ' yet (edit the formula row, e.g. <code>… - ' + esc(res.unlinked[0]) + '</code>).</div>' : '') +
             ((res.warnings || []).length ? '<div class="callout warn sm">' + res.warnings.map(esc).join('<br>') + '</div>' : '') +
+            ((res.regrouped || []).length ? '<p class="sm">Put under their main group: ' + res.regrouped.map(esc).join(', ') + '</p>' : '') +
+            (!res.built && !t.simple && !(t.rows || []).some(function (r) { return r.type === 'formula'; }) ? '<div class="callout sm" style="margin-top:8px"><b>No totals yet.</b> <i>Main groups &amp; totals</i> suggests a main group for every line (Revenue, Cost of sales, Operating expenses … / Non-current assets, Current assets, Equity …) and adds the calculations — gross profit, operating profit, net profit, total assets, the balance check. You can change everything afterwards.</div>' : '') +
             '<p class="sm muted">' + (res.built ? 'Saved. It opens in the statement builder.' : 'The template is changed but <b>not saved yet</b> — check the preview, then press Save (Discard undoes it).') + '</p>',
-            '<button class="btn primary" onclick="FL.closeModal()">Done</button>');
+            (!res.built && !t.simple && FL.structure ? '<button class="btn" id="pm-struct"><i class="fa-solid fa-sitemap"></i> Main groups &amp; totals</button>' : '') + '<button class="btn primary" onclick="FL.closeModal()">Done</button>');
+        var sb = $('pm-struct'); if (sb) sb.onclick = function () { FL.structure.open(t, PM.done); };
     };
 })();

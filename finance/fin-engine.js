@@ -1214,6 +1214,7 @@
     // ── paste mapping: "account ⇥ group [⇥ main group]" from Excel → validate against the chart and the template → apply ──
     var normName = function (x) { return String(x == null ? '' : x).toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim(); };
     var noZeros = function (c) { var s = String(c).trim(); return /^\d+$/.test(s) ? s.replace(/^0+(?=\d)/, '') : s; };
+    FINE.pasteKey = function (name) { return normName(name); };
     /** Pasted text (Excel cells = tabs, else ; or ,) or an array of row objects → {rows: [{n, account, group, main}], header} */
     FINE.pasteParse = function (input) {
         var grid;
@@ -1325,7 +1326,7 @@
                 moves: rows.filter(function (r) { return r.status === 'ok' && r.now; }).length } };
     };
     /** Applies a validated paste: groups without a line are created (decision per group: {action: 'create'|'map'|'skip', to, parent, name}),
-        then every ok account moves to its line (taken out of all other lines). opts.exact: the matched lines keep only the pasted accounts.
+        then every ok account moves to its line (taken out of all other lines). opts.pick {code: group key} settles an account pasted under two groups. opts.exact: the matched lines keep only the pasted accounts.
         A new line inside a group is in its total; a new top-level line / main group is added to the first later formula that adds up its
         sibling of the same nature (linked), else listed in unlinked for the user to add to a total.
         Returns {moved, created: [ids], skipped, linked, unlinked}. Conflicting accounts take the first group pasted. */
@@ -1356,10 +1357,44 @@
         (t.rows || []).forEach(function (r) { if (r.id) used[r.id] = 1; });
         if (t.simple) Object.assign(used, FINE.simpleIds(t.simple));
         var newMains = {};
+        // a main group (header + total) by name: an existing one, else created after the last top-level group of the same nature
+        // (and added to the totals like it), else before the closing formulas
+        var mkMain = function (rows, mn, nat) {
+            var mk = normName(mn), have = FINE.pasteParents(t).filter(function (p) { return normName(p.label) === mk || normName(p.id) === mk; })[0];
+            if (have) return have.id;
+            if (newMains[mk]) return newMains[mk];
+            var gid = FINE.simpleId(mn, used), fav = nat === 'expense' ? 'down' : undefined, end = rows.length, sib = null;
+            rows.forEach(function (y, k) { if (y.type === 'group' && !y.parent && natOf(rows, y.id) === nat) { sib = y.id; end = k + 1; } });
+            if (!sib) for (var j = rows.length - 1; j >= 0; j--) if (rows[j].type === 'formula' || rows[j].type === 'check' || rows[j].type === 'blank') end = j; else break;
+            var gr = { id: gid, type: 'group', label: 'Total ' + mn.charAt(0).toLowerCase() + mn.slice(1), style: { bold: true, topBorder: true } }; if (fav) gr.favourable = fav;
+            rows.splice(end, 0, { id: 'H_' + gid, type: 'header', label: mn, style: { bold: true } }, gr);
+            used['H_' + gid] = 1; newMains[mk] = gid; created.push(gid);
+            if (sib) link(rows, gid, sib); else unlinked.push(gid);
+            return gid;
+        };
+        // moves an existing line under a main group (after its last line, else right under its header)
+        var moveUnder = function (rows, id, parent) {
+            var i = rows.map(function (y) { return y.id; }).indexOf(id); if (i < 0) return;
+            var r = rows.splice(i, 1)[0]; r.parent = parent; r.level = 1;
+            var pos = -1; rows.forEach(function (y, k) { if (y.parent === parent) pos = k + 1; });
+            if (pos < 0) { var ids = rows.map(function (y) { return y.id; }), hi = ids.indexOf('H_' + parent), gi = ids.indexOf(parent); pos = hi >= 0 ? hi + 1 : gi >= 0 ? gi : rows.length; }
+            rows.splice(pos, 0, r); regrouped.push(id);
+        };
+        var regrouped = [];
         v.groups.forEach(function (g) {
             var d = Object.assign({ action: g.match ? 'map' : 'create', to: g.match && g.match.id, parent: g.parent, name: g.name }, decisions[g.key] || {});
             if (d.action === 'skip') { skipped += g.codes.length; return; }
-            if (d.action === 'map') { if (d.to) target[g.key] = d.to; else skipped += g.codes.length; return; }
+            if (d.action === 'map') {
+                if (!d.to) { skipped += g.codes.length; return; }
+                target[g.key] = d.to;
+                // a pasted main group puts the line under it (created when it does not exist)
+                var mainName = d.newMain || g.main;
+                if (mainName && !t.simple && d.regroup !== false) {
+                    var line = (t.rows || []).filter(function (y) { return y.id === d.to; })[0], cur = line && line.parent ? (FINE.pasteParents(t).filter(function (p) { return p.id === line.parent; })[0] || {}).label : '';
+                    if (line && normName(cur) !== normName(mainName)) moveUnder(t.rows, d.to, mkMain(t.rows, mainName, g.nature || natOf(t.rows, d.to)));
+                }
+                return;
+            }
             var name = d.name || g.name;
             if (t.simple) {
                 var s = t.simple; delete s.auto;
@@ -1379,20 +1414,7 @@
                 FINE.simpleTemplate(t);
             } else {
                 var rows = t.rows, parent = d.parent || '', nat = g.nature;
-                if (!parent && (d.newMain || g.newMain)) {
-                    var mn = d.newMain || g.newMain, mk = normName(mn);
-                    if (!newMains[mk]) {
-                        var gid = FINE.simpleId(mn, used), fav = nat === 'expense' ? 'down' : undefined, end = rows.length, sib = null;
-                        // right after the last top-level group of the same nature (and added to the totals like it), else before the closing formulas
-                        rows.forEach(function (y, k) { if (y.type === 'group' && !y.parent && natOf(rows, y.id) === nat) { sib = y.id; end = k + 1; } });
-                        if (!sib) for (var j = rows.length - 1; j >= 0; j--) if (rows[j].type === 'formula' || rows[j].type === 'check' || rows[j].type === 'blank') end = j; else break;
-                        var gr = { id: gid, type: 'group', label: 'Total ' + mn.charAt(0).toLowerCase() + mn.slice(1), style: { bold: true, topBorder: true } }; if (fav) gr.favourable = fav;
-                        rows.splice(end, 0, { id: 'H_' + gid, type: 'header', label: mn, style: { bold: true } }, gr);
-                        used['H_' + gid] = 1; newMains[mk] = gid; created.push(gid);
-                        if (sib) link(rows, gid, sib); else unlinked.push(gid);
-                    }
-                    parent = newMains[mk];
-                }
+                if (!parent && (d.newMain || g.newMain)) parent = mkMain(rows, d.newMain || g.newMain, nat);
                 var r = { id: FINE.simpleId(name, used), type: 'accounts', label: name, accounts: '', sign: 'auto', basis: 'auto', level: parent ? 1 : 0 };
                 if (parent) r.parent = parent;
                 if (nat === 'expense') r.favourable = 'down';
@@ -1414,6 +1436,7 @@
         var per = {}, taken = {};
         v.rows.forEach(function (r) {
             if ((r.status !== 'ok' && r.status !== 'conflict' && r.status !== 'duplicate') || !r.name || taken[r.code]) return;
+            if (opts.pick && opts.pick[r.code] && opts.pick[r.code] !== normName(r.group)) return;   // the user chose another group for it
             var to = target[normName(r.group)]; if (!to) return;
             taken[r.code] = 1; (per[to] = per[to] || []).push(r.code);
         });
@@ -1426,7 +1449,7 @@
             moved += FINE.moveAccounts(t, per[to], to, accounts);
         });
         if (t.simple) FINE.simpleTemplate(t);
-        return { moved: moved, created: created, skipped: skipped, linked: linked, unlinked: unlinked };
+        return { moved: moved, created: created, skipped: skipped, linked: linked, unlinked: unlinked, regrouped: regrouped };
     };
     /** A whole new template from the paste: main group → group line, group → section (no main group: each group its own line);
         nature from the accounts; PL ends with Net profit, BS gets Total assets / Total equity and liabilities + the check. */
@@ -1452,6 +1475,144 @@
             s.lines = groups.concat([{ t: 'subtotal', id: FINE.simpleId('Net profit', used), name: 'Net profit', of: null, margin: true }]);
         }
         return { tpl: FINE.simpleTemplate({ name: name, simple: s }), warnings: res.warnings };
+    };
+
+    // ── structure: main groups + automatic totals for a flat template (lines = accounts rows) ──
+    /** Standard main groups and the totals between them. f = terms [sign, id] (ids of mains or earlier totals). */
+    FINE.STRUCT = {
+        PL: [{ id: 'REV', name: 'Revenue', nat: 'income' }, { id: 'COGS', name: 'Cost of sales', nat: 'expense' },
+            { t: 'f', id: 'GP', name: 'Gross profit', f: [['+', 'REV'], ['-', 'COGS']], margin: true },
+            { id: 'OI', name: 'Other income', nat: 'income' }, { id: 'OPEX', name: 'Operating expenses', nat: 'expense' },
+            { t: 'f', id: 'EBIT', name: 'Operating profit', f: [['+', 'GP'], ['+', 'OI'], ['-', 'OPEX']], margin: true },
+            { id: 'FIN', name: 'Finance costs', nat: 'expense' }, { t: 'f', id: 'PBT', name: 'Profit before tax', f: [['+', 'EBIT'], ['-', 'FIN']] },
+            { id: 'TAX', name: 'Income tax', nat: 'expense' }, { t: 'f', id: 'NP', name: 'Net profit', f: [['+', 'PBT'], ['-', 'TAX']], margin: true, last: true }],
+        BS: [{ id: 'NCA', name: 'Non-current assets', nat: 'asset' }, { id: 'CA', name: 'Current assets', nat: 'asset' },
+            { t: 'f', id: 'TA', name: 'Total assets', f: [['+', 'NCA'], ['+', 'CA']], last: true },
+            { id: 'EQ', name: 'Equity', nat: 'equity' }, { id: 'NCL', name: 'Non-current liabilities', nat: 'liability' }, { id: 'CL', name: 'Current liabilities', nat: 'liability' },
+            { t: 'f', id: 'TL', name: 'Total liabilities', f: [['+', 'NCL'], ['+', 'CL']] },
+            { t: 'f', id: 'TEL', name: 'Total equity and liabilities', f: [['+', 'EQ'], ['+', 'TL']], last: true }]
+    };
+    var ANCHOR = { income: 'OI', expense: 'OPEX', asset: 'CA', liability: 'CL', equity: 'EQ' };
+    /** Main group key for a line from its nature, class and name */
+    FINE.suggestMain = function (nature, cls, label) {
+        var n = String(label || '') + ' ' + String(cls || '');
+        if (nature === 'income') return cls === 'Other income' || /other income|interest income|investment income|dividend|gain|sundry|misc/i.test(n) ? 'OI' : 'REV';
+        if (nature === 'expense') {
+            if (cls === 'Tax' || /income tax|tax expense|deferred tax|corporate tax/i.test(n)) return 'TAX';
+            if (cls === 'Finance costs' || /interest|finance (cost|charge)|bank charge|exchange|forex/i.test(n)) return 'FIN';
+            if (cls === 'Cost of sales' || /cost of (sales|goods|revenue)|\bcogs\b|purchase|material/i.test(n)) return 'COGS';
+            return 'OPEX';
+        }
+        if (nature === 'asset') return ['Fixed assets', 'Accumulated depreciation', 'Intangibles'].indexOf(cls) >= 0 ||
+            /plant|equipment|property|intangib|investment|right.of.use|goodwill|deferred tax|non.?current|long.?term|subsidiar|associate|joint venture/i.test(n) ? 'NCA' : 'CA';
+        if (nature === 'equity') return 'EQ';
+        if (nature === 'liability') return ['Long-term borrowings'].indexOf(cls) >= 0 || /long.?term|non.?current|lease liab|deferred tax|debenture|bond/i.test(n) ? 'NCL' : 'CL';
+        return '';
+    };
+    var majority = function (o) { return Object.keys(o).sort(function (x, y) { return o[y] - o[x]; })[0] || ''; };
+    /** Looks at every accounts line: nature, class, statement, suggested main group; accounts in 2+ lines; whether totals exist.
+        → {kind, lines: [{id, label, nature, kind, cls, n, main, custom}], dup: [{code, name, rows}], customs: [{key, name, nature}], hasCalc} */
+    FINE.structureSuggest = function (t, accounts) {
+        accounts = accounts || [];
+        var byCode = {}; accounts.forEach(function (a) { byCode[a.code] = a; });
+        var rows = t.rows || [], kind = FINE.tplKind(t) || 'PL', lab = {};
+        rows.forEach(function (r) { if (r.type === 'header') lab[r.id.replace(/^H_/, '')] = r.label; else if (r.type === 'group' && !lab[r.id]) lab[r.id] = String(r.label || '').replace(/^Total /i, ''); });
+        var std = {}; ['PL', 'BS'].forEach(function (k) { FINE.STRUCT[k].forEach(function (m) { if (m.t !== 'f') std[normName(m.name)] = m.id; }); });
+        var where = {}, customs = {};
+        var lines = rows.filter(function (r) { return r.type === 'accounts' && !isCye(r); }).map(function (r) {
+            var codes = FINE.matchAccounts(r.accounts, accounts), nc = {}, cc = {};
+            codes.forEach(function (c) { (where[c] = where[c] || []).push(r.id); var a = byCode[c]; if (!a) return; var nt = TYPE_NATURE[a.account_type]; if (nt) nc[nt] = (nc[nt] || 0) + 1; var k = a.class || FINE.classify(a); if (k) cc[k] = (cc[k] || 0) + 1; });
+            var nature = majority(nc) || TYPE_NATURE[FINE.guessType({ name: r.label, code: '' })] || '', cls = majority(cc);
+            var lk = nature === 'income' || nature === 'expense' ? 'PL' : nature ? 'BS' : kind;
+            var main = FINE.suggestMain(nature, cls, r.label), custom = '';
+            var pl = r.parent && lab[r.parent];
+            if (pl) { var k2 = std[normName(pl)]; if (k2) main = k2; else { custom = 'c:' + normName(pl); main = custom; customs[custom] = customs[custom] || { key: custom, name: pl, nature: nature }; } }
+            return { id: r.id, label: r.label || r.id, nature: nature, kind: lk, cls: cls, n: codes.length, main: codes.length || nature ? main : '__keep' };
+        });
+        var dup = Object.keys(where).filter(function (c) { return where[c].length > 1; }).map(function (c) { return { code: c, name: (byCode[c] || {}).name || '', rows: where[c] }; });
+        return { kind: kind, lines: lines, dup: dup, customs: Object.keys(customs).map(function (k) { return customs[k]; }), hasCalc: rows.some(function (r) { return r.type === 'formula' || r.type === 'group'; }) };
+    };
+    /** Rebuilds the template as main group (header, its lines, total) + totals between them.
+        choice: {main: {lineId: key | '__keep' (outside the totals) | '__drop'}, keep: {code: lineId} (accounts in two lines), split: bool,
+        customs: {key: name}}. Lines of the other statement go to a new template when split. Returns {tpl, other, warnings}. */
+    FINE.structureApply = function (t, sug, choice, accounts) {
+        choice = choice || {}; accounts = accounts || [];
+        var main = choice.main || {}, rows = t.rows || [], byId = {}, warnings = [];
+        rows.forEach(function (r) { if (r.id) byId[r.id] = r; });
+        Object.keys(choice.keep || {}).forEach(function (code) { var to = choice.keep[code]; if (byId[to]) FINE.moveAccounts(t, [code], to, accounts); });
+        var customName = {}; (sug.customs || []).forEach(function (c) { customName[c.key] = (choice.customs || {})[c.key] || c.name; });
+        Object.keys(choice.customs || {}).forEach(function (k) { if (!customName[k]) customName[k] = choice.customs[k]; });
+        var build = function (kind, lines) {
+            var used = {}, out = [], ids = {}, present = {}, natOf = {};
+            lines.forEach(function (l) { used[l.id] = 1; });
+            var idFor = function (k) { if (!ids[k]) ids[k] = FINE.simpleId(k, used); return ids[k]; };
+            var plan = FINE.STRUCT[kind], members = {}, keepOut = [];
+            lines.forEach(function (l) { var m = main[l.id] != null ? main[l.id] : l.main; if (m === '__drop') return; if (!m || m === '__keep') { keepOut.push(l); return; } (members[m] = members[m] || []).push(l); });
+            // custom mains sit after the standard main of their nature (ANCHOR) and are added / subtracted like it
+            var customsAt = {};
+            Object.keys(members).forEach(function (k) {
+                if (plan.some(function (m) { return m.id === k; })) return;
+                if (!/^c:/.test(k)) { (members[ANCHOR[(members[k][0] || {}).nature]] = members[ANCHOR[(members[k][0] || {}).nature]] || []).push.apply(members[ANCHOR[(members[k][0] || {}).nature]], members[k]); delete members[k]; return; }
+                var nat = majority(members[k].reduce(function (o, l) { if (l.nature) o[l.nature] = (o[l.nature] || 0) + 1; return o; }, {})) || (kind === 'PL' ? 'expense' : 'asset');
+                var a = ANCHOR[nat]; if (!plan.some(function (m) { return m.id === a; })) a = kind === 'PL' ? 'OPEX' : 'CA';
+                (customsAt[a] = customsAt[a] || []).push({ key: k, nat: nat });
+            });
+            var addMain = function (key, name, nat) {
+                var ls = members[key] || []; if (!ls.length) return;
+                var id = idFor(/^c:/.test(key) ? name : key), credit = nat === 'income' || nat === 'liability' || nat === 'equity';
+                present[key] = id; natOf[id] = nat;
+                out.push({ id: 'H_' + id, type: 'header', label: name, style: { bold: true } });
+                ls.forEach(function (l) {
+                    var r = Object.assign({}, byId[l.id]); r.parent = id; r.level = 1; delete r.style;
+                    if (!r.sign || r.sign === 'auto') r.sign = credit ? 'credit' : 'debit';
+                    if (nat === 'expense') r.favourable = 'down';
+                    out.push(r);
+                });
+                if (kind === 'BS' && key === 'EQ' && !rows.some(isCye)) out.push({ id: FINE.simpleId('CYE', used), type: 'accounts', label: 'Profit for the year', accounts: { type: 'RE' }, basis: 'balance', sign: 'credit', parent: id, level: 1 });
+                var g = { id: id, type: 'group', label: 'Total ' + name.charAt(0).toLowerCase() + name.slice(1), style: { bold: true, topBorder: true } };
+                if (nat === 'expense') g.favourable = 'down';
+                out.push(g);
+            };
+            if (kind === 'BS' && !members.EQ && lines.length && !rows.some(isCye)) members.EQ = [];   // equity still gets the profit for the year
+            plan.forEach(function (m) {
+                if (m.t === 'f') {
+                    var terms = [];
+                    m.f.forEach(function (x) {
+                        var refs = [present[x[1]]].concat((customsAt[x[1]] || []).map(function (c) { return present[c.key]; })).filter(Boolean);
+                        refs.forEach(function (id) { terms.push([x[0], id]); });
+                    });
+                    if (!terms.length) return;
+                    if (terms.length === 1 && terms[0][0] === '+' && !m.last) { present[m.id] = terms[0][1]; return; }   // "Gross profit" = Revenue alone says nothing
+                    var f = terms.map(function (x, i) { return (x[0] === '-' ? (i ? ' - ' : '-') : (i ? ' + ' : '')) + x[1]; }).join('');
+                    var id = idFor(m.id); present[m.id] = id;
+                    out.push({ id: id, type: 'formula', label: m.name, formula: f, style: m.last ? { bold: true, topBorder: true, doubleBottom: true } : { bold: true, topBorder: true } });
+                    if (m.margin && present.REV) out.push({ id: id + '_M', type: 'formula', label: m.name + ' margin', formula: 'PCT(' + id + ', ' + present.REV + ')', format: 'pct', style: { italic: true } });
+                    if (kind === 'BS' && m.last) out.push({ id: 'B_' + id, type: 'blank' });
+                    return;
+                }
+                if (m.id === 'EQ' && kind === 'BS' && members.EQ && !members.EQ.length) {
+                    var eid = idFor('EQ'); present.EQ = eid;
+                    out.push({ id: 'H_' + eid, type: 'header', label: m.name, style: { bold: true } }, { id: FINE.simpleId('CYE', used), type: 'accounts', label: 'Profit for the year', accounts: { type: 'RE' }, basis: 'balance', sign: 'credit', parent: eid, level: 1 }, { id: eid, type: 'group', label: 'Total equity', style: { bold: true, topBorder: true } });
+                } else addMain(m.id, m.name, m.nat);
+                (customsAt[m.id] || []).forEach(function (c) { addMain(c.key, customName[c.key] || c.key.slice(2), c.nat); });
+            });
+            if (kind === 'BS' && present.TA && present.TEL) out.push({ id: idFor('CHK'), type: 'check', label: 'Check: assets − equity and liabilities', formula: present.TA + ' - ' + present.TEL, style: { italic: true } });
+            if (keepOut.length) {
+                out.push({ id: idFor('B_OTHER'), type: 'blank' });
+                keepOut.forEach(function (l) { var r = Object.assign({}, byId[l.id]); delete r.parent; r.level = 0; out.push(r); });
+                warnings.push(keepOut.length + ' line(s) kept outside the totals: ' + keepOut.map(function (l) { return l.label; }).join(', '));
+            }
+            return out;
+        };
+        var kind = sug.kind, mine = sug.lines.filter(function (l) { return !choice.split || l.kind === kind; }), others = choice.split ? sug.lines.filter(function (l) { return l.kind !== kind; }) : [];
+        if (!choice.split) mine.forEach(function (l) { if (l.kind !== kind && (main[l.id] || l.main) && FINE.STRUCT[kind].every(function (m) { return m.id !== (main[l.id] || l.main); }) && !/^c:|^__/.test(main[l.id] || l.main)) main[l.id] = '__keep'; });
+        t.rows = build(kind, mine);
+        var other = null;
+        if (others.length) {
+            var ok = kind === 'PL' ? 'BS' : 'PL';
+            other = { name: choice.otherName || (ok === 'BS' ? 'Balance sheet' : 'Income statement') + (t.name ? ' — ' + String(t.name).replace(/^(income statement|balance sheet)\s*[—-]\s*/i, '') : ''), type: ok, scale: t.scale || 1000, columns: FINE.colset(ok), rows: build(ok, others), description: 'Split from ' + (t.name || t.id) };
+        }
+        return { tpl: t, other: other, warnings: warnings };
     };
 
     if (typeof module !== 'undefined' && module.exports) module.exports = FINE; else root.FINE = FINE;

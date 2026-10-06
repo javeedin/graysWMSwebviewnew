@@ -101,8 +101,10 @@
 
             '<div class="card" style="margin-top:10px"><h3><i class="fa-solid fa-list"></i> Rows <small>click a row number to select; insert goes below it</small><span class="grow"></span>' +
             '<button class="btn sm primary" id="dz-paste2" title="Paste account + group from Excel"><i class="fa-solid fa-paste"></i> Paste mapping</button>' +
+            '<button class="btn sm" id="dz-struct" title="Suggest a main group for every line and add the totals (gross profit, net profit / total assets, balance check)"><i class="fa-solid fa-sitemap"></i> Main groups &amp; totals</button>' +
             TYPES.map(function (x) { return '<button class="btn sm" data-add="' + x[0] + '">+ ' + esc(x[1]) + '</button>'; }).join('') + '</h3>' +
             (cov.missing.length ? '<div class="callout warn sm"><b>' + cov.missing.length + ' account(s) are in no row</b> — their amounts are left out: ' + cov.missing.slice(0, 14).map(function (a) { return esc(a.code + ' ' + a.name); }).join(', ') + (cov.missing.length > 14 ? ' …' : '') + '</div>' : '<div class="callout good sm">Every ' + (t.type === 'PL' ? 'income statement' : t.type === 'BS' ? '' : '') + ' account is picked up by a row.</div>') +
+            (t.rows.some(function (r) { return r.type === 'accounts'; }) && !t.rows.some(function (r) { return r.type === 'formula' || r.type === 'group'; }) ? '<div class="callout sm"><b>No main groups or totals yet</b> — the lines are only listed. <button class="btn sm primary" id="dz-struct2"><i class="fa-solid fa-wand-magic-sparkles"></i> Add main groups &amp; totals</button> <span class="muted">suggests Revenue / Cost of sales / Operating expenses … or Non-current assets / Current assets / Equity … for every line and adds gross profit, net profit, total assets and the balance check. You can change it afterwards.</span></div>' : '') +
             (cov.twice.length ? '<div class="callout bad sm"><b>' + cov.twice.length + ' account(s) are in two rows</b> (double counted in totals): ' + cov.twice.slice(0, 10).map(function (x) { return esc(x.code + ' → ' + x.rows.join(' & ')); }).join('; ') + '</div>' : '') +
             '<div class="dz-box"><table class="dz-rows"><thead><tr><th>#</th><th></th><th>Type</th><th>Id</th><th>Label</th><th>Accounts / formula</th><th>In group</th><th>Indent</th><th>Sign</th><th>Basis</th><th>Format</th><th>Better when</th><th>Style</th><th></th></tr></thead><tbody>' +
             t.rows.map(function (r, i) {
@@ -189,6 +191,8 @@
         });
         el.querySelectorAll('[data-pick]').forEach(function (b) { b.onclick = function () { D.pick(+b.dataset.pick); }; });
         $('dz-paste2').onclick = D.paste;
+        $('dz-struct').onclick = D.structure;
+        if ($('dz-struct2')) $('dz-struct2').onclick = D.structure;
         $('dz-save').onclick = D.save;
         $('dz-undo').onclick = function () { D.draft = null; D.isNew = false; FL.render(); };
         if ($('dz-del')) $('dz-del').onclick = function () {
@@ -204,6 +208,10 @@
         t.columns.forEach(function (c) { if (!c.id) bad.push('a column has no id'); });
         var st = FINE.compute(t, D.data, FL.stmtOpts());
         if (bad.length || st.errors.length) { if (!confirm('Problems:\n• ' + bad.concat(st.errors).join('\n• ') + '\n\nSave anyway?')) return; }
+        // an account may sit in one row only — otherwise its amount is counted twice in the totals
+        var twice = D.coverage().twice;
+        if (twice.length && !confirm(twice.length + ' account(s) are in more than one row and would be counted twice:\n• ' + twice.slice(0, 15).map(function (x) { return x.code + ' → ' + x.rows.join(' & '); }).join('\n• ') + (twice.length > 15 ? '\n…' : '') +
+            '\n\nCancel to fix them (Main groups & totals lets you choose the row for each), or OK to save anyway.')) return;
         if (t.simple && !confirm('"' + t.name + '" is a Statement builder template (main groups → sections → accounts). Saving here turns it into an advanced template — the builder no longer edits it. Save?')) return;
         delete t.simple; delete t.colset;
         var i = FL.templates.map(function (x) { return x.id; }).indexOf(t.id);
@@ -219,6 +227,11 @@
             if (res.built) { D.cur = res.built.id; D.draft = null; if (FL.builder && FL.builder.open) FL.builder.open(res.built.id); else FL.render(); return; }
             D.touch(true);
         });
+    };
+    /** Main groups & totals (fin-structure.js) for the template being edited */
+    D.structure = function () {
+        delete D.draft.simple;
+        FL.structure.open(D.draft, function () { D.touch(true); });
     };
     D.pick = function (ri) {
         var r = D.draft.rows[ri], cur = {};
