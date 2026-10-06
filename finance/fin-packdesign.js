@@ -92,8 +92,8 @@
             '<div class="field" style="margin-top:8px">Colours</div><div class="pk-themes">' + Object.keys(th).map(function (k) {
                 return '<button class="pk-theme' + (p.theme === k ? ' on' : '') + '" data-th="' + k + '" title="' + esc(th[k].name) + '"><span style="background:' + th[k].a + '"></span><span style="background:' + th[k].b + '"></span><span style="background:' + th[k].c + '"></span></button>';
             }).join('') + '</div>' +
-            '<div class="row" style="margin-top:10px"><span class="field" style="margin:0">Logo</span>' + (p.logo ? '<img src="' + esc(p.logo) + '" class="pk-logo">' : '<span class="sm muted">none</span>') +
-            '<label class="btn sm"><i class="fa-solid fa-image"></i> ' + (p.logo ? 'Change' : 'Add') + '<input type="file" id="pk-logo" accept="image/png,image/jpeg,image/svg+xml" hidden></label>' + (p.logo ? '<button class="btn sm ghost" id="pk-nologo">Remove</button>' : '') + '</div></div>';
+            '<div class="row" style="margin-top:10px"><span class="field" style="margin:0">Logo</span>' + (p.logo ? '' : '<span class="sm muted">none</span>') +
+            '<label class="btn sm"><i class="fa-solid fa-image"></i> ' + (p.logo ? 'Change' : 'Add') + '<input type="file" id="pk-logo" accept="image/png,image/jpeg,image/svg+xml" hidden></label>' + (p.logo ? '<button class="btn sm ghost" id="pk-nologo">Remove</button>' : '') + '</div>' + (p.logo ? D.logoBox(p) : '') + '</div>';
         h += '<div class="card" style="margin-top:12px"><div class="row"><h4 class="pk-h" style="margin:0"><i class="fa-solid fa-list-ol"></i> Sections <span class="sm muted">— the left menu of the pack, in this order</span></h4><span class="grow"></span>' +
             '<select id="pk-add" class="sm" style="max-width:190px"><option value="">+ Add a section…</option>' + Object.keys(types).map(function (k) { return '<option value="' + k + '">' + esc(types[k].label) + ' — ' + esc(types[k].what) + '</option>'; }).join('') + '</select></div>' +
             '<div id="pk-secs" class="pk-secs">' + (p.sections || []).map(function (s, i) { return D.secHtml(s, i); }).join('') + '</div></div>';
@@ -105,6 +105,8 @@
             if (f.size > 400 * 1024) { FL.toast('Use a logo smaller than 400 KB (it travels inside every pack and e-mail)', 'err'); return; }
             var r = new FileReader(); r.onload = function () { p.logo = r.result; D.touch(); D.paintLeft(); }; r.readAsDataURL(f);
         };
+        box.querySelectorAll('[data-lo]').forEach(function (x) { x.oninput = x.onchange = function () { p.logoOpts = p.logoOpts || {}; p.logoOpts[x.dataset.lo] = x.type === 'range' ? +x.value : x.value; D.touch(); D.paintLogo(); }; });
+        if (p.logo) D.paintLogo();
         if ($('pk-nologo')) $('pk-nologo').onclick = function () { p.logo = ''; D.touch(); D.paintLeft(); };
         $('pk-add').onchange = function () {
             var t = this.value; if (!t) return;
@@ -115,6 +117,33 @@
             p.sections.push(s); D.open = s.id; D.touch(); D.paintLeft();
         };
         D.wireSecs(box);
+    };
+
+    /** Logo settings: background plate, colour, size — with a live sample on the menu, the cover and the e-mail header */
+    D.logoBox = function (p) {
+        var o = p.logoOpts || {}, P0 = FL.packs;
+        var sel = function (k, map, cur) { return '<select data-lo="' + k + '" class="sm">' + Object.keys(map).map(function (v) { return '<option value="' + v + '"' + ((cur || Object.keys(map)[0]) === v ? ' selected' : '') + '>' + esc(map[v]) + '</option>'; }).join('') + '</select>'; };
+        return '<div class="pk-logobox"><div class="row sm"><label>Background ' + sel('bg', P0.PLATES, o.bg || 'auto') + '</label><label>Colour ' + sel('tint', P0.TINTS, o.tint || 'none') + '</label>' +
+            '<label>Size <input type="range" data-lo="size" min="24" max="110" step="2" value="' + (o.size || 48) + '" style="width:110px;vertical-align:middle"></label></div>' +
+            '<div class="pk-logoprev" id="pk-logoprev"><span class="sm muted">checking the logo…</span></div><div class="sm muted" id="pk-logonote"></div></div>';
+    };
+    D.paintLogo = function () {
+        var p = D.cur, box = $('pk-logoprev'); if (!box || !p.logo) return;
+        var th = FL.packs.THEMES[p.theme] || FL.packs.THEMES.navy, n = ++D._ln || (D._ln = 1);
+        FL.packs.logoReady(p).then(function (lg) {
+            if (n !== D._ln || !lg) return;
+            var img = function (where) { return '<img src="' + esc(lg.src) + '" style="' + FL.packs.logoCss(lg, where) + 'max-width:92%">'; };
+            box.innerHTML = '<div class="pk-lp" style="background:' + th.a + '">' + img('menu') + '<small>menu</small></div>' +
+                '<div class="pk-lp" style="background:linear-gradient(135deg,' + th.a + ',' + th.b + ' 65%,' + th.c + ')">' + img('cover') + '<small>cover</small></div>' +
+                '<div class="pk-lp" style="background:' + th.a + '">' + '<img src="' + esc(lg.png) + '" style="' + FL.packs.logoCss(lg, 'mail') + 'max-width:92%"><small>e-mail</small></div>';
+            var i = lg.info || {}, o = p.logoOpts || {}, t = [];
+            t.push(i.alpha ? 'Transparent background' + ((o.tint || 'none') === 'knockout' ? ' (white removed)' : '') : 'Solid background (' + (i.w || '?') + ' × ' + (i.h || '?') + ' px)');
+            if (i.lum != null) t.push(i.lum < 0.45 ? 'dark logo' : i.lum > 0.75 ? 'light logo' : 'mid-tone logo');
+            if ((o.bg || 'auto') === 'auto') t.push('Automatic chose ' + FL.packs.PLATES[lg.plate.key].toLowerCase());
+            if (i.alpha && i.lum < 0.45 && lg.plate.key === 'none' && (o.tint || 'none') === 'none') t.push('⚠ a dark logo on the dark menu is hard to see — choose a white plate or All white');
+            if (!i.alpha && (o.tint || 'none') === 'none') t.push('tip: Remove white background makes a white-boxed logo sit on the theme colour');
+            $('pk-logonote').textContent = t.join(' · ');
+        });
     };
 
     D.secHtml = function (s, i) {

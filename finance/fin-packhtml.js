@@ -58,6 +58,59 @@
             email: { to: '', cc: '', subject: '{TITLE} · {PERIOD}', intro: 'Dear all,\n\nPlease find the {PERIOD} board pack below. The full interactive pack is attached — open it in any browser and use the menu on the left.\n\nKind regards,' } };
     };
 
+    // ── logo: transparent / dark logos on the dark menu and cover ──
+    P.PLATES = { auto: 'Automatic', none: 'None (transparent)', white: 'White plate', light: 'Light grey plate', dark: 'Dark plate', brand: 'Theme colour plate' };
+    P.TINTS = { none: 'As it is', knockout: 'Remove white background', white: 'All white', dark: 'All dark' };
+    var loadImg = function (src) { return new Promise(function (ok, no) { var im = new Image(); im.onload = function () { ok(im); }; im.onerror = function () { no(new Error('The logo could not be read')); }; im.src = src; }); };
+    /** What the logo is: {alpha: has transparent pixels, lum: average brightness 0..1 of its visible pixels, w, h} */
+    P.logoInfo = function (src) {
+        return loadImg(src).then(function (im) {
+            var w = Math.min(200, im.naturalWidth || 200), h = Math.max(1, Math.round(w * (im.naturalHeight || 1) / (im.naturalWidth || 1)));
+            var cv = document.createElement('canvas'); cv.width = w; cv.height = h; var cx = cv.getContext('2d'); cx.drawImage(im, 0, 0, w, h);
+            var d = cx.getImageData(0, 0, w, h).data, clear = 0, n = 0, lum = 0;
+            for (var i = 0; i < d.length; i += 4) { if (d[i + 3] < 200) clear++; if (d[i + 3] > 30) { n++; lum += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255; } }
+            return { alpha: clear > d.length / 4 * 0.02, lum: n ? lum / n : 1, w: im.naturalWidth, h: im.naturalHeight };
+        });
+    };
+    /** The plate the logo sits on: auto = a white plate for a dark or opaque logo, none for a light transparent one (it reads on the dark menu) */
+    P.logoPlate = function (pack, info) {
+        var o = pack.logoOpts || {}, bg = o.bg || 'auto', tint = o.tint || 'none', th = P.THEMES[pack.theme] || P.THEMES.navy;
+        if (bg === 'auto') bg = !info || (!info.alpha && tint !== 'knockout') ? 'white' : tint === 'white' ? 'none' : tint === 'dark' ? 'white' : info.lum < 0.6 ? 'white' : 'none';
+        return { key: bg, color: { none: '', white: '#ffffff', light: '#f1f5f9', dark: '#0f172a', brand: th.b }[bg] || '' };
+    };
+    /** The logo ready to show: recoloured on a canvas when asked (works in e-mail too, where CSS filters do not) → {src, plate, size} */
+    P.logoReady = function (pack) {
+        if (!pack.logo) return Promise.resolve(null);
+        var o = pack.logoOpts || {}, size = Math.max(24, Math.min(110, +o.size || 48));
+        return P.logoInfo(pack.logo).then(function (info) {
+            var tint = o.tint || 'none';
+            return loadImg(pack.logo).then(function (im) {
+                // always a PNG copy (≤ 480 px wide) for e-mail: Outlook shows neither SVG nor data: pictures, so it goes as an inline attachment
+                var k = Math.min(1, 480 / (im.naturalWidth || 480)), cv = document.createElement('canvas');
+                cv.width = Math.max(1, Math.round((im.naturalWidth || 200) * k)); cv.height = Math.max(1, Math.round((im.naturalHeight || 60) * k));
+                var cx = cv.getContext('2d'); cx.drawImage(im, 0, 0, cv.width, cv.height);
+                if (tint === 'white' || tint === 'dark') { cx.globalCompositeOperation = 'source-in'; cx.fillStyle = tint === 'white' ? '#ffffff' : '#0f172a'; cx.fillRect(0, 0, cv.width, cv.height); }
+                if (tint === 'knockout') {   // near-white pixels become see-through (soft edge), then the plate is chosen on what is left
+                    var id = cx.getImageData(0, 0, cv.width, cv.height), d = id.data, n = 0, lum = 0;
+                    for (var i = 0; i < d.length; i += 4) {
+                        var m = Math.min(d[i], d[i + 1], d[i + 2]);
+                        if (m > 200) d[i + 3] = Math.round(d[i + 3] * Math.max(0, (245 - m) / 45));
+                        if (d[i + 3] > 30) { n++; lum += (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255; }
+                    }
+                    cx.putImageData(id, 0, 0);
+                    info = { alpha: true, lum: n ? lum / n : 0, w: info.w, h: info.h };
+                }
+                var png = cv.toDataURL('image/png'), plate = P.logoPlate(pack, info);
+                return { src: tint === 'none' ? pack.logo : png, png: png, plate: plate, size: size, info: info };
+            });
+        }).catch(function () { return { src: pack.logo, plate: { key: 'white', color: '#ffffff' }, size: size }; });
+    };
+    /** Inline style of the logo picture for a place (menu / cover / mail) */
+    P.logoCss = function (lg, where) {
+        var h = where === 'cover' ? Math.round(lg.size * 1.4) : where === 'mail' ? Math.min(56, lg.size) : lg.size;
+        return 'max-height:' + h + 'px;max-width:' + (h * 4) + 'px;object-fit:contain;display:block;' + (lg.plate.color ? 'background:' + lg.plate.color + ';padding:' + Math.round(h / 8 + 2) + 'px ' + Math.round(h / 5 + 3) + 'px;border-radius:8px;' : '');
+    };
+
     var winOf = function (range, per) {
         var list = FL.dims.periods, i = list.map(function (p) { return p.period_seq; }).indexOf(per), p = list[i] || {};
         if (range === 'MTD') return [per];
@@ -162,7 +215,8 @@
         if (pack.scale) FL.filter.scale = +pack.scale;
         var th = P.THEMES[pack.theme] || P.THEMES.navy, step = onStep || function () { };
         var done = function (x) { FL.filter.scale = keepScale; return x; };
-        return FL.data().then(function (data) {
+        var lg = null;
+        return P.logoReady(pack).then(function (x) { lg = x; return FL.data(); }).then(function (data) {
             var kv = {}, kPy = {}, kPm = {}, pi = data._pi || (data._pi = FINE.periodIndex(data.periods)), i = pi.bySeq[per];
             try { kv = FINE.kpis(cfg.kpis, tm, data, per); if (i > 0) kPm = FINE.kpis(cfg.kpis, tm, data, pi.list[i - 1].period_seq); var pyS = pi.bySeq[per - 100]; if (pyS != null) kPy = FINE.kpis(cfg.kpis, tm, data, per - 100); } catch (e) { console.warn('[pack] KPIs', e); }
             var kdef = function (id) { return (cfg.kpis || []).filter(function (k) { return k.id === id; })[0]; };
@@ -194,7 +248,7 @@
                         options: { scales: { y: FL.moneyAxis(), y2: Object.assign(FL.moneyAxis(), { position: 'right', grid: { display: false } }) } } }, 1200, 420);
                 } catch (e) { console.warn('[pack] trend chart', e); }
             }
-            var model = { period: pname, per: per, tiles: tiles, keyLines: keyLines, highlights: hl, attention: attention, trendPng: trendPng, scaleLabel: FL.scaleLabel(), filter: FL.filterText() };
+            var model = { logo: lg, period: pname, per: per, tiles: tiles, keyLines: keyLines, highlights: hl, attention: attention, trendPng: trendPng, scaleLabel: FL.scaleLabel(), filter: FL.filterText() };
 
             var out = [], chain = Promise.resolve();
             (pack.sections || []).filter(function (s) { return s.on !== false; }).forEach(function (sec) {
@@ -204,7 +258,7 @@
                         var o = sec.opts || {};
                         var h = '<div class="hero"><div><div class="eyebrow">' + esc(pack.company || '') + '</div><h1>' + esc(pack.title || pack.name) + '</h1><div class="per">' + esc(pname) + '</div>' +
                             '<div class="meta">' + esc(model.filter) + ' · amounts in ' + esc(model.scaleLabel) + (pack.by ? ' · prepared by ' + esc(pack.by) : '') + ' · ' + new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) + '</div></div>' +
-                            (pack.logo ? '<img class="logo" src="' + esc(pack.logo) + '" alt="">' : '') + '</div>';
+                            (lg ? '<img class="logo" src="' + esc(lg.src) + '" alt="" style="' + P.logoCss(lg, 'cover') + '">' : '') + '</div>';
                         if (o.kpis !== false && tiles.length) h += '<div class="tiles">' + tiles.map(function (t) { return '<div class="tile"><div class="tl">' + esc(t.label) + '</div><div class="tv">' + t.value + '</div><div class="td ' + (t.good == null ? '' : t.good ? 'pos' : 'neg') + '">' + esc(t.delta) + '</div></div>'; }).join('') + '</div>';
                         if (o.note) h += '<h3>Commentary</h3><div class="note">' + md(o.note) + '</div>';
                         if (o.highlights !== false && hl.length) h += '<h3>Highlights</h3><ul class="hl">' + hl.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>';
@@ -256,13 +310,13 @@
             });
             return chain.then(function () {
                 var file = ((pack.title || pack.name || 'Board pack') + ' ' + pname).replace(/[^\w .-]+/g, '').replace(/\s+/g, ' ').trim() + '.html';
-                return done({ html: page(pack, th, pname, out), file: file, model: model, sections: out.map(function (x) { return x.sec.title; }) });
+                return done({ html: page(pack, th, pname, out, lg), file: file, model: model, sections: out.map(function (x) { return x.sec.title; }) });
             });
         }).catch(function (e) { done(); throw e; });
     };
 
     /** The self-contained interactive page */
-    function page(pack, th, pname, out) {
+    function page(pack, th, pname, out, lg) {
         var css = ':root{--a:' + th.a + ';--b:' + th.b + ';--c:' + th.c + ';--bg:#f4f6fb;--card:#fff;--ink:#0f172a;--mut:#64748b;--line:#e5e9f2;--row:#f8fafc}' +
             'html[data-theme=dark]{--bg:#0b1020;--card:#121a2e;--ink:#e5e9f5;--mut:#93a0bb;--line:#24304d;--row:#17213a}' +
             '*{box-sizing:border-box}body{margin:0;font:14px/1.5 "Segoe UI",system-ui,-apple-system,Arial,sans-serif;background:var(--bg);color:var(--ink)}' +
@@ -271,7 +325,7 @@
             'nav .co{font-size:11px;letter-spacing:.18em;text-transform:uppercase;opacity:.7;padding:0 10px}nav .tt{font-size:18px;font-weight:800;padding:2px 10px 0;line-height:1.25}nav .pp{display:inline-block;margin:8px 10px 14px;background:rgba(255,255,255,.14);border-radius:99px;padding:3px 12px;font-size:12px;font-weight:700}' +
             'nav a{display:flex;align-items:center;gap:10px;color:rgba(255,255,255,.82);text-decoration:none;padding:9px 12px;border-radius:9px;font-weight:600;cursor:pointer}nav a:hover{background:rgba(255,255,255,.08);color:#fff}nav a.on{background:#fff;color:var(--a)}' +
             'nav .grow{flex:1}nav .tools{display:flex;gap:6px;padding:8px 6px 0;border-top:1px solid rgba(255,255,255,.14)}nav .tools button{flex:1;display:flex;gap:6px;align-items:center;justify-content:center;background:rgba(255,255,255,.1);border:0;color:#fff;border-radius:8px;padding:8px;font:inherit;font-size:12px;cursor:pointer}nav .tools button:hover{background:rgba(255,255,255,.2)}' +
-            'nav .logo{max-width:150px;max-height:48px;margin:0 10px 10px;object-fit:contain;background:#fff;border-radius:6px;padding:4px}' +
+            'nav .logo{margin:0 10px 12px}' +
             'main{padding:26px 34px 60px;min-width:0}section{display:none;animation:fi .25s ease}section.on{display:block}@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}' +
             '.sh{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}.sh h2{margin:0;font-size:24px;letter-spacing:-.01em}.sh .sub{color:var(--mut);font-size:13px}.sh .gr{flex:1}' +
             '.sh input{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:7px 10px;font:inherit;width:210px}.btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:7px 11px;font:inherit;font-size:13px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}.btn:hover{border-color:var(--b);color:var(--b)}' +
@@ -282,13 +336,13 @@
             'tr.tb td{border-top:1.5px solid var(--ink)}tr.db td{border-bottom:3px double var(--ink)}tr.check td{font-size:12px;color:var(--mut)}tr.check.notok td{color:#dc2626;font-weight:700}td.fav{color:#16a34a}td.unf{color:#dc2626}' +
             'tr.grp{cursor:pointer}tr.grp .cr{display:inline-block;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;margin-right:8px;transition:transform .15s;vertical-align:middle}tr.grp.open .cr{transform:rotate(90deg)}' +
             'tr.acc{display:none}tr.acc.show{display:table-row}tr.acc td{font-size:12.5px;color:var(--mut);background:var(--row)}tr.hide{display:none!important}' +
-            '.hero{display:flex;gap:20px;align-items:center;background:linear-gradient(135deg,var(--a),var(--b) 65%,var(--c));color:#fff;border-radius:18px;padding:30px 34px;margin-bottom:18px}.hero>div{flex:1}.hero h1{margin:4px 0;font-size:30px}.hero .eyebrow{letter-spacing:.2em;text-transform:uppercase;font-size:12px;opacity:.8}.hero .per{font-size:22px;font-weight:800;margin:6px 0}.hero .meta{opacity:.85;font-size:13px}.hero .logo{max-height:70px;max-width:180px;background:#fff;border-radius:10px;padding:6px}' +
+            '.hero{display:flex;gap:20px;align-items:center;background:linear-gradient(135deg,var(--a),var(--b) 65%,var(--c));color:#fff;border-radius:18px;padding:30px 34px;margin-bottom:18px}.hero>div{flex:1}.hero h1{margin:4px 0;font-size:30px}.hero .eyebrow{letter-spacing:.2em;text-transform:uppercase;font-size:12px;opacity:.8}.hero .per{font-size:22px;font-weight:800;margin:6px 0}.hero .meta{opacity:.85;font-size:13px}.hero .logo{flex:none}' +
             '.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;margin-bottom:8px}.tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;border-top:4px solid var(--b)}.tl{font-size:12px;color:var(--mut);font-weight:600}.tv{font-size:24px;font-weight:800;margin:2px 0}.td{font-size:12px;color:var(--mut)}.pos{color:#16a34a}.neg{color:#dc2626}' +
             'h3{font-size:15px;margin:22px 0 8px;color:var(--a)}html[data-theme=dark] h3{color:#c7d2fe}.note{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--b);border-radius:10px;padding:10px 16px}.note p{margin:6px 0}ul.hl{margin:0;padding:0;list-style:none}ul.hl li{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 14px;margin:6px 0;border-left:4px solid var(--c)}ul.hl.warn li{border-left-color:#dc2626}' +
             '.muted{color:var(--mut)}img.wide{width:100%;border-radius:10px;background:#fff}.two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.two img{width:100%;border-radius:10px;background:#fff}figure{margin:0}figcaption{color:var(--mut);font-size:12px;text-align:center;margin-top:4px}' +
             '.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.chip{border:1px solid var(--line);border-radius:99px;padding:3px 11px;font-size:12px;font-weight:600;background:var(--card)}.chip.ok{color:#15803d;border-color:#bbf7d0;background:#f0fdf4}.chip.bad{color:#b91c1c;border-color:#fecaca;background:#fef2f2}' +
-            'tr.none td{text-align:center!important;color:var(--mut);padding:18px}.prose{max-width:820px}.prose h2.mh{font-size:20px}.foot{color:var(--mut);font-size:12px;margin-top:26px;text-align:center}.mtop{display:none}' +
-            '@media (max-width:860px){.app{grid-template-columns:1fr}nav{position:sticky;height:auto;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;padding:8px;z-index:5}nav .co,nav .tt,nav .pp,nav .grow,nav .logo{display:none}nav a{white-space:nowrap;padding:8px 10px}nav .tools{border:0;padding:0}main{padding:16px}table.st td:first-child{min-width:170px}.two{grid-template-columns:1fr}.hero{padding:20px}.sh input{width:100%}}' +
+            'tr.none td{text-align:center!important;color:var(--mut);padding:18px}.prose{max-width:820px}.prose h2.mh{font-size:20px}.foot{color:var(--mut);font-size:12px;margin-top:26px;text-align:center}.foot .pw{margin-top:6px;font-size:12.5px;letter-spacing:.02em}.foot .pw b{color:var(--b)}html[data-theme=dark] .foot .pw b{color:#93c5fd}nav .pwn{font-size:11px;opacity:.65;text-align:center;padding-top:8px}.mtop{display:none}' +
+            '@media (max-width:860px){.app{grid-template-columns:1fr}nav{position:sticky;height:auto;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;padding:8px;z-index:5}nav .co,nav .tt,nav .pp,nav .grow,nav .logo,nav .pwn{display:none}nav a{white-space:nowrap;padding:8px 10px}nav .tools{border:0;padding:0}main{padding:16px}table.st td:first-child{min-width:170px}.two{grid-template-columns:1fr}.hero{padding:20px}.sh input{width:100%}}' +
             '@media print{@page{size:A4 landscape;margin:10mm}nav,.sh input,.sh .btn{display:none!important}.app{display:block}main{padding:0}section{display:none;page-break-after:always}section.on,body.all section{display:block}tr.acc.show{display:table-row}.card{border:0;box-shadow:none;padding:0}table.st th{background:#13315c!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}.hero,.tile{-webkit-print-color-adjust:exact;print-color-adjust:exact}}';
         var nav = out.map(function (x, k) { var t = P.TYPES[x.sec.type] || {}; return '<a data-s="' + k + '" href="#' + esc(x.sec.id) + '">' + P.svg(t.icon) + '<span>' + esc(x.sec.title) + '</span></a>'; }).join('');
         var secs = out.map(function (x, k) {
@@ -315,9 +369,9 @@
             'try{var t=localStorage.getItem("pack.theme");if(t)document.documentElement.dataset.theme=t;else if(matchMedia("(prefers-color-scheme: dark)").matches)document.documentElement.dataset.theme="dark"}catch(_){}})();';
         return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="generator" content="Finance Lens">' +
             '<title>' + esc((pack.title || pack.name) + ' — ' + pname) + '</title><style>' + css + '</style></head><body><div class="app"><nav>' +
-            (pack.logo ? '<img class="logo" src="' + esc(pack.logo) + '" alt="">' : '') + '<div class="co">' + esc(pack.company || '') + '</div><div class="tt">' + esc(pack.title || pack.name) + '</div><div><span class="pp">' + esc(pname) + '</span></div>' + nav +
-            '<span class="grow"></span><div class="tools"><button id="prall" title="Print every page of the pack">' + P.svg('print', 14) + ' Print all</button><button id="theme" title="Light / dark">' + P.svg('moon', 14) + '</button></div></nav>' +
-            '<main>' + secs + '<div class="foot">' + esc(pack.company || '') + ' · ' + esc(pack.title || pack.name) + ' · ' + esc(pname) + ' · generated by Finance Lens on ' + esc(new Date().toLocaleString('en-GB')) + ' from the general ledger</div></main></div><script>' + js + '</script></body></html>';
+            (lg ? '<img class="logo" src="' + esc(lg.src) + '" alt="" style="' + P.logoCss(lg, 'menu') + '">' : '') + '<div class="co">' + esc(pack.company || '') + '</div><div class="tt">' + esc(pack.title || pack.name) + '</div><div><span class="pp">' + esc(pname) + '</span></div>' + nav +
+            '<span class="grow"></span><div class="tools"><button id="prall" title="Print every page of the pack">' + P.svg('print', 14) + ' Print all</button><button id="theme" title="Light / dark">' + P.svg('moon', 14) + '</button></div><div class="pwn">Powered by Fusion Client</div></nav>' +
+            '<main>' + secs + '<div class="foot">' + esc(pack.company || '') + ' · ' + esc(pack.title || pack.name) + ' · ' + esc(pname) + ' · generated on ' + esc(new Date().toLocaleString('en-GB')) + ' from the general ledger<div class="pw">Powered by <b>Fusion Client</b></div></div></main></div><script>' + js + '</script></body></html>';
     }
 
     /** Outlook-safe message body. opts: {intro, tiles, keyLines, highlights, chart: 'cid:…' | data URL | null, attached: file name} */
@@ -329,10 +383,11 @@
         var h = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:0;background:#eef1f7">' +
             '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#eef1f7" style="background:#eef1f7"><tr><td align="center" style="padding:24px 10px">' +
             '<table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="width:640px;max-width:640px;background:#ffffff;border-radius:12px">' +
-            '<tr><td bgcolor="' + th.a + '" style="background:' + th.a + ';padding:26px 30px;border-radius:12px 12px 0 0;' + F + 'color:#ffffff">' +
+            '<tr><td style="padding:0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td bgcolor="' + th.a + '" style="background:' + th.a + ';padding:26px 30px;border-radius:12px ' + (opts.logo && model.logo ? '0 0' : '12px 0') + ' 0;' + F + 'color:#ffffff">' +
             '<div style="font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#cbd5e1">' + esc(pack.company || '') + '</div>' +
             '<div style="font-size:24px;font-weight:bold;margin-top:4px;color:#ffffff">' + esc(pack.title || pack.name) + '</div>' +
-            '<div style="font-size:16px;margin-top:6px;color:#e2e8f0">' + esc(model.period) + ' &middot; ' + esc(model.filter) + '</div></td></tr>' +
+            '<div style="font-size:16px;margin-top:6px;color:#e2e8f0">' + esc(model.period) + ' &middot; ' + esc(model.filter) + '</div></td>' +
+            (opts.logo && model.logo ? '<td align="right" valign="middle" bgcolor="' + th.a + '" style="background:' + th.a + ';padding:20px 30px 20px 0;border-radius:0 12px 0 0"><img src="' + opts.logo + '" alt="' + esc(pack.company || '') + '" style="' + P.logoCss(model.logo, 'mail') + '"></td>' : '') + '</tr></table></td></tr>' +
             '<tr><td bgcolor="' + th.c + '" style="background:' + th.c + ';height:4px;line-height:4px;font-size:0">&nbsp;</td></tr>';
         if (opts.intro) h += '<tr><td style="padding:22px 30px 6px;' + F + 'font-size:14px;line-height:1.6;color:#1e293b">' + esc(fill(opts.intro)).replace(/\n/g, '<br>') + '</td></tr>';
         if (opts.tiles !== false && model.tiles.length) {
@@ -360,7 +415,7 @@
         if (hl.length) h += '<tr><td style="padding:12px 30px 4px;' + F + 'font-size:15px;font-weight:bold;color:' + th.a + '">Highlights</td></tr><tr><td style="padding:2px 30px 8px;' + F + 'font-size:13px;line-height:1.55;color:#1e293b"><ul style="margin:0;padding-left:18px">' + hl.slice(0, 8).map(function (x) { return '<li style="margin:3px 0">' + esc(x) + '</li>'; }).join('') + '</ul></td></tr>';
         if (opts.attached) h += '<tr><td style="padding:14px 30px 8px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f1f5f9;border-radius:8px"><tr><td style="padding:12px 16px;' + F + 'font-size:13px;color:#0f172a">' +
             '&#128206; <b>The full interactive pack is attached:</b> ' + esc(opts.attached) + '<br><span style="color:#64748b">Open it in any browser — the menu on the left shows the ' + esc((opts.sections || []).join(', ')) + '. Lines open into accounts, every table has search and CSV, and Print gives the whole pack.</span></td></tr></table></td></tr>';
-        h += '<tr><td style="padding:18px 30px 24px;' + F + 'font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0">' + esc(pack.company || '') + ' &middot; ' + esc(pack.title || pack.name) + ' &middot; ' + esc(model.period) + ' &middot; prepared with Finance Lens from the general ledger</td></tr>' +
+        h += '<tr><td style="padding:18px 30px 24px;' + F + 'font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0">' + esc(pack.company || '') + ' &middot; ' + esc(pack.title || pack.name) + ' &middot; ' + esc(model.period) + ' &middot; from the general ledger<div style="margin-top:6px;font-size:12px;color:#64748b">Powered by <b style="color:' + th.b + '">Fusion Client</b></div></td></tr>' +
             '</table></td></tr></table></body></html>';
         return { html: h, subject: fill((pack.email || {}).subject || '{TITLE} · {PERIOD}') };
     };

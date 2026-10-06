@@ -89,7 +89,7 @@
 
     // ═════ compose ═════
     var b64 = function (str) { var bytes = new TextEncoder().encode(str), bin = ''; for (var i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(bin); };
-    var CID = 'trend@financelens';
+    var CID = 'trend@financelens', LOGO = 'logo@financelens';
 
     M.compose = function (pack, built, onSent) {
         var go = function () {
@@ -107,6 +107,7 @@
                 '<label class="field">Message <span class="muted sm">({PERIOD}, {TITLE}, {COMPANY} are filled in)</span><textarea id="mc-intro" rows="6">' + esc(e.intro != null ? e.intro : FL.packs.newPack().email.intro) + '</textarea></label>' +
                 '<div class="field">In the message</div><div class="ml-chks"><label><input type="checkbox" id="mc-tiles"' + (e.tiles !== false ? ' checked' : '') + '> KPI tiles</label><label><input type="checkbox" id="mc-lines"' + (e.lines !== false ? ' checked' : '') + '> income statement at a glance</label>' +
                 '<label><input type="checkbox" id="mc-chart"' + (e.chart !== false && built.model.trendPng ? ' checked' : '') + (built.model.trendPng ? '' : ' disabled') + '> trend chart</label><label><input type="checkbox" id="mc-hl"' + (e.hl !== false ? ' checked' : '') + '> highlights</label>' +
+                (built.model.logo ? '<label><input type="checkbox" id="mc-logo"' + (e.logo !== false ? ' checked' : '') + '> logo</label>' : '') +
                 '<label><input type="checkbox" id="mc-att"' + (e.attach !== false ? ' checked' : '') + '> attach the interactive pack <span class="muted">(' + esc(built.file) + ', ' + Math.round(built.html.length / 1024) + ' KB)</span></label></div>' +
                 '<div class="row ml-send"><label class="sm">Send with <select id="mc-how">' + ['OUTLOOK', 'GRAPH', 'SMTP'].map(function (k) { return '<option value="' + k + '"' + (k === me ? ' selected' : '') + '>' + METHODS[k].name + '</option>'; }).join('') + '</select></label>' +
                 '<button class="btn sm ghost" onclick="FL.mail.setup()" title="E-mail setup"><i class="fa-solid fa-gear"></i></button>' + (ok ? '' : '<span class="tag warn">not set up</span>') + '<span class="grow"></span>' +
@@ -115,19 +116,21 @@
                 '<div class="ml-prev"><div class="sm muted" style="margin-bottom:4px"><i class="fa-regular fa-eye"></i> How the message looks</div><iframe id="mc-f" title="Message preview"></iframe></div></div>');
             var opts = function (forSend) {
                 return { intro: $('mc-intro').value, tiles: $('mc-tiles').checked, keyLines: $('mc-lines').checked, highlights: $('mc-hl').checked,
-                    chart: $('mc-chart').checked && built.model.trendPng ? (forSend ? 'cid:' + CID : built.model.trendPng) : null, attached: $('mc-att').checked ? built.file : null, sections: built.sections };
+                    chart: $('mc-chart').checked && built.model.trendPng ? (forSend ? 'cid:' + CID : built.model.trendPng) : null,
+                    logo: $('mc-logo') && $('mc-logo').checked ? (forSend ? 'cid:' + LOGO : built.model.logo.png) : null, attached: $('mc-att').checked ? built.file : null, sections: built.sections };
             };
             var paint = function () { $('mc-f').srcdoc = FL.packs.emailHtml(pack, built.model, opts(false)).html; };
-            ['mc-intro', 'mc-tiles', 'mc-lines', 'mc-chart', 'mc-hl', 'mc-att'].forEach(function (id) { $(id).oninput = $(id).onchange = function () { clearTimeout(M._pt); M._pt = setTimeout(paint, 250); }; });
+            ['mc-intro', 'mc-tiles', 'mc-lines', 'mc-chart', 'mc-hl', 'mc-att', 'mc-logo'].filter($).forEach(function (id) { $(id).oninput = $(id).onchange = function () { clearTimeout(M._pt); M._pt = setTimeout(paint, 250); }; });
             paint();
             var send = function (how, display) {
                 var o = opts(true), mail = FL.packs.emailHtml(pack, built.model, o), att = [];
                 if (o.attached) att.push({ name: built.file, contentType: 'text/html', base64: b64(built.html) });
+                if (o.logo) att.push({ name: 'logo.png', contentType: 'image/png', cid: LOGO, base64: built.model.logo.png.split(',')[1] });
                 if (o.chart) att.push({ name: 'trend.png', contentType: 'image/png', cid: CID, base64: built.model.trendPng.split(',')[1] });
                 var to2 = $('mc-to').value.trim();
                 if (!to2 && !(how === 'OUTLOOK' && display)) { FL.toast('Add at least one recipient', 'err'); $('mc-to').focus(); return; }
                 Object.assign(pack.email, { to: to2, cc: $('mc-cc').value.trim(), bcc: $('mc-bcc').value.trim(), subject: subjTemplate(pack, $('mc-subj').value, built), intro: $('mc-intro').value,
-                    tiles: $('mc-tiles').checked, lines: $('mc-lines').checked, chart: $('mc-chart').checked, hl: $('mc-hl').checked, attach: $('mc-att').checked });
+                    tiles: $('mc-tiles').checked, lines: $('mc-lines').checked, chart: $('mc-chart').checked, hl: $('mc-hl').checked, logo: !$('mc-logo') || $('mc-logo').checked, attach: $('mc-att').checked });
                 var btns = document.querySelectorAll('#mc-send, #mc-review'); btns.forEach(function (b) { b.disabled = true; });
                 $('mc-msg').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> ' + (display ? 'Opening Outlook…' : 'Sending…');
                 FL.call('finMailSend', { method: how, display: !!display, to: to2, cc: pack.email.cc, bcc: pack.email.bcc, subject: $('mc-subj').value, html: mail.html, attachments: att }, 600000).then(function (r) {

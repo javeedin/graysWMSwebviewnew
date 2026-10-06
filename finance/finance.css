@@ -950,3 +950,7 @@ table.st tr.segsub td { background: #f5f8ff; font-size: .74rem; } table.st .st-s
 .ml-send { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .ml-prev iframe { width: 100%; height: min(70vh, 720px); border: 1px solid var(--line); border-radius: 8px; background: #eef1f7; }
 @media (max-width: 1000px) { .ml-comp, .ml-cards { grid-template-columns: 1fr; } }
+.pk-logobox { margin-top: 8px; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; }
+.pk-logoprev { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0 4px; }
+.pk-lp { position: relative; border-radius: 8px; min-height: 86px; display: flex; align-items: center; justify-content: center; padding: 10px 8px 18px; overflow: hidden; }
+.pk-lp small { position: absolute; left: 6px; bottom: 3px; color: rgba(255,255,255,.7); font-size: .66rem; }
