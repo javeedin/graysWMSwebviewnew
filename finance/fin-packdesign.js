@@ -73,7 +73,7 @@
             (D.dirty ? '<span class="tag warn">not saved</span>' : '<span class="tag good">saved</span>') +
             '<button class="btn sm" id="pk-save"' + (D.dirty ? '' : ' disabled') + '><i class="fa-solid fa-floppy-disk"></i> Save</button>' +
             '<button class="btn sm ghost" id="pk-dup" title="Duplicate"><i class="fa-regular fa-copy"></i></button><button class="btn sm ghost" id="pk-del" title="Delete this design"><i class="fa-solid fa-trash"></i></button>' +
-            '<span class="grow"></span><span class="sm muted">' + esc(FL.filterText()) + ' · ' + esc(FL.periodName(FL.filter.period)) + '</span>' +
+            '<span class="grow"></span><span class="sm muted" title="The period follows the header; the ledgers are chosen under Look and feel">' + esc(D.scopeText()) + '</span>' +
             '<button class="btn" id="pk-multi" title="One pack per ledger, all companies of each"><i class="fa-solid fa-layer-group"></i> For ledgers…</button>' +
             '<button class="btn" id="pk-arc" title="Save this pack with comments in the APEX archive — a record of what the board received"><i class="fa-solid fa-box-archive"></i> Save to archive</button>' +
             '<button class="btn" id="pk-dl"><i class="fa-solid fa-download"></i> Download HTML</button>' +
@@ -103,6 +103,20 @@
 
     var opt = function (v, l, cur) { return '<option value="' + esc(v) + '"' + (String(cur) === String(v) ? ' selected' : '') + '>' + esc(l) + '</option>'; };
 
+    /** Which ledgers the pack covers: none ticked = the ledger in the header; one = that ledger; several = one document broken out by ledger */
+    D.ledgerBox = function (p) {
+        var leds = FL.dims.ledgers || [], sel = (p.ledgers || []).map(String);
+        if (!leds.length) return '';
+        var hdr = (leds.filter(function (l) { return String(l.code) === String(FL.filter.ledger); })[0] || {}).name || (leds.length > 1 ? 'all ledgers added up' : leds[0].name);
+        return '<div class="field" style="margin-top:8px">Ledgers <span class="muted sm">— tick several and the pack is broken out by ledger (a menu group each)</span></div><div class="pk-leds">' +
+            '<button class="pk-ledhdr' + (sel.length ? '' : ' on') + '" id="pk-ledhdr" title="Follow the Ledger of the header">As in the header <span class="muted">(' + esc(hdr) + ')</span></button>' +
+            leds.map(function (l) { return '<label class="pk-ledc' + (sel.indexOf(String(l.code)) >= 0 ? ' on' : '') + '"><input type="checkbox" class="pk-led" value="' + esc(l.code) + '"' + (sel.indexOf(String(l.code)) >= 0 ? ' checked' : '') + '> ' + esc(l.name || l.code) + ' <span class="muted">' + esc(l.currency || '') + '</span></label>'; }).join('') + '</div>';
+    };
+    D.scopeText = function () {
+        var leds = FL.dims.ledgers || [], sel = (D.cur.ledgers || []).map(String);
+        var names = leds.filter(function (l) { return sel.indexOf(String(l.code)) >= 0; }).map(function (l) { return l.name || l.code; });
+        return (names.length ? (names.length > 1 ? names.length + ' ledgers: ' : '') + names.join(', ') : FL.filterText()) + ' · ' + FL.periodName(FL.filter.period);
+    };
     D.paintLeft = function () {
         var box = $('pk-left'), p = D.cur; if (!box || !p) return;
         var th = P().THEMES, types = P().TYPES;
@@ -110,6 +124,7 @@
             '<label class="field">Title<input data-k="title" value="' + esc(p.title || '') + '"></label><label class="field">Company / group<input data-k="company" value="' + esc(p.company || '') + '"></label>' +
             '<label class="field">Prepared by<input data-k="by" value="' + esc(p.by || '') + '"></label>' +
             '<label class="field">Amounts<select data-k="scale">' + opt(0, 'As in the header (' + FL.scaleLabel() + ')', p.scale || 0) + opt(1, 'Units', p.scale) + opt(1000, 'Thousands', p.scale) + opt(1000000, 'Millions', p.scale) + '</select></label></div>' +
+            D.ledgerBox(p) +
             '<div class="field" style="margin-top:8px">Colours</div><div class="pk-themes">' + Object.keys(th).map(function (k) {
                 return '<button class="pk-theme' + (p.theme === k ? ' on' : '') + '" data-th="' + k + '" title="' + esc(th[k].name) + '"><span style="background:' + th[k].a + '"></span><span style="background:' + th[k].b + '"></span><span style="background:' + th[k].c + '"></span></button>';
             }).join('') + '</div>' +
@@ -120,6 +135,10 @@
             '<div id="pk-secs" class="pk-secs">' + (p.sections || []).map(function (s, i) { return D.secHtml(s, i); }).join('') + '</div></div>';
         box.innerHTML = h;
         box.querySelectorAll('[data-k]').forEach(function (x) { x.oninput = x.onchange = function () { p[x.dataset.k] = x.dataset.k === 'scale' ? +x.value : x.value; D.touch(); }; });
+        box.querySelectorAll('.pk-led').forEach(function (c) {
+            c.onchange = function () { p.ledgers = Array.prototype.filter.call(box.querySelectorAll('.pk-led'), function (x) { return x.checked; }).map(function (x) { return x.value; }); D.touch(); D.paintLeft(); D.paintHead(); };
+        });
+        if ($('pk-ledhdr')) $('pk-ledhdr').onclick = function () { p.ledgers = []; D.touch(); D.paintLeft(); D.paintHead(); };
         box.querySelectorAll('[data-th]').forEach(function (b) { b.onclick = function () { p.theme = b.dataset.th; D.touch(); D.paintLeft(); D.paintList(); }; });
         $('pk-logo').onchange = function () {
             var f = this.files[0]; if (!f) return;

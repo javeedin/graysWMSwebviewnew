@@ -969,3 +969,7 @@ sup.st-nref { color: var(--accent); font-weight: 700; cursor: pointer; margin-le
 .st-ns, .st-nby { color: var(--muted); font-size: .75rem; }
 .st-nb { font-size: .86rem; margin-top: 3px; } .st-nb p { margin: 3px 0; } .st-nb ul { margin: 3px 0; padding-left: 18px; }
 @media print { .st-nadd, .st-note .icon { display: none !important; } }
+.pk-leds { display: flex; flex-wrap: wrap; gap: 6px; }
+.pk-ledhdr, .pk-ledc { border: 1px solid var(--line); border-radius: 99px; padding: 4px 11px; font-size: .8rem; background: #fff; cursor: pointer; }
+.pk-ledhdr.on, .pk-ledc.on { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+.pk-ledc input { margin: 0 4px 0 0; vertical-align: -1px; }

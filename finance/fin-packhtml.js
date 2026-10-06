@@ -215,7 +215,40 @@
     }
 
     /** Builds the pack. → Promise<{html, file, model}> */
+    /** Builds the pack. With pack.ledgers (2+ or 1 ledger codes) every section is built for each ledger and the document is broken out
+        by ledger (a group per ledger in the menu); without, it follows the header's ledger. → Promise<{html, file, model, sections}> */
     P.build = function (pack, onStep) {
+        var leds = FL.dims.ledgers || [], codes = (pack.ledgers || []).filter(function (c) { return leds.some(function (l) { return String(l.code) === String(c); }); });
+        if (!codes.length) return buildOne(pack, onStep);
+        var step = onStep || function () { }, keep = { ledger: FL.filter.ledger, company: FL.filter.company, cc: FL.filter.cc }, parts = [];
+        var restore = function () { Object.assign(FL.filter, keep); FL.cache = {}; };
+        var nameOf = function (c) { var l = leds.filter(function (x) { return String(x.code) === String(c); })[0] || {}; return (l.name || c) + (l.currency ? ' · ' + l.currency : ''); };
+        return codes.reduce(function (p, code, i) {
+            return p.then(function () {
+                Object.assign(FL.filter, { ledger: code, company: '', cc: '' }); FL.cache = {};
+                var pk = Object.assign({}, pack, { sections: (pack.sections || []).map(function (s) { return Object.assign({}, s, { id: s.id + '_l' + i }); }) });
+                return buildOne(pk, function (m) { step(nameOf(code) + ': ' + m); }, true).then(function (r) { parts.push({ code: code, name: nameOf(code), r: r }); });
+            });
+        }, Promise.resolve()).then(function () {
+            restore();
+            var first = parts[0].r, multi = parts.length > 1, out = [];
+            parts.forEach(function (x) { x.r.out.forEach(function (o) { out.push(Object.assign({}, o, { group: multi ? x.name : '', sub: o.sub || first.pname })); }); });
+            var pre = function (x, t) { return multi ? x.code + ' · ' + t : t; };
+            var model = Object.assign({}, first.model, {
+                ledger: codes.join(','), ledgerName: parts.map(function (x) { return x.name; }).join(' + '), filter: multi ? parts.length + ' ledgers: ' + parts.map(function (x) { return x.name; }).join(', ') : first.model.filter,
+                tiles: [].concat.apply([], parts.map(function (x) { return x.r.model.tiles.map(function (t) { return Object.assign({}, t, { label: pre(x, t.label) }); }); })),
+                keyLines: [].concat.apply([], parts.map(function (x) { return x.r.model.keyLines.map(function (t) { return Object.assign({}, t, { label: pre(x, t.label) }); }); })),
+                highlights: [].concat.apply([], parts.map(function (x) { return x.r.model.highlights.map(function (t) { return pre(x, t); }); })),
+                attention: [].concat.apply([], parts.map(function (x) { return x.r.model.attention.map(function (t) { return pre(x, t); }); })),
+                ledgers: parts.map(function (x) { return { code: x.code, name: x.name, tiles: x.r.model.tiles, keyLines: x.r.model.keyLines }; })
+            });
+            var keepScale = FL.filter.scale; if (pack.scale) FL.filter.scale = +pack.scale;
+            var html = page(pack, first.th, first.pname, out, first.lg); FL.filter.scale = keepScale;
+            var file = ((pack.title || pack.name || 'Board pack') + ' ' + first.pname + (multi ? ' ' + parts.length + ' ledgers' : '')).replace(/[^\w .-]+/g, '').replace(/\s+/g, ' ').trim() + '.html';
+            return { html: html, file: file, model: model, sections: out.map(function (x) { return (x.group ? x.group + ' › ' : '') + x.sec.title; }) };
+        }).catch(function (e) { restore(); throw e; });
+    };
+    function buildOne(pack, onStep, raw) {
         var per = FL.filter.period, pname = FL.periodName(per), cfg = FL.config, tm = FL.tplMap(), keepScale = FL.filter.scale;
         if (pack.scale) FL.filter.scale = +pack.scale;
         var th = P.THEMES[pack.theme] || P.THEMES.navy, step = onStep || function () { };
@@ -316,10 +349,11 @@
             });
             return chain.then(function () {
                 var file = ((pack.title || pack.name || 'Board pack') + ' ' + pname).replace(/[^\w .-]+/g, '').replace(/\s+/g, ' ').trim() + '.html';
+                if (raw) return done({ out: out, model: model, lg: lg, pname: pname, th: th });
                 return done({ html: page(pack, th, pname, out, lg), file: file, model: model, sections: out.map(function (x) { return x.sec.title; }) });
             });
         }).catch(function (e) { done(); throw e; });
-    };
+    }
 
     /** The self-contained interactive page */
     function page(pack, th, pname, out, lg) {
@@ -330,7 +364,7 @@
             'nav{background:var(--a);color:#fff;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:18px 12px;gap:2px}' +
             'nav .co{font-size:11px;letter-spacing:.18em;text-transform:uppercase;opacity:.7;padding:0 10px}nav .tt{font-size:18px;font-weight:800;padding:2px 10px 0;line-height:1.25}nav .pp{display:inline-block;margin:8px 10px 14px;background:rgba(255,255,255,.14);border-radius:99px;padding:3px 12px;font-size:12px;font-weight:700}' +
             'nav a{display:flex;align-items:center;gap:10px;color:rgba(255,255,255,.82);text-decoration:none;padding:9px 12px;border-radius:9px;font-weight:600;cursor:pointer}nav a:hover{background:rgba(255,255,255,.08);color:#fff}nav a.on{background:#fff;color:var(--a)}' +
-            'nav .grow{flex:1}nav .tools{display:flex;gap:6px;padding:8px 6px 0;border-top:1px solid rgba(255,255,255,.14)}nav .tools button{flex:1;display:flex;gap:6px;align-items:center;justify-content:center;background:rgba(255,255,255,.1);border:0;color:#fff;border-radius:8px;padding:8px;font:inherit;font-size:12px;cursor:pointer}nav .tools button:hover{background:rgba(255,255,255,.2)}' +
+            'nav .ng{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;opacity:.7;padding:12px 12px 4px;border-top:1px solid rgba(255,255,255,.12);margin-top:6px;font-weight:700}nav{overflow-y:auto}nav .grow{flex:1}nav .tools{display:flex;gap:6px;padding:8px 6px 0;border-top:1px solid rgba(255,255,255,.14)}nav .tools button{flex:1;display:flex;gap:6px;align-items:center;justify-content:center;background:rgba(255,255,255,.1);border:0;color:#fff;border-radius:8px;padding:8px;font:inherit;font-size:12px;cursor:pointer}nav .tools button:hover{background:rgba(255,255,255,.2)}' +
             'nav .logo{margin:0 10px 12px}' +
             'main{padding:26px 34px 60px;min-width:0}section{display:none;animation:fi .25s ease}section.on{display:block}@keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}' +
             '.sh{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}.sh h2{margin:0;font-size:24px;letter-spacing:-.01em}.sh .sub{color:var(--mut);font-size:13px}.sh .gr{flex:1}' +
@@ -348,13 +382,13 @@
             '.muted{color:var(--mut)}img.wide{width:100%;border-radius:10px;background:#fff}.two{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.two img{width:100%;border-radius:10px;background:#fff}figure{margin:0}figcaption{color:var(--mut);font-size:12px;text-align:center;margin-top:4px}' +
             '.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.chip{border:1px solid var(--line);border-radius:99px;padding:3px 11px;font-size:12px;font-weight:600;background:var(--card)}.chip.ok{color:#15803d;border-color:#bbf7d0;background:#f0fdf4}.chip.bad{color:#b91c1c;border-color:#fecaca;background:#fef2f2}' +
             'tr.none td{text-align:center!important;color:var(--mut);padding:18px}.prose{max-width:820px}.prose h2.mh{font-size:20px}.pnotes{margin-top:18px}.pnotes h4{margin:0 0 8px;color:var(--a)}.pnote{display:flex;gap:12px;background:var(--row);border-left:4px solid var(--b);border-radius:8px;padding:9px 14px;margin:6px 0;font-size:13px}.pnote p{margin:3px 0}.pno{font-weight:800;color:var(--mut);min-width:18px}.pnh{font-size:12px;margin-bottom:2px}sup.nref{color:var(--b);font-weight:700;font-size:10px}.foot{color:var(--mut);font-size:12px;margin-top:26px;text-align:center}.foot .pw{margin-top:6px;font-size:12.5px;letter-spacing:.02em}.foot .pw b{color:var(--b)}html[data-theme=dark] .foot .pw b{color:#93c5fd}nav .pwn{font-size:11px;opacity:.65;text-align:center;padding-top:8px}.mtop{display:none}' +
-            '@media (max-width:860px){.app{grid-template-columns:1fr}nav{position:sticky;height:auto;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;padding:8px;z-index:5}nav .co,nav .tt,nav .pp,nav .grow,nav .logo,nav .pwn{display:none}nav a{white-space:nowrap;padding:8px 10px}nav .tools{border:0;padding:0}main{padding:16px}table.st td:first-child{min-width:170px}.two{grid-template-columns:1fr}.hero{padding:20px}.sh input{width:100%}}' +
+            '@media (max-width:860px){.app{grid-template-columns:1fr}nav{position:sticky;height:auto;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;padding:8px;z-index:5}nav .co,nav .tt,nav .pp,nav .grow,nav .logo,nav .pwn{display:none}nav .ng{border:0;margin:0;padding:8px 6px;white-space:nowrap}nav a{white-space:nowrap;padding:8px 10px}nav .tools{border:0;padding:0}main{padding:16px}table.st td:first-child{min-width:170px}.two{grid-template-columns:1fr}.hero{padding:20px}.sh input{width:100%}}' +
             '@media print{@page{size:A4 landscape;margin:10mm}nav,.sh input,.sh .btn{display:none!important}.app{display:block}main{padding:0}section{display:none;page-break-after:always}section.on,body.all section{display:block}tr.acc.show{display:table-row}.card{border:0;box-shadow:none;padding:0}table.st th{background:#13315c!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}.hero,.tile{-webkit-print-color-adjust:exact;print-color-adjust:exact}}';
-        var nav = out.map(function (x, k) { var t = P.TYPES[x.sec.type] || {}; return '<a data-s="' + k + '" href="#' + esc(x.sec.id) + '">' + P.svg(t.icon) + '<span>' + esc(x.sec.title) + '</span></a>'; }).join('');
+        var nav = out.map(function (x, k) { var t = P.TYPES[x.sec.type] || {}; return (x.group && (!k || out[k - 1].group !== x.group) ? '<div class="ng">' + esc(x.group) + '</div>' : '') + '<a data-s="' + k + '" href="#' + esc(x.sec.id) + '">' + P.svg(t.icon) + '<span>' + esc(x.sec.title) + '</span></a>'; }).join('');
         var secs = out.map(function (x, k) {
             var tools = (x.search ? '<input type="search" placeholder="Search this page…" data-q="' + k + '">' : '') + (x.collapsible ? '<button class="btn" data-x="' + k + '" title="Open or close every line">Expand all</button>' : '') +
                 (x.csv ? '<button class="btn" data-csv="' + k + '">' + P.svg('dl', 14) + ' CSV</button>' : '') + '<button class="btn" data-pr="1">' + P.svg('print', 14) + ' Print</button>';
-            return '<section id="' + esc(x.sec.id) + '" data-k="' + k + '">' + (x.sec.type === 'summary' ? '' : '<div class="sh"><div><h2>' + esc(x.sec.title) + '</h2><div class="sub">' + esc(x.sub || pname) + ' · amounts in ' + esc(FL.scaleLabel()) + '</div></div><span class="gr"></span>' + tools + '</div>') +
+            return '<section id="' + esc(x.sec.id) + '" data-k="' + k + '">' + (x.sec.type === 'summary' ? '' : '<div class="sh"><div>' + (x.group ? '<div class="sub" style="font-weight:700;letter-spacing:.06em;text-transform:uppercase">' + esc(x.group) + '</div>' : '') + '<h2>' + esc(x.sec.title) + '</h2><div class="sub">' + esc(x.sub || pname) + ' · amounts in ' + esc(FL.scaleLabel()) + '</div></div><span class="gr"></span>' + tools + '</div>') +
                 '<div class="' + (x.sec.type === 'summary' || x.sec.type === 'charts' || x.sec.type === 'text' ? '' : 'card scroll') + '">' + x.html + '</div>' +
                 (x.csv ? '<script type="text/plain" id="csv' + k + '" data-name="' + esc(x.sec.title + ' ' + pname) + '.csv">' + x.csv.replace(/<\//g, '<\\/') + '</script>' : '') + '</section>';
         }).join('');
@@ -397,7 +431,7 @@
             '<tr><td bgcolor="' + th.c + '" style="background:' + th.c + ';height:4px;line-height:4px;font-size:0">&nbsp;</td></tr>';
         if (opts.intro) h += '<tr><td style="padding:22px 30px 6px;' + F + 'font-size:14px;line-height:1.6;color:#1e293b">' + esc(fill(opts.intro)).replace(/\n/g, '<br>') + '</td></tr>';
         if (opts.tiles !== false && model.tiles.length) {
-            var t = model.tiles.slice(0, 6), rowsH = '';
+            var tileRows = function (t) { var rowsH = '';
             for (var i = 0; i < t.length; i += 3) {
                 rowsH += '<tr>' + t.slice(i, i + 3).map(function (x) {
                     return '<td width="33%" valign="top" style="padding:6px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #e2e8f0;border-top:3px solid ' + th.b + ';border-radius:8px"><tr><td style="padding:10px 12px;' + F + '">' +
@@ -405,6 +439,10 @@
                         '<div style="font-size:11px;color:' + (x.good == null ? '#64748b' : x.good ? '#15803d' : '#b91c1c') + '">' + esc(x.delta) + '</div></td></tr></table></td>';
                 }).join('') + '</tr>';
             }
+            return rowsH; };
+            var rowsH = '';
+            if (model.ledgers && model.ledgers.length > 1) model.ledgers.forEach(function (l) { rowsH += '<tr><td colspan="3" style="padding:12px 6px 2px;' + F + 'font-size:13px;font-weight:bold;color:' + th.a + '">' + esc(l.name) + '</td></tr>' + tileRows(l.tiles.slice(0, 3)); });
+            else rowsH = tileRows(model.tiles.slice(0, 6));
             h += '<tr><td style="padding:12px 24px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">' + rowsH + '</table></td></tr>';
         }
         if (opts.keyLines !== false && model.keyLines.length) {
