@@ -1167,6 +1167,9 @@ namespace WMSApp
             public bool PerCompany { get; set; } = true;
             /// <summary>Trial balance sync: these normal periods (period_seq), each with the adjustment periods it closes; empty = PeriodSeq.</summary>
             public List<int> PeriodSeqs { get; set; } = new();
+            /// <summary>Trial balance sync: extra SEGMENTn columns (analysis, sub account …) the standard read groups by too, besides company × account
+            /// (× cost centre) — kept as columns segmentN in fin_gl_balances_acct, grain "CO,AC[,CC],S&lt;n&gt;…"; the statements add them up.</summary>
+            public List<string> TbSegments { get; set; } = new();
             /// <summary>Extended segments sync: the extra SEGMENTn columns to group by besides company and account (cost centre, analysis …).</summary>
             public List<string> ExtSegments { get; set; } = new();
             /// <summary>Extended segments sync: "auto" (one query per period × company; when it fails or times out that company is read
@@ -1475,8 +1478,23 @@ namespace WMSApp
         }
 
         // ═════ trial balance grouped in Fusion by company × account ═════
-        public sealed class AcctRow { public string Period, Co, Ac, Cc, Tf, Type; public double Bdr, Bcr, Ndr, Ncr; }
+        public sealed class AcctRow { public string Period, Co, Ac, Cc, Tf, Type, Grain; public double Bdr, Bcr, Ndr, Ncr; }
         private sealed class AcctRead { public string Error, Template, Default; public bool Custom; public List<AcctRow> Rows = new(); }
+
+        /// <summary>The extra segments of a trial balance read (SEGMENTn only, not company / account / cost centre), in segment order.</summary>
+        internal static List<string> TbExtraSegments(TbOptions o, SyncLedger led, bool byCc) =>
+            (o.TbSegments ?? new()).Select(SegCol).Where(sg => sg != null && sg != led.Company && sg != led.Account && !(byCc && sg == led.CostCentre))
+                .Distinct().OrderBy(sg => int.TryParse(sg.Substring(7), out var k) ? k : 99).ToList();
+        /// <summary>"CO,AC" / "CO,AC,CC" + ",S&lt;n&gt;" per extra segment — one kept set per choice, so changing it reads the periods again.</summary>
+        internal static string TbGrain(bool byCc, List<string> extra) => (byCc ? "CO,AC,CC" : "CO,AC") + string.Concat(extra.Select(sg => ",S" + sg.Substring(7)));
+        /// <summary>The trial balance rows this PC holds for some periods, one grain per period × company (the coarsest that was read) —
+        /// whatever segments it was read by, its rows add up to the account.</summary>
+        internal static List<AcctRow> LoadTbAny(string pod, SyncLedger led, List<string> periods)
+        {
+            var rows = FinanceLens.AcctGrains(pod, led.Id, led.Currency).SelectMany(g => FinanceLens.LoadAcct(pod, led.Id, led.Currency, g, periods)).ToList();
+            var pick = rows.GroupBy(r => (r.Period, r.Co)).ToDictionary(g => g.Key, g => g.Select(r => r.Grain).OrderBy(gr => gr.Length).ThenBy(gr => gr, StringComparer.Ordinal).First());
+            return rows.Where(r => pick[(r.Period, r.Co)] == r.Grain).ToList();
+        }
 
         /// <summary>
         /// Reads each period ONE query: GL_BALANCES joined to GL_CODE_COMBINATIONS, grouped by company × account (× cost centre when
@@ -1497,6 +1515,8 @@ namespace WMSApp
             if (have.Count == 0 || have.Contains("TRANSLATED_FLAG")) keys.Add("b.translated_flag");
             var segs = new List<string> { "c.{COMPANY_SEGMENT}", "c.{ACCOUNT_SEGMENT}" }; if (byCc) segs.Add("c.{COST_CENTRE_SEGMENT}");
             var segAs = new List<string> { "c.{COMPANY_SEGMENT} company", "c.{ACCOUNT_SEGMENT} account" }; if (byCc) segAs.Add("c.{COST_CENTRE_SEGMENT} cost_centre");
+            var extra = TbExtraSegments(o, led, byCc);   // the segments the person chose besides company / account / cost centre (e.g. analysis)
+            foreach (var sg in extra) { segs.Add("c." + sg); segAs.Add("c." + sg + " " + sg.ToLowerInvariant()); }
             // account_type belongs to each combination: MAX() gives the account's one value (the join is there anyway); this PC fills it when a query leaves it out
             res.Default = "SELECT " + (o.Hint ? "/*+ LEADING(b) USE_HASH(c) PARALLEL(4) */ " : "") + string.Join(", ", keys) + ",\n       " + string.Join(", ", segAs) + ", MAX(c.account_type) account_type,\n       " +
                           string.Join(", ", sumCols.Select(c => "SUM(b." + c + ") " + c)) +
@@ -1514,7 +1534,8 @@ namespace WMSApp
                 .Replace("{LEDGER_ID}", led.Id.ToString(CultureInfo.InvariantCulture)).Replace("{PERIOD}", period.Replace("'", "''")).Replace("{CURRENCY}", (led.Currency ?? "").Replace("'", "''"))
                 .Replace("{COMPANY_FILTER}", companies == null ? "" : " AND " + CodeFilter("c." + led.Company, companies))
                 .Replace("{COMPANY_SEGMENT}", led.Company).Replace("{ACCOUNT_SEGMENT}", led.Account).Replace("{COST_CENTRE_SEGMENT}", led.CostCentre ?? led.Account);
-            string grain = byCc ? "CO,AC,CC" : "CO,AC";
+            string grain = TbGrain(byCc, res.Custom ? new List<string>() : extra);
+            if (extra.Count > 0 && !res.Custom) x.Note("Trial balance also by " + string.Join(", ", extra) + " (grain " + grain + ")");
             var all = (o.AllCompanies ?? new()).Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToList();
             var want = cos.Count > 0 ? cos.ToList() : all;   // what a period must hold (empty = every company, i.e. a '*' read)
             var kept = FinanceLens.AcctPeriods(o.Pod, led.Id, led.Currency, grain);
@@ -1538,7 +1559,7 @@ namespace WMSApp
             const int CAP = 100000;
             async Task<FusionQueryResult> One(string period, List<string> companies)
             {
-                string label = led.Name + " · " + period + " by " + (byCc ? "company × account × cost centre" : "company × account") + (companies == null ? "" : " · " + (companies.Count == 1 ? "company " + companies[0] : companies.Count + " companies"));
+                string label = led.Name + " · " + period + " by " + (byCc ? "company × account × cost centre" : "company × account") + string.Concat(extra.Select(sg => " × " + sg)) + (companies == null ? "" : " · " + (companies.Count == 1 ? "company " + companies[0] : companies.Count + " companies"));
                 string sql = Fill(period, companies);
                 if (x.LogSql) x.Note("   SQL: " + sql);
                 var t0 = Stopwatch.StartNew();
@@ -1573,7 +1594,7 @@ namespace WMSApp
                 var seen = new List<string>(); var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var r2 in rows) foreach (var k2 in r2.Keys) if (Regex.IsMatch(k2, "^[A-Z][A-Z0-9_$#]*$", RegexOptions.IgnoreCase) && set.Add(k2)) seen.Add(k2);
                 var cols = seen.Select(k2 => (k2, rows.Take(200).All(r2 => !r2.TryGetValue(k2, out var v2) || v2 == null || double.TryParse(Convert.ToString(v2, CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out _))
-                    && k2 != "COMPANY" && k2 != "ACCOUNT" && k2 != "COST_CENTRE" && k2 != "PERIOD_NAME" && k2 != "CURRENCY_CODE" && k2 != "TRANSLATED_FLAG" && k2 != "ACCOUNT_TYPE" ? "NUMBER" : "VARCHAR2")).ToList();
+                    && k2 != "COMPANY" && k2 != "ACCOUNT" && k2 != "COST_CENTRE" && !Regex.IsMatch(k2, "^SEGMENT\\d+$", RegexOptions.IgnoreCase) && k2 != "PERIOD_NAME" && k2 != "CURRENCY_CODE" && k2 != "TRANSLATED_FLAG" && k2 != "ACCOUNT_TYPE" ? "NUMBER" : "VARCHAR2")).ToList();
                 FinanceLens.SaveAcct(o.Pod, led.Id, period, led.Currency, grain, companies, cols, rows, ms);
             }
             try
@@ -1752,7 +1773,7 @@ namespace WMSApp
                 {
                     lock (acctLock)
                     {
-                        tbRows ??= FinanceLens.LoadAcct(o.Pod, led.Id, led.Currency, "CO,AC", names).Concat(FinanceLens.LoadAcct(o.Pod, led.Id, led.Currency, "CO,AC,CC", names)).ToList();
+                        tbRows ??= LoadTbAny(o.Pod, led, names);
                         var mine = tbRows.Where(r => SameCode(r.Co, co)).ToList();
                         var per = mine.Where(r => r.Period == period).Select(r => r.Ac).Distinct().OrderBy(a => a, StringComparer.Ordinal).ToList();
                         if (per.Count > 0) return per;
@@ -1839,7 +1860,7 @@ namespace WMSApp
                     List<AcctRow> mine;
                     lock (acctLock)
                     {
-                        tbRows ??= FinanceLens.LoadAcct(o.Pod, led.Id, led.Currency, "CO,AC", names).Concat(FinanceLens.LoadAcct(o.Pod, led.Id, led.Currency, "CO,AC,CC", names)).ToList();
+                        tbRows ??= LoadTbAny(o.Pod, led, names);
                         mine = tbRows.Where(r => SameCode(r.Co, co) && r.Period == period && r.Tf != "R").ToList();
                     }
                     var grain = mine.Where(r => r.Cc == null).ToList(); if (grain.Count == 0) grain = mine;   // company × account, else the cost-centre grain summed

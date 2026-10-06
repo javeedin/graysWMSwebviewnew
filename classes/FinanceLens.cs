@@ -976,6 +976,16 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             }
         }
 
+        /// <summary>The grains a ledger's trial balance was read with on this PC (CO,AC / CO,AC,CC / … ,S7).</summary>
+        public static List<string> AcctGrains(string pod, long ledgerId, string currency)
+        {
+            if (!File.Exists(DbPath)) return new List<string>();
+            var t = Query("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fin_gl_balances_acct'", 1);
+            if (t.Rows == null || t.Rows.Count == 0 || Convert.ToInt64(t.Rows[0][0]) == 0) return new List<string>();
+            var q = Query("SELECT DISTINCT grain FROM fin_gl_balances_acct WHERE pod = " + Lit(pod ?? "") + " AND ledger_id = " + ledgerId + " AND currency_code = " + Lit(currency) + " AND grain IS NOT NULL", 100);
+            return (q.Rows ?? new()).Select(r => Convert.ToString(r[0], CultureInfo.InvariantCulture)).ToList();
+        }
+
         /// <summary>The kept account rows of some periods (one ledger, grain).</summary>
         public static List<FinanceFusion.AcctRow> LoadAcct(string pod, long ledgerId, string currency, string grain, IEnumerable<string> periods)
         {
@@ -995,7 +1005,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 using var r = c.ExecuteReader();
                 double N(int i) => r.IsDBNull(i) ? 0 : Convert.ToDouble(r.GetValue(i), CultureInfo.InvariantCulture);
                 string T(int i) => r.IsDBNull(i) ? null : Convert.ToString(r.GetValue(i), CultureInfo.InvariantCulture);
-                while (r.Read()) list.Add(new FinanceFusion.AcctRow { Period = T(0), Co = T(1), Ac = T(2), Cc = T(3), Tf = T(4), Type = T(5), Bdr = N(6), Bcr = N(7), Ndr = N(8), Ncr = N(9) });
+                while (r.Read()) list.Add(new FinanceFusion.AcctRow { Period = T(0), Co = T(1), Ac = T(2), Cc = T(3), Tf = T(4), Type = T(5), Bdr = N(6), Bcr = N(7), Ndr = N(8), Ncr = N(9), Grain = grain });
             }
             return list.Where(z => z.Co != null && z.Ac != null).ToList();
         }
@@ -1050,7 +1060,8 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                            "FROM fin_gl_balances_acct a JOIN fin_tb_periods t ON t.pod = a.pod AND t.ledger_id = a.ledger_id AND t.period_name = a.period_name " +
                            "JOIN fin_tb_ledgers l ON l.pod = a.pod AND l.ledger_id = a.ledger_id AND l.currency = a.currency_code " +
                            "WHERE a.pod = " + P + " AND COALESCE(a.translated_flag, '-') <> 'R' AND a.company IS NOT NULL AND a.account IS NOT NULL");
-                Exec(conn, "CREATE OR REPLACE TEMP TABLE tb_pick AS SELECT ledger, period_seq, MAX(grain) AS grain FROM tb_rows WHERE NOT adj GROUP BY ledger, period_seq");
+                // the finest read per period: cost centre first, then the most segments (a read with analysis adds up to the same accounts)
+                Exec(conn, "CREATE OR REPLACE TEMP TABLE tb_pick AS SELECT ledger, period_seq, arg_max(grain, (CASE WHEN grain LIKE 'CO,AC,CC%' THEN 1000 ELSE 0 END) + length(grain)) AS grain FROM tb_rows WHERE NOT adj GROUP BY ledger, period_seq");
                 Exec(conn, "INSERT INTO fin_balances SELECT 'ACTUAL', r.company, r.cc, r.account, MAX(r.period_name) FILTER (WHERE NOT r.adj), r.period_seq, " +
                            "SUM(CASE WHEN NOT r.adj THEN r.b0 ELSE 0 END), SUM(r.ndr), SUM(r.ncr), SUM(r.ndr - r.ncr), SUM(CASE WHEN NOT r.adj THEN r.b0 ELSE 0 END) + SUM(r.ndr - r.ncr), r.ledger " +
                            "FROM tb_rows r JOIN tb_pick p ON p.ledger = r.ledger AND p.period_seq = r.period_seq AND p.grain = r.grain " +

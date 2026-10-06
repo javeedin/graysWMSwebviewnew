@@ -9,7 +9,7 @@
     var T = FL.tbsync = {};
     var L = T.st = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), year: FL.ls('tbl.year', null), cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2), seq: FL.ls('tbl.seq', true),
         opt: Object.assign({ skipZero: true, allSums: false, hint: true, perCompany: true }, FL.ls('tbl.opt', {})), query: '', defaultQuery: '', sel: {}, status: null, extBy: FL.ls('tbl.extBy', 'ccid'), extBatch: FL.ls('tbl.extBatch', 20) };
-    T.qKey = function () { return 'account' + (L.byCc ? '.cc' : '') + '.' + (L.opt.skipZero ? 'z' : '') + (L.opt.allSums ? 'a' : '') + (L.opt.hint ? 'h' : ''); };
+    T.qKey = function () { return 'account' + (L.byCc ? '.cc' : '') + (T.tbSegs ? T.tbSegs().map(function (c) { return '.s' + c.slice(7); }).join('') : '') + '.' + (L.opt.skipZero ? 'z' : '') + (L.opt.allSums ? 'a' : '') + (L.opt.hint ? 'h' : ''); };
     T.loadQ = function () { L.query = FL.ls('tbl.query.account', ''); L.defaultQuery = FL.ls('tbl.dq.' + T.qKey(), ''); };
     T.loadQ();
 
@@ -31,6 +31,7 @@
             '<details class="card ts-set" id="ts-set" style="margin-top:12px"' + (FL.ls('tbl.setOpen', false) ? ' open' : '') + '><summary><b><i class="fa-solid fa-sliders"></i> Settings</b> <span class="sm muted" id="ts-setsum"></span></summary>' +
 
             '<div class="row" style="margin-top:6px"><label class="sm"><input type="checkbox" id="ts-cc"' + (L.byCc ? ' checked' : '') + '> by cost centre</label>' +
+            '<span id="ts-tbsegs" class="ts-tbsegs"></span>' +
             '<label class="sm"><input type="checkbox" id="ts-fold"' + (L.fold ? ' checked' : '') + ' title="Adjustment periods (e.g. Adj-25) are read too and added to the period they close"> fold adjustment periods</label>' +
             '<label class="sm" title="With several periods ticked: sync the first period completely, then the next — each is saved before the next starts, and Stop drops the rest of the line"><input type="checkbox" id="ts-seq"' + (L.seq ? ' checked' : '') + '> one period after another</label>' +
             '<label class="sm" title="Queries to Fusion at the same time (one per company and period)">Reads in parallel <select id="ts-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + (L.par === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label></div>' +
@@ -278,9 +279,9 @@
     // ── the default query (the host builds the same from this pod's columns) ──
     T.defaultQ = function () {
         var o = L.opt, sums = ['begin_balance_dr', 'begin_balance_cr', 'period_net_dr', 'period_net_cr'].map(function (c) { return 'SUM(b.' + c + ') ' + c; }).join(', ');
-        var segs = 'c.{COMPANY_SEGMENT}, c.{ACCOUNT_SEGMENT}' + (L.byCc ? ', c.{COST_CENTRE_SEGMENT}' : '');
+        var xs = T.tbSegs(), segs = 'c.{COMPANY_SEGMENT}, c.{ACCOUNT_SEGMENT}' + (L.byCc ? ', c.{COST_CENTRE_SEGMENT}' : '') + xs.map(function (c) { return ', c.' + c; }).join('');
         return 'SELECT ' + (o.hint ? '/*+ LEADING(b) USE_HASH(c) PARALLEL(4) */ ' : '') + 'b.ledger_id, b.period_name, b.currency_code, b.translated_flag,\n' +
-            '       c.{COMPANY_SEGMENT} company, c.{ACCOUNT_SEGMENT} account' + (L.byCc ? ', c.{COST_CENTRE_SEGMENT} cost_centre' : '') + ', MAX(c.account_type) account_type,\n       ' + sums +
+            '       c.{COMPANY_SEGMENT} company, c.{ACCOUNT_SEGMENT} account' + (L.byCc ? ', c.{COST_CENTRE_SEGMENT} cost_centre' : '') + xs.map(function (c) { return ', c.' + c + ' ' + c.toLowerCase(); }).join('') + ', MAX(c.account_type) account_type,\n       ' + sums +
             "\nFROM gl_balances b JOIN gl_code_combinations c ON c.code_combination_id = b.code_combination_id\nWHERE b.ledger_id = {LEDGER_ID} AND b.period_name = '{PERIOD}' AND b.currency_code = '{CURRENCY}' AND b.actual_flag = 'A'" +
             (o.skipZero ? "\n  AND b.template_id IS NULL\n  AND (NVL(b.begin_balance_dr, 0) <> NVL(b.begin_balance_cr, 0) OR NVL(b.period_net_dr, 0) <> 0 OR NVL(b.period_net_cr, 0) <> 0)" : "\n  AND c.summary_flag = 'N'") +
             '{COMPANY_FILTER}\nGROUP BY b.ledger_id, b.period_name, b.currency_code, b.translated_flag, ' + segs;
@@ -406,9 +407,32 @@
         T.setSum();
         T.board().then(function () { T.md(); });
     };
+    /** Extra segments the standard trial balance read groups by (besides company × account × cost centre), per chart of accounts on this PC */
+    T.tbSegs = function () {
+        var l = T.ledgerObj(), c = T.coaOf(); if (!l) return [];
+        var led = c ? FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)) : {}, keep = (FL.ls('tbl.tbsegs.' + l.coaId, []) || []).filter(function (x) { return /^SEGMENT\d+$/.test(x); });
+        return keep.filter(function (x) { return x !== led.company && x !== led.account && !(L.byCc && x === led.costCentre); })
+            .sort(function (a, b) { return +a.slice(7) - +b.slice(7); });
+    };
+    T.paintTbSegs = function () {
+        var box = $('ts-tbsegs'), l = T.ledgerObj(), c = T.coaOf(); if (!box) return;
+        if (!l || !c || !(c.segments || []).length) { box.innerHTML = ''; return; }
+        var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), on = T.tbSegs();
+        var list = (c.segments || []).filter(function (sg) { return sg.col !== led.company && sg.col !== led.account && !(L.byCc && sg.col === led.costCentre); });
+        box.innerHTML = '<span class="sm muted" title="The trial balance read groups by these segments too (e.g. analysis). Each choice is kept as its own read, so changing it reads the periods again; statements add them up.">also by</span> ' +
+            list.map(function (sg) { return '<label class="chip sm"><input type="checkbox" class="ts-tbs" value="' + esc(sg.col) + '"' + (on.indexOf(sg.col) >= 0 ? ' checked' : '') + '> ' + esc(sg.name) + ' <span class="muted">' + esc(sg.col.replace('SEGMENT', 'S')) + '</span></label>'; }).join(' ');
+        box.querySelectorAll('.ts-tbs').forEach(function (i) {
+            i.onchange = function () {
+                FL.lsSet('tbl.tbsegs.' + l.coaId, [].map.call(box.querySelectorAll('.ts-tbs:checked'), function (x) { return x.value; }));
+                T.loadQ(); T.setSum(); T.board();
+            };
+        });
+    };
     T.setSum = function () {
         var l = T.ledgerObj(), n = (l && l.companies || []).length;
-        if ($('ts-setsum')) $('ts-setsum').textContent = (L.cos.length ? L.cos.length + ' of ' + n + ' companies' : 'every company' + (n ? ' (' + n + ')' : '')) + (L.byCc ? ' · by cost centre' : '') +
+        T.paintTbSegs();
+        var tsn = T.tbSegs().map(function (c) { return T.segName(c).replace(/ \(SEGMENT\d+\)$/, ''); });
+        if ($('ts-setsum')) $('ts-setsum').textContent = (L.cos.length ? L.cos.length + ' of ' + n + ' companies' : 'every company' + (n ? ' (' + n + ')' : '')) + (L.byCc ? ' · by cost centre' : '') + (tsn.length ? ' · by ' + tsn.join(', ') : '') +
             (L.fold ? ' · adjustment periods folded' : '') + (L.seq ? ' · one period after another' : '') + ' · ' + L.par + ' in parallel' + (L.opt.perCompany ? ' · one query per company' : '') + (L.query ? ' · your own query' : '');
     };
     /** The companies a period must hold to count as synced */
@@ -520,7 +544,7 @@
                 : st === 'done' ? (c.rows || 0).toLocaleString() + ' rows · ' + String(c.at).slice(5, 16)
                 : st === 'part' ? have + ' of ' + want.length + ' companies' : future ? 'not open yet' : 'not synced';
             var tip = p.name + (c && c.adj.length ? ' (+ ' + c.adj.join(', ') + ')' : '') + (c ? '\n' + (c.all ? 'every company' : 'companies ' + Object.keys(c.cos).join(', ')) + '\n' + (c.rows || 0).toLocaleString() + ' rows · read ' + String(c.at).slice(0, 16) +
-                (c.grains['CO,AC,CC'] ? ' · by cost centre' : '') : '\nnot on this PC yet') + (lv && lv.error ? '\n' + lv.error : '');
+                (Object.keys(c.grains).some(function (g) { return /^CO,AC,CC/.test(g); }) ? ' · by cost centre' : '') + (Object.keys(c.grains).some(function (g) { return /,S\d/.test(g); }) ? ' · with ' + Object.keys(c.grains).join(' ').match(/S\d+/g).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(', ') : '') : '\nnot on this PC yet') + (lv && lv.error ? '\n' + lv.error : '');
             return '<div class="ts-tile ' + st + (L.sel[p.seq] ? ' sel' : '') + (future ? ' future' : '') + '" data-s="' + p.seq + '" title="' + esc(tip) + '">' +
                 '<div class="ts-tn"><input type="checkbox"' + (L.sel[p.seq] ? ' checked' : '') + ' tabindex="-1"> ' + esc(p.name) + '</div><div class="ts-ti">' + ICON[st] + '</div><div class="ts-tl">' + esc(line) + '</div>' +
                 (c && c.grains['CO,AC,CC'] ? '<span class="ts-cc">cc</span>' : '') + T.extBadge(p, want) + '</div>';
@@ -1043,7 +1067,7 @@
         T.paintLive(); T.paintBoard();
         var p = function (msg) { base(msg); T.track(String(msg || '')); };
         if ($('ts-go')) $('ts-go').disabled = true;
-        return FL.call('finTbSync', { pod: L.pod || '', options: { ledger: led, periodSeqs: list, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, parallel: L.par, refresh: !!refresh, queryTemplate: L.query || '',
+        return FL.call('finTbSync', { pod: L.pod || '', options: { ledger: led, periodSeqs: list, foldAdjustments: L.fold, companies: L.cos, byCostCentre: L.byCc, tbSegments: T.tbSegs(), parallel: L.par, refresh: !!refresh, queryTemplate: L.query || '',
             skipZero: !!L.opt.skipZero, allSums: !!L.opt.allSums, hint: !!L.opt.hint, perCompany: L.opt.perCompany !== false, allCompanies: (l.companies || []).map(function (c) { return c.value; }) } }, 60 * 60000, p).then(function (r) {
             FL.fusion.finish();
             Object.keys(T.live.per).forEach(function (n) { var x = T.live.per[n]; if (x.state !== 'failed') { x.state = 'done'; x.done = x.total; } });
