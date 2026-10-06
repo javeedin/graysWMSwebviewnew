@@ -36,6 +36,7 @@ namespace WMSApp
             {
                 ApplicationConfiguration.Initialize();
                 if (!InstallLooksHealthy()) return;
+                Form1.StartupMark("app files checked");
                 Application.Run(new Form1());
             }
             catch (Exception ex)

@@ -88,6 +88,7 @@ namespace WMSApp
 
         public Form1()
         {
+            StartupMark("window created");
             InitializeComponent();
             InitializeComponent1();
 
@@ -1639,23 +1640,85 @@ navPanel.Controls.Add(wmsDevButton);
             }
         }
 
+        // ── startup speed: cache clear only after an app change + a timing log ──
+        private static bool _cacheChecked;
+        private static string CacheMarkerPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GraysWMS", "webview-cache.ver");
+        /// <summary>The app's identity: version + the exe's write time (every build or update changes it).</summary>
+        private static string AppStamp()
+        {
+            try
+            {
+                string exe = Environment.ProcessPath ?? Application.ExecutablePath;
+                return (System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "") + "|" + File.GetLastWriteTimeUtc(exe).Ticks;
+            }
+            catch { return "unknown"; }
+        }
+        /// <summary>True once per run when the app changed since the cache was last cleared (or a clear was requested).</summary>
+        private static bool NeedCacheClear()
+        {
+            if (_cacheChecked) return false;
+            _cacheChecked = true;
+            try
+            {
+                string req = Path.Combine(Path.GetDirectoryName(CacheMarkerPath), "clear-cache.request");
+                if (File.Exists(req)) { File.Delete(req); return true; }
+                return !File.Exists(CacheMarkerPath) || File.ReadAllText(CacheMarkerPath).Trim() != AppStamp();
+            }
+            catch { return true; }
+        }
+        private static void MarkCacheCleared()
+        {
+            try { Directory.CreateDirectory(Path.GetDirectoryName(CacheMarkerPath)); File.WriteAllText(CacheMarkerPath, AppStamp()); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[CACHE] marker: " + ex.Message); }
+        }
+        private static readonly object _startupLogLock = new object();
+        private static int _startupMarks;
+        /// <summary>Writes "seconds since the process started · step" to %TEMP%\GraysWMS\startup.log for the first steps of a run.</summary>
+        internal static void StartupMark(string step)
+        {
+            try
+            {
+                lock (_startupLogLock)
+                {
+                    if (_startupMarks++ > 40) return;
+                    var started = System.Diagnostics.Process.GetCurrentProcess().StartTime;
+                    string dir = Path.Combine(Path.GetTempPath(), "GraysWMS");
+                    Directory.CreateDirectory(dir);
+                    string file = Path.Combine(dir, "startup.log");
+                    if (_startupMarks == 1 && File.Exists(file) && new FileInfo(file).Length > 200_000) File.Delete(file);
+                    File.AppendAllText(file, (_startupMarks == 1 ? Environment.NewLine + "── start " + started.ToString("yyyy-MM-dd HH:mm:ss") + Environment.NewLine : "") +
+                        ((DateTime.Now - started).TotalSeconds.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + " s").PadLeft(9) + "  " + step + Environment.NewLine);
+                }
+            }
+            catch { }
+        }
+
         private async void InitializeWebView(WebView2 wv, string url)
         {
             try
             {
+                StartupMark("webview init");
                 await wv.EnsureCoreWebView2Async(await GetSharedEnvironmentAsync());
+                StartupMark("webview ready");
 
-                // CACHE FIX: Clear browser cache to ensure tabs load properly (preserve localStorage for login state)
-                try
+                // CACHE FIX: clear the browser cache once after the app changed (new version or a new build), so a tab never
+                // runs stale page files — but not on every start / tab: that threw away the cached CDN libraries (Font Awesome,
+                // jQuery, DevExtreme, Chart.js, ExcelJS …) so every start downloaded them again. localStorage is kept.
+                if (NeedCacheClear())
                 {
-                    await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
-                        CoreWebView2BrowsingDataKinds.CacheStorage |
-                        CoreWebView2BrowsingDataKinds.DiskCache);
-                    System.Diagnostics.Debug.WriteLine("[CACHE] Browser cache cleared successfully (localStorage preserved)");
-                }
-                catch (Exception cacheEx)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[CACHE] Warning: Could not clear cache: {cacheEx.Message}");
+                    try
+                    {
+                        await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                            CoreWebView2BrowsingDataKinds.CacheStorage |
+                            CoreWebView2BrowsingDataKinds.DiskCache);
+                        MarkCacheCleared();
+                        StartupMark("cache cleared (app changed)");
+                        System.Diagnostics.Debug.WriteLine("[CACHE] Browser cache cleared after an app update (localStorage preserved)");
+                    }
+                    catch (Exception cacheEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[CACHE] Warning: Could not clear cache: {cacheEx.Message}");
+                    }
                 }
 
                 AttachWebViewHealth(wv);
@@ -2305,6 +2368,7 @@ navPanel.Controls.Add(wmsDevButton);
                 wv.CoreWebView2.NavigationStarting += CoreWebView2_NavigationStarting;
                 wv.CoreWebView2.NavigationCompleted += CoreWebView2_NavigationCompleted;
                 wv.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
+                StartupMark("navigate " + Path.GetFileName(Path.GetDirectoryName(new Uri(url).LocalPath) ?? "") + "/" + Path.GetFileName(new Uri(url).LocalPath));
                 wv.Source = new Uri(url);
             }
             catch (Exception ex)
@@ -6268,12 +6332,15 @@ navPanel.Controls.Add(wmsDevButton);
                 {
                     try
                     {
-                        // Clear cache before loading local files (preserve localStorage for login state)
-                        System.Diagnostics.Debug.WriteLine("[CACHE] Clearing cache before loading local file (preserving localStorage)...");
-                        await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
-                            CoreWebView2BrowsingDataKinds.CacheStorage |
-                            CoreWebView2BrowsingDataKinds.DiskCache);
-                        System.Diagnostics.Debug.WriteLine("[CACHE] ✅ Cache cleared successfully!");
+                        // The cache is cleared only after an app change (NeedCacheClear, once per run) — not before every page:
+                        // that re-downloaded every CDN library each time a module opened. localStorage is kept.
+                        if (NeedCacheClear())
+                        {
+                            await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                                CoreWebView2BrowsingDataKinds.CacheStorage |
+                                CoreWebView2BrowsingDataKinds.DiskCache);
+                            MarkCacheCleared();
+                        }
 
                         wv.Source = new Uri(url);
                     }
@@ -6312,6 +6379,7 @@ navPanel.Controls.Add(wmsDevButton);
             var wv = sender as CoreWebView2;
             if (wv != null)
             {
+                StartupMark("page shown " + (e.IsSuccess ? "" : "(error " + e.WebErrorStatus + ") ") + wv.DocumentTitle);
                 urlTextBox.Text = wv.Source;
 
                 var currentTab = GetCurrentTab();
