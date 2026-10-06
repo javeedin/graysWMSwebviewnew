@@ -555,5 +555,24 @@ test('drill: the months behind a QTD / YTD / full-year cell add up to it', funct
     assert.strictEqual(fy.months.length, 12, 'last full year = 12 months');
 });
 
+test('labels: sentence / title case keep acronyms; standard styles', function () {
+    var c = FINE.labelCase;
+    assert.strictEqual(c('SALARIES AND WAGES', 'sentence'), 'Salaries and wages');
+    assert.strictEqual(c('TRADE AND OTHER RECEIVABLES', 'title'), 'Trade and Other Receivables');
+    assert.strictEqual(c('VAT PAYABLE', 'sentence'), 'VAT payable');
+    assert.strictEqual(c('PROPERTY, PLANT AND EQUIPMENT (PPE)', 'sentence'), 'Property, plant and equipment (PPE)');
+    assert.strictEqual(c('OTHER COST OF SALES (INC FOREX)', 'sentence'), 'Other cost of sales (inc forex)');
+    assert.strictEqual(c('Bond to duty paid - ADD CHARGES(ICD IED LOC)', 'sentence'), 'Bond to duty paid - add charges(ICD IED LOC)');
+    assert.strictEqual(c('ifrs 16 leases', 'sentence'), 'IFRS 16 leases');
+    assert.strictEqual(c('eBay sales', 'sentence'), 'eBay sales');
+    assert.strictEqual(c('Expenses', 'upper'), 'EXPENSES');
+    var t = { type: 'PL', rows: [{ id: 'H_O', type: 'header', label: 'OPERATING EXPENSES' }, { id: 'S', type: 'accounts', label: 'STAFF WELFARE', parent: 'O', style: { bold: true } }, { id: 'O', type: 'group', label: 'Total operating expenses' },
+        { id: 'NP', type: 'formula', label: 'NET PROFIT', formula: '-O' }, { id: 'NPM', type: 'formula', label: 'Net profit margin', formula: 'NP', format: 'pct' }] };
+    var ch = FINE.standardize(t);
+    assert.deepStrictEqual(ch.map(function (x) { return x.to; }), ['Operating expenses', 'Staff welfare', 'Net profit']);
+    assert.deepStrictEqual(t.rows.map(function (r) { return JSON.stringify(r.style || {}); }), ['{"bold":true}', '{}', '{"bold":true,"topBorder":true}', '{"bold":true,"topBorder":true,"doubleBottom":true}', '{"italic":true}']);
+    assert.strictEqual(t.rows[1].level, 1);
+});
+
 console.log('\n' + (n - fail) + '/' + n + ' passed');
 process.exit(fail ? 1 : 0);

@@ -1,7 +1,9 @@
 /* Finance Lens — Statements: any template (income statement, balance sheet, cash flow, your own) for the period and filter,
    formatted like a published statement; click any amount to drill; account detail; Excel (formatted) / CSV / print. */
 (function () {
-    var S = FL.stmt = { tpl: FL.ls('stmt.tpl', 'TB'), hideZero: FL.ls('stmt.hideZero', true), detail: false };
+    var S = FL.stmt = { tpl: FL.ls('stmt.tpl', 'TB'), hideZero: FL.ls('stmt.hideZero', true), detail: false, labels: FL.ls('stmt.labels', 'sentence') };
+    /** Line labels in the chosen case (display only: sentence = the IFRS / IAS 1 habit, title, upper, as written) */
+    FL.stdLabels = function (st, mode) { mode = mode || S.labels; if (mode && mode !== 'asis') st.rows = st.rows.map(function (r) { return Object.assign({}, r, { label: FINE.labelCase(r.label, mode) }); }); return st; };
 
     FL.stmtOpts = function () { return { period: FL.filter.period, scale: FL.filter.scale }; };
 
@@ -128,6 +130,27 @@
         return h + '</tbody></table>';
     };
 
+    /** Writes standard labels (+ fonts / styles) into the template after showing what changes */
+    S.standardize = function (tpl) {
+        var mode = S.labels === 'asis' ? 'sentence' : S.labels;
+        var paint = function (styles) {
+            var copy = JSON.parse(JSON.stringify(tpl)), ch = FINE.standardize(copy, { labels: mode, styles: styles });
+            FL.modal('<i class="fa-solid fa-spell-check"></i> Standardize "' + esc(tpl.name) + '"',
+                '<p class="sm" style="margin-top:0">Line names in <b>' + esc({ sentence: 'sentence case', title: 'Title Case', upper: 'UPPER CASE' }[mode]) + '</b> (acronyms such as VAT, PPE, IFRS stay in capitals)' +
+                (tpl.simple ? '' : ' and, if ticked, one font style per kind of line: main group headings <b>bold</b>, the lines under them plain and indented, group totals and subtotals <b>bold with a rule above</b>, the final total (net profit / total equity and liabilities) <b>double-underlined</b>, % lines and checks <i>italic</i>') + '.</p>' +
+                (tpl.simple ? '' : '<label class="sm"><input type="checkbox" id="sd-sty"' + (styles ? ' checked' : '') + '> also fonts &amp; styles</label>') +
+                '<div class="scroll" style="max-height:55vh;margin-top:8px">' + (ch.length ? '<table class="pm-tab"><thead><tr><th>Now</th><th>Becomes</th></tr></thead><tbody>' +
+                    ch.map(function (c) { return '<tr><td>' + esc(c.from) + '</td><td><b>' + esc(c.to) + '</b></td></tr>'; }).join('') + '</tbody></table>' : '<p class="sm muted">Every label is already in this case.</p>') + '</div>',
+                '<button class="btn primary" id="sd-ok"><i class="fa-solid fa-check"></i> Apply &amp; save</button>');
+            if ($('sd-sty')) $('sd-sty').onchange = function () { paint(this.checked); };
+            $('sd-ok').onclick = function () {
+                var i = FL.templates.map(function (x) { return x.id; }).indexOf(tpl.id); if (i < 0) return;
+                FINE.standardize(FL.templates[i], { labels: mode, styles: styles });
+                FL.saveTemplates().then(function () { FL.closeModal(); FL.toast(ch.length + ' label(s) standardized' + (styles && !tpl.simple ? ', fonts and styles set' : ''), 'ok'); FL.render(); }, function (e) { FL.toast(String(e), 'err'); });
+            };
+        };
+        paint(true);
+    };
     /** Per-account values of every accounts row (for account detail) */
     function subRows(tpl, data, opts, st) {
         var out = {};
@@ -214,7 +237,7 @@
                 var colPick = FL.ls('stmt.cols', {}), colId = kind ? colPick[kind] : null;
                 if (kind === 'PL' && colId == null && hasBud) colId = 'budget';
                 if (kind && colId && colId !== '_tpl') opts.columns = FINE.colset(kind, colId);
-                var st = FINE.compute(tpl, data, opts);
+                var st = FL.stdLabels(FINE.compute(tpl, data, opts));
                 var budNote = !hasBud ? (colId === 'budget' ? ' · <b class="neg">no budget for ' + esc(cur.fiscal_year || '') + '</b> — baseline a plan in Planning' : '') :
                     ' · budget: ' + (data.budgetPlans && data.budgetPlans.length ? esc(data.budgetPlans.map(function (b) { return b.name || b.id; }).join(', ')) + ' (Planning)' : 'Fusion GL');
                 S.last = { tpl: tpl, st: st, opts: opts };
@@ -227,6 +250,9 @@
                         return '<option value="' + c.id + '"' + (colId === c.id ? ' selected' : '') + '>' + esc(c.label) + '</option>'; }).join('') + '</select></label>' : '') +
                     '<label class="sm"><input type="checkbox" id="st-zero"' + (S.hideZero ? ' checked' : '') + '> hide empty lines</label>' +
                     '<label class="sm"><input type="checkbox" id="st-det"' + (S.detail ? ' checked' : '') + '> account detail</label>' +
+                    '<label class="sm" title="How line names are written. Sentence case is the usual style of published statements (IFRS / IAS 1): Trade and other receivables. Acronyms such as VAT or PPE stay in capitals.">Labels <select id="st-case">' +
+                    [['sentence', 'Sentence case (standard)'], ['title', 'Title Case'], ['upper', 'UPPER CASE'], ['asis', 'as written']].map(function (o) { return '<option value="' + o[0] + '"' + (S.labels === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
+                    '<button class="btn sm" id="st-std" title="Write standard labels and fonts into the template itself (headings bold, lines plain, totals bold with a rule, the final total double-underlined, % lines italic)"><i class="fa-solid fa-spell-check"></i> Standardize template</button>' +
                     '<button class="btn sm" id="st-xl"><i class="fa-solid fa-file-excel"></i> Excel</button>' +
                     '<button class="btn sm" id="st-xla" title="Every template in one workbook"><i class="fa-solid fa-file-excel"></i> All statements</button>' +
                     '<button class="btn sm" id="st-csv"><i class="fa-solid fa-file-csv"></i> CSV</button>' +
@@ -246,8 +272,10 @@
                 if ($('st-cols')) $('st-cols').onchange = function () { var m = FL.ls('stmt.cols', {}); m[kind] = this.value; FL.lsSet('stmt.cols', m); FL.render(); };
                 $('st-zero').onchange = function () { S.hideZero = this.checked; FL.lsSet('stmt.hideZero', S.hideZero); FL.render(); };
                 $('st-det').onchange = function () { S.detail = this.checked; FL.render(); };
+                $('st-case').onchange = function () { S.labels = this.value; FL.lsSet('stmt.labels', S.labels); FL.render(); };
+                $('st-std').onclick = function () { S.standardize(tpl); };
                 $('st-xl').onclick = function () { FL.excel([S.last.st], tpl.name); };
-                $('st-xla').onclick = function () { FL.excel(FL.templates.map(function (t) { return FINE.compute(t, data, opts); }), 'Financial statements'); };
+                $('st-xla').onclick = function () { FL.excel(FL.templates.map(function (t) { return FL.stdLabels(FINE.compute(t, data, opts)); }), 'Financial statements'); };
                 $('st-csv').onclick = function () { FL.csv(tpl.id + '-' + st.periodName + '.csv', ['line'].concat(st.columns.map(function (c) { return c.label; })), st.rows.filter(function (r) { return r.type !== 'blank'; }).map(function (r) { return [r.label].concat(r.values.map(function (v) { return v == null ? '' : Math.round(v * 100) / 100; })); })); };
                 if ($('st-edit')) $('st-edit').onclick = function () { FL.designer.open(tpl.id); };
                 if ($('st-map')) $('st-map').onclick = function () { FL.builder.open(tpl.id, 'unmapped'); };

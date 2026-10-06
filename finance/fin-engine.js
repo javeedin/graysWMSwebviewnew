@@ -1646,5 +1646,57 @@
         return { tpl: t, other: other, warnings: warnings };
     };
 
+    // ── presentation standard: labels in sentence case (IFRS / IAS 1 practice), one style per kind of line ──
+    FINE.ACRONYMS = ('VAT GST PPE ROU IT HR CIF FOB ICD IED LOC RCV MRA USD MUR EUR GBP ZAR INR AED IFRS IAS GAAP EBIT EBITDA EBT NBV FX PL BS CEO CFO COO WIP UK USA EU ' +
+        'TV ATM POS SKU VIP CSR LLC LTD PLC NIC NPF CSG PAYE NSF TDS ISO ERP CRM SAP IFC OCI ECL DTA DTL CWIP GRNI COGS SGA SG&A R&D P&L ' +
+        'BU LE IC AR AP GL KPI ROI ROE ROCE DSO DPO DIO EPS NCI JV IPO ESOP CAPEX OPEX ID IT/IS ICT GPS SMS UPS DHL').split(' ');
+    var ACR = {}; FINE.ACRONYMS.forEach(function (a) { ACR[a] = 1; });
+    var SMALL = { a: 1, an: 1, and: 1, as: 1, at: 1, by: 1, for: 1, from: 1, in: 1, into: 1, of: 1, on: 1, or: 1, per: 1, the: 1, to: 1, vs: 1, with: 1 };
+    /** Label case: 'sentence' (Trade and other receivables), 'title' (Trade and Other Receivables), 'upper', or 'asis'.
+        Acronyms (VAT, PPE, IFRS …), words with digits and mixed-case words (eBay) are kept as written. */
+    FINE.labelCase = function (text, mode) {
+        var t = String(text == null ? '' : text);
+        if (!mode || mode === 'asis' || !t) return t;
+        if (mode === 'upper') return t.toUpperCase();
+        var first = true;
+        return t.replace(/\s+/g, ' ').trim().replace(/[A-Za-z][A-Za-z0-9&'’./]*/g, function (w) {
+            var bare = w.replace(/[.'’]+$/, ''), up = bare.toUpperCase(), out;
+            if (ACR[up] || /\d/.test(w) || (/[a-z]/.test(bare) && /[A-Z]/.test(bare.slice(1)) && bare !== bare.toUpperCase())) out = ACR[up] ? up + w.slice(bare.length) : w;
+            else {
+                var lw = w.toLowerCase();
+                if (mode === 'title') out = !first && SMALL[lw] ? lw : lw.charAt(0).toUpperCase() + lw.slice(1);
+                else out = first ? lw.charAt(0).toUpperCase() + lw.slice(1) : lw;
+            }
+            first = false;
+            return out;
+        });
+    };
+    /** Standard look for a statement: main group headings bold; lines under them plain and indented; group totals bold with a rule
+        above; subtotals bold with a rule; the final total (net profit / total equity and liabilities) double-underlined; % lines and
+        checks italic. Labels in `labels` case (default sentence). Changes the template; returns [{id, from, to}] of renamed lines. */
+    FINE.standardize = function (t, opts) {
+        opts = opts || {}; var mode = opts.labels || 'sentence', styles = opts.styles !== false, changes = [];
+        var fix = function (o, key, id) { var v = o[key]; if (!v) return; var n = FINE.labelCase(v, mode); if (n !== v) { changes.push({ id: id, from: v, to: n }); o[key] = n; } };
+        if (t.simple) {
+            (t.simple.lines || []).forEach(function (l) { fix(l, 'name', l.id); (l.sections || []).forEach(function (x) { fix(x, 'name', x.id); }); });
+            FINE.simpleTemplate(t);
+            return changes;
+        }
+        var rows = t.rows || [], lastF = -1;
+        rows.forEach(function (r, i) { if (r.type === 'formula' && r.format !== 'pct' && !r.parent) lastF = i; });
+        rows.forEach(function (r, i) {
+            fix(r, 'label', r.id);
+            if (!styles) return;
+            if (r.parent) r.level = Math.max(1, r.level || 1);
+            if (r.type === 'header') r.style = { bold: true };
+            else if (r.type === 'accounts') r.style = r.parent ? {} : (r.style && r.style.bold ? { bold: true } : {});
+            else if (r.type === 'group') r.style = { bold: true, topBorder: true };
+            else if (r.type === 'formula') r.style = r.format && r.format !== 'num' ? { italic: true } : i === lastF ? { bold: true, topBorder: true, doubleBottom: true } : { bold: true, topBorder: true };
+            else if (r.type === 'check') r.style = { italic: true };
+            if (r.style && !Object.keys(r.style).length) delete r.style;
+        });
+        return changes;
+    };
+
     if (typeof module !== 'undefined' && module.exports) module.exports = FINE; else root.FINE = FINE;
 })(typeof window !== 'undefined' ? window : this);
