@@ -226,10 +226,10 @@
     F.keepLog = function () { FL.lsSet('fusion.lastLog', { when: new Date().toLocaleString(), lines: F.log.slice(-4000) }); };
 
     F.discover = function (pod) {
-        if (F.busy) return;
+        if (F.busy) return Promise.resolve(null);
         F.busy = true;
         var p = F.progress('Discovering ' + (pod || 'the logged-in pod') + '…', true);
-        FL.call('finFusionDiscover', { pod: pod }, 30 * 60000, p).then(function (r) {
+        return FL.call('finFusionDiscover', { pod: pod }, 30 * 60000, p).then(function (r) {
             F.busy = false;
             F.disc = r.discovery; F.disc.pod = pod; F.discFrom = { where: 'Fusion', at: new Date().toLocaleString() };
             FL.fusion.finish();
@@ -237,7 +237,8 @@
             F.storeStatus('Saving the chart of accounts…');
             FL.apexStore.saveDiscovery(F.disc, null, null).then(function () { F.storeStatus('✓ Saved in APEX' + (r.savedDuck ? ' and DuckDB' : ' (DuckDB: with the first load)')); })
                 .catch(function (e) { F.storeStatus('⚠ Not saved in APEX: ' + (e.message || e) + (r.savedDuck ? ' · saved in DuckDB' : ''), true); });
-        }).catch(function (e) { F.busy = false; FL.fusion.finish(e); });
+            return F.disc;
+        }).catch(function (e) { F.busy = false; FL.fusion.finish(e); FL.toast(String(e && e.message || e), 'err'); return null; });
     };
 
     F.storeStatus = function (t, bad) { F.storeMsg = { t: t, bad: bad }; if ($('fu-store')) { $('fu-store').textContent = t; $('fu-store').className = 'sm ' + (bad ? 'neg' : 'muted'); } };

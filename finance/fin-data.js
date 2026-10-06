@@ -1,5 +1,5 @@
 /* Finance Lens — the Data workspace: where the numbers come from and whether they still match Fusion.
-   Views: Sync status (ledger × month grid: Fusion fingerprint vs this PC — in sync / changed / new / not tying; one-click
+   Views (a tab each): Sync status (ledger × month grid: Fusion fingerprint vs this PC — in sync / changed / new / not tying; one-click
    sync of changed, new or open periods, or any single period, optionally split by GL account), Chart of accounts (segments
    per chart with roles and evidence, and every value of each segment: description, use, account type), Fusion setup (the
    SQL load wizard, fin-fusion.js), BICC bulk extracts (files from a folder or the pod's UCM → DuckDB in one pass), Account
@@ -33,10 +33,11 @@
     FL.TABS.data = {
         render: function (el) {
             if (!VIEWS.some(function (v) { return v[0] === D.view; })) D.view = 'tbsync';
-            el.innerHTML = '<div class="split"><div class="side">' + VIEWS.map(function (v) {
-                return '<div class="item' + (v[0] === D.view ? ' on' : '') + '" data-v="' + v[0] + '"><i class="fa-solid ' + v[1] + '"></i><div>' + v[2] + '<small>' + v[3] + '</small></div></div>';
-            }).join('') + '</div><div id="dt-main"></div></div>';
-            el.querySelectorAll('.side .item').forEach(function (it) { it.onclick = function () { D.view = it.dataset.v; FL.lsSet('data.view', D.view); FL.TABS.data.render(el); }; });
+            el.innerHTML = '<div class="dt-tabs" role="tablist">' + VIEWS.map(function (v) {
+                return '<button role="tab" class="' + (v[0] === D.view ? 'on' : '') + '" data-v="' + v[0] + '" title="' + esc(v[3]) + '"><i class="fa-solid ' + v[1] + '"></i> ' + v[2] + '</button>';
+            }).join('') + '</div><div id="dt-main"></div>';
+            el.querySelectorAll('.dt-tabs button').forEach(function (it) { it.onclick = function () { if (it.dataset.v === D.view) return; D.view = it.dataset.v; FL.lsSet('data.view', D.view); FL.TABS.data.render(el); }; });
+            var on = el.querySelector('.dt-tabs button.on'); if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
             var main = $('dt-main');
             return Promise.resolve(D[D.view](main)).catch(function (e) { main.innerHTML = '<div class="callout bad">' + esc(e && e.message || e) + '</div>'; });
         }

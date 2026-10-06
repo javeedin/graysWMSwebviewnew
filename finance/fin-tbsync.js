@@ -7,7 +7,7 @@
    FinanceLens.BuildFromTb). */
 (function () {
     var T = FL.tbsync = {};
-    var L = T.st = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), year: FL.ls('tbl.year', null), cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2), seq: FL.ls('tbl.seq', true),
+    var L = T.st = { pod: FL.ls('tbl.pod', null), ledger: FL.ls('tbl.ledger', null), year: FL.ls('tbl.year', null), cos: [], byCc: FL.ls('tbl.byCc', false), fold: true, par: FL.ls('tbl.par', 2), seq: FL.ls('tbl.seq', true), batch: String(FL.ls('tbl.batch', FL.ls('tbl.seq', true) ? 'auto' : '0')),
         opt: Object.assign({ skipZero: true, allSums: false, hint: true, perCompany: true }, FL.ls('tbl.opt', {})), query: '', defaultQuery: '', sel: {}, status: null, extBy: FL.ls('tbl.extBy', 'ccid'), extBatch: FL.ls('tbl.extBatch', 20) };
     T.qKey = function () { return 'account' + (L.byCc ? '.cc' : '') + (T.tbSegs ? T.tbSegs().map(function (c) { return '.s' + c.slice(7); }).join('') : '') + '.' + (L.opt.skipZero ? 'z' : '') + (L.opt.allSums ? 'a' : '') + (L.opt.hint ? 'h' : ''); };
     T.loadQ = function () { L.query = FL.ls('tbl.query.account', ''); L.defaultQuery = FL.ls('tbl.dq.' + T.qKey(), ''); };
@@ -32,7 +32,6 @@
 
             '<div class="row" style="margin-top:6px">' +
             '<label class="sm"><input type="checkbox" id="ts-fold"' + (L.fold ? ' checked' : '') + ' title="Adjustment periods (e.g. Adj-25) are read too and added to the period they close"> fold adjustment periods</label>' +
-            '<label class="sm" title="With several periods ticked: sync the first period completely, then the next — each is saved before the next starts, and Stop drops the rest of the line"><input type="checkbox" id="ts-seq"' + (L.seq ? ' checked' : '') + '> one period after another</label>' +
             '<label class="sm" title="Queries to Fusion at the same time (one per company and period)">Reads in parallel <select id="ts-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + (L.par === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label></div>' +
 
             '<div class="row sm" style="margin-top:8px"><i class="fa-solid fa-code"></i> <span class="muted">The query each Sync runs: the <b>&lt;/&gt;</b> button on a period row (view, test, edit) — ' + (L.query ? '<b>your own trial balance query</b>' : 'default trial balance query') + '</span></div></details>' +
@@ -44,7 +43,6 @@
         $('ts-pod').onchange = function () { L.pod = this.value; FL.lsSet('tbl.pod', L.pod); L.ledger = null; L.sel = {}; T.fillLedgers(); };
 
         $('ts-fold').onchange = function () { L.fold = this.checked; T.setSum(); };
-        $('ts-seq').onchange = function () { L.seq = this.checked; FL.lsSet('tbl.seq', L.seq); T.setSum(); };
         $('ts-par').onchange = function () { L.par = +this.value; FL.lsSet('tbl.par', L.par); T.setSum(); };
         T.wireActs('ts');
         $('ts-selmiss').onclick = function () { T.select('missing'); };
@@ -380,13 +378,18 @@
         T.fillLedgers();
     };
     /** Delete / Overwrite / Sync for the ticked tiles — the same in both views */
+    T.BATCH = [['auto', 'Auto: 2 at a time, 1 when slow'], ['1', '1 period at a time'], ['2', '2 periods at a time'], ['0', 'All ticked in one sync']];
+    T.batchLabel = function () { return ({ auto: 'auto (2 at a time, 1 when slow)', 1: 'one period after another', 2: '2 periods at a time', 0: 'all ticked periods in one sync' })[L.batch] || L.batch; };
     T.actBtns = function (x) {
-        return '<button class="btn sm" id="' + x + '-del" disabled title="Delete the ticked periods from this PC (the statements are rebuilt without them)"><i class="fa-solid fa-trash"></i> Delete</button>' +
+        return '<select class="sm ts-batch" id="' + x + '-batch" title="With several periods ticked: how many periods each sync reads. Each group is saved before the next starts and Stop drops the rest of the line. Auto starts with 2 and drops to 1 when a group fails or takes more than 6 minutes a period (a failed period is tried once more on its own), back to 2 when it is fast again.">' +
+            T.BATCH.map(function (b) { return '<option value="' + b[0] + '"' + (L.batch === b[0] ? ' selected' : '') + '>' + b[1] + '</option>'; }).join('') + '</select>' +
+            '<button class="btn sm" id="' + x + '-del" disabled title="Delete the ticked periods from this PC (the statements are rebuilt without them)"><i class="fa-solid fa-trash"></i> Delete</button>' +
             '<button class="btn sm" id="' + x + '-over" disabled title="Read the ticked periods again from Fusion and replace what this PC holds (after postings in Fusion)"><i class="fa-solid fa-rotate"></i> Overwrite</button>' +
             '<button class="btn sm" id="' + x + '-xg" disabled title="Extended segments for the ticked periods"><i class="fa-solid fa-layer-group"></i> Sync extended</button>' +
             '<button class="btn primary" id="' + x + '-go" disabled title="Read what is missing for the ticked periods (companies already on this PC are kept)"><i class="fa-solid fa-cloud-arrow-down"></i> Sync</button>';
     };
     T.wireActs = function (x) {
+        $(x + '-batch').onchange = function () { L.batch = this.value; L.seq = L.batch !== '0'; FL.lsSet('tbl.batch', L.batch); FL.lsSet('tbl.seq', L.seq); T.pfx().forEach(function (y) { if ($(y + '-batch')) $(y + '-batch').value = L.batch; }); if (T.setSum) T.setSum(); };
         $(x + '-go').onclick = function () { T.sync(T.selSeqs(), false); };
         $(x + '-over').onclick = function () {
             var cells = T.cells(), names = T.cal().filter(function (p) { return L.sel[p.seq] && cells[p.seq]; }).map(function (p) { return p.name; });
@@ -462,7 +465,7 @@
         var l = T.ledgerObj(), n = (l && l.companies || []).length;
         var tsn = T.tbSegs().map(function (c) { return T.segName(c).replace(/ \(SEGMENT\d+\)$/, ''); });
         if ($('ts-setsum')) $('ts-setsum').textContent = (L.cos.length ? L.cos.length + ' of ' + n + ' companies' : 'every company' + (n ? ' (' + n + ')' : '')) + (L.byCc ? ' · by cost centre' : '') + (tsn.length ? ' · by ' + tsn.join(', ') : '') +
-            (L.fold ? ' · adjustment periods folded' : '') + (L.seq ? ' · one period after another' : '') + ' · ' + L.par + ' in parallel' + (L.opt.perCompany ? ' · one query per company' : '') + (L.query ? ' · your own query' : '');
+            (L.fold ? ' · adjustment periods folded' : '') + ' · ' + T.batchLabel() + ' · ' + L.par + ' in parallel' + (L.opt.perCompany ? ' · one query per company' : '') + (L.query ? ' · your own query' : '');
     };
     /** The companies a period must hold to count as synced */
     /** company key that survives lost leading zeros ("01" and "1" are the same company) */
@@ -528,14 +531,31 @@
         });
         return { all: all, have: all.filter(function (v) { return have[T.ck(v)]; }), short: short.sort() };
     };
-    /** Banner when the synced periods hold fewer companies than the ledger has — statements then show only those */
+    /** Banner when synced periods hold fewer companies than the ledger has (statements then show only those): which periods
+        lack which companies, one button that reads only the missing companies, × hides it until the gap changes */
     T.coverage = function (cells) {
-        var cv = T.coverageOf(cells); if (cv.all.length < 2 || !cv.short.length) return '';
-        var miss = cv.all.filter(function (v) { return cv.have.indexOf(v) < 0; }), admin = FL.who && FL.who.admin;
-        return '<div class="callout warn ts-cover"><b><i class="fa-solid fa-building"></i> ' + (cv.have.length === cv.all.length ? 'Some periods' : 'Synced for ' + cv.have.length + ' of ' + cv.all.length + ' companies') + '</b>' +
-            (cv.have.length ? ' (' + esc(cv.have.slice(0, 8).join(', ') + (cv.have.length > 8 ? ' …' : '')) + ')' : '') + ' — ' + cv.short.length + ' synced period(s) lack ' +
-            (miss.length ? esc(miss.slice(0, 8).join(', ') + (miss.length > 8 ? ' … (' + miss.length + ')' : '')) : 'some companies') + ', so the statements, KPIs and Overview show only the companies on this PC. ' +
-            (admin ? '<button class="btn sm primary" data-allcos="' + cv.short.join(',') + '"><i class="fa-solid fa-cloud-arrow-down"></i> Sync all ' + cv.all.length + ' companies</button> <span class="sm muted">only the missing companies are read</span>' : '<span class="sm muted">ask an AI admin to sync every company</span>') + '</div>';
+        var cv = T.coverageOf(cells), l = T.ledgerObj(); if (!l || cv.all.length < 2 || !cv.short.length) return '';
+        var nm = {}; T.cal().forEach(function (p) { nm[p.seq] = p.name; });
+        var per = cv.short.map(function (q) { var c = cells[q]; return { seq: q, name: nm[q] || String(q), miss: cv.all.filter(function (v) { return !c.cos[T.ck(v)]; }) }; });
+        var key = per.map(function (x) { return x.seq + ':' + x.miss.join('.'); }).join('|');
+        if ((FL.ls('tbl.coverHide', {})[l.id] || '') === key) return '';
+        var admin = FL.who && FL.who.admin, nMiss = per.reduce(function (a, x) { return a + x.miss.length; }, 0);
+        var tip = per.map(function (x) { return x.name + ' lacks ' + x.miss.join(', '); }).join('\n');
+        return '<div class="ts-banner warn ts-cover" title="' + esc(tip) + '"><i class="fa-solid fa-building"></i><span><b>' + per.length + ' period' + (per.length === 1 ? '' : 's') + ' miss' + (per.length === 1 ? 'es' : '') + ' some companies</b> — ' +
+            esc(per.slice(0, 3).map(function (x) { return x.name + ' lacks ' + x.miss.slice(0, 4).join(', ') + (x.miss.length > 4 ? ' +' + (x.miss.length - 4) : ''); }).join(' · ') + (per.length > 3 ? ' · +' + (per.length - 3) + ' more' : '')) +
+            '. <span class="muted">Statements show only the companies on this PC.</span></span>' +
+            (admin ? '<button class="btn sm primary" data-allcos="' + cv.short.join(',') + '" title="Reads only the ' + nMiss + ' missing period × company pairs; what is on this PC stays"><i class="fa-solid fa-cloud-arrow-down"></i> Sync the missing companies</button>' : '<span class="sm muted">an AI admin can sync them</span>') +
+            '<button class="ts-bx" data-bx="cover" data-k="' + esc(key) + '" title="Hide until other companies go missing">×</button></div>';
+    };
+    /** Discover the pod again without leaving this page (the company codes then keep their leading zeros), then refresh the board */
+    T.rediscover = function () {
+        var pod = L.pod || '';
+        return FL.fusion.discover(pod).then(function (d) {
+            if (!d) return;
+            FL.toast('Ledgers and chart of accounts read again' + (d.codeVersion ? ' — company codes are exact now' : ''), 'ok');
+            if (FL.fusion.discCache) delete FL.fusion.discCache[pod];
+            return T.fillLedgers();
+        });
     };
     /** Tick every company of the ledger and sync the given periods (only what each period is missing) */
     T.syncAllCos = function (seqs) {
@@ -585,10 +605,11 @@
             esc(T.extCols().length ? T.extCols().map(function (c) { return T.segName(c).replace(/ \(SEGMENT\d+\)$/, ''); }).join(', ') : 'choose…') + '</button>' +
             '<button class="btn sm ghost ts-opentb" title="Statements › Trial balance"><i class="fa-solid fa-arrow-right"></i> Open trial balance</button></div>';
         if (L.view === 'table') tiles = T.table(ps, cells, want, today);
-        if (L.disc && !L.disc.codeVersion && (l.companies || []).some(function (c) { return /^[1-9][0-9]*$/.test(String(c.value)); }))
-            tiles = '<div class="callout warn ts-recode"><b><i class="fa-solid fa-triangle-exclamation"></i> Company codes may have lost their leading zeros</b> — the company list was read before the app kept them ' +
-                '(Fusion <code>01</code> was saved as <code>1</code>). Syncs still match both, but run <b>Discover</b> again in Fusion setup so the codes are exact, then <b>Overwrite</b> the periods synced before. ' +
-                '<button class="btn sm primary" data-redisc><i class="fa-solid fa-magnifying-glass"></i> Fusion setup › Discover</button></div>' + tiles;
+        if (L.disc && !L.disc.codeVersion && !FL.ls('tbl.recodeHide.' + (L.pod || ''), false) && (l.companies || []).some(function (c) { return /^[1-9][0-9]*$/.test(String(c.value)); }))
+            tiles = '<div class="ts-banner warn ts-recode"><i class="fa-solid fa-triangle-exclamation"></i><span><b>Company codes may have lost their leading zeros</b> — the company list was read before the app kept them (Fusion <code>01</code> saved as <code>1</code>). ' +
+                '<span class="muted">Syncs match both, so nothing is wrong in the numbers; re-reading the list makes the codes exact.</span></span>' +
+                (FL.who && FL.who.admin ? '<button class="btn sm primary" data-redisc title="Reads the ledgers and chart of accounts of ' + esc(L.pod || 'the logged-in pod') + ' again here (Fusion setup › Discover), saves it in APEX and DuckDB and refreshes this board"><i class="fa-solid fa-rotate"></i> Re-read company codes</button>' : '') +
+                '<button class="ts-bx" data-bx="recode" title="Hide this note">×</button></div>' + tiles;
         tiles = T.coverage(cells) + tiles;
         views.forEach(function (x) {
             var box = $(x + '-board'); box.classList.toggle('ts-board-tbl', L.view === 'table'); box.innerHTML = vt + tiles;
@@ -596,7 +617,15 @@
             var card = box.closest('.ts-main'); if (card) card.classList.toggle('ts-tblmode', L.view === 'table');   // table: every action is on its row, the bulk bar is hidden
             box.querySelectorAll('.ts-extbtn').forEach(function (b) { b.onclick = function () { T.extDialog(); }; });
             box.querySelectorAll('.ts-tbsbtn').forEach(function (b) { b.onclick = function () { T.tbSegDialog(); }; });
-            box.querySelectorAll('[data-redisc]').forEach(function (b) { b.onclick = function () { FL.dataTab.dataSetup(); }; });
+            box.querySelectorAll('[data-redisc]').forEach(function (b) { b.onclick = function () { b.disabled = true; b.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Reading Fusion…'; T.rediscover(); }; });
+            box.querySelectorAll('[data-bx]').forEach(function (b) {
+                b.onclick = function (ev) {
+                    ev.stopPropagation();
+                    if (b.dataset.bx === 'cover') { var h = FL.ls('tbl.coverHide', {}); h[l.id] = b.dataset.k; FL.lsSet('tbl.coverHide', h); }
+                    else FL.lsSet('tbl.recodeHide.' + (L.pod || ''), true);
+                    T.paintBoard();
+                };
+            });
             box.querySelectorAll('.ts-opentb').forEach(function (b) { b.onclick = function () { FL.stmt.tpl = 'TB'; FL.lsSet('stmt.tpl', 'TB'); FL.show('statements'); }; });
             box.querySelectorAll('[data-miss]').forEach(function (b) { b.onclick = function () { var q = b.dataset.q.split(',').map(Number); if (b.dataset.miss === 'tb') T.sync(q, false); else T.extSync(q, false); }; });
             box.querySelectorAll('[data-del]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); T.remove([+b.dataset.del]); }; });
@@ -613,6 +642,13 @@
             box.querySelectorAll('[data-sql]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); T.sqlDialog(+b.dataset.s, b.dataset.sql); }; });
             box.querySelectorAll('[data-view]').forEach(function (b) { b.onclick = function (ev) { ev.stopPropagation(); T.view(+b.dataset.s, b.dataset.view); }; });
             if ($(x + '-years')) { $(x + '-years').innerHTML = yearsHtml; $(x + '-years').querySelectorAll('button').forEach(function (b) { b.onclick = function () { L.year = +b.dataset.y; FL.lsSet('tbl.year', L.year); T.paintBoard(); }; }); }
+            box.querySelectorAll('.ts-tr').forEach(function (tr) {
+                tr.onclick = function (ev) {
+                    if (ev.target.closest('button, a') || tr.classList.contains('future') || !(FL.who && FL.who.admin) || (T.live && T.live.running) || (T.xlive && T.xlive.running)) return;
+                    var q = +tr.dataset.s; if (L.sel[q]) delete L.sel[q]; else L.sel[q] = 1; T.paintBoard();
+                };
+            });
+            box.querySelectorAll('.ts-hck').forEach(function (h) { h.onclick = function (ev) { ev.stopPropagation(); if (h.checked) T.select('allopen'); else T.select('none'); }; });
             box.querySelectorAll('.ts-tile').forEach(function (t) {
                 t.onclick = function () { if (T.live && T.live.running) return; var q = +t.dataset.s; if (L.sel[q]) delete L.sel[q]; else L.sel[q] = 1; T.paintBoard(); };
             });
@@ -650,7 +686,7 @@
             var exBtn = !ext.length || future || !admin ? '' : xl && xl.state === 'running' ? stopBtn() : xs === 'done' ? '<button class="btn sm" data-row="exto" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + '><i class="fa-solid fa-rotate"></i> Overwrite</button>'
                 : '<button class="btn sm' + (st === 'done' ? ' primary' : '') + '" data-row="ext" data-s="' + p.seq + '"' + (run ? ' disabled' : '') + ' title="' + esc(st === 'done' ? 'Read the extended segments for this period' : 'Works on its own, but sync the trial balance too') + '"><i class="fa-solid fa-cloud-arrow-down"></i> Sync</button>';
             var delBtn = admin && c && !run ? '<button class="ts-eye ts-del" data-del="' + p.seq + '" title="Delete ' + esc(p.name) + ' from this PC (trial balance and extended segments; Sync reads it again any time)"><i class="fa-solid fa-trash"></i></button>' : '';
-            return '<tr class="ts-tr' + (future ? ' future' : '') + '" data-s="' + p.seq + '"><td><b>' + esc(p.name) + '</b>' +
+            return '<tr class="ts-tr' + (future ? ' future' : '') + (L.sel[p.seq] ? ' sel' : '') + '" data-s="' + p.seq + '"><td class="ts-ck">' + (future || !admin ? '' : '<input type="checkbox" class="ts-rck"' + (L.sel[p.seq] ? ' checked' : '') + (run ? ' disabled' : '') + ' title="Tick to sync with the buttons under the table">') + '</td><td><b>' + esc(p.name) + '</b>' +
                 (c && c.adj.length ? ' <span class="muted sm">+ ' + esc(c.adj.join(', ')) + '</span>' : '') + (future ? ' <span class="muted sm">not open yet</span>' : '') + '</td><td>' + tb +
                     (st === 'done' || st === 'part' ? ' <button class="ts-eye" data-view="tb" data-s="' + p.seq + '" title="View the trial balance rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td class="ts-btns">' + tbBtn + sqlBtn('tb') + delBtn + '</td><td class="ts-xc">' + ex + T.acctIcon(p.seq) + (ext.length && x && (xs === 'done' || xs === 'part') ? ' <button class="ts-eye" data-view="ext" data-s="' + p.seq + '" title="View the extended-segment rows of ' + esc(p.name) + '"><i class="fa-solid fa-eye"></i></button>' : '') + '</td><td class="ts-btns">' + exBtn + (ext.length ? sqlBtn('ext') : '') + '</td></tr>';
         }).join('');
@@ -658,8 +694,9 @@
         var missTb = openP.filter(function (p) { var st = T.stateOf(p, cells, want); return st === 'none' || st === 'part' || st === 'failed'; }).map(function (p) { return p.seq; });
         var missX = ext.length ? openP.filter(function (p) { return T.extState(p.seq, want) !== 'done'; }).map(function (p) { return p.seq; }) : [];
         var missBtn = function (k, list) { return admin && list.length && !run ? ' <button class="btn sm ghost" data-miss="' + k + '" data-q="' + list.join(',') + '" title="Sync every open period of this year that is not complete"><i class="fa-solid fa-cloud-arrow-down"></i> Sync ' + list.length + ' missing</button>' : ''; };
-        return '<table class="t ts-table"><thead><tr><th>Period</th><th>Trial balance' + (T.tbSegLabel(true) ? ' <span class="muted">(' + esc(T.tbSegLabel(true)) + ')</span>' : '') + '</th><th class="ts-btns">' + missBtn('tb', missTb) + '</th><th class="ts-xc">Extended segments' + (ext.length ? ' <span class="muted">(' + esc(ext.map(T.segName).map(function (n) { return n.replace(/ \(SEGMENT\d+\)$/, ''); }).join(', ')) + ')</span>' : '') + '</th><th class="ts-btns">' + missBtn('ext', missX) + '</th></tr></thead><tbody>' +
-            (rows || '<tr><td colspan="5" class="muted">No periods in this year.</td></tr>') + '</tbody></table>';
+        var nOpen = openP.length, nSel = openP.filter(function (p) { return L.sel[p.seq]; }).length;
+        return '<table class="t ts-table"><thead><tr><th class="ts-ck">' + (admin && nOpen ? '<input type="checkbox" class="ts-hck"' + (nSel && nSel === nOpen ? ' checked' : '') + (run ? ' disabled' : '') + ' title="Tick every open period of ' + L.year + '">' : '') + '</th><th>Period</th><th>Trial balance' + (T.tbSegLabel(true) ? ' <span class="muted">(' + esc(T.tbSegLabel(true)) + ')</span>' : '') + '</th><th class="ts-btns">' + missBtn('tb', missTb) + '</th><th class="ts-xc">Extended segments' + (ext.length ? ' <span class="muted">(' + esc(ext.map(T.segName).map(function (n) { return n.replace(/ \(SEGMENT\d+\)$/, ''); }).join(', ')) + ')</span>' : '') + '</th><th class="ts-btns">' + missBtn('ext', missX) + '</th></tr></thead><tbody>' +
+            (rows || '<tr><td colspan="6" class="muted">No periods in this year.</td></tr>') + '</tbody></table>';
     };
     /** 👁 The rows this PC holds for one period: trial balance (fin_gl_balances_acct) or extended segments (fin_gl_ext_v), with names and totals */
     T.view = function (seq, kind, mode) {
@@ -845,7 +882,7 @@
         if (how === 'none') L.sel = {};
         else cal.forEach(function (p) {
             var st = T.stateOf(p, cells, want);
-            if (how === 'all' || ((st === 'none' || st === 'part' || st === 'failed') && !(p.start && p.start > today))) L.sel[p.seq] = 1;
+            if (how === 'all' || (how === 'allopen' && !(p.start && p.start > today)) || ((st === 'none' || st === 'part' || st === 'failed') && !(p.start && p.start > today))) L.sel[p.seq] = 1;
         });
         T.paintBoard();
     };
@@ -1026,19 +1063,31 @@
     T.inLine = function (kind, name) { var q = T.queue; return !!(q && q.kind === kind && q.names.indexOf(name) >= 0); };
     T.seqRun = function (kind, seqs, one) {
         var cal = T.cal(), list = cal.filter(function (p) { return seqs.indexOf(p.seq) >= 0; }).map(function (p) { return p.seq; });
-        var q = T.queue = { kind: kind, names: cal.filter(function (p) { return list.indexOf(p.seq) >= 0; }).map(function (p) { return p.name; }), t0: Date.now() };
+        var auto = L.batch === 'auto', q = T.queue = { kind: kind, names: cal.filter(function (p) { return list.indexOf(p.seq) >= 0; }).map(function (p) { return p.name; }), t0: Date.now(),
+            size: auto ? 2 : Math.max(1, +L.batch || 1), auto: auto, good: 0, retried: {} };
         var i = 0, nameOf = function (s) { return (cal.filter(function (p) { return p.seq === s; })[0] || {}).name; };
         var next = function () {
             if (T.queue !== q) return Promise.resolve();
             if (i >= list.length || (FL.fusion.stopAt && FL.fusion.stopAt >= q.t0)) { var left = list.length - i; T.queue = null; if (left > 0) FL.toast('Stopped — ' + left + ' period(s) not synced', 'info'); T.paintBoard(); return Promise.resolve(); }
-            var s = list[i++]; q.names = q.names.filter(function (n) { return n !== nameOf(s); });
-            return Promise.resolve(one(s)).then(next, next);
+            var g = list.slice(i, i + q.size), gn = g.map(nameOf), t = Date.now(); i += g.length;
+            q.names = q.names.filter(function (n) { return gn.indexOf(n) < 0; }); q.now = gn;
+            return Promise.resolve(one(g)).then(function () {
+                if (!q.auto || T.queue !== q) return;
+                var lv = kind === 'tb' ? T.live : T.xlive, per = (Date.now() - t) / g.length;
+                var failed = g.filter(function (s, k) { var x = lv && lv.per && lv.per[gn[k]]; return x && x.state === 'failed'; });
+                if (failed.length || per > 6 * 60000) {
+                    if (q.size > 1) FL.toast((failed.length ? 'A period failed' : 'Slow (' + Math.round(per / 60000) + ' min a period)') + ' — going on one period at a time', 'info');
+                    q.size = 1; q.good = 0;
+                    // a period that failed in a group of 2 is tried once more on its own at the end of the line
+                    failed.forEach(function (s) { if (g.length > 1 && !q.retried[s]) { q.retried[s] = 1; list.push(s); q.names.push(nameOf(s)); } });
+                } else if (q.size === 1 && per < 2 * 60000 && ++q.good >= 2) { q.size = 2; q.good = 0; }
+            }, function () { }).then(next);
         };
         T.paintBoard();
         return next();
     };
     T.extSync = function (seqs, refresh, quiet, only) {
-        if (L.seq && seqs && seqs.length > 1 && !(only && only.accounts)) return T.seqRun('ext', seqs, function (s) { return T.extSyncOne([s], refresh, quiet, only); });
+        if (L.batch !== '0' && seqs && seqs.length > 1 && !(only && only.accounts) && !T.queue) return T.seqRun('ext', seqs, function (g) { return T.extSyncOne(g, refresh, quiet, only); });
         return T.extSyncOne(seqs, refresh, quiet, only);
     };
     T.extSyncOne = function (seqs, refresh, quiet, only) {
@@ -1076,7 +1125,7 @@
     /** seqs: the periods to sync (default = From–To); refresh: read again even when this PC has them */
     T.sync = function (seqs, refresh) {
         var list = seqs || T.selSeqs();
-        if (L.seq && list.length > 1) return T.seqRun('tb', list, function (s) { return T.syncOne([s], refresh); });
+        if (L.batch !== '0' && list.length > 1) return T.seqRun('tb', list, function (g) { return T.syncOne(g, refresh); });
         return T.syncOne(list, refresh);
     };
     T.syncOne = function (seqs, refresh) {
