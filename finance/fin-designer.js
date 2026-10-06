@@ -21,11 +21,14 @@
         render: function (el) {
             var tpl = FL.tpl(D.cur) || FL.templates[0];
             if (!D.draft || D.draft.id !== (tpl && tpl.id) && !D.isNew) { D.draft = tpl ? JSON.parse(JSON.stringify(tpl)) : null; D.dirty = false; D.isNew = false; D.sel = -1; }
-            el.innerHTML = '<div class="split"><div class="side"><h4>Templates</h4>' +
-                FL.templates.map(function (t) { return '<div class="item' + (D.draft && t.id === D.draft.id ? ' on' : '') + '" data-t="' + esc(t.id) + '"><i class="fa-solid ' + ({ PL: 'fa-chart-line', BS: 'fa-scale-balanced', CF: 'fa-money-bill-transfer' }[t.type] || 'fa-file-lines') + '"></i><div>' + esc(t.name) + '<small>' + esc(t.id) + ' · ' + t.rows.length + ' rows</small></div></div>'; }).join('') +
-                '<div class="row" style="margin-top:8px"><button class="btn sm" id="dz-new"><i class="fa-solid fa-plus"></i> New</button><button class="btn sm" id="dz-dup"><i class="fa-regular fa-copy"></i> Copy</button></div>' +
-                '<div class="row"><button class="btn sm" id="dz-exp"><i class="fa-solid fa-file-export"></i> Export</button><label class="btn sm"><i class="fa-solid fa-file-import"></i> Import<input type="file" accept=".json" id="dz-imp" hidden></label></div>' +
-                '<button class="btn sm ghost" id="dz-reset" title="Put back the four starter templates (your own templates stay)"><i class="fa-solid fa-rotate-left"></i> Restore starters</button></div><div id="dz-main"></div></div>';
+            // templates as a bar on top: the rows table gets the full width
+            el.innerHTML = '<div class="split tpltop"><div class="side"><h4>Templates</h4>' +
+                FL.templates.map(function (t) { return '<div class="item' + (D.draft && t.id === D.draft.id ? ' on' : '') + '" data-t="' + esc(t.id) + '" title="' + esc(t.id + ' · ' + t.rows.length + ' rows') + '"><i class="fa-solid ' + ({ PL: 'fa-chart-line', BS: 'fa-scale-balanced', CF: 'fa-money-bill-transfer' }[t.type] || 'fa-file-lines') + '"></i><div>' + esc(t.name) + '<small>' + t.rows.length + '</small></div></div>'; }).join('') +
+                '<span class="grow"></span><div class="row"><button class="btn sm primary" id="dz-paste" title="Paste account + group from Excel: validate, create missing groups, load"><i class="fa-solid fa-paste"></i> Paste mapping</button>' +
+                '<button class="btn sm" id="dz-new"><i class="fa-solid fa-plus"></i> New</button><button class="btn sm" id="dz-dup"><i class="fa-regular fa-copy"></i> Copy</button>' +
+                '<button class="btn sm" id="dz-exp"><i class="fa-solid fa-file-export"></i> Export</button><label class="btn sm"><i class="fa-solid fa-file-import"></i> Import<input type="file" accept=".json" id="dz-imp" hidden></label>' +
+                '<button class="btn sm ghost" id="dz-reset" title="Put back the four starter templates (your own templates stay)"><i class="fa-solid fa-rotate-left"></i> Restore starters</button></div></div><div id="dz-main"></div></div>';
+            $('dz-paste').onclick = function () { if (D.draft) D.paste(); };
             el.querySelectorAll('.side .item').forEach(function (it) { it.onclick = function () { if (D.dirty && !confirm('Discard the changes to ' + D.draft.name + '?')) return; D.cur = it.dataset.t; FL.lsSet('dz.cur', D.cur); D.draft = null; FL.render(); }; });
             $('dz-new').onclick = function () { D.newTpl(false); };
             $('dz-dup').onclick = function () { D.newTpl(true); };
@@ -97,6 +100,7 @@
             }).join('') + '</tbody></table></div></div>' +
 
             '<div class="card" style="margin-top:10px"><h3><i class="fa-solid fa-list"></i> Rows <small>click a row number to select; insert goes below it</small><span class="grow"></span>' +
+            '<button class="btn sm primary" id="dz-paste2" title="Paste account + group from Excel"><i class="fa-solid fa-paste"></i> Paste mapping</button>' +
             TYPES.map(function (x) { return '<button class="btn sm" data-add="' + x[0] + '">+ ' + esc(x[1]) + '</button>'; }).join('') + '</h3>' +
             (cov.missing.length ? '<div class="callout warn sm"><b>' + cov.missing.length + ' account(s) are in no row</b> — their amounts are left out: ' + cov.missing.slice(0, 14).map(function (a) { return esc(a.code + ' ' + a.name); }).join(', ') + (cov.missing.length > 14 ? ' …' : '') + '</div>' : '<div class="callout good sm">Every ' + (t.type === 'PL' ? 'income statement' : t.type === 'BS' ? '' : '') + ' account is picked up by a row.</div>') +
             (cov.twice.length ? '<div class="callout bad sm"><b>' + cov.twice.length + ' account(s) are in two rows</b> (double counted in totals): ' + cov.twice.slice(0, 10).map(function (x) { return esc(x.code + ' → ' + x.rows.join(' & ')); }).join('; ') + '</div>' : '') +
@@ -184,6 +188,7 @@
             };
         });
         el.querySelectorAll('[data-pick]').forEach(function (b) { b.onclick = function () { D.pick(+b.dataset.pick); }; });
+        $('dz-paste2').onclick = D.paste;
         $('dz-save').onclick = D.save;
         $('dz-undo').onclick = function () { D.draft = null; D.isNew = false; FL.render(); };
         if ($('dz-del')) $('dz-del').onclick = function () {
@@ -207,6 +212,14 @@
     };
 
     /** Account picker: tick accounts or ranges by class / type; writes compact ranges */
+    /** Paste mapping (fin-pastemap.js) into the template being edited; a built template opens in the statement builder */
+    D.paste = function () {
+        delete D.draft.simple;   // the designer edits rows (saving here drops the builder structure anyway) — keeps its own columns
+        FL.pasteMap.open(D.draft, function (res) {
+            if (res.built) { D.cur = res.built.id; D.draft = null; if (FL.builder && FL.builder.open) FL.builder.open(res.built.id); else FL.render(); return; }
+            D.touch(true);
+        });
+    };
     D.pick = function (ri) {
         var r = D.draft.rows[ri], cur = {};
         FINE.matchAccounts(r.accounts, FL.dims.accounts).forEach(function (c) { cur[c] = 1; });

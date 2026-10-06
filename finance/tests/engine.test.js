@@ -439,5 +439,54 @@ test('inter company: AR vs AP matching, FUN links, pair reconciliation, findings
     assert.ok(FIC.isDefault('000') && FIC.isDefault('T') && !FIC.isDefault('02'));
 });
 
+test('paste mapping: parse, validate, create missing groups, apply, build a new template', function () {
+    var acc = [['04000', 'Sales', 'R'], ['04010', 'Export sales', 'R'], ['05000', 'Cost of sales', 'E'], ['06000', 'Rent', 'E'], ['06100', 'Electricity', 'E'], ['01000', 'Cash', 'A']]
+        .map(function (a) { return { code: a[0], name: a[1], account_type: a[2] }; });
+    var tpl = { id: 'P', type: 'PL', rows: [{ id: 'REV', type: 'accounts', label: 'Revenue', accounts: '04000-04099' }, { id: 'COGS', type: 'accounts', label: 'Cost of sales', accounts: ['05000'] },
+        { id: 'H_OPEX', type: 'header', label: 'Operating expenses' }, { id: 'RENT', type: 'accounts', label: 'Rent', accounts: ['06000', '06100'], parent: 'OPEX', level: 1 }, { id: 'OPEX', type: 'group', label: 'Total operating expenses' },
+        { id: 'NP', type: 'formula', label: 'Net profit', formula: 'REV - COGS - OPEX' }] };
+    // header row, tab separated, codes without leading zeros, a typo account, a conflict
+    var p = FINE.pasteParse('Account\tGroup\n4000\tRevenue\n4010\tExport revenue\n6100\tUtilities\n6000\tRENT\n9999\tRent\n5000\tCost of Sales\n6100\tRent');
+    assert.ok(p.header); assert.strictEqual(p.rows.length, 7);
+    var v = FINE.pasteValidate(tpl, p, acc);
+    assert.strictEqual(v.rows[0].code, '04000', 'leading zeros tolerated');
+    assert.strictEqual(v.rows.filter(function (r) { return r.status === 'unknown'; })[0].account, '9999');
+    assert.strictEqual(v.rows.filter(function (r) { return r.status === 'conflict'; }).length, 2, 'same account in two groups');
+    var by = {}; v.groups.forEach(function (g) { by[g.key] = g; });
+    assert.strictEqual(by.revenue.match.id, 'REV'); assert.strictEqual(by.rent.match.id, 'RENT'); assert.strictEqual(by['cost of sales'].match.id, 'COGS');
+    assert.ok(!by['export revenue'].match && !by.utilities.match);
+    assert.strictEqual(by.utilities.parent, 'OPEX', 'new group goes where its accounts sit now');
+    assert.strictEqual(by.utilities.nature, 'expense'); assert.strictEqual(by['export revenue'].nature, 'income');
+    var res = FINE.pasteApply(tpl, v, {}, acc);
+    assert.strictEqual(res.created.length, 2);
+    var lines = FINE.accountLines([tpl], acc), row = function (c) { return lines[c].map(function (l) { return l.row; }); };
+    assert.deepStrictEqual(row('04010'), ['EXPORT_REVENUE']); assert.deepStrictEqual(row('04000'), ['REV']);
+    assert.deepStrictEqual(row('06100'), ['UTILITIES'], 'first pasted group wins a conflict, taken out of Rent');
+    var u = tpl.rows.filter(function (r) { return r.id === 'UTILITIES'; })[0];
+    assert.strictEqual(u.parent, 'OPEX'); assert.ok(tpl.rows.indexOf(u) < tpl.rows.map(function (r) { return r.id; }).indexOf('OPEX'), 'inside the group, above its total');
+    // a new main group of expenses sits after Operating expenses and joins Net profit like it
+    var v5 = FINE.pasteValidate(tpl, FINE.pasteParse('6000\tOffice rent\tOverheads'), acc);
+    var r5 = FINE.pasteApply(tpl, v5, {}, acc);
+    var ids = tpl.rows.map(function (r) { return r.id; });
+    assert.strictEqual(ids.indexOf('H_OVERHEADS'), ids.indexOf('OPEX') + 1, ids.join(' '));
+    assert.strictEqual(tpl.rows.filter(function (r) { return r.id === 'NP'; })[0].formula, 'REV + EXPORT_REVENUE - COGS - OPEX - OVERHEADS', 'new lines join the totals with the sign of their sibling');
+    assert.deepStrictEqual(r5.unlinked, []);
+    // builder template: a new main group from the third column
+    var b = { id: 'B', type: 'PL', simple: FINE.simpleDefault('PL', acc) }; FINE.simpleTemplate(b);
+    var v2 = FINE.pasteValidate(b, FINE.pasteParse('6100,Power,Utilities & energy\n6000,Premises,Utilities & energy'), acc);
+    FINE.pasteApply(b, v2, {}, acc);
+    var l2 = FINE.accountLines([b], acc);
+    assert.strictEqual(l2['06100'].length, 1); assert.strictEqual(l2['06000'].length, 1);
+    assert.ok(b.simple.lines.some(function (l) { return l.name === 'Utilities & energy' && l.sections.length === 2; }), 'new main group with two sections');
+    // map to an existing line by hand + exact
+    var v3 = FINE.pasteValidate(tpl, FINE.pasteParse('4010\tTurnover'), acc);
+    FINE.pasteApply(tpl, v3, { turnover: { action: 'map', to: 'REV' } }, acc, { exact: true });
+    assert.deepStrictEqual(FINE.matchAccounts(tpl.rows[0].accounts, acc), ['04010'], 'exact: the line keeps only the pasted accounts');
+    // build a whole balance sheet from account + group
+    var v4 = FINE.pasteValidate({ type: 'BS', rows: [] }, FINE.pasteParse('1000\tCash at bank\n4000\tRetained\n'), [acc[5], { code: '03000', name: 'Retained earnings', account_type: 'O' }].concat([{ code: '4000', name: 'x', account_type: 'O' }]), acc);
+    var built = FINE.pasteBuild(v4, 'My BS', [acc[5], { code: '4000', name: 'x', account_type: 'O' }]);
+    assert.strictEqual(built.tpl.type, 'BS'); assert.ok(built.tpl.rows.some(function (r) { return r.type === 'check'; }));
+});
+
 console.log('\n' + (n - fail) + '/' + n + ' passed');
 process.exit(fail ? 1 : 0);

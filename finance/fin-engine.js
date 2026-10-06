@@ -1211,5 +1211,248 @@
         return codes.length;
     };
 
+    // ── paste mapping: "account ⇥ group [⇥ main group]" from Excel → validate against the chart and the template → apply ──
+    var normName = function (x) { return String(x == null ? '' : x).toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim(); };
+    var noZeros = function (c) { var s = String(c).trim(); return /^\d+$/.test(s) ? s.replace(/^0+(?=\d)/, '') : s; };
+    /** Pasted text (Excel cells = tabs, else ; or ,) or an array of row objects → {rows: [{n, account, group, main}], header} */
+    FINE.pasteParse = function (input) {
+        var grid;
+        if (Array.isArray(input)) grid = input;
+        else {
+            var text = String(input || '').replace(/^﻿/, ''), lines = text.split(/\r?\n/).filter(function (l) { return l.trim(); });
+            var sep = /\t/.test(text) ? '\t' : /;/.test(text) ? ';' : ',';
+            grid = lines.map(function (l) { return l.split(sep).map(function (c) { return c.trim().replace(/^"(.*)"$/, '$1').trim(); }); });
+        }
+        var ix = { account: 0, group: 1, main: 2 }, header = false, first = grid[0] || [];
+        if (first.length && !/\d/.test(first[0]) && first.some(function (c) { return /account|code|group|line|section|segment/i.test(c); })) {
+            header = true; ix = { account: -1, group: -1, main: -1 };
+            first.forEach(function (c, i) {
+                c = String(c);
+                if (ix.account < 0 && /account|code|segment/i.test(c) && !/name|desc/i.test(c)) ix.account = i;
+                else if (ix.main < 0 && /main|parent|heading|category|level ?1/i.test(c)) ix.main = i;
+                else if (ix.group < 0 && /group|line|section|sub|mapping|caption/i.test(c)) ix.group = i;
+            });
+            if (ix.account < 0) ix.account = 0;
+            if (ix.group < 0) ix.group = ix.account === 0 ? 1 : 0;
+            grid = grid.slice(1);
+        }
+        var cell = function (r, i) { return i < 0 ? '' : String(r[i] == null ? '' : r[i]).trim(); };
+        var rows = [];
+        grid.forEach(function (r, k) {
+            var a = cell(r, ix.account); if (!a) return;
+            rows.push({ n: k + 1 + (header ? 1 : 0), account: a, group: cell(r, ix.group), main: cell(r, ix.main) });
+        });
+        return { rows: rows, header: header };
+    };
+    /** Lines a pasted group can mean, with the names they answer to (label, id, header › label) */
+    var pasteLines = function (t) {
+        var out = [], rows = t.rows || [], lab = {};
+        rows.forEach(function (r) { if (r.type === 'header') lab[r.id.replace(/^H_/, '')] = r.label; else if (r.type === 'group' && !lab[r.id]) lab[r.id] = String(r.label || '').replace(/^Total /i, ''); });
+        FINE.tplTargets(t).forEach(function (x) {
+            var r = rows.filter(function (y) { return y.id === x.id; })[0] || {};
+            out.push({ id: x.id, label: x.label, parent: r.parent || '', names: [normName(r.label), normName(r.id), normName(x.label)].filter(Boolean) });
+        });
+        return out;
+    };
+    /** Where an account can be created: group (sum) rows / builder groups. [{id, label}] */
+    FINE.pasteParents = function (t) {
+        if (t.simple) return (t.simple.lines || []).filter(function (l) { return l.t === 'group'; }).map(function (l) { return { id: l.id, label: l.name, nature: l.nature }; });
+        var lab = {}; (t.rows || []).forEach(function (r) { if (r.type === 'header') lab[r.id.replace(/^H_/, '')] = r.label; });
+        return (t.rows || []).filter(function (r) { return r.type === 'group'; }).map(function (r) { return { id: r.id, label: lab[r.id] || String(r.label || '').replace(/^Total /i, '') }; });
+    };
+    /** Checks pasted rows against the chart of accounts and the template.
+        → {rows: [{…, code, status ok|unknown|duplicate|conflict|nogroup, name, type, kindOk, now (line it sits on now), to}],
+           groups: [{name, key, count, match: {id,label}|null, suggest parent, nature, codes}], missing: chart accounts of the statement's kind in no line and not pasted, summary} */
+    FINE.pasteValidate = function (t, parsed, accounts) {
+        accounts = accounts || [];
+        var byCode = {}, byNz = {};
+        accounts.forEach(function (a) { byCode[String(a.code)] = a; var z = noZeros(a.code); if (!byNz[z]) byNz[z] = a; });
+        var kind = FINE.tplKind(t), lines = pasteLines(t), parents = FINE.pasteParents(t);
+        var now = {}; (t.rows || []).forEach(function (r) { if (r.type === 'accounts' && !isCye(r)) FINE.matchAccounts(r.accounts, accounts).forEach(function (c) { (now[c] = now[c] || []).push(r.id); }); });
+        var labOf = {}; lines.forEach(function (l) { labOf[l.id] = l.label; });
+        var seen = {}, groups = {}, order = [];
+        var rows = (parsed.rows || []).map(function (r) {
+            var a = byCode[r.account] || byNz[noZeros(r.account)], o = Object.assign({}, r);
+            o.code = a ? String(a.code) : r.account; o.name = a ? a.name : ''; o.type = a ? a.account_type : '';
+            o.kindOk = !a || !kind || (kind === 'PL') === FINE.isPl(a);
+            o.now = (now[o.code] || []).map(function (id) { return labOf[id] || id; }).join(', ');
+            if (!r.group) o.status = 'nogroup';
+            else if (!a) o.status = 'unknown';
+            else if (seen[o.code]) { var p = seen[o.code]; o.status = normName(p.group) === normName(r.group) ? 'duplicate' : 'conflict'; if (o.status === 'conflict') p.status = 'conflict'; }
+            else o.status = 'ok';
+            if (a && !seen[o.code]) seen[o.code] = o;
+            if (r.group) {
+                var key = normName(r.group);
+                if (!groups[key]) { groups[key] = { name: r.group, key: key, main: r.main || '', count: 0, codes: [], types: {} }; order.push(key); }
+                var g = groups[key]; g.count++;
+                if (!g.main && r.main) g.main = r.main;
+                if (o.status === 'ok') { g.codes.push(o.code); g.types[o.type] = (g.types[o.type] || 0) + 1; }
+            }
+            return o;
+        });
+        var gl = order.map(function (k) {
+            var g = groups[k], m = lines.filter(function (l) { return l.names.indexOf(k) >= 0; })[0] || null;
+            var top = Object.keys(g.types).sort(function (x, y) { return g.types[y] - g.types[x]; })[0] || (kind === 'BS' ? 'A' : 'E');
+            g.nature = TYPE_NATURE[top] || 'expense';
+            g.match = m ? { id: m.id, label: m.label } : null;
+            if (m) {   // the line holds accounts of another nature (expense accounts pasted onto Revenue …)
+                var lc = {}; Object.keys(now).forEach(function (c) { if (now[c].indexOf(m.id) >= 0) { var n = TYPE_NATURE[(byCode[c] || {}).account_type]; if (n) lc[n] = (lc[n] || 0) + 1; } });
+                var ln = Object.keys(lc).sort(function (x, y) { return lc[y] - lc[x]; })[0];
+                if (ln && g.codes.length && ln !== g.nature) g.mismatch = ln;
+            }
+            if (!m) {
+                // parent: the pasted main group (a new one when it does not exist), else the group where most of its accounts sit now, else one of the same nature
+                var mk = normName(g.main), par = parents.filter(function (p) { return mk && (normName(p.label) === mk || normName(p.id) === mk); })[0];
+                if (!par && !mk) {
+                    var votes = {};
+                    g.codes.forEach(function (c) { (now[c] || []).forEach(function (id) { var r = (t.rows || []).filter(function (y) { return y.id === id; })[0]; var pid = t.simple ? (t.simple.lines || []).filter(function (l) { return (l.sections || []).some(function (x) { return x.id === id; }) || l.id === id; }).map(function (l) { return l.id; })[0] : r && r.parent; if (pid) votes[pid] = (votes[pid] || 0) + 1; }); });
+                    var best = Object.keys(votes).sort(function (x, y) { return votes[y] - votes[x]; })[0];
+                    par = parents.filter(function (p) { return p.id === best; })[0] || parents.filter(function (p) { return p.nature && p.nature === g.nature; })[0];
+                }
+                g.parent = par ? par.id : '';
+                g.newMain = !par && g.main ? g.main : '';
+            }
+            delete g.types;
+            return g;
+        });
+        var pasted = {}; rows.forEach(function (r) { pasted[r.code] = 1; });
+        var missing = accounts.filter(function (a) { return kind && (kind === 'PL') === FINE.isPl(a) && !pasted[a.code] && !now[a.code]; });
+        var cnt = function (st) { return rows.filter(function (r) { return r.status === st; }).length; };
+        return { rows: rows, groups: gl, missing: missing, parents: parents, kind: kind,
+            summary: { rows: rows.length, ok: cnt('ok'), unknown: cnt('unknown'), conflict: cnt('conflict'), duplicate: cnt('duplicate'), nogroup: cnt('nogroup'),
+                wrongKind: rows.filter(function (r) { return r.status === 'ok' && !r.kindOk; }).length,
+                matched: gl.filter(function (g) { return g.match; }).length, create: gl.filter(function (g) { return !g.match; }).length,
+                moves: rows.filter(function (r) { return r.status === 'ok' && r.now; }).length } };
+    };
+    /** Applies a validated paste: groups without a line are created (decision per group: {action: 'create'|'map'|'skip', to, parent, name}),
+        then every ok account moves to its line (taken out of all other lines). opts.exact: the matched lines keep only the pasted accounts.
+        A new line inside a group is in its total; a new top-level line / main group is added to the first later formula that adds up its
+        sibling of the same nature (linked), else listed in unlinked for the user to add to a total.
+        Returns {moved, created: [ids], skipped, linked, unlinked}. Conflicting accounts take the first group pasted. */
+    FINE.pasteApply = function (t, v, decisions, accounts, opts) {
+        opts = opts || {}; decisions = decisions || {};
+        var created = [], target = {}, skipped = 0, used = {}, linked = [], unlinked = [];
+        var byCode = {}; (accounts || []).forEach(function (a) { byCode[a.code] = a; });
+        // nature of a line: majority type of its accounts (a group: of its children's accounts)
+        var natOf = function (rows, id) {
+            var c = {}, add = function (r) { FINE.matchAccounts(r.accounts, accounts || []).forEach(function (code) { var n = TYPE_NATURE[(byCode[code] || {}).account_type]; if (n) c[n] = (c[n] || 0) + 1; }); };
+            rows.forEach(function (r) { if (r.type === 'accounts' && (r.id === id || r.parent === id)) add(r); });
+            return Object.keys(c).sort(function (x, y) { return c[y] - c[x]; })[0] || '';
+        };
+        // a new top-level line joins the totals: the first later formula that adds / subtracts the sibling line at top level gets "± NEW" with the same sign
+        var link = function (rows, newId, sibId) {
+            var at = rows.map(function (r) { return r.id; }).indexOf(newId);
+            for (var k = at + 1; k < rows.length; k++) {
+                var r = rows[k]; if (r.type !== 'formula' || !r.formula || r.format === 'pct') continue;
+                var f = r.formula, re = new RegExp('(^|[^A-Za-z0-9_])' + sibId + '(?![A-Za-z0-9_])', 'g'), m, hit = -1;
+                while ((m = re.exec(f))) { var pos = m.index + m[1].length, depth = 0; for (var q = 0; q < pos; q++) { if (f[q] === '(') depth++; else if (f[q] === ')') depth--; } if (depth === 0) { hit = pos; break; } }
+                if (hit < 0) continue;
+                var before = f.slice(0, hit).replace(/\s+$/, ''), neg = before.slice(-1) === '-', end = hit + sibId.length;
+                r.formula = f.slice(0, end) + (neg ? ' - ' : ' + ') + newId + f.slice(end);
+                linked.push({ id: newId, row: r.id, formula: r.formula }); return true;
+            }
+            unlinked.push(newId); return false;
+        };
+        (t.rows || []).forEach(function (r) { if (r.id) used[r.id] = 1; });
+        if (t.simple) Object.assign(used, FINE.simpleIds(t.simple));
+        var newMains = {};
+        v.groups.forEach(function (g) {
+            var d = Object.assign({ action: g.match ? 'map' : 'create', to: g.match && g.match.id, parent: g.parent, name: g.name }, decisions[g.key] || {});
+            if (d.action === 'skip') { skipped += g.codes.length; return; }
+            if (d.action === 'map') { if (d.to) target[g.key] = d.to; else skipped += g.codes.length; return; }
+            var name = d.name || g.name;
+            if (t.simple) {
+                var s = t.simple; delete s.auto;
+                var line = (s.lines || []).filter(function (l) { return l.t === 'group' && l.id === d.parent; })[0];
+                if (!line) {
+                    var mname = d.newMain || g.newMain || name;
+                    line = newMains[normName(mname)];
+                    if (!line) {
+                        line = { t: 'group', id: FINE.simpleId(mname, used), name: mname, nature: g.nature, sections: [] };
+                        var at = s.lines.length;
+                        if (s.kind !== 'BS') { for (var i = s.lines.length - 1; i >= 0; i--) if (s.lines[i].t === 'subtotal') { at = i; break; } }
+                        s.lines.splice(at, 0, line); newMains[normName(mname)] = line; created.push(line.id);
+                    }
+                }
+                var sec = { id: FINE.simpleId(name === line.name ? name + ' S' : name, used), name: name, accounts: [] };
+                line.sections.push(sec); created.push(sec.id); target[g.key] = sec.id;
+                FINE.simpleTemplate(t);
+            } else {
+                var rows = t.rows, parent = d.parent || '', nat = g.nature;
+                if (!parent && (d.newMain || g.newMain)) {
+                    var mn = d.newMain || g.newMain, mk = normName(mn);
+                    if (!newMains[mk]) {
+                        var gid = FINE.simpleId(mn, used), fav = nat === 'expense' ? 'down' : undefined, end = rows.length, sib = null;
+                        // right after the last top-level group of the same nature (and added to the totals like it), else before the closing formulas
+                        rows.forEach(function (y, k) { if (y.type === 'group' && !y.parent && natOf(rows, y.id) === nat) { sib = y.id; end = k + 1; } });
+                        if (!sib) for (var j = rows.length - 1; j >= 0; j--) if (rows[j].type === 'formula' || rows[j].type === 'check' || rows[j].type === 'blank') end = j; else break;
+                        var gr = { id: gid, type: 'group', label: 'Total ' + mn.charAt(0).toLowerCase() + mn.slice(1), style: { bold: true, topBorder: true } }; if (fav) gr.favourable = fav;
+                        rows.splice(end, 0, { id: 'H_' + gid, type: 'header', label: mn, style: { bold: true } }, gr);
+                        used['H_' + gid] = 1; newMains[mk] = gid; created.push(gid);
+                        if (sib) link(rows, gid, sib); else unlinked.push(gid);
+                    }
+                    parent = newMains[mk];
+                }
+                var r = { id: FINE.simpleId(name, used), type: 'accounts', label: name, accounts: '', sign: 'auto', basis: 'auto', level: parent ? 1 : 0 };
+                if (parent) r.parent = parent;
+                if (nat === 'expense') r.favourable = 'down';
+                var pos = -1;
+                if (parent) {
+                    rows.forEach(function (y, k) { if (y.parent === parent) pos = k + 1; });
+                    if (pos < 0) { var pi = rows.map(function (y) { return y.id; }).indexOf(parent), hi = rows.map(function (y) { return y.id; }).indexOf('H_' + parent); pos = hi >= 0 ? hi + 1 : pi >= 0 ? pi : rows.length; }
+                } else {
+                    // after the last top-level accounts line whose accounts are of the same nature, else before the closing formulas
+                    rows.forEach(function (y, k) { if (y.type === 'accounts' && !y.parent) { var c = FINE.matchAccounts(y.accounts, accounts || [])[0]; if (c && TYPE_NATURE[(byCode[c] || {}).account_type] === nat) pos = k + 1; } });
+                    if (pos < 0) { pos = rows.length; for (var q = rows.length - 1; q >= 0; q--) if (rows[q].type === 'formula' || rows[q].type === 'check' || rows[q].type === 'blank') pos = q; else break; }
+                }
+                var sibTop = !parent && pos > 0 && rows[pos - 1].type === 'accounts' && !rows[pos - 1].parent ? rows[pos - 1].id : null;
+                rows.splice(pos, 0, r); created.push(r.id); target[g.key] = r.id;
+                if (!parent) { if (sibTop) link(rows, r.id, sibTop); else unlinked.push(r.id); }
+            }
+        });
+        // accounts per target line (first pasted group wins a conflict)
+        var per = {}, taken = {};
+        v.rows.forEach(function (r) {
+            if ((r.status !== 'ok' && r.status !== 'conflict' && r.status !== 'duplicate') || !r.name || taken[r.code]) return;
+            var to = target[normName(r.group)]; if (!to) return;
+            taken[r.code] = 1; (per[to] = per[to] || []).push(r.code);
+        });
+        var moved = 0;
+        Object.keys(per).forEach(function (to) {
+            if (opts.exact) {
+                if (t.simple) { (t.simple.lines || []).forEach(function (l) { (l.sections || []).forEach(function (x) { if (x.id === to || (l.id === to && l.sections.length === 1)) { x.accounts = []; delete x.match; } }); }); }
+                else { var row = (t.rows || []).filter(function (y) { return y.id === to; })[0]; if (row) row.accounts = ''; }
+            }
+            moved += FINE.moveAccounts(t, per[to], to, accounts);
+        });
+        if (t.simple) FINE.simpleTemplate(t);
+        return { moved: moved, created: created, skipped: skipped, linked: linked, unlinked: unlinked };
+    };
+    /** A whole new template from the paste: main group → group line, group → section (no main group: each group its own line);
+        nature from the accounts; PL ends with Net profit, BS gets Total assets / Total equity and liabilities + the check. */
+    FINE.pasteBuild = function (v, name, accounts) {
+        var rows = [];
+        v.rows.forEach(function (r) { if (r.group && (r.status === 'ok' || r.status === 'conflict' || r.status === 'unknown')) rows.push({ 'Main group': r.main || r.group, Section: r.group, Account: r.code }); });
+        var res = FINE.simpleFromRows(rows, accounts, name), t = res.templates[0];
+        if (!t) return null;
+        var s = t.simple, order = { asset: 0, equity: 1, liability: 2, income: 0, expense: 1 }, used = FINE.simpleIds(s);
+        s.lines.forEach(function (l) {   // a group's nature = its accounts' majority type
+            var c = {}; (l.sections || []).forEach(function (x) { (x.accounts || []).forEach(function (code) { var a = (accounts || []).filter(function (y) { return String(y.code) === String(code); })[0]; if (a) c[TYPE_NATURE[a.account_type]] = (c[TYPE_NATURE[a.account_type]] || 0) + 1; }); });
+            var top = Object.keys(c).sort(function (x, y) { return c[y] - c[x]; })[0]; if (top) l.nature = top;
+        });
+        s.kind = s.lines.some(function (l) { return l.nature === 'asset' || l.nature === 'liability' || l.nature === 'equity'; }) ? 'BS' : 'PL';
+        var groups = s.lines.filter(function (l) { return l.t === 'group'; });
+        if (s.kind === 'BS') {
+            var as = groups.filter(function (l) { return l.nature === 'asset'; }), rest = groups.filter(function (l) { return l.nature !== 'asset'; });
+            rest.sort(function (x, y) { return (order[x.nature] || 0) - (order[y.nature] || 0); });
+            s.lines = as.concat(as.length ? [{ t: 'subtotal', id: FINE.simpleId('Total assets', used), name: 'Total assets', of: null }] : [])
+                .concat(rest).concat(rest.length ? [{ t: 'subtotal', id: FINE.simpleId('Total equity and liabilities', used), name: 'Total equity and liabilities', of: null }] : []);
+        } else {
+            groups.sort(function (x, y) { return (order[x.nature] || 0) - (order[y.nature] || 0); });
+            s.lines = groups.concat([{ t: 'subtotal', id: FINE.simpleId('Net profit', used), name: 'Net profit', of: null, margin: true }]);
+        }
+        return { tpl: FINE.simpleTemplate({ name: name, simple: s }), warnings: res.warnings };
+    };
+
     if (typeof module !== 'undefined' && module.exports) module.exports = FINE; else root.FINE = FINE;
 })(typeof window !== 'undefined' ? window : this);

@@ -67,17 +67,21 @@
                     return '<div class="bd-kind">' + KIND_LABEL[k] + '</div>' + (ts.length ? ts.map(function (x) {
                         var c = FINE.simpleCheck(x.simple, FL.dims.accounts);
                         return '<div class="item' + (B.draft && x.id === B.draft.id ? ' on' : '') + '" data-t="' + esc(x.id) + '"><i class="fa-solid ' + (k === 'PL' ? 'fa-chart-line' : 'fa-building-columns') + '"></i><div>' + esc(x.name) +
-                            '<small>' + c.mapped + ' accounts' + (c.unmapped.length ? ' · <b class="warn-t">' + c.unmapped.length + ' not mapped</b>' : ' · all mapped') + '</small></div></div>';
+                            '<small>' + c.mapped + ' acc' + (c.unmapped.length ? ' · <b class="warn-t">' + c.unmapped.length + ' not mapped</b>' : ' · all mapped') + '</small></div></div>';
                     }).join('') : '<div class="sm muted" style="padding:4px 8px">none yet</div>');
                 }).join('') +
-                '<div class="row" style="margin-top:10px"><button class="btn sm primary" id="bd-new"><i class="fa-solid fa-plus"></i> New template</button>' +
+                (adv.length ? '<span class="sep"></span><div class="bd-kind">Advanced</div>' + adv.map(function (x) { return '<div class="item adv" data-adv="' + esc(x.id) + '" title="Formulas & ranges — opens the advanced designer"><i class="fa-solid fa-pen-ruler"></i><div>' + esc(x.name) + '<small>' + esc(x.id) + ' · formulas & ranges — advanced designer</small></div></div>'; }).join('') : '') +
+                '<span class="grow"></span><div class="row"><button class="btn sm primary" id="bd-paste" title="Paste account + group from Excel: validate, create missing groups, load"><i class="fa-solid fa-paste"></i> Paste mapping</button><button class="btn sm" id="bd-new"><i class="fa-solid fa-plus"></i> New template</button>' +
                 '<label class="btn sm" title="Excel or CSV: Template, Main group, Nature, Section, Account"><i class="fa-solid fa-file-arrow-up"></i> Upload mapping<input type="file" accept=".xlsx,.csv,.txt" id="bd-up-side" hidden></label></div>' +
-                (adv.length ? '<div class="bd-kind" style="margin-top:14px">Advanced templates</div>' + adv.map(function (x) { return '<div class="item adv" data-adv="' + esc(x.id) + '"><i class="fa-solid fa-pen-ruler"></i><div>' + esc(x.name) + '<small>' + esc(x.id) + ' · formulas & ranges — advanced designer</small></div></div>'; }).join('') : '') +
                 '</div>';
-            el.innerHTML = '<div class="split bd-split">' + side + '<div id="bd-main"></div></div>';
+            el.innerHTML = '<div class="split bd-split tpltop">' + side + '<div id="bd-main"></div></div>';
             el.querySelectorAll('.bd-side .item[data-t]').forEach(function (it) { it.onclick = function () { B.open(it.dataset.t); }; });
             el.querySelectorAll('.bd-side .item[data-adv]').forEach(function (it) { it.onclick = function () { FL.designer.open(it.dataset.adv); }; });
             $('bd-new').onclick = function () { B.create(B.draft ? B.draft.simple.kind : 'PL'); };
+            $('bd-paste').onclick = function () {
+                if (!B.draft) { FL.pasteMap.open({ id: '', name: 'New template', type: 'PL', rows: [] }, function (res) { if (res.built) B.open(res.built.id); }); return; }
+                FL.pasteMap.open(B.draft, function (res) { if (res.built) B.open(res.built.id); else B.touch(); });
+            };
             $('bd-up-side').onchange = function () { var f = this.files[0]; this.value = ''; if (f) B.upload(f); };
             if (!B.draft) { $('bd-main').innerHTML = '<div class="empty"><i class="fa-solid fa-sitemap"></i>No statement template yet — press New template' + (FL.dims.accounts.length ? '' : ' (sync a trial balance first so the accounts are known)') + '.</div>'; return; }
             return FL.data().then(function (data) { B.data = data; B.main(); });
