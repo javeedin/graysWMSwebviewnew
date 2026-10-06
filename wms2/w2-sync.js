@@ -16,7 +16,10 @@
     var W2 = window.W2;
     var S = W2.sync = { running: null, log: [] };
     S.settings = function () {
-        return Object.assign({ autoMin: 3, shipPool: 6, org: 'GRAYS INC', pendingDays: 30, mraCheck: true, shipMode: 'rest' }, W2.ls('w2.sync') || {});
+        var s = Object.assign({ autoMin: 30, shipPool: 6, org: 'GRAYS INC', pendingDays: 30, mraCheck: true, shipMode: 'rest' }, W2.ls('w2.sync') || {});
+        // background refresh: every 30 minutes at the least (older saved values of 2–15 read as 30); 0 = off
+        s.autoMin = +s.autoMin === 0 ? 0 : Math.max(30, +s.autoMin || 30);
+        return s;
     };
 
     S.lastInfo = function (date) {
@@ -31,14 +34,14 @@
         S.lastInfo().then(function (info) {
             W2.paintSync(info);
             var age = info ? (Date.now() - new Date(String(info.ts).replace(' ', 'T')).getTime()) / 60000 : Infinity;
-            if (!S.running && age > S.settings().autoMin) S.day(W2.date(), { full: !info, auto: true });
+            if (!S.running && (!info || (S.settings().autoMin && age > S.settings().autoMin))) S.day(W2.date(), { full: !info, auto: true });
         });
         clearInterval(timer);
         timer = setInterval(function () {
             if (document.hidden || S.running) return;
             S.lastInfo().then(function (info) {
                 var age = info ? (Date.now() - new Date(String(info.ts).replace(' ', 'T')).getTime()) / 60000 : Infinity;
-                if (age >= S.settings().autoMin) S.day(W2.date(), { auto: true });
+                var m = S.settings().autoMin; if (m && age >= m) S.day(W2.date(), { auto: true });
             });
         }, 30000);
     };
