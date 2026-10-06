@@ -329,7 +329,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 8;          // research rounds (sql / fusion / ords) per turn
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-MODEL-V61";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-MODEL-V62";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string LOCAL_JOBS_CREATE_URL =
@@ -972,6 +972,7 @@ RUNNING IT FROM CHAT (action mra_interface) - when the user asks to interface / 
    { "action": "mra_interface", "orders": ["418978","419001"], "tripId": "8121", "instance": "PROD|TEST", "reason": "one line" }
    The app ALWAYS shows an approval card listing every order - nothing is sent before the user approves. The app itself skips already-interfaced orders and order types with MRA_ORDER_TYPES.INTERFACE_FLAG = N; do not pre-filter.
 3. You receive MRA_RESULT: {success, instance, tripId, summary:{total, interfaced, alreadyDone, notRequired, failed, notSent}, stoppedEarly, results:[{order, status: INTERFACED|ALREADY_DONE|NOT_REQUIRED|FAILED|NOT_SENT, irn, headerId, step, message, timings}]} or USER_REJECTED.
+   The app sends 4 orders at a time (like the Shipping Agent's Print Trip; MRA_ORDER_TYPES is read once for the batch) and every order is written to WMS_MRA_INTERFACE_STATUS; results come back in the approved order.
    NOT_SENT = the batch stopped after the MRA gateway timed out / was unreachable for 2 orders in a row (stoppedEarly says why); nothing was sent for those orders, so they are safe to retry once the gateway answers. timings = seconds per step (e.g. "check report 3.1s, summary report 0.0s, order type check 0.4s, details report 0.0s, mra gateway 60.0s") - use it to say where the time went.
    Answer with a status table per order (Order | Status | IRN | Step | Reason), the totals, and for each FAILED order the fix in plain words (STATUS HISTORY - APEX table WMS_MRA_INTERFACE_STATUS (one row per MRA run from ANY place: WMS buttons, Shipping Agent, WMS 2.0, this chat, the AI Agent, Order Management - written by MRAProcessor itself)
    Columns: id, created_date, started_at, instance_name, trip_id, order_number, header_id, order_type, order_date, customer_number, customer_name, customer_brn, customer_vat, mra_customer_cat, currency,

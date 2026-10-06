@@ -463,23 +463,17 @@ namespace WMSApp
             string instance = args.TryGetValue("instance", out var iEl) && iEl.ValueKind == JsonValueKind.String && iEl.GetString().ToUpperInvariant() == "TEST" ? "TEST" : pod;
             var (fusionUser, fusionPass) = await FusionCredentialsService.GetAsync();
             if (string.IsNullOrEmpty(fusionUser)) return new { ok = false, content = "Fusion credentials not available - nothing was sent." };
-            var results = new List<object>();
-            int streak = 0;
-            string stop = null;
             string mraTrip = args.TryGetValue("trip_id", out var tEl) && (tEl.ValueKind == JsonValueKind.String || tEl.ValueKind == JsonValueKind.Number) ? tEl.ToString() : null;
-            foreach (var order in orders)
+            // same as the Shipping Agent's Print Trip: 4 at a time, one MRA_ORDER_TYPES read, stop after two gateway problems in a row
+            var (items, stop) = await WMSApp.MRA.MraBatch.RunAsync(orders,
+                order => new WMSApp.MRA.MRAProcessor(fusionUser, fusionPass, instance) { Source = "AI_AGENT", AppUser = user, TripId = mraTrip });
+            var results = new List<object>();
+            foreach (var it in items)
             {
-                if (stop != null) { results.Add(new { order, status = "NOT_SENT", message = stop }); continue; }
-                WMSApp.MRA.MRAProcessingResult r;
-                try { r = await new WMSApp.MRA.MRAProcessor(fusionUser, fusionPass, instance) { Source = "AI_AGENT", AppUser = user, TripId = mraTrip }.ProcessMRAInterfaceAsync(order, (m, s) => { }); }
-                catch (Exception ex) { r = new WMSApp.MRA.MRAProcessingResult { Success = false, Message = ex.Message, CurrentStep = WMSApp.MRA.MRAProcessingStep.Failed }; }
-                string status = r.Success ? "INTERFACED" : r.Skipped ? "NOT_REQUIRED"
-                    : (r.Message ?? "").IndexOf("already done", StringComparison.OrdinalIgnoreCase) >= 0 ? "ALREADY_DONE" : "FAILED";
-                if (!string.IsNullOrEmpty(r.GatewayProblem)) streak++;
-                else if (r.Success || r.CurrentStep == WMSApp.MRA.MRAProcessingStep.CreatingMRAInvoice) streak = 0;
-                if (streak >= 2) stop = "Not sent: the MRA gateway failed twice in a row (" + r.GatewayProblem + ") - safe to retry later.";
-                results.Add(new { order, status, irn = r.IrnCode, message = r.Message, gateway = r.GatewayProblem });
-                AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "AIAGENT", Action = "mra_interface", Outcome = status, Approval = "CARD", Instance = instance, Ref = "ORDER:" + order, Detail = r.Message });
+                if (it.Result == null) { results.Add(new { order = it.Order, status = "NOT_SENT", message = "Not sent: " + it.NotSentReason }); continue; }
+                var r = it.Result;
+                results.Add(new { order = it.Order, status = it.Status, irn = r.IrnCode, message = r.Message, gateway = r.GatewayProblem });
+                AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "AIAGENT", Action = "mra_interface", Outcome = it.Status, Approval = "CARD", Instance = instance, Ref = "ORDER:" + it.Order, Detail = r.Message });
             }
             var d = new { instance, total = orders.Count, results };
             return new { ok = true, content = JsonSerializer.Serialize(d), data = d };

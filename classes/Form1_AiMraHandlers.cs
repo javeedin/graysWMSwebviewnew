@@ -71,49 +71,31 @@ namespace WMSApp
                         mraResult = "{\"success\":false,\"error\":\"Fusion credentials not available (ARMODULE/fusion webservice unreachable) - nothing was sent\"}";
                     else
                     {
+                        // same as the Shipping Agent's Print Trip: 4 orders at a time, MRA_ORDER_TYPES read once for the batch,
+                        // results in the approved order, stop after two gateway problems in a row (MraBatch)
+                        int n = orders.Count;
+                        string P(int i, string order) => $"MRA {i + 1}/{n} · order {order}: ";
+                        var (items, gatewayStop) = await WMSApp.MRA.MraBatch.RunAsync(orders,
+                            order => new WMSApp.MRA.MRAProcessor(fusionUser, fusionPass, instance) { Source = "AI_EMPLOYEE", TripId = tripId, AppUser = mraAppUser },
+                            (i, order) => { _ = onEvent(new { action = "aiChatEvent", eventType = "status", text = P(i, order) + "starting…" }); },
+                            (i, order, msg) => { _ = onEvent(new { action = "aiChatEvent", eventType = "status", text = P(i, order) + msg }); },
+                            (i, it) => { _ = onEvent(new { action = "aiChatEvent", eventType = "status", text = P(i, it.Order) + it.Status.Replace('_', ' ').ToLowerInvariant() }); });
+                        int interfaced = 0, already = 0, notRequired = 0, failed = 0, notSent = 0;
                         var results = new List<object>();
-                        int interfaced = 0, already = 0, notRequired = 0, failed = 0, notSent = 0, gatewayStreak = 0;
-                        string gatewayStop = null;
-                        for (int i = 0; i < orders.Count; i++)
+                        foreach (var it in items)
                         {
-                            string order = orders[i];
-                            string prefix = $"MRA {i + 1}/{orders.Count} · order {order}: ";
-                            // Two gateway problems in a row = MRA gateway is down: stop sending instead of waiting
-                            // the full time limit for every remaining order (nothing is sent for these, safe to retry).
-                            if (gatewayStop != null)
+                            switch (it.Status) { case "INTERFACED": interfaced++; break; case "ALREADY_DONE": already++; break; case "NOT_REQUIRED": notRequired++; break; case "NOT_SENT": notSent++; break; default: failed++; break; }
+                            var r = it.Result;
+                            if (r == null)
                             {
-                                notSent++;
-                                results.Add(new { order, status = "NOT_SENT", irn = (string)null, headerId = (string)null, step = "CreatingMRAInvoice",
-                                    message = "Not sent: " + gatewayStop, details = (string)null, timings = (string)null });
+                                results.Add(new { order = it.Order, status = "NOT_SENT", irn = (string)null, headerId = (string)null, step = "CreatingMRAInvoice",
+                                    message = "Not sent: " + it.NotSentReason, details = (string)null, timings = (string)null });
                                 continue;
                             }
-                            await onEvent(new { action = "aiChatEvent", eventType = "status", text = prefix + "starting…" });
-                            WMSApp.MRA.MRAProcessingResult r;
-                            try
-                            {
-                                var processor = new WMSApp.MRA.MRAProcessor(fusionUser, fusionPass, instance) { Source = "AI_EMPLOYEE", TripId = tripId, AppUser = mraAppUser };
-                                r = await processor.ProcessMRAInterfaceAsync(order,
-                                    (msg, step) => { _ = onEvent(new { action = "aiChatEvent", eventType = "status", text = prefix + msg }); });
-                            }
-                            catch (Exception exOrder)
-                            {
-                                r = new WMSApp.MRA.MRAProcessingResult { Success = false, Message = exOrder.Message, CurrentStep = WMSApp.MRA.MRAProcessingStep.Failed };
-                            }
-
-                            string status = r.Success ? "INTERFACED"
-                                : r.Skipped ? "NOT_REQUIRED"
-                                : (r.Message ?? "").IndexOf("already done", StringComparison.OrdinalIgnoreCase) >= 0 ? "ALREADY_DONE"
-                                : "FAILED";
-                            if (status == "INTERFACED") interfaced++; else if (status == "ALREADY_DONE") already++; else if (status == "NOT_REQUIRED") notRequired++; else failed++;
-                            // the streak counts gateway problems; it resets only when the gateway really answered (IRN or a rejection)
-                            if (!string.IsNullOrEmpty(r.GatewayProblem)) gatewayStreak++;
-                            else if (r.Success || r.CurrentStep == WMSApp.MRA.MRAProcessingStep.CreatingMRAInvoice) gatewayStreak = 0;
-                            if (gatewayStreak >= 2)
-                                gatewayStop = $"the MRA gateway failed for {gatewayStreak} orders in a row (last: {r.GatewayProblem}) - the batch stopped sending to save time. Retry these when the gateway answers again.";
                             results.Add(new
                             {
-                                order,
-                                status,
+                                order = it.Order,
+                                status = it.Status,
                                 irn = r.IrnCode,
                                 headerId = r.HeaderId,
                                 step = r.CurrentStep.ToString(),
@@ -121,7 +103,6 @@ namespace WMSApp
                                 details = string.IsNullOrEmpty(r.ErrorDetails) ? null : (r.ErrorDetails.Length > 300 ? r.ErrorDetails.Substring(0, 300) : r.ErrorDetails),
                                 timings = r.Timings
                             });
-                            await onEvent(new { action = "aiChatEvent", eventType = "status", text = prefix + status.Replace('_', ' ').ToLowerInvariant() });
                         }
                         mraResult = JsonSerializer.Serialize(new
                         {
