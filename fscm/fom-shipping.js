@@ -1,126 +1,15 @@
 /* Fusion Shipping — page entry (fscm/shipping.html). The shipping views of Fusion Order Management as their own module:
    the same FOM engine (fom-*.js), so Shipment Lines, Confirm Picks, pick release, pick slips and ship confirm behave exactly
-   as in om.html. New here: the Shipping cockpit (open shipment lines of one organisation by status, late lines, the next 7
-   days, an order worklist with the next step) and the Batch desk (paste or scan orders → status of each → pick release /
+   as in om.html. New here: the Batch desk (paste or scan orders → status of each → pick release /
    ship confirm the ticked ones, 2 at a time, after a confirm). Nothing is sent to Fusion without a click and a confirm. */
 var SHIP = window.SHIP = {};
 
-SHIP.OPEN = ['Ready to release', 'Released to warehouse', 'Staged', 'Backordered'];
-SHIP.STEP = {
-    0: { t: 'Pick release', i: 'fa-people-carry-box', c: 'info' },
-    1: { t: 'Confirm picks', i: 'fa-clipboard-check', c: 'done' },
-    2: { t: 'Ship confirm', i: 'fa-truck', c: 'warn' },
-    3: { t: 'Shipped', i: 'fa-check', c: 'ok' },
-    4: { t: 'Shipped', i: 'fa-check', c: 'ok' }
-};
-SHIP.daysLate = function (d) {
-    if (!d) return 0;
-    var t = new Date(String(d).slice(0, 10) + 'T00:00:00'), n = new Date(FX.today() + 'T00:00:00');
-    return isNaN(t) ? 0 : Math.round((n - t) / 864e5);
-};
 /** Compact stage for table rows: 4 dots (open · released · picked · shipped) + the stage name. */
 SHIP.mini = function (stage) {
     stage = Math.min(stage, 4);
     return '<span class="sh-mini" title="' + esc(FOM.SHIP_STAGES[Math.min(stage, 3)]) + '">' + FOM.SHIP_STAGES.map(function (n, j) { return '<i class="' + (j < stage ? 'done' : j === stage ? 'cur' : '') + '"></i>'; }).join('') + '<span>' + esc(stage >= 3 ? 'Shipped' : FOM.SHIP_STAGES[stage]) + '</span></span>';
 };
 SHIP.org = function () { return lsGet('fom_sl_org', ''); };
-SHIP.orgPicker = function (id) {
-    return '<label>Organization<select id="' + id + '"></select></label>';
-};
-SHIP.fillOrg = function (id) { return FX.fillSelect(id, FOM.orgCodes(), SHIP.org(), 'Select…'); };
-
-// ── Cockpit ────────────────────────────────────────────────────
-SHIP.viewCockpit = function (el) {
-    el.innerHTML = '<div class="card"><div class="filters">' + SHIP.orgPicker('sh-org') +
-        '<label>Order type<select id="sh-ot">' + FOM.ORDER_TYPES_SHIP.map(function (t) { return '<option>' + esc(t) + '</option>'; }).join('') + '</select></label>' +
-        '<div class="go"><button class="btn primary" id="sh-go"><i class="fa-solid fa-rotate"></i> Read from Fusion</button></div></div></div><div id="sh-out" style="display:flex;flex-direction:column;gap:10px"></div>';
-    SHIP.fillOrg('sh-org').then(function () { if ($('sh-org').value) SHIP.cockpitLoad(); else $('sh-out').innerHTML = '<div class="card pad note">Pick the organization you ship from, then <b>Read from Fusion</b>. The open shipment lines (ready, released, staged, backordered) are read live.</div>'; });
-    $('sh-go').onclick = SHIP.cockpitLoad;
-};
-SHIP.cockpitLoad = function () {
-    var org = $('sh-org').value, ot = $('sh-ot').value, out = $('sh-out');
-    if (!org) { FX.toast('Pick an organization first.', 'err'); return; }
-    lsSet('fom_sl_org', org);
-    out.innerHTML = '<div class="card pad"><i class="fa-solid fa-circle-notch fa-spin"></i> Reading open shipment lines of ' + esc(org) + '…</div>';
-    var fields = 'ShipmentLine,Order,OrderLine,OrderType,OrderTypeCode,OrganizationCode,OrganizationName,Item,ItemDescription,LineStatus,RequestedDate,ScheduledShipDate,RequestedQuantity,RequestedQuantityUOM,Shipment,ShipToCustomer,ShipToPartyName';
-    Promise.all(SHIP.OPEN.map(function (st) {
-        return FOM.all('shipmentLines', { q: "OrganizationCode='" + org + "';OrderType='" + ot + "';LineStatus='" + st + "'", fields: fields, limit: 500 }, 3000)
-            .catch(function (e) { return { _error: FOM.emsg(e), st: st }; });
-    })).then(function (res) {
-        var lines = [], errs = [];
-        res.forEach(function (r) { if (r && r._error) errs.push(r.st + ': ' + r._error); else lines = lines.concat(r); });
-        SHIP.lines = lines;
-        SHIP.cockpitDraw(org, errs);
-    });
-};
-SHIP.cockpitDraw = function (org, errs) {
-    var lines = SHIP.lines, out = $('sh-out');
-    var by = function (re) { return lines.filter(function (l) { return re.test(l.LineStatus || ''); }); };
-    var late = lines.filter(function (l) { return SHIP.daysLate(l.RequestedDate) > 0; });
-    // orders: worst (lowest) stage of their open lines = the next step
-    var ords = {};
-    lines.forEach(function (l) {
-        var o = ords[l.Order] || (ords[l.Order] = { order: l.Order, type: l.OrderType, code: l.OrderTypeCode, org: l.OrganizationCode, cust: l.ShipToPartyName || l.ShipToCustomer || '', lines: 0, bo: 0, stage: 9, req: null, ship: '' });
-        o.lines++; if (/backorder/i.test(l.LineStatus)) o.bo++;
-        o.stage = Math.min(o.stage, FOM.shipLineStage(l));
-        if (l.RequestedDate && (!o.req || l.RequestedDate < o.req)) o.req = l.RequestedDate;
-        if (l.Shipment && !o.ship) o.ship = l.Shipment;
-    });
-    var orders = Object.keys(ords).map(function (k) { var o = ords[k]; o.late = SHIP.daysLate(o.req); return o; })
-        .sort(function (a, b) { return b.late - a.late || a.stage - b.stage; });
-    // next 7 days by requested date (late lines go in "late")
-    var days = [];
-    for (var i = 0; i < 7; i++) { var d = FOM.days(i); days.push({ d: d, n: lines.filter(function (l) { return String(l.RequestedDate || '').slice(0, 10) === d; }).length }); }
-    var max = Math.max.apply(null, days.map(function (x) { return x.n; }).concat([late.length, 1]));
-    var bar = function (label, n, cls) { return '<div class="sh-bar"><span>' + label + '</span><i class="' + (cls || '') + '" style="width:' + Math.round(n / max * 100) + '%"></i><b>' + n + '</b></div>'; };
-    // backordered items
-    var bo = {}; by(/backorder/i).forEach(function (l) { var k = l.Item; bo[k] = bo[k] || { item: k, desc: l.ItemDescription, qty: 0, lines: 0, uom: l.RequestedQuantityUOM }; bo[k].qty += FOM.n(l.RequestedQuantity); bo[k].lines++; });
-    var boList = Object.keys(bo).map(function (k) { return bo[k]; }).sort(function (a, b) { return b.lines - a.lines; }).slice(0, 10);
-    var tile = function (k, label, v, sub, cls) { return '<div class="kpi sh-k ' + (cls || '') + '" data-k="' + k + '"><b>' + v + '</b><span>' + esc(label) + '</span>' + (sub ? '<small>' + sub + '</small>' : '') + '</div>'; };
-    var nOrd = function (a) { return FOM.distinct(a.map(function (l) { return l.Order; })).length; };
-    var tips = [];
-    if (late.length) tips.push('<b>' + late.length + '</b> line(s) of <b>' + nOrd(late) + '</b> order(s) are past their requested date — oldest ' + Math.max.apply(null, late.map(function (l) { return SHIP.daysLate(l.RequestedDate); })) + ' day(s).');
-    if (by(/staged/i).length) tips.push('<b>' + nOrd(by(/staged/i)) + '</b> order(s) are staged and only wait for <b>ship confirm</b>.');
-    if (by(/backorder/i).length) tips.push('<b>' + by(/backorder/i).length + '</b> backordered line(s) — check on-hand for ' + boList.slice(0, 3).map(function (b) { return '<span class="mono">' + esc(b.item) + '</span>'; }).join(', ') + (boList.length > 3 ? ' …' : ''));
-    if (!lines.length) tips.push('No open shipment lines for ' + esc(org) + ' — everything is shipped.');
-    out.innerHTML = (errs.length ? '<div class="note err" style="white-space:pre-wrap">' + esc(errs.join('\n')) + '</div>' : '') +
-        '<div class="kpis">' + tile('all', 'Open lines', lines.length, nOrd(lines) + ' orders') + tile('rr', 'Ready to release', by(/ready/i).length, nOrd(by(/ready/i)) + ' orders') +
-        tile('rel', 'Released', by(/released/i).length, 'to pick') + tile('stg', 'Staged', by(/staged/i).length, 'to ship confirm', 'warn') +
-        tile('bo', 'Backordered', by(/backorder/i).length, boList.length + ' items', 'err') + tile('late', 'Late', late.length, 'past requested date', late.length ? 'err' : '') + '</div>' +
-        '<div class="card pad sh-tips">' + tips.map(function (t) { return '<div><i class="fa-solid fa-lightbulb"></i> ' + t + '</div>'; }).join('') + '</div>' +
-        '<div class="sh-row"><div class="card pad"><h4>Requested ship dates</h4>' + bar('Late', late.length, 'late') + days.map(function (x, j) { return bar(j === 0 ? 'Today' : j === 1 ? 'Tomorrow' : FOM.d(x.d), x.n); }).join('') + '</div>' +
-        '<div class="card pad"><h4>Backordered items</h4>' + FOM.table(boList, [{ f: 'item', label: 'Item', mono: 1 }, { f: 'desc', label: 'Description' }, { f: 'lines', label: 'Lines', n: 1 }, { label: 'Qty', n: 1, html: function (b) { return FOM.qty(b.qty) + ' ' + esc(b.uom || ''); } }], { empty: 'Nothing backordered.', icon: 'fa-box' }) + '</div></div>' +
-        '<div class="card"><div class="card-h"><b><i class="fa-solid fa-list-check"></i> Order worklist</b><span class="muted">' + orders.length + ' orders · late first · click a row to open it</span><span class="grow"></span>' +
-        '<button class="btn sm" id="sh-tobatch"><i class="fa-solid fa-layer-group"></i> Send these to the Batch desk</button><button class="btn sm" id="sh-csv"><i class="fa-solid fa-file-csv"></i> CSV</button></div><div id="sh-wl"></div></div>';
-    var cols = [
-        { f: 'order', label: 'Order', html: function (o) { return '<a class="fom-a">' + esc(o.order) + '</a>'; } },
-        { f: 'cust', label: 'Customer' }, { f: 'type', label: 'Type' }, { f: 'lines', label: 'Open lines', n: 1 },
-        { label: 'Backordered', n: 1, get: function (o) { return o.bo; }, html: function (o) { return o.bo ? '<span class="chip err">' + o.bo + '</span>' : ''; } },
-        { label: 'Requested', get: function (o) { return o.req; }, html: function (o) { return esc(FOM.d(o.req)) + (o.late > 0 ? ' <span class="chip err">' + o.late + ' d late</span>' : ''); } },
-        { label: 'Stage', get: function (o) { return FOM.SHIP_STAGES[Math.min(o.stage, 3)]; }, html: function (o) { return SHIP.mini(o.stage); } },
-        { label: 'Next step', get: function (o) { return SHIP.STEP[o.stage].t; }, html: function (o) { var s = SHIP.STEP[o.stage]; return '<span class="chip ' + s.c + '"><i class="fa-solid ' + s.i + '"></i> ' + s.t + '</span>'; } },
-        { f: 'ship', label: 'Shipment' }
-    ];
-    var shown = orders;
-    var draw = function () {
-        $('sh-wl').innerHTML = FOM.table(shown, cols, { empty: 'No orders.', icon: 'fa-truck', maxH: 520, rowCls: function () { return 'click'; } });
-    };
-    draw();
-    out.querySelectorAll('.sh-k').forEach(function (k) {
-        k.onclick = function () {
-            var on = k.classList.contains('on'); out.querySelectorAll('.sh-k').forEach(function (x) { x.classList.remove('on'); });
-            var key = k.getAttribute('data-k'), f = { rr: function (o) { return o.stage === 0; }, rel: function (o) { return o.stage === 1; }, stg: function (o) { return o.stage === 2; }, bo: function (o) { return o.bo > 0; }, late: function (o) { return o.late > 0; } }[key];
-            shown = on || !f ? orders : orders.filter(f); if (!on && f) k.classList.add('on'); draw();
-        };
-    });
-    $('sh-wl').onclick = function (e) {
-        var tr = e.target.closest('tr[data-i]'); if (!tr) return;
-        var o = shown[+tr.getAttribute('data-i')];
-        FOM.shipOrderDlg(o.order, { Order: o.order, OrderType: o.type, OrderTypeCode: o.code, OrganizationCode: o.org });
-    };
-    $('sh-csv').onclick = function () { FX.csv(shown, cols, 'shipping_worklist_' + org); };
-    $('sh-tobatch').onclick = function () { SHIP.batchSeed = shown.map(function (o) { return o.order; }); FX.show('batch'); };
-};
 
 // ── Batch desk ─────────────────────────────────────────────────
 SHIP.viewBatch = function (el) {
@@ -226,17 +115,12 @@ SHIP.viewShipConfirm = function (el) {
 
 (function () {
     var css = document.createElement('style');
-    css.textContent = '.sh-k small{display:block;font-size:.68rem;color:var(--muted);margin-top:2px}.sh-k{cursor:pointer}.sh-k.err b{color:var(--err)}.sh-k.warn b{color:var(--warn)}' +
-        '.sh-tips div{font-size:.82rem;padding:3px 0}.sh-tips i{color:#f59e0b;margin-right:6px}' +
-        '.sh-row{display:grid;grid-template-columns:1fr 1.4fr;gap:10px}@media(max-width:900px){.sh-row{grid-template-columns:1fr}}.sh-row h4{margin:0 0 8px}' +
-        '.sh-bar{display:grid;grid-template-columns:90px 1fr 40px;align-items:center;gap:8px;font-size:.78rem;margin:4px 0}.sh-bar i{display:block;height:12px;border-radius:6px;background:var(--mod,#14b8a6);min-width:2px}.sh-bar i.late{background:var(--err)}.sh-bar b{text-align:right}' +
-        '.sh-mini{display:inline-flex;align-items:center;gap:3px;white-space:nowrap}.sh-mini i{width:9px;height:9px;border-radius:50%;background:var(--line)}.sh-mini i.done{background:var(--ok)}.sh-mini i.cur{background:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}.sh-mini span{margin-left:5px;font-size:.74rem;color:var(--ink2)}';
+    css.textContent = '.sh-mini{display:inline-flex;align-items:center;gap:3px;white-space:nowrap}.sh-mini i{width:9px;height:9px;border-radius:50%;background:var(--line)}.sh-mini i.done{background:var(--ok)}.sh-mini i.cur{background:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}.sh-mini span{margin-left:5px;font-size:.74rem;color:var(--ink2)}';
     document.head.appendChild(css);
     FX.start({
         module: 'ship',
         sub: 'Pick release, picks and ship confirm — live from Oracle Fusion',
         views: [
-            { id: 'cockpit', group: 'Shipping', label: 'Shipping cockpit', icon: 'fa-gauge-high', desc: 'Open shipment lines of one organization: status, late lines, the next 7 days and the next step per order.', render: SHIP.viewCockpit },
             { id: 'shiplines', group: 'Shipping', label: 'Shipment Lines', icon: 'fa-truck-ramp-box', desc: 'Pending shipment lines — pick release, pick slips, ship confirm.', render: FOM.viewShipLines },
             { id: 'picks', group: 'Shipping', label: 'Confirm Picks', icon: 'fa-clipboard-check', desc: 'Pick slips — allocate lots / serials, confirm, ship.', render: FOM.viewConfirmPicks },
             { id: 'batch', group: 'Shipping', label: 'Batch release & ship', icon: 'fa-layer-group', desc: 'Paste or scan orders, see where each one stands, pick release or ship confirm the ticked ones.', render: SHIP.viewBatch },
