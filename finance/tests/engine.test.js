@@ -559,6 +559,23 @@ test('drill: the months behind a QTD / YTD / full-year cell add up to it', funct
     assert.strictEqual(fy.months.length, 12, 'last full year = 12 months');
 });
 
+test('YTD of income statement lines comes from the period balance, not from adding up months', function () {
+    // last year synced only from Jun-25: Jun-25's balance already holds Jan–Jun (opening 500 + PTD 100); this year Jan–Aug
+    var per = function (y, m) { return { period_seq: y * 100 + m, period_name: m + '-' + y, fiscal_year: y, period_num: m, quarter: Math.ceil(m / 3) }; };
+    var periods = [6, 7, 8].map(function (m) { return per(2025, m); }).concat([1, 2, 3, 4, 5, 6, 7, 8].map(function (m) { return per(2026, m); }));
+    var raw = [['ACTUAL', '4000', 202506, -100, -600], ['ACTUAL', '4000', 202507, -100, -700], ['ACTUAL', '4000', 202508, -100, -800]];
+    [1, 2, 3, 4, 5, 6, 7, 8].forEach(function (m) { raw.push(['ACTUAL', '4000', 202600 + m, -10, -10 * m]); });
+    var d = { accounts: [{ code: '4000', name: 'Sales', account_type: 'R' }], periods: periods, facts: FINE.factsFrom(raw) };
+    var tpl = { id: 'T', rows: [{ id: 'REV', type: 'accounts', accounts: '4000', sign: 'credit' }] };
+    var v = function (col, p) { return FINE.compute(tpl, d, { period: p, scale: 1, columns: [col] }).rows[0].values[0]; };
+    near(v({ id: 'y', range: 'YTD' }, 202608), 80, 1e-9, 'YTD Aug-26');
+    near(v({ id: 'y', range: 'YTD', at: 'PY' }, 202608), 800, 1e-9, 'YTD Aug-25 from its balance, Jan–May-25 not synced');
+    near(v({ id: 'm', range: 'MTD' }, 202608), 10, 1e-9, 'PTD');
+    var m = FINE.explainMonths(tpl, d, { period: 202608, columns: [{ id: 'y', range: 'YTD' }] }, 'REV', 'y');
+    near(m.months[5].pyYtd, 600, 1e-9, 'Jun-26 row: YTD last year = Jun-25 balance');
+    near(m.months[7].ytd, 80, 1e-9, 'Aug-26 row: YTD');
+});
+
 test('labels: sentence / title case keep acronyms; standard styles', function () {
     var c = FINE.labelCase;
     assert.strictEqual(c('SALARIES AND WAGES', 'sentence'), 'Salaries and wages');

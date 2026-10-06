@@ -60,7 +60,7 @@
         if (i == null) return null;
         var at = col.at || 'CUR';
         if (at === 'PM') i -= 1;
-        else if (at === 'PY') i -= 12;
+        else if (at === 'PY') { var py = pi.bySeq[L[i].period_seq - 100]; i = py != null ? py : (L[i].period_seq > 9999 ? -1 : i - 12); }   // same period last year by period_seq (yyyymm), not 12 places back — months that are not synced would shift it
         else if (at === 'PYE') { var y = L[i].fiscal_year; while (i >= 0 && L[i].fiscal_year >= y) i--; }
         else if (at === 'PQ') i -= 3;
         else if (/^M-\d+$/.test(at)) i -= +at.slice(2);                 // n months back (trend columns)
@@ -69,21 +69,30 @@
         if (range === 'QTD') { while (from > 0 && L[from - 1].fiscal_year === p.fiscal_year && Math.floor((L[from - 1].period_num - 1) / 3) === Math.floor((p.period_num - 1) / 3)) from--; }
         else if (range === 'YTD') { while (from > 0 && L[from - 1].fiscal_year === p.fiscal_year) from--; }
         else if (range === 'LTM') from = Math.max(0, i - 11);
-        else if (range === 'FY') { while (from > 0 && L[from - 1].fiscal_year === p.fiscal_year) from--; var to = i; while (to + 1 < L.length && L[to + 1].fiscal_year === p.fiscal_year) to++; return { from: from, to: to, end: to, partial: false }; }
+        else if (range === 'FY') { while (from > 0 && L[from - 1].fiscal_year === p.fiscal_year) from--; var to = i; while (to + 1 < L.length && L[to + 1].fiscal_year === p.fiscal_year) to++; return { from: from, to: to, end: to, partial: false, fy: true }; }
         else if (range === 'OPEN') return { from: i, to: i, end: i - 1, open: true };
-        return { from: from, to: i, end: i, partial: range === 'LTM' && i - 11 < 0 };
+        return { from: from, to: i, end: i, partial: range === 'LTM' && i - 11 < 0, fy: range === 'YTD' };
     };
 
     /** Raw (debit-positive) amount of one account for a basis in a window. f = facts[scenario][account]. */
-    function amountOf(f, pi, w, basis) {
+    function amountOf(f, pi, w, basis, pl) {
         if (!f || !w) return 0;
         var L = pi.list, endAt = function (ix) { if (ix < 0) return firstOpen(f, L); var x = f[L[ix].period_seq]; return x ? x[1] : 0; };
         if (basis === 'balance') return endAt(w.end);
         if (basis === 'opening') return endAt(w.from - 1);
         if (basis === 'change') return endAt(w.to) - endAt(w.from - 1);
+        // income statement accounts: the balance row of a period already holds the year to date (Fusion GL_BALANCES: the opening
+        // restarts every financial year, closing = opening + PTD) — YTD / FY are read from the last period's closing, never by adding
+        // up months (months that were not synced would be missing from the sum)
+        if (pl && w.fy) { var xe = f[L[w.to].period_seq]; if (xe) return xe[1]; }
         var s = 0;
         for (var k = w.from; k <= w.to; k++) { var x = f[L[k].period_seq]; if (x) s += x[0]; }
         return s;
+    }
+    /** Is this account code an income statement account (R / E)? Cached per data set. */
+    function plOf(data, code) {
+        var m = data._plOf; if (!m || m._n !== (data.accounts || []).length) { m = data._plOf = { _n: (data.accounts || []).length }; (data.accounts || []).forEach(function (a) { m[a.code] = FINE.isPl(a); }); }
+        return !!m[code];
     }
     // the balance before the first loaded period = first period's closing − its movement
     function firstOpen(f, L) { var x = f[L[0].period_seq]; return x ? x[1] - x[0] : 0; }
@@ -226,7 +235,7 @@
             var v = 0;
             if (r.type === 'accounts') {
                 var w = FINE.windowOf(col, pi, cur), f = (data.facts[col.scenario || 'ACTUAL'] || {});
-                if (w) r._acc.forEach(function (a) { v += amountOf(f[a], pi, w, r._basis); });
+                if (w) r._acc.forEach(function (a) { v += amountOf(f[a], pi, w, r._basis, plOf(data, a)); });
                 v *= r._sign;
             } else if (r.type === 'group') {
                 (children[r.id] || []).forEach(function (ch) { if (ch.type !== 'header' && ch.type !== 'blank' && ch.type !== 'text' && !ch.exclude) v += rowVal(ch, col) * (ch.negate ? -1 : 1); });
@@ -292,7 +301,7 @@
         var collect = function (row, mult, acc) {
             if (row.type === 'accounts') {
                 var w = FINE.windowOf(col, pi, cur), f = data.facts[col.scenario || 'ACTUAL'] || {};
-                row._acc.forEach(function (a) { var v = amountOf(f[a], pi, w, row._basis) * row._sign * mult; if (Math.abs(v) > 0.004) acc[a] = (acc[a] || 0) + v; });
+                row._acc.forEach(function (a) { var v = amountOf(f[a], pi, w, row._basis, plOf(data, a)) * row._sign * mult; if (Math.abs(v) > 0.004) acc[a] = (acc[a] || 0) + v; });
             } else if (row.type === 'group') rows.forEach(function (ch) { if (ch.parent === row.id && !ch.exclude) collect(ch, mult * (ch.negate ? -1 : 1), acc); });
             return acc;
         };
@@ -574,8 +583,8 @@
         data.accounts.forEach(function (a) {
             if (filter && !filter(a)) return;
             var basis = FINE.isPl(a) ? 'activity' : 'balance', sg = FINE.isCredit(a) ? -1 : 1;
-            var va = amountOf((data.facts[colA.scenario || 'ACTUAL'] || {})[a.code], pi, wa, basis) * sg;
-            var vb = amountOf((data.facts[colB.scenario || 'ACTUAL'] || {})[a.code], pi, wb, basis) * sg;
+            var va = amountOf((data.facts[colA.scenario || 'ACTUAL'] || {})[a.code], pi, wa, basis, FINE.isPl(a)) * sg;
+            var vb = amountOf((data.facts[colB.scenario || 'ACTUAL'] || {})[a.code], pi, wb, basis, FINE.isPl(a)) * sg;
             if (Math.abs(va - vb) < 0.5) return;
             out.push({ code: a.code, name: a.name, class: a.class, type: a.account_type, a: va, b: vb, diff: va - vb, pct: vb ? (va - vb) / Math.abs(vb) * 100 : null });
         });
