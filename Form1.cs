@@ -2333,6 +2333,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleModelAction(wv, action, root, requestId);
                                     break;
 
+                                // Teach Me (teachme/index.html)
+                                case var tmAction when IsTeachAction(tmAction):
+                                    await HandleTeachAction(wv, action, root, requestId);
+                                    break;
+
                                 case var pbiAction when IsPowerBiAction(pbiAction):
                                     await HandlePowerBiAction(wv, action, root, requestId);
                                     break;

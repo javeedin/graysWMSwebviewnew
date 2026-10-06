@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teach Me — Gray's</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="teach.css">
+    <!-- Teach Me: people teach the app how they do things — written notes per subject, and portal navigation it records in
+         its own browser window and repeats later with new values (it stops before the final Submit). Every lesson is saved
+         in APEX (WMS_TEACH_LESSONS) and in this PC's DuckDB file (C:\fusion\teachme\teachme.duckdb). Host: teach* actions
+         (classes/Form1_TeachHandlers.cs). -->
+</head>
+<body>
+    <header class="top">
+        <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
+        <div class="logo"><i class="fa-solid fa-graduation-cap"></i></div>
+        <div class="ttl">
+            <h1>Teach Me <span class="ver">v12.1.0</span></h1>
+            <p>Teach the app how you do things — notes, and portal navigation it can repeat for you · <span id="who"></span></p>
+        </div>
+        <span class="grow"></span>
+        <span class="store" id="store"></span>
+        <a class="home" href="../Home/index.html" title="Home"><i class="fa-solid fa-house"></i></a>
+    </header>
+    <div class="shell">
+        <aside class="side">
+            <div class="side-top">
+                <input id="q" type="search" placeholder="Search lessons…">
+                <div class="newwrap">
+                    <button class="btn primary" id="new"><i class="fa-solid fa-plus"></i> New lesson</button>
+                    <div class="menu" id="newmenu" hidden>
+                        <button data-new="notes"><i class="fa-solid fa-book-open"></i><span><b>Notes</b><small>Explain a subject in your own words</small></span></button>
+                        <button data-new="navigation"><i class="fa-solid fa-route"></i><span><b>Portal navigation</b><small>Show the app how to do it on a website — it records and repeats</small></span></button>
+                        <button data-new="oraclesr"><i class="fa-solid fa-life-ring"></i><span><b>Oracle Support — raise an SR</b><small>Ready-made lesson: variables + SR number capture; you show the clicks once</small></span></button>
+                    </div>
+                </div>
+            </div>
+            <div id="tree" class="tree"></div>
+        </aside>
+        <main class="main" id="main"></main>
+    </div>
+    <div class="modal-bg" id="modal" hidden><div class="modal" id="modal-box"></div></div>
+    <div class="toast" id="toast"></div>
+    <script src="teach.js"></script>
+</body>
+</html>
