@@ -122,6 +122,50 @@ Controls and safeguards:
 - **Check (no cancel)** shows what a run would cancel. **Run now** runs once for the date on screen.
 - Every cancelled, failed or skipped line is logged in APEX (`WMS_W2_CANCEL_LOG`) and in the local copy. Each order is also audited.
 
+## Tomorrow check (pre-mortem)
+
+Home has a **Tomorrow Check** tile that opens WMS 2.0 on tomorrow's trips. The same page is in the left menu, right after the Control tower. It answers one question: *which orders will not leave as planned tomorrow, and what can still be fixed tonight?*
+
+It works on the local copy and reads nothing new from Fusion. The rules (`wms2/w2-premortem-engine.js`, node-tested) look for:
+
+- **Ships empty**: every line of the order is Scheduled or Manual Reservation. The autopilot will cancel them all. Fix: move the order to the Future trip (9999).
+- **Lines will be cancelled**: the same cancel rules as the autopilot, including the free item and sub-lines that go with each line.
+- **Free item / sub-line left behind**: a BOGO item or sub-line that cannot be cancelled with its main line (already shipped, or it has no fulfilment line id).
+- **Line cannot be cancelled**: a main line with no fulfilment line id.
+- **Nothing to ship in Fusion**: Fusion has no shipment lines for the order. Store / van transfers are left out of this rule.
+- **Cancelled but still on the trip**.
+- **On two trips**.
+- **No picker**.
+- **Not read from Fusion**.
+- **MRA**: an order that has already failed MRA. Also a customer whose MRA tries usually fail: from the last 120 days in `WMS_MRA_INTERFACE_STATUS`, the chance is failed tries ÷ tries, smoothed, and gateway timeouts are not counted against the customer.
+- **Customer has another order waiting**: a pending order for the same customer that could go on the same lorry.
+
+It also raises problems that are not about one order:
+
+- The MRA gateway did not answer often in the last 7 days. The page names the hour it fails most, so MRA can be sent before then.
+- The autopilot is off while lines are out of stock.
+- The order lines of the date were never read.
+
+What the page shows:
+
+- A readiness score for the day.
+- A tile for each kind of risk. Click a tile to filter.
+- Each trip with how ready it is. Click a trip to filter.
+- Every finding with a fix button: Move to Future trip, Order details, MRA tries, Assign picker, Read again or Open trip.
+
+**Evening run**: this is set per PC in the *Evening run* dialog, and is on by default from 18:00. Once a day, while WMS 2.0 is open, the page:
+
+1. reads tomorrow again from APEX and Fusion;
+2. checks it;
+3. keeps the forecast in the local table `w2_premortem`;
+4. can send a Teams or e-mail alert, using the AI Control settings or a webhook / list of your own.
+
+*Keep forecast* saves the forecast by hand. On the day itself, **Was last night's forecast right?** compares the last forecast kept before midnight with what happened:
+
+- the problems that did happen;
+- the ones that did not (fixed in time, or false alarms);
+- surprises nobody predicted.
+
 ## MRA and printing
 
 - **MRA**: sends interfaced orders to MRA, 4 at a time, with a log per order. **Check** reads the MRA report without sending anything. The MRA interface switch (Yes / No) is shown here; it is still changed in the WMS.

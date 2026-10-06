@@ -258,3 +258,21 @@ table.steps tr.bad td { background: var(--bad-bg); }
 
 /* Future Trip page: the WMS grid; the instance follows the top bar, so its own select is hidden */
 .w2-ft label:has(#ft-inst) { display: none; }
+
+/* Tomorrow check (w2-tomorrow.js) */
+.pm-hero { background: linear-gradient(135deg, #0b2545 0%, #13315c 60%, #1d4ed8 100%); color: #e2e8f0; border: 0; }
+.pm-hero .muted { color: #cbd5e1; }
+.pm-head { font-size: 1.05rem; margin-bottom: 4px; } .pm-head b { color: #fff; }
+.pm-gauge { --p: 0; --c: var(--good); width: 92px; height: 92px; flex: none; border-radius: 50%; display: grid; place-content: center; text-align: center;
+  background: radial-gradient(closest-side, #0b2545 76%, transparent 78% 100%), conic-gradient(var(--c) calc(var(--p) * 1%), rgba(255,255,255,.15) 0); }
+.pm-gauge b { font-size: 1.35rem; color: #fff; line-height: 1; } .pm-gauge span { font-size: .66rem; color: #cbd5e1; }
+.pm-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+@media (max-width: 900px) { .pm-grid { grid-template-columns: 1fr; } }
+.pm-trips { display: grid; gap: 4px; max-height: 300px; overflow: auto; }
+.pm-trip { display: grid; grid-template-columns: 70px 1fr 44px minmax(110px, auto); align-items: center; gap: 8px; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: .8rem; }
+.pm-trip:hover, .pm-trip.on { background: var(--accent-bg); }
+.pm-bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
+.pm-bar i { display: block; height: 100%; } .pm-bar i.good { background: var(--good); } .pm-bar i.warn { background: #f59e0b; } .pm-bar i.bad { background: var(--bad); }
+.pm-acc { display: grid; text-align: center; min-width: 80px; } .pm-acc b { font-size: 1.6rem; } .pm-acc span { font-size: .7rem; color: var(--muted); }
+.kpi.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+#pm-g td { white-space: normal; vertical-align: top; }
