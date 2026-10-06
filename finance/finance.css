@@ -893,3 +893,4 @@ body.fl-maxed { overflow: hidden; }
 .pm-st { font-size: .68rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
 .pm-st.ok { background: #dcfce7; color: #166534; } .pm-st.unknown, .pm-st.conflict, .pm-st.nogroup { background: #fee2e2; color: #991b1b; } .pm-st.duplicate, .pm-st.kind { background: #fef3c7; color: #92400e; }
 .pm-st.new { background: #ede9fe; color: #5b21b6; } .pm-st.map { background: #dbeafe; color: #1e40af; }
+table.st tr.segsub td { background: #f5f8ff; font-size: .74rem; } table.st .st-segc { color: var(--accent, #1d4ed8); width: 10px; }

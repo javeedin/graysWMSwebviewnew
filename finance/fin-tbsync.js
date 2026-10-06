@@ -30,8 +30,7 @@
             '<details class="ts-det" id="ts-det"' + (FL.ls('tbl.det', false) ? ' open' : '') + '><summary class="sm"><i class="fa-solid fa-list-check"></i> Details — every query, its SQL, sample rows and the log</summary><div id="fu-prog"></div></details></div>' +
             '<details class="card ts-set" id="ts-set" style="margin-top:12px"' + (FL.ls('tbl.setOpen', false) ? ' open' : '') + '><summary><b><i class="fa-solid fa-sliders"></i> Settings</b> <span class="sm muted" id="ts-setsum"></span></summary>' +
 
-            '<div class="row" style="margin-top:6px"><label class="sm"><input type="checkbox" id="ts-cc"' + (L.byCc ? ' checked' : '') + '> by cost centre</label>' +
-            '<span id="ts-tbsegs" class="ts-tbsegs"></span>' +
+            '<div class="row" style="margin-top:6px">' +
             '<label class="sm"><input type="checkbox" id="ts-fold"' + (L.fold ? ' checked' : '') + ' title="Adjustment periods (e.g. Adj-25) are read too and added to the period they close"> fold adjustment periods</label>' +
             '<label class="sm" title="With several periods ticked: sync the first period completely, then the next — each is saved before the next starts, and Stop drops the rest of the line"><input type="checkbox" id="ts-seq"' + (L.seq ? ' checked' : '') + '> one period after another</label>' +
             '<label class="sm" title="Queries to Fusion at the same time (one per company and period)">Reads in parallel <select id="ts-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + (L.par === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label></div>' +
@@ -43,7 +42,7 @@
         $('ts-det').ontoggle = function () { FL.lsSet('tbl.det', this.open); if (this.open) FL.fusion.paint(); };
         $('ts-set').ontoggle = function () { FL.lsSet('tbl.setOpen', this.open); };
         $('ts-pod').onchange = function () { L.pod = this.value; FL.lsSet('tbl.pod', L.pod); L.ledger = null; L.sel = {}; T.fillLedgers(); };
-        $('ts-cc').onchange = function () { L.byCc = this.checked; FL.lsSet('tbl.byCc', L.byCc); T.loadQ(); T.setSum(); };
+
         $('ts-fold').onchange = function () { L.fold = this.checked; T.setSum(); };
         $('ts-seq').onchange = function () { L.seq = this.checked; FL.lsSet('tbl.seq', L.seq); T.setSum(); };
         $('ts-par').onchange = function () { L.par = +this.value; FL.lsSet('tbl.par', L.par); T.setSum(); };
@@ -56,8 +55,22 @@
     };
 
     /** The query with this ledger's values for one period and company (what Sync sends for that read) */
+    /** Same as the host's InjectTbSegments: an own query gets the chosen trial balance segments after the account (SELECT and GROUP BY) */
+    T.inject = function (q) {
+        var need = (T.tbSegs ? T.tbSegs() : []).filter(function (sg) { return !new RegExp('\\bc\\.' + sg + '\\b', 'i').test(q); });
+        if (!need.length) return q;
+        var sel = /c\.\{ACCOUNT_SEGMENT\}\s+(AS\s+)?account\b/i.exec(q), gb = q.toUpperCase().lastIndexOf('GROUP BY');
+        if (!sel || gb < 0 || sel.index > gb) return q;
+        var tail = q.slice(gb), re = /c\.\{ACCOUNT_SEGMENT\}/gi, m, last = null; while ((m = re.exec(tail))) last = m;
+        if (!last) return q;
+        var at = gb + last.index + last[0].length;
+        q = q.slice(0, at) + need.map(function (sg) { return ', c.' + sg; }).join('') + q.slice(at);
+        var s2 = sel.index + sel[0].length;
+        return q.slice(0, s2) + need.map(function (sg) { return ', c.' + sg + ' ' + sg.toLowerCase(); }).join('') + q.slice(s2);
+    };
     T.fill = function (q, period, company) {
         var l = T.ledgerObj(), led = l ? FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)) : {};
+        if (L.query && q === L.query) q = T.inject(q);
         var sq = function (v) { return String(v == null ? '' : v).replace(/'/g, "''"); };
         return q.replace(/\{LEDGER_ID\}/g, l ? l.id : '').replace(/\{PERIOD\}/g, sq(period)).replace(/\{CURRENCY\}/g, sq(l && l.currency))
             .replace(/\{COMPANY_FILTER\}/g, company ? ' AND ' + T.codeFilter('c.' + led.company, [company]) : '')
@@ -414,23 +427,39 @@
         return keep.filter(function (x) { return x !== led.company && x !== led.account && !(L.byCc && x === led.costCentre); })
             .sort(function (a, b) { return +a.slice(7) - +b.slice(7); });
     };
+    /** "Cost centre, Analysis" — the segments the trial balance is read by besides company × account (short = upper case, '' when none) */
+    T.tbSegLabel = function (short) {
+        var n = (L.byCc ? ['Cost centre'] : []).concat(T.tbSegs().map(function (c) { return T.segName(c).replace(/ \(SEGMENT\d+\)$/, ''); }));
+        return short ? n.join(', ').toUpperCase() : (n.length ? n.join(', ') : 'company × account only');
+    };
+    /** Trial balance segments in a dialog (like Extended segments): by cost centre + any other segment of the chart */
+    T.tbSegDialog = function () {
+        FL.modal('<i class="fa-solid fa-scale-balanced"></i> Trial balance — segments',
+            '<p class="sm muted" style="margin-top:0">Company and account are always in. Tick what the trial balance itself is read by (e.g. Analysis). Each choice is kept as its own read on this PC, so after a change <b>Sync</b> reads the periods again; the statements add the segments up, so their totals do not change. For reporting <i>by</i> a segment use Extended segments + Segment P&amp;L.</p>' +
+            '<div id="ts-tbsegs" class="ts-tbsegs"></div>' +
+            '<div class="row" style="margin-top:10px"><span class="grow"></span><button class="btn sm primary" id="ts-tbsave"><i class="fa-solid fa-floppy-disk"></i> Save choice</button></div>');
+        T.paintTbSegs();
+    };
     T.paintTbSegs = function () {
         var box = $('ts-tbsegs'), l = T.ledgerObj(), c = T.coaOf(); if (!box) return;
-        if (!l || !c || !(c.segments || []).length) { box.innerHTML = ''; return; }
+        if (!l || !c || !(c.segments || []).length) { box.innerHTML = '<p class="sm muted">Pick a ledger first (Fusion setup › Discover gives the segments).</p>'; return; }
         var led = FL.fusion.ledgerFor(l, FL.fusion.rolesOf(L.disc)), on = T.tbSegs();
-        var list = (c.segments || []).filter(function (sg) { return sg.col !== led.company && sg.col !== led.account && !(L.byCc && sg.col === led.costCentre); });
-        box.innerHTML = '<span class="sm muted" title="The trial balance read groups by these segments too (e.g. analysis). Each choice is kept as its own read, so changing it reads the periods again; statements add them up.">also by</span> ' +
-            list.map(function (sg) { return '<label class="chip sm"><input type="checkbox" class="ts-tbs" value="' + esc(sg.col) + '"' + (on.indexOf(sg.col) >= 0 ? ' checked' : '') + '> ' + esc(sg.name) + ' <span class="muted">' + esc(sg.col.replace('SEGMENT', 'S')) + '</span></label>'; }).join(' ');
-        box.querySelectorAll('.ts-tbs').forEach(function (i) {
-            i.onchange = function () {
-                FL.lsSet('tbl.tbsegs.' + l.coaId, [].map.call(box.querySelectorAll('.ts-tbs:checked'), function (x) { return x.value; }));
-                T.loadQ(); T.setSum(); T.board();
-            };
-        });
+        var list = (c.segments || []).filter(function (sg) { return sg.col !== led.company && sg.col !== led.account; });
+        box.innerHTML = '<div class="tl-cos">' + list.map(function (sg) {
+            var cc = sg.col === led.costCentre, chk = cc ? L.byCc : on.indexOf(sg.col) >= 0;
+            return '<label class="chip"><input type="checkbox" class="ts-tbs" value="' + esc(sg.col) + '"' + (cc ? ' data-cc="1"' : '') + (chk ? ' checked' : '') + '> ' + esc(sg.name) + ' <span class="muted">' + esc(sg.col.replace('SEGMENT', 'S')) + (cc ? ' · cost centre' : '') + '</span></label>';
+        }).join(' ') + '</div>';
+        var save = $('ts-tbsave'); if (!save) return;
+        save.onclick = function () {
+            var cc = box.querySelector('.ts-tbs[data-cc]');
+            L.byCc = !!(cc && cc.checked); FL.lsSet('tbl.byCc', L.byCc);
+            FL.lsSet('tbl.tbsegs.' + l.coaId, [].map.call(box.querySelectorAll('.ts-tbs:checked:not([data-cc])'), function (x) { return x.value; }));
+            FL.closeModal(); T.loadQ(); T.setSum(); T.board();
+            FL.toast('Trial balance segments: ' + T.tbSegLabel() + ' — Sync reads the periods again with them', 'ok');
+        };
     };
     T.setSum = function () {
         var l = T.ledgerObj(), n = (l && l.companies || []).length;
-        T.paintTbSegs();
         var tsn = T.tbSegs().map(function (c) { return T.segName(c).replace(/ \(SEGMENT\d+\)$/, ''); });
         if ($('ts-setsum')) $('ts-setsum').textContent = (L.cos.length ? L.cos.length + ' of ' + n + ' companies' : 'every company' + (n ? ' (' + n + ')' : '')) + (L.byCc ? ' · by cost centre' : '') + (tsn.length ? ' · by ' + tsn.join(', ') : '') +
             (L.fold ? ' · adjustment periods folded' : '') + (L.seq ? ' · one period after another' : '') + ' · ' + L.par + ' in parallel' + (L.opt.perCompany ? ' · one query per company' : '') + (L.query ? ' · your own query' : '');
@@ -551,6 +580,7 @@
         }).join('') || '<p class="sm muted">No periods in this year.</p>';
         var vt = '<div class="ts-vt"><div class="seg sm">' + [['table', 'fa-table-list', 'Table'], ['tiles', 'fa-table-cells', 'Tiles']].map(function (v) {
             return '<button data-vw="' + v[0] + '" class="' + (L.view === v[0] ? 'on' : '') + '"><i class="fa-solid ' + v[1] + '"></i> ' + v[2] + '</button>'; }).join('') + '</div>' +
+            '<button class="btn sm ts-tbsbtn" title="Choose the segments the trial balance itself is read by (besides company and account)"><i class="fa-solid fa-scale-balanced"></i> Trial balance segments: ' + esc(T.tbSegLabel()) + '</button>' +
             '<button class="btn sm ts-extbtn" title="Choose the segments the extended trial balance is grouped by"><i class="fa-solid fa-layer-group"></i> Extended segments: ' +
             esc(T.extCols().length ? T.extCols().map(function (c) { return T.segName(c).replace(/ \(SEGMENT\d+\)$/, ''); }).join(', ') : 'choose…') + '</button>' +
             '<button class="btn sm ghost ts-opentb" title="Statements › Trial balance"><i class="fa-solid fa-arrow-right"></i> Open trial balance</button></div>';
@@ -565,6 +595,7 @@
             box.querySelectorAll('[data-allcos]').forEach(function (b) { b.onclick = function () { T.syncAllCos(b.dataset.allcos.split(',').map(Number)); }; });
             var card = box.closest('.ts-main'); if (card) card.classList.toggle('ts-tblmode', L.view === 'table');   // table: every action is on its row, the bulk bar is hidden
             box.querySelectorAll('.ts-extbtn').forEach(function (b) { b.onclick = function () { T.extDialog(); }; });
+            box.querySelectorAll('.ts-tbsbtn').forEach(function (b) { b.onclick = function () { T.tbSegDialog(); }; });
             box.querySelectorAll('[data-redisc]').forEach(function (b) { b.onclick = function () { FL.dataTab.dataSetup(); }; });
             box.querySelectorAll('.ts-opentb').forEach(function (b) { b.onclick = function () { FL.stmt.tpl = 'TB'; FL.lsSet('stmt.tpl', 'TB'); FL.show('statements'); }; });
             box.querySelectorAll('[data-miss]').forEach(function (b) { b.onclick = function () { var q = b.dataset.q.split(',').map(Number); if (b.dataset.miss === 'tb') T.sync(q, false); else T.extSync(q, false); }; });
@@ -627,7 +658,7 @@
         var missTb = openP.filter(function (p) { var st = T.stateOf(p, cells, want); return st === 'none' || st === 'part' || st === 'failed'; }).map(function (p) { return p.seq; });
         var missX = ext.length ? openP.filter(function (p) { return T.extState(p.seq, want) !== 'done'; }).map(function (p) { return p.seq; }) : [];
         var missBtn = function (k, list) { return admin && list.length && !run ? ' <button class="btn sm ghost" data-miss="' + k + '" data-q="' + list.join(',') + '" title="Sync every open period of this year that is not complete"><i class="fa-solid fa-cloud-arrow-down"></i> Sync ' + list.length + ' missing</button>' : ''; };
-        return '<table class="t ts-table"><thead><tr><th>Period</th><th>Trial balance</th><th class="ts-btns">' + missBtn('tb', missTb) + '</th><th class="ts-xc">Extended segments' + (ext.length ? ' <span class="muted">(' + esc(ext.map(T.segName).map(function (n) { return n.replace(/ \(SEGMENT\d+\)$/, ''); }).join(', ')) + ')</span>' : '') + '</th><th class="ts-btns">' + missBtn('ext', missX) + '</th></tr></thead><tbody>' +
+        return '<table class="t ts-table"><thead><tr><th>Period</th><th>Trial balance' + (T.tbSegLabel(true) ? ' <span class="muted">(' + esc(T.tbSegLabel(true)) + ')</span>' : '') + '</th><th class="ts-btns">' + missBtn('tb', missTb) + '</th><th class="ts-xc">Extended segments' + (ext.length ? ' <span class="muted">(' + esc(ext.map(T.segName).map(function (n) { return n.replace(/ \(SEGMENT\d+\)$/, ''); }).join(', ')) + ')</span>' : '') + '</th><th class="ts-btns">' + missBtn('ext', missX) + '</th></tr></thead><tbody>' +
             (rows || '<tr><td colspan="5" class="muted">No periods in this year.</td></tr>') + '</tbody></table>';
     };
     /** 👁 The rows this PC holds for one period: trial balance (fin_gl_balances_acct) or extended segments (fin_gl_ext_v), with names and totals */

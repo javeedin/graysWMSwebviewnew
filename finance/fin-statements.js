@@ -122,7 +122,8 @@
             h += '</tr>';
             if (expand && opts.sub && opts.sub[r.id]) {
                 opts.sub[r.id].forEach(function (a) {
-                    h += '<tr class="sub"><td><span class="lv" style="padding-left:' + (lv + 22) + 'px">' + esc(a.code + ' ' + a.name) + '</span></td>' +
+                    h += '<tr class="sub" data-acc="' + esc(a.code) + '" data-of="' + esc(r.id || '') + '"><td><span class="lv" style="padding-left:' + (lv + 22) + 'px">' +
+                        (opts.segBy ? '<i class="fa-solid fa-caret-right st-segc" title="Open this account by ' + esc(opts.segName || 'segment') + '"></i> ' : '') + esc(a.code + ' ' + a.name) + '</span></td>' +
                         st.columns.map(function (c, i) { return '<td>' + FL.cellText(r, c, a.values[i]) + '</td>'; }).join('') + '</tr>';
                 });
             }
@@ -150,6 +151,71 @@
             };
         };
         paint(true);
+    };
+    // ── account → segment drill: the synced segments under an account line (Analysis, Salesperson …) ──
+    S.segBy = FL.ls('stmt.segBy', '');
+    S.segCache = null;
+    /** Segments this PC holds per account: extended segments (fin_gl_ext_v) and trial balances read "also by" a segment */
+    S.segList = function () {
+        var safe = function (sql) { return FL.rows(sql, 5000).catch(function () { return []; }); };
+        return Promise.all([
+            safe("SELECT DISTINCT segments FROM fin_gl_balances_ext_sync WHERE segments IS NOT NULL"),
+            safe("SELECT DISTINCT grain FROM fin_gl_balances_acct WHERE grain LIKE '%,S%'"),
+            safe("SELECT column_name AS col, ANY_VALUE(segment_name) AS name FROM fin_coa_segments GROUP BY 1"),
+            safe("SELECT ANY_VALUE(company_segment) AS co, ANY_VALUE(account_segment) AS ac, ANY_VALUE(cost_centre_segment) AS cc FROM fin_tb_ledgers")
+        ]).then(function (r) {
+            var names = {}; r[2].forEach(function (x) { names[String(x.col).toUpperCase()] = x.name; });
+            var led = r[3][0] || {}, skip = [String(led.co || '').toUpperCase(), String(led.ac || '').toUpperCase()], got = {};
+            r[0].forEach(function (x) { String(x.segments).split(',').forEach(function (c) { c = c.trim().toUpperCase(); if (/^SEGMENT\d+$/.test(c)) got[c] = got[c] || {}, got[c].ext = 1; }); });
+            r[1].forEach(function (x) { (String(x.grain).match(/S\d+/g) || []).forEach(function (t) { var c = 'SEGMENT' + t.slice(1); (got[c] = got[c] || {}).tb = 1; }); });
+            S.segCache = Object.keys(got).filter(function (c) { return skip.indexOf(c) < 0; }).sort(function (a, b) { return +a.slice(7) - +b.slice(7); })
+                .map(function (c) { return { col: c.toLowerCase(), name: (names[c] || c) + (String(led.cc || '').toUpperCase() === c ? ' (cost centre)' : ''), ext: !!got[c].ext, tb: !!got[c].tb }; });
+            return S.segCache;
+        });
+    };
+    /** One account by one segment: facts per segment value [net, closing] per period → the same template maths (PTD / YTD / balance) */
+    S.segFacts = function (code, g) {
+        var col = g.col, lit = FL.q, co = FL.filter.company, w = ["x.account = " + lit(code)];
+        if (FL.filter.ledger) w.push("x.ledger_id IN (SELECT ledger_id FROM fin_tb_ledgers WHERE code = " + lit(FL.filter.ledger) + ")");
+        if (co) w.push("ltrim(x.company, '0') = ltrim(" + lit(co) + ", '0')");
+        var ext = "SELECT x.period_seq AS seq, COALESCE(NULLIF(CAST(x." + col + " AS VARCHAR), ''), '(blank)') AS v, SUM(x.dr - x.cr) AS net, SUM(CASE WHEN x.adj THEN 0 ELSE x.opening END) AS op " +
+            "FROM fin_gl_ext_v x WHERE " + w.concat(["x." + col + " IS NOT NULL", "x.period_seq IS NOT NULL"]).join(' AND ') + " GROUP BY 1, 2";
+        var tb = "SELECT t.period_seq AS seq, COALESCE(NULLIF(CAST(x." + col + " AS VARCHAR), ''), '(blank)') AS v, SUM(COALESCE(x.period_net_dr, 0) - COALESCE(x.period_net_cr, 0)) AS net, " +
+            "SUM(CASE WHEN t.adj THEN 0 ELSE COALESCE(x.begin_balance_dr, 0) - COALESCE(x.begin_balance_cr, 0) END) AS op FROM fin_gl_balances_acct x " +
+            "JOIN (SELECT DISTINCT pod, ledger_id, period_name, period_seq, adj FROM fin_tb_periods) t ON t.pod = x.pod AND t.ledger_id = x.ledger_id AND t.period_name = x.period_name " +
+            "WHERE " + w.concat(["regexp_matches(x.grain, ',S" + col.slice(7) + "(,|$)')", "COALESCE(x.translated_flag, '-') <> 'R'"]).join(' AND ') + " GROUP BY 1, 2";
+        var first = g.ext ? ext : tb, second = g.ext && g.tb ? tb : null;
+        return FL.rows(first, 100000).then(function (rows) { return rows.length || !second ? { rows: rows, src: g.ext ? 'extended segments' : 'trial balance' } : FL.rows(second, 100000).then(function (r2) { return { rows: r2, src: 'trial balance' }; }); });
+    };
+    S.toggleSeg = function (tr, data, opts, st, rowId, code, g) {
+        if (!g) return;
+        var open = tr.classList.toggle('seg-open'), caret = tr.querySelector('.st-segc');
+        caret.className = 'fa-solid ' + (open ? 'fa-caret-down' : 'fa-caret-right') + ' st-segc';
+        var next = tr.nextElementSibling; while (next && next.classList.contains('segsub')) { var n2 = next.nextElementSibling; next.remove(); next = n2; }
+        if (!open) return;
+        var row = st.rows.filter(function (r) { return r.id === rowId; })[0] || {}, acc = (data.accounts || []).filter(function (a) { return a.code === code; })[0] || { account_type: 'E' };
+        var pad = (parseInt((tr.querySelector('.lv') || {}).style ? tr.querySelector('.lv').style.paddingLeft : 0, 10) || 0) + 22;
+        var wait = document.createElement('tr'); wait.className = 'sub segsub'; wait.innerHTML = '<td colspan="' + (st.columns.length + 1) + '"><span class="lv muted" style="padding-left:' + pad + 'px"><i class="fa-solid fa-circle-notch fa-spin"></i> ' + esc(g.name) + '…</span></td>';
+        tr.after(wait);
+        S.segFacts(code, g).then(function (res) {
+            wait.remove();
+            var vals = {}; res.rows.forEach(function (x) { (vals[x.v] = vals[x.v] || {})[x.seq] = [+x.net || 0, (+x.op || 0) + (+x.net || 0)]; });
+            var keys = Object.keys(vals).sort();
+            if (!keys.length) { tr.after(Object.assign(document.createElement('tr'), { className: 'sub segsub', innerHTML: '<td colspan="' + (st.columns.length + 1) + '"><span class="lv muted" style="padding-left:' + pad + 'px">No ' + esc(g.name) + ' rows on this PC for ' + esc(code) + ' — sync the trial balance with it (Trial balance segments) or the extended segments.</span></td>' })); return; }
+            var accs = keys.map(function (k, i) { return { code: 'S' + i, name: k, account_type: acc.account_type, class: acc.class }; }), facts = { ACTUAL: {} };
+            keys.forEach(function (k, i) { facts.ACTUAL['S' + i] = vals[k]; });
+            var sign = row.sign === -1 || row.sign === 'credit' ? 'credit' : row.sign === 1 || row.sign === 'debit' ? 'debit' : 'auto';
+            var mini = { id: 'SEG', rows: keys.map(function (k, i) { return { id: 'r' + i, type: 'accounts', label: k, accounts: ['S' + i], basis: row.basis || 'auto', sign: sign, favourable: row.favourable }; }) };
+            var res2 = FINE.compute(mini, { accounts: accs, periods: data.periods, facts: facts }, Object.assign({}, opts, { columns: opts.columns || (S.last && S.last.tpl.columns) || undefined }));
+            var at = tr, frag = res2.rows.filter(function (r) { return r.values.some(function (v) { return v && Math.abs(v) >= 0.005; }); });
+            frag.forEach(function (r, i) {
+                var x = document.createElement('tr'); x.className = 'sub segsub';
+                x.innerHTML = '<td><span class="lv" style="padding-left:' + pad + 'px" title="' + esc(g.name + ' — from the ' + res.src) + '"><span class="muted">' + esc(g.name) + '</span> ' + esc(r.label) + '</span></td>' +
+                    st.columns.map(function (c, j) { var v = r.values[j]; return '<td class="' + (c.kind === 'var' && v ? (v > 0 ? 'fav' : 'unf') : '') + '">' + FL.cellText(row, c, v) + '</td>'; }).join('');
+                at.after(x); at = x;
+            });
+            if (!frag.length) { var e = document.createElement('tr'); e.className = 'sub segsub'; e.innerHTML = '<td colspan="' + (st.columns.length + 1) + '"><span class="lv muted" style="padding-left:' + pad + 'px">Nothing in these columns by ' + esc(g.name) + '.</span></td>'; tr.after(e); }
+        }, function (e) { wait.remove(); FL.toast(String(e), 'err'); });
     };
     /** Per-account values of every accounts row (for account detail) */
     function subRows(tpl, data, opts, st) {
@@ -242,6 +308,8 @@
                     ' · budget: ' + (data.budgetPlans && data.budgetPlans.length ? esc(data.budgetPlans.map(function (b) { return b.name || b.id; }).join(', ')) + ' (Planning)' : 'Fusion GL');
                 S.last = { tpl: tpl, st: st, opts: opts };
                 var sub = S.detail ? subRows(tpl, data, opts, st) : null;
+                var segs = S.segCache || [], segOn = S.segBy ? segs.filter(function (g) { return g.col === S.segBy; })[0] : null;
+                if (S.detail && !S.segCache) S.segList().then(function (l) { if (l.length) FL.render(); });
                 var gaps = FINE.tbGaps(tpl, data, opts.period), looseAmt = 0;
                 gaps.forEach(function (g) { looseAmt += g.amount; });
                 S.gaps = gaps;
@@ -250,6 +318,8 @@
                         return '<option value="' + c.id + '"' + (colId === c.id ? ' selected' : '') + '>' + esc(c.label) + '</option>'; }).join('') + '</select></label>' : '') +
                     '<label class="sm"><input type="checkbox" id="st-zero"' + (S.hideZero ? ' checked' : '') + '> hide empty lines</label>' +
                     '<label class="sm"><input type="checkbox" id="st-det"' + (S.detail ? ' checked' : '') + '> account detail</label>' +
+                    (S.detail && segs.length ? '<label class="sm" title="Each account line gets a ▸ that opens it by this segment (from the synced trial balance segments or the extended segments)">open accounts by <select id="st-segby"><option value="">—</option>' +
+                        segs.map(function (g) { return '<option value="' + g.col + '"' + (S.segBy === g.col ? ' selected' : '') + '>' + esc(g.name) + '</option>'; }).join('') + '</select></label>' : '') +
                     '<label class="sm" title="How line names are written. Sentence case is the usual style of published statements (IFRS / IAS 1): Trade and other receivables. Acronyms such as VAT or PPE stay in capitals.">Labels <select id="st-case">' +
                     [['sentence', 'Sentence case (standard)'], ['title', 'Title Case'], ['upper', 'UPPER CASE'], ['asis', 'as written']].map(function (o) { return '<option value="' + o[0] + '"' + (S.labels === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></label>' +
                     '<button class="btn sm" id="st-std" title="Write standard labels and fonts into the template itself (headings bold, lines plain, totals bold with a rule, the final total double-underlined, % lines italic)"><i class="fa-solid fa-spell-check"></i> Standardize template</button>' +
@@ -266,12 +336,18 @@
                         '<div style="margin-top:6px"><button class="btn sm primary" id="st-gaps"><i class="fa-solid fa-list-check"></i> Review &amp; add (' + gaps.length + ')</button> ' +
                         '<button class="btn sm" id="st-gapall"><i class="fa-solid fa-wand-magic-sparkles"></i> Add all as suggested</button>' + (tpl.simple ? ' <a id="st-map">open the mapping</a>' : '') + '</div></div>' : '') +
                     (st.errors.length ? '<div class="stmt-err"><i class="fa-solid fa-triangle-exclamation"></i> ' + st.errors.map(esc).join(' · ') + '</div>' : '') +
-                    FL.stmtTable(st, { links: true, hideZero: S.hideZero, detail: S.detail, sub: sub }) + '</div>' +
+                    FL.stmtTable(st, { links: true, hideZero: S.hideZero, detail: S.detail, sub: sub, segBy: segOn ? S.segBy : '', segName: segOn ? segOn.name : '' }) + '</div>' +
                     '<p class="sm muted">Click a line name for the accounts mapped to it; click an amount to see the accounts behind it, then companies, cost centres, months and journal lines. Variances are shown favourable (+) / unfavourable (−).</p>';
                 FL.tb.wireHead(el);
                 if ($('st-cols')) $('st-cols').onchange = function () { var m = FL.ls('stmt.cols', {}); m[kind] = this.value; FL.lsSet('stmt.cols', m); FL.render(); };
                 $('st-zero').onchange = function () { S.hideZero = this.checked; FL.lsSet('stmt.hideZero', S.hideZero); FL.render(); };
                 $('st-det').onchange = function () { S.detail = this.checked; FL.render(); };
+                if ($('st-segby')) $('st-segby').onchange = function () { S.segBy = this.value; FL.lsSet('stmt.segBy', S.segBy); FL.render(); };
+                el.querySelectorAll('tr.sub[data-acc]').forEach(function (tr) {
+                    var c = tr.querySelector('.st-segc'); if (!c) return;
+                    tr.style.cursor = 'pointer';
+                    tr.onclick = function () { S.toggleSeg(tr, data, opts, st, tr.dataset.of, tr.dataset.acc, segOn); };
+                });
                 $('st-case').onchange = function () { S.labels = this.value; FL.lsSet('stmt.labels', S.labels); FL.render(); };
                 $('st-std').onclick = function () { S.standardize(tpl); };
                 $('st-xl').onclick = function () { FL.excel([S.last.st], tpl.name); };

@@ -1486,6 +1486,21 @@ namespace WMSApp
             (o.TbSegments ?? new()).Select(SegCol).Where(sg => sg != null && sg != led.Company && sg != led.Account && !(byCc && sg == led.CostCentre))
                 .Distinct().OrderBy(sg => int.TryParse(sg.Substring(7), out var k) ? k : 99).ToList();
         /// <summary>"CO,AC" / "CO,AC,CC" + ",S&lt;n&gt;" per extra segment — one kept set per choice, so changing it reads the periods again.</summary>
+        /// <summary>Adds the extra segments to an own trial balance query: "c.SEGMENTn segmentn" after "c.{ACCOUNT_SEGMENT} account" in the
+        /// SELECT and ", c.SEGMENTn" after the last "c.{ACCOUNT_SEGMENT}" of the GROUP BY; null when the query is not written that way.</summary>
+        internal static string InjectTbSegments(string q, List<string> extra)
+        {
+            var need = extra.Where(sg => !Regex.IsMatch(q, @"\bc\." + sg + @"\b", RegexOptions.IgnoreCase)).ToList();
+            if (need.Count == 0) return q;
+            var sel = Regex.Match(q, @"c\.\{ACCOUNT_SEGMENT\}\s+(AS\s+)?account\b", RegexOptions.IgnoreCase);
+            int gb = q.LastIndexOf("GROUP BY", StringComparison.OrdinalIgnoreCase);
+            if (!sel.Success || gb < 0 || sel.Index > gb) return null;
+            var grp = Regex.Matches(q.Substring(gb), @"c\.\{ACCOUNT_SEGMENT\}", RegexOptions.IgnoreCase);
+            if (grp.Count == 0) return null;
+            int gAt = gb + grp[grp.Count - 1].Index + grp[grp.Count - 1].Length;
+            string q2 = q.Insert(gAt, string.Concat(need.Select(sg => ", c." + sg)));
+            return q2.Insert(sel.Index + sel.Length, string.Concat(need.Select(sg => ", c." + sg + " " + sg.ToLowerInvariant())));
+        }
         internal static string TbGrain(bool byCc, List<string> extra) => (byCc ? "CO,AC,CC" : "CO,AC") + string.Concat(extra.Select(sg => ",S" + sg.Substring(7)));
         /// <summary>The trial balance rows this PC holds for some periods, one grain per period × company (the coarsest that was read) —
         /// whatever segments it was read by, its rows add up to the account.</summary>
@@ -1528,13 +1543,20 @@ namespace WMSApp
             res.Template = string.IsNullOrWhiteSpace(o.QueryTemplate) ? res.Default : o.QueryTemplate.Trim().TrimEnd(';');
             res.Custom = !string.IsNullOrWhiteSpace(o.QueryTemplate) && res.Template != res.Default;
             if (res.Custom && !Regex.IsMatch(res.Template, @"^\s*(SELECT|WITH)\b", RegexOptions.IgnoreCase)) { res.Error = "The query must start with SELECT or WITH."; return res; }
+            bool injected = false;
+            if (res.Custom && extra.Count > 0)
+            {   // your own query: add the chosen segments to its SELECT and GROUP BY (after the account) so the choice is not lost
+                var t2 = InjectTbSegments(res.Template, extra);
+                if (t2 != null) { res.Template = t2; injected = true; x.Note("Your own query: added " + string.Join(", ", extra) + " to its SELECT and GROUP BY"); }
+                else x.Note("⚠ Your own query does not select / group by c.{ACCOUNT_SEGMENT} the usual way, so " + string.Join(", ", extra) + " could not be added — add them yourself or use the default query");
+            }
             if (res.Custom) x.Note("Using your own query: " + res.Template);
             string Lit(string v) => "'" + (v ?? "").Replace("'", "''") + "'";
             string Fill(string period, List<string> companies) => res.Template
                 .Replace("{LEDGER_ID}", led.Id.ToString(CultureInfo.InvariantCulture)).Replace("{PERIOD}", period.Replace("'", "''")).Replace("{CURRENCY}", (led.Currency ?? "").Replace("'", "''"))
                 .Replace("{COMPANY_FILTER}", companies == null ? "" : " AND " + CodeFilter("c." + led.Company, companies))
                 .Replace("{COMPANY_SEGMENT}", led.Company).Replace("{ACCOUNT_SEGMENT}", led.Account).Replace("{COST_CENTRE_SEGMENT}", led.CostCentre ?? led.Account);
-            string grain = TbGrain(byCc, res.Custom ? new List<string>() : extra);
+            string grain = TbGrain(byCc, res.Custom && !injected ? new List<string>() : extra);
             if (extra.Count > 0 && !res.Custom) x.Note("Trial balance also by " + string.Join(", ", extra) + " (grain " + grain + ")");
             var all = (o.AllCompanies ?? new()).Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToList();
             var want = cos.Count > 0 ? cos.ToList() : all;   // what a period must hold (empty = every company, i.e. a '*' read)
