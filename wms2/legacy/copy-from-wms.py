@@ -4,7 +4,7 @@ WMS 2.0 never edits these files: fix the original in wms/ and run this script ag
 (python wms2/legacy/copy-from-wms.py from the repo root). The line ranges below are the
 WMS source as of this copy; check them after a big change in wms/app.js.
 
-  trip-workspace.js  wms/app.js 5113-15833: the Trip Details page (openTripDetails, header actions
+  trip-workspace.js  wms/app.js 5113-15908: the Trip Details page (openTripDetails, header actions
                      Refresh / Edit Trip / Assign Picker / Allocate Lots for S2V / Pick Release All /
                      All Shipment Lines / Show Lines / Get Profit Centers / Add Orders, per-row Move /
                      Remove / Print), the picker dialog, pick release with or without lots, print store
@@ -51,8 +51,8 @@ def head(what):
 
 
 app = lines('wms/app.js')
-write('trip-workspace.js', head('wms/app.js lines 5113-15833 (Trip Details page, its actions and the order dialogs)') +
-      '(function () {\n' + cut(app, 5113, 15833) + '\n})();')
+write('trip-workspace.js', head('wms/app.js lines 5113-15908 (Trip Details page, its actions and the order dialogs)') +
+      '(function () {\n' + cut(app, 5113, 15908) + '\n})();')
 
 for f in ['trip-details.js', 'trip-move.js', 'pickers.js', 'vehicles.js', 'future-trip.js']:
     write(f, head('wms/' + f) + '\n'.join(lines('wms/' + f)))

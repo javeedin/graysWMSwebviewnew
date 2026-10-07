@@ -14068,6 +14068,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     window.refreshTransactionDetails = async function(orderNumber) {
         console.log('[Store Transactions] Refreshing transaction details for:', orderNumber);
+        window.trxDetailsOrder = String(orderNumber);
 
         const gridContainer = document.getElementById('transaction-details-grid');
         if (!gridContainer) {
@@ -14119,12 +14120,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Get keys from first item to create columns dynamically
                     // Column order: the columns before TRX NUMBER as sent · TRX NUMBER · item code · item description ·
                     // requested qty · QOH · the rest as the API sends them (wmsOrderTrxColumns)
-                    const keys = window.wmsOrderTrxColumns(Object.keys(response.items[0]));
-                    const columns = keys.map(key => ({
-                        dataField: key,
-                        caption: key.replace(/_/g, ' ').toUpperCase(),
-                        width: 'auto'
-                    }));
+                    const rawKeys = Object.keys(response.items[0]);
+                    const trxKeys = window.wmsTrxKeys(rawKeys);
+                    if (!trxKeys.qoh) {   // no QOH column from the API: one is added, filled from the QOH Details rows
+                        rawKeys.splice(trxKeys.qty ? rawKeys.indexOf(trxKeys.qty) + 1 : rawKeys.length, 0, 'QOH');
+                        trxKeys.qoh = 'QOH';
+                    }
+                    const keys = window.wmsOrderTrxColumns(rawKeys);
+                    const columns = keys.map(key => {
+                        const col = { dataField: key, caption: key.replace(/_/g, ' ').toUpperCase(), width: 'auto' };
+                        if (key === trxKeys.qoh) col.cellTemplate = window.wmsQohCell;   // the QOH Details sum; red when the requested qty is more
+                        return col;
+                    });
 
                     // Initialize DevExpress DataGrid with checkbox selection
                     transactionDetailsGrid = $('#transaction-details-grid').dxDataGrid({
@@ -14209,10 +14216,12 @@ document.addEventListener('DOMContentLoaded', function() {
                                 cancelBtn.style.display = selectedCount > 0 ? 'inline-flex' : 'none';
                             }
                         },
+                        onRowPrepared: window.wmsTrxRowPrepared,
                         onContentReady: function(e) {
                             console.log('[Store Transactions] Transaction Details Grid loaded, row count:', e.component.totalCount());
                         }
                     }).dxDataGrid('instance');
+                    window.wmsApplyQohToTrx();   // QOH from the QOH Details rows when they are already here (else when they arrive)
 
                     // Show Fetch Lot Details button
                     document.getElementById('fetch-lot-btn').style.display = 'inline-flex';
@@ -14774,23 +14783,86 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
 
-    /** Store Transactions › Transaction Details column order: whatever comes before TRX NUMBER, then TRX NUMBER, item code,
-        item description, requested qty, QOH, then the remaining columns in the order the API sends them. Field names are
-        matched loosely (trx_number / trxnumber, item_code / item / item_number, item_desc / item_description / description,
-        req_qty / requested_quantity / quantity / qty, qoh / on_hand_qty / quantity_on_hand). */
-    window.wmsOrderTrxColumns = function(keys) {
+    /** The columns of a Store Transactions row, found loosely by name: trx number, item code, item description,
+        requested qty, QOH, source organisation code, source subinventory. */
+    window.wmsTrxKeys = function(keys) {
         keys = (keys || []).slice();
         const first = (res) => { for (const re of res) { const k = keys.find(x => re.test(x)); if (k) return k; } return null; };
-        const trxKey = first([/^trx_?number$/i]);
-        const special = [
-            first([/^item_?code$/i, /^item_?(number|no|num)$/i, /^item$/i, /^inventory_?item$/i]),
-            first([/^item_?desc(ription)?$/i, /^description$/i, /^item_?name$/i]),
-            first([/^req(uested)?_?(qty|quantity)$/i, /^(trx|transaction|ordered|order)_?(qty|quantity)$/i, /^(quantity|qty)$/i]),
-            first([/^qoh$/i, /^qoh_?(qty|quantity)$/i, /^(on_?hand|onhand)(_?(qty|quantity))?$/i, /^quantity_?on_?hand$/i, /^available_?(qty|quantity)$/i])
-        ].filter((k, i, a) => k && k !== trxKey && a.indexOf(k) === i);
+        return {
+            trx: first([/^trx_?number$/i]),
+            item: first([/^item_?code$/i, /^item_?(number|no|num)$/i, /^item$/i, /^inventory_?item$/i]),
+            desc: first([/^item_?desc(ription)?$/i, /^description$/i, /^item_?name$/i]),
+            qty: first([/^req(uested)?_?(qty|quantity)$/i, /^(trx|transaction|ordered|order)_?(qty|quantity)$/i, /^(quantity|qty)$/i]),
+            qoh: first([/^qoh$/i, /^qoh_?(qty|quantity)$/i, /^(on_?hand|onhand)(_?(qty|quantity))?$/i, /^quantity_?on_?hand$/i, /^available_?(qty|quantity)$/i]),
+            org: first([/^(source_?|src_?|from_?)?org(anization)?(_?code)?$/i]),
+            sub: first([/^(source_?|src_?|from_?)?sub_?inv(entory)?(_?code)?$/i])
+        };
+    };
+    /** Store Transactions › Transaction Details column order: whatever comes before TRX NUMBER, then TRX NUMBER, item code,
+        item description, requested qty, QOH, then the remaining columns in the order the API sends them. */
+    window.wmsOrderTrxColumns = function(keys) {
+        keys = (keys || []).slice();
+        const K = window.wmsTrxKeys(keys), trxKey = K.trx;
+        const special = [K.item, K.desc, K.qty, K.qoh].filter((k, i, a) => k && k !== trxKey && a.indexOf(k) === i);
         const before = trxKey ? keys.slice(0, keys.indexOf(trxKey)).filter(k => special.indexOf(k) < 0) : [];
         const used = new Set(before.concat(trxKey ? [trxKey] : [], special));
         return before.concat(trxKey ? [trxKey] : [], special, keys.filter(k => !used.has(k)));
+    };
+    /** Transaction Details › QOH from the QOH Details rows (window.qohData = the trip/tripqoh answer): PRIMARYQUANTITY summed
+        per item × organisation × subinventory of the transaction's source (per item alone when no row has that source).
+        A row whose requested qty is more than that QOH gets __qohShort and is shown red (wmsTrxRowPrepared, wmsQohCell).
+        Runs after the transaction grid is built and again when the QOH rows arrive — whichever comes last does the work. */
+    window.wmsApplyQohToTrx = function() {
+        let grid = null;
+        try { grid = $('#transaction-details-grid').dxDataGrid('instance'); } catch (e) { return 0; }
+        const rows = grid && grid.option('dataSource');
+        if (!Array.isArray(rows) || !rows.length || !Array.isArray(window.qohData)) return 0;
+        if (window.qohDataOrder && window.trxDetailsOrder && window.qohDataOrder !== window.trxDetailsOrder) return 0;   // QOH rows of another order
+        const q = (r, names) => { const ks = Object.keys(r); for (const n of names) { const k = ks.find(x => x.toLowerCase() === n); if (k && r[k] != null && r[k] !== '') return r[k]; } return ''; };
+        const norm = v => String(v == null ? '' : v).trim().toUpperCase();
+        const byKey = {}, byItem = {}, cnt = {};
+        window.qohData.forEach(r => {
+            const item = norm(q(r, ['itemnumber', 'item_number', 'item', 'item_code', 'itemcode']));
+            const qty = parseFloat(q(r, ['primaryquantity', 'primary_quantity', 'quantity', 'qoh', 'onhand', 'on_hand_qty'])) || 0;
+            if (!item) return;
+            const k = item + '|' + norm(q(r, ['organizationcode', 'organization_code', 'org_code'])) + '|' + norm(q(r, ['subinventorycode', 'subinventory_code', 'subinventory', 'sub_inv']));
+            byKey[k] = (byKey[k] || 0) + qty; byItem[item] = (byItem[item] || 0) + qty; cnt[k] = (cnt[k] || 0) + 1; cnt[item] = (cnt[item] || 0) + 1;
+        });
+        const K = window.wmsTrxKeys(Object.keys(rows[0])), qohKey = K.qoh || 'QOH';
+        let changed = 0, short = 0;
+        rows.forEach(r => {
+            const item = norm(K.item && r[K.item]); if (!item) return;
+            const k = item + '|' + norm(K.org && r[K.org]) + '|' + norm(K.sub && r[K.sub]);
+            const has = Object.prototype.hasOwnProperty.call(byKey, k);
+            const qoh = has ? byKey[k] : (Object.prototype.hasOwnProperty.call(byItem, item) ? byItem[item] : null);
+            const req = parseFloat(K.qty && r[K.qty]);
+            r.__qohInfo = qoh == null ? { none: true } : { qoh: qoh, rows: cnt[has ? k : item] || 0, req: isFinite(req) ? req : null,
+                scope: has ? 'this item in the source organisation / subinventory' : 'this item in every subinventory (no QOH row for the source subinventory)' };
+            if (qoh != null) r[qohKey] = Math.round(qoh * 100) / 100;
+            r.__qohShort = qoh != null && isFinite(req) && req > qoh + 1e-9;
+            if (r.__qohShort) short++;
+            changed++;
+        });
+        if (changed) { try { grid.refresh(); } catch (e) { /* grid gone */ } }
+        if (short) console.log('[Store Transactions] ' + short + ' line(s) ask for more than the QOH');
+        return short;
+    };
+    /** QOH cell: the summed value, green; red with a warning sign when the requested qty is more; what it is made of on hover. */
+    window.wmsQohCell = function(container, info) {
+        const r = info.data || {}, i = r.__qohInfo, v = info.value;
+        const $c = $(container).empty().css({ whiteSpace: 'nowrap', textAlign: 'right' });
+        if (!i) { $c.text(v == null ? '' : v).attr('title', 'From the API — the QOH Details rows are still loading'); return; }
+        if (i.none) { $('<span>').text(v == null || v === '' ? '—' : v).css('color', '#94a3b8').attr('title', 'No QOH Details row for this item').appendTo($c); return; }
+        $('<span>').text(Number(i.qoh).toLocaleString(undefined, { maximumFractionDigits: 2 }))
+            .css({ fontWeight: 700, color: r.__qohShort ? '#b91c1c' : '#15803d' })
+            .attr('title', 'QOH = the sum of ' + i.rows + ' QOH Details row(s) for ' + i.scope + (r.__qohShort ? '\nRequested ' + i.req + ' is MORE than the QOH' : '')).appendTo($c);
+        if (r.__qohShort) $('<i class="fas fa-triangle-exclamation">').css({ color: '#b91c1c', marginLeft: '6px' }).appendTo($c);
+    };
+    window.wmsTrxRowPrepared = function(e) {
+        if (e.rowType !== 'data' || !e.data || !e.data.__qohShort) return;
+        const i = e.data.__qohInfo || {};
+        e.rowElement.addClass('wms-qoh-short').attr('title', 'Requested qty ' + i.req + ' is more than the QOH ' + i.qoh);
+        e.rowElement.find('td').css('background-color', '#fee2e2');
     };
 
     // Refresh QOH Details (Tab 2)
@@ -14836,8 +14908,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 const response = JSON.parse(data);
 
                 if (response && response.items && response.items.length > 0) {
-                    // Store QOH data globally for lot number lookup
+                    // Store QOH data globally for lot number lookup (and for the QOH column of Transaction Details)
                     window.qohData = response.items;
+                    window.qohDataOrder = String(orderNumber);
+                    window.wmsApplyQohToTrx();
 
                     // Clear loading message
                     gridContainer.innerHTML = '';
@@ -14940,6 +15014,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         }
                     }).dxDataGrid('instance');
                 } else {
+                    window.qohData = []; window.qohDataOrder = String(orderNumber); window.wmsApplyQohToTrx();   // nothing on hand: every line is short
                     gridContainer.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No QOH data found for this order</p>';
                 }
             } catch (parseError) {
