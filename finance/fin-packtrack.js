@@ -37,6 +37,9 @@
             Object.keys(DDL).forEach(function (t) { if (!have[t]) chain = chain.then(function () { return A().write(DDL[t]); }); });
             if (!have.WMS_FIN_PACK_RCPT) chain = chain.then(function () { return A().write('CREATE INDEX wms_fin_pack_rcpt_send ON wms_fin_pack_rcpt (send_id)'); }).then(function () { return A().write('CREATE INDEX wms_fin_pack_rcpt_mail ON wms_fin_pack_rcpt (email)'); });
             if (!have.WMS_FIN_PACK_GIF) chain = chain.then(function () { return A().write("INSERT INTO wms_fin_pack_gif (id, gif) VALUES (1, TO_BLOB(HEXTORAW('47494638396101000100800000FFFFFF00000021F90401000000002C00000000010001000002024401003B')))"); });
+            // the e-mail as sent (added later — older tables get the column)
+            chain = chain.then(function () { return A().read("SELECT column_name FROM user_tab_columns WHERE table_name = 'WMS_FIN_PACK_SENDS' AND column_name = 'EMAIL_HTML'"); })
+                .then(function (c) { if (!c.length) return A().write('ALTER TABLE wms_fin_pack_sends ADD (email_html CLOB)'); });
             return chain;
         }).catch(function (e) { T._ens = null; throw e; });
         return T._ens;
@@ -109,6 +112,23 @@
                     return A().write('INSERT INTO wms_fin_pack_rcpt (token, send_id, email, kind, status, opens) ' + ch.map(function (r) { return 'SELECT ' + lit(r.token) + ', ' + lit(send.sendId) + ', ' + lit(cut(r.email, 320)) + ', ' + lit(r.kind) + ", 'PENDING', 0 FROM dual"; }).join(' UNION ALL '));
                 });
             }, Promise.resolve());
+        });
+    };
+    var clobOf = function (t) { var p = []; for (var j = 0; j < t.length; j += 1000) p.push('TO_CLOB(' + lit(t.slice(j, j + 1000)) + ')'); return p.join(' || ') || 'NULL'; };
+    /** Keeps the e-mail text of a send (CLOB written in 20,000-character pieces) */
+    T.saveBody = function (sendId, html) {
+        var ch = []; for (var i = 0; i < html.length; i += 20000) ch.push(html.slice(i, i + 20000));
+        return ch.reduce(function (p, c, k) { return p.then(function () { return A().write('UPDATE wms_fin_pack_sends SET email_html = ' + (k ? 'email_html || ' : '') + clobOf(c) + ' WHERE send_id = ' + lit(sendId)); }); }, Promise.resolve());
+    };
+    /** A CLOB of the sends table, read in 4,000-character pieces */
+    T.clob = function (sendId, col) {
+        return A().read('SELECT LENGTH(' + col + ') AS n FROM wms_fin_pack_sends WHERE send_id = ' + lit(sendId), 1).then(function (r) {
+            var len = r.length ? +r[0].N || 0 : 0, cols = [];
+            for (var i = 1; i <= len; i += 4000) cols.push('TO_CHAR(SUBSTR(' + col + ', ' + i + ', 4000)) AS p' + cols.length);
+            var groups = []; for (var g = 0; g < cols.length; g += 20) groups.push(cols.slice(g, g + 20));
+            return Promise.all(groups.map(function (gr) { return A().read('SELECT ' + gr.join(', ') + ' FROM wms_fin_pack_sends WHERE send_id = ' + lit(sendId), 1); })).then(function (parts) {
+                var t = ''; parts.forEach(function (rows, gi) { groups[gi].forEach(function (_, j) { t += (rows[0] || {})['P' + (gi * 20 + j)] || ''; }); }); return t;
+            });
         });
     };
     /** After the e-mail of one copy: SENT / DRAFT / FAILED */
@@ -193,8 +213,10 @@
     // ── the Distribution tab ──
     T.render = function (body) {
         T.body = body;
+        if (T.mode === 'new') return FL.packDist.render(body);
+        if (T.detailId) return T.renderDetail(body, T.detailId);
         body.innerHTML = '<div class="card"><div class="row" style="gap:8px;flex-wrap:wrap"><h3 style="margin:0"><i class="fa-solid fa-paper-plane"></i> Distribution</h3><span class="sm muted">every board pack e-mailed from the app — to whom, when, and what happened to it</span><span class="grow"></span>' +
-            '<span id="pt-links" class="sm"></span><button class="btn" id="pt-rc" title="Read the read / delivery receipts and bounces that came back to the sending mailbox (Microsoft 365 or Outlook)"><i class="fa-solid fa-envelope-circle-check"></i> Check receipts</button><button class="btn" id="pt-ref"><i class="fa-solid fa-rotate"></i></button></div>' +
+            '<span id="pt-links" class="sm"></span><button class="btn primary" id="pt-new" title="Choose a template, period, ledgers and people, preview it and send it — kept as a record you can open later"><i class="fa-solid fa-plus"></i> New distribution</button><button class="btn" id="pt-rc" title="Read the read / delivery receipts and bounces that came back to the sending mailbox (Microsoft 365 or Outlook)"><i class="fa-solid fa-envelope-circle-check"></i> Check receipts</button><button class="btn" id="pt-ref"><i class="fa-solid fa-rotate"></i></button></div>' +
             '<div class="row pt-filters" style="gap:8px;margin-top:8px;flex-wrap:wrap"><input id="pt-q" type="search" placeholder="Search a person, pack, document…" value="' + esc(T.f.q || '') + '" style="min-width:260px">' +
             '<select id="pt-days" class="sm">' + [[30, 'Last 30 days'], [90, 'Last 90 days'], [365, 'Last year'], [3650, 'Everything']].map(function (o) { return '<option value="' + o[0] + '"' + (+T.f.days === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
             '<div class="seg sm" id="pt-view">' + [['sends', 'By send'], ['people', 'By person']].map(function (v) { return '<button data-v="' + v[0] + '"' + ((T.f.view || 'sends') === v[0] ? ' class="on"' : '') + '>' + v[1] + '</button>'; }).join('') + '</div><span id="pt-chips"></span></div></div>' +
@@ -203,6 +225,7 @@
         $('pt-days').onchange = function () { T.f.days = +this.value; FL.lsSet('pack.trk.f', T.f); T.refresh(); };
         body.querySelectorAll('#pt-view button').forEach(function (b) { b.onclick = function () { T.f.view = b.dataset.v; FL.lsSet('pack.trk.f', T.f); body.querySelectorAll('#pt-view button').forEach(function (x) { x.classList.toggle('on', x === b); }); T.paint(); }; });
         $('pt-ref').onclick = T.refresh;
+        $('pt-new').onclick = function () { T.mode = 'new'; T.render(body); };
         $('pt-rc').onclick = function () { T.receipts().then(T.refresh); };
         T.refresh();
         T.paintLinks();
@@ -258,7 +281,7 @@
             var open = T.openSend === s.SEND_ID;
             return '<div class="card pt-send' + (open ? ' open' : '') + '" data-s="' + esc(s.SEND_ID) + '"><div class="pt-sh"><i class="fa-solid fa-chevron-right pt-car"></i><div class="pt-st"><b>' + esc(s.TITLE || s.PACK_NAME) + ' · ' + esc(s.PERIOD || '') + '</b>' +
                 '<div class="sm muted">' + esc(full(s.at)) + ' · ' + esc({ GRAPH: 'Microsoft 365', OUTLOOK: 'Outlook', SMTP: 'SMTP' }[s.METHOD] || s.METHOD || '') + (s.MAILBOX ? ' · from ' + esc(s.MAILBOX) : '') + (s.APP_USER ? ' · by ' + esc(s.APP_USER) : '') + ' · <span class="mono">' + esc(s.DOC_ID || s.SEND_ID) + '</span>' + (s.TRACKED === 'Y' ? ' · tracked' : '') + '</div></div>' +
-                '<div class="pt-tally">' + Object.keys(T.STATES).filter(function (st) { return tally[st]; }).map(function (st) { return pill(st) + '<b>' + tally[st] + '</b>'; }).join('') + '</div></div>' +
+                '<button class="btn sm" data-open="' + esc(s.SEND_ID) + '" title="The whole record: people, the e-mail, the pack with its figures">Open <i class="fa-solid fa-arrow-right"></i></button><div class="pt-tally">' + Object.keys(T.STATES).filter(function (st) { return tally[st]; }).map(function (st) { return pill(st) + '<b>' + tally[st] + '</b>'; }).join('') + '</div></div>' +
                 (open ? '<table class="tbl pt-tbl"><thead><tr><th>Recipient</th><th></th><th>Status</th><th>Progress</th><th>Sent</th><th>Delivered</th><th>Opened</th><th>Read</th><th>Confirmed</th></tr></thead><tbody>' + rc.map(function (r) {
                     return '<tr><td><b>' + esc(r.EMAIL) + '</b></td><td><span class="pt-k">' + esc(r.KIND || '') + '</span></td><td>' + pill(r.state, r.ERROR_TEXT || r.BOUNCE_TEXT || T.openHint(r)) + '</td><td>' + T.steps(r) + '</td>' +
                         '<td>' + esc(when(r.SENT_AT)) + '</td><td>' + esc(when(r.DELIVERED_AT)) + '</td><td>' + (+r.OPENS > 0 ? esc(when(r.FIRST_OPEN)) + (+r.OPENS > 1 ? ' <span class="muted">· ' + r.OPENS + '×</span>' : '') : '') + '</td><td>' + esc(when(r.READ_AT)) + '</td><td>' + esc(when(r.ACK_AT)) + '</td></tr>' +
@@ -266,6 +289,7 @@
                 }).join('') + '</tbody></table><div class="row sm" style="margin-top:6px;gap:8px">' + (s.SHA256 ? '<span class="muted">fingerprint <span class="mono">' + esc(String(s.SHA256).slice(0, 16)) + '…</span></span>' : '') + '<span class="grow"></span><button class="btn sm" data-csv="' + esc(s.SEND_ID) + '"><i class="fa-solid fa-download"></i> CSV</button></div>' : '') + '</div>';
         }).join('') || '<div class="card muted">Nothing matches.</div>';
         $('pt-main').querySelectorAll('.pt-send').forEach(function (c) {
+            c.querySelector('[data-open]').onclick = function (e) { e.stopPropagation(); T.detailId = c.dataset.s; T.render(T.body); };
             c.querySelector('.pt-sh').onclick = function () { T.openSend = T.openSend === c.dataset.s ? null : c.dataset.s; T.paint(); };
             var b = c.querySelector('[data-csv]'); if (b) b.onclick = function () { T.csv(bySend[c.dataset.s]); };
         });
@@ -281,6 +305,76 @@
                 (T.openPerson === o.email ? '<tr><td colspan="7"><div class="pt-hist">' + o.list.sort(function (a, b) { return b.send.at - a.send.at; }).map(function (x) { return '<div>' + pill(x.state) + ' <b>' + esc(x.send.TITLE || x.send.PACK_NAME) + ' · ' + esc(x.send.PERIOD || '') + '</b> <span class="muted sm">' + esc(full(x.send.at)) + ' · ' + esc(x.KIND || '') + ' · ' + esc(x.send.DOC_ID || '') + '</span> ' + T.steps(x) + '</div>'; }).join('') + '</div></td></tr>' : '');
         }).join('') + '</tbody></table></div>';
         $('pt-main').querySelectorAll('.pt-prow').forEach(function (tr) { tr.onclick = function () { T.openPerson = T.openPerson === tr.dataset.e ? null : tr.dataset.e; T.paint(); }; });
+    };
+    // ── one distribution: everything that was sent ──
+    T.renderDetail = function (body, id) {
+        var back = function () { T.detailId = null; T.render(body); };
+        body.innerHTML = '<div class="card muted"><i class="fa-solid fa-circle-notch fa-spin"></i> Opening ' + esc(id) + '…</div>';
+        (T.rows ? Promise.resolve() : T.load()).then(function () {
+            var s = (T.sends || []).filter(function (x) { return x.SEND_ID === id; })[0];
+            if (!s) return T.load().then(function () { return (T.sends || []).filter(function (x) { return x.SEND_ID === id; })[0]; });
+            return s;
+        }).then(function (s) {
+            if (!s) { body.innerHTML = '<div class="card"><p class="neg">Distribution ' + esc(id) + ' was not found.</p><button class="btn" id="pd-back">← Back</button></div>'; $('pd-back').onclick = back; return; }
+            var rc = s.rc || [], tally = {}; rc.forEach(function (r) { tally[r.state] = (tally[r.state] || 0) + 1; });
+            var tab = T.dTab || 'people';
+            body.innerHTML = '<div class="card pd-head"><div class="row" style="gap:10px;flex-wrap:wrap"><button class="btn sm" id="pd-back"><i class="fa-solid fa-arrow-left"></i> Distribution</button>' +
+                '<div><div class="sm muted">' + esc(s.COMPANY || '') + '</div><h3 style="margin:0">' + esc(s.TITLE || s.PACK_NAME) + ' · ' + esc(s.PERIOD || '') + '</h3>' +
+                '<div class="sm muted">' + esc(full(s.at)) + ' · ' + esc({ GRAPH: 'Microsoft 365', OUTLOOK: 'Outlook', SMTP: 'SMTP' }[s.METHOD] || s.METHOD || '') + (s.MAILBOX ? ' · from ' + esc(s.MAILBOX) : '') + (s.APP_USER ? ' · by ' + esc(s.APP_USER) : '') + (s.LEDGERS ? ' · ' + esc(s.LEDGERS) : '') + '</div></div><span class="grow"></span>' +
+                '<div class="pd-id"><span class="sm muted">Document</span><b class="mono">' + esc(s.DOC_ID || s.SEND_ID) + '</b>' + (s.SHA256 ? '<span class="sm muted mono" title="SHA-256 of the attached pack">' + esc(String(s.SHA256).slice(0, 20)) + '…</span>' : '') + '</div></div>' +
+                '<div class="pt-tally" style="justify-content:flex-start;margin-top:8px">' + Object.keys(T.STATES).filter(function (st) { return tally[st]; }).map(function (st) { return pill(st) + '<b>' + tally[st] + '</b>'; }).join('') + '<span class="sm muted" style="margin-left:6px">' + rc.length + ' people · ' + esc(s.SUBJECT || '') + '</span></div></div>' +
+                '<div class="pk-tabbar pd-tabs">' + [['people', 'fa-users', 'People'], ['email', 'fa-envelope', 'The e-mail'], ['pack', 'fa-book-open', 'The pack'], ['figures', 'fa-table-cells-large', 'Figures'], ['trail', 'fa-clock-rotate-left', 'Trail']].map(function (t) {
+                    return '<button class="pk-tab' + (tab === t[0] ? ' on' : '') + '" data-dt="' + t[0] + '"><i class="fa-solid ' + t[1] + '"></i> ' + t[2] + '</button>'; }).join('') + '</div><div id="pd-body"></div>';
+            $('pd-back').onclick = back;
+            body.querySelectorAll('[data-dt]').forEach(function (b) { b.onclick = function () { T.dTab = b.dataset.dt; T.renderDetail(body, id); }; });
+            var pb = $('pd-body');
+            if (tab === 'people') {
+                pb.innerHTML = '<div class="card"><table class="tbl pt-tbl"><thead><tr><th>Recipient</th><th></th><th>Status</th><th>Progress</th><th>Sent</th><th>Delivered</th><th>Opened</th><th>Read</th><th>Confirmed</th></tr></thead><tbody>' + rc.map(function (r) {
+                    return '<tr><td><b>' + esc(r.EMAIL) + '</b></td><td><span class="pt-k">' + esc(r.KIND || '') + '</span></td><td>' + pill(r.state, r.ERROR_TEXT || r.BOUNCE_TEXT || T.openHint(r)) + '</td><td>' + T.steps(r) + '</td>' +
+                        '<td>' + esc(full(r.SENT_AT)) + '</td><td>' + esc(full(r.DELIVERED_AT)) + '</td><td>' + (+r.OPENS > 0 ? esc(full(r.FIRST_OPEN)) + (+r.OPENS > 1 ? ' <span class="muted">· ' + r.OPENS + '×</span>' : '') : '') + '</td><td>' + esc(full(r.READ_AT)) + '</td><td>' + esc(full(r.ACK_AT)) + '</td></tr>' +
+                        (r.ERROR_TEXT || r.BOUNCE_TEXT ? '<tr class="pt-err"><td colspan="9">' + esc(r.ERROR_TEXT || r.BOUNCE_TEXT) + '</td></tr>' : '');
+                }).join('') + '</tbody></table><div class="row" style="margin-top:8px"><span class="grow"></span><button class="btn sm" id="pd-csv"><i class="fa-solid fa-download"></i> CSV</button></div></div>';
+                $('pd-csv').onclick = function () { T.csv(rc); };
+            } else if (tab === 'email') {
+                pb.innerHTML = '<div class="card muted"><i class="fa-solid fa-circle-notch fa-spin"></i> Reading the e-mail…</div>';
+                T.clob(id, 'email_html').then(function (h) {
+                    if (!h) { pb.innerHTML = '<div class="card muted">The e-mail text was not kept for this send (sent before the text was recorded).</div>'; return; }
+                    h = h.replace(/src="cid:[^"]+"/g, 'src="data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="580" height="60"><rect width="100%" height="100%" fill="#f1f5f9"/><text x="50%" y="55%" text-anchor="middle" font-family="Segoe UI,Arial" font-size="13" fill="#64748b">picture sent inside the e-mail</text></svg>') + '"');
+                    pb.innerHTML = '<div class="card"><div class="sm muted" style="margin-bottom:6px">Subject: <b>' + esc(s.SUBJECT || '') + '</b> · one person\'s copy — every copy had the same text, with that person\'s own confirmation button</div><iframe class="pd-frame" id="pd-mail" title="The e-mail"></iframe></div>';
+                    $('pd-mail').srcdoc = h;
+                }).catch(function (e) { pb.innerHTML = '<div class="card neg">' + esc(String(e && e.message || e)) + '</div>'; });
+            } else if (tab === 'pack' || tab === 'figures' || tab === 'trail') {
+                pb.innerHTML = '<div class="card muted"><i class="fa-solid fa-circle-notch fa-spin"></i> Reading the archive…</div>';
+                var R = FL.packArchive;
+                R.ensure().then(function () { return FL.apexStore.read('SELECT archive_id, status, sha256, html_len, saved_by, saved_at, comments, meeting_date FROM wms_fin_pack_archive WHERE archive_id = ' + lit(id), 1); }).then(function (a) {
+                    if (!a.length) { pb.innerHTML = '<div class="card muted">This send has no archived copy (the pack file and figures are kept for distributions made with New distribution, or saved with Save to archive).</div>'; return; }
+                    a = a[0];
+                    if (tab === 'trail') return R.events(id).then(function (ev) {
+                        pb.innerHTML = '<div class="card"><table class="tbl pt-tbl"><thead><tr><th>When</th><th>Who</th><th>What</th><th>Detail</th></tr></thead><tbody>' + ev.map(function (e) { return '<tr><td>' + esc(e.EVENT_AT || '') + '</td><td>' + esc(e.EVENT_BY || '') + '</td><td><b>' + esc(e.EVENT || '') + '</b></td><td style="white-space:normal">' + esc(e.DETAIL || '') + '</td></tr>'; }).join('') + '</tbody></table></div>';
+                    });
+                    if (tab === 'figures') return R.clob(id, 'model_json').then(function (j) {
+                        var m = {}; try { m = JSON.parse(j || '{}'); } catch (e) { /* cut */ }
+                        var sc = /million/i.test(m.scaleLabel || '') ? 1e6 : /thousand/i.test(m.scaleLabel || '') ? 1e3 : 1, n = function (v) { return v == null || isNaN(v) ? '–' : FINE.fmt(+v / sc, 'num', { decimals: sc > 1 ? 0 : 2 }); };
+                        pb.innerHTML = '<div class="card"><div class="sm muted">The figures as they were sent — ' + esc(m.filter || '') + ' · ' + esc(m.period || '') + ' · amounts in ' + esc(m.scaleLabel || '') + '</div>' +
+                            '<div class="pd-tiles">' + (m.tiles || []).map(function (t) { return '<div class="pd-tile"><span>' + esc(t.label) + '</span><b>' + t.value + '</b><small class="' + (t.good == null ? '' : t.good ? 'pos' : 'neg') + '">' + esc(t.delta || '') + '</small></div>'; }).join('') + '</div>' +
+                            ((m.keyLines || []).length ? '<h4>Income statement at a glance</h4><table class="tbl pt-tbl"><thead><tr><th></th><th>Month</th><th>YTD</th><th>YTD budget</th><th>YTD last year</th></tr></thead><tbody>' + m.keyLines.map(function (r) { return '<tr' + (r.bold ? ' style="font-weight:700"' : '') + '><td>' + esc(r.label) + '</td><td>' + n(r.m) + '</td><td>' + n(r.y) + '</td><td>' + n(r.yb) + '</td><td>' + n(r.py) + '</td></tr>'; }).join('') + '</tbody></table>' : '') +
+                            ((m.highlights || []).length ? '<h4>Highlights</h4><ul>' + m.highlights.map(function (h) { return '<li>' + esc(h) + '</li>'; }).join('') + '</ul>' : '') +
+                            ((m.notes || []).length ? '<h4>Notes sent with it</h4><ul>' + m.notes.map(function (x) { return '<li><b>' + esc(x.title || x.kind || '') + '</b> ' + esc(x.body || '') + '</li>'; }).join('') + '</ul>' : '') + '</div>';
+                    });
+                    return R.clob(id, 'html').then(function (h) {
+                        return R.sha256(h).then(function (sha) {
+                            var ok = a.SHA256 && sha === a.SHA256;
+                            pb.innerHTML = '<div class="card"><div class="row" style="gap:8px;flex-wrap:wrap"><span class="pt-pill ' + (ok ? 'good' : 'bad') + '"><i class="fa-solid ' + (ok ? 'fa-shield-halved' : 'fa-triangle-exclamation') + '"></i> ' + (ok ? 'Unchanged since it was sent — fingerprint matches' : 'Fingerprint does not match') + '</span>' +
+                                '<span class="sm muted">' + Math.round(h.length / 1024) + ' KB · archived by ' + esc(a.SAVED_BY || '') + ' · ' + esc(a.SAVED_AT || '') + (a.COMMENTS ? ' · ' + esc(a.COMMENTS) : '') + '</span><span class="grow"></span>' +
+                                '<button class="btn sm" id="pd-full"><i class="fa-solid fa-up-right-and-down-left-from-center"></i> Open</button><button class="btn sm" id="pd-dl"><i class="fa-solid fa-download"></i> Download</button></div><iframe class="pd-frame pd-pack" id="pd-pack" title="The pack as sent"></iframe></div>';
+                            $('pd-pack').srcdoc = h;
+                            $('pd-full').onclick = function () { FL.packView(h, { title: (s.TITLE || s.PACK_NAME) + ' · ' + (s.PERIOD || '') }); };
+                            $('pd-dl').onclick = function () { FL.download((s.FILE_NAME || id + '.html'), new Blob([h], { type: 'text/html' })); };
+                        });
+                    });
+                }).catch(function (e) { pb.innerHTML = '<div class="card neg">' + esc(String(e && e.message || e)) + '</div>'; });
+            }
+        }).catch(function (e) { body.innerHTML = '<div class="card neg">' + esc(String(e && e.message || e)) + '</div>'; });
     };
     T.csv = function (rc) {
         var head = ['Document', 'Pack', 'Period', 'Sent', 'Recipient', 'Kind', 'Status', 'Delivered', 'Opened', 'Opens', 'Read', 'Confirmed', 'Problem'];

@@ -1077,3 +1077,21 @@ sup.st-nref { color: var(--accent); font-weight: 700; cursor: pointer; margin-le
 .pk-cp-th { display: flex; flex-wrap: wrap; gap: 5px; } .pk-cp-th button { display: flex; border: 2px solid transparent; border-radius: 7px; padding: 1px; background: none; cursor: pointer; } .pk-cp-th button.on { border-color: var(--accent); }
 .pk-cp-th i { width: 12px; height: 18px; } .pk-cp-th i:first-child { border-radius: 4px 0 0 4px; } .pk-cp-th i:last-child { border-radius: 0 4px 4px 0; }
 .pk-cp-link { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 2px 0; font: inherit; font-size: .76rem; text-decoration: underline; }
+/* New distribution + one distribution's record */
+.dw { display: grid; grid-template-columns: minmax(380px, 520px) minmax(0, 1fr); gap: 12px; margin-top: 12px; align-items: start; }
+@media (max-width: 1200px) { .dw { grid-template-columns: 1fr; } }
+.dw-left { display: flex; flex-direction: column; gap: 12px; }
+.dw-n { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff; font-size: .72rem; margin-right: 4px; }
+.dw-tpls { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.dw-tpl { display: flex; flex-direction: column; gap: 2px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--card); padding: 0 0 6px; cursor: pointer; overflow: hidden; font: inherit; color: var(--ink); text-align: left; }
+.dw-tpl .pk-mini { height: 70px; } .dw-tpl b { font-size: .8rem; padding: 4px 8px 0; } .dw-tpl small { font-size: .7rem; color: var(--muted); padding: 0 8px; }
+.dw-tpl.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
+.dw-lists { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; } .dw-lists .chip { cursor: pointer; border: 1px solid var(--line); background: var(--card); border-radius: 99px; padding: 3px 10px; font-size: .76rem; }
+.dw-right { position: sticky; top: 8px; }
+.dw-frame { margin-top: 8px; background: #e2e8f0; border-radius: 10px; padding: 6px; } .dw-frame iframe { width: 100%; height: calc(100vh - 330px); min-height: 460px; border: 0; border-radius: 8px; background: #fff; display: block; }
+.dw-go { display: flex; align-items: center; gap: 10px; margin-top: 10px; } .dw-go > div { flex: 1; } .dw-dist { font-size: .95rem; padding: 9px 18px; }
+.pd-head h3 { font-size: 1.15rem; } .pd-id { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.pd-tabs { margin-top: 12px; }
+.pd-frame { width: 100%; height: calc(100vh - 330px); min-height: 460px; border: 1px solid var(--line); border-radius: 10px; background: #fff; display: block; margin-top: 8px; }
+.pd-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; margin: 10px 0; }
+.pd-tile { border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: 9px; padding: 8px 10px; display: flex; flex-direction: column; } .pd-tile span { font-size: .72rem; color: var(--muted); font-weight: 700; } .pd-tile b { font-size: 1.2rem; } .pd-tile small { font-size: .72rem; }

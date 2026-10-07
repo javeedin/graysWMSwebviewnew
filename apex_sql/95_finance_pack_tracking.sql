@@ -12,6 +12,7 @@
 -- (Board packs › Distribution › Set up tracking runs parts 2–4 through ai/executewrite, else run it in SQL Developer).
 -- ============================================================================
 
+-- (an older table gets the e-mail column with: ALTER TABLE wms_fin_pack_sends ADD (email_html CLOB); — the page does it on first use)
 -- 1. Tables ---------------------------------------------------------------------
 CREATE TABLE wms_fin_pack_sends (
     send_id      VARCHAR2(40)   NOT NULL,          -- = the document ID of the copy (BP-yyyymmdd-XXXX)
@@ -34,6 +35,7 @@ CREATE TABLE wms_fin_pack_sends (
     receipts     CHAR(1) DEFAULT 'N',
     recipients   NUMBER,
     note         VARCHAR2(1000),
+    email_html   CLOB,                              -- the e-mail as sent (one copy; personal links made inert)
     CONSTRAINT wms_fin_pack_sends_pk PRIMARY KEY (send_id)
 );
 

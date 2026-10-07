@@ -65,6 +65,8 @@ templates and mapping stay).
 - *track* sends each person their own copy with a **Confirm I have received this board pack** button and a tiny tracking picture. The button opens a page where they press *I have received the board pack* (a second step, so security scanners that open links do not confirm by themselves). The picture shows when the e-mail was opened — only when the mail program shows pictures, and some services (Gmail) load pictures for the reader, so *Opened* is a hint while *Confirmed* is proof.
 - *ask for delivery and read receipts* — the mail system sends receipts back to your mailbox; *Check receipts* in Distribution reads them (Microsoft 365 asks once for permission to read mail; Outlook reads its Inbox) and bounced addresses show the reason. People can decline a read receipt.
 
+**New distribution** — in Distribution press *New distribution*: pick the template, the period and the ledgers, the people (or a saved list such as *Board of directors* — *Save as a list* keeps one), the message and tracking; the pack and the e-mail are previewed on the right. *Distribute* sends it and keeps the record: open it any time from Distribution to see the people and their status, the e-mail exactly as sent, the pack file (with its fingerprint checked) and the figures that went out.
+
 Each person's status: Sent → Delivered → Opened → Read → Confirmed, or Bounced / Not sent. *By person* lists everyone who received packs, how many they confirmed and their latest pack. Run `apex_sql/95_finance_pack_tracking.sql` once (or press *Set up* in Distribution) so the picture and the confirmation page are served.
 
 

@@ -125,69 +125,20 @@
             var paint = function () { var o = opts(false); if ($('mc-track') && $('mc-track').checked) o.track = { ack: '#', copyFor: (String($('mc-to').value).split(/[;,\s]+/).filter(Boolean)[0] || 'name@company.com'), also: '' }; $('mc-f').srcdoc = FL.packs.emailHtml(pack, built.model, o).html; };
             ['mc-intro', 'mc-tiles', 'mc-lines', 'mc-chart', 'mc-hl', 'mc-att', 'mc-logo', 'mc-track', 'mc-to'].filter($).forEach(function (id) { $(id).oninput = $(id).onchange = function () { clearTimeout(M._pt); M._pt = setTimeout(paint, 250); }; });
             paint();
-            var split = function (v) { return String(v || '').split(/[;,\s]+/).map(function (a) { return a.trim(); }).filter(function (a) { return /@/.test(a); }); };
             var send = function (how, display) {
                 var to2 = $('mc-to').value.trim();
                 if (!to2 && !(how === 'OUTLOOK' && display)) { FL.toast('Add at least one recipient', 'err'); $('mc-to').focus(); return; }
                 Object.assign(pack.email, { to: to2, cc: $('mc-cc').value.trim(), bcc: $('mc-bcc').value.trim(), subject: subjTemplate(pack, $('mc-subj').value, built), intro: $('mc-intro').value,
                     tiles: $('mc-tiles').checked, lines: $('mc-lines').checked, chart: $('mc-chart').checked, hl: $('mc-hl').checked, logo: !$('mc-logo') || $('mc-logo').checked, attach: $('mc-att').checked,
                     track: $('mc-track').checked, receipts: $('mc-rr').checked });
-                var track = $('mc-track').checked && !display, rr = $('mc-rr').checked;
-                var seen = {}, people = [].concat(split(to2).map(function (e) { return { email: e, kind: 'TO' }; }), split(pack.email.cc).map(function (e) { return { email: e, kind: 'CC' }; }), split(pack.email.bcc).map(function (e) { return { email: e, kind: 'BCC' }; }))
-                    .filter(function (x) { var k = x.email.toLowerCase(); if (seen[k]) return false; seen[k] = 1; return true; });
-                people.forEach(function (x) { x.token = FL.packTrack.token(); });
                 var btns = document.querySelectorAll('#mc-send, #mc-review'); btns.forEach(function (b) { b.disabled = true; });
                 var say = function (h) { $('mc-msg').innerHTML = h; };
-                say('<i class="fa-solid fa-circle-notch fa-spin"></i> ' + (display ? 'Opening Outlook…' : 'Preparing…'));
-                // the copy that leaves: the pack + its distribution page and document ID; its fingerprint goes in the e-mail and the archive
-                var via = { GRAPH: 'Microsoft 365', SMTP: 'SMTP', OUTLOOK: 'Outlook' }[how] || how;
-                var stamped = FL.packs.stamp(built, { to: to2, cc: pack.email.cc, by: (M.st && M.st.graphAccount) || (FL.who && FL.who.user) || '', via: via, kind: 'EMAIL' });
-                var subject = $('mc-subj').value, recorded = false;
-                FL.packArchive.sha256(stamped.html).then(function (sha) {
-                    var o = opts(true); o.fingerprint = $('mc-att').checked ? sha : null; o.docId = stamped.docId; if (o.attached) o.attached = stamped.file;
-                    var att = [];
-                    if (o.attached) att.push({ name: stamped.file, contentType: 'text/html', base64: b64(stamped.html) });
-                    if (o.logo) att.push({ name: 'logo.png', contentType: 'image/png', cid: LOGO, base64: built.model.logo.png.split(',')[1] });
-                    if (o.chart) att.push({ name: 'trend.png', contentType: 'image/png', cid: CID, base64: built.model.trendPng.split(',')[1] });
-                    // the record in APEX first, so an open or a confirmation that comes at once finds its row
-                    var rec = FL.packTrack.record({ sendId: stamped.docId, docId: stamped.docId, pack: pack, period: built.model.period, ledgers: (built.model.ledgers || []).map(function (l) { return l.name; }).join(', '),
-                        subject: subject, method: how, mailbox: (M.st && M.st.graphAccount) || (M.st && M.st.settings && (M.st.settings.SmtpFrom || M.st.settings.SmtpUser)) || via, file: stamped.file, sha: sha, tracked: track, receipts: rr,
-                        note: display ? 'opened in Outlook to review' : '' }, people).then(function () { recorded = true; })
-                        .catch(function (e) { console.warn('[mail] distribution record', e); say('<span class="neg">The distribution record could not be written to APEX (' + esc(String(e && e.message || e)) + ') — sending anyway.</span>'); });
-                    var one = function (to, cc, bcc, oo) {
-                        return FL.call('finMailSend', { method: how, display: !!display, to: to, cc: cc, bcc: bcc, subject: subject, html: FL.packs.emailHtml(pack, built.model, oo).html, attachments: att, readReceipt: rr, deliveryReceipt: rr }, 600000);
-                    };
-                    var mark = function (tokens, st, err) { return recorded ? FL.packTrack.mark(tokens, st, err) : Promise.resolve(); };
-                    return rec.then(function () {
-                        if (!track) {
-                            return one(to2, pack.email.cc, pack.email.bcc, o).then(function (r) {
-                                return mark(people.map(function (x) { return x.token; }), r.result === 'draft' ? 'DRAFT' : 'SENT').then(function () { return { r: r, ok: people.length, failed: [] }; });
-                            }, function (e) { return mark(people.map(function (x) { return x.token; }), 'FAILED', String(e && e.message || e)).then(function () { throw e; }); });
-                        }
-                        // one copy per person: their own confirmation button and picture
-                        var shown = people.filter(function (x) { return x.kind !== 'BCC'; }).map(function (x) { return x.email; }), done = 0, failed = [], last = null;
-                        return people.reduce(function (pr, x, k) {
-                            return pr.then(function () {
-                                say('<i class="fa-solid fa-circle-notch fa-spin"></i> Sending ' + (k + 1) + ' of ' + people.length + ' — ' + esc(x.email) + '…');
-                                var oo = Object.assign({}, o, { track: { pixel: FL.packTrack.pixelUrl(x.token), ack: FL.packTrack.ackUrl(x.token), copyFor: x.email + (x.kind === 'TO' ? '' : ' (' + x.kind.toLowerCase() + ')'), also: shown.filter(function (e) { return e !== x.email; }).join(', ') } });
-                                return one(x.email, '', '', oo).then(function (r) { last = r; done++; return mark([x.token], 'SENT'); },
-                                    function (e) { failed.push({ email: x.email, error: String(e && e.message || e) }); return mark([x.token], 'FAILED', String(e && e.message || e)); });
-                            });
-                        }, Promise.resolve()).then(function () {
-                            if (!done) throw new Error('Not sent to anyone: ' + failed.map(function (f) { return f.email + ' — ' + f.error; }).join('; '));
-                            return { r: last, ok: done, failed: failed };
-                        });
-                    }).then(function (res) {
+                M.deliver({ pack: pack, built: built, how: how, display: display, to: to2, cc: pack.email.cc, bcc: pack.email.bcc, subject: $('mc-subj').value, opts: opts(true), track: $('mc-track').checked && !display, rr: $('mc-rr').checked, say: say })
+                    .then(function (res) {
                         var r = res.r;
-                        var txt = r.result === 'draft' ? 'Opened in Outlook — check it and press Send there.' : 'Sent' + (r.by ? ' from ' + r.by : '') + ' to ' + (track ? res.ok + ' of ' + people.length + ' people, one copy each' : to2) + (res.failed.length ? ' — not sent to ' + res.failed.map(function (f) { return f.email; }).join(', ') : '');
-                        say('<span class="' + (res.failed.length ? 'neg' : 'pos') + '">' + (res.failed.length ? '⚠ ' : '✓ ') + esc(txt) + '</span>' + (res.failed.length ? '<div class="sm">' + res.failed.map(function (f) { return esc(f.email + ': ' + f.error); }).join('<br>') + '</div>' : '') +
-                            (recorded ? '<div class="sm muted">Recorded in Board packs › Distribution' + (track ? ' — opens and confirmations show up there' : '') + '.</div>' : ''));
-                        FL.toast(txt, res.failed.length ? 'err' : 'ok');
-                        r.stamped = stamped; r.sha = sha; r.sendId = stamped.docId; r.sentTo = res.ok; r.failed = res.failed;
                         if (onSent) onSent(r);
                         if (r.result !== 'draft' && !res.failed.length) setTimeout(FL.closeModal, 1200);
-                    });
-                }).catch(function (e2) { say('<span class="neg">✗ ' + esc(String(e2 && e2.message || e2)) + '</span>'); })
+                    }).catch(function (e2) { say('<span class="neg">✗ ' + esc(String(e2 && e2.message || e2)) + '</span>'); })
                     .then(function () { btns.forEach(function (b) { b.disabled = false; }); });
             };
             $('mc-send').onclick = function () { send($('mc-how').value, false); };
@@ -195,6 +146,88 @@
         };
         (M.st ? Promise.resolve() : M.status().catch(function () { M.st = { settings: {}, recent: [] }; })).then(go);
     };
+    /**
+     * Sends a built pack: stamps the copy (document ID, distribution page), records the send and every person in APEX
+     * (Distribution), sends one copy per person when tracking (their own picture + confirmation button) or one message,
+     * keeps the e-mail text with the record. job = {pack, built, how, display, to, cc, bcc, subject, opts (emailHtml options
+     * with cid: pictures), track, rr, say(html), archive: {status, comments, meeting} → also saved in the archive}.
+     * Resolves {r, ok, failed, stamped, sha, recorded, people, archived}.
+     */
+    M.deliver = function (job) {
+        var pack = job.pack, built = job.built, how = job.how, display = !!job.display, track = !!job.track, rr = !!job.rr, say = job.say || function () { };
+        var split = function (v) { return String(v || '').split(/[;,\s]+/).map(function (a) { return a.trim(); }).filter(function (a) { return /@/.test(a); }); };
+        var seen = {}, people = [].concat(split(job.to).map(function (e) { return { email: e, kind: 'TO' }; }), split(job.cc).map(function (e) { return { email: e, kind: 'CC' }; }), split(job.bcc).map(function (e) { return { email: e, kind: 'BCC' }; }))
+            .filter(function (x) { var k = x.email.toLowerCase(); if (seen[k]) return false; seen[k] = 1; return true; });
+        people.forEach(function (x) { x.token = FL.packTrack.token(); });
+        say('<i class="fa-solid fa-circle-notch fa-spin"></i> ' + (display ? 'Opening Outlook…' : 'Preparing…'));
+        // the copy that leaves: the pack + its distribution page and document ID; its fingerprint goes in the e-mail and the archive
+        var via = { GRAPH: 'Microsoft 365', SMTP: 'SMTP', OUTLOOK: 'Outlook' }[how] || how;
+        var stamped = FL.packs.stamp(built, { to: job.to, cc: job.cc, by: (M.st && M.st.graphAccount) || (FL.who && FL.who.user) || '', via: via, kind: 'EMAIL' });
+        var subject = job.subject, recorded = false, sha = null, body = null;
+        return FL.packArchive.sha256(stamped.html).then(function (h) {
+            sha = h;
+            var o = Object.assign({}, job.opts); o.fingerprint = o.attached ? sha : null; o.docId = stamped.docId; if (o.attached) o.attached = stamped.file;
+            var att = [];
+            if (o.attached) att.push({ name: stamped.file, contentType: 'text/html', base64: b64(stamped.html) });
+            if (o.logo) att.push({ name: 'logo.png', contentType: 'image/png', cid: LOGO, base64: built.model.logo.png.split(',')[1] });
+            if (o.chart) att.push({ name: 'trend.png', contentType: 'image/png', cid: CID, base64: built.model.trendPng.split(',')[1] });
+            // the record in APEX first, so an open or a confirmation that comes at once finds its row
+            var rec = FL.packTrack.record({ sendId: stamped.docId, docId: stamped.docId, pack: pack, period: built.model.period, ledgers: (built.model.ledgers || []).map(function (l) { return l.name; }).join(', ') || built.model.ledgerName || '',
+                subject: subject, method: how, mailbox: (M.st && M.st.graphAccount) || (M.st && M.st.settings && (M.st.settings.SmtpFrom || M.st.settings.SmtpUser)) || via, file: stamped.file, sha: sha, tracked: track, receipts: rr,
+                note: display ? 'opened in Outlook to review' : (job.archive && job.archive.comments) || '' }, people).then(function () { recorded = true; })
+                .catch(function (e) { console.warn('[mail] distribution record', e); say('<span class="neg">The distribution record could not be written to APEX (' + esc(String(e && e.message || e)) + ') — sending anyway.</span>'); });
+            var html = function (oo) { var h2 = FL.packs.emailHtml(pack, built.model, oo).html; if (!body) body = h2; return h2; };
+            var one = function (to, cc, bcc, oo) {
+                return FL.call('finMailSend', { method: how, display: display, to: to, cc: cc, bcc: bcc, subject: subject, html: html(oo), attachments: att, readReceipt: rr, deliveryReceipt: rr }, 600000);
+            };
+            var mark = function (tokens, st, err) { return recorded ? FL.packTrack.mark(tokens, st, err) : Promise.resolve(); };
+            return rec.then(function () {
+                if (!track) {
+                    return one(job.to, job.cc, job.bcc, o).then(function (r) {
+                        return mark(people.map(function (x) { return x.token; }), r.result === 'draft' ? 'DRAFT' : 'SENT').then(function () { return { r: r, ok: people.length, failed: [] }; });
+                    }, function (e) { return mark(people.map(function (x) { return x.token; }), 'FAILED', String(e && e.message || e)).then(function () { throw e; }); });
+                }
+                // one copy per person: their own confirmation button and picture
+                var shown = people.filter(function (x) { return x.kind !== 'BCC'; }).map(function (x) { return x.email; }), done = 0, failed = [], last = null;
+                return people.reduce(function (pr, x, k) {
+                    return pr.then(function () {
+                        say('<i class="fa-solid fa-circle-notch fa-spin"></i> Sending ' + (k + 1) + ' of ' + people.length + ' — ' + esc(x.email) + '…');
+                        var oo = Object.assign({}, o, { track: { pixel: FL.packTrack.pixelUrl(x.token), ack: FL.packTrack.ackUrl(x.token), copyFor: x.email + (x.kind === 'TO' ? '' : ' (' + x.kind.toLowerCase() + ')'), also: shown.filter(function (e) { return e !== x.email; }).join(', ') } });
+                        return one(x.email, '', '', oo).then(function (r) { last = r; done++; return mark([x.token], 'SENT'); },
+                            function (e) { failed.push({ email: x.email, error: String(e && e.message || e) }); return mark([x.token], 'FAILED', String(e && e.message || e)); });
+                    });
+                }, Promise.resolve()).then(function () {
+                    if (!done) throw new Error('Not sent to anyone: ' + failed.map(function (f) { return f.email + ' — ' + f.error; }).join('; '));
+                    return { r: last, ok: done, failed: failed };
+                });
+            });
+        }).then(function (res) {
+            var r = res.r;
+            res.stamped = stamped; res.sha = sha; res.recorded = recorded; res.people = people;
+            r.stamped = stamped; r.sha = sha; r.sendId = stamped.docId; r.sentTo = res.ok; r.failed = res.failed;
+            // the e-mail as sent (one person's copy, its personal picture and button made inert) is kept with the record
+            var keep = recorded && body ? FL.packTrack.saveBody(stamped.docId, body.replace(/pack\/px\/[0-9a-f]+/g, 'pack/px/0').replace(/pack\/ack\/[0-9a-f]+/g, 'pack/ack/0')).catch(function (e) { console.warn('[mail] e-mail text', e); }) : Promise.resolve();
+            var arc = job.archive && r.result !== 'draft' ? keep.then(function () {
+                say('<i class="fa-solid fa-circle-notch fa-spin"></i> Keeping the pack in the archive…');
+                return FL.packArchive.save({ pack: pack, built: stamped, status: job.archive.status || 'ISSUED', comments: job.archive.comments || '', meeting: job.archive.meeting || '', event: 'EMAILED', detail: 'sent to ' + res.ok + ' of ' + people.length + ' via ' + via });
+            }).then(function () { res.archived = true; }, function (e) { res.archiveError = String(e && e.message || e); }) : keep;
+            return arc.then(function () {
+                var txt = r.result === 'draft' ? 'Opened in Outlook — check it and press Send there.' : 'Sent' + (r.by ? ' from ' + r.by : '') + ' to ' + (track ? res.ok + ' of ' + people.length + ' people, one copy each' : job.to) + (res.failed.length ? ' — not sent to ' + res.failed.map(function (f) { return f.email; }).join(', ') : '');
+                say('<span class="' + (res.failed.length ? 'neg' : 'pos') + '">' + (res.failed.length ? '⚠ ' : '✓ ') + esc(txt) + '</span>' + (res.failed.length ? '<div class="sm">' + res.failed.map(function (f) { return esc(f.email + ': ' + f.error); }).join('<br>') + '</div>' : '') +
+                    (recorded ? '<div class="sm muted">Recorded in Board packs › Distribution' + (track ? ' — opens and confirmations show up there' : '') + (res.archived ? ' · the pack is kept in the archive' : res.archiveError ? ' · not archived: ' + esc(res.archiveError) : '') + '.</div>' : ''));
+                FL.toast(txt, res.failed.length ? 'err' : 'ok');
+                return res;
+            });
+        });
+    };
+    /** The e-mail options from the pack's saved choices (for sending without the dialog) */
+    M.optsOf = function (pack, built) {
+        var e = pack.email || {};
+        return { intro: e.intro != null ? e.intro : FL.packs.newPack().email.intro, tiles: e.tiles !== false, keyLines: e.lines !== false, highlights: e.hl !== false,
+            chart: e.chart !== false && built.model.trendPng ? 'cid:' + CID : null, logo: e.logo !== false && built.model.logo ? 'cid:' + LOGO : null, attached: e.attach !== false ? built.file : null, sections: built.sections };
+    };
+    M.previewOpts = function (o, built) { var p = Object.assign({}, o); if (p.chart) p.chart = built.model.trendPng; if (p.logo) p.logo = built.model.logo.png; return p; };
+    M.subject = function (pack, built) { return P_subject(pack, built); };
     function P_subject(pack, built) { return String((pack.email || {}).subject || '{TITLE} · {PERIOD}').replace(/\{PERIOD\}/g, built.model.period).replace(/\{TITLE\}/g, pack.title || pack.name).replace(/\{COMPANY\}/g, pack.company || ''); }
     /** Keeps the subject as a template when only the period / title in it changed */
     function subjTemplate(pack, typed, built) {
