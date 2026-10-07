@@ -4,9 +4,12 @@
 // WMS menu › Pick Release (data-page="pick-release"). One date (default tomorrow) + instance → Load trips reads
 // GETTRIPDETAILS for the date and GETTRIPDETAILS/{trip} per trip (4 at a time), shows the trips as cards with a tick
 // box each (lorry, bay, priority, orders, how many are released) and the orders in a grid. Start = the run:
-//   · the SAME calls as the Trip Details › Pick Release dialog (wms/app.js):
-//       No lots  : POST TRIPMANAGEMENT/trip/pickrelease/oneorder/{order}?P_TRIP_ID1={trip}&P_INSTANCE_NAME={pod}
+//   · the SAME calls as the Trip Details › Pick Release dialog (wms/app.js), always "With lots" (the Mode control is shown
+//     disabled — the No-lots call stays in the code, callNoLots, should it ever be wanted again):
 //       With lots: POST trip/order/fetchfusionorderlines → trip/callpickwave → trips/getopenpicksbyorder → trip/getlotsforpicks
+//       (a step whose answer says success:false / status error / error fails the order — the dialog only shows the answers)
+//       No lots  : POST TRIPMANAGEMENT/trip/pickrelease/oneorder/{order}?P_TRIP_ID1={trip}&P_INSTANCE_NAME={pod}   (not offered)
+//     "Orders at a time" = how many orders are sent to Fusion at once (1 = one after another, like the dialog); default 2.
 //     Store to Van / Van to Store orders are skipped (the WMS allocates lots for them — Store Transactions).
 //   · Iterations: the run goes over the orders again after a pause (default 1 minute): iteration 1 releases the chosen
 //     orders, then the trips are read again (GETTRIPDETAILS/{trip} → released or not per order), pause, iteration 2 …
@@ -144,7 +147,8 @@
         grep: '',
         tab: 'orders'             // 'orders' | 'log' | 'runs'
     };
-    var SET = Object.assign({ mode: 'nolots', wh: 'GIC', par: 2, iter: 2, pause: 60, scope: 'notreleased', later: 'left' }, ls('wms.pr.set') || {});
+    var SET = Object.assign({ mode: 'lots', wh: 'GIC', par: 2, iter: 2, pause: 60, scope: 'notreleased', later: 'left' }, ls('wms.pr.set') || {});
+    SET.mode = 'lots';          // always with lots (the Mode control is disabled)
     var R = { run: null };        // the live run (one at a time per page)
 
     // ─── reads ─────────────────────────────────────────────────────────────────
@@ -268,13 +272,20 @@
     function callNoLots(pod, tripId, order) {
         return post(TM + '/trip/pickrelease/oneorder/' + encodeURIComponent(order) + '?P_TRIP_ID1=' + encodeURIComponent(tripId) + '&P_INSTANCE_NAME=' + encodeURIComponent(pod), '{}', 180000).then(okOf);
     }
+    /** An answer that says it failed (success false / status error / an error text) ends the order as FAILED with that text. */
+    function failed(r, step) {
+        if (!r || typeof r !== 'object') return null;
+        if (r.success === false || r.status === 'error' || r.status === 'ERROR' || (r.error && !r.items)) return step + ': ' + String(r.message || r.error || JSON.stringify(r).slice(0, 200));
+        return null;
+    }
     function callWithLots(pod, tripId, order, wh) {
         var on = encodeURIComponent(order), steps = [];
-        return post(TM + '/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=' + pod + '&p_order_number=' + on + '&p_trip_id=' + encodeURIComponent(tripId), {}, 120000)
-            .then(function (r) { steps.push((r && (r.RECORDCOUNT || r.recordcount || r.count)) || 0); return post(TM + '/trip/callpickwave?warehouse=' + encodeURIComponent(wh) + '&order_number=' + on + '&p_instance_name=' + pod, {}, 180000); })
-            .then(function () { return post(TM + '/trips/getopenpicksbyorder?organization_code=' + encodeURIComponent(wh) + '&order_number=' + on + '&p_instance_name=' + pod, {}, 120000); })
-            .then(function (r) { steps.push(items(r).length || (r && r.count) || 0); return post(TM + '/trip/getlotsforpicks?source_order_number=' + on + '&p_instance_name=' + pod, {}, 120000); })
-            .then(function (r) { steps.push(items(r).length || (r && r.count) || 0); return { ok: true, msg: steps[0] + ' line(s) · ' + steps[1] + ' pick(s) · ' + steps[2] + ' lot row(s)' }; });
+        var check = function (step) { return function (r) { var f = failed(r, step); if (f) throw new Error(f); return r; }; };
+        return post(TM + '/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=' + pod + '&p_order_number=' + on + '&p_trip_id=' + encodeURIComponent(tripId), {}, 120000).then(check('order lines'))
+            .then(function (r) { steps.push((r && (r.RECORDCOUNT || r.recordcount || r.count)) || 0); return post(TM + '/trip/callpickwave?warehouse=' + encodeURIComponent(wh) + '&order_number=' + on + '&p_instance_name=' + pod, {}, 180000); }).then(check('pick wave'))
+            .then(function () { return post(TM + '/trips/getopenpicksbyorder?organization_code=' + encodeURIComponent(wh) + '&order_number=' + on + '&p_instance_name=' + pod, {}, 120000); }).then(check('open picks'))
+            .then(function (r) { steps.push(items(r).length || (r && r.count) || 0); return post(TM + '/trip/getlotsforpicks?source_order_number=' + on + '&p_instance_name=' + pod, {}, 120000); }).then(check('lots'))
+            .then(function (r) { steps.push(items(r).length || (r && r.count) || 0); return { ok: true, msg: 'wave released · ' + steps[0] + ' line(s) · ' + steps[1] + ' pick(s) · ' + steps[2] + ' lot row(s)' }; });
     }
 
     function start() {
@@ -291,7 +302,7 @@
         var toRun = list.filter(function (o) { return !o.s2v; });
         if (!toRun.length) { note(SET.scope === 'notreleased' ? 'Every order of the ticked trips is released already — choose "Every order" to release them again.' : 'No order to release on the ticked trips.', 'warning'); return; }
         var pause = SET.pause >= 2 && SET.pause <= 3600 ? SET.pause : 60;      // seconds (the select's values; a test may add its own)
-        var what = toRun.length + ' order(s) on ' + trips.length + ' trip(s) of ' + dayName(st.date) + ' (' + st.pod + '), ' + (SET.mode === 'lots' ? 'with lots (warehouse ' + SET.wh + ')' : 'no lots') + ', ' + SET.par + ' at a time, ' +
+        var what = toRun.length + ' order(s) on ' + trips.length + ' trip(s) of ' + dayName(st.date) + ' (' + st.pod + '), ' + (SET.mode === 'lots' ? 'with lots (warehouse ' + SET.wh + ')' : 'no lots') + ', ' + SET.par + ' order(s) at a time, ' +
             SET.iter + ' iteration(s)' + (SET.iter > 1 ? ' with ' + pauseLabel(pause) + ' between them (' + (SET.later === 'all' ? 'every order again' : 'orders still not released + failed') + ')' : '') + (list.length > toRun.length ? '; ' + (list.length - toRun.length) + ' Store to Van order(s) skipped' : '') + '.';
         if (!confirm('Pick release ' + what + '\n\nThe run goes on in the background — you may open any other page. Start?')) return;
         var run = R.run = { id: 'PR' + Date.now().toString(36).toUpperCase(), pod: st.pod, date: st.date, trips: trips.map(function (t) { return t.trip_id; }), orders: list, mode: SET.mode, wh: SET.wh, par: SET.par, iters: SET.iter, iter: 0, pause: pause,
@@ -443,15 +454,15 @@
             '<button class="pr-btn sm" id="pr-all">Tick all</button><button class="pr-btn sm" id="pr-notrel">Tick trips with orders not released</button><button class="pr-btn sm" id="pr-none">Untick all</button>' +
             '<span class="grow"></span><span class="pr-count" id="pr-tcount"></span></div><div class="pr-trips" id="pr-trips"></div></div>' +
             '<div class="pr-card"><div class="pr-row pr-opts">' +
-            '<label>Mode <select id="pr-mode"><option value="nolots">No lots — one call per order (the WMS default)</option><option value="lots">With lots — wave, picks, lots</option></select></label>' +
-            '<label id="pr-wh-l">Warehouse <input id="pr-wh" style="width:70px"></label>' +
+            '<label title="Always with lots: order lines → pick wave → open picks → lots, like Trip Details › Pick Release › With lots">Mode <select id="pr-mode" disabled><option value="lots">With lots — wave, picks, lots</option></select></label>' +
+            '<label id="pr-wh-l" title="The warehouse (inventory organisation) of the pick wave">Warehouse <input id="pr-wh" style="width:70px"></label>' +
             '<label>Orders <select id="pr-scope"><option value="notreleased">Not released yet</option><option value="all">Every order on the trip</option></select></label>' +
-            '<label>At the same time <select id="pr-par"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>' +
+            '<label title="How many orders are sent to Fusion at the same time: 1 = one order after another (like the dialog), 2 = two orders run side by side, and so on">Orders at a time <select id="pr-par"><option>1</option><option>2</option><option>3</option><option>4</option></select></label>' +
             '<label>Iterations <select id="pr-iter">' + [1, 2, 3, 4, 5, 6, 8, 10].map(function (n) { return '<option>' + n + '</option>'; }).join('') + '</select></label>' +
             '<label>Pause between iterations <select id="pr-pause">' + PAUSES.map(function (p) { return '<option value="' + p[0] + '">' + p[1] + '</option>'; }).join('') + '</select></label>' +
             '<label>Later iterations <select id="pr-later"><option value="left">Orders still not released + failed</option><option value="all">Every order again</option></select></label>' +
             '<span class="grow"></span><button class="pr-btn primary big" id="pr-go"><i class="fas fa-play"></i> Pick release <span id="pr-gon">0</span> order(s)</button></div>' +
-            '<div class="pr-hint">Iteration 1 releases the chosen orders; the trips are then read again (released or not, per order), the run waits the pause and iteration 2 releases what is left, and so on. Store to Van / Van to Store orders are skipped — the WMS allocates lots for them. The run goes on in the background: a chip at the bottom right follows it on every page.</div></div>' +
+            '<div class="pr-hint"><b>Orders at a time</b> = how many orders are sent to Fusion at once (1 = one after another, 2 = two side by side). <b>Iterations</b>: iteration 1 releases the chosen orders (order lines → pick wave → open picks → lots, per order); the trips are then read again (released or not, per order), the run waits the pause and iteration 2 releases what is left, and so on. Store to Van / Van to Store orders are skipped — the WMS allocates lots for them. The run goes on in the background: a chip at the bottom right follows it on every page.</div></div>' +
             '<div class="pr-card pr-status" id="pr-status"></div>' +
             '<div class="pr-card"><div class="pr-tabs"><button data-t="orders" class="on">Orders</button><button data-t="log">Run log</button><button data-t="runs">Runs of the day</button>' +
             '<span class="grow"></span><span class="pr-grep-box"><i class="fas fa-search"></i><input id="pr-grep" placeholder="Filter the rows shown — any column"><button id="pr-grep-x" title="Clear">✕</button><span id="pr-grep-n"></span></span>' +
@@ -472,7 +483,7 @@
         $('pr-notrel').onclick = function () { st.selected = {}; st.trips.forEach(function (t) { if (t.notReleased) st.selected[t.trip_id] = true; }); paint(); };
         $('pr-none').onclick = function () { st.selected = {}; paint(); };
         $('pr-mode').value = SET.mode; $('pr-wh').value = SET.wh; $('pr-scope').value = SET.scope; $('pr-par').value = String(SET.par); $('pr-iter').value = String(SET.iter); $('pr-pause').value = String(SET.pause); $('pr-later').value = SET.later;
-        var save = function () { SET = { mode: $('pr-mode').value, wh: $('pr-wh').value.trim() || 'GIC', scope: $('pr-scope').value, par: +$('pr-par').value, iter: +$('pr-iter').value, pause: +$('pr-pause').value, later: $('pr-later').value }; ls('wms.pr.set', SET); paintCount(); };
+        var save = function () { SET = { mode: 'lots', wh: $('pr-wh').value.trim() || 'GIC', scope: $('pr-scope').value, par: +$('pr-par').value, iter: +$('pr-iter').value, pause: +$('pr-pause').value, later: $('pr-later').value }; ls('wms.pr.set', SET); paintCount(); };
         ['pr-mode', 'pr-wh', 'pr-scope', 'pr-par', 'pr-iter', 'pr-pause', 'pr-later'].forEach(function (id) { $(id).onchange = save; });
         $('pr-go').onclick = start;
         r.querySelectorAll('.pr-tabs [data-t]').forEach(function (b) { b.onclick = function () { st.tab = b.dataset.t; paint(); }; });
@@ -500,7 +511,6 @@
         $('pr-src').innerHTML = st.loading ? '<i class="fas fa-spinner fa-spin"></i> reading the trips of ' + esc(dayName(st.date) || ddmmyyyy(st.date)) + '…' : st.error ? '<span class="bad">' + esc(st.error) + '</span>' :
             st.source === 'apex' ? '<i class="fas fa-check" style="color:#15803d"></i> read from APEX at ' + esc(hm(st.readAt)) : st.source === 'duckdb' ? '<i class="fas fa-database"></i> from DuckDB · read at ' + esc(String(st.readAt || '').slice(0, 16)) + ' — Load trips reads again' : '<span class="muted">Load trips reads the trips and their orders.</span>';
         $('pr-load').disabled = st.loading;
-        $('pr-wh-l').style.display = SET.mode === 'lots' ? '' : 'none';
         paintTrips(); paintCount(); paintBar(); paintBody(); paintFloat();
     }
     function paintTrips() {
