@@ -664,6 +664,7 @@
             if (leftTrips) {
                 leftTrips.innerHTML = trips.length === 0
                     ? `<div style="font-size:9px;color:#94a3b8;">No trips assigned</div>`
+                    : SADB.enabled() ? SADB.leftTripsTable(agent, trips)       // DuckDB mode: + in DuckDB / refreshed / cancelled per trip
                     : `<div style="font-size:9px;font-weight:700;color:#475569;margin-bottom:4px;">TRIPS — select to show</div>` +
                       trips.map(t => {
                           const checked = window._saSelectedTrips[t.TRIP_ID] !== false;
@@ -5691,7 +5692,9 @@
         flushTimer: null,
         io: Promise.resolve(),   // every DuckDB write runs through this chain, in order
         shown: {},               // { agentId: true } the popup was shown once for this agent in this session
-        lastCands: null
+        lastCands: null,
+        session: {},             // { tripId: true } refreshed from Fusion + APEX since this page was opened
+        doneCounts: {}           // { tripId: lines cancelled through this page (cancel log DONE) }
     };
     const S = v => (v == null ? null : String(v));
     SADB.lit = s => "'" + String(s == null ? '' : s).replace(/'/g, "''") + "'";
@@ -6031,8 +6034,10 @@
             run_id: runId, agent_id: S(agent.ID), kind: kind || 'refresh', trips: S(tripId), started_at: SADB.ts(t0), ended_at: SADB.now(), ms: S(Date.now() - t0),
             orders: S(all.length), failures: S(failures), summary: error || `${all.length} order(s) read, ${failures} failed`, by_user: SADB.user()
         }]));
+        SADB.session[tripId] = true;
         SADB.paintMeta(tripId);
         SADB.paintHeader();
+        SADB.paintLeftTrips(agent);
         return { tripId, orders: all.length, failures, error };
     };
     /** Every (visible) trip of the agent, one after another. */
@@ -6072,6 +6077,7 @@
         visible.forEach(t => { if (SADB.hasTrip(t.TRIP_ID)) SADB.paintTrip(t.TRIP_ID, t.INSTANCE_NAME); else SADB.setAsOf(t.TRIP_ID, '<i class="fas fa-database"></i> not read yet'); });
         saMraPaintFlags(false);
         SADB.paintHeader();
+        SADB.paintLeftTrips(agent);
         const missing = visible.filter(t => !SADB.hasTrip(t.TRIP_ID));
         if (missing.length) {
             SADB.busy = true; SADB.quiet = true; SADB.paintHeader();
@@ -6111,11 +6117,15 @@
     SADB.candidates = async function(agent, tripIds) {
         const trips = (window._saAgentTrips || {})[agent.ID] || [];
         const want = tripIds ? new Set(tripIds.map(String)) : null;
-        const done = {};
+        const done = {}, counts = {}, recent = SADB.ts(Date.now() - 15 * 60000);
         try {
-            (await SADB.q(`SELECT order_number, fulfill_line_id FROM w2_sa_cancel_log WHERE agent_id = ${SADB.lit(S(agent.ID))} AND result = 'DONE' AND ts >= ${SADB.lit(SADB.ts(Date.now() - 15 * 60000))}`))
-                .forEach(r => { done[r.order_number + ':' + r.fulfill_line_id] = 1; });
+            (await SADB.q(`SELECT trip_id, order_number, fulfill_line_id, ts FROM w2_sa_cancel_log WHERE agent_id = ${SADB.lit(S(agent.ID))} AND result = 'DONE'`))
+                .forEach(r => {
+                    if (String(r.ts || '') >= recent) done[r.order_number + ':' + r.fulfill_line_id] = 1;
+                    counts[r.trip_id] = (counts[r.trip_id] || 0) + 1;
+                });
         } catch (e) { /* no log yet */ }
+        if (!tripIds) SADB.doneCounts = counts;
         const out = [];
         for (const t of trips) {
             if (want && !want.has(String(t.TRIP_ID))) continue;
@@ -6150,6 +6160,7 @@
         return c;
     };
     SADB.paintCancelBadge = function(c) {
+        if (window._saCurrentAgent) SADB.paintLeftTrips(window._saCurrentAgent, c);
         const el = document.getElementById('sa-duck-cancel-badge');
         if (!el) return;
         const n = (c || []).reduce((s, x) => s + x.lines.length, 0);
@@ -6302,6 +6313,53 @@
         await SADB.askCancel(agent, 'after the cancellation and the refresh', true);
     };
 
+    // ── the agent card's trip table: select to show + in DuckDB / refreshed / cancelled ──
+    SADB.leftTripsTable = function(agent, trips) {
+        const th = (t, tip) => `<th style="padding:2px 4px;font-size:8px;color:#64748b;font-weight:700;text-align:center;white-space:nowrap;" title="${esc(tip)}">${t}</th>`;
+        const rows = trips.map(t => {
+            const checked = window._saSelectedTrips[t.TRIP_ID] !== false;
+            const st = TRIP_STATUS_STYLE[t.STATUS] || TRIP_STATUS_STYLE.PENDING;
+            const id = esc(String(t.TRIP_ID));
+            const dash = '<span style="color:#cbd5e1;">—</span>';
+            return `<tr data-sa-lt="${id}" style="border-top:1px solid #f1f5f9;">
+                <td style="padding:2px 2px;"><input type="checkbox" ${checked ? 'checked' : ''} onchange="saToggleTripVisible('${id}', this.checked)" onclick="event.stopPropagation()" style="accent-color:#7c3aed;cursor:pointer;margin:0;"></td>
+                <td style="padding:2px 4px;font-size:10px;font-weight:600;color:#1e293b;white-space:nowrap;">${esc(t.TRIP_NAME || t.TRIP_ID)}</td>
+                <td style="padding:2px 4px;"><span style="background:${st.bg};color:${st.color};padding:1px 6px;border-radius:6px;font-size:8px;font-weight:700;">${esc(t.STATUS)}</span></td>
+                <td id="sa-lt-duck-${id}" style="padding:2px 4px;text-align:center;font-size:10px;">${dash}</td>
+                <td id="sa-lt-read-${id}" style="padding:2px 4px;text-align:center;font-size:10px;">${dash}</td>
+                <td id="sa-lt-cancel-${id}" style="padding:2px 4px;text-align:center;font-size:10px;">${dash}</td>
+            </tr>`;
+        }).join('');
+        return `<div style="font-size:9px;font-weight:700;color:#475569;margin-bottom:3px;">TRIPS — select to show</div>
+            <table style="width:100%;border-collapse:collapse;" onclick="event.stopPropagation()">
+                <thead><tr>${th('', '')}${th('Trip', '')}${th('', '')}${th('<i class="fas fa-database"></i>', 'In DuckDB on this PC: ✓ the trip was read and saved (hover = when), ✗ not yet')}${th('<i class="fas fa-sync"></i>', 'Refreshed from Fusion + APEX since this page was opened')}${th('<i class="fas fa-ban"></i>', 'Cancellations: ✓ no eligible line left (number = lines cancelled through this page), amber = lines waiting for Confirm, — not read yet')}</tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+    };
+    /** Fill the three status cells of the agent card's trip table from the mirrors, the session and the last candidates run. */
+    SADB.paintLeftTrips = function(agent, cands) {
+        if (!agent || !document.querySelector('[data-sa-lt]')) return;
+        const on = SADB.on();
+        const pending = {};
+        (cands || SADB.lastCands || []).forEach(c => { pending[c.tripId] = (pending[c.tripId] || 0) + c.lines.length; });
+        const ok = (tip) => `<i class="fas fa-check-circle" style="color:#15803d;" title="${esc(tip)}"></i>`;
+        const no = (tip) => `<i class="fas fa-times-circle" style="color:#dc2626;" title="${esc(tip)}"></i>`;
+        const dash = '<span style="color:#cbd5e1;" title="not read yet">—</span>';
+        ((window._saAgentTrips || {})[agent.ID] || []).forEach(t => {
+            const id = String(t.TRIP_ID), tr = SADB.trips[id] || {};
+            const has = SADB.hasTrip(id);
+            const duck = document.getElementById(`sa-lt-duck-${id}`), read = document.getElementById(`sa-lt-read-${id}`), can = document.getElementById(`sa-lt-cancel-${id}`);
+            if (!duck) return;
+            if (!on) { duck.innerHTML = read.innerHTML = can.innerHTML = dash; return; }
+            duck.innerHTML = has ? ok(`In DuckDB — read ${tr.refreshed_at || ''}${tr.refresh_error ? ' · last read had an error: ' + tr.refresh_error : ''}`) : no('Not in DuckDB yet — the first read saves it');
+            read.innerHTML = SADB.session[id] ? ok(`Refreshed in this session at ${SADB.hm(tr.refreshed_at)}`) : has ? no(`Shown from DuckDB (read ${tr.refreshed_at || ''}) — not refreshed since this page was opened`) : dash;
+            const doneN = SADB.doneCounts[id] || 0, pend = pending[id] || 0;
+            if (!has) can.innerHTML = dash;
+            else if (pend) can.innerHTML = `<span onclick="saDbShowCancel()" style="background:#fef3c7;color:#b45309;border:1px solid #fcd34d;padding:0 5px;border-radius:6px;font-size:9px;font-weight:700;cursor:pointer;" title="${pend} line(s) eligible for cancellation — click to review and confirm">${pend} <i class="fas fa-exclamation-triangle"></i></span>`;
+            else can.innerHTML = `${ok(doneN ? `No eligible line left — ${doneN} line(s) cancelled through this page` : 'No line eligible for cancellation')}${doneN ? ` <span style="font-size:9px;color:#15803d;font-weight:700;">${doneN}</span>` : ''}`;
+        });
+    };
+
     // ── header controls ─────────────────────────────────────
     SADB.setHeaderStatus = function(html) { const el = document.getElementById('sa-duck-status'); if (el) { el.innerHTML = html || ''; el.style.display = html ? '' : 'none'; } };
     SADB.paintHeader = function() {
@@ -6330,6 +6388,7 @@
         if (card) { const asofEl = document.getElementById('sa-duck-asof'); card.innerHTML = on && asofEl && asofEl.innerHTML ? asofEl.innerHTML : ''; card.style.display = on ? '' : 'none'; }
         document.querySelectorAll('[id^="sa-trip-asof-"], [id^="sa-trip-refresh-"]').forEach(el => { el.style.display = on ? '' : 'none'; });
         if (!on) SADB.paintCancelBadge([]);
+        if (window._saCurrentAgent) SADB.paintLeftTrips(window._saCurrentAgent);
     };
     window.saDuckToggle = function(on) {
         try { localStorage.setItem('sa.duck', on ? '1' : '0'); } catch (e) { /* ignore */ }
