@@ -2258,14 +2258,18 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Set default dates
+    // Set default dates: tomorrow (today + 1) in both From and To — the trips being prepared today —
+    // and read them straight away when Trip Management is the page shown (the button's own handler runs)
     const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(today.getDate() - 1);
     const tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
-    document.getElementById('trip-date-from').valueAsDate = yesterday;
+    document.getElementById('trip-date-from').valueAsDate = tomorrow;
     document.getElementById('trip-date-to').valueAsDate = tomorrow;
+    setTimeout(function() {
+        const page = document.getElementById('trip-management');
+        const btn = document.getElementById('fetch-trips-btn');
+        if (page && page.style.display !== 'none' && btn && !btn.disabled) btn.click();
+    }, 400);
 
     // Add click handler for All Trips tab (fix: tab was not reactivating when clicked)
     const allTripsTab = document.querySelector('.tab-item[data-tab="all-trips"]');

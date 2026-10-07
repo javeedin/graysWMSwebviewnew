@@ -79,3 +79,35 @@ body.wms-menu-v2.wms-menu-min .menu-foot button span { display: none; }
 body.wms-menu-v2.wms-menu-min .menu-item > i:first-child { width: auto; font-size: .95rem; }
 body.wms-menu-v2.wms-menu-min .menu-item.active::before { top: 6px; bottom: 6px; }
 body.wms-menu-v2.wms-menu-min .menu-foot button { justify-content: center; padding: 8px 0; }
+
+/* ── the page body in the same look: Trip Management's query card, tabs, filter bar (under body.wms-menu-v2 only) ── */
+body.wms-menu-v2 .main-content { padding: 16px 18px; }
+body.wms-menu-v2 .parameters-section { border: 1px solid #e2e8f0; border-left: 1px solid #e2e8f0; border-radius: 12px; box-shadow: none; margin-bottom: 14px; }
+body.wms-menu-v2 .parameters-header { padding: 8px 14px; background: #fff; border-bottom: 1px solid #e2e8f0; }
+body.wms-menu-v2 .parameters-header h3 { font-size: .68rem; letter-spacing: .1em; color: #64748b; }
+body.wms-menu-v2 .parameters-header .collapse-icon { color: #94a3b8; font-size: .8rem; }
+body.wms-menu-v2 .parameters-content { padding: 12px 14px; gap: 12px; }
+body.wms-menu-v2 .parameters-content .form-group label { font-size: .68rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #64748b; margin-bottom: 4px; }
+body.wms-menu-v2 .parameters-content .form-control { padding: 6px 10px; height: 34px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: .85rem; color: #0f172a; background: #fff; }
+body.wms-menu-v2 .parameters-content .form-control:focus { border-color: #1d4ed8; box-shadow: 0 0 0 3px #dbeafe; outline: none; }
+body.wms-menu-v2 .parameters-content .btn { height: 34px !important; border-radius: 8px; font-size: .82rem; font-weight: 700; padding: 0 14px; box-shadow: none; }
+body.wms-menu-v2 #fetch-trips-btn { background: #1d4ed8; color: #fff; }
+body.wms-menu-v2 #fetch-trips-btn:hover { background: #1e40af; }
+body.wms-menu-v2 .parameters-content .btn[onclick*="ApiInfo"] { background: #334155 !important; }
+body.wms-menu-v2 .grid-container { border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: none; margin-top: 0; }
+body.wms-menu-v2 .grid-header { background: #fff; border-bottom: 1px solid #e2e8f0; }
+body.wms-menu-v2 .tab-header { background: #fff; border-bottom: 1px solid #e2e8f0; }
+body.wms-menu-v2 .tab-item { padding: 10px 14px; font-size: .82rem; color: #64748b; border-bottom: 2px solid transparent; }
+body.wms-menu-v2 .tab-item:hover { color: #0f172a; background: #f8fafc; }
+body.wms-menu-v2 .tab-item.active { color: #1d4ed8; border-bottom-color: #1d4ed8; background: transparent; }
+body.wms-menu-v2 .filter-controls { background: #fff; border-bottom: 1px solid #e2e8f0; padding: 10px 14px; gap: 12px; align-items: flex-end; }
+body.wms-menu-v2 .filter-controls > div[style*="margin-top"] { margin-top: 0 !important; }
+body.wms-menu-v2 .filter-group label { font-size: .68rem; color: #64748b; letter-spacing: .06em; }
+body.wms-menu-v2 .multi-select-button { padding: 6px 10px; min-height: 34px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: .82rem; min-width: 190px; }
+body.wms-menu-v2 .filter-controls .btn-secondary { height: 34px; border: 1px solid #cbd5e1; background: #fff; color: #334155; border-radius: 8px; font-size: .8rem; font-weight: 600; padding: 0 12px; box-shadow: none; }
+body.wms-menu-v2 .filter-controls .btn-secondary:hover { background: #f1f5f9; }
+body.wms-menu-v2 #all-trips-action-bar { background: #f8fafc !important; border-bottom: 1px solid #e2e8f0 !important; padding: 8px 14px !important; }
+body.wms-menu-v2 #all-trips-action-bar .btn { border-radius: 8px !important; font-size: .78rem !important; box-shadow: none !important; }
+body.wms-menu-v2 .tab-pane > div:has(> .grid-title) { padding: 8px 14px !important; border-bottom: 1px solid #e2e8f0 !important; }
+body.wms-menu-v2 .grid-title { font-size: .85rem; color: #0f172a; }
+body.wms-menu-v2 #trip-count { font-size: .76rem; font-weight: 600; color: #64748b; }

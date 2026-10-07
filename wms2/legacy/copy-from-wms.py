@@ -4,7 +4,7 @@ WMS 2.0 never edits these files: fix the original in wms/ and run this script ag
 (python wms2/legacy/copy-from-wms.py from the repo root). The line ranges below are the
 WMS source as of this copy; check them after a big change in wms/app.js.
 
-  trip-workspace.js  wms/app.js 5108-15807: the Trip Details page (openTripDetails, header actions
+  trip-workspace.js  wms/app.js 5112-15811: the Trip Details page (openTripDetails, header actions
                      Refresh / Edit Trip / Assign Picker / Allocate Lots for S2V / Pick Release All /
                      All Shipment Lines / Show Lines / Get Profit Centers / Add Orders, per-row Move /
                      Remove / Print), the picker dialog, pick release with or without lots, print store
@@ -16,7 +16,7 @@ WMS source as of this copy; check them after a big change in wms/app.js.
   vehicles.js        wms/vehicles.js (loadVehicles → window.vehiclesData, lorry capacity)
   future-trip.js     wms/future-trip.js (Picker Assigned On column, Future Trip 9999 grid + Set up trip 9999)
   new-trip.js        wms/copilot.js 296-840 (Create New Trip modal)
-  agent-assign.js    wms/shipping-agent.js 8, 89-126, 5580-5642, 6391-6394 (Add to Agent)
+  agent-assign.js    wms/shipping-agent.js 8, 89-126, 5597-5659, 6502-6505 (Add to Agent)
   markup.js          wms/index.html from <!-- Add Orders Modal --> to <!-- Edit Trip Modal --> (Add Orders / Paste /
                      Fetch pending shipments) and <!-- New Trip Modal --> to <!-- WMS Co-Pilot --> (New Trip)
   wms-legacy.css     the rules of wms/styles.css those screens use
@@ -50,8 +50,8 @@ def head(what):
 
 
 app = lines('wms/app.js')
-write('trip-workspace.js', head('wms/app.js lines 5108-15807 (Trip Details page, its actions and the order dialogs)') +
-      '(function () {\n' + cut(app, 5108, 15807) + '\n})();')
+write('trip-workspace.js', head('wms/app.js lines 5112-15811 (Trip Details page, its actions and the order dialogs)') +
+      '(function () {\n' + cut(app, 5112, 15811) + '\n})();')
 
 for f in ['trip-details.js', 'trip-move.js', 'pickers.js', 'vehicles.js', 'future-trip.js']:
     write(f, head('wms/' + f) + '\n'.join(lines('wms/' + f)))
@@ -60,8 +60,8 @@ cop = lines('wms/copilot.js')
 write('new-trip.js', head('wms/copilot.js lines 296-840 (Create New Trip)') + cut(cop, 296, 840))
 
 sa = lines('wms/shipping-agent.js')
-write('agent-assign.js', head('wms/shipping-agent.js lines 8, 89-126, 5580-5642, 6391-6394 (Add to Agent)') +
-      '(function () {\n    \'use strict\';\n' + cut(sa, 8, 8) + '\n' + cut(sa, 89, 126) + '\n' + cut(sa, 5580, 5642) + '\n' + cut(sa, 6391, 6394) +
+write('agent-assign.js', head('wms/shipping-agent.js lines 8, 89-126, 5597-5659, 6502-6505 (Add to Agent)') +
+      '(function () {\n    \'use strict\';\n' + cut(sa, 8, 8) + '\n' + cut(sa, 89, 126) + '\n' + cut(sa, 5597, 5659) + '\n' + cut(sa, 6502, 6505) +
       '\n    // the agent dashboard is not on this page\n    if (typeof window.saRefreshDashboard !== \'function\') window.saRefreshDashboard = function () { return Promise.resolve(); };\n})();')
 
 html = lines('wms/index.html')
