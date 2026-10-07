@@ -288,13 +288,19 @@ namespace WMSApp
             string login = string.IsNullOrWhiteSpace(s.SmtpUser) ? json?["username"]?.GetValue<string>() : s.SmtpUser.Trim();
             if (string.IsNullOrWhiteSpace(login)) throw new InvalidOperationException("The SMTP account is not set up — open the e-mail setup (envelope icon in the header).");
             string pw = SmtpVault.PasswordFor(login) ?? throw new InvalidOperationException("No saved SMTP password for " + login + " — enter it in the e-mail setup.");
-            string from = string.IsNullOrWhiteSpace(s.SmtpFrom) ? login : s.SmtpFrom.Trim();
+            // "Send as" may hold an address ("finance@co.com", "Finance <finance@co.com>") or only a name ("Javeed Shaik") — a name sends from the login address
+            string sendAs = (s.SmtpFrom ?? "").Trim();
+            static string nameOf(string n) => string.IsNullOrWhiteSpace(n) || n.Contains("@") ? null : n.Trim();
+            System.Net.Mail.MailAddress fromAddr;
+            if (sendAs.Contains("@")) { fromAddr = Addr(sendAs, "Send as"); if (string.IsNullOrEmpty(fromAddr.DisplayName) && nameOf(s.FromName) != null) fromAddr = new System.Net.Mail.MailAddress(fromAddr.Address, nameOf(s.FromName)); }
+            else fromAddr = new System.Net.Mail.MailAddress(Addr(login, "The SMTP user name").Address, nameOf(sendAs) ?? nameOf(s.FromName));
+            string from = fromAddr.Address;
             using var client = new System.Net.Mail.SmtpClient(server, port) { EnableSsl = true, Credentials = new System.Net.NetworkCredential(login, pw), Timeout = 120000 };
-            using var msg = new System.Net.Mail.MailMessage { From = new System.Net.Mail.MailAddress(from, string.IsNullOrWhiteSpace(s.FromName) ? null : s.FromName.Trim()), Subject = m.Subject ?? "", SubjectEncoding = Encoding.UTF8, BodyEncoding = Encoding.UTF8 };
-            foreach (var a in Addresses(m.To)) msg.To.Add(a);
-            foreach (var a in Addresses(m.Cc)) msg.CC.Add(a);
-            foreach (var a in Addresses(m.Bcc)) msg.Bcc.Add(a);
-            foreach (var a in Addresses(s.ReplyTo)) msg.ReplyToList.Add(a);
+            using var msg = new System.Net.Mail.MailMessage { From = fromAddr, Subject = m.Subject ?? "", SubjectEncoding = Encoding.UTF8, BodyEncoding = Encoding.UTF8 };
+            foreach (var a in Addresses(m.To)) msg.To.Add(Addr(a, "To"));
+            foreach (var a in Addresses(m.Cc)) msg.CC.Add(Addr(a, "Cc"));
+            foreach (var a in Addresses(m.Bcc)) msg.Bcc.Add(Addr(a, "Bcc"));
+            foreach (var a in Addresses(s.ReplyTo)) msg.ReplyToList.Add(Addr(a, "Replies go to"));
             if (m.ReadReceipt) msg.Headers.Add("Disposition-Notification-To", from);
             if (m.DeliveryReceipt) msg.DeliveryNotificationOptions = System.Net.Mail.DeliveryNotificationOptions.OnSuccess | System.Net.Mail.DeliveryNotificationOptions.OnFailure;
             var view = System.Net.Mail.AlternateView.CreateAlternateViewFromString(m.Html ?? "", Encoding.UTF8, "text/html");
@@ -312,6 +318,13 @@ namespace WMSApp
             }
             finally { foreach (var x in streams) x.Dispose(); }
             return from;
+        }
+
+        /// <summary>An address, or a clear message saying which box holds something that is not an e-mail address</summary>
+        private static System.Net.Mail.MailAddress Addr(string text, string what)
+        {
+            try { return new System.Net.Mail.MailAddress((text ?? "").Trim()); }
+            catch { throw new InvalidOperationException(what + ": \"" + text + "\" is not an e-mail address — use name@company.com."); }
         }
 
         // ------------------------------------------------------------------ send
@@ -340,7 +353,7 @@ namespace WMSApp
                 To = to, Subject = "Finance Lens — e-mail test",
                 Html = "<div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#0f172a\"><p>This is a test from <b>Finance Lens</b> on " + System.Net.WebUtility.HtmlEncode(Environment.MachineName) +
                        ".</p><p>Board packs will be sent this way.</p></div>",
-                Display = true
+                Display = false   // SMTP and Microsoft 365 always send silently; Outlook follows its setting (open to review / send at once)
             };
             return SendAsync(user, m, method, ct);
         }
