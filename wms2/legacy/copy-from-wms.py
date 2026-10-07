@@ -21,6 +21,7 @@ WMS source as of this copy; check them after a big change in wms/app.js.
   markup.js          wms/index.html from <!-- Add Orders Modal --> to <!-- Edit Trip Modal --> (Add Orders / Paste /
                      Fetch pending shipments) and <!-- New Trip Modal --> to <!-- WMS Co-Pilot --> (New Trip)
   wms-legacy.css     the rules of wms/styles.css those screens use
+  ../w2-cancel-rules.js  wms/cancel-rules.js (the autopilot's cancellation rules — one file for both modules)
 """
 import json
 import os
@@ -56,6 +57,10 @@ write('trip-workspace.js', head('wms/app.js lines 5113-15908 (Trip Details page,
 
 for f in ['trip-details.js', 'trip-move.js', 'pickers.js', 'vehicles.js', 'future-trip.js']:
     write(f, head('wms/' + f) + '\n'.join(lines('wms/' + f)))
+
+# the cancellation rules: one file for both modules (wms/autopilot.js and wms2/w2-autopilot.js), byte-identical
+with open(os.path.join(ROOT, 'wms2', 'w2-cancel-rules.js'), 'w', encoding='utf-8', newline='\n') as f:
+    f.write('\n'.join(lines('wms/cancel-rules.js')))
 
 cop = lines('wms/copilot.js')
 write('new-trip.js', head('wms/copilot.js lines 296-840 (Create New Trip)') + cut(cop, 296, 840))
