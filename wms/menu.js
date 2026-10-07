@@ -12,7 +12,7 @@
 (function () {
     'use strict';
     const GROUPS = [
-        { key: 'operate',  title: 'Operate',            pages: ['trip-management', 'pick-release', 'vehicles', 'vehicles-management', 'pickers-management', 'picker-view', 'picking-time-monitor'] },
+        { key: 'operate',  title: 'Operate',            pages: ['trip-management', 'pick-release', 'cancel-autopilot', 'vehicles', 'vehicles-management', 'pickers-management', 'picker-view', 'picking-time-monitor'] },
         { key: 'orders',   title: 'Orders & shipping',  pages: ['pending-shipment-lines', 'pending-store-transactions', 'shipping-agents', 'mra-interface'] },
         { key: 'printing', title: 'Printing',           pages: ['monitor-printing', 'printer-setup-new'] },
         { key: 'auto',     title: 'Automation',         pages: ['auto-inventory-processing', 'auto-sales-order-processing'] },

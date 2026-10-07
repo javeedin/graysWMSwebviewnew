@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="menu.css">
     <link rel="stylesheet" href="trip-summary.css">
     <link rel="stylesheet" href="pick-release.css">
+    <link rel="stylesheet" href="autopilot.css">
     <style>
         /* Hide body content until login is verified */
         body.auth-pending {
@@ -175,6 +176,11 @@
                 <span>Pick Release</span>
                 <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('pick-release')" title="Open in new window"></i>
             </div>
+            <div class="menu-item" data-page="cancel-autopilot">
+                <i class="fas fa-robot"></i>
+                <span>Cancellation autopilot</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('cancel-autopilot')" title="Open in new window"></i>
+            </div>
             <div class="menu-item" data-page="vehicles">
                 <i class="fas fa-car"></i>
                 <span>Vehicles Dashboard</span>
@@ -276,6 +282,7 @@
             <div id="daily-history" class="page-content" style="display: none;"></div>
             <div id="mra-interface" class="page-content" style="display: none;"></div>
             <div id="pick-release" class="page-content" style="display: none;"></div>
+            <div id="cancel-autopilot" class="page-content" style="display: none;"></div>
             <div id="trip-management" class="page-content">
                 <div class="parameters-section">
                     <div class="parameters-header" id="parameters-toggle">
@@ -8587,6 +8594,8 @@
         document.write('<script src="trip-summary.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="trip-filter.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="pick-release.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="cancel-rules.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="autopilot.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="mra-processor.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="shipping-agent.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="mra-interface.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');

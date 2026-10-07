@@ -101,6 +101,8 @@ It runs 1–4 orders at a time, with a live log and **Retry failed**. The releas
 
 ## Cancellation autopilot
 
+> **Also in the WMS.** The same autopilot is a page of the classic WMS (menu › Cancellation autopilot, `wms/autopilot.js`): the same switch, settings, lease and ledger in APEX, so switching it on in either module switches it on for both, and only one PC — WMS or WMS 2.0 — cancels at a time. The WMS copy reads the trips and lines straight from the WMS endpoints and needs no DuckDB.
+
 The autopilot cancels lines automatically, with the Shipping Agent's rules:
 
 - Main lines in **Scheduled** or **Manual Reservation Required** are cancelled with their numbered sub-lines (3 → 3.1, 3.2). If a line has no sub-lines, its BOGO promo items are cancelled with it.
