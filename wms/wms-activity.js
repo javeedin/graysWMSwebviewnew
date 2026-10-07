@@ -38,14 +38,15 @@
     var started = false;
 
     // ── context helpers ─────────────────────────────────────
-    /** The app login: wms_user (kept in step with the login's 'username' by start()), else the login's own keys, else the
-        module's appUserName(); upper-cased so JAVEED and javeed are one user in Daily History. UNKNOWN only when nothing is known. */
+    /** The app login exactly as the person signed in: wms_user (kept in step with the login's 'username' by start()), else
+        the login's own keys, else the module's appUserName(). Never changed in case — Daily History groups spellings itself.
+        UNKNOWN only when nothing is known. */
     function whoAmI() {
         try {
             var u = localStorage.getItem('wms_user') || localStorage.getItem('username') || sessionStorage.getItem('loggedInUser') || localStorage.getItem('loggedInUser') ||
                 (typeof appUserName === 'function' ? appUserName() : '');
             u = String(u || '').trim();
-            return u ? u.toUpperCase() : 'UNKNOWN';
+            return u || 'UNKNOWN';
         } catch (e) { return 'UNKNOWN'; }
     }
     function ctx() {

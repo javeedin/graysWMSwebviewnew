@@ -116,19 +116,20 @@
     }
 
     /** The users that HAVE activity in the log (there is no other list of app logins here): one entry per login whatever
-        its case, with the number of events and the last day seen. Rows written by builds that did not know the login read
+        its case (JAVEED and javeed are one person — shown with the spelling of their latest event, i.e. the login name as
+        stored), with the number of events and the last day seen. Rows written by builds that did not know the login read
         UNKNOWN (the WMS stored the login as 'username' while the logger looked for 'wms_user' — kept in step since). */
     function loadUsers() {
-        runSql("SELECT UPPER(TRIM(user_name)) AS USER_NAME, COUNT(*) AS N, TO_CHAR(MAX(event_ts), 'YYYY-MM-DD') AS LAST_SEEN FROM wms_activity_log GROUP BY UPPER(TRIM(user_name)) ORDER BY 1", function (err, rows) {
+        runSql("SELECT MAX(user_name) KEEP (DENSE_RANK LAST ORDER BY event_ts) AS USER_NAME, COUNT(*) AS N, TO_CHAR(MAX(event_ts), 'YYYY-MM-DD') AS LAST_SEEN FROM wms_activity_log GROUP BY UPPER(TRIM(user_name)) ORDER BY 1", function (err, rows) {
             var sel = document.getElementById('dh-user');
             if (!sel) return;
             if (err) { sel.innerHTML = '<option value="">(all users)</option>'; return; }
-            var me = String(appUser() || '').toUpperCase();
+            var me = String(appUser() || '').trim().toUpperCase();
             sel.title = 'Users who have activity in the log (' + (rows || []).length + '). A user appears after the first push of their activity; UNKNOWN = rows from builds that did not know the login.';
             sel.innerHTML = '<option value="">(all users)</option>' + (rows || []).map(function (r) {
-                var u = r.USER_NAME || '', n = Number(r.N) || 0;
-                var label = (u === 'UNKNOWN' ? 'UNKNOWN (older builds — no login name)' : u) + ' · ' + n.toLocaleString() + ' event' + (n === 1 ? '' : 's') + (r.LAST_SEEN ? ' · last ' + r.LAST_SEEN : '');
-                return '<option value="' + esc(u) + '"' + (u === me ? ' selected' : '') + '>' + esc(label) + '</option>';
+                var u = String(r.USER_NAME || '').trim(), n = Number(r.N) || 0, up = u.toUpperCase();
+                var label = (up === 'UNKNOWN' ? 'UNKNOWN (older builds — no login name)' : u) + ' · ' + n.toLocaleString() + ' event' + (n === 1 ? '' : 's') + (r.LAST_SEEN ? ' · last ' + r.LAST_SEEN : '');
+                return '<option value="' + esc(u) + '"' + (up === me ? ' selected' : '') + '>' + esc(label) + '</option>';
             }).join('');
         });
     }
