@@ -14117,7 +14117,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
 
                     // Get keys from first item to create columns dynamically
-                    const keys = Object.keys(response.items[0]);
+                    // Column order: the columns before TRX NUMBER as sent · TRX NUMBER · item code · item description ·
+                    // requested qty · QOH · the rest as the API sends them (wmsOrderTrxColumns)
+                    const keys = window.wmsOrderTrxColumns(Object.keys(response.items[0]));
                     const columns = keys.map(key => ({
                         dataField: key,
                         caption: key.replace(/_/g, ' ').toUpperCase(),
@@ -14771,6 +14773,25 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     };
 
+
+    /** Store Transactions › Transaction Details column order: whatever comes before TRX NUMBER, then TRX NUMBER, item code,
+        item description, requested qty, QOH, then the remaining columns in the order the API sends them. Field names are
+        matched loosely (trx_number / trxnumber, item_code / item / item_number, item_desc / item_description / description,
+        req_qty / requested_quantity / quantity / qty, qoh / on_hand_qty / quantity_on_hand). */
+    window.wmsOrderTrxColumns = function(keys) {
+        keys = (keys || []).slice();
+        const first = (res) => { for (const re of res) { const k = keys.find(x => re.test(x)); if (k) return k; } return null; };
+        const trxKey = first([/^trx_?number$/i]);
+        const special = [
+            first([/^item_?code$/i, /^item_?(number|no|num)$/i, /^item$/i, /^inventory_?item$/i]),
+            first([/^item_?desc(ription)?$/i, /^description$/i, /^item_?name$/i]),
+            first([/^req(uested)?_?(qty|quantity)$/i, /^(trx|transaction|ordered|order)_?(qty|quantity)$/i, /^(quantity|qty)$/i]),
+            first([/^qoh$/i, /^qoh_?(qty|quantity)$/i, /^(on_?hand|onhand)(_?(qty|quantity))?$/i, /^quantity_?on_?hand$/i, /^available_?(qty|quantity)$/i])
+        ].filter((k, i, a) => k && k !== trxKey && a.indexOf(k) === i);
+        const before = trxKey ? keys.slice(0, keys.indexOf(trxKey)).filter(k => special.indexOf(k) < 0) : [];
+        const used = new Set(before.concat(trxKey ? [trxKey] : [], special));
+        return before.concat(trxKey ? [trxKey] : [], special, keys.filter(k => !used.has(k)));
+    };
 
     // Refresh QOH Details (Tab 2)
     window.refreshQOHDetails = async function(orderNumber) {
