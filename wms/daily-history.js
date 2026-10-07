@@ -14,7 +14,7 @@
 
     function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
     function q(v) { return v === null || v === undefined || v === '' ? 'NULL' : "'" + String(v).replace(/'/g, "''") + "'"; }
-    function appUser() { try { return localStorage.getItem('wms_user') || 'HISTORY'; } catch (e) { return 'HISTORY'; } }
+    function appUser() { try { return localStorage.getItem('wms_user') || localStorage.getItem('username') || 'HISTORY'; } catch (e) { return 'HISTORY'; } }
     function todayIso() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
     function pad(n) { return String(n).padStart(2, '0'); }
     function hm(d) { return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
@@ -77,7 +77,7 @@
             st.user = document.getElementById('dh-user').value || '';
             var status = document.getElementById('dh-status');
             status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading…';
-            var userClause = st.user ? " AND user_name = " + q(st.user) : "";
+            var userClause = st.user ? " AND UPPER(TRIM(user_name)) = " + q(st.user.toUpperCase()) : "";     // JAVEED and javeed are one user
             var evSql =
                 "SELECT TO_CHAR(event_ts,'YYYY-MM-DD\"T\"HH24:MI:SS') AS TS, user_name, module, page, event_type, target, entity_type, entity_id, dur_ms, meta " +
                 "FROM wms_activity_log WHERE event_ts >= TO_DATE(" + q(st.date) + ",'YYYY-MM-DD') AND event_ts < TO_DATE(" + q(st.date) + ",'YYYY-MM-DD') + 1" + userClause +
@@ -115,15 +115,20 @@
             });
     }
 
+    /** The users that HAVE activity in the log (there is no other list of app logins here): one entry per login whatever
+        its case, with the number of events and the last day seen. Rows written by builds that did not know the login read
+        UNKNOWN (the WMS stored the login as 'username' while the logger looked for 'wms_user' — kept in step since). */
     function loadUsers() {
-        runSql("SELECT DISTINCT user_name FROM wms_activity_log ORDER BY user_name", function (err, rows) {
+        runSql("SELECT UPPER(TRIM(user_name)) AS USER_NAME, COUNT(*) AS N, TO_CHAR(MAX(event_ts), 'YYYY-MM-DD') AS LAST_SEEN FROM wms_activity_log GROUP BY UPPER(TRIM(user_name)) ORDER BY 1", function (err, rows) {
             var sel = document.getElementById('dh-user');
             if (!sel) return;
             if (err) { sel.innerHTML = '<option value="">(all users)</option>'; return; }
-            var me = appUser();
+            var me = String(appUser() || '').toUpperCase();
+            sel.title = 'Users who have activity in the log (' + (rows || []).length + '). A user appears after the first push of their activity; UNKNOWN = rows from builds that did not know the login.';
             sel.innerHTML = '<option value="">(all users)</option>' + (rows || []).map(function (r) {
-                var u = r.USER_NAME || '';
-                return '<option value="' + esc(u) + '"' + (u === me ? ' selected' : '') + '>' + esc(u) + '</option>';
+                var u = r.USER_NAME || '', n = Number(r.N) || 0;
+                var label = (u === 'UNKNOWN' ? 'UNKNOWN (older builds — no login name)' : u) + ' · ' + n.toLocaleString() + ' event' + (n === 1 ? '' : 's') + (r.LAST_SEEN ? ' · last ' + r.LAST_SEEN : '');
+                return '<option value="' + esc(u) + '"' + (u === me ? ' selected' : '') + '>' + esc(label) + '</option>';
             }).join('');
         });
     }
@@ -716,8 +721,9 @@
     }
 
     function viewFeedback() {
-        if (!st.feedback.length) return '<div style="padding:1.5rem;color:#94a3b8;font-size:13px;">No spoken/typed feedback for this date/user. Users leave it with the 🎙 button in the corner.</div>';
-        return '<div style="display:flex;flex-direction:column;gap:10px;">' + st.feedback.map(function (f) {
+        var give = '<div style="display:flex;justify-content:flex-end;"><button onclick="window.WMSActivity && WMSActivity.openVoiceFeedback()" style="padding:7px 12px;border:none;border-radius:8px;background:#0f766e;color:white;font-weight:700;font-size:12px;cursor:pointer;"><i class="fas fa-microphone"></i> Give feedback</button></div>';
+        if (!st.feedback.length) return give + '<div style="padding:1.5rem;color:#94a3b8;font-size:13px;">No spoken/typed feedback for this date/user. Feedback is given with the button above (spoken or typed).</div>';
+        return give + '<div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">' + st.feedback.map(function (f) {
             var en = f.TEXT_EN || f.TEXT_RAW || '';
             var raw = f.TEXT_RAW || '';
             var showRaw = raw && raw !== en;

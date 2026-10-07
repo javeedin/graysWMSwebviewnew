@@ -38,9 +38,19 @@
     var started = false;
 
     // ── context helpers ─────────────────────────────────────
+    /** The app login: wms_user (kept in step with the login's 'username' by start()), else the login's own keys, else the
+        module's appUserName(); upper-cased so JAVEED and javeed are one user in Daily History. UNKNOWN only when nothing is known. */
+    function whoAmI() {
+        try {
+            var u = localStorage.getItem('wms_user') || localStorage.getItem('username') || sessionStorage.getItem('loggedInUser') || localStorage.getItem('loggedInUser') ||
+                (typeof appUserName === 'function' ? appUserName() : '');
+            u = String(u || '').trim();
+            return u ? u.toUpperCase() : 'UNKNOWN';
+        } catch (e) { return 'UNKNOWN'; }
+    }
     function ctx() {
         return {
-            user: (function () { try { return localStorage.getItem('wms_user') || (typeof appUserName === 'function' ? appUserName() : 'UNKNOWN'); } catch (e) { return 'UNKNOWN'; } })(),
+            user: whoAmI(),
             app_ver: (function () { try { return (window.APP_VERSION || document.querySelector('[data-app-version]') && document.querySelector('[data-app-version]').getAttribute('data-app-version')) || '12.1.0'; } catch (e) { return '12.1.0'; } })(),
             instance: (function () { try { return (typeof currentInstance === 'function' ? currentInstance() : (localStorage.getItem('wms_instance') || 'PROD')); } catch (e) { return 'PROD'; } })(),
             module: (function () { var p = location.pathname.toLowerCase(); if (p.indexOf('aianalysis') >= 0) return 'aianalysis'; if (p.indexOf('inventory') >= 0) return 'inventory'; if (p.indexOf('formsdesigner') >= 0) return 'formsdesigner'; return 'wms'; })()
@@ -269,6 +279,9 @@
     // ── lifecycle ───────────────────────────────────────────
     function start() {
         if (started) return; started = true;
+        // The login (login.html / the host at sign-in) stores the app login as 'username'; the WMS scripts read 'wms_user'
+        // (appUser of every gateway call, the activity log, Daily History) — keep it in step, so a user is never 'UNKNOWN' / 'WMS'.
+        try { var ln = localStorage.getItem('username'); if (ln && localStorage.getItem('wms_user') !== ln) localStorage.setItem('wms_user', ln); } catch (e) { /* storage blocked */ }
         restore();
         track('session_start', {});
         currentPage = nowPage();
@@ -283,25 +296,21 @@
             mirror();
             flush();
         });
-        // small "logging on" indicator + voice button
+        // small "logging on" indicator (the floating microphone button was removed — feedback is given from Daily History › Feedback)
         injectWidget();
     }
 
-    // ── UI: activity indicator + push-to-talk feedback ──────
+    // ── UI: activity indicator (the push-to-talk feedback opens from Daily History › Feedback › Give feedback) ──────
     function injectWidget() {
         if (document.getElementById('wms-act-fab')) return;
         var wrap = document.createElement('div');
         wrap.id = 'wms-act-fab';
         wrap.style.cssText = 'position:fixed;right:14px;bottom:14px;z-index:40000;display:flex;flex-direction:column;gap:8px;align-items:flex-end;font-family:Segoe UI,system-ui,sans-serif;';
         wrap.innerHTML =
-            '<button id="wms-fb-btn" title="Tell us what is slowing you down (voice or text)" ' +
-            'style="width:46px;height:46px;border-radius:50%;border:none;background:linear-gradient(135deg,#0f766e,#134e4a);color:white;font-size:18px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,0.25);">' +
-            '<i class="fas fa-microphone"></i></button>' +
             '<div title="Activity logging is on. Actions only - no keystrokes or passwords." ' +
             'style="font-size:8.5px;color:#0f766e;background:rgba(255,255,255,0.85);border:1px solid #d1e7e3;border-radius:10px;padding:1px 7px;font-weight:700;">' +
             '<i class="fas fa-circle" style="font-size:6px;color:#16a34a;"></i> logging</div>';
         document.body.appendChild(wrap);
-        document.getElementById('wms-fb-btn').addEventListener('click', openVoiceFeedback);
     }
 
     var LANGS = [['en-US', 'English'], ['fr-FR', 'French'], ['hi-IN', 'Hindi'], ['ur-PK', 'Urdu'], ['ar-SA', 'Arabic'], ['ta-IN', 'Tamil']];
