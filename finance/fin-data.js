@@ -515,7 +515,9 @@
             (st.oldSample ? '<div class="callout warn sm">This PC still holds the old built-in sample data — it is not shown. <a onclick="FL.clearData()">Remove it</a></div>' : '') +
             (st.loaded ? '<table class="t"><tbody>' + [['Source', m.source + (m.loader ? ' · ' + m.loader : '')], ['Loaded', m.loaded_at], ['Description', m.description], ['Periods', (c.first_period || '') + ' – ' + (c.last_period || '')],
                 ['Companies · cost centres · accounts', (c.companies || 0) + ' · ' + (c.cost_centres || 0) + ' · ' + (c.accounts || 0)], ['Balances', (c.balances || 0).toLocaleString()], ['Journal lines', (c.journals || 0).toLocaleString()],
-                ['File', st.root + ' (' + st.sizeMb + ' MB)'], ['Also kept there', 'templates.json, config.json (setup, mapping), fusion-sync.log, bicc\\ (extract files)']]
+                ['File', st.root + ' (' + st.sizeMb + ' MB)'],
+                ['Encryption', st.encrypted ? 'AES-256 — the file opens only with this PC\'s key (DPAPI, %ProgramData%\\GraysWMS\\duckdb.key); a copy is unreadable elsewhere' : st.crypto === 'unavailable' ? 'not encrypted yet — ' + (st.cryptoNote || 'the DuckDB httpfs extension (OpenSSL crypto) is not available on this PC') : 'not encrypted (an older file; it is converted the next time the app opens it with the crypto loaded)'],
+                ['Also kept there', 'templates.json, config.json (setup, mapping), fusion-sync.log, bicc\\ (extract files)']]
                 .map(function (r) { return '<tr><td class="muted">' + esc(r[0]) + '</td><td>' + esc(r[1] == null ? '' : r[1]) + '</td></tr>'; }).join('') + '</tbody></table>' : '<p>No data yet.</p>') +
             '<div class="row" style="margin-top:10px">' + (admin ? (st.loaded ? '<button class="btn" onclick="FL.clearData()"><i class="fa-solid fa-trash-can"></i> Remove the data on this PC</button>' : '') + '<button class="btn" id="d-root"><i class="fa-regular fa-folder"></i> Folder…</button>' : '<span class="sm muted">An AI admin loads data and sets the folder.</span>') +
             '<button class="btn" onclick="FL.refresh()"><i class="fa-solid fa-rotate"></i> Reload</button></div></div>' +

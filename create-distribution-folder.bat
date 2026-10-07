@@ -97,6 +97,18 @@ echo.
 echo Copying application files...
 xcopy /s /y /q "%PUBLISH_PATH%\*" "%OUTPUT_FOLDER%\"
 
+REM ── DuckDB httpfs extension = the OpenSSL crypto that writes the AES-256 encrypted DuckDB files (classes/DuckDbVault.cs).
+REM    Shipped as dist\duckdb-ext\v{version}\windows_amd64\httpfs.duckdb_extension so no PC has to download it; the version
+REM    is the DuckDB.NET package version (engine\FusionModel\FusionModel.csproj). Not fatal: the app downloads it itself.
+for /f "delims=" %%V in ('powershell -NoProfile -Command "(Select-String -Path '%~dp0engine\FusionModel\FusionModel.csproj' -Pattern 'DuckDB.NET.Data.Full\" Version=\"([0-9.]+)\"').Matches[0].Groups[1].Value"') do set "DUCK_VER=%%V"
+if defined DUCK_VER (
+    echo Fetching DuckDB httpfs extension v%DUCK_VER% for windows_amd64 ...
+    powershell -NoProfile -Command "$ErrorActionPreference='Stop'; $d='%OUTPUT_FOLDER%\duckdb-ext\v%DUCK_VER%\windows_amd64'; New-Item -ItemType Directory -Force -Path $d | Out-Null; $gz=Join-Path $d 'httpfs.duckdb_extension.gz'; Invoke-WebRequest -UseBasicParsing -Uri 'http://extensions.duckdb.org/v%DUCK_VER%/windows_amd64/httpfs.duckdb_extension.gz' -OutFile $gz; $in=[IO.File]::OpenRead($gz); $out=[IO.File]::Create((Join-Path $d 'httpfs.duckdb_extension')); $z=New-Object IO.Compression.GZipStream($in,[IO.Compression.CompressionMode]::Decompress); $z.CopyTo($out); $z.Dispose(); $out.Dispose(); $in.Dispose(); Remove-Item $gz; Write-Host ('  httpfs.duckdb_extension: ' + (Get-Item (Join-Path $d 'httpfs.duckdb_extension')).Length + ' bytes')"
+    if errorlevel 1 echo WARNING: httpfs extension not downloaded - the app will fetch it from extensions.duckdb.org on first use
+) else (
+    echo WARNING: DuckDB.NET version not found in FusionModel.csproj - httpfs extension not shipped
+)
+
 set "VERIFY_DIR=%OUTPUT_FOLDER%"
 REM --- Verify dist\ matches this build (a stale System.Text.Json.dll or deps.json
 REM     makes the app fail with "The type initializer for 'WMSApp.Form1' threw an exception") ---

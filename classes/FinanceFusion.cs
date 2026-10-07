@@ -820,9 +820,8 @@ namespace WMSApp
             int keptFrom = o.FromSeq, keptTo = o.ToSeq;
             List<string> pendingSeg = null;
             var prevDiscovery = o.Discovery.ValueKind == JsonValueKind.Object ? null : FinanceLens.LoadDiscovery(o.Pod ?? "");
-            using (var conn = new DuckDBConnection("Data Source=" + tmp))
+            using (var conn = DuckDbVault.Open(tmp))      // encrypted like finance.duckdb (DuckDbVault)
             {
-                conn.Open();
                 if (!incremental)
                 {
                     foreach (var stmt in FinanceLens.SCHEMA.Split(';').Select(s => s.Trim()).Where(s => s.Length > 0)) FinanceLens.Exec(conn, stmt);

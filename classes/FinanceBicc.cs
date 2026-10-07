@@ -184,8 +184,7 @@ namespace WMSApp
             long nBal = 0, nJnl = 0;
             try
             {
-                using var conn = new DuckDBConnection("Data Source=" + tmp);
-                conn.Open();
+                using var conn = DuckDbVault.Open(tmp);      // encrypted like finance.duckdb (DuckDbVault)
                 void X(string sql) { ct.ThrowIfCancellationRequested(); using var c = conn.CreateCommand(); c.CommandText = sql; c.ExecuteNonQuery(); }
                 long N(string sql) { using var c = conn.CreateCommand(); c.CommandText = sql; var v = c.ExecuteScalar(); return v == null || v is DBNull ? 0 : Convert.ToInt64(v); }
                 foreach (var stmt in FinanceLens.SCHEMA.Split(';').Select(s => s.Trim()).Where(s => s.Length > 0)) X(stmt);

@@ -24,13 +24,15 @@ namespace WMSApp
     /// takes the user-wide mutex Local\GraysWMS.duckdb.&lt;file&gt; (waits up to 20 s for another window's write), opens the
     /// file, does its work and closes it again. Any number of windows share the one file, writes never overlap and a reader
     /// always sees the last committed write. A wait that runs out answers "busy" (BusyException → Busy flag) and the page
-    /// tries again.
+    /// tries again. The file is AES-256 encrypted with the PC's key (DuckDbVault: opened as ":memory:" + ATTACH … ENCRYPTION_KEY
+    /// + USE wms2, so unqualified names still mean this file; a plain file from an earlier build is migrated on first open).
     /// </summary>
     public static class Wms2Store
     {
         private static readonly object _lock = new();
         private static Mutex _mutex;
         private const int WAIT_MS = 20000;
+        private const string CATALOG = "wms2";          // the file's name inside the connection (DuckDbVault.Open … USE wms2)
         private static readonly Regex TableName = new("^w2_[a-z0-9_]{1,40}$", RegexOptions.Compiled);
 
         public static string Root
@@ -76,10 +78,9 @@ namespace WMSApp
                     DuckDBConnection c = null;
                     for (int attempt = 1; ; attempt++)
                     {
-                        try { c = new DuckDBConnection("Data Source=" + DbPath); c.Open(); break; }
+                        try { c = DuckDbVault.Open(DbPath, readOnly: false, alias: CATALOG); break; }
                         catch (Exception ex) when (attempt < 8 && ex.Message.IndexOf("lock", StringComparison.OrdinalIgnoreCase) >= 0)
                         {
-                            try { c?.Dispose(); } catch { }
                             Thread.Sleep(600);   // another process (an older build) still holds the file
                         }
                     }
@@ -272,7 +273,7 @@ namespace WMSApp
                     var names = new List<string>();
                     using (var cmd = c.CreateCommand())
                     {
-                        cmd.CommandText = "SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'w2\\_%' ESCAPE '\\' ORDER BY 1";
+                        cmd.CommandText = "SELECT table_name FROM information_schema.tables WHERE table_catalog = '" + CATALOG + "' AND table_name LIKE 'w2\\_%' ESCAPE '\\' ORDER BY 1";
                         using var r = cmd.ExecuteReader();
                         while (r.Read()) names.Add(r.GetString(0));
                     }
@@ -289,7 +290,7 @@ namespace WMSApp
                         tables.Add(new { table = n, rows = count, lastWrite = last, lastScope, lastMs });
                     }
                     long size = File.Exists(DbPath) ? new FileInfo(DbPath).Length : 0;
-                    return (object)new { ok = true, path = DbPath, sizeBytes = size, tables };
+                    return (object)new { ok = true, path = DbPath, sizeBytes = size, tables, encrypted = DuckDbVault.IsKnownEncrypted(DbPath), crypto = DuckDbVault.CryptoState, cryptoNote = DuckDbVault.CryptoNote };
                 });
             }
             catch (Exception ex) { return new { ok = false, error = ex.Message, busy = ex is BusyException, path = DbPath }; }
@@ -305,7 +306,7 @@ namespace WMSApp
                     var names = new List<string>();
                     using (var cmd = c.CreateCommand())
                     {
-                        cmd.CommandText = "SELECT table_name FROM information_schema.tables WHERE table_name LIKE 'w2\\_%' ESCAPE '\\'";
+                        cmd.CommandText = "SELECT table_name FROM information_schema.tables WHERE table_catalog = '" + CATALOG + "' AND table_name LIKE 'w2\\_%' ESCAPE '\\'";
                         using var r = cmd.ExecuteReader();
                         while (r.Read()) names.Add(r.GetString(0));
                     }
@@ -321,7 +322,7 @@ namespace WMSApp
         private static List<string> Columns(DuckDBConnection c, string table)
         {
             using var cmd = c.CreateCommand();
-            cmd.CommandText = "SELECT column_name FROM information_schema.columns WHERE table_name = " + Lit(table) + " ORDER BY ordinal_position";
+            cmd.CommandText = "SELECT column_name FROM information_schema.columns WHERE table_catalog = '" + CATALOG + "' AND table_name = " + Lit(table) + " ORDER BY ordinal_position";
             using var r = cmd.ExecuteReader();
             var ordered = new List<string>();
             while (r.Read()) ordered.Add(r.GetString(0));

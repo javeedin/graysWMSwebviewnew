@@ -67,7 +67,7 @@ namespace WMSApp
             ResetSession();
             var conn = new DuckDBConnection("Data Source=:memory:");
             conn.Open();
-            Exec(conn, "ATTACH " + Lit(DbPath) + " AS fin (READ_ONLY)");
+            DuckDbVault.Attach(conn, "fin", DbPath, readOnly: true);    // the PC's key when the file is encrypted (DuckDbVault)
             Exec(conn, "USE fin");
             // the page sends SQL: it may not read other files, load extensions or change settings
             Exec(conn, "SET enable_external_access = false");
@@ -133,7 +133,8 @@ namespace WMSApp
             if (counts.Error == null && counts.Rows.Count > 0) for (int i = 0; i < counts.Columns.Count; i++) c[counts.Columns[i]] = counts.Rows[0][i];
             bool led = HasLedgers();
             if (led) { var lc = Query("SELECT COUNT(*) FROM fin_ledgers", 1); if (lc.Error == null && lc.Rows.Count > 0) c["ledgers"] = lc.Rows[0][0]; }
-            return new { ok = true, loaded = true, root = Root, meta = m, counts = c, hasLedgers = led, sizeMb = Math.Round(new FileInfo(DbPath).Length / 1048576.0, 2), error = meta.Error ?? counts.Error };
+            return new { ok = true, loaded = true, root = Root, meta = m, counts = c, hasLedgers = led, sizeMb = Math.Round(new FileInfo(DbPath).Length / 1048576.0, 2), error = meta.Error ?? counts.Error,
+                encrypted = DuckDbVault.IsKnownEncrypted(DbPath), crypto = DuckDbVault.CryptoState, cryptoNote = DuckDbVault.CryptoNote };
         }
 
         // ── documents (templates, KPIs, monitors, settings) ──
@@ -207,8 +208,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             lock (_lock)
             {
                 ResetSessionNoLock();
-                using var conn = new DuckDBConnection("Data Source=" + DbPath);
-                conn.Open();
+                using var conn = DuckDbVault.Open(DbPath);
                 Exec(conn, "CREATE TEMP TABLE cls (code VARCHAR, class VARCHAR)");
                 Append(conn, "cls", classes.Where(kv => kv.Key != null).Select(kv => new object[] { kv.Key, string.IsNullOrWhiteSpace(kv.Value) ? null : kv.Value.Trim() }).ToList());
                 Exec(conn, "UPDATE fin_accounts SET class = cls.class FROM cls WHERE fin_accounts.code = cls.code");
@@ -230,8 +230,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             lock (_lock)
             {
                 ResetSessionNoLock();
-                using var conn = new DuckDBConnection("Data Source=" + DbPath);
-                conn.Open();
+                using var conn = DuckDbVault.Open(DbPath);
                 FinanceFusion.WriteDiscovery(conn, pod, json, user, roles);
                 Exec(conn, "CHECKPOINT");
             }
@@ -254,8 +253,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             lock (_lock)
             {
                 ResetSessionNoLock();
-                using var conn = new DuckDBConnection("Data Source=" + DbPath);
-                conn.Open();
+                using var conn = DuckDbVault.Open(DbPath);
                 Exec(conn, SEGVAL_TABLE);
                 Exec(conn, "DELETE FROM fin_segment_values WHERE coa_id = " + Lit(coaId) + " AND column_name = " + Lit(column));
                 Append(conn, "fin_segment_values", values.Select(v => new object[] { coaId, column, v.Value, v.Description, v.Combinations, v.AccountType, DateTime.Now }).ToList());
@@ -288,8 +286,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 ResetSessionNoLock();
                 Directory.CreateDirectory(Root);
                 bool fresh = !File.Exists(DbPath);
-                using var conn = new DuckDBConnection("Data Source=" + DbPath);
-                conn.Open();
+                using var conn = DuckDbVault.Open(DbPath);
                 if (fresh) Exec(conn, "CREATE TABLE IF NOT EXISTS fin_meta (key VARCHAR, value VARCHAR)");
                 Exec(conn, TB_TABLE);
                 Exec(conn, "DELETE FROM fin_tb_live WHERE pod = " + Lit(pod) + " AND ledger = " + Lit(code) + " AND period_seq = " + seq);
@@ -320,8 +317,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             ResetSessionNoLock();
             Directory.CreateDirectory(Root);
             bool fresh = !File.Exists(DbPath);
-            var conn = new DuckDBConnection("Data Source=" + DbPath);
-            conn.Open();
+            var conn = DuckDbVault.Open(DbPath);
             if (fresh) Exec(conn, "CREATE TABLE IF NOT EXISTS fin_meta (key VARCHAR, value VARCHAR)");   // still reads as "no data loaded"
             Exec(conn, RAW_SYNC_TABLE); Exec(conn, CCID_TABLE);
             Exec(conn, "DROP TABLE IF EXISTS fin_gl_raw"); Exec(conn, "DROP TABLE IF EXISTS fin_gl_raw_sync");   // the earlier few-column layout
@@ -403,8 +399,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             lock (_lock)
             {
                 ResetSessionNoLock();
-                using var conn = new DuckDBConnection("Data Source=" + DbPath);
-                conn.Open();
+                using var conn = DuckDbVault.Open(DbPath);
                 var cols = TableColumns(conn, "fin_gl_balances");
                 if (cols.Count == 0) return list;
                 bool tf = cols.Any(c => c.Name == "translated_flag");
@@ -995,8 +990,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
             lock (_lock)
             {
                 ResetSessionNoLock();
-                using var conn = new DuckDBConnection("Data Source=" + DbPath);
-                conn.Open();
+                using var conn = DuckDbVault.Open(DbPath);
                 var cols = TableColumns(conn, "fin_gl_balances_acct");
                 if (cols.Count == 0) return list;
                 using var c = conn.CreateCommand();
@@ -1235,7 +1229,7 @@ CREATE TABLE fin_journals (je_id BIGINT, je_line INTEGER, batch_name VARCHAR, je
                 Exec(conn, SEGVAL_TABLE); Exec(conn, TB_TABLE); Exec(conn, RAW_SYNC_TABLE); Exec(conn, CCID_TABLE); Exec(conn, ACCT_SYNC_TABLE); Exec(conn, TBP_TABLE); Exec(conn, TBL_TABLE);
                 Exec(conn, WC_PARTIES_TABLE); Exec(conn, WC_STOCK_TABLE); Exec(conn, WC_SNAP_TABLE); Exec(conn, EXT_TABLE); Exec(conn, EXT_SYNC_TABLE); Exec(conn, EXT_ACCT_TABLE); Exec(conn, CCID_SYNC_TABLE); Exec(conn, CCB_TABLE); Exec(conn, CCB_SYNC_TABLE);
                 Exec(conn, WC_NAMES_TABLE); Exec(conn, ITEMS_TABLE); Exec(conn, ITEM_DFF_TABLE); EnsurePlanTables(conn); EnsureIcTables(conn);
-                Exec(conn, "ATTACH " + Lit(DbPath.Replace('\\', '/')) + " AS prev (READ_ONLY)");
+                DuckDbVault.Attach(conn, "prev", DbPath, readOnly: true);
                 try
                 {
                     foreach (var t in new[] { "fin_segment_values", "fin_tb_live", "fin_gl_balances_sync", "fin_ccid", "fin_gl_balances", "fin_gl_balances_acct_sync", "fin_gl_balances_acct", "fin_tb_periods", "fin_tb_ledgers", "fin_wc_parties", "fin_wc_stock", "fin_wc_snapshots", "fin_gl_balances_ext", "fin_gl_balances_ext_sync", "fin_gl_ext_acct_status", "fin_ccid_sync", "fin_gl_ccid_bal", "fin_gl_ccid_bal_sync", "fin_wc_names", "fin_items", "fin_item_dff", "fin_wc_history", "fin_plan_versions", "fin_plan_lines", "fin_plan_amounts", "fin_notes", "rr_ic_sync", "rr_ic_entities", "rr_ic_bal", "rr_ic_fun", "rr_ic_ar", "rr_ic_ap", "rr_ic_inv", "rr_ic_gl", "rr_ic_xla", "rr_ic_docs", "rr_ic_log" })
