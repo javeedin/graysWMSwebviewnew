@@ -8,7 +8,7 @@
 --    (Move dialog: it is always first in the list). The Pinned Trips tab shows them (GETTRIPDETAILS/999999999)
 --    with only Move and Delete per line. The page can create the trip itself ("Set up trip 999999999": it finds the
 --    trip header table from the trips/create ORDS handler and shows the INSERT before it runs). Use this script when
---    that is not possible (TRIP_ID is an identity column, or NUMBER(p) with p < 9 — widen it first).
+--    that is not possible (TRIP_ID is an identity column, or NUMBER(p) with p < 9 — widen it first). One header row only.
 -- 3) Orders still on the old future trip 9999 are listed on the tab until they are moved; step 4 moves them all.
 -- ============================================================
 
@@ -37,12 +37,22 @@ ORDER  BY column_id;
 -- e.g. ALTER TABLE wms_trip_header MODIFY (trip_id NUMBER(12));      -- only when TRIP_ID is NUMBER(p) with p < 9
 -- e.g. ALTER TABLE wms_trip_details MODIFY (trip_id NUMBER(12));     -- same check on the trip lines table
 
--- 2c) Create trip 999999999 per instance — adjust the table / column names to what step 2b shows.
---     The trip date is 31-12-2099, so it never shows in a normal Fetch Trips date range.
+-- 2c) Create trip 999999999 — ONE header row for every instance (adjust the table / column names to what step 2b shows).
+--     The WMS handlers (trips/addorders, used by Move and Add Orders) look a trip up by trip_id alone: a second row,
+--     e.g. one per instance, makes them fail with ORA-01422 "exact fetch returns more than requested number of rows".
+--     The order lines (WMS_TRIP_DETAILS) carry their own INSTANCE_NAME, and GETTRIPDETAILS reads only those, so one header
+--     row serves PROD and TEST. The trip date is 31-12-2099, so it never shows in a normal Fetch Trips date range.
 INSERT INTO wms_trip_header (trip_id, trip_date, trip_lorry, trip_loading_bay, trip_priority, trip_status, instance_name)
-VALUES (999999999, DATE '2099-12-31', 'FUTURE TRIP', 'FUTURE', 99, 'OPEN', 'PROD');
-INSERT INTO wms_trip_header (trip_id, trip_date, trip_lorry, trip_loading_bay, trip_priority, trip_status, instance_name)
-VALUES (999999999, DATE '2099-12-31', 'FUTURE TRIP', 'FUTURE', 99, 'OPEN', 'TEST');
+SELECT 999999999, DATE '2099-12-31', 'FUTURE TRIP', 'FUTURE', 99, 'OPEN', 'PROD' FROM dual
+WHERE NOT EXISTS (SELECT 1 FROM wms_trip_header WHERE trip_id = 999999999);
+COMMIT;
+
+-- 2d) Already two rows (an earlier set-up per instance)? Keep one — the PROD one when there is one — and delete the rest.
+--     The Pinned Trips tab shows a red "Fix" button that runs the same statement.
+DELETE FROM wms_trip_header
+WHERE  trip_id = 999999999
+AND    ROWID <> (SELECT MIN(ROWID) KEEP (DENSE_RANK FIRST ORDER BY CASE WHEN UPPER(instance_name) = 'PROD' THEN 0 ELSE 1 END)
+                 FROM wms_trip_header WHERE trip_id = 999999999);
 COMMIT;
 
 -- 3) What is still on the old future trip 9999?

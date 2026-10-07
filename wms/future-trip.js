@@ -381,8 +381,14 @@
                 var inst = cols.find(function (x) { return /^(INSTANCE|INSTANCE_NAME|TRIP_INSTANCE|P_INSTANCE_NAME)$/.test(x.COLUMN_NAME); });
                 var idc = cols.find(function (x) { return x.COLUMN_NAME === 'TRIP_ID'; });
                 var idv = idc && /CHAR/.test(String(idc.DATA_TYPE || '')) ? lit(FUTURE) : FUTURE;
-                var where = 'trip_id = ' + idv + (inst ? ' AND ' + inst.COLUMN_NAME + ' = ' + lit(instance) : '');
-                return apexQuery('SELECT COUNT(*) AS n FROM ' + h.table + ' WHERE ' + where, 1).then(function (r) {
+                // ONE header row for every instance: the WMS handlers (trips/addorders …) look a trip up by trip_id alone —
+                // a second row (e.g. one per instance) makes Move / Add Orders fail with ORA-01422.
+                var where = 'trip_id = ' + idv;
+                var ic = inst ? inst.COLUMN_NAME : null;
+                return apexQuery('SELECT COUNT(*) AS n' + (ic ? ", LISTAGG(" + ic + ", ', ') WITHIN GROUP (ORDER BY " + ic + ') AS insts' : '') + ' FROM ' + h.table + ' WHERE ' + where, 1).then(function (r) {
+                    var n = (r[0] && +r[0].N) || 0, insts = (r[0] && r[0].INSTS) || '';
+                    var keep = ic ? 'SELECT MIN(ROWID) KEEP (DENSE_RANK FIRST ORDER BY CASE WHEN UPPER(' + ic + ") = 'PROD' THEN 0 ELSE 1 END) FROM " + h.table + ' WHERE ' + where
+                                  : 'SELECT MIN(ROWID) FROM ' + h.table + ' WHERE ' + where;
                     var names = [], vals = [];
                     cols.forEach(function (c) {
                         var n = c.COLUMN_NAME, t = String(c.DATA_TYPE || ''), v = null;
@@ -402,8 +408,9 @@
                     if (idc && idc.IDENT === 'YES') blocked = 'TRIP_ID of ' + h.table + ' is an identity column, so trip ' + FUTURE + ' cannot be inserted with that number — ask the DBA (apex_sql/96_pinned_trips.sql).';
                     else if (idc && idc.DATA_PRECISION && +idc.DATA_PRECISION < FUTURE.length) blocked = 'TRIP_ID of ' + h.table + ' is NUMBER(' + idc.DATA_PRECISION + '): ' + FUTURE + ' does not fit — widen the column (apex_sql/96_pinned_trips.sql).';
                     if (!has('TRIP_ID')) blocked = h.table + ' has no TRIP_ID column.';
-                    return { exists: (r[0] && +r[0].N) > 0, table: h.table, how: h.how, blocked: blocked,
-                        insert: 'INSERT INTO ' + h.table + ' (' + names.join(', ') + ') VALUES (' + vals.join(', ') + ')' };
+                    return { exists: n > 0, rows: n, instances: insts, duplicates: n > 1, table: h.table, how: h.how, blocked: blocked,
+                        insert: 'INSERT INTO ' + h.table + ' (' + names.join(', ') + ') VALUES (' + vals.join(', ') + ')',
+                        dedupe: 'DELETE FROM ' + h.table + ' WHERE ' + where + ' AND ROWID <> (' + keep + ')' };
                 });
             });
         });
@@ -547,15 +554,28 @@
     function setupBox(st) {
         var box = document.getElementById('ft-setup'); if (!box) return;
         if (!st) { box.innerHTML = ''; return; }
+        if (st.duplicates) {
+            box.innerHTML = '<button id="ft-fix" title="The WMS handlers find a trip by its id alone, so two header rows make Move / Add Orders fail with ORA-01422. This keeps one row and deletes the others." ' +
+                'style="background:#b91c1c;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:800;font-size:.75rem;cursor:pointer;"><i class="fas fa-triangle-exclamation"></i> Fix: trip ' + FUTURE + ' has ' + st.rows + ' header rows' + (st.instances ? ' (' + esc(st.instances) + ')' : '') + ' — Move fails with ORA-01422</button>';
+            document.getElementById('ft-fix').onclick = function () { F.fix(st); };
+            return;
+        }
         if (st.exists) { box.innerHTML = '<span style="font-size:.72rem;color:#166534;font-weight:700;"><i class="fas fa-check-circle"></i> trip ' + FUTURE + ' is set up (' + esc(st.table) + ')</span>'; return; }
-        box.innerHTML = '<button id="ft-mk" style="background:#b45309;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:800;font-size:.75rem;cursor:pointer;"><i class="fas fa-plus-circle"></i> Set up trip ' + FUTURE + ' in ' + esc(inst()) + '</button>';
+        box.innerHTML = '<button id="ft-mk" style="background:#b45309;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:800;font-size:.75rem;cursor:pointer;"><i class="fas fa-plus-circle"></i> Set up trip ' + FUTURE + '</button>';
         document.getElementById('ft-mk').onclick = function () { F.setup(st); };
     }
     F.setup = function (st) {
         if (st.blocked) { alert(st.blocked); return; }
-        if (!confirm('Create trip ' + FUTURE + ' (Future Trip) in ' + inst() + '?\n\nFound the trip table through ' + st.how + '. This runs:\n\n' + st.insert)) return;
-        apexWrite(st.insert).then(function () { note('Trip ' + FUTURE + ' created in ' + inst() + '.', 'success'); F.load(); },
+        if (!confirm('Create trip ' + FUTURE + ' (Future Trip) — one header row, used by every instance?\n\nFound the trip table through ' + st.how + '. This runs:\n\n' + st.insert)) return;
+        apexWrite(st.insert).then(function () { note('Trip ' + FUTURE + ' created.', 'success'); F.load(); },
             function (e) { alert('Trip ' + FUTURE + ' was not created:\n' + e + '\n\nRun apex_sql/96_pinned_trips.sql by hand instead.'); });
+    };
+    /** Two header rows for the future trip (one per instance) break trips/addorders (ORA-01422): keep one, delete the rest. */
+    F.fix = function (st) {
+        if (!confirm('Trip ' + FUTURE + ' has ' + st.rows + ' header rows in ' + st.table + (st.instances ? ' (' + st.instances + ')' : '') + '.\n\nThe WMS handlers look a trip up by its id alone, so Move / Add Orders to trip ' + FUTURE +
+            ' fail with ORA-01422 until one row is left. The order lines keep their own instance, so one header row serves PROD and TEST.\n\nThis runs:\n\n' + st.dedupe)) return;
+        apexWrite(st.dedupe).then(function () { note('Trip ' + FUTURE + ' now has one header row.', 'success'); F.load(); },
+            function (e) { alert('Could not delete the extra rows:\n' + e + '\n\nRun the DELETE of apex_sql/96_pinned_trips.sql by hand.'); });
     };
     /** GETTRIPDETAILS/{trip} → the order rows (MRA fields of the handler mapped). */
     function tripRows(tripId, instance) {
