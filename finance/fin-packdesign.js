@@ -146,6 +146,15 @@
         });
         if ($('pk-ledhdr')) $('pk-ledhdr').onclick = function () { p.ledgers = []; D.touch(); D.paintLeft(); D.paintHead(); };
         box.querySelectorAll('[data-th]').forEach(function (b) { b.onclick = function () { p.theme = b.dataset.th; D.touch(); D.paintLeft(); D.paintList(); }; });
+        var hero = function () { return (p.hero = p.hero || {}); };
+        box.querySelectorAll('[data-hero]').forEach(function (b) { b.onclick = function () { hero()[b.dataset.hero] = b.dataset.v; D.touch(); D.paintLeft(); }; });
+        ['pk-hc1', 'pk-hc2'].forEach(function (id, n) { var x = $(id); if (x) x.onchange = function () { hero()[n ? 'c2' : 'c1'] = x.value; D.touch(); D.paintLeft(); }; });
+        if ($('pk-hcreset')) $('pk-hcreset').onclick = function () { delete hero().c1; delete hero().c2; D.touch(); D.paintLeft(); };
+        if ($('pk-heroimg')) $('pk-heroimg').onchange = function () {
+            var f = this.files[0]; if (!f) return;
+            if (f.size > 700 * 1024) { FL.toast('Use a picture smaller than 700 KB (it travels inside every pack)', 'err'); return; }
+            var r = new FileReader(); r.onload = function () { hero().img = r.result; D.touch(); D.paintLeft(); }; r.readAsDataURL(f);
+        };
         box.querySelectorAll('[data-look]').forEach(function (b) { b.onclick = function () { p[b.dataset.look] = b.dataset.v; D.touch(); D.paintLeft(); }; });
         $('pk-logo').onchange = function () {
             var f = this.files[0]; if (!f) return;
@@ -190,8 +199,33 @@
         return row('layout', P0.LAYOUTS, L.layout, function (k) { return pic[k](L.menu); }, 'Layout') +
             row('menu', P0.MENUS, L.menu, function (k) { return pic[L.layout](k); }, 'Menu colour') +
             '<div class="sm muted" style="margin-top:4px">' + esc(P0.LAYOUTS[L.layout].what) + (light ? ' · white menus use the theme colour for the page you are on' : '') + '</div>' +
+D.heroBox(p, t) +
             '<div class="row" style="margin-top:8px;gap:14px"><span class="sm">Page</span>' + Object.keys(P0.PAPERS).map(function (k) { return '<button class="btn sm' + (L.paper === k ? ' primary' : '') + '" data-look="paper" data-v="' + k + '">' + esc(P0.PAPERS[k]) + '</button>'; }).join('') +
             '<span class="sm" style="margin-left:6px">Font</span>' + Object.keys(P0.FONTS).map(function (k) { return '<button class="btn sm' + (L.font === k ? ' primary' : '') + '" data-look="font" data-v="' + k + '"' + (k === 'serif' ? ' style="font-family:Georgia,serif"' : '') + '>' + esc(P0.FONTS[k]) + '</button>'; }).join('') + '</div>';
+    };
+
+    /** The cover banner of the Summary page: style, pattern, colours, size, alignment, picture */
+    D.heroBox = function (p, t) {
+        var P0 = FL.packs, H = P0.hero(p), raw = p.hero || {}, c1 = H.c1 || t.a, c2 = H.c2 || t.b;
+        var bg = function (st) {
+            return { grad: 'linear-gradient(135deg,' + c1 + ',' + c2 + ')', solid: c1, dark: 'linear-gradient(135deg,#0b1222,#1e293b)', soft: 'color-mix(in srgb,' + c1 + ' 12%,#fff)', white: '#fff', minimal: 'transparent',
+                image: raw.img ? 'linear-gradient(100deg,rgba(8,12,28,.8),rgba(8,12,28,.3)),url(' + raw.img + ') center/cover' : 'repeating-linear-gradient(45deg,#e2e8f0 0 6px,#f1f5f9 6px 12px)' }[st];
+        };
+        var pic = function (st) {
+            var light = P0.lightHero(st) || (st === 'image' && !raw.img), ink = light ? c1 : '#fff';
+            return '<i style="left:5px;right:5px;top:7px;height:24px;border-radius:4px;background:' + bg(st) + (st === 'white' ? ';box-shadow:0 0 0 1px #dfe4ec;border-left:3px solid ' + c2 : '') + (st === 'minimal' ? ';border-radius:0;border-bottom:2px solid ' + c2 : '') + '"></i>' +
+                '<i style="left:10px;top:13px;width:24px;height:3px;border-radius:2px;background:' + ink + '"></i><i style="left:10px;top:19px;width:14px;height:3px;border-radius:2px;background:' + ink + ';opacity:.7"></i>' +
+                '<i style="left:5px;top:34px;width:16px;height:5px;border-radius:2px;background:#fff;box-shadow:0 0 0 1px #dfe4ec"></i><i style="left:24px;top:34px;width:16px;height:5px;border-radius:2px;background:#fff;box-shadow:0 0 0 1px #dfe4ec"></i><i style="left:43px;top:34px;width:16px;height:5px;border-radius:2px;background:#fff;box-shadow:0 0 0 1px #dfe4ec"></i>';
+        };
+        var chips = function (key, map, cur) { return Object.keys(map).map(function (k) { return '<button class="btn sm' + (cur === k ? ' primary' : '') + '" data-hero="' + key + '" data-v="' + k + '">' + esc(map[k]) + '</button>'; }).join(''); };
+        return '<div class="field" style="margin-top:12px">Cover banner <span class="sm muted">(top of the Summary page)</span></div><div class="pk-lays">' + Object.keys(P0.HEROES).map(function (k) {
+                return '<button class="pk-lay' + ((raw.style && FL.packs.HEROES[raw.style] ? raw.style : H.style) === k ? ' on' : '') + '" data-hero="style" data-v="' + k + '"><span class="th">' + pic(k) + '</span><span>' + esc(P0.HEROES[k]) + '</span></button>';
+            }).join('') + '</div>' +
+            (raw.style === 'image' ? '<div class="row sm" style="margin-top:6px"><label class="btn sm"><i class="fa-solid fa-image"></i> ' + (raw.img ? 'Change picture' : 'Choose a picture') + '<input type="file" id="pk-heroimg" accept="image/png,image/jpeg,image/webp" hidden></label>' + (raw.img ? '<span class="muted">darkened on the left so the title reads</span>' : '<span class="muted">until a picture is chosen the gradient is used · up to 700 KB</span>') + '</div>' : '') +
+            '<div class="row sm pk-hrow"><span>Pattern</span>' + chips('deco', P0.DECOS, H.deco) + '</div>' +
+            '<div class="row sm pk-hrow"><span>Colours</span><label title="Main colour"><input type="color" id="pk-hc1" value="' + c1 + '"></label><label title="Second colour"><input type="color" id="pk-hc2" value="' + c2 + '"></label>' +
+            (H.c1 || H.c2 ? '<button class="btn sm" id="pk-hcreset">Use the theme colours</button>' : '<span class="muted">the theme colours — pick to change only the banner</span>') + '</div>' +
+            '<div class="row sm pk-hrow"><span>Size</span>' + chips('size', P0.HSIZES, H.size) + '<span style="margin-left:8px">Text</span>' + chips('align', { left: 'Left', center: 'Centred' }, H.align) + '</div>';
     };
 
     /** Logo settings: background plate, colour, size — with a live sample on the menu, the cover and the e-mail header */

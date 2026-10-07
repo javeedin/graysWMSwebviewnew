@@ -979,3 +979,6 @@ sup.st-nref { color: var(--accent); font-weight: 700; cursor: pointer; margin-le
 .pk-lay.on { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 700; }
 .pk-lay .th { position: relative; width: 64px; height: 42px; border-radius: 5px; background: #f1f4f9; overflow: hidden; box-shadow: inset 0 0 0 1px #e2e7ef; }
 .pk-lay .th i { position: absolute; display: block; }
+.pk-hrow { margin-top: 7px; gap: 6px; flex-wrap: wrap; align-items: center; }
+.pk-hrow > span { min-width: 52px; color: var(--muted); }
+.pk-hrow input[type=color] { width: 34px; height: 26px; padding: 0 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); cursor: pointer; vertical-align: middle; }
