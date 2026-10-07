@@ -518,23 +518,21 @@
         root.dataset.ready = '1';
         root.innerHTML =
             '<div style="padding:1rem;display:flex;flex-direction:column;gap:1rem;">' +
-            '<div style="background:linear-gradient(135deg,#fffbeb,#fef3c7);border:1px solid #f59e0b;border-radius:12px;padding:.6rem 1rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">' +
-              '<div style="width:36px;height:36px;border-radius:10px;background:#b45309;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.05rem;"><i class="fas fa-thumbtack"></i></div>' +
-              '<div style="flex:1;min-width:160px;font-weight:800;color:#78350f;font-size:1.05rem;">Pinned trips</div>' +
-              '<label style="font-size:.75rem;color:#78350f;font-weight:700;">Instance <select id="ft-inst" style="margin-left:4px;padding:4px 8px;border-radius:6px;border:1px solid #f59e0b;"><option>PROD</option><option>TEST</option></select></label>' +
-              '<span id="pt-count" title="Pinned trips of this instance" style="background:#fff;border-radius:20px;padding:4px 12px;font-weight:800;color:#92400e;font-size:.8rem;">…</span>' +
-              '<span id="ft-count" title="Orders on the future trip ' + FUTURE + '" style="background:#fff;border-radius:20px;padding:4px 12px;font-weight:800;color:#92400e;font-size:.8rem;">…</span>' +
-              '<span id="ft-setup"></span>' +
-              '<button class="btn btn-info" id="ft-refresh" style="font-size:.68rem;padding:.3rem .6rem;"><i class="fas fa-sync-alt"></i> Refresh</button>' +
-            '</div>' +
+            // pinned trips: title row with the instance, the count and Refresh (no header strip)
             '<div style="' + CARD + '">' +
               '<div style="display:flex;gap:8px;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;"><b style="color:#1e293b;"><i class="fas fa-thumbtack" style="color:#b45309;margin-right:6px;"></i>Pinned trips</b>' +
-                '<span id="pt-sub" style="font-size:.74rem;color:#64748b;"></span></div>' +
+                '<span id="pt-sub" style="font-size:.74rem;color:#64748b;"></span><span style="flex:1;"></span>' +
+                '<label style="font-size:.75rem;color:#334155;font-weight:700;">Instance <select id="ft-inst" style="margin-left:4px;padding:4px 8px;border-radius:6px;border:1px solid #cbd5e1;"><option>PROD</option><option>TEST</option></select></label>' +
+                '<span id="pt-count" title="Pinned trips of this instance" style="background:#f1f5f9;border-radius:20px;padding:3px 10px;font-weight:700;color:#334155;font-size:.74rem;white-space:nowrap;">…</span>' +
+                '<button class="btn btn-info" id="ft-refresh" style="font-size:.68rem;padding:.3rem .6rem;"><i class="fas fa-sync-alt"></i> Refresh</button></div>' +
               '<div id="pt-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:.75rem;"></div>' +
             '</div>' +
+            // the future trip: title row with its order count and the set-up / fix status, then the WMS trip buttons (disabled) and the grid
             '<div style="' + CARD + '">' +
               '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:.75rem;">' +
-                '<b style="margin-right:8px;color:#1e293b;"><i class="fas fa-hourglass-half" style="color:#d97706;margin-right:6px;"></i>Future trip ' + FUTURE + ' · Order Details</b>' +
+                '<b style="margin-right:4px;color:#1e293b;"><i class="fas fa-hourglass-half" style="color:#d97706;margin-right:6px;"></i>Future trip ' + FUTURE + ' · Order Details</b>' +
+                '<span id="ft-count" title="Orders on the future trip ' + FUTURE + '" style="background:#f1f5f9;border-radius:20px;padding:3px 10px;font-weight:700;color:#334155;font-size:.74rem;white-space:nowrap;">…</span>' +
+                '<span id="ft-setup"></span>' +
                 DISABLED.map(function (b) { return '<button class="btn" disabled title="Not available on the future trip — move the order to a real trip first" style="font-size:.68rem;padding:.3rem .6rem;background:#e2e8f0;color:#94a3b8;border:none;cursor:not-allowed;"><i class="fas ' + b[0] + '"></i> ' + b[1] + '</button>'; }).join('') +
               '</div>' +
               '<div id="ft-grid"></div>' +
@@ -560,7 +558,7 @@
             document.getElementById('ft-fix').onclick = function () { F.fix(st); };
             return;
         }
-        if (st.exists) { box.innerHTML = '<span style="font-size:.72rem;color:#166534;font-weight:700;"><i class="fas fa-check-circle"></i> trip ' + FUTURE + ' is set up (' + esc(st.table) + ')</span>'; return; }
+        if (st.exists) { box.innerHTML = '<span title="Trip ' + FUTURE + ' is set up in ' + esc(st.table) + '" style="font-size:.72rem;color:#166534;font-weight:700;"><i class="fas fa-check-circle"></i> set up</span>'; return; }
         box.innerHTML = '<button id="ft-mk" style="background:#b45309;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:800;font-size:.75rem;cursor:pointer;"><i class="fas fa-plus-circle"></i> Set up trip ' + FUTURE + '</button>';
         document.getElementById('ft-mk').onclick = function () { F.setup(st); };
     }
