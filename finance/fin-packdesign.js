@@ -133,10 +133,10 @@
             D.ledgerBox(p) +
             '<div class="field" style="margin-top:8px">Colours</div><div class="pk-themes">' + Object.keys(th).map(function (k) {
                 return '<button class="pk-theme' + (p.theme === k ? ' on' : '') + '" data-th="' + k + '" title="' + esc(th[k].name) + '"><span style="background:' + th[k].a + '"></span><span style="background:' + th[k].b + '"></span><span style="background:' + th[k].c + '"></span></button>';
-            }).join('') + '</div>' +
+            }).join('') + '</div>' + D.lookBox(p, th[p.theme] || th.navy) +
             '<div class="row" style="margin-top:10px"><span class="field" style="margin:0">Logo</span>' + (p.logo ? '' : '<span class="sm muted">none</span>') +
             '<label class="btn sm"><i class="fa-solid fa-image"></i> ' + (p.logo ? 'Change' : 'Add') + '<input type="file" id="pk-logo" accept="image/png,image/jpeg,image/svg+xml" hidden></label>' + (p.logo ? '<button class="btn sm ghost" id="pk-nologo">Remove</button>' : '') + '</div>' + (p.logo ? D.logoBox(p) : '') + '</div>';
-        h += '<div class="card" style="margin-top:12px"><div class="row"><h4 class="pk-h" style="margin:0"><i class="fa-solid fa-list-ol"></i> Sections <span class="sm muted">— the left menu of the pack, in this order</span></h4><span class="grow"></span>' +
+        h += '<div class="card" style="margin-top:12px"><div class="row"><h4 class="pk-h" style="margin:0"><i class="fa-solid fa-list-ol"></i> Sections <span class="sm muted">— the pages of the pack (its menu), in this order</span></h4><span class="grow"></span>' +
             '<select id="pk-add" class="sm" style="max-width:190px"><option value="">+ Add a section…</option>' + Object.keys(types).map(function (k) { return '<option value="' + k + '">' + esc(types[k].label) + ' — ' + esc(types[k].what) + '</option>'; }).join('') + '</select></div>' +
             '<div id="pk-secs" class="pk-secs">' + (p.sections || []).map(function (s, i) { return D.secHtml(s, i); }).join('') + '</div></div>';
         box.innerHTML = h;
@@ -146,6 +146,7 @@
         });
         if ($('pk-ledhdr')) $('pk-ledhdr').onclick = function () { p.ledgers = []; D.touch(); D.paintLeft(); D.paintHead(); };
         box.querySelectorAll('[data-th]').forEach(function (b) { b.onclick = function () { p.theme = b.dataset.th; D.touch(); D.paintLeft(); D.paintList(); }; });
+        box.querySelectorAll('[data-look]').forEach(function (b) { b.onclick = function () { p[b.dataset.look] = b.dataset.v; D.touch(); D.paintLeft(); }; });
         $('pk-logo').onchange = function () {
             var f = this.files[0]; if (!f) return;
             if (f.size > 400 * 1024) { FL.toast('Use a logo smaller than 400 KB (it travels inside every pack and e-mail)', 'err'); return; }
@@ -163,6 +164,34 @@
             p.sections.push(s); D.open = s.id; D.touch(); D.paintLeft();
         };
         D.wireSecs(box);
+    };
+
+    /** Layout, menu colour, paper and font — each a row of small pictures of the result */
+    D.lookBox = function (p, t) {
+        var P0 = FL.packs, L = P0.look(p), light = P0.lightMenu(L.menu);
+        var menuBg = function (m) { return { theme: t.a, grad: 'linear-gradient(180deg,' + t.a + ',' + t.b + ')', dark: '#0b1222', white: '#fff', tint: 'color-mix(in srgb,' + t.a + ' 12%,#fff)' }[m]; };
+        var bar = function (m, css) { return '<i style="' + css + 'background:' + menuBg(m) + (P0.lightMenu(m) ? ';box-shadow:0 0 0 1px #d5dbe5' : '') + '"></i>'; };
+        var ln = function (css) { return '<i style="' + css + 'background:#cfd6e2;height:3px;border-radius:2px"></i>'; };
+        var body = function (x) { return ln('left:' + x + 'px;top:10px;width:22px;') + ln('left:' + x + 'px;top:16px;width:30px;') + ln('left:' + x + 'px;top:22px;width:26px;') + '<i style="left:' + x + 'px;top:28px;width:32px;height:9px;border-radius:2px;background:#fff;box-shadow:0 0 0 1px #dfe4ec"></i>'; };
+        var pic = {
+            side: function (m) { return bar(m, 'left:0;top:0;bottom:0;width:15px;') + body(20); },
+            right: function (m) { return bar(m, 'right:0;top:0;bottom:0;width:15px;') + body(5); },
+            rail: function (m) { return bar(m, 'left:0;top:0;bottom:0;width:7px;') + body(13); },
+            top: function (m) { return bar(m, 'left:0;right:0;top:0;height:7px;') + ln('left:6px;top:13px;width:30px;') + ln('left:6px;top:19px;width:46px;') + '<i style="left:6px;top:25px;width:52px;height:12px;border-radius:2px;background:#fff;box-shadow:0 0 0 1px #dfe4ec"></i>'; },
+            cards: function (m) { return bar(m, 'left:0;right:0;top:0;height:6px;') + [0, 1, 2, 3, 4, 5].map(function (i) { return '<i style="left:' + (5 + (i % 3) * 19) + 'px;top:' + (11 + Math.floor(i / 3) * 14) + 'px;width:16px;height:11px;border-radius:2px;background:#fff;box-shadow:0 0 0 1px #dfe4ec;border-top:2px solid ' + t.b + '"></i>'; }).join(''); },
+            doc: function (m) { return bar(m, 'left:0;right:0;top:0;height:6px;') + [0, 1, 2].map(function (i) { return ln('left:6px;top:' + (11 + i * 10) + 'px;width:' + (48 - i * 8) + 'px;') + '<i style="left:6px;top:' + (15 + i * 10) + 'px;width:52px;height:3px;background:#e7ebf2"></i>'; }).join(''); }
+        };
+        var row = function (key, map, cur, draw, name) {
+            return '<div class="field" style="margin-top:10px">' + name + '</div><div class="pk-lays">' + Object.keys(map).map(function (k) {
+                var m = map[k];
+                return '<button class="pk-lay' + (cur === k ? ' on' : '') + '" data-look="' + key + '" data-v="' + k + '" title="' + esc(m.what || m.label || m) + '"><span class="th">' + draw(k) + '</span><span>' + esc(m.label || m) + '</span></button>';
+            }).join('') + '</div>';
+        };
+        return row('layout', P0.LAYOUTS, L.layout, function (k) { return pic[k](L.menu); }, 'Layout') +
+            row('menu', P0.MENUS, L.menu, function (k) { return pic[L.layout](k); }, 'Menu colour') +
+            '<div class="sm muted" style="margin-top:4px">' + esc(P0.LAYOUTS[L.layout].what) + (light ? ' · white menus use the theme colour for the page you are on' : '') + '</div>' +
+            '<div class="row" style="margin-top:8px;gap:14px"><span class="sm">Page</span>' + Object.keys(P0.PAPERS).map(function (k) { return '<button class="btn sm' + (L.paper === k ? ' primary' : '') + '" data-look="paper" data-v="' + k + '">' + esc(P0.PAPERS[k]) + '</button>'; }).join('') +
+            '<span class="sm" style="margin-left:6px">Font</span>' + Object.keys(P0.FONTS).map(function (k) { return '<button class="btn sm' + (L.font === k ? ' primary' : '') + '" data-look="font" data-v="' + k + '"' + (k === 'serif' ? ' style="font-family:Georgia,serif"' : '') + '>' + esc(P0.FONTS[k]) + '</button>'; }).join('') + '</div>';
     };
 
     /** Logo settings: background plate, colour, size — with a live sample on the menu, the cover and the e-mail header */

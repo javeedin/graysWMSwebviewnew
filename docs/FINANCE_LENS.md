@@ -57,7 +57,7 @@ templates and mapping stay).
 
 ## Board packs and e-mail
 
-**Design** (Reports › Board packs): pick or create a pack on the left. Set the title, company, who prepared it, the amounts, a colour theme and a logo. The **Sections** list is the menu of the pack, in order — drag a section (or ▲▼) to move it, untick it to leave it out, rename it, and open ⚙ for its settings:
+**Design** (Reports › Board packs): pick or create a pack on the left. Set the title, company, who prepared it, the amounts, a colour theme and a logo. **Layout** — Left menu, Right menu, Icon rail (a slim bar of icons, more room for wide statements), Top tabs, Contents cards (the pack opens on a page of numbered cards; *← All pages* goes back) or One long page (every page under the other with a contents bar that follows you). **Menu colour** — Theme colour, Gradient, Charcoal, White or Light tint. **Page** soft grey or white, **Font** modern or classic (Georgia). Each choice is shown as a small picture of the result. The **Sections** list is the menu of the pack, in order — drag a section (or ▲▼) to move it, untick it to leave it out, rename it, and open ⚙ for its settings:
 
 | Section | What it shows | Settings |
 |---|---|---|

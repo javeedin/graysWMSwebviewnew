@@ -973,3 +973,9 @@ sup.st-nref { color: var(--accent); font-weight: 700; cursor: pointer; margin-le
 .pk-ledhdr, .pk-ledc { border: 1px solid var(--line); border-radius: 99px; padding: 4px 11px; font-size: .8rem; background: #fff; cursor: pointer; }
 .pk-ledhdr.on, .pk-ledc.on { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 600; }
 .pk-ledc input { margin: 0 4px 0 0; vertical-align: -1px; }
+.pk-lays { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 8px; }
+.pk-lay { display: flex; flex-direction: column; align-items: center; gap: 5px; border: 1.5px solid var(--line); border-radius: 9px; background: var(--card); padding: 7px 4px 6px; cursor: pointer; font: inherit; font-size: 11.5px; color: var(--ink2); }
+.pk-lay:hover { border-color: var(--line2); }
+.pk-lay.on { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 700; }
+.pk-lay .th { position: relative; width: 64px; height: 42px; border-radius: 5px; background: #f1f4f9; overflow: hidden; box-shadow: inset 0 0 0 1px #e2e7ef; }
+.pk-lay .th i { position: absolute; display: block; }
