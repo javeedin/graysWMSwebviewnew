@@ -66,6 +66,7 @@ namespace WMSApp
             crypto = CryptoState,
             cryptoNote = _cryptoNote,
             keyPath = Enabled ? KeyPath : null,
+            keyExists = Enabled && File.Exists(KeyPath),
             keySource = _keySource,
             lastMigration = _lastMigration
         };
@@ -235,7 +236,18 @@ namespace WMSApp
             var opts = new List<string>();
             if (readOnly) opts.Add("READ_ONLY");
             if (enc) opts.Add("ENCRYPTION_KEY " + Lit(Key()));
-            Exec(c, "ATTACH " + Lit(full.Replace('\\', '/')) + " AS " + alias + (opts.Count > 0 ? " (" + string.Join(", ", opts) + ")" : ""));
+            try
+            {
+                Exec(c, "ATTACH " + Lit(full.Replace('\\', '/')) + " AS " + alias + (opts.Count > 0 ? " (" + string.Join(", ", opts) + ")" : ""));
+            }
+            catch (Exception ex) when (enc && ex.Message.IndexOf("encryption key", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                // the file was encrypted with another key: the key file was replaced or deleted, or the file came from another PC
+                throw new InvalidOperationException(
+                    Path.GetFileName(full) + " was encrypted with a key this PC does not have (the key file " + KeyPath +
+                    " was replaced or deleted, or the file was copied from another PC). Restore that key file from a backup, or move the " +
+                    "file away and open the page again: it is rebuilt from the next sync. DuckDB said: " + Short(ex.Message), ex);
+            }
             if (enc)
             {
                 lock (_lock) _encrypted.Add(full);
@@ -297,7 +309,9 @@ namespace WMSApp
                 File.Move(full, old, true);
                 File.Move(tmp, full, true);
                 try { File.Delete(old); } catch { }
+                // the plain file's WAL (now stale — its changes were read into the copy) and the temp file's own WAL
                 try { if (File.Exists(full + ".wal")) File.Delete(full + ".wal"); } catch { }
+                try { if (File.Exists(tmp + ".wal")) File.Delete(tmp + ".wal"); } catch { }
                 lock (_lock) _encrypted.Add(full);
                 _lastMigration = Path.GetFileName(full) + " encrypted at " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " in " + sw.ElapsedMilliseconds + " ms";
                 Debug.WriteLine("[DuckDbVault] " + _lastMigration);

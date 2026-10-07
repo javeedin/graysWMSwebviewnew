@@ -60,7 +60,7 @@ When you leave a trip's WMS page (another tab or page), WMS 2.0 reads the date a
 
 ## Fast: the local copy
 
-WMS 2.0 reads the trip date from the WMS sources. It writes every answer into a DuckDB file on the PC (`C:\fusion\wms2\wms2.duckdb`), and every screen reads that file. The sources are:
+WMS 2.0 reads the trip date from the WMS sources. It writes every answer into a DuckDB file on the PC (`C:\fusion\wms2\wms2.duckdb`), and every screen reads that file. The file is AES-256 encrypted with a key that exists only on that PC (`%ProgramData%\GraysWMS\duckdb.key`, protected by Windows DPAPI): a copy of the file opens nowhere else. Data & sync shows a lock when the file is encrypted; an older plain file is converted on its first open after the update (a few seconds, longer for a big file). If the key file is ever lost, the app says so in plain words — move the file away and the next sync rebuilds it. The sources are:
 
 - the trips and trip lines (GETTRIPDETAILS);
 - picker assignments;

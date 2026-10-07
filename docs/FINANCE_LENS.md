@@ -3,7 +3,7 @@
 Finance Lens turns Oracle Fusion general-ledger **journal balances** (ledger × company × cost centre × account × period, actual and budget) into
 formatted financial statements, KPIs, monitoring, analytics, journal-risk tests, close checks and a one-click board pack.
 The data sits in one DuckDB file on the PC (`C:\fusion\finance\finance.duckdb`), so every screen answers in well under a
-second even with millions of rows.
+second even with millions of rows. The file is AES-256 encrypted with a key kept only on that PC (`%ProgramData%\GraysWMS\duckdb.key`, Windows DPAPI); Data › Data & folder shows an *Encryption* row. A file from before the update is converted on its first open (synced trial balances of several years can take a minute). If the key is lost the page says so and what to do: restore the key file from a backup, or move the file away and sync again (plans, notes, discovery and account classes also live in APEX).
 
 ## Start: connect Oracle Fusion
 
