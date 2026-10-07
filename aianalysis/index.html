@@ -201,6 +201,31 @@
     .btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-cancel { background: #fee2e2; color: #dc2626; display: none; }
 
+    /* dictation (dictate.js) - speech to text on this PC through the AI Hub */
+    #btn-dictate { background: white; border: 1.5px solid var(--border); color: #64748b; position: relative; }
+    #btn-dictate:hover { color: var(--primary); border-color: var(--primary); }
+    #btn-dictate.rec { background: #dc2626; border-color: #dc2626; color: white; animation: dict-pulse 1.2s ease-in-out infinite;
+        box-shadow: 0 0 0 calc(2px + 10px * var(--lvl, 0)) rgba(220, 38, 38, .25); }
+    #btn-dictate.busy { color: var(--primary); border-color: var(--primary); cursor: progress; }
+    @keyframes dict-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.18); } }
+    .dict-status { font-size: 11.5px; color: var(--muted); min-height: 0; padding: 4px 2px 0; display: flex; align-items: center; gap: 6px; }
+    .dict-status:empty { display: none; }
+    .dict-status.rec { color: #dc2626; }
+    .dict-status.ok { color: #15803d; }
+    .dict-status.err { color: #b91c1c; }
+    .dict-status .rec-dot { font-size: 8px; animation: dict-blink 1s steps(2) infinite; }
+    @keyframes dict-blink { to { opacity: .2; } }
+    .dict-card { background: white; border-radius: 14px; width: min(520px, 100%); box-shadow: 0 20px 60px rgba(0,0,0,.3); overflow: hidden; font-size: 13px; }
+    .dict-card-h { padding: 14px 18px; font-weight: 800; font-size: 15px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; color: var(--primary); }
+    .dict-card-b { padding: 14px 18px; }
+    .dict-card-b p { margin: 0 0 8px; }
+    .dict-card-b .sm { color: var(--muted); font-size: 12px; }
+    .dict-card-f { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+    .dict-card-f .btn { background: #f1f5f9; color: #334155; }
+    .dict-card-f .btn.dict-primary { background: var(--primary); color: white; }
+    .dict-card-f .btn:disabled { opacity: .5; cursor: progress; }
+    .dict-log { background: #0f172a; color: #e2e8f0; font: 11px/1.45 Consolas, monospace; padding: 10px; border-radius: 8px; max-height: 180px; overflow: auto; white-space: pre-wrap; margin: 8px 0 0; }
+
     /* Empty state */
     .empty { text-align: center; color: var(--muted); margin-top: 12vh; }
     .empty .big { font-size: 40px; margin-bottom: 0.6rem; }
@@ -405,6 +430,9 @@
                     <button class="btn" id="btn-attach" onclick="pickAttachment()" title="Attach a file (Excel, PDF, Word, image…) — or paste an image straight into the box"
                         style="background:white;border:1.5px solid var(--border);color:#64748b;">
                         <i class="fas fa-paperclip"></i>
+                    </button>
+                    <button class="btn" id="btn-dictate" onclick="DICT.toggle()" title="Dictate — speech to text on this PC (Ctrl+Shift+D)">
+                        <i class="fas fa-microphone-lines"></i>
                     </button>
                     <textarea id="prompt-input" rows="1" placeholder="Ask about your WMS data… type / for commands (/f Fusion, /a APEX) — paste an image to attach it"
                         onkeydown="handleInputKeydown(event)"></textarea>
@@ -738,6 +766,7 @@
 <script src="local-jobs.js"></script>
 <script src="tasks.js"></script>
 <script src="control.js"></script>
+<script src="dictate.js"></script>
 <!-- Trial period gate: shared with Fusion SQL (same WMS_AI_TRIAL row) -->
 <script src="../Home/trial-gate.js" data-module="AI Digital Employee" data-badge="trial-badge" data-accent="#7c3aed"></script>
 <script>
