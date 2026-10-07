@@ -2162,7 +2162,7 @@ window.addEventListener('DOMContentLoaded', function() {
 // ============================================================================
 
 window.runDiagnosticCheckTripData = function() {
-    const status = document.getElementById('diagnostic-status');
+    const status = document.getElementById('diagnostic-status') || { style: {} };   // the bottom toolbar is gone: writes land nowhere
     status.textContent = 'Checking Trip Data...';
     status.style.color = '#ffc107';
 
@@ -2200,7 +2200,7 @@ window.runDiagnosticCheckTripData = function() {
 };
 
 window.runDiagnosticCheckButtons = function() {
-    const status = document.getElementById('diagnostic-status');
+    const status = document.getElementById('diagnostic-status') || { style: {} };   // the bottom toolbar is gone: writes land nowhere
     status.textContent = 'Checking...';
     status.style.color = '#ffc107';
 
@@ -2237,7 +2237,7 @@ window.runDiagnosticCheckButtons = function() {
 };
 
 window.runDiagnosticShowButtons = function() {
-    const status = document.getElementById('diagnostic-status');
+    const status = document.getElementById('diagnostic-status') || { style: {} };   // the bottom toolbar is gone: writes land nowhere
     status.textContent = 'Forcing...';
     status.style.color = '#ffc107';
 
@@ -2271,7 +2271,7 @@ window.runDiagnosticShowButtons = function() {
 };
 
 window.runDiagnosticCheckGrid = function() {
-    const status = document.getElementById('diagnostic-status');
+    const status = document.getElementById('diagnostic-status') || { style: {} };   // the bottom toolbar is gone: writes land nowhere
     status.textContent = 'Checking...';
     status.style.color = '#ffc107';
 
@@ -2299,7 +2299,7 @@ window.runDiagnosticCheckGrid = function() {
 };
 
 window.runDiagnosticCheckTab = function() {
-    const status = document.getElementById('diagnostic-status');
+    const status = document.getElementById('diagnostic-status') || { style: {} };   // the bottom toolbar is gone: writes land nowhere
     status.textContent = 'Checking...';
     status.style.color = '#ffc107';
 
@@ -2329,7 +2329,7 @@ window.runDiagnosticCheckTab = function() {
 };
 
 window.runDiagnosticShowConsole = function() {
-    const status = document.getElementById('diagnostic-status');
+    const status = document.getElementById('diagnostic-status') || { style: {} };   // the bottom toolbar is gone: writes land nowhere
     status.textContent = 'Logging...';
     status.style.color = '#ffc107';
 
@@ -2366,7 +2366,7 @@ window.toggleDiagnosticToolbar = function() {
 
 // Function to show system printer queue
 window.showPrinterQueue = async function() {
-    const status = document.getElementById('diagnostic-status');
+    const status = document.getElementById('diagnostic-status') || { style: {} };   // the bottom toolbar is gone: writes land nowhere
     status.textContent = 'Loading Printer Queue...';
     status.style.color = '#ffc107';
 
@@ -2399,7 +2399,7 @@ window.showPrinterQueue = async function() {
 };
 
 function displayPrinterQueueModal(queueData) {
-    const status = document.getElementById('diagnostic-status');
+    const status = document.getElementById('diagnostic-status') || { style: {} };   // the bottom toolbar is gone: writes land nowhere
 
     // Create modal HTML
     const modalHTML = `

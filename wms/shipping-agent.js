@@ -5770,7 +5770,9 @@
     };
 
     // ── host IO ─────────────────────────────────────────────
-    SADB.call = function(action, payload, ms) {
+    /** One DuckDB host call. The file is shared by every Gray's WMS window on this PC (separate processes, one mutex in the
+        host): when another window holds it for longer than the host waits, the answer is busy — asked again, 3 times. */
+    SADB.call = function(action, payload, ms, attempt) {
         return new Promise((resolve, reject) => {
             if (typeof sendMessageToCSharp !== 'function' || !(window.chrome && window.chrome.webview)) { reject(new Error('host not available')); return; }
             sendMessageToCSharp(Object.assign({ action, appUser: SADB.user() }, payload || {}), (err, data) => {
@@ -5778,6 +5780,13 @@
                 if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { /* keep the text */ } }
                 resolve(data);
             }, ms || 120000, false);
+        }).then(data => {
+            const busy = data && data.ok === false && (data.busy || /another .*window|busy/i.test(String(data.error || '')));
+            if (busy && (attempt || 0) < 3) {
+                SADB.setHeaderStatus && SADB.setHeaderStatus('<i class="fas fa-hourglass-half"></i> Another WMS window is writing to DuckDB — waiting…');
+                return new Promise(r => setTimeout(r, 1500 + 1500 * (attempt || 0))).then(() => SADB.call(action, payload, ms, (attempt || 0) + 1));
+            }
+            return data;
         });
     };
     /** Does this build answer the WMS 2.0 DuckDB actions? Asked once per page; the answer paints the header controls. */

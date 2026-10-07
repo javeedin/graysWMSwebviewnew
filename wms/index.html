@@ -8556,26 +8556,7 @@
         </div>
     </div>
 
-    <!-- Diagnostic Toolbar (Bottom) -->
-    <div id="diagnostic-toolbar" style="position: fixed; bottom: 0; left: 0; right: 0; background: #1a1a1a; color: white; padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; z-index: 9999; box-shadow: 0 -2px 10px rgba(0,0,0,0.3); font-size: 12px;">
-        <div style="display: flex; gap: 8px; align-items: center;">
-            <button id="btn-download-version" disabled onclick="if(typeof downloadNewVersion === 'function') { downloadNewVersion(); } else { console.error('downloadNewVersion function not loaded!'); alert('Distribution manager not loaded. Please refresh the page.'); }" class="btn btn-sm" style="background: #4CAF50; color: white; border: 1px solid #45a049; padding: 4px 10px; font-size: 11px; font-weight: 600; opacity: 0.6;">
-                <i class="fas fa-download"></i> Get New Version
-            </button>
-            <button onclick="showPrinterQueue()" class="btn btn-sm" style="background: #667eea; color: white; border: 1px solid #5568d3; padding: 4px 10px; font-size: 11px; font-weight: 600;">
-                <i class="fas fa-print"></i> Printer Queue
-            </button>
-        </div>
-        <div style="display: flex; gap: 12px; align-items: center;">
-            <span id="code-version-indicator" style="background: #4CAF50; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-<i class="fas fa-check-circle"></i> Build: v2026.09.24 — v12.1.0 (Fusion SQL + APEX Data + Fusion Setups)
-            </span>
-            <span id="diagnostic-status" style="color: #00ff88;">Ready</span>
-            <button onclick="toggleDiagnosticToolbar()" class="btn btn-sm" style="background: #dc3545; color: white; padding: 4px 10px; font-size: 11px;">
-                Hide
-            </button>
-        </div>
-    </div>
+    <!-- The bottom diagnostic toolbar (Get New Version / Printer Queue / build / status) was removed: Printer Queue is in the menu, the version in the header. -->
 
     <!-- Dynamic cache busting - Load scripts synchronously to ensure DOMContentLoaded fires -->
     <script>

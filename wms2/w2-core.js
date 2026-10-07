@@ -78,7 +78,7 @@
     // ── host bridge (the copied WMS sendMessageToCSharp) ──────
     W2.hasHost = function () { return !!(window.chrome && window.chrome.webview); };
     /** Any host action → Promise of its data. Errors (and { ok:false }) reject with a message. */
-    W2.call = function (action, payload, ms) {
+    W2.call = function (action, payload, ms, attempt) {
         return new Promise(function (resolve, reject) {
             if (!W2.hasHost()) { reject('Open WMS 2.0 inside the Gray\'s WMS app.'); return; }
             var msg = Object.assign({ action: action, appUser: W2.user() }, payload || {});
@@ -86,6 +86,12 @@
                 if (err) { reject(typeof err === 'string' ? err : (err.message || JSON.stringify(err))); return; }
                 resolve(data);
             }, ms || 120000, false);
+        }).then(function (data) {
+            // the DuckDB file is shared by every WMS window on this PC: "busy" = another window held it longer than the host waits → ask again
+            var d = parse(data);
+            var busy = /^w2/.test(action) && d && d.ok === false && (d.busy || /another .*window|busy/i.test(String(d.error || '')));
+            if (busy && (attempt || 0) < 3) return new Promise(function (r) { setTimeout(r, 1500 + 1500 * (attempt || 0)); }).then(function () { return W2.call(action, payload, ms, (attempt || 0) + 1); });
+            return data;
         });
     };
     function parse(d) { if (typeof d === 'string') { try { return JSON.parse(d); } catch (e) { return d; } } return d; }

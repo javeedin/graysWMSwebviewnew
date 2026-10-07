@@ -11,6 +11,8 @@ namespace WMSApp
     /// WMS 2.0 IPC (wms2/index.html, classes/Wms2Store.cs): w2* actions, reply w2Response.
     /// w2Status (tables, rows, last write), w2Put (replace one scope of a w2_* table with the rows the page read from APEX /
     /// Fusion; columns = names to create even when no row has them yet), w2Query / w2Queries (read-only SQL over the local DuckDB copy), w2Clear (drop a cached table).
+    /// Every call opens the shared file under the user-wide mutex and closes it again (Wms2Store), so any number of WMS windows
+    /// — separate processes — share it; a wait that runs out answers busy = true and the page tries again.
     /// The existing WMS module is not involved: WMS 2.0 calls the same ORDS endpoints and host actions (executeGet,
     /// executePost, executeOracleFusionGet / Patch, processMRAInterface …) the WMS pages use; only its local copy lives here.
     /// </summary>
@@ -48,7 +50,7 @@ namespace WMSApp
                             var cols = root.TryGetProperty("columns", out var cs) && cs.ValueKind == JsonValueKind.Array
                                 ? cs.EnumerateArray().Select(c => c.GetString()).Where(c => !string.IsNullOrWhiteSpace(c)).ToList() : null;
                             var res = await Task.Run(() => Wms2Store.Put(table, scope, rows, all, cols));
-                            data = res.Ok ? new { ok = true, rows = res.Rows, ms = res.Ms } : (object)new { ok = false, error = res.Error };
+                            data = res.Ok ? new { ok = true, rows = res.Rows, ms = res.Ms } : (object)new { ok = false, error = res.Error, busy = res.Busy };
                             break;
                         }
 
@@ -57,7 +59,7 @@ namespace WMSApp
                             string sql = PipeSrvStr(root, "sql");
                             int max = root.TryGetProperty("maxRows", out var mx) && mx.TryGetInt32(out var m) ? m : 50000;
                             var r = await Task.Run(() => Wms2Store.Query(sql, max));
-                            data = r.Error != null ? new { ok = false, error = r.Error } : new { ok = true, columns = r.Columns, rows = r.Rows, truncated = r.Truncated, ms = r.Ms };
+                            data = r.Error != null ? new { ok = false, error = r.Error, busy = r.Busy } : (object)new { ok = true, columns = r.Columns, rows = r.Rows, truncated = r.Truncated, ms = r.Ms };
                             break;
                         }
 
@@ -65,11 +67,12 @@ namespace WMSApp
                         {
                             var list = root.TryGetProperty("queries", out var qs) && qs.ValueKind == JsonValueKind.Array
                                 ? qs.EnumerateArray().Select(q => q.GetString()).Take(30).ToList() : new List<string>();
-                            var res = await Task.Run(() => list.Select(q => Wms2Store.Query(q, 200000)).ToList());
+                            var res = await Task.Run(() => Wms2Store.QueryMany(list, 200000));   // one open of the file for the whole batch
                             data = new
                             {
                                 ok = res.All(r => r.Error == null),
                                 error = res.Select(r => r.Error).FirstOrDefault(e => e != null),
+                                busy = res.Any(r => r.Busy),
                                 results = res.Select(r => new { columns = r.Columns, rows = r.Rows, truncated = r.Truncated, ms = r.Ms, error = r.Error })
                             };
                             break;
