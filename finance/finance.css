@@ -1095,3 +1095,19 @@ sup.st-nref { color: var(--accent); font-weight: 700; cursor: pointer; margin-le
 .pd-frame { width: 100%; height: calc(100vh - 330px); min-height: 460px; border: 1px solid var(--line); border-radius: 10px; background: #fff; display: block; margin-top: 8px; }
 .pd-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; margin: 10px 0; }
 .pd-tile { border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: 9px; padding: 8px 10px; display: flex; flex-direction: column; } .pd-tile span { font-size: .72rem; color: var(--muted); font-weight: 700; } .pd-tile b { font-size: 1.2rem; } .pd-tile small { font-size: .72rem; }
+/* address book */
+.ml-ab { float: right; font-weight: 600; font-size: .78rem; color: var(--accent); cursor: pointer; }
+.ctp-ov { position: fixed; inset: 0; z-index: 10050; background: rgba(15,23,42,.35); display: flex; align-items: center; justify-content: center; }
+.ctp { width: min(680px, 94vw); max-height: 86vh; display: flex; flex-direction: column; background: var(--card); border-radius: 14px; box-shadow: 0 24px 60px rgba(15,23,42,.3); padding: 12px 14px; gap: 8px; }
+.ctp-h { display: flex; align-items: center; gap: 8px; } .ctp-h i { color: var(--accent); }
+.ctp-x { border: 0; background: none; font-size: 20px; cursor: pointer; color: var(--muted); }
+.ctp #ctp-q { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.ctp-list { flex: 1; overflow: auto; min-height: 260px; border: 1px solid var(--line); border-radius: 10px; }
+.ctp-r { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.ctp-r:hover { background: var(--bg); } .ctp-r.on { background: var(--accent-bg); }
+.ctp-av { width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.ctp-t { flex: 1; min-width: 0; display: flex; flex-direction: column; } .ctp-t small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctp-k { font-size: .66rem; font-weight: 700; border-radius: 99px; padding: 2px 8px; background: var(--bg); color: var(--ink2); white-space: nowrap; }
+.ctp-k.group { background: #f3e8ff; color: #7e22ce; } .ctp-k.directory { background: var(--accent-bg); color: var(--accent); } .ctp-k.sent { background: var(--good-bg); color: var(--good); }
+.ctp-note { padding: 10px 12px; font-size: .78rem; color: var(--muted); }
+.ctp-f { display: flex; align-items: center; gap: 6px; }

@@ -53,6 +53,7 @@ namespace WMSApp
         private static readonly string[] SCOPES = { "https://graph.microsoft.com/Mail.Send", "https://graph.microsoft.com/User.Read" };
         private static readonly string[] SCOPES_READ = { "https://graph.microsoft.com/Mail.ReadBasic", "https://graph.microsoft.com/User.Read" };
         private static readonly string[] SCOPES_READ_SHARED = { "https://graph.microsoft.com/Mail.ReadBasic", "https://graph.microsoft.com/Mail.Read.Shared", "https://graph.microsoft.com/User.Read" };
+        private static readonly string[] SCOPES_CONTACTS = { "https://graph.microsoft.com/People.Read", "https://graph.microsoft.com/Contacts.Read", "https://graph.microsoft.com/User.Read" };
         private static readonly string[] SCOPES_SHARED = { "https://graph.microsoft.com/Mail.Send", "https://graph.microsoft.com/Mail.Send.Shared", "https://graph.microsoft.com/User.Read" };
 
         public static Settings Load()
@@ -415,6 +416,148 @@ namespace WMSApp
                 return new { ok = true, via = how, mailbox = "Outlook", scanned = seen, receipts = list };
             }
             return new { ok = false, via = how, error = "SMTP sends have no mailbox the app can read — the receipts arrive in " + (string.IsNullOrWhiteSpace(s.SmtpFrom) ? s.SmtpUser : s.SmtpFrom) + ". Use Microsoft 365 or Outlook to collect them automatically; opens and confirmations are still tracked." };
+        }
+
+        // ------------------------------------------------------------------ contacts (address book)
+        public class Contact { public string Name { get; set; } public string Email { get; set; } public string Company { get; set; } public string Kind { get; set; } public string Members { get; set; } }
+
+        /// <summary>
+        /// People to send to, from the address book of the chosen way: OUTLOOK = the Outlook profile on this PC (Contacts folder,
+        /// contact groups with their members, and the organisation's address book when it is searched — 2+ letters);
+        /// GRAPH = Microsoft 365 (the people you work with — /me/people, which includes the organisation — and your contacts;
+        /// People.Read + Contacts.Read, asked for once in the browser). q filters by name, e-mail or company. At most 200.
+        /// </summary>
+        public static async Task<object> ContactsAsync(string user, string method, string q, CancellationToken ct)
+        {
+            var s = Load();
+            string how = string.IsNullOrWhiteSpace(method) ? s.Method : method.Trim().ToUpperInvariant();
+            if (how == "SMTP") how = OutlookInstalled() ? "OUTLOOK" : "GRAPH";
+            q = (q ?? "").Trim();
+            if (q.Length > 100) q = q.Substring(0, 100);
+            bool Hit(params string[] v) => q.Length == 0 || v.Any(x => !string.IsNullOrEmpty(x) && x.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0);
+            var list = new List<Contact>(); var notes = new List<string>();
+            if (how == "OUTLOOK")
+            {
+                var r = await Task.Run(() => OutlookContacts(q, Hit), ct).ConfigureAwait(false);
+                list = r.Item1; notes = r.Item2;
+            }
+            else
+            {
+                var (token, account) = await GraphTokenAsync(s, user, SCOPES_CONTACTS, true, ct).ConfigureAwait(false);
+                try
+                {
+                    string path = "/me/people?$top=" + (q.Length > 0 ? "50&$search=" + Uri.EscapeDataString("\"" + q.Replace("\"", "") + "\"") : "100") + "&$select=displayName,scoredEmailAddresses,companyName,personType";
+                    var j = await GraphAsync(HttpMethod.Get, path, token, null, ct).ConfigureAwait(false);
+                    foreach (var p in (j?["value"] as JsonArray) ?? new JsonArray())
+                    {
+                        string mail = (p?["scoredEmailAddresses"] as JsonArray)?.FirstOrDefault()?["address"]?.GetValue<string>();
+                        if (string.IsNullOrWhiteSpace(mail)) continue;
+                        string kind = p?["personType"]?["class"]?.GetValue<string>() == "Group" ? "group" : "person";
+                        list.Add(new Contact { Name = p?["displayName"]?.GetValue<string>(), Email = mail, Company = p?["companyName"]?.GetValue<string>(), Kind = kind });
+                    }
+                }
+                catch (Exception ex) { notes.Add("People you work with: " + ex.Message); }
+                try
+                {
+                    string path = "/me/contacts?$top=500&$select=displayName,emailAddresses,companyName";
+                    for (int page = 0; page < 6 && path != null; page++)
+                    {
+                        var j = await GraphAsync(HttpMethod.Get, path, token, null, ct).ConfigureAwait(false);
+                        foreach (var c in (j?["value"] as JsonArray) ?? new JsonArray())
+                        {
+                            string name = c?["displayName"]?.GetValue<string>(), co = c?["companyName"]?.GetValue<string>();
+                            foreach (var e in (c?["emailAddresses"] as JsonArray) ?? new JsonArray())
+                            {
+                                string mail = e?["address"]?.GetValue<string>();
+                                if (!string.IsNullOrWhiteSpace(mail) && Hit(name, mail, co)) list.Add(new Contact { Name = name, Email = mail, Company = co, Kind = "contact" });
+                            }
+                        }
+                        string next = j?["@odata.nextLink"]?.GetValue<string>();
+                        path = next == null ? null : next.Substring(GRAPH.Length);
+                    }
+                }
+                catch (Exception ex) { notes.Add("Contacts: " + ex.Message); }
+                notes.Insert(0, "Microsoft 365 · " + account);
+            }
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var outList = list.Where(c => !string.IsNullOrWhiteSpace(c.Email) && seen.Add(c.Kind == "group" ? "g:" + c.Name + c.Email : c.Email.Trim()))
+                .OrderBy(c => c.Kind == "group" ? 1 : 0).ThenBy(c => c.Name ?? c.Email, StringComparer.OrdinalIgnoreCase).Take(200).ToList();
+            return new { ok = true, via = how, contacts = outList, notes };
+        }
+
+        private static (List<Contact>, List<string>) OutlookContacts(string q, Func<string[], bool> hit)
+        {
+            var list = new List<Contact>(); var notes = new List<string>();
+            Type t = Type.GetTypeFromProgID("Outlook.Application") ?? throw new InvalidOperationException("Outlook (desktop) is not installed on this PC — choose Microsoft 365 in the picker.");
+            dynamic app = Activator.CreateInstance(t);
+            dynamic ns = app.GetNamespace("MAPI");
+            string Smtp(dynamic entry)
+            {
+                try
+                {
+                    string type = (string)entry.Type;
+                    if (string.Equals(type, "EX", StringComparison.OrdinalIgnoreCase))
+                    {
+                        dynamic ex = entry.GetExchangeUser(); if (ex != null) return (string)ex.PrimarySmtpAddress;
+                        dynamic dl = entry.GetExchangeDistributionList(); if (dl != null) return (string)dl.PrimarySmtpAddress;
+                    }
+                    return (string)entry.Address;
+                }
+                catch { return null; }
+            }
+            // 1. the Contacts folder: people (up to 3 addresses each) and contact groups with their members
+            try
+            {
+                dynamic folder = ns.GetDefaultFolder(10);   // olFolderContacts
+                int n = 0;
+                foreach (dynamic it in folder.Items)
+                {
+                    if (++n > 5000) break;
+                    try
+                    {
+                        int cls = (int)it.Class;
+                        if (cls == 40)   // olContact
+                        {
+                            string name = (string)it.FullName, co = (string)it.CompanyName;
+                            foreach (string mail in new[] { (string)it.Email1Address, (string)it.Email2Address, (string)it.Email3Address })
+                                if (!string.IsNullOrWhiteSpace(mail) && mail.Contains("@") && hit(new[] { name, mail, co })) list.Add(new Contact { Name = name, Email = mail, Company = co, Kind = "contact" });
+                        }
+                        else if (cls == 69)   // olDistributionList = a contact group
+                        {
+                            string name = (string)it.DLName; var members = new List<string>();
+                            for (int i = 1; i <= (int)it.MemberCount; i++) { string m = Smtp(it.GetMember(i).AddressEntry ?? it.GetMember(i)); if (!string.IsNullOrWhiteSpace(m) && m.Contains("@")) members.Add(m); }
+                            if (members.Count > 0 && hit(new[] { name, string.Join(" ", members) })) list.Add(new Contact { Name = name, Email = string.Join("; ", members), Kind = "group", Members = members.Count + " people" });
+                        }
+                    }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[FinanceMail] contact: " + ex.Message); }
+                }
+            }
+            catch (Exception ex) { notes.Add("Contacts folder: " + ex.Message); }
+            // 2. the organisation's address book — searched only (it can hold thousands of entries)
+            if (q.Length >= 2)
+            {
+                try
+                {
+                    dynamic gal = ns.GetGlobalAddressList();
+                    dynamic entries = gal.AddressEntries;
+                    int count = (int)entries.Count, found = 0;
+                    for (int i = 1; i <= count && i <= 30000 && found < 150; i++)
+                    {
+                        try
+                        {
+                            dynamic e = entries[i]; string name = (string)e.Name;
+                            if (string.IsNullOrEmpty(name) || name.IndexOf(q, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                            string mail = Smtp(e); if (string.IsNullOrWhiteSpace(mail) || !mail.Contains("@")) continue;
+                            bool isList = false; try { isList = (int)e.AddressEntryUserType == 1; } catch { }   // olExchangeDistributionListAddressEntry
+                            list.Add(new Contact { Name = name, Email = mail, Kind = isList ? "group" : "directory" }); found++;
+                        }
+                        catch { }
+                    }
+                }
+                catch (Exception ex) { notes.Add("Organisation address book: " + ex.Message); }
+            }
+            else notes.Add("Type 2+ letters to search the organisation's address book too.");
+            return (list, notes);
         }
 
         private static (List<Receipt>, int) OutlookReceipts(DateTime since, List<string> subjects, List<string> addresses)

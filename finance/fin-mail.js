@@ -101,7 +101,7 @@
             FL.modal('<i class="fa-solid fa-paper-plane"></i> E-mail the board pack · ' + esc(built.model.period),
                 '<div class="ml-comp"><div class="ml-form">' +
                 '<datalist id="ml-addrs">' + Object.keys(addrs).map(function (a) { return '<option value="' + esc(a) + '">'; }).join('') + '</datalist>' +
-                '<label class="field">To<input id="mc-to" list="ml-addrs" value="' + esc(to) + '" placeholder="name@company.com; …"></label>' +
+                '<label class="field">To <a class="ml-ab" id="mc-ab" title="Pick people from Outlook / Microsoft 365"><i class="fa-solid fa-address-book"></i> Address book</a><input id="mc-to" list="ml-addrs" value="' + esc(to) + '" placeholder="name@company.com; …"></label>' +
                 '<div class="grid g2"><label class="field">Cc<input id="mc-cc" list="ml-addrs" value="' + esc(cc) + '"></label><label class="field">Bcc<input id="mc-bcc" list="ml-addrs" value="' + esc(e.bcc || '') + '"></label></div>' +
                 '<label class="field">Subject<input id="mc-subj" value="' + esc(subj) + '"></label>' +
                 '<label class="field">Message <span class="muted sm">({PERIOD}, {TITLE}, {COMPANY} are filled in)</span><textarea id="mc-intro" rows="6">' + esc(e.intro != null ? e.intro : FL.packs.newPack().email.intro) + '</textarea></label>' +
@@ -142,6 +142,7 @@
                     .then(function () { btns.forEach(function (b) { b.disabled = false; }); });
             };
             $('mc-send').onclick = function () { send($('mc-how').value, false); };
+            $('mc-ab').onclick = function (e) { e.preventDefault(); M.contacts(function (field, emails) { var el = $('mc-' + field); el.value = M.merge(el.value, emails); el.dispatchEvent(new Event('input')); }); };
             if ($('mc-review')) $('mc-review').onclick = function () { send('OUTLOOK', true); };
         };
         (M.st ? Promise.resolve() : M.status().catch(function () { M.st = { settings: {}, recent: [] }; })).then(go);
@@ -228,6 +229,66 @@
     };
     M.previewOpts = function (o, built) { var p = Object.assign({}, o); if (p.chart) p.chart = built.model.trendPng; if (p.logo) p.logo = built.model.logo.png; return p; };
     M.subject = function (pack, built) { return P_subject(pack, built); };
+    /**
+     * Address book: pick people from Outlook (Contacts, contact groups, the organisation's address book) or Microsoft 365
+     * (people you work with + contacts) — host finMailContacts — plus the people packs were sent to before (Distribution).
+     * add(field, emails) is called with field 'to' | 'cc' | 'bcc'. An overlay of its own, so it works above the e-mail dialog.
+     */
+    M.contacts = function (add) {
+        var st = (M.st && M.st.settings) || {}, src = FL.ls('pack.ctsrc', st.Method === 'GRAPH' ? 'GRAPH' : (M.st && M.st.outlook === false ? 'GRAPH' : 'OUTLOOK'));
+        var picked = {}, rows = [], cache = M._ctCache = M._ctCache || {};
+        var ov = document.createElement('div'); ov.className = 'ctp-ov';
+        ov.innerHTML = '<div class="ctp" role="dialog" aria-label="Address book"><div class="ctp-h"><i class="fa-solid fa-address-book"></i> <b>Address book</b><span class="grow"></span>' +
+            '<div class="seg sm" id="ctp-src"><button data-s="OUTLOOK"' + (src === 'OUTLOOK' ? ' class="on"' : '') + '><i class="fa-brands fa-microsoft"></i> Outlook on this PC</button><button data-s="GRAPH"' + (src === 'GRAPH' ? ' class="on"' : '') + '><i class="fa-solid fa-cloud"></i> Microsoft 365</button></div>' +
+            '<button class="ctp-x" title="Close">×</button></div><input id="ctp-q" type="search" placeholder="Search a name, e-mail or company… (2+ letters also searches the company address book)" autocomplete="off">' +
+            '<div class="ctp-list" id="ctp-list"></div><div class="ctp-f"><span id="ctp-n" class="sm muted"></span><span class="grow"></span>' +
+            '<button class="btn sm" data-add="to">Add to To</button><button class="btn sm" data-add="cc">Add to Cc</button><button class="btn sm" data-add="bcc">Add to Bcc</button></div></div>';
+        document.body.appendChild(ov);
+        var close = function () { ov.remove(); document.removeEventListener('keydown', key); };
+        var key = function (e) { if (e.key === 'Escape') close(); };
+        document.addEventListener('keydown', key);
+        ov.addEventListener('mousedown', function (e) { if (e.target === ov) close(); });
+        ov.querySelector('.ctp-x').onclick = close;
+        var count = function () { var n = Object.keys(picked).length; $('ctp-n').textContent = n ? n + ' ticked' : 'tick people, then add them'; };
+        var paint = function (note) {
+            var q = $('ctp-q').value.trim().toLowerCase(), hist = {};
+            (FL.packTrack.rows || []).forEach(function (r) { var k = r.EMAIL.toLowerCase(); if (!q || k.indexOf(q) >= 0) hist[k] = hist[k] || { Name: '', Email: r.EMAIL, Kind: 'sent', n: 0 }; if (hist[k]) hist[k].n++; });
+            var all = rows.concat(Object.keys(hist).map(function (k) { return hist[k]; }).filter(function (h) { return !rows.some(function (r) { return r.Email.toLowerCase() === h.Email.toLowerCase(); }); }));
+            var badge = { contact: 'Contact', person: 'Works with', directory: 'Company', group: 'Group', sent: 'Sent packs before' };
+            $('ctp-list').innerHTML = (note ? '<div class="ctp-note">' + note + '</div>' : '') + (all.length ? all.map(function (c) {
+                var id = c.Email; return '<label class="ctp-r' + (picked[id] ? ' on' : '') + '"><input type="checkbox" data-e="' + esc(id) + '"' + (picked[id] ? ' checked' : '') + '><span class="ctp-av">' + esc(((c.Name || c.Email || '?').trim()[0] || '?').toUpperCase()) + '</span>' +
+                    '<span class="ctp-t"><b>' + esc(c.Name || c.Email) + '</b><small>' + esc(c.Kind === 'group' ? (c.Members ? c.Members + ' · ' : '') + c.Email : c.Email) + (c.Company ? ' · ' + esc(c.Company) : '') + (c.n ? ' · ' + c.n + ' pack' + (c.n > 1 ? 's' : '') : '') + '</small></span>' +
+                    '<span class="ctp-k ' + esc(c.Kind || '') + '">' + esc(badge[c.Kind] || c.Kind || '') + '</span></label>';
+            }).join('') : '<div class="ctp-note">Nobody found.</div>');
+            $('ctp-list').querySelectorAll('[data-e]').forEach(function (x) { x.onchange = function () { if (x.checked) picked[x.dataset.e] = 1; else delete picked[x.dataset.e]; x.closest('.ctp-r').classList.toggle('on', x.checked); count(); }; });
+            count();
+        };
+        var load = function () {
+            var q = $('ctp-q').value.trim(), k = src + '|' + q.toLowerCase(), n = ++M._ctN || (M._ctN = 1);
+            if (cache[k]) { rows = cache[k].contacts; paint(cache[k].note); return; }
+            $('ctp-list').innerHTML = '<div class="ctp-note"><i class="fa-solid fa-circle-notch fa-spin"></i> Reading the ' + (src === 'OUTLOOK' ? 'Outlook' : 'Microsoft 365') + ' address book…' + (src === 'GRAPH' ? ' (the first time Microsoft asks you to allow reading contacts)' : '') + '</div>';
+            FL.call('finMailContacts', { method: src, q: q }, 180000).then(function (r) {
+                if (n !== M._ctN) return;
+                if (!r || !r.ok) throw new Error(r && r.error || 'No answer');
+                var note = (r.notes || []).map(esc).join(' · ');
+                cache[k] = { contacts: r.contacts || [], note: note }; rows = cache[k].contacts; paint(note);
+            }).catch(function (e) { if (n !== M._ctN) return; rows = []; paint('<span class="neg">' + esc(String(e && e.message || e)) + '</span>'); });
+        };
+        $('ctp-q').oninput = function () { clearTimeout(M._ctT); M._ctT = setTimeout(load, 350); };
+        ov.querySelectorAll('#ctp-src button').forEach(function (b) { b.onclick = function () { src = b.dataset.s; FL.lsSet('pack.ctsrc', src); ov.querySelectorAll('#ctp-src button').forEach(function (x) { x.classList.toggle('on', x === b); }); load(); }; });
+        ov.querySelectorAll('[data-add]').forEach(function (b) {
+            b.onclick = function () {
+                var emails = []; Object.keys(picked).forEach(function (e) { e.split(/[;,]\s*/).forEach(function (x) { if (/@/.test(x)) emails.push(x.trim()); }); });   // a group adds its members
+                if (!emails.length) { FL.toast('Tick at least one person', 'info'); return; }
+                add(b.dataset.add, emails); FL.toast(emails.length + ' added to ' + b.dataset.add.toUpperCase(), 'ok');
+                picked = {}; paint();
+            };
+        });
+        $('ctp-q').focus();
+        load();
+    };
+    /** Adds addresses to a "a; b" list without repeating any */
+    M.merge = function (list, add) { var have = String(list || '').split(/[;,]\s*/).map(function (x) { return x.trim(); }).filter(Boolean), low = have.map(function (x) { return x.toLowerCase(); }); add.forEach(function (e) { if (low.indexOf(e.toLowerCase()) < 0) { have.push(e); low.push(e.toLowerCase()); } }); return have.join('; '); };
     function P_subject(pack, built) { return String((pack.email || {}).subject || '{TITLE} · {PERIOD}').replace(/\{PERIOD\}/g, built.model.period).replace(/\{TITLE\}/g, pack.title || pack.name).replace(/\{COMPANY\}/g, pack.company || ''); }
     /** Keeps the subject as a template when only the period / title in it changed */
     function subjTemplate(pack, typed, built) {

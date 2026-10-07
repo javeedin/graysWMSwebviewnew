@@ -583,6 +583,12 @@ namespace WMSApp
                             data = r;
                             break;
                         }
+                    case "finMailContacts":
+                        {
+                            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(3));
+                            data = await FinanceMail.ContactsAsync(user, PipeSrvStr(root, "method"), PipeSrvStr(root, "q"), cts.Token);
+                            break;
+                        }
                     case "finMailReceipts":
                         {
                             using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));

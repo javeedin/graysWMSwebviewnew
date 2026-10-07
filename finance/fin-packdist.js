@@ -11,6 +11,8 @@
     var P = function () { return FL.packs; };
     var split = function (v) { return String(v || '').split(/[;,\s]+/).map(function (a) { return a.trim(); }).filter(function (a) { return /@/.test(a); }); };
 
+    /** People in To / Cc / Bcc, each counted once (e-mail sends one copy each) */
+    W.count = function (s) { var seen = {}; split(s.to).concat(split(s.cc), split(s.bcc)).forEach(function (a) { seen[a.toLowerCase()] = 1; }); return Object.keys(seen).length; };
     W.state = function () {
         if (W.s) return W.s;
         var packs = D().doc.packs, p = D().cur || packs[0], e = (p && p.email) || {};
@@ -27,7 +29,7 @@
             var s = W.state(), packs = D().doc.packs, pk = W.pack(), leds = FL.dims.ledgers || [], pers = (FL.dims.periods || []).slice().sort(function (a, b) { return b.period_seq - a.period_seq; });
             var mst = FL.mail.st || {}, me = s.how || (mst.settings && mst.settings.Method) || 'OUTLOOK', lists = D().doc.lists || [];
             var addrs = {}; (FL.packTrack.rows || []).forEach(function (r) { addrs[r.EMAIL] = 1; }); (mst.recent || []).forEach(function (x) { String((x.To || '') + ';' + (x.Cc || '')).split(/[;,]/).forEach(function (a) { a = a.trim(); if (a) addrs[a] = 1; }); });
-            var n = split(s.to).length + split(s.cc).length + split(s.bcc).length;
+            var n = W.count(s);
             body.innerHTML = '<div class="card"><div class="row" style="gap:10px"><button class="btn sm" id="dw-back"><i class="fa-solid fa-arrow-left"></i> Distribution</button><h3 style="margin:0"><i class="fa-solid fa-paper-plane"></i> New distribution</h3>' +
                 '<span class="sm muted">choose, preview, distribute — the record keeps the people, the e-mail, the pack and its figures</span></div></div>' +
                 '<div class="dw"><div class="dw-left">' +
@@ -44,6 +46,7 @@
                 '<div class="card"><h4 class="pk-h"><span class="dw-n">3</span> People <span class="sm muted">· ' + n + ' recipient' + (n === 1 ? '' : 's') + '</span></h4>' +
                 (lists.length ? '<div class="dw-lists"><span class="sm muted">Lists:</span>' + lists.map(function (l, i) { return '<button class="chip" data-list="' + i + '" title="' + esc([l.to, l.cc].filter(Boolean).join(' · ')) + '"><i class="fa-solid fa-users"></i> ' + esc(l.name) + '</button>'; }).join('') + '</div>' : '') +
                 '<datalist id="dw-addrs">' + Object.keys(addrs).map(function (a) { return '<option value="' + esc(a) + '">'; }).join('') + '</datalist>' +
+                '<div class="row" style="margin:2px 0 4px"><button class="btn sm" id="dw-ab" title="Pick people from Outlook / Microsoft 365"><i class="fa-solid fa-address-book"></i> Address book</button><span class="sm muted">Outlook contacts, contact groups, the company address book</span></div>' +
                 '<label class="field">To<input id="dw-to" list="dw-addrs" value="' + esc(s.to) + '" placeholder="chair@company.com; ceo@company.com"></label>' +
                 '<div class="grid g2"><label class="field">Cc<input id="dw-cc" list="dw-addrs" value="' + esc(s.cc) + '"></label><label class="field">Bcc<input id="dw-bcc" list="dw-addrs" value="' + esc(s.bcc) + '"></label></div>' +
                 '<div class="row sm" style="margin-top:6px"><button class="btn sm" id="dw-savelist"><i class="fa-solid fa-floppy-disk"></i> Save as a list</button>' + (lists.length ? '<button class="btn sm ghost" id="dw-dellist">Manage lists</button>' : '') + '</div></div>' +
@@ -72,9 +75,10 @@
         body.querySelectorAll('[data-pk]').forEach(function (b) { b.onclick = function () { s.packId = b.dataset.pk; W.built = null; var e = W.pack().email || {}; if (!s.to) s.to = e.to || ''; re(); }; });
         $('dw-per').onchange = function () { s.period = +this.value; W.built = null; W.preview(); };
         body.querySelectorAll('.dw-led').forEach(function (c) { c.onchange = function () { s.ledgers = Array.prototype.filter.call(body.querySelectorAll('.dw-led'), function (x) { return x.checked; }).map(function (x) { return x.value; }); c.parentNode.classList.toggle('on', c.checked); W.built = null; W.preview(); }; });
-        var people = function () { var n = split(s.to).length + split(s.cc).length + split(s.bcc).length; $('dw-dist').innerHTML = '<i class="fa-solid fa-paper-plane"></i> Distribute to ' + n + ' ' + (n === 1 ? 'person' : 'people'); var h = body.querySelector('.dw-left .card:nth-child(3) .pk-h .sm'); if (h) h.textContent = '· ' + n + ' recipient' + (n === 1 ? '' : 's'); };
+        var people = function () { var n = W.count(s); $('dw-dist').innerHTML = '<i class="fa-solid fa-paper-plane"></i> Distribute to ' + n + ' ' + (n === 1 ? 'person' : 'people'); var h = body.querySelector('.dw-left .card:nth-child(3) .pk-h .sm'); if (h) h.textContent = '· ' + n + ' recipient' + (n === 1 ? '' : 's'); };
         ['to', 'cc', 'bcc'].forEach(function (k) { $('dw-' + k).oninput = function () { s[k] = this.value; people(); W.mailPreview(); }; });
         body.querySelectorAll('[data-list]').forEach(function (b) { b.onclick = function () { var l = D().doc.lists[+b.dataset.list]; s.to = l.to || ''; s.cc = l.cc || ''; s.bcc = l.bcc || ''; re(); }; });
+        $('dw-ab').onclick = function () { FL.mail.contacts(function (field, emails) { s[field] = FL.mail.merge(s[field], emails); var el = $('dw-' + field); if (el) el.value = s[field]; people(); W.mailPreview(); }); };
         $('dw-savelist').onclick = function () {
             if (!split(s.to).length && !split(s.cc).length) { FL.toast('Add some people first', 'err'); return; }
             var name = prompt('Name of this distribution list (e.g. Board of directors):'); if (!name) return;
@@ -132,7 +136,7 @@
     W.show = function () { var f = $('dw-f'); if (!f || !W.built) return; f.srcdoc = W.s.view === 'email' ? W.emailHtml() : W.built.html; };
 
     W.distribute = function () {
-        var s = W.s, pk = W.pack(), n = split(s.to).length + split(s.cc).length + split(s.bcc).length;
+        var s = W.s, pk = W.pack(), n = W.count(s);
         if (!split(s.to).length) { FL.toast('Add at least one person in To', 'err'); $('dw-to').focus(); return; }
         if (!W.built) { FL.toast('Wait for the preview to finish building', 'info'); return; }
         var subject = s.subject || FL.mail.subject(pk, W.built);
