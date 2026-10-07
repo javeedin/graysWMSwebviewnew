@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="menu.css">
     <link rel="stylesheet" href="trip-summary.css">
+    <link rel="stylesheet" href="pick-release.css">
     <style>
         /* Hide body content until login is verified */
         body.auth-pending {
@@ -169,6 +170,11 @@
                 <span>Trip Management</span>
                 <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('trip-management')" title="Open in new window"></i>
             </div>
+            <div class="menu-item" data-page="pick-release">
+                <i class="fas fa-dolly"></i>
+                <span>Pick Release</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('pick-release')" title="Open in new window"></i>
+            </div>
             <div class="menu-item" data-page="vehicles">
                 <i class="fas fa-car"></i>
                 <span>Vehicles Dashboard</span>
@@ -269,6 +275,7 @@
         <main class="main-content" id="main-content">
             <div id="daily-history" class="page-content" style="display: none;"></div>
             <div id="mra-interface" class="page-content" style="display: none;"></div>
+            <div id="pick-release" class="page-content" style="display: none;"></div>
             <div id="trip-management" class="page-content">
                 <div class="parameters-section">
                     <div class="parameters-header" id="parameters-toggle">
@@ -8579,6 +8586,7 @@
         document.write('<script src="future-trip.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="trip-summary.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="trip-filter.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="pick-release.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="mra-processor.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="shipping-agent.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="mra-interface.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
