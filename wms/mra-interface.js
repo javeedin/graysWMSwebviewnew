@@ -107,7 +107,7 @@
     }
 
     // ── MRA transactions history (WMS_MRA_INTERFACE_STATUS) ──────────────────
-    var H = { loaded: false, loading: false, error: null, rows: [], sel: {}, busy: {}, live: {}, f: null, more: false };
+    var H = { loaded: false, loading: false, error: null, rows: [], sel: {}, busy: {}, live: {}, f: null, more: false, grep: '' };   // grep = the bar's filter on the rows shown (any column)
     var MAX_ROWS = 2000;
     var STATUS = ['SUCCESS', 'FAILED', 'SKIPPED', 'ALREADY_DONE'];
     var ST_LABEL = { SUCCESS: 'Success', FAILED: 'Failed', SKIPPED: 'Skipped', ALREADY_DONE: 'Already done' };
@@ -130,6 +130,10 @@
         '.mrh-kpi div{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:.6rem .8rem;cursor:pointer;} .mrh-kpi div.on{outline:2px solid #4f46e5;}' +
         '.mrh-kpi b{display:block;font-size:1.35rem;color:#0f172a;} .mrh-kpi span{font-size:.72rem;color:#64748b;font-weight:600;}' +
         '.mrh-bar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin-top:.8rem;padding:.55rem .8rem;background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;font-size:.82rem;color:#3730a3;}' +
+        '.mrh-grep{display:inline-flex;align-items:center;gap:.4rem;background:#fff;border:1px solid #c7d2fe;border-radius:8px;padding:.2rem .55rem;flex:1 1 240px;max-width:460px;color:#94a3b8;}' +
+        '.mrh-grep input{border:0;outline:0;font:inherit;font-size:.8rem;flex:1;min-width:120px;background:transparent;color:#0f172a;padding:.15rem 0;}' +
+        '.mrh-grep button{border:0;background:#e0e7ff;color:#3730a3;border-radius:50%;width:18px;height:18px;cursor:pointer;font-size:.65rem;line-height:18px;padding:0;}' +
+        '.mrh-grep-n{font-size:.74rem;color:#3730a3;white-space:nowrap;}' +
         '.mrh-tw{background:#fff;border:1px solid #e2e8f0;border-radius:12px;margin-top:.8rem;overflow:auto;max-height:62vh;}' +
         '.mrh-t{width:100%;border-collapse:collapse;font-size:.78rem;} .mrh-t th{position:sticky;top:0;background:#f8fafc;text-align:left;color:#475569;font-weight:700;padding:.5rem .6rem;border-bottom:1px solid #e2e8f0;white-space:nowrap;z-index:1;}' +
         '.mrh-t td{padding:.35rem .6rem;border-bottom:1px solid #f1f5f9;color:#1e293b;vertical-align:middle;white-space:nowrap;}' +
@@ -205,7 +209,29 @@
     }
     function byId(id) { for (var i = 0; i < H.rows.length; i++) if (String(H.rows[i].ID) === String(id)) return H.rows[i]; return null; }
     function money(v) { var n = Number(v); return v == null || v === '' || isNaN(n) ? '' : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-    function shown() { return H.rows.filter(function (r) { return !H.kpi || r.MRA_INTERFACE_STATUS === H.kpi; }); }
+    /** The text of every column of a row (plus the status label and the live step), lower-cased, for the bar's filter. */
+    function hay(r) {
+        if (!r.__hay) {
+            var parts = [];
+            Object.keys(r).forEach(function (k) { if (k.indexOf('__') === 0) return; var v = r[k]; if (v == null || typeof v === 'object') return; parts.push(String(v)); });
+            parts.push(ST_LABEL[r.MRA_INTERFACE_STATUS] || '');
+            r.__hay = parts.join(' \u0001 ').toLowerCase();
+        }
+        var live = H.live[r.ID];
+        return r.__hay + (live ? ' ' + String(live.text || '').toLowerCase() + ' ' + String(live.msg || '').toLowerCase() : '');
+    }
+    function grepTokens() { return H.grep.trim().toLowerCase().split(/\s+/).filter(Boolean); }
+    /** KPI tile filter, then the bar's text filter: every word typed must be in some column of the row. */
+    function shown() {
+        var tok = grepTokens();
+        return H.rows.filter(function (r) {
+            if (H.kpi && r.MRA_INTERFACE_STATUS !== H.kpi) return false;
+            if (!tok.length) return true;
+            var h = hay(r);
+            return tok.every(function (t) { return h.indexOf(t) >= 0; });
+        });
+    }
+    function kpiShown() { return H.rows.filter(function (r) { return !H.kpi || r.MRA_INTERFACE_STATUS === H.kpi; }); }
 
     function histHtml() {
         var f = filters(), rows = shown(), counts = {}, amount = 0;
@@ -235,9 +261,13 @@
             '<button class="mrh-btn b s" onclick="MraInterface.print()"' + (!nSel || busyAny ? ' disabled' : '') + '><i class="fas fa-print"></i> Print orders</button>' +
             '<button class="mrh-btn n s" id="mrh-failed"' + (busyAny ? ' disabled' : '') + '><i class="fas fa-check-double"></i> Tick failed</button>' +
             '<button class="mrh-btn n s" id="mrh-none"><i class="fas fa-xmark"></i> Clear</button>' +
+            '<span class="mrh-grep" title="Filters the rows already shown — every word must be found in some column (order, customer, IRN, reason, source, user, type, amount, time …). Esc clears. The CSV takes the rows shown."><i class="fas fa-search"></i>' +
+                '<input id="mrh-grep" placeholder="Filter the rows shown — any column" value="' + esc(H.grep) + '" autocomplete="off" spellcheck="false">' +
+                '<button id="mrh-grep-x" title="Clear the filter"' + (H.grep ? '' : ' style="display:none;"') + '>✕</button></span>' +
+            (grepTokens().length ? '<span class="mrh-grep-n">' + rows.length + ' of ' + kpiShown().length + ' match</span>' : '') +
             '<span style="margin-left:auto;"></span><button class="mrh-btn n s" onclick="MraInterface.csv()"><i class="fas fa-file-csv"></i> CSV</button></div>';
         if (H.more) html += '<div style="font-size:.75rem;color:#a16207;margin-top:.4rem;">Showing the newest ' + MAX_ROWS + ' — narrow the dates or add a trip to see the rest.</div>';
-        if (!rows.length) return html + '<div class="mrh-tw"><div class="mrh-empty">No MRA runs match these filters.</div></div>';
+        if (!rows.length) return html + '<div class="mrh-tw"><div class="mrh-empty">' + (grepTokens().length ? 'No row shown matches <b>' + esc(H.grep.trim()) + '</b> — the words are looked for in every column. ✕ clears the filter.' : 'No MRA runs match these filters.') + '</div></div>';
         var all = rows.every(function (r) { return H.sel[r.ID]; });
         html += '<div class="mrh-tw"><table class="mrh-t"><thead><tr><th><input type="checkbox" id="mrh-all"' + (all ? ' checked' : '') + '></th><th></th>' +
             '<th>When</th><th>Inst</th><th>Trip</th><th>Order</th><th>Customer</th><th class="num">Amount</th><th>Type</th><th>Status</th><th>MRA IRN</th><th>Failed step / reason</th><th>Source</th></tr></thead><tbody>' +
@@ -283,6 +313,18 @@
         if (g('mrh-all')) g('mrh-all').onchange = function () { var on = g('mrh-all').checked; shown().forEach(function (r) { if (on) H.sel[r.ID] = 1; else delete H.sel[r.ID]; }); render(); };
         if (g('mrh-failed')) g('mrh-failed').onclick = function () { H.sel = {}; shown().forEach(function (r) { if (r.MRA_INTERFACE_STATUS === 'FAILED') H.sel[r.ID] = 1; }); render(); };
         if (g('mrh-none')) g('mrh-none').onclick = function () { H.sel = {}; render(); };
+        // the bar's filter: the whole history re-renders, so the box gets its focus and caret back
+        var gi = g('mrh-grep'), gt = null;
+        if (gi) {
+            var regrep = function () {
+                var el = g('mrh-grep'), v = el ? el.value : H.grep, pos = el ? el.selectionStart : v.length;
+                H.grep = v; render();
+                var n = g('mrh-grep'); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) { /* not a text box */ } }
+            };
+            gi.oninput = function () { clearTimeout(gt); gt = setTimeout(regrep, H.rows.length > 300 ? 150 : 40); };
+            gi.onkeydown = function (e) { if (e.key === 'Escape') { gi.value = ''; clearTimeout(gt); regrep(); } };
+            if (g('mrh-grep-x')) g('mrh-grep-x').onclick = function () { H.grep = ''; render(); var n = g('mrh-grep'); if (n) n.focus(); };
+        }
     }
     function picked(ids) {
         var list = (ids && ids.length ? ids : Object.keys(H.sel)).map(byId).filter(Boolean), seen = {};
