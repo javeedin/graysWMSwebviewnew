@@ -511,11 +511,9 @@
         root.dataset.ready = '1';
         root.innerHTML =
             '<div style="padding:1rem;display:flex;flex-direction:column;gap:1rem;">' +
-            '<div style="background:linear-gradient(135deg,#fffbeb,#fef3c7);border:1px solid #f59e0b;border-radius:12px;padding:.9rem 1.1rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">' +
-              '<div style="width:42px;height:42px;border-radius:10px;background:#b45309;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.2rem;"><i class="fas fa-thumbtack"></i></div>' +
-              '<div style="flex:1;min-width:220px;"><div style="font-weight:800;color:#78350f;font-size:1.05rem;">Pinned trips</div>' +
-                '<div style="font-size:.8rem;color:#92400e;">The trips you pinned from the trip cards (<i class="fas fa-thumbtack" style="font-size:.7rem;"></i> <b>Pin</b>) stay here until you unpin them — <b>Open</b> shows a trip in its own tab, exactly like from the cards. ' +
-                'Below them, the <b>Future trip ' + FUTURE + '</b>: orders parked until they get a real trip (Move / Delete per line).</div></div>' +
+            '<div style="background:linear-gradient(135deg,#fffbeb,#fef3c7);border:1px solid #f59e0b;border-radius:12px;padding:.6rem 1rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">' +
+              '<div style="width:36px;height:36px;border-radius:10px;background:#b45309;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.05rem;"><i class="fas fa-thumbtack"></i></div>' +
+              '<div style="flex:1;min-width:160px;font-weight:800;color:#78350f;font-size:1.05rem;">Pinned trips</div>' +
               '<label style="font-size:.75rem;color:#78350f;font-weight:700;">Instance <select id="ft-inst" style="margin-left:4px;padding:4px 8px;border-radius:6px;border:1px solid #f59e0b;"><option>PROD</option><option>TEST</option></select></label>' +
               '<span id="pt-count" title="Pinned trips of this instance" style="background:#fff;border-radius:20px;padding:4px 12px;font-weight:800;color:#92400e;font-size:.8rem;">…</span>' +
               '<span id="ft-count" title="Orders on the future trip ' + FUTURE + '" style="background:#fff;border-radius:20px;padding:4px 12px;font-weight:800;color:#92400e;font-size:.8rem;">…</span>' +
@@ -684,6 +682,11 @@
         var onMoved = function () { setTimeout(F.load, 400); };
         if (oldGrid) { try { oldGrid.dispose(); } catch (e) { /* gone */ } }
         el.innerHTML = '';
+        if (!rows.length) {
+            el.innerHTML = '<div class="ft-empty" style="padding:.9rem 1rem;border:1px dashed #e2e8f0;border-radius:10px;color:#64748b;font-size:.82rem;"><i class="fas fa-hourglass-half" style="color:#d97706;margin-right:6px;"></i>' +
+                (tripId === FUTURE ? 'No orders on the future trip. Move an order here from any trip with its <b>Move</b> button — trip ' + FUTURE + ' is first in the list.' : 'No orders on trip ' + esc(tripId) + '.') + '</div>';
+            return null;
+        }
         if (!(window.$ && $.fn && $.fn.dxDataGrid)) {
             // no DevExtreme on this page: a plain table with the same Move / Delete
             var show = keys.slice(0, 8);
