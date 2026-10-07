@@ -28,7 +28,8 @@ namespace WMSApp
         public class Settings
         {
             public string Method { get; set; } = "OUTLOOK";      // OUTLOOK | GRAPH | SMTP
-            public bool OutlookSend { get; set; }                 // false = open the message in Outlook, true = send at once
+            public bool OutlookSend { get; set; }                 // kept for older settings files — Send now always sends; Open in Outlook opens
+            public string OutlookAccount { get; set; } = "";     // OUTLOOK: send from this account of the profile (its SMTP address); blank = Outlook's default
             public string FromName { get; set; } = "";
             public string ReplyTo { get; set; } = "";
             public string DefaultTo { get; set; } = "";
@@ -92,7 +93,7 @@ namespace WMSApp
                 }
             }
             catch (Exception ex) { graphError = ex.Message; }
-            return new { ok = true, settings = s, outlook = OutlookInstalled(), graphAccount = account, graphApp = appFrom, graphError, smtp = SmtpVault.Status(), recent = Recent() };
+            return new { ok = true, settings = s, outlook = OutlookInstalled(), outlookAccounts = OutlookAccounts(), graphAccount = account, graphApp = appFrom, graphError, smtp = SmtpVault.Status(), recent = Recent() };
         }
 
         // ------------------------------------------------------------------ Microsoft 365 (Graph)
@@ -273,9 +274,30 @@ namespace WMSApp
             mail.HTMLBody = m.Html ?? "";
             if (m.ReadReceipt) mail.ReadReceiptRequested = true;
             if (m.DeliveryReceipt) mail.OriginatorDeliveryReportRequested = true;
-            bool send = s.OutlookSend && !m.Display;
+            if (!string.IsNullOrWhiteSpace(s.OutlookAccount))
+            {   // the account to send from (Outlook sends from its default account otherwise)
+                dynamic acc = null;
+                foreach (dynamic a in app.Session.Accounts) { try { if (string.Equals((string)a.SmtpAddress, s.OutlookAccount.Trim(), StringComparison.OrdinalIgnoreCase)) { acc = a; break; } } catch { } }
+                if (acc == null) throw new InvalidOperationException("Outlook has no account " + s.OutlookAccount + " — choose another one in the e-mail setup (Send from).");
+                ((object)mail).GetType().InvokeMember("SendUsingAccount", System.Reflection.BindingFlags.SetProperty, null, (object)mail, new object[] { (object)acc });
+            }
+            bool send = !m.Display;   // Send = silently from Outlook; only Open in Outlook shows the message
             if (send) mail.Send(); else mail.Display(false);
             return send ? "sent" : "draft";
+        }
+
+        /// <summary>The e-mail accounts of the Outlook profile on this PC (empty when Outlook is not installed or cannot be read)</summary>
+        public static List<string> OutlookAccounts()
+        {
+            var list = new List<string>();
+            try
+            {
+                Type t = Type.GetTypeFromProgID("Outlook.Application"); if (t == null) return list;
+                dynamic app = Activator.CreateInstance(t);
+                foreach (dynamic a in app.Session.Accounts) { try { string mail = (string)a.SmtpAddress; if (!string.IsNullOrWhiteSpace(mail)) list.Add(mail); } catch { } }
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[FinanceMail] Outlook accounts: " + ex.Message); }
+            return list;
         }
 
         // ------------------------------------------------------------------ SMTP (Office 365 or any)

@@ -36,8 +36,9 @@
             return '<label class="ml-card' + (me === k ? ' on' : '') + (ok ? ' ok' : '') + '"><input type="radio" name="ml-m" value="' + k + '"' + (me === k ? ' checked' : '') + '><i class="' + m.icon + '"></i><div><b>' + m.name + '</b> ' + badge + '<small>' + m.what + '</small></div></label>';
         };
         var h = '<div class="ml-cards">' + ['OUTLOOK', 'GRAPH', 'SMTP'].map(card).join('') + '</div>';
-        h += '<div class="ml-pane" data-p="OUTLOOK"' + (me === 'OUTLOOK' ? '' : ' hidden') + '><label class="sm"><input type="radio" name="ml-os" value="0"' + (!s.OutlookSend ? ' checked' : '') + '> open the message in Outlook so I can look and press Send <span class="muted">(recommended)</span></label><br>' +
-            '<label class="sm"><input type="radio" name="ml-os" value="1"' + (s.OutlookSend ? ' checked' : '') + '> send at once from my Outlook account</label>' +
+        h += '<div class="ml-pane" data-p="OUTLOOK"' + (me === 'OUTLOOK' ? '' : ' hidden') + '>' +
+            '<label class="field" style="max-width:420px">Send from<select id="ml-oacc"><option value="">Outlook\'s default account</option>' + (r.outlookAccounts || []).map(function (x) { return '<option' + (String(s.OutlookAccount || '').toLowerCase() === x.toLowerCase() ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select></label>' +
+            '<p class="sm muted" style="margin:4px 0 0"><b>Send</b> sends silently through Outlook (it lands in Sent Items); <b>Open in Outlook</b> in the e-mail dialog opens the message to look at first. If Outlook asks "A program is trying to send e-mail", your IT can allow the app.</p>' +
             (r.outlook ? '' : '<div class="callout warn sm" style="margin-top:8px">Outlook (classic desktop) is not installed on this PC — the new Outlook app has no automation. Choose Microsoft 365 instead.</div>') + '</div>';
         h += '<div class="ml-pane" data-p="GRAPH"' + (me === 'GRAPH' ? '' : ' hidden') + '><div class="row">' +
             (r.graphAccount ? '<span class="tag good"><i class="fa-solid fa-circle-check"></i> Signed in as ' + esc(r.graphAccount) + '</span><button class="btn sm" id="ml-out">Sign out</button>' : '<button class="btn primary sm" id="ml-in"><i class="fa-brands fa-microsoft"></i> Sign in with Microsoft 365</button><span class="sm muted">opens the Microsoft sign-in in your browser</span>') +
@@ -79,7 +80,7 @@
     M.save = function (quiet) {
         var cur = (M.st && M.st.settings) || {};
         var s = Object.assign({}, cur, {
-            Method: (document.querySelector('[name=ml-m]:checked') || {}).value || 'OUTLOOK', OutlookSend: (document.querySelector('[name=ml-os]:checked') || {}).value === '1',
+            Method: (document.querySelector('[name=ml-m]:checked') || {}).value || 'OUTLOOK', OutlookSend: true, OutlookAccount: $('ml-oacc') ? $('ml-oacc').value : '',
             TenantId: v('ml-ten'), ClientId: v('ml-cli'), SharedMailbox: v('ml-shared'), SmtpServer: v('ml-srv'), SmtpPort: +v('ml-port') || 587, SmtpUser: v('ml-user'), SmtpFrom: v('ml-from'),
             FromName: v('ml-name'), ReplyTo: v('ml-reply'), DefaultTo: v('ml-to'), DefaultCc: v('ml-cc'), Signature: v('ml-sig')
         });
