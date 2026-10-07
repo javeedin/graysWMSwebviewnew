@@ -17,6 +17,57 @@
         forest: { name: 'Forest', a: '#14532d', b: '#16a34a', c: '#ca8a04' },
         crimson: { name: 'Crimson', a: '#450a0a', b: '#b91c1c', c: '#0ea5e9' }
     };
+    // ── brand colours: the pack's own, or the company brand saved in config.json pack.brand ──
+    var HEX = /^#[0-9a-f]{6}$/i;
+    P.rgb = function (h) { var n = parseInt(String(h).slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; };
+    P.hex = function (r) { return '#' + r.map(function (v) { return Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0'); }).join(''); };
+    /** Relative luminance 0..1 (WCAG) */
+    P.lum = function (h) { var c = P.rgb(h).map(function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+    P.contrast = function (x, y) { var a = P.lum(x), b = P.lum(y); return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); };
+    /** The colour made darker until white text on it reads (contrast ≥ 4.5), keeping its hue */
+    var toHsl = function (h) { var r = P.rgb(h).map(function (v) { return v / 255; }), mx = Math.max.apply(null, r), mn = Math.min.apply(null, r), l = (mx + mn) / 2, d = mx - mn, hu = 0, sa = 0;
+        if (d) { sa = d / (1 - Math.abs(2 * l - 1)); hu = mx === r[0] ? ((r[1] - r[2]) / d) % 6 : mx === r[1] ? (r[2] - r[0]) / d + 2 : (r[0] - r[1]) / d + 4; hu *= 60; if (hu < 0) hu += 360; } return [hu, sa, l]; };
+    var fromHsl = function (x) { var c = (1 - Math.abs(2 * x[2] - 1)) * x[1], hp = x[0] / 60, y = c * (1 - Math.abs(hp % 2 - 1)), m = x[2] - c / 2, r = hp < 1 ? [c, y, 0] : hp < 2 ? [y, c, 0] : hp < 3 ? [0, c, y] : hp < 4 ? [0, y, c] : hp < 5 ? [y, 0, c] : [c, 0, y]; return P.hex(r.map(function (v) { return (v + m) * 255; })); };
+    P.readable = function (h) { var x = toHsl(h), out = h; while (P.contrast(out, '#ffffff') < 4.5 && x[2] > 0.04) { x[2] -= 0.02; out = fromHsl(x); } return out; };
+    P.companyBrand = function () { var b = FL.config && FL.config.pack && FL.config.pack.brand; return b && HEX.test(b.a || '') ? b : null; };
+    /** The colours of a pack: a theme, or theme 'brand' = the pack's brand (else the company brand); the main colour is darkened for white text unless brand.fix === false */
+    P.themeOf = function (pack) {
+        if (pack && pack.theme === 'brand') {
+            var b = pack.brand && HEX.test(pack.brand.a || '') ? pack.brand : P.companyBrand();
+            if (b) { var a = b.fix === false ? b.a : P.readable(b.a); return { name: b.name || 'Brand', a: a, b: HEX.test(b.b || '') ? b.b : b.a, c: HEX.test(b.c || '') ? b.c : (b.b || b.a), brand: true, orig: b.a }; }
+        }
+        return P.THEMES[pack && pack.theme] || P.THEMES.navy;
+    };
+    /** Up to 6 brand colours found in a logo: visible, not near-white / near-black / grey pixels, grouped and ordered by how much of the logo they cover */
+    P.logoColours = function (src) {
+        return new Promise(function (ok) {
+            var im = new Image(); im.onerror = function () { ok([]); };
+            im.onload = function () {
+                var w = Math.min(160, im.naturalWidth || 160), h = Math.max(1, Math.round(w * (im.naturalHeight || 1) / (im.naturalWidth || 1)));
+                var cv = document.createElement('canvas'); cv.width = w; cv.height = h; var cx = cv.getContext('2d'); cx.drawImage(im, 0, 0, w, h);
+                var d = cx.getImageData(0, 0, w, h).data, bins = {};
+                for (var i = 0; i < d.length; i += 4) {
+                    if (d[i + 3] < 128) continue;
+                    var r = d[i], g = d[i + 1], bl = d[i + 2], mx = Math.max(r, g, bl), mn = Math.min(r, g, bl);
+                    if (mx > 240 && mn > 225) continue; if (mx < 22) continue; if (mx - mn < 18) continue;   // white, black, grey
+                    var k = (r >> 4) + ',' + (g >> 4) + ',' + (bl >> 4), x = bins[k] || (bins[k] = { n: 0, r: 0, g: 0, b: 0 });
+                    x.n++; x.r += r; x.g += g; x.b += bl;
+                }
+                var list = Object.keys(bins).map(function (k) { var x = bins[k]; return { n: x.n, c: [x.r / x.n, x.g / x.n, x.b / x.n] }; }).sort(function (a, b) { return b.n - a.n; }), out = [];
+                list.forEach(function (x) { if (out.length < 6 && out.every(function (y) { return Math.hypot(x.c[0] - y.c[0], x.c[1] - y.c[1], x.c[2] - y.c[2]) > 60; })) out.push(x); });
+                ok(out.map(function (x) { return P.hex(x.c); }));
+            };
+            im.src = src;
+        });
+    };
+    /** A brand from logo colours: the darkest becomes the main colour, the most vivid the second, the next the accent */
+    P.brandFrom = function (cols) {
+        if (!cols.length) return null;
+        var sat = function (h) { var r = P.rgb(h), mx = Math.max.apply(null, r), mn = Math.min.apply(null, r); return mx ? (mx - mn) / mx : 0; };
+        var byDark = cols.slice().sort(function (a, b) { return P.lum(a) - P.lum(b); }), a = byDark[0];
+        var rest = cols.filter(function (c) { return c !== a; }).sort(function (x, y) { return (P.contrast(y, '#ffffff') >= 3) - (P.contrast(x, '#ffffff') >= 3) || sat(y) - sat(x); });   // the second carries white text: readable ones first
+        return { a: a, b: rest[0] || a, c: rest[1] || rest[0] || a };
+    };
     P.TYPES = {
         summary: { label: 'Summary', icon: 'home', what: 'Cover, headline KPIs, highlights and your commentary' },
         tb: { label: 'Trial balance', icon: 'scale', what: 'Every account: opening, debits, credits, closing — by type, opens into accounts' },
@@ -55,7 +106,7 @@
         s.push({ id: id(), type: 'kpis', title: 'Key indicators', on: true, opts: {} });
         s.push({ id: id(), type: 'charts', title: 'Performance', on: true, opts: { trend: true, margins: true, bridge: true } });
         return { id: 'p' + Date.now().toString(36), name: name || 'Monthly board pack', title: 'Monthly board pack', company: (FL.config.pack && FL.config.pack.company) || 'Grays Group',
-            by: (FL.who && FL.who.user) || '', theme: 'navy', logo: '', scale: 0, sections: s,
+            by: (FL.who && FL.who.user) || '', theme: P.companyBrand() ? 'brand' : 'navy', logo: '', scale: 0, sections: s,
             email: { to: '', cc: '', subject: '{TITLE} · {PERIOD}', intro: 'Dear all,\n\nPlease find the {PERIOD} board pack below. The full interactive pack is attached — open it in any browser and use the menu on the left.\n\nKind regards,' } };
     };
 
@@ -99,7 +150,7 @@
     };
     /** The plate the logo sits on: auto = a white plate for a dark or opaque logo, none for a light transparent one (it reads on the dark menu) */
     P.logoPlate = function (pack, info) {
-        var o = pack.logoOpts || {}, bg = o.bg || 'auto', tint = o.tint || 'none', th = P.THEMES[pack.theme] || P.THEMES.navy;
+        var o = pack.logoOpts || {}, bg = o.bg || 'auto', tint = o.tint || 'none', th = P.themeOf(pack);
         if (bg === 'auto') bg = !info || (!info.alpha && tint !== 'knockout') ? 'white' : tint === 'white' ? 'none' : tint === 'dark' ? 'white' : info.lum < 0.6 ? 'white' : 'none';
         return { key: bg, color: { none: '', white: '#ffffff', light: '#f1f5f9', dark: '#0f172a', brand: th.b }[bg] || '' };
     };
@@ -276,7 +327,7 @@
     function buildOne(pack, onStep, raw) {
         var per = FL.filter.period, pname = FL.periodName(per), cfg = FL.config, tm = FL.tplMap(), keepScale = FL.filter.scale;
         if (pack.scale) FL.filter.scale = +pack.scale;
-        var th = P.THEMES[pack.theme] || P.THEMES.navy, step = onStep || function () { };
+        var th = P.themeOf(pack), step = onStep || function () { };
         var done = function (x) { FL.filter.scale = keepScale; return x; };
         var lg = null;
         return (FL.notes ? FL.notes.load().catch(function () { return null; }) : Promise.resolve()).then(function () { return P.logoReady(pack); }).then(function (x) { lg = x; return FL.data(); }).then(function (data) {
@@ -510,7 +561,7 @@
     /** Outlook-safe message body. opts: {intro, tiles, keyLines, highlights, chart: 'cid:…' | data URL | null, attached: file name} */
     P.emailHtml = function (pack, model, opts) {
         opts = opts || {};
-        var th = P.THEMES[pack.theme] || P.THEMES.navy, F = 'font-family:Segoe UI,Arial,Helvetica,sans-serif;';
+        var th = P.themeOf(pack), F = 'font-family:Segoe UI,Arial,Helvetica,sans-serif;';
         var fill = function (s) { return String(s || '').replace(/\{PERIOD\}/g, model.period).replace(/\{TITLE\}/g, pack.title || pack.name).replace(/\{COMPANY\}/g, pack.company || ''); };
         var n = function (v) { return v == null || isNaN(v) ? '–' : FINE.fmt(v / (FL.filter.scale || 1), 'num', { decimals: (FL.filter.scale || 1) >= 1000 ? 0 : 2 }); };
         var h = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:0;background:#eef1f7">' +

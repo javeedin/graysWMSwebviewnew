@@ -60,7 +60,7 @@
     D.paintList = function () {
         var box = $('pk-items'); if (!box) return;
         box.innerHTML = D.doc.packs.map(function (p) {
-            var th = P().THEMES[p.theme] || P().THEMES.navy;
+            var th = P().themeOf(p);
             return '<div class="pk-item' + (p === D.cur ? ' on' : '') + '" data-id="' + esc(p.id) + '"><span class="pk-sw" style="background:linear-gradient(135deg,' + th.a + ',' + th.b + ')"></span><div><b>' + esc(p.name) + '</b><small>' +
                 (p.sections || []).filter(function (s) { return s.on !== false; }).length + ' sections' + (p.updated ? ' · ' + esc(String(p.updated).slice(0, 10)) : '') + (p.lastSent ? ' · sent ' + esc(p.lastSent) : '') + '</small></div></div>';
         }).join('');
@@ -133,7 +133,7 @@
             D.ledgerBox(p) +
             '<div class="field" style="margin-top:8px">Colours</div><div class="pk-themes">' + Object.keys(th).map(function (k) {
                 return '<button class="pk-theme' + (p.theme === k ? ' on' : '') + '" data-th="' + k + '" title="' + esc(th[k].name) + '"><span style="background:' + th[k].a + '"></span><span style="background:' + th[k].b + '"></span><span style="background:' + th[k].c + '"></span></button>';
-            }).join('') + '</div>' + D.lookBox(p, th[p.theme] || th.navy) +
+            }).join('') + D.brandSwatch(p) + '</div>' + (p.theme === 'brand' ? D.brandBox(p) : '') + D.lookBox(p, P().themeOf(p)) +
             '<div class="row" style="margin-top:10px"><span class="field" style="margin:0">Logo</span>' + (p.logo ? '' : '<span class="sm muted">none</span>') +
             '<label class="btn sm"><i class="fa-solid fa-image"></i> ' + (p.logo ? 'Change' : 'Add') + '<input type="file" id="pk-logo" accept="image/png,image/jpeg,image/svg+xml" hidden></label>' + (p.logo ? '<button class="btn sm ghost" id="pk-nologo">Remove</button>' : '') + '</div>' + (p.logo ? D.logoBox(p) : '') + '</div>';
         h += '<div class="card" style="margin-top:12px"><div class="row"><h4 class="pk-h" style="margin:0"><i class="fa-solid fa-list-ol"></i> Sections <span class="sm muted">— the pages of the pack (its menu), in this order</span></h4><span class="grow"></span>' +
@@ -146,6 +146,7 @@
         });
         if ($('pk-ledhdr')) $('pk-ledhdr').onclick = function () { p.ledgers = []; D.touch(); D.paintLeft(); D.paintHead(); };
         box.querySelectorAll('[data-th]').forEach(function (b) { b.onclick = function () { p.theme = b.dataset.th; D.touch(); D.paintLeft(); D.paintList(); }; });
+        D.wireBrand(box, p);
         var hero = function () { return (p.hero = p.hero || {}); };
         box.querySelectorAll('[data-hero]').forEach(function (b) { b.onclick = function () { hero()[b.dataset.hero] = b.dataset.v; D.touch(); D.paintLeft(); }; });
         ['pk-hc1', 'pk-hc2'].forEach(function (id, n) { var x = $(id); if (x) x.onchange = function () { hero()[n ? 'c2' : 'c1'] = x.value; D.touch(); D.paintLeft(); }; });
@@ -173,6 +174,52 @@
             p.sections.push(s); D.open = s.id; D.touch(); D.paintLeft();
         };
         D.wireSecs(box);
+    };
+
+    /** The Brand swatch beside the themes */
+    D.brandSwatch = function (p) {
+        var t = (p.theme === 'brand' || p.brand || P().companyBrand()) ? P().themeOf(Object.assign({}, p, { theme: 'brand' })) : null;
+        return '<button class="pk-theme pk-brand' + (p.theme === 'brand' ? ' on' : '') + '" data-th="brand" title="Your brand colours">' +
+            (t && t.brand ? '<span style="background:' + t.a + '"></span><span style="background:' + t.b + '"></span><span style="background:' + t.c + '"></span>' : '<em>+ Brand</em>') + '</button>';
+    };
+    /** Brand colours: three pickers + hex, from the logo, the company brand, readable-text fix */
+    D.brandBox = function (p) {
+        var P0 = P(), cb = P0.companyBrand(), b = p.brand && /^#/.test(p.brand.a || '') ? p.brand : (cb || { a: '#0b2545', b: '#1d4ed8', c: '#0d9488' }), t = P0.themeOf(Object.assign({}, p, { brand: b }));
+        var pick = function (k, label) { return '<label class="pk-bc"><input type="color" data-bc="' + k + '" value="' + esc(b[k] || b.a) + '"><span>' + label + '</span><input class="pk-bhex" data-bh="' + k + '" value="' + esc(b[k] || b.a) + '" maxlength="7" spellcheck="false"></label>'; };
+        var fixed = b.fix !== false && t.a.toLowerCase() !== String(b.a).toLowerCase();
+        return '<div class="pk-brandbox"><div class="row sm" style="gap:10px;flex-wrap:wrap">' + pick('a', 'Main') + pick('b', 'Second') + pick('c', 'Accent') + '</div>' +
+            '<div class="pk-bprev" style="background:linear-gradient(135deg,' + t.a + ',' + t.b + ' 65%,' + t.c + ')"><b>Aa · Board pack</b><span style="background:' + t.c + '"></span></div>' +
+            (fixed ? '<div class="sm" style="color:var(--warn)">Your main colour ' + esc(b.a) + ' is too light for white text — the pack uses ' + esc(t.a) + ' (same hue, darker). <a data-bfix="0">Use it exactly</a></div>' :
+                b.fix === false && P0.contrast(b.a, '#ffffff') < 4.5 ? '<div class="sm" style="color:var(--warn)">White text on ' + esc(b.a) + ' is hard to read. <a data-bfix="1">Darken it for reading</a></div>' : '') +
+            '<div class="row sm" style="margin-top:8px;gap:6px;flex-wrap:wrap">' + (p.logo ? '<button class="btn sm" id="pk-bfromlogo"><i class="fa-solid fa-wand-magic-sparkles"></i> From the logo</button>' : '<span class="muted">add a logo below to take the colours from it</span>') +
+            (cb ? '<button class="btn sm" id="pk-busecb" title="' + esc(cb.a + ' ' + cb.b + ' ' + cb.c) + '">Use the company brand</button>' : '') +
+            '<button class="btn sm" id="pk-bsave" title="New packs start with these colours; packs set to Brand without their own colours use them">Save as the company brand</button></div>' +
+            '<div id="pk-blogo" class="pk-blogo"></div></div>';
+    };
+    D.wireBrand = function (box, p) {
+        if (p.theme !== 'brand') return;
+        var P0 = P(), cur = function () { if (!p.brand || !/^#/.test(p.brand.a || '')) p.brand = Object.assign({}, P0.companyBrand() || { a: '#0b2545', b: '#1d4ed8', c: '#0d9488' }); return p.brand; };
+        var set = function (k, v) { if (!/^#[0-9a-f]{6}$/i.test(v)) return; cur()[k] = v.toLowerCase(); D.touch(); D.paintLeft(); D.paintList(); };
+        box.querySelectorAll('[data-bc]').forEach(function (x) { x.onchange = function () { set(x.dataset.bc, x.value); }; });
+        box.querySelectorAll('[data-bh]').forEach(function (x) { x.onchange = function () { var v = x.value.trim(); if (!/^#/.test(v)) v = '#' + v; if (/^#[0-9a-f]{3}$/i.test(v)) v = '#' + v[1] + v[1] + v[2] + v[2] + v[3] + v[3]; if (/^#[0-9a-f]{6}$/i.test(v)) set(x.dataset.bh, v); else FL.toast('Type a colour like #6d28d9', 'err'); }; });
+        box.querySelectorAll('[data-bfix]').forEach(function (x) { x.onclick = function () { cur().fix = x.dataset.bfix === '1'; D.touch(); D.paintLeft(); D.paintList(); }; });
+        if ($('pk-busecb')) $('pk-busecb').onclick = function () { p.brand = Object.assign({}, P0.companyBrand()); D.touch(); D.paintLeft(); D.paintList(); };
+        if ($('pk-bsave')) $('pk-bsave').onclick = function () {
+            FL.config.pack = FL.config.pack || {}; FL.config.pack.brand = Object.assign({}, cur());
+            FL.saveConfig().then(function () { FL.toast('Saved as the company brand — new packs start with it', 'ok'); D.paintLeft(); }).catch(function (e) { FL.toast(String(e), 'err'); });
+        };
+        if ($('pk-bfromlogo')) $('pk-bfromlogo').onclick = function () {
+            var out = $('pk-blogo'); out.innerHTML = '<span class="sm muted">reading the logo…</span>';
+            P0.logoColours(p.logo).then(function (cols) {
+                if (!cols.length) { out.innerHTML = '<span class="sm muted">No colours found — the logo is only black, white or grey. Type your brand colours above.</span>'; return; }
+                var g = P0.brandFrom(cols);
+                out.innerHTML = '<div class="sm muted">Colours in the logo — click one to use it as Main / Second / Accent, or take the suggestion.</div><div class="row" style="gap:6px;margin-top:5px;flex-wrap:wrap">' +
+                    cols.map(function (c) { return '<span class="pk-bchip" style="background:' + c + '" title="' + c + '"><button data-lc="a" data-c="' + c + '">M</button><button data-lc="b" data-c="' + c + '">S</button><button data-lc="c" data-c="' + c + '">A</button></span>'; }).join('') +
+                    '<button class="btn sm primary" id="pk-bsugg">Use suggestion <span class="pk-bmini"><i style="background:' + g.a + '"></i><i style="background:' + g.b + '"></i><i style="background:' + g.c + '"></i></span></button></div>';
+                out.querySelectorAll('[data-lc]').forEach(function (x) { x.onclick = function () { set(x.dataset.lc, x.dataset.c); }; });
+                $('pk-bsugg').onclick = function () { p.brand = Object.assign({}, p.brand || {}, g); D.touch(); D.paintLeft(); D.paintList(); };
+            });
+        };
     };
 
     /** Layout, menu colour, paper and font — each a row of small pictures of the result */
@@ -238,7 +285,7 @@ D.heroBox(p, t) +
     };
     D.paintLogo = function () {
         var p = D.cur, box = $('pk-logoprev'); if (!box || !p.logo) return;
-        var th = FL.packs.THEMES[p.theme] || FL.packs.THEMES.navy, n = ++D._ln || (D._ln = 1);
+        var th = FL.packs.themeOf(p), n = ++D._ln || (D._ln = 1);
         FL.packs.logoReady(p).then(function (lg) {
             if (n !== D._ln || !lg) return;
             var img = function (where) { return '<img src="' + esc(lg.src) + '" style="' + FL.packs.logoCss(lg, where) + 'max-width:92%">'; };

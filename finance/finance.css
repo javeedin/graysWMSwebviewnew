@@ -982,3 +982,15 @@ sup.st-nref { color: var(--accent); font-weight: 700; cursor: pointer; margin-le
 .pk-hrow { margin-top: 7px; gap: 6px; flex-wrap: wrap; align-items: center; }
 .pk-hrow > span { min-width: 52px; color: var(--muted); }
 .pk-hrow input[type=color] { width: 34px; height: 26px; padding: 0 2px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); cursor: pointer; vertical-align: middle; }
+.pk-brand em { font-style: normal; font-size: 11.5px; font-weight: 700; color: var(--accent); border: 1.5px dashed var(--line2); border-radius: 6px; padding: 3px 8px; }
+.pk-brandbox { margin-top: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--bg); }
+.pk-bc { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.pk-bc input[type=color] { width: 30px; height: 28px; border: 1px solid var(--line); border-radius: 6px; padding: 0 2px; background: var(--card); cursor: pointer; }
+.pk-bhex { width: 76px; font-family: var(--mono); font-size: 12px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; }
+.pk-bprev { margin: 9px 0 6px; border-radius: 10px; padding: 14px 16px; color: #fff; display: flex; align-items: center; justify-content: space-between; }
+.pk-bprev span { width: 38px; height: 6px; border-radius: 3px; }
+.pk-blogo { margin-top: 6px; }
+.pk-bchip { display: inline-flex; align-items: flex-end; height: 34px; width: 66px; border-radius: 7px; padding: 2px; gap: 2px; box-shadow: 0 0 0 1px var(--line); }
+.pk-bchip button { flex: 1; font-size: 9.5px; font-weight: 800; border: 0; border-radius: 4px; background: rgba(255,255,255,.85); color: #0f172a; cursor: pointer; padding: 1px 0; }
+.pk-bmini { display: inline-flex; margin-left: 4px; vertical-align: middle; } .pk-bmini i { width: 9px; height: 12px; display: inline-block; }
+.pk-brandbox a { cursor: pointer; text-decoration: underline; }
