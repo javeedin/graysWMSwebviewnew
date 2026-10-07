@@ -706,7 +706,7 @@
                         <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
                             <span class="sa-mra-flag" data-inst="${esc((t.INSTANCE_NAME || 'PROD').toUpperCase())}">${saMraFlagChip(null)}</span>
                             <span id="sa-trip-asof-${esc(t.TRIP_ID)}" style="display:none;background:#ecfeff;color:#0e7490;border:1px solid #a5f3fc;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;white-space:nowrap;" title="DuckDB mode: when this trip was last read from Fusion and APEX"></span>
-                            <button id="sa-trip-refresh-${esc(t.TRIP_ID)}" onclick="saDbRefreshTrip('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="display:none;background:#0e7490;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Read this trip from Fusion and APEX again and save it on this PC"><i class="fas fa-sync"></i> Refresh</button>
+                            <button id="sa-trip-refresh-${esc(t.TRIP_ID)}" onclick="saDbRefreshTrip('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}', event)" style="display:none;background:#0e7490;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Read this trip from Fusion and APEX again and save it on this PC — orders already interfaced or cancelled are kept as they are; hold Shift to read every order"><i class="fas fa-sync"></i> Refresh</button>
                             <span style="background:${st.bg};color:${st.color};padding:2px 10px;border-radius:10px;font-size:10px;font-weight:700;">${t.STATUS}</span>
                             <button onclick="saShowTripOrdersApiInfo('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#1e293b;color:#94a3b8;border:none;padding:3px 7px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Show API calls for this trip"><i class="fas fa-code"></i></button>
                             <button onclick="saLoadTripOrders('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#0891b2;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Load order details">
@@ -1365,8 +1365,24 @@
             fetched++;
         };
 
-        // DuckDB mode: SADB.POOL orders at a time (traditional: every order of the trip at once)
-        if (SADB.on()) await SADB.pool(Array.from(rows), SADB.POOL, fetchOne);
+        // DuckDB mode: SADB.POOL orders at a time (traditional: every order of the trip at once). On a refresh the orders
+        // already final on this PC (Interfaced / Cancelled) are not read again — Shift + Refresh reads every order.
+        let skipped = 0;
+        if (SADB.on()) {
+            const todo = Array.from(rows).filter(row => {
+                const on = row.id.replace(`sa-order-row-${tripId}-`, '');
+                if (!SADB.full && SADB.isFinal(SADB.get(tripId, on))) { skipped++; return false; }
+                return true;
+            });
+            SADB.lastSkipped[tripId] = skipped;
+            let done = 0;
+            await SADB.pool(todo, SADB.POOL, async row => {
+                SADB.setSub(`order ${done + 1} of ${todo.length}${skipped ? ` (${skipped} already interfaced kept)` : ''}`);
+                await fetchOne(row);
+                done++;
+            });
+            SADB.setSub('');
+        }
         else await Promise.all(Array.from(rows).map(fetchOne));
 
         // Post activity log entry
@@ -1378,7 +1394,7 @@
         }
 
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-download"></i> Get Shipment Lines'; }
-        if (!SADB.quiet) showNotification(`Shipment lines fetched for ${fetched} order(s).`, 'success');
+        if (!SADB.quiet) showNotification(`Shipment lines fetched for ${fetched} order(s)${skipped ? `, ${skipped} already interfaced / cancelled not read again` : ''}.`, 'success');
     };
 
     // Cache: { [tripId]: { [orderNumber]: { total, printed } } }
@@ -5694,7 +5710,11 @@
         shown: {},               // { agentId: true } the popup was shown once for this agent in this session
         lastCands: null,
         session: {},             // { tripId: true } refreshed from Fusion + APEX since this page was opened
-        doneCounts: {}           // { tripId: lines cancelled through this page (cancel log DONE) }
+        doneCounts: {},          // { tripId: lines cancelled through this page (cancel log DONE) }
+        stopping: false,         // Stop pressed: finish the order in hand, read nothing more, keep what was read
+        full: false,             // Shift + Refresh: read every order again, also the ones already Interfaced / Cancelled
+        lastSkipped: {},         // { tripId: orders not read again on the last refresh (already final on this PC) }
+        statusMain: ''
     };
     const S = v => (v == null ? null : String(v));
     SADB.lit = s => "'" + String(s == null ? '' : s).replace(/'/g, "''") + "'";
@@ -5711,7 +5731,7 @@
     SADB.pool = function(items, n, fn) {
         let i = 0;
         const next = () => {
-            if (i >= items.length) return Promise.resolve();
+            if (i >= items.length || SADB.stopping) return Promise.resolve();
             const idx = i++;
             return Promise.resolve().then(() => fn(items[idx], idx)).catch(e => console.warn('[ShippingAgent] pooled call failed:', e && e.message || e)).then(next);
         };
@@ -5768,6 +5788,8 @@
         return t[order] = t[order] || { agent_id: S(SADB.agentId), trip_id: S(tripId), order_number: S(order) };
     };
     SADB.get = (tripId, order) => (SADB.rows[tripId] || {})[order] || null;
+    /** An order whose last read left nothing to follow: every active line interfaced, or every line cancelled. */
+    SADB.isFinal = r => !!(r && r.last_checked && !r.check_error && (r.order_status === 'Interfaced' || r.order_status === 'Cancelled'));
     /** Merge a few columns into one order row and write it (with the other changed rows of the trip) a moment later. */
     SADB.touch = function(tripId, order, patch) {
         if (!SADB.on() || SADB.agentId == null) return;
@@ -6024,17 +6046,21 @@
         const kpi = saCpComputeKpi(tripId);
         const all = Object.values(SADB.rows[tripId] || {});
         const failures = all.filter(r => r.check_error).length;
+        const stopped = SADB.stopping, skipped = SADB.lastSkipped[tripId] || 0;
+        const read = all.filter(r => r.last_checked).length;
         await SADB.saveTrip(tripId, {
             trip_name: trip.TRIP_NAME || '', pod: inst, status: trip.STATUS || '', assigned_date: trip.ASSIGNED_DATE || '',
             orders_total: kpi.total, processed: kpi.interfaced, printed: kpi.printed, to_cancel: kpi.toCancel, cancelled: kpi.autoCancelled || 0,
-            refreshed_at: SADB.now(), refresh_kind: kind || 'refresh', refresh_ms: Date.now() - t0, refresh_error: error,
+            refreshed_at: stopped ? ((SADB.trips[tripId] || {}).refreshed_at || '') : SADB.now(), refresh_kind: kind || 'refresh', refresh_ms: Date.now() - t0,
+            refresh_error: stopped ? `stopped — ${read} of ${all.length} order(s) read, the rest kept as they were` : error,
             mra_flag: ((_saMraFlags || {})[String(inst).toUpperCase()] || {}).flag || ''
         }).catch(() => {});
         SADB.serial(() => SADB.put('w2_sa_refresh_log', { run_id: runId }, [{
-            run_id: runId, agent_id: S(agent.ID), kind: kind || 'refresh', trips: S(tripId), started_at: SADB.ts(t0), ended_at: SADB.now(), ms: S(Date.now() - t0),
-            orders: S(all.length), failures: S(failures), summary: error || `${all.length} order(s) read, ${failures} failed`, by_user: SADB.user()
+            run_id: runId, agent_id: S(agent.ID), kind: (kind || 'refresh') + (SADB.full ? '-full' : ''), trips: S(tripId), started_at: SADB.ts(t0), ended_at: SADB.now(), ms: S(Date.now() - t0),
+            orders: S(all.length), failures: S(failures), by_user: SADB.user(),
+            summary: error || `${all.length} order(s), ${failures} failed${skipped ? `, ${skipped} already interfaced / cancelled kept` : ''}${stopped ? ' — stopped' : ''}`
         }]));
-        SADB.session[tripId] = true;
+        if (!stopped) SADB.session[tripId] = true;
         SADB.paintMeta(tripId);
         SADB.paintHeader();
         SADB.paintLeftTrips(agent);
@@ -6045,17 +6071,19 @@
         if (SADB.busy) { showNotification('A read is already running — wait for it to finish.', 'info'); return null; }
         const trips = ((window._saAgentTrips || {})[agent.ID] || []).filter(t => document.getElementById(`sa-trip-orders-${t.TRIP_ID}`));
         if (!trips.length) { showNotification('No trips to read.', 'info'); return []; }
-        SADB.busy = true; SADB.quiet = true; SADB.paintHeader();
+        SADB.busy = true; SADB.quiet = true; SADB.stopping = false; SADB.paintHeader();
         const out = [];
         try {
             for (let i = 0; i < trips.length; i++) {
                 if (!window._saCurrentAgent || window._saCurrentAgent.ID !== agent.ID) break;      // the user moved to another agent
-                SADB.setHeaderStatus(`<i class="fas fa-sync fa-spin"></i> Reading trip ${esc(trips[i].TRIP_NAME || trips[i].TRIP_ID)} (${i + 1} of ${trips.length})…`);
+                if (SADB.stopping) break;
+                SADB.setHeaderStatus(`<i class="fas fa-sync fa-spin"></i> Reading trip ${esc(trips[i].TRIP_NAME || trips[i].TRIP_ID)} (${i + 1} of ${trips.length})${SADB.full ? ' · every order' : ''}…`);
                 out.push(await SADB.refreshTrip(agent, trips[i], kind));
             }
-        } finally { SADB.busy = false; SADB.quiet = false; SADB.setHeaderStatus(''); SADB.paintHeader(); }
-        const failed = out.filter(o => o.error || o.failures).length;
-        showNotification(`Read ${out.length} trip(s) from Fusion and APEX${failed ? ', ' + failed + ' with failures' : ''}.`, failed ? 'warning' : 'success');
+        } finally { SADB.busy = false; SADB.quiet = false; SADB.full = false; SADB.setHeaderStatus(''); SADB.paintHeader(); }
+        const failed = out.filter(o => o.error || o.failures).length, kept = out.reduce((n, o) => n + (SADB.lastSkipped[o.tripId] || 0), 0);
+        if (SADB.stopping) { SADB.stopping = false; showNotification(`Stopped — ${out.length} trip(s) read, what was read is kept.`, 'warning'); return out; }
+        showNotification(`Read ${out.length} trip(s) from Fusion and APEX${kept ? `, ${kept} interfaced order(s) kept as they were` : ''}${failed ? ', ' + failed + ' with failures' : ''}.`, failed ? 'warning' : 'success');
         return out;
     };
     /**
@@ -6080,14 +6108,15 @@
         SADB.paintLeftTrips(agent);
         const missing = visible.filter(t => !SADB.hasTrip(t.TRIP_ID));
         if (missing.length) {
-            SADB.busy = true; SADB.quiet = true; SADB.paintHeader();
+            SADB.busy = true; SADB.quiet = true; SADB.stopping = false; SADB.paintHeader();
             try {
                 for (let i = 0; i < missing.length; i++) {
                     if (!window._saCurrentAgent || window._saCurrentAgent.ID !== agent.ID) return true;
+                    if (SADB.stopping) { showNotification(`Stopped — ${i} of ${missing.length} trip(s) read, the others on the next Refresh.`, 'warning'); break; }
                     SADB.setHeaderStatus(`<i class="fas fa-sync fa-spin"></i> First read of trip ${esc(missing[i].TRIP_NAME || missing[i].TRIP_ID)} (${i + 1} of ${missing.length})…`);
                     await SADB.refreshTrip(agent, missing[i], 'first');
                 }
-            } finally { SADB.busy = false; SADB.quiet = false; SADB.setHeaderStatus(''); SADB.paintHeader(); }
+            } finally { SADB.busy = false; SADB.quiet = false; SADB.stopping = false; SADB.setHeaderStatus(''); SADB.paintHeader(); }
         }
         if (missing.length || !SADB.shown[agent.ID]) {
             SADB.shown[agent.ID] = true;
@@ -6255,9 +6284,11 @@
         dlg.querySelectorAll('button, input').forEach(b => { b.disabled = true; });
         const logRows = [];
         let done = 0, failed = 0, gone = 0, skippedNoId = 0;
-        SADB.busy = true; SADB.quiet = true; SADB.inConfirm = true; SADB.paintHeader();   // inConfirm: saExecuteCancels' SENT rows stay out, the verified rows below are the record
+        SADB.busy = true; SADB.quiet = true; SADB.inConfirm = true; SADB.stopping = false; SADB.paintHeader();   // inConfirm: saExecuteCancels' SENT rows stay out, the verified rows below are the record
+        let stoppedAt = -1;
         try {
             for (let i = 0; i < cands.length; i++) {
+                if (SADB.stopping) { stoppedAt = i; break; }       // Stop: the orders not reached stay eligible and come back in the popup
                 const c = cands[i];
                 const where = `Order ${saEscHtml(c.order)} · trip ${saEscHtml(c.tripName)} (${i + 1} of ${cands.length})`;
                 say(`<i class="fas fa-sync fa-spin"></i> ${where} — reading the order live…`);
@@ -6297,7 +6328,8 @@
                 });
                 if (after) SADB.onOrderLines(c.tripId, c.order, after, SADB.wmsStaged(after), after.length, c.inst);
             }
-        } finally { SADB.busy = false; SADB.quiet = false; SADB.inConfirm = false; }
+        } finally { SADB.busy = false; SADB.quiet = false; SADB.inConfirm = false; SADB.stopping = false; }
+        if (stoppedAt >= 0) saConsoleLog(`Popup ⛔ Stopped before order ${cands[stoppedAt].order} — ${cands.length - stoppedAt} order(s) not sent`, 'warn');
         if (logRows.length) await SADB.serial(() => SADB.put('w2_sa_cancel_log', { run_id: runId }, logRows)).catch(() => {});
         saHost('aiAudit', { source: 'SHIPPING_AGENT', actionKey: 'cancel_lines', outcome: failed ? 'FAILED' : 'OK', approval: 'POPUP', instance: cands[0].inst, refId: 'AGENT:' + agent.ID,
             target: [...new Set(cands.map(c => c.order))].join(','), detail: `${done} line(s) cancelled, ${failed} failed, ${gone} no longer eligible — confirmed by ${user} on the Shipping Agent popup` });
@@ -6309,7 +6341,7 @@
         try { for (const t of trips) await SADB.refreshTrip(agent, t, 'after-cancel'); }
         finally { SADB.busy = false; SADB.quiet = false; SADB.paintHeader(); }
         dlg.remove();
-        showNotification(`Cancellation: ${done} line(s) cancelled, ${failed} failed, ${gone} no longer eligible.`, failed ? 'warning' : 'success');
+        showNotification(`Cancellation: ${done} line(s) cancelled, ${failed} failed, ${gone} no longer eligible${stoppedAt >= 0 ? `, ${cands.length - stoppedAt} order(s) not sent (stopped)` : ''}.`, failed || stoppedAt >= 0 ? 'warning' : 'success');
         await SADB.askCancel(agent, 'after the cancellation and the refresh', true);
     };
 
@@ -6361,7 +6393,19 @@
     };
 
     // ── header controls ─────────────────────────────────────
-    SADB.setHeaderStatus = function(html) { const el = document.getElementById('sa-duck-status'); if (el) { el.innerHTML = html || ''; el.style.display = html ? '' : 'none'; } };
+    SADB.setHeaderStatus = function(html) { SADB.statusMain = html || ''; SADB.setSub(''); };
+    SADB.setSub = function(sub) {
+        const el = document.getElementById('sa-duck-status');
+        if (!el) return;
+        const html = SADB.statusMain ? SADB.statusMain + (sub ? ` <span style="color:#64748b;font-weight:500;">· ${esc(sub)}</span>` : '') : '';
+        el.innerHTML = html; el.style.display = html ? '' : 'none';
+    };
+    window.saDbStop = function() {
+        if (!SADB.busy) return;
+        SADB.stopping = true;
+        SADB.statusMain = '<i class="fas fa-hand-paper"></i> Stopping after the order in hand…'; SADB.setSub('');
+        const b = document.getElementById('sa-btn-db-stop'); if (b) { b.disabled = true; b.style.opacity = '.6'; }
+    };
     SADB.paintHeader = function() {
         const chk = document.getElementById('sa-duck-chk');
         const on = SADB.on(), en = SADB.enabled();
@@ -6374,6 +6418,8 @@
             if (wrap) wrap.style.opacity = SADB.host === false ? '.55' : '1';
         }
         ['sa-btn-db-refresh', 'sa-btn-db-check'].forEach(id => { const b = document.getElementById(id); if (b) { b.style.display = on ? '' : 'none'; b.disabled = SADB.busy; b.style.opacity = SADB.busy ? '.6' : '1'; } });
+        const stop = document.getElementById('sa-btn-db-stop');
+        if (stop) { stop.style.display = on && SADB.busy ? '' : 'none'; stop.disabled = SADB.stopping; stop.style.opacity = SADB.stopping ? '.6' : '1'; }
         const asof = document.getElementById('sa-duck-asof');
         if (asof) {
             const a = window._saCurrentAgent;
@@ -6396,28 +6442,33 @@
         showNotification(on ? 'DuckDB mode on — trips are drawn from this PC; Refresh reads Fusion and APEX again.' : 'DuckDB mode off — the traditional per-order calls run.', 'info');
         if (window._saCurrentAgent) saLoadTrips();
     };
-    window.saDbRefreshAll = async function() {
+    window.saDbRefreshAll = async function(ev) {
         const a = window._saCurrentAgent;
         if (!a || !SADB.on()) return;
+        SADB.full = !!(ev && ev.shiftKey);                 // Shift: read every order, also the ones already interfaced
         const out = await SADB.refreshAll(a, 'refresh');
         if (out) await SADB.askCancel(a, 'after the refresh');
     };
-    window.saDbCheckCancel = async function() {
+    window.saDbCheckCancel = async function(ev) {
         const a = window._saCurrentAgent;
         if (!a || !SADB.on()) return;
+        SADB.full = !!(ev && ev.shiftKey);
         const out = await SADB.refreshAll(a, 'check');
         if (out) await SADB.askCancel(a, 'after re-reading every trip');
     };
-    window.saDbRefreshTrip = async function(tripId, inst) {
+    window.saDbRefreshTrip = async function(tripId, inst, ev) {
         const a = window._saCurrentAgent;
         if (!a || !SADB.on()) return;
         if (SADB.busy) { showNotification('A read is already running — wait for it to finish.', 'info'); return; }
         const t = ((window._saAgentTrips || {})[a.ID] || []).find(x => String(x.TRIP_ID) === String(tripId)) || { TRIP_ID: tripId, INSTANCE_NAME: inst };
-        SADB.busy = true; SADB.quiet = true; SADB.paintHeader();
+        SADB.full = !!(ev && ev.shiftKey);
+        SADB.busy = true; SADB.quiet = true; SADB.stopping = false; SADB.paintHeader();
+        SADB.setHeaderStatus(`<i class="fas fa-sync fa-spin"></i> Reading trip ${esc(t.TRIP_NAME || tripId)}${SADB.full ? ' · every order' : ''}…`);
         let r;
         try { r = await SADB.refreshTrip(a, t, 'trip'); }
-        finally { SADB.busy = false; SADB.quiet = false; SADB.paintHeader(); }
-        showNotification(`Trip ${tripId}: ${r.orders} order(s) read from Fusion and APEX${r.failures ? ', ' + r.failures + ' failed' : ''}${r.error ? ' — ' + r.error : ''}.`, r.error || r.failures ? 'warning' : 'success');
+        finally { SADB.busy = false; SADB.quiet = false; SADB.full = false; SADB.setHeaderStatus(''); SADB.paintHeader(); }
+        const kept = SADB.lastSkipped[tripId] || 0, stopped = SADB.stopping; SADB.stopping = false;
+        showNotification(stopped ? `Trip ${tripId}: stopped — what was read is kept.` : `Trip ${tripId}: ${r.orders - kept} order(s) read from Fusion and APEX${kept ? `, ${kept} already interfaced kept` : ''}${r.failures ? ', ' + r.failures + ' failed' : ''}${r.error ? ' — ' + r.error : ''}.`, stopped || r.error || r.failures ? 'warning' : 'success');
         await SADB.askCancel(a, `after refreshing trip ${tripId}`, true);
     };
     window.saDbShowCancel = function() { const a = window._saCurrentAgent; if (a && SADB.on()) SADB.askCancel(a, 'from the data on this PC'); };

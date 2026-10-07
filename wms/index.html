@@ -3648,10 +3648,13 @@
                                         <span id="sa-duck-asof" style="display:none;font-size:10px;color:#0e7490;font-weight:600;white-space:nowrap;"></span>
                                         <span id="sa-duck-status" style="display:none;font-size:10px;color:#1d4ed8;font-weight:600;white-space:nowrap;"></span>
                                         <button id="sa-duck-cancel-badge" onclick="saDbShowCancel()" style="display:none;background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;padding:0.35rem 0.7rem;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap;"></button>
-                                        <button id="sa-btn-db-refresh" onclick="saDbRefreshAll()" style="display:none;background:#0e7490;color:white;border:none;padding:0.35rem 0.9rem;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap;" title="Read every trip of this agent from Fusion and APEX again (like the first time) and save it on this PC">
+                                        <button id="sa-btn-db-stop" onclick="saDbStop()" style="display:none;background:#f59e0b;color:#1e293b;border:none;padding:0.35rem 0.9rem;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap;" title="Stop the running read after the order in hand — what was read is kept">
+                                            <i class="fas fa-hand-paper"></i> Stop
+                                        </button>
+                                        <button id="sa-btn-db-refresh" onclick="saDbRefreshAll(event)" style="display:none;background:#0e7490;color:white;border:none;padding:0.35rem 0.9rem;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap;" title="Read every trip of this agent from Fusion and APEX again and save it on this PC — orders already interfaced or cancelled are kept as they are; hold Shift to read every order">
                                             <i class="fas fa-sync"></i> Refresh all
                                         </button>
-                                        <button id="sa-btn-db-check" onclick="saDbCheckCancel()" style="display:none;background:#b91c1c;color:white;border:none;padding:0.35rem 0.9rem;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap;" title="Read every trip again and show the lines still eligible for cancellation">
+                                        <button id="sa-btn-db-check" onclick="saDbCheckCancel(event)" style="display:none;background:#b91c1c;color:white;border:none;padding:0.35rem 0.9rem;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap;" title="Read every trip again (interfaced orders kept; Shift = every order) and show the lines still eligible for cancellation">
                                             <i class="fas fa-ban"></i> Check cancellation lines
                                         </button>
                                         <span id="sa-detail-status-badge" style="padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 700;"></span>
