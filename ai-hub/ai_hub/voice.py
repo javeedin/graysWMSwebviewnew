@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import html
+import json
 import re
 import threading
 import time
@@ -63,7 +64,7 @@ def pick_voice(cfg: HubConfig, provider: str) -> str:
     if provider == "elevenlabs":
         return ELEVEN_STOCK[g]
     return (lang.get(provider) or {}).get(g, "")
-STT_PROVIDERS = ["browser", "elevenlabs", "azure", "whisper"]
+STT_PROVIDERS = ["browser", "elevenlabs", "azure", "whisper", "foundry"]   # foundry = Microsoft Foundry Local's Whisper in this process (the Dictate button)
 SECRET_NAMES = ["elevenlabs.api_key", "azure_speech.key", "twilio.auth_token"]
 MAX_TTS_CHARS = 2500
 MAX_AUDIO_BYTES = 6 * 1024 * 1024
@@ -219,6 +220,8 @@ def stt(cfg: HubConfig, audio_b64: str, mime: str = "audio/wav", language: str |
         text = j.get("DisplayText", "") if j.get("RecognitionStatus") == "Success" else ""
     elif p == "whisper":
         text = _whisper_transcribe(audio, lang, v.get("whisper_size") or "base")
+    elif p == "foundry":
+        text = _foundry_transcribe(cfg, audio, lang)
     else:
         raise VoiceError(f"Unknown STT provider {p} ({', '.join(STT_PROVIDERS)}).")
     return {"provider": p, "text": (text or "").strip(), "ms": int((time.time() - t0) * 1000)}
@@ -448,8 +451,228 @@ def piper_install(cfg: HubConfig) -> dict:
     return piper_status(cfg)
 
 
+# ── Dictate: Microsoft Foundry Local's Whisper in the hub's own process (foundry-local-sdk: in-process, no CLI, no key) ──
+# The AI Agent's dictation button records, the hub transcribes here, the words go into the prompt. Models live under
+# <AIHUB_HOME>/foundry/models; the runtime is one per hub process and every native call is serialised.
+FOUNDRY_APP = "GraysAiHub"
+NOT_SET_UP = "Local dictation is not set up on this PC yet: Foundry Local's speech model is missing from the AI Hub. Use 'Set up now' on the dictation button."
+_foundry: dict = {"mgr": None, "model": None, "alias": None}
+_foundry_lock = threading.Lock()
+_fsetup: dict = {"state": "idle", "log": "", "error": None, "model": None}
+_fthread = None
+
+
+def foundry_installed() -> bool:
+    import importlib.util
+    import sys
+    if "foundry_local_sdk" in sys.modules:
+        return True
+    try:
+        return importlib.util.find_spec("foundry_local_sdk") is not None
+    except ValueError:          # a module object without a spec counts as present
+        return True
+
+
+def foundry_dir():
+    from .config import home
+    d = home() / "foundry"
+    for sub in ("models", "data", "logs", "tmp"):
+        (d / sub).mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def foundry_status(cfg: HubConfig | None = None) -> dict:
+    st = dict(_fsetup)
+    st.update(installed=foundry_installed(), ready=_foundry["model"] is not None, model=_foundry["alias"] or _fsetup.get("model"), cache=str(foundry_dir()))
+    return st
+
+
+def _foundry_manager():
+    """The in-process Foundry Local runtime (one per hub process)."""
+    if _foundry["mgr"] is not None:
+        return _foundry["mgr"]
+    try:
+        from foundry_local_sdk import Configuration, FoundryLocalManager
+    except ImportError as e:
+        raise VoiceError(NOT_SET_UP) from e
+    d = foundry_dir()
+    kw = dict(app_name=FOUNDRY_APP, model_cache_dir=str(d / "models"), app_data_dir=str(d / "data"), logs_dir=str(d / "logs"))
+    try:
+        conf = Configuration(**kw, disable_nonessential_telemetry=True)
+    except TypeError:            # an SDK without that switch
+        conf = Configuration(**kw)
+    mgr = getattr(FoundryLocalManager, "instance", None)
+    if mgr is None:
+        FoundryLocalManager.initialize(conf)
+        mgr = getattr(FoundryLocalManager, "instance", None) or FoundryLocalManager(conf)
+    _foundry["mgr"] = mgr
+    return mgr
+
+
+def _foundry_catalog(mgr, local: bool):
+    """The local catalog (what is on this PC - no network) when the SDK has one, else the public catalog."""
+    if local:
+        try:
+            from foundry_local_sdk.catalog import CatalogType
+            return mgr.get_catalog(CatalogType.LOCAL)
+        except Exception:  # noqa: BLE001 - older SDK or no local catalog: the public one knows the cache too
+            pass
+    return mgr.get_catalog()
+
+
+def _foundry_whispers(mgr, cached_only: bool) -> list:
+    cat = _foundry_catalog(mgr, cached_only)
+    models = cat.get_cached_models() if cached_only else cat.list_models()
+    return [m for m in models if "whisper" in (m.alias or "").lower() or "audio" in (getattr(m, "input_modalities", "") or "").lower()]
+
+
+def _foundry_pick(cfg: HubConfig, cached_only: bool):
+    """The Whisper to use: the explicit alias, else whisper-<whisper_size>, else base / small / tiny, else the smallest there is."""
+    ws = _foundry_whispers(_foundry_manager(), cached_only)
+    if not ws:
+        return None
+    by = {(m.alias or "").lower(): m for m in ws}
+    v = cfg.voice["stt"]
+    want = (v.get("foundry_model") or "").strip().lower()
+    size = (v.get("whisper_size") or "base").strip().lower()
+    for alias in ([want] if want else []) + [f"whisper-{size}", "whisper-base", "whisper-small", "whisper-tiny"]:
+        if alias in by:
+            return by[alias]
+    return sorted(ws, key=lambda m: m.info.file_size_mb if getattr(m, "info", None) and m.info.file_size_mb else 10**9)[0]
+
+
+def _in_time(fn, seconds: float, what: str):
+    """Runs fn in a worker and gives up waiting after `seconds` (a native call that waits on the network must not hold a page call forever)."""
+    box: dict = {}
+
+    def run():
+        try:
+            box["value"] = fn()
+        except BaseException as e:  # noqa: BLE001 - re-raised below
+            box["error"] = e
+    t = threading.Thread(target=run, daemon=True, name="foundry-call")
+    t.start()
+    t.join(seconds)
+    if t.is_alive():
+        raise VoiceError(f"Foundry Local did not answer in {int(seconds)} s while {what} - is the internet reachable for its model catalog? Try again in a moment.")
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
+
+
+def _foundry_model(cfg: HubConfig):
+    """The loaded Whisper (once per hub process). A transcription never downloads: without a cached model it says 'not set up'."""
+    with _foundry_lock:
+        if _foundry["model"] is not None:
+            return _foundry["model"]
+        m = _in_time(lambda: _foundry_pick(cfg, cached_only=True), 30, "looking for the speech model on this PC")
+        if m is None:
+            raise VoiceError(NOT_SET_UP)
+        if not m.is_loaded:
+            _in_time(m.load, 120, "loading the speech model")
+        _foundry.update(model=m, alias=m.alias)
+        return m
+
+
+def _foundry_transcribe(cfg: HubConfig, audio: bytes, lang: str) -> str:
+    """Whisper through Foundry Local in this process: the recording goes to a temp WAV (the native session reads files), the text comes back as JSON."""
+    import os
+    import tempfile
+    model = _foundry_model(cfg)
+    from foundry_local_sdk.items import TextItem, TextItemType
+    from foundry_local_sdk.request import Request
+    from foundry_local_sdk.session import AudioSession
+    fd, path = tempfile.mkstemp(prefix="dictate-", suffix=".wav", dir=str(foundry_dir() / "tmp"))
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(audio)
+        req: dict = {"model": model.id, "filename": path, "temperature": 0.0}
+        if lang:
+            req["language"] = lang
+        with _foundry_lock, AudioSession(model) as session, Request() as request:
+            request.add_item(TextItem(json.dumps(req), TextItemType.OPENAI_JSON))
+            with session.process_request(request) as response:
+                out = response.get_item(0).text
+        if not out:
+            return ""
+        try:
+            return json.loads(out).get("text") or ""
+        except ValueError:
+            return out
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _pip(*pkgs: str) -> str:
+    import subprocess
+    import sys
+    p = subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "--disable-pip-version-check", *pkgs], capture_output=True, text=True, timeout=1800)
+    out = (p.stdout or "")[-3000:] + (p.stderr or "")[-2000:]
+    if p.returncode != 0:
+        raise VoiceError(f"pip install {' '.join(pkgs)} failed (see log)")
+    return out
+
+
+def foundry_install(cfg: HubConfig) -> dict:
+    """One click from the page: pip install foundry-local-sdk into this hub's Python, download the Whisper model once, load it.
+    Only dictation uses it - the hands-free voice mode keeps its own speech-recognition setting."""
+    global _fthread
+    if _fsetup["state"] == "running":
+        return foundry_status(cfg)
+
+    def log(text: str) -> None:
+        _fsetup["log"] += text
+
+    def run():
+        _fsetup.update(state="running", log="", error=None)
+        try:
+            if not foundry_installed():
+                log("Installing Microsoft Foundry Local (foundry-local-sdk) into this AI Hub's Python…\n")
+                log(_pip("foundry-local-sdk") + "\n")
+                import importlib
+                importlib.invalidate_caches()
+            else:
+                log("Foundry Local is installed.\n")
+            with _foundry_lock:
+                _foundry.update(model=None, alias=None)
+                m = _foundry_pick(cfg, cached_only=True) or _foundry_pick(cfg, cached_only=False)
+                if m is None:
+                    raise VoiceError("Foundry Local's catalog lists no speech model (is the internet reachable for the first download?).")
+                _fsetup["model"] = m.alias
+                if not m.is_cached:
+                    size = f" (about {m.info.file_size_mb} MB)" if getattr(m, "info", None) and m.info.file_size_mb else ""
+                    log(f"Downloading the speech model {m.alias}{size} - first time only…\n")
+                    last = [-1]
+
+                    def progress(pc: float) -> None:
+                        step = int(pc // 10) * 10
+                        if step > last[0]:
+                            last[0] = step
+                            log(f"  {step}%\n")
+                    m.download(progress_callback=progress)
+                    if last[0] < 100:
+                        log("  100%\n")
+                else:
+                    log(f"The speech model {m.alias} is already on this PC.\n")
+                log("Loading it…\n")
+                if not m.is_loaded:
+                    m.load()
+                _foundry.update(model=m, alias=m.alias)
+            _fsetup.update(state="done", log=_fsetup["log"] + "Ready - dictation runs on this PC.\n")
+        except Exception as e:  # noqa: BLE001 - reported to the page
+            _fsetup.update(state="error", error=f"{type(e).__name__}: {e}")
+
+    _fsetup["state"] = "running"
+    _fthread = threading.Thread(target=run, daemon=True, name="foundry-setup")
+    _fthread.start()
+    return foundry_status(cfg)
+
+
 def status(cfg: HubConfig) -> dict:
     return {"voice": cfg.voice, "tts_providers": TTS_PROVIDERS, "stt_providers": STT_PROVIDERS,
-            "keys": {n: secrets.has_secret(n) for n in SECRET_NAMES}, "whisper": whisper_status(), "piper": piper_status(cfg),
+            "keys": {n: secrets.has_secret(n) for n in SECRET_NAMES}, "whisper": whisper_status(), "piper": piper_status(cfg), "foundry": foundry_status(cfg),
             "languages": {k: {"name": v["name"], "piper": v["piper"], "azure": v["azure"], "polly": v["polly"]} for k, v in LANGS.items()},
             "language": lang_of(cfg), "gender": "male" if gender_of(cfg) == "M" else "female"}

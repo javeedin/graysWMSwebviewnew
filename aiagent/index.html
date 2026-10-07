@@ -56,6 +56,7 @@
                     <button class="btn send" id="btn-camera" title="Camera — take a photo of a document, label or product and ask about it" onclick="CAM.forMessage()"><i class="fa-solid fa-camera"></i></button>
                     <input type="file" id="file-in" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.csv,.txt,.json,.xml,.sql,.md,.log">
                     <textarea id="input" rows="2" placeholder="Ask about Fusion data, trips, orders, loads or reports…  (Enter to send, Shift+Enter for a new line, @wms / @orders / @fbdi / @report to pick a specialist)"></textarea>
+                    <button class="btn send dictate-btn" id="btn-dictate" title="Dictate — speech to text on this PC (Ctrl+Shift+D)" onclick="DICT.toggle()"><i class="fa-solid fa-microphone-lines"></i></button>
                     <button class="btn send voice-btn" id="btn-voice" title="Talk with the agent — hands-free voice mode (Ctrl+Shift+V)" onclick="VOICE.toggle()"><i class="fa-solid fa-microphone"></i></button>
                     <button class="btn primary send" id="btn-send" title="Send"><i class="fa-solid fa-paper-plane"></i></button>
                     <button class="btn danger send" id="btn-stop" title="Stop" hidden><i class="fa-solid fa-stop"></i></button>
@@ -86,6 +87,7 @@
     <script src="results.js"></script>
     <script src="rollout.js"></script>
     <script src="voice.js"></script>
+    <script src="dictate.js"></script>
     <script src="phone.js"></script>
     <script src="camera.js"></script>
     <script src="tech.js"></script>

@@ -212,6 +212,18 @@ tr.row-b-ok td { background: #f0fdf4; } tr.row-b-warn td { background: #fffbeb; 
 .report img { max-width: 100%; }
 .msg.user a.ag-link { color: #fff; border-bottom-color: rgba(255,255,255,.6); }
 
+/* ── dictation (dictate.js): speech to text on this PC through Foundry Local ── */
+.dictate-btn { --lvl: 0; position: relative; }
+.dictate-btn.rec { background: #dc2626; color: #fff; border-color: #dc2626; box-shadow: 0 0 0 calc(3px + var(--lvl) * 10px) rgba(220, 38, 38, .22); animation: dict-pulse 1.4s ease-in-out infinite; }
+.dictate-btn.busy { background: #eef2ff; color: #4f46e5; border-color: #c7d2fe; }
+@keyframes dict-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.18); } }
+.dict-status { font-size: .72rem; color: var(--muted); margin-top: 4px; display: flex; gap: 6px; align-items: center; }
+.dict-status:empty { display: none; }
+.dict-status.rec { color: #991b1b; }
+.dict-status .rec-dot { color: #dc2626; font-size: .55rem; animation: dict-blink 1s steps(2) infinite; }
+@keyframes dict-blink { to { opacity: .25; } }
+.dict-log { background: #0f172a; color: #e2e8f0; padding: 8px 10px; border-radius: 8px; max-height: 220px; overflow: auto; font-size: .72rem; white-space: pre-wrap; font-family: var(--mono); margin-top: 8px; }
+
 /* ── voice mode (voice.js) ── */
 .voice-btn.on { background: #7c3aed; color: #fff; border-color: #7c3aed; box-shadow: 0 0 0 4px rgba(124, 58, 237, .18); }
 .voice-ov { display: flex; align-items: center; gap: 14px; padding: 10px 14px; margin-bottom: 8px; border-radius: 16px;

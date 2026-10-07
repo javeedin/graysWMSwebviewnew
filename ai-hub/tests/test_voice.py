@@ -245,3 +245,220 @@ def test_whisper_gets_decoded_samples_not_a_file(monkeypatch):
     r = V.stt(HubConfig(), base64.b64encode(buf.getvalue()).decode(), provider="whisper")
     assert r["text"] == "hello there"
     assert isinstance(seen["audio"], np.ndarray) and seen["audio"].dtype == np.float32 and seen["audio"].shape == (8000,)
+
+
+# ── Dictate: Foundry Local's Whisper in the hub's own process (the SDK is faked - no download, no native runtime in CI) ──
+def _wav(seconds=0.5):
+    import io
+    import wave
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(b"\x00\x10" * int(16000 * seconds))
+    return buf.getvalue()
+
+
+def _fake_foundry(monkeypatch, aliases=("phi-4-mini", "whisper-tiny", "whisper-base"), cached=()):
+    """A stand-in for the foundry_local_sdk package: a catalog with Whisper models and an AudioSession that answers."""
+    import os
+    import sys
+    import types
+    seen = {"requests": [], "downloaded": [], "loaded": [], "config": None, "progress": []}
+
+    class Info:
+        def __init__(self, alias):
+            self.task = "audio-transcription" if "whisper" in alias else "chat-completion"
+            self.file_size_mb = {"whisper-tiny": 75, "whisper-base": 145}.get(alias, 2300)
+            self.license = "MIT"
+
+    class Model:
+        def __init__(self, alias):
+            self.alias, self.id, self.info = alias, alias + "-generic-cpu:1", Info(alias)
+            self.is_cached, self.is_loaded = alias in cached, False
+            self.input_modalities = "audio" if "whisper" in alias else "text"
+
+        def download(self, progress_callback=None, cancel_event=None):
+            for pc in (25.0, 100.0):
+                if progress_callback:
+                    progress_callback(pc)
+                    seen["progress"].append(pc)
+            self.is_cached = True
+            seen["downloaded"].append(self.alias)
+
+        def load(self):
+            self.is_loaded = True
+            seen["loaded"].append(self.alias)
+
+    class Catalog:
+        def __init__(self):
+            self.models = [Model(a) for a in aliases]
+
+        def list_models(self):
+            return list(self.models)
+
+        def get_cached_models(self):
+            return [m for m in self.models if m.is_cached]
+
+        def get_model(self, alias):
+            return next((m for m in self.models if m.alias == alias), None)
+
+    class Manager:
+        instance = None
+
+        def __init__(self, config):
+            seen["config"] = config
+            Manager.instance = self
+            self.catalog = Catalog()
+
+        @staticmethod
+        def initialize(config):
+            Manager(config)
+
+        def get_catalog(self, *a, **k):
+            return self.catalog
+
+    class Configuration:
+        def __init__(self, **kw):
+            self.kw = kw
+
+    class Item:
+        def __init__(self, text=None, type=None):
+            self.text = text
+
+    class Request:
+        def __init__(self):
+            self.items = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def add_item(self, item, transfer_ownership=True):
+            self.items.append(item)
+            return self
+
+    class Resp:
+        def __init__(self, text):
+            self._t = text
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get_item(self, i):
+            return Item(self._t)
+
+    class AudioSession:
+        def __init__(self, model):
+            self.model = model
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def process_request(self, request):
+            req = json.loads(request.items[0].text)
+            seen["requests"].append(req)
+            assert os.path.exists(req["filename"]) and req["filename"].endswith(".wav")
+            return Resp(json.dumps({"text": " show trips for tomorrow "}))
+
+    pkg = types.ModuleType("foundry_local_sdk")
+    pkg.Configuration, pkg.FoundryLocalManager = Configuration, Manager
+    items = types.ModuleType("foundry_local_sdk.items")
+    items.TextItem, items.TextItemType = Item, types.SimpleNamespace(OPENAI_JSON=1)
+    request = types.ModuleType("foundry_local_sdk.request")
+    request.Request = Request
+    session = types.ModuleType("foundry_local_sdk.session")
+    session.AudioSession = AudioSession
+    for name, mod in (("foundry_local_sdk", pkg), ("foundry_local_sdk.items", items), ("foundry_local_sdk.request", request), ("foundry_local_sdk.session", session)):
+        monkeypatch.setitem(sys.modules, name, mod)
+    monkeypatch.setattr(V, "_foundry", {"mgr": None, "model": None, "alias": None})
+    monkeypatch.setattr(V, "_fsetup", {"state": "idle", "log": "", "error": None, "model": None})
+    return seen
+
+
+def test_foundry_dictation_transcribes_on_this_pc(monkeypatch):
+    import os
+    seen = _fake_foundry(monkeypatch, cached=("whisper-base",))
+    cfg = HubConfig()
+    r = V.stt(cfg, base64.b64encode(_wav()).decode(), language="en", provider="foundry")
+    assert r["text"] == "show trips for tomorrow" and r["provider"] == "foundry"
+    req = seen["requests"][0]
+    assert req["language"] == "en" and req["model"].startswith("whisper-base")     # default size 'base' → whisper-base, already cached
+    assert seen["downloaded"] == [] and seen["loaded"] == ["whisper-base"]
+    assert not os.path.exists(req["filename"])                                      # the temp recording is removed after the transcription
+    assert str(seen["config"].kw["model_cache_dir"]).endswith(os.path.join("foundry", "models"))
+    # the model is loaded once per hub process; the second call reuses it
+    V.stt(cfg, base64.b64encode(_wav()).decode(), provider="foundry")
+    assert seen["loaded"] == ["whisper-base"] and len(seen["requests"]) == 2
+    st = V.foundry_status(cfg)
+    assert st["installed"] and st["ready"] and st["model"] == "whisper-base"
+
+
+def test_foundry_model_choice_and_not_set_up(monkeypatch):
+    # nothing cached yet → a transcription never starts a download: the page gets "not set up" and offers the setup
+    _fake_foundry(monkeypatch)
+    with pytest.raises(V.VoiceError, match="not set up"):
+        V.stt(HubConfig(), base64.b64encode(_wav()).decode(), provider="foundry")
+    # the size setting picks the model; an explicit alias wins; an unknown alias falls back to the size
+    seen = _fake_foundry(monkeypatch, cached=("whisper-tiny", "whisper-base"))
+    V.stt(HubConfig({"voice": {"stt": {"whisper_size": "tiny"}}}), base64.b64encode(_wav()).decode(), provider="foundry")
+    assert seen["requests"][-1]["model"].startswith("whisper-tiny")
+    seen = _fake_foundry(monkeypatch, cached=("whisper-tiny", "whisper-base"))
+    V.stt(HubConfig({"voice": {"stt": {"whisper_size": "tiny", "foundry_model": "whisper-base"}}}), base64.b64encode(_wav()).decode(), provider="foundry")
+    assert seen["requests"][-1]["model"].startswith("whisper-base")
+    seen = _fake_foundry(monkeypatch, cached=("whisper-base",))
+    V.stt(HubConfig({"voice": {"stt": {"whisper_size": "small", "foundry_model": "whisper-large-v3"}}}), base64.b64encode(_wav()).decode(), provider="foundry")
+    assert seen["requests"][-1]["model"].startswith("whisper-base")                 # neither exists on this PC: the one that is cached
+    # the SDK not installed at all → the same readable message (the setup dialog looks for "not set up")
+    import sys
+    for n in [k for k in sys.modules if k.startswith("foundry_local_sdk")]:
+        monkeypatch.delitem(sys.modules, n)
+    monkeypatch.setattr(V, "_foundry", {"mgr": None, "model": None, "alias": None})
+    import builtins
+    real = builtins.__import__
+    monkeypatch.setattr(builtins, "__import__", lambda n, *a, **k: (_ for _ in ()).throw(ImportError("x")) if n.startswith("foundry_local_sdk") else real(n, *a, **k))
+    with pytest.raises(V.VoiceError, match="not set up"):
+        V.stt(HubConfig(), base64.b64encode(_wav()).decode(), provider="foundry")
+
+
+def test_foundry_install_downloads_the_model_once(monkeypatch):
+    seen = _fake_foundry(monkeypatch)
+    pips = []
+    monkeypatch.setattr(V, "_pip", lambda *pkgs: pips.append(pkgs) or "Successfully installed")
+    cfg = HubConfig({"voice": {"stt": {"whisper_size": "tiny"}}})
+    st = V.foundry_install(cfg)
+    assert st["state"] == "running"
+    V._fthread.join(10)
+    st = V.foundry_status(cfg)
+    assert st["state"] == "done" and st["model"] == "whisper-tiny" and st["ready"], st
+    assert pips == [] and seen["downloaded"] == ["whisper-tiny"] and seen["loaded"] == ["whisper-tiny"]     # the fake package counts as installed: no pip
+    assert "100%" in st["log"] and "Ready" in st["log"]
+    assert cfg.voice["stt"]["provider"] == "browser"                                 # dictation only: the hands-free voice mode keeps its own setting
+    # now the dictation works at once, without another download
+    r = V.stt(cfg, base64.b64encode(_wav()).decode(), provider="foundry")
+    assert r["text"] == "show trips for tomorrow" and seen["downloaded"] == ["whisper-tiny"]
+
+
+def test_foundry_api_and_status(tmp_path):
+    cfg = HubConfig()
+    tok = cfg.new_token()
+    c = TestClient(create_api(cfg, Usage(), str(tmp_path / "d.db"), str(tmp_path / "ag")))
+    h = {"Authorization": "Bearer " + tok}
+    st = c.get("/voice/foundry", headers=h).json()
+    assert st["state"] == "idle" and "installed" in st and "ready" in st
+    vc = c.get("/voice/config", headers=h).json()
+    assert "foundry" in vc["stt_providers"] and "foundry" in vc and vc["voice"]["stt"]["foundry_model"] == ""
+    v = c.put("/voice/config", json={"voice": {"stt": {"foundry_model": "whisper-small"}}}, headers=h).json()["voice"]
+    assert v["stt"]["foundry_model"] == "whisper-small"
+    if not V.foundry_installed():      # CI: the real SDK is absent → the readable 400 the setup dialog looks for
+        r = c.post("/voice/stt", json={"audio_b64": base64.b64encode(_wav()).decode(), "provider": "foundry"}, headers=h)
+        assert r.status_code == 400 and "not set up" in r.json()["detail"]

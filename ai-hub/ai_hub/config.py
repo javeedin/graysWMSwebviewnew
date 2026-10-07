@@ -66,7 +66,8 @@ DEFAULT_ROUTES = {
 #   elevenlabs.api_key, azure_speech.key, twilio.auth_token
 DEFAULT_VOICE = {
     "tts": {"provider": "browser", "voice": "", "model": "eleven_flash_v2_5", "engine": "generative", "speed": 1.0},
-    "stt": {"provider": "browser", "language": "en", "model": "scribe_v1", "whisper_size": "base"},
+    # foundry_model: a Foundry Local model alias for the Dictate button, else whisper-<whisper_size>
+    "stt": {"provider": "browser", "language": "en", "model": "scribe_v1", "whisper_size": "base", "foundry_model": ""},
     "language": "en-US", "gender": "female",   # voice language (also what the agent speaks) and voice gender
     "azure_region": "westeurope",
     "aws_provider": "bedrock",          # Amazon Polly uses the AWS credentials of this provider

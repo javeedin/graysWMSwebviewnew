@@ -364,7 +364,7 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
         v = body.get("voice") or {}
         for part in ("tts", "stt"):
             if isinstance(v.get(part), dict):
-                cfg.voice[part].update({k: x for k, x in v[part].items() if k in ("provider", "voice", "model", "engine", "speed", "language", "whisper_size")})
+                cfg.voice[part].update({k: x for k, x in v[part].items() if k in ("provider", "voice", "model", "engine", "speed", "language", "whisper_size", "foundry_model")})
         for k in ("azure_region", "aws_provider", "language", "gender"):
             if isinstance(v.get(k), str):
                 cfg.voice[k] = v[k]
@@ -404,6 +404,14 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
     @app.post("/voice/whisper/install", dependencies=A)
     def voice_whisper_install():
         return V.whisper_install(cfg)
+
+    @app.get("/voice/foundry", dependencies=A)
+    def voice_foundry():
+        return V.foundry_status(cfg)
+
+    @app.post("/voice/foundry/install", dependencies=A)
+    def voice_foundry_install():
+        return V.foundry_install(cfg)
 
     @app.post("/voice/stt", dependencies=A)
     def voice_stt(body: dict):
