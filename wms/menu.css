@@ -1,0 +1,81 @@
+/* WMS left menu — the WMS 2.0 look (wms/menu.js groups the existing items; nothing else changes).
+   Active only under body.wms-menu-v2 — "Classic look" at the foot of the menu switches it off (localStorage wms.menu.classic).
+   body.wms-menu-min = collapsed to an icon rail (Collapse at the foot, localStorage wms.menu.min). The header's hamburger
+   still hides the whole menu (.sidebar.collapsed, untouched). */
+body.wms-menu-v2 .sidebar:not(.collapsed) {
+    width: 232px;
+    padding: 8px 8px 10px;
+    background: #fff;
+    border-right: 1px solid #e2e8f0;
+    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    transition: width .2s ease, padding .2s ease;
+}
+body.wms-menu-v2 .menu-group { display: flex; flex-direction: column; gap: 1px; }
+body.wms-menu-v2 .menu-group-title {
+    display: flex; align-items: center; gap: 6px;
+    font-size: .64rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #64748b;
+    padding: 12px 10px 4px; cursor: pointer; user-select: none; border-radius: 6px;
+}
+body.wms-menu-v2 .menu-group-title:hover { color: #1d4ed8; }
+body.wms-menu-v2 .menu-group-title .menu-fold { margin-left: auto; font-size: .6rem; opacity: .6; transition: transform .15s; }
+body.wms-menu-v2 .menu-group.folded .menu-group-title .menu-fold { transform: rotate(-90deg); }
+body.wms-menu-v2 .menu-group.folded .menu-group-items { display: none; }
+body.wms-menu-v2 .menu-group-items { display: flex; flex-direction: column; gap: 1px; }
+
+body.wms-menu-v2 .menu-item {
+    padding: 7px 10px !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 8px;
+    gap: 9px;
+    font-weight: 600;
+    font-size: .8rem;
+    color: #334155;
+    background: none;
+    box-shadow: none;
+    transform: none;
+    transition: background .12s ease, color .12s ease;
+    position: relative;
+}
+body.wms-menu-v2 .menu-item > i:first-child { width: 16px; text-align: center; color: #64748b; font-size: .85rem; }
+body.wms-menu-v2 .menu-item > span { flex: 1; min-width: 0; white-space: normal; line-height: 1.2; }   /* long WMS labels wrap, as before, instead of being cut */
+body.wms-menu-v2 .menu-item:hover { background: #f1f5f9; color: #0f172a; transform: none; box-shadow: none; }
+body.wms-menu-v2 .menu-item.active { background: #eff6ff; color: #1d4ed8; box-shadow: none; }
+body.wms-menu-v2 .menu-item.active > i:first-child { color: #1d4ed8; }
+body.wms-menu-v2 .menu-item.active::before {
+    content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 3px; border-radius: 3px; background: #1d4ed8;
+}
+/* open in a new window — the small icon at the end of the row, shown on hover */
+body.wms-menu-v2 .menu-new-window {
+    margin-left: auto; opacity: 0; font-size: .62rem !important; color: #64748b; padding: 3px 5px; border-radius: 5px;
+    transition: opacity .12s, background .12s, color .12s;
+}
+body.wms-menu-v2 .menu-item:hover .menu-new-window { opacity: .8; }
+body.wms-menu-v2 .menu-new-window:hover { opacity: 1 !important; background: #e2e8f0; color: #1d4ed8; }
+body.wms-menu-v2 .menu-item.active .menu-new-window { color: #1d4ed8; }
+
+/* foot: Collapse + Classic look */
+body.wms-menu-v2 .menu-foot { margin-top: auto; padding-top: 8px; border-top: 1px solid #f1f5f9; display: flex; flex-direction: column; gap: 2px; }
+body.wms-menu-v2 .menu-foot button {
+    border: 0; background: none; text-align: left; padding: 7px 10px; border-radius: 8px; cursor: pointer;
+    color: #64748b; display: flex; align-items: center; gap: 9px; font-weight: 500; font-size: .78rem; font-family: inherit;
+}
+body.wms-menu-v2 .menu-foot button i { width: 16px; text-align: center; }
+body.wms-menu-v2 .menu-foot button:hover { background: #f1f5f9; color: #0f172a; }
+body.wms-menu-v2 .menu-foot .menu-classic { font-size: .72rem; }
+
+/* collapsed to an icon rail */
+body.wms-menu-v2.wms-menu-min .sidebar:not(.collapsed) { width: 56px; padding: 8px 6px 10px; }
+body.wms-menu-v2.wms-menu-min .menu-group-title { padding: 10px 0 2px; justify-content: center; }
+body.wms-menu-v2.wms-menu-min .menu-group-title span, body.wms-menu-v2.wms-menu-min .menu-group-title .menu-fold { display: none; }
+body.wms-menu-v2.wms-menu-min .menu-group-title::after { content: ''; width: 18px; height: 1px; background: #e2e8f0; }
+body.wms-menu-v2.wms-menu-min .menu-item { justify-content: center; padding: 9px 0 !important; }
+body.wms-menu-v2.wms-menu-min .menu-item > span,
+body.wms-menu-v2.wms-menu-min .menu-item .menu-new-window,
+body.wms-menu-v2.wms-menu-min .menu-foot button span { display: none; }
+body.wms-menu-v2.wms-menu-min .menu-item > i:first-child { width: auto; font-size: .95rem; }
+body.wms-menu-v2.wms-menu-min .menu-item.active::before { top: 6px; bottom: 6px; }
+body.wms-menu-v2.wms-menu-min .menu-foot button { justify-content: center; padding: 8px 0; }
