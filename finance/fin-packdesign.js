@@ -12,60 +12,147 @@
         return FL.call('finDocGet', { name: 'packs' }).then(function (r) { try { D.doc = JSON.parse(r.json || '{}'); } catch (e) { D.doc = {}; } })
             .catch(function () { D.doc = {}; }).then(function () {
                 D.doc.packs = D.doc.packs || [];
-                if (!D.doc.packs.length) { var p = P().newPack('Monthly board pack'); var old = FL.config.pack || {}; if (old.title) p.title = old.title; if (old.by) p.by = old.by; D.doc.packs.push(p); D.dirty = true; }
+                if (!D.doc.packs.length) { var p = P().newPack('Monthly board pack'); var old = FL.config.pack || {}; if (old.title) p.title = old.title; if (old.by) p.by = old.by; D.doc.packs.push(p); D.dirtyIds = D.dirtyIds || {}; D.dirtyIds[p.id] = 1; }
                 return D.doc;
             });
     };
     D.store = function () {
         if (D.cur) D.cur.updated = new Date().toISOString();
-        return FL.call('finDocSave', { name: 'packs', json: JSON.stringify(D.doc, null, 1) }).then(function () { D.dirty = false; D.paintHead(); FL.toast('Board pack saved', 'ok'); });
+        return FL.call('finDocSave', { name: 'packs', json: JSON.stringify(D.doc, null, 1) }).then(function () { D.dirtyIds = {}; D.paintHead(); D.paintTabs(); FL.toast('Board pack saved', 'ok'); });
     };
-    D.touch = function (noPreview) { D.dirty = true; D.paintHead(); if (!noPreview) D.schedule(); };
+    // unsaved changes per design (several designs can be open in tabs)
+    D.dirtyIds = {};
+    Object.defineProperty(D, 'dirty', { get: function () { return !!(D.cur && D.dirtyIds[D.cur.id]); }, set: function (v) { if (!D.cur) return; if (v) D.dirtyIds[D.cur.id] = 1; else delete D.dirtyIds[D.cur.id]; } });
+    D.touch = function (noPreview) { D.dirty = true; D.paintHead(); D.paintTabs(); if (!noPreview) D.schedule(); };
 
     FL.TABS.packs = { render: function (el) { return D.render(el); } };
 
+    // ── tabs: Templates (the list) · one tab per design being edited · New · Distribution · Archive ──
+    D.byId = function (id) { return (D.doc.packs || []).filter(function (p) { return p.id === id; })[0]; };
     D.render = function (el) {
         return D.load().then(function () {
-            var id = FL.ls('pack.cur', null);
-            D.cur = D.doc.packs.filter(function (p) { return p.id === id; })[0] || D.doc.packs[0];
-            el.innerHTML = '<div class="pk-shell"><aside class="card pk-list"><div class="row"><h3 style="margin:0"><i class="fa-solid fa-book-open"></i> Board packs</h3><span class="grow"></span><button class="btn sm primary" id="pk-new" title="A new pack with the standard sections"><i class="fa-solid fa-plus"></i> New</button></div><div id="pk-items"></div>' +
-                '<p class="sm muted" style="margin-top:12px">Each pack is a design. It is built from the data of the period in the header and shared as one interactive HTML file — left menu, statements that open into accounts, search, CSV and print — by download or e-mail.</p>' +
-                '<button class="btn sm" style="width:100%;margin-top:6px" id="pk-archv"><i class="fa-solid fa-box-archive"></i> Archive — what the board received</button>' +
-                '<button class="btn sm" style="width:100%;margin-top:6px" onclick="FL.mail.setup()"><i class="fa-solid fa-envelope-circle-check"></i> E-mail setup</button></aside>' +
-                '<div class="pk-main"><div class="card pk-head" id="pk-head"></div><div class="pk-cols"><div class="pk-left" id="pk-left"></div><div class="card pk-prev"><div class="row"><b><i class="fa-regular fa-eye"></i> Preview</b><span class="sm muted" id="pk-pstat"></span><span class="grow"></span>' +
-                '<div class="seg sm"><button data-v="desktop"' + (D.view === 'desktop' ? ' class="on"' : '') + '><i class="fa-solid fa-desktop"></i></button><button data-v="phone"' + (D.view === 'phone' ? ' class="on"' : '') + '><i class="fa-solid fa-mobile-screen"></i></button></div>' +
-                '<button class="btn sm" id="pk-refresh"><i class="fa-solid fa-rotate"></i></button><button class="btn sm" id="pk-full" title="Open the preview full screen"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button></div>' +
-                '<div class="pk-frame ' + D.view + '"><iframe id="pk-f" title="Board pack preview"></iframe></div></div></div><div class="card" id="pk-arch" style="display:none"></div></div></div>';
-            $('pk-archv').onclick = function () { D.showArchive(!D.archiveOpen); };
-            $('pk-new').onclick = function () { var p = P().newPack('Board pack ' + (D.doc.packs.length + 1)); D.doc.packs.push(p); D.cur = p; FL.lsSet('pack.cur', p.id); D.touch(true); D.paint(); };
-            $('pk-refresh').onclick = function () { D.preview(); };
-            $('pk-full').onclick = function () { if (D.built) FL.packView(D.built.html, { title: D.cur.title || D.cur.name }); };
-            el.querySelectorAll('.pk-prev .seg button').forEach(function (b) { b.onclick = function () { D.view = b.dataset.v; FL.lsSet('pack.view', D.view); el.querySelectorAll('.pk-prev .seg button').forEach(function (x) { x.classList.toggle('on', x === b); }); el.querySelector('.pk-frame').className = 'pk-frame ' + D.view; D.fit(); }; });
+            D.el = el;
+            D.open = (FL.ls('pack.tabs', []) || []).filter(function (id) { return D.byId(id); });
+            el.innerHTML = '<div class="pk-tabbar" id="pk-tabbar"></div><div id="pk-body" class="pk-body"></div>';
             if (!D._rs) { D._rs = true; window.addEventListener('resize', function () { if (FL.tab === 'packs') D.fit(); }); }
-            D.fit();
-            D.paint();
-            if (!(FL.status && FL.status.loaded)) $('pk-pstat').textContent = 'no data loaded — the preview fills once a trial balance is synced';
+            var at = FL.ls('pack.at', 'list');
+            if (/^e:/.test(at) && !D.byId(at.slice(2))) at = 'list';
+            D.go(at);
+        });
+    };
+    D.saveTabs = function () { FL.lsSet('pack.tabs', D.open); FL.lsSet('pack.at', D.at); };
+    D.paintTabs = function () {
+        var bar = $('pk-tabbar'); if (!bar) return;
+        var tab = function (key, html, title, cls) { return '<button class="pk-tab' + (D.at === key ? ' on' : '') + (cls ? ' ' + cls : '') + '" data-at="' + esc(key) + '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + html + '</button>'; };
+        var h = tab('list', '<i class="fa-solid fa-layer-group"></i> Templates <span class="pk-n">' + D.doc.packs.length + '</span>', 'Every board pack design');
+        D.open.forEach(function (id) {
+            var p = D.byId(id); if (!p) return; var th = P().themeOf(p);
+            h += tab('e:' + id, '<span class="pk-tsw" style="background:linear-gradient(135deg,' + th.a + ',' + th.b + ')"></span><span class="pk-tn">' + esc(p.name) + '</span>' + (D.dirtyIds[id] ? '<i class="pk-dot" title="Not saved"></i>' : '') +
+                '<span class="pk-x" data-close="' + esc(id) + '" title="Close">×</span>', p.name, 'pk-etab');
+        });
+        h += tab('new', '<i class="fa-solid fa-plus"></i> New', 'Create a board pack — standard, from a PDF or picture, or a copy', 'pk-newtab');
+        h += '<span class="grow"></span>' + tab('dist', '<i class="fa-solid fa-paper-plane"></i> Distribution', 'Every pack sent from the app: to whom, when, delivered, opened, read, confirmed') +
+            tab('arch', '<i class="fa-solid fa-box-archive"></i> Archive', 'What the board received — the exact files kept in APEX') +
+            '<button class="btn sm ghost" onclick="FL.mail.setup()" title="E-mail setup"><i class="fa-solid fa-envelope-circle-check"></i></button>';
+        bar.innerHTML = h;
+        bar.querySelectorAll('[data-at]').forEach(function (b) {
+            b.onclick = function (e) { if (e.target.closest('[data-close]')) return; D.go(b.dataset.at); };
+            b.onauxclick = function (e) { if (e.button === 1 && /^e:/.test(b.dataset.at)) { e.preventDefault(); D.closeTab(b.dataset.at.slice(2)); } };
+        });
+        bar.querySelectorAll('[data-close]').forEach(function (x) { x.onclick = function (e) { e.stopPropagation(); D.closeTab(x.dataset.close); }; });
+    };
+    D.go = function (at) {
+        D.at = at; D.saveTabs(); D.paintTabs();
+        var body = $('pk-body'); if (!body) return;
+        clearTimeout(D._t);
+        if (at === 'list') return D.renderList(body);
+        if (at === 'new') return FL.packNew.render(body);
+        if (at === 'dist') return FL.packTrack.render(body);
+        if (at === 'arch') { body.innerHTML = '<div class="card" id="pk-arch"></div>'; return FL.packArchive.render($('pk-arch')); }
+        var p = D.byId(at.slice(2)); if (!p) return D.go('list');
+        D.cur = p; FL.lsSet('pack.cur', p.id);
+        D.renderEditor(body);
+    };
+    /** Opens a design in its own tab (or switches to it) */
+    D.openPack = function (id) { if (D.open.indexOf(id) < 0) D.open.push(id); D.go('e:' + id); };
+    D.closeTab = function (id) {
+        var p = D.byId(id);
+        if (D.dirtyIds[id] && !confirm('"' + (p ? p.name : id) + '" has changes that are not saved. Close it anyway? (They stay until you leave Finance Lens — Save keeps them.)')) return;
+        var k = D.open.indexOf(id); D.open = D.open.filter(function (x) { return x !== id; });
+        if (D.at === 'e:' + id) D.go(D.open.length ? 'e:' + D.open[Math.max(0, k - 1)] : 'list'); else { D.saveTabs(); D.paintTabs(); }
+    };
+    /** Adds a new design and opens it in a tab */
+    D.addPack = function (p) { D.doc.packs.push(p); D.dirtyIds[p.id] = 1; D.openPack(p.id); return p; };
+
+    // ── Templates: every design as a card ──
+    D.LAYOUT_ICON = { side: 'fa-table-columns', right: 'fa-table-columns fa-flip-horizontal', rail: 'fa-bars-staggered', top: 'fa-window-maximize', cards: 'fa-grip', doc: 'fa-scroll' };
+    D.mini = function (p) {   // a small drawing of the pack: its menu, cover banner and tiles in its own colours
+        var t = P().themeOf(p), L = P().look(p), H = P().hero(p), light = P().lightMenu(L.menu);
+        var mbg = { theme: t.a, grad: 'linear-gradient(180deg,' + t.a + ',' + t.b + ')', dark: '#0b1222', white: '#fff', tint: 'color-mix(in srgb,' + t.a + ' 12%,#fff)' }[L.menu];
+        var hbg = { grad: 'linear-gradient(135deg,' + (H.c1 || t.a) + ',' + (H.c2 || t.b) + ' 65%,' + t.c + ')', solid: H.c1 || t.a, dark: '#0f172a', soft: 'color-mix(in srgb,' + (H.c1 || t.a) + ' 12%,#fff)', white: '#fff', minimal: 'transparent', image: H.img ? 'url(' + H.img + ') center/cover' : t.a }[H.style];
+        var nav = { side: 'left:0;top:0;bottom:0;width:22%', right: 'right:0;top:0;bottom:0;width:22%', rail: 'left:0;top:0;bottom:0;width:8%', top: 'left:0;right:0;top:0;height:13%', cards: 'left:0;right:0;top:0;height:11%', doc: 'left:0;right:0;top:0;height:11%' }[L.layout];
+        var x0 = L.layout === 'side' ? 26 : L.layout === 'rail' ? 12 : 4, x1 = L.layout === 'right' ? 26 : 4, y0 = /top|cards|doc/.test(L.layout) ? 18 : 6;
+        var body = L.layout === 'cards' ? [0, 1, 2, 3, 4, 5].map(function (i) { return '<i style="left:' + (x0 + (i % 3) * 31) + '%;top:' + (y0 + Math.floor(i / 3) * 36) + '%;width:28%;height:30%;background:#fff;border-radius:3px;box-shadow:0 0 0 1px #e2e8f0;border-top:2px solid ' + t.b + '"></i>'; }).join('') :
+            '<i style="left:' + x0 + '%;right:' + x1 + '%;top:' + y0 + '%;height:28%;border-radius:4px;background:' + hbg + (H.style === 'white' ? ';box-shadow:0 0 0 1px #e2e8f0;border-left:3px solid ' + t.b : '') + (H.style === 'minimal' ? ';border-bottom:2px solid ' + t.b : '') + '"></i>' +
+            [0, 1, 2].map(function (i) { return '<i style="left:calc(' + x0 + '% + ' + i * 31 * (100 - x0 - x1) / 100 + '%);width:' + 28 * (100 - x0 - x1) / 100 + '%;top:' + (y0 + 34) + '%;height:16%;background:#fff;border-radius:3px;box-shadow:0 0 0 1px #e2e8f0;border-top:2px solid ' + t.b + '"></i>'; }).join('') +
+            '<i style="left:' + x0 + '%;right:' + x1 + '%;top:' + (y0 + 56) + '%;height:30%;background:#fff;border-radius:3px;box-shadow:0 0 0 1px #e2e8f0"></i>';
+        return '<div class="pk-mini" style="background:' + (L.paper === 'white' ? '#fff' : '#f1f4f9') + '"><i style="' + nav + ';background:' + mbg + (light ? ';box-shadow:0 0 0 1px #e2e8f0' : '') + '"></i>' + body + '</div>';
+    };
+    D.renderList = function (body) {
+        var q = (D.q || '').toLowerCase(), sort = FL.ls('pack.sort', 'updated');
+        var list = D.doc.packs.filter(function (p) { return !q || (p.name + ' ' + (p.title || '') + ' ' + (p.company || '')).toLowerCase().indexOf(q) >= 0; })
+            .sort(function (a, b) { return sort === 'name' ? String(a.name).localeCompare(b.name) : String(b[sort === 'sent' ? 'lastSent' : 'updated'] || '').localeCompare(String(a[sort === 'sent' ? 'lastSent' : 'updated'] || '')); });
+        var L = P().LAYOUTS;
+        body.innerHTML = '<div class="card"><div class="row" style="gap:8px;flex-wrap:wrap"><h3 style="margin:0"><i class="fa-solid fa-book-open"></i> Board pack templates</h3><span class="sm muted">' + D.doc.packs.length + ' design' + (D.doc.packs.length === 1 ? '' : 's') + ' · each opens in its own tab</span><span class="grow"></span>' +
+            '<input id="pk-q" type="search" placeholder="Search…" value="' + esc(D.q || '') + '" style="width:200px"><select id="pk-sort" class="sm">' + [['updated', 'Last changed'], ['sent', 'Last sent'], ['name', 'Name']].map(function (o) { return '<option value="' + o[0] + '"' + (sort === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>' +
+            '<button class="btn" id="pk-frompdf"><i class="fa-solid fa-wand-magic-sparkles"></i> Design from a PDF</button><button class="btn primary" id="pk-new"><i class="fa-solid fa-plus"></i> New pack</button></div>' +
+            '<p class="sm muted" style="margin:6px 0 0">A design is built from the data of the period in the header and shared as one interactive HTML file — by download or e-mail. Distribution shows who received each pack and whether they opened and confirmed it.</p></div>' +
+            '<div class="pk-cards">' + (list.length ? list.map(function (p) {
+                var lk = P().look(p), secs = (p.sections || []).filter(function (s) { return s.on !== false; });
+                return '<div class="pk-card' + (D.open.indexOf(p.id) >= 0 ? ' open' : '') + '" data-id="' + esc(p.id) + '">' + D.mini(p) +
+                    '<div class="pk-cb"><b>' + esc(p.name) + (D.dirtyIds[p.id] ? ' <i class="pk-dot" title="Not saved"></i>' : '') + '</b><div class="sm muted">' + esc(p.title || '') + (p.company ? ' · ' + esc(p.company) : '') + '</div>' +
+                    '<div class="pk-chips"><span><i class="fa-solid ' + (D.LAYOUT_ICON[lk.layout] || 'fa-table-columns') + '"></i> ' + esc(L[lk.layout].label) + '</span><span>' + secs.length + ' sections</span>' + ((p.ledgers || []).length > 1 ? '<span>' + p.ledgers.length + ' ledgers</span>' : '') + (p.theme === 'brand' ? '<span>brand colours</span>' : '') + '</div>' +
+                    '<div class="sm muted">' + (p.updated ? 'changed ' + esc(String(p.updated).slice(0, 10)) : 'not saved yet') + (p.lastSent ? ' · sent ' + esc(p.lastSent) : '') + '</div>' +
+                    '<div class="pk-ca"><button class="btn sm primary" data-edit><i class="fa-solid fa-pen"></i> ' + (D.open.indexOf(p.id) >= 0 ? 'Go to tab' : 'Open') + '</button><button class="btn sm" data-dup title="Duplicate"><i class="fa-regular fa-copy"></i></button><button class="btn sm ghost" data-del title="Delete"><i class="fa-solid fa-trash"></i></button></div></div></div>';
+            }).join('') : '<p class="muted" style="padding:20px">Nothing matches.</p>') +
+            '<button class="pk-card pk-cardnew" id="pk-new2"><i class="fa-solid fa-plus"></i><b>New board pack</b><span class="sm muted">standard, from a PDF or picture, or a copy</span></button></div>';
+        $('pk-q').oninput = function () { D.q = this.value; clearTimeout(D._qt); D._qt = setTimeout(function () { D.renderList(body); var x = $('pk-q'); x.focus(); x.setSelectionRange(x.value.length, x.value.length); }, 250); };
+        $('pk-sort').onchange = function () { FL.lsSet('pack.sort', this.value); D.renderList(body); };
+        $('pk-new').onclick = $('pk-new2').onclick = function () { D.go('new'); };
+        $('pk-frompdf').onclick = function () { FL.packNew.mode = 'pdf'; D.go('new'); };
+        body.querySelectorAll('.pk-card[data-id]').forEach(function (c) {
+            var p = D.byId(c.dataset.id);
+            c.onclick = function (e) {
+                if (e.target.closest('[data-dup]')) { var cp = JSON.parse(JSON.stringify(p)); cp.id = 'p' + Date.now().toString(36); cp.name += ' (copy)'; delete cp.lastSent; delete cp.updated; D.addPack(cp); return; }
+                if (e.target.closest('[data-del]')) {
+                    if (D.doc.packs.length < 2) { FL.toast('Keep at least one pack', 'info'); return; }
+                    if (!confirm('Delete the board pack design "' + p.name + '"? Packs already sent stay in Distribution and the Archive.')) return;
+                    D.doc.packs = D.doc.packs.filter(function (x) { return x !== p; }); D.open = D.open.filter(function (x) { return x !== p.id; }); delete D.dirtyIds[p.id];
+                    if (D.cur === p) D.cur = null;
+                    D.store().then(function () { D.go('list'); });
+                    return;
+                }
+                D.openPack(p.id);
+            };
         });
     };
 
-    D.showArchive = function (on) {
-        D.archiveOpen = on;
-        document.querySelector('.pk-cols').style.display = on ? 'none' : ''; $('pk-head').style.display = on ? 'none' : ''; $('pk-arch').style.display = on ? '' : 'none';
-        $('pk-archv').classList.toggle('primary', on);
-        if (on) FL.packArchive.render($('pk-arch'));
+    // ── the editor of one design ──
+    D.renderEditor = function (el) {
+        el.innerHTML = '<div class="pk-main"><div class="card pk-head" id="pk-head"></div><div class="pk-cols"><div class="pk-left" id="pk-left"></div><div class="card pk-prev"><div class="row"><b><i class="fa-regular fa-eye"></i> Preview</b><span class="sm muted" id="pk-pstat"></span><span class="grow"></span>' +
+            '<div class="seg sm"><button data-v="desktop"' + (D.view === 'desktop' ? ' class="on"' : '') + '><i class="fa-solid fa-desktop"></i></button><button data-v="phone"' + (D.view === 'phone' ? ' class="on"' : '') + '><i class="fa-solid fa-mobile-screen"></i></button></div>' +
+            '<button class="btn sm" id="pk-refresh"><i class="fa-solid fa-rotate"></i></button><button class="btn sm" id="pk-full" title="Open the preview full screen"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button></div>' +
+            '<div class="pk-frame ' + D.view + '"><iframe id="pk-f" title="Board pack preview"></iframe></div></div></div></div>';
+        $('pk-refresh').onclick = function () { D.preview(); };
+        $('pk-full').onclick = function () { if (D.built) FL.packView(D.built.html, { title: D.cur.title || D.cur.name }); };
+        el.querySelectorAll('.pk-prev .seg button').forEach(function (b) { b.onclick = function () { D.view = b.dataset.v; FL.lsSet('pack.view', D.view); el.querySelectorAll('.pk-prev .seg button').forEach(function (x) { x.classList.toggle('on', x === b); }); el.querySelector('.pk-frame').className = 'pk-frame ' + D.view; D.fit(); }; });
+        D.fit();
+        D.built = null;
+        D.paint();
+        if (!(FL.status && FL.status.loaded)) $('pk-pstat').textContent = 'no data loaded — the preview fills once a trial balance is synced';
     };
-    D.paint = function () {
-        if (D.archiveOpen) D.showArchive(false); D.paintList(); D.paintHead(); D.paintLeft(); D.preview(); };
-
-    D.paintList = function () {
-        var box = $('pk-items'); if (!box) return;
-        box.innerHTML = D.doc.packs.map(function (p) {
-            var th = P().themeOf(p);
-            return '<div class="pk-item' + (p === D.cur ? ' on' : '') + '" data-id="' + esc(p.id) + '"><span class="pk-sw" style="background:linear-gradient(135deg,' + th.a + ',' + th.b + ')"></span><div><b>' + esc(p.name) + '</b><small>' +
-                (p.sections || []).filter(function (s) { return s.on !== false; }).length + ' sections' + (p.updated ? ' · ' + esc(String(p.updated).slice(0, 10)) : '') + (p.lastSent ? ' · sent ' + esc(p.lastSent) : '') + '</small></div></div>';
-        }).join('');
-        box.querySelectorAll('.pk-item').forEach(function (it) { it.onclick = function () { D.cur = D.doc.packs.filter(function (p) { return p.id === it.dataset.id; })[0]; FL.lsSet('pack.cur', D.cur.id); D.paint(); }; });
-    };
+    D.paint = function () { D.paintHead(); D.paintLeft(); D.preview(); };
+    D.paintList = function () { D.paintTabs(); };
 
     D.paintHead = function () {
         var box = $('pk-head'); if (!box || !D.cur) return;
@@ -78,14 +165,15 @@
             '<button class="btn" id="pk-arc" title="Save this pack with comments in the APEX archive — a record of what the board received"><i class="fa-solid fa-box-archive"></i> Save to archive</button>' +
             '<button class="btn" id="pk-dl"><i class="fa-solid fa-download"></i> Download HTML</button>' +
             '<button class="btn primary" id="pk-mail"><i class="fa-solid fa-paper-plane"></i> E-mail…</button></div>';
-        $('pk-name').oninput = function () { D.cur.name = this.value; D.dirty = true; D.paintList(); };
+        $('pk-name').oninput = function () { D.cur.name = this.value; D.dirty = true; D.paintTabs(); };
         $('pk-name').onchange = function () { D.paintHead(); };
         $('pk-save').onclick = function () { D.store(); };
-        $('pk-dup').onclick = function () { var c = JSON.parse(JSON.stringify(D.cur)); c.id = 'p' + Date.now().toString(36); c.name += ' (copy)'; delete c.lastSent; D.doc.packs.push(c); D.cur = c; FL.lsSet('pack.cur', c.id); D.touch(true); D.paint(); };
+        $('pk-dup').onclick = function () { var c = JSON.parse(JSON.stringify(D.cur)); c.id = 'p' + Date.now().toString(36); c.name += ' (copy)'; delete c.lastSent; delete c.updated; D.addPack(c); };
         $('pk-del').onclick = function () {
             if (D.doc.packs.length < 2) { FL.toast('Keep at least one pack', 'info'); return; }
-            if (!confirm('Delete the board pack design "' + D.cur.name + '"?')) return;
-            D.doc.packs = D.doc.packs.filter(function (p) { return p !== D.cur; }); D.cur = D.doc.packs[0]; D.store().then(D.paint);
+            if (!confirm('Delete the board pack design "' + D.cur.name + '"? Packs already sent stay in Distribution and the Archive.')) return;
+            var gone = D.cur; D.doc.packs = D.doc.packs.filter(function (p) { return p !== gone; }); D.open = D.open.filter(function (x) { return x !== gone.id; }); delete D.dirtyIds[gone.id]; D.cur = null;
+            D.store().then(function () { D.go('list'); });
         };
         $('pk-dl').onclick = function () {
             D.ensureBuilt().then(function (b) {

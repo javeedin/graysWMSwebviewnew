@@ -43,7 +43,7 @@ namespace WMSApp
             public string SmtpFrom { get; set; } = "";
         }
         public class Attachment { public string Name, ContentType, Cid; public byte[] Bytes; }
-        public class Message { public string To, Cc, Bcc, Subject, Html; public List<Attachment> Attachments = new List<Attachment>(); public bool Display; }
+        public class Message { public string To, Cc, Bcc, Subject, Html; public List<Attachment> Attachments = new List<Attachment>(); public bool Display, ReadReceipt, DeliveryReceipt; }
 
         private static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GraysWMS", "Finance");
         private static string FilePath => Path.Combine(Dir, "mail.json");
@@ -51,6 +51,8 @@ namespace WMSApp
         private static readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         private const string GRAPH = "https://graph.microsoft.com/v1.0";
         private static readonly string[] SCOPES = { "https://graph.microsoft.com/Mail.Send", "https://graph.microsoft.com/User.Read" };
+        private static readonly string[] SCOPES_READ = { "https://graph.microsoft.com/Mail.ReadBasic", "https://graph.microsoft.com/User.Read" };
+        private static readonly string[] SCOPES_READ_SHARED = { "https://graph.microsoft.com/Mail.ReadBasic", "https://graph.microsoft.com/Mail.Read.Shared", "https://graph.microsoft.com/User.Read" };
         private static readonly string[] SCOPES_SHARED = { "https://graph.microsoft.com/Mail.Send", "https://graph.microsoft.com/Mail.Send.Shared", "https://graph.microsoft.com/User.Read" };
 
         public static Settings Load()
@@ -146,7 +148,7 @@ namespace WMSApp
 
         private static string[] Scopes(Settings s) => string.IsNullOrWhiteSpace(s.SharedMailbox) ? SCOPES : SCOPES_SHARED;
 
-        private static async Task<(string Token, string Account)> GraphTokenAsync(Settings s, string user)
+        private static async Task<(string Token, string Account)> GraphTokenAsync(Settings s, string user, string[] scopes = null, bool interactive = false, CancellationToken ct = default)
         {
             var (tenant, client, _) = await AppAsync(s, user).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(client)) throw new InvalidOperationException("Microsoft 365 is not set up — open the e-mail setup (envelope icon in the header).");
@@ -158,7 +160,12 @@ namespace WMSApp
                 if (acct == null) throw new InvalidOperationException("Sign in to Microsoft 365 first (e-mail setup › Sign in).");
                 try
                 {
-                    var r = await app.AcquireTokenSilent(Scopes(s), acct).ExecuteAsync().ConfigureAwait(false);
+                    var r = await app.AcquireTokenSilent(scopes ?? Scopes(s), acct).ExecuteAsync().ConfigureAwait(false);
+                    return (r.AccessToken, r.Account?.Username);
+                }
+                catch (MsalUiRequiredException) when (interactive)
+                {   // a new permission (reading the receipts): ask once in the system browser
+                    var r = await app.AcquireTokenInteractive(scopes ?? Scopes(s)).WithAccount(acct).WithUseEmbeddedWebView(false).ExecuteAsync(ct).ConfigureAwait(false);
                     return (r.AccessToken, r.Account?.Username);
                 }
                 catch (MsalUiRequiredException) { throw new InvalidOperationException("The Microsoft 365 sign-in has expired or needs consent — sign in again in the e-mail setup."); }
@@ -184,6 +191,8 @@ namespace WMSApp
                 ["bccRecipients"] = Recipients(m.Bcc)
             };
             if (!string.IsNullOrWhiteSpace(s.ReplyTo)) msg["replyTo"] = Recipients(s.ReplyTo);
+            if (m.ReadReceipt) msg["isReadReceiptRequested"] = true;
+            if (m.DeliveryReceipt) msg["isDeliveryReceiptRequested"] = true;
             long total = m.Attachments.Sum(a => (long)a.Bytes.Length);
             JsonNode FileAtt(Attachment a) => new JsonObject
             {
@@ -261,6 +270,8 @@ namespace WMSApp
             }
             if (!string.IsNullOrWhiteSpace(s.ReplyTo)) foreach (var r in Addresses(s.ReplyTo)) mail.ReplyRecipients.Add(r);
             mail.HTMLBody = m.Html ?? "";
+            if (m.ReadReceipt) mail.ReadReceiptRequested = true;
+            if (m.DeliveryReceipt) mail.OriginatorDeliveryReportRequested = true;
             bool send = s.OutlookSend && !m.Display;
             if (send) mail.Send(); else mail.Display(false);
             return send ? "sent" : "draft";
@@ -283,6 +294,8 @@ namespace WMSApp
             foreach (var a in Addresses(m.Cc)) msg.CC.Add(a);
             foreach (var a in Addresses(m.Bcc)) msg.Bcc.Add(a);
             foreach (var a in Addresses(s.ReplyTo)) msg.ReplyToList.Add(a);
+            if (m.ReadReceipt) msg.Headers.Add("Disposition-Notification-To", from);
+            if (m.DeliveryReceipt) msg.DeliveryNotificationOptions = System.Net.Mail.DeliveryNotificationOptions.OnSuccess | System.Net.Mail.DeliveryNotificationOptions.OnFailure;
             var view = System.Net.Mail.AlternateView.CreateAlternateViewFromString(m.Html ?? "", Encoding.UTF8, "text/html");
             var streams = new List<Stream>();
             try
@@ -329,6 +342,118 @@ namespace WMSApp
                 Display = true
             };
             return SendAsync(user, m, method, ct);
+        }
+
+        // ------------------------------------------------------------------ receipts
+        public class Receipt { public string Kind { get; set; } public string Email { get; set; } public string Subject { get; set; } public string At { get; set; } public string Detail { get; set; } }
+        private static readonly (string Prefix, string Kind)[] PREFIXES =
+        {
+            ("Read:", "READ"), ("Not read:", "NOT_READ"), ("Delivered:", "DELIVERED"), ("Relayed:", "DELIVERED"),
+            ("Undeliverable:", "BOUNCED"), ("Delivery has failed", "BOUNCED"), ("Mail delivery failed", "BOUNCED"), ("Delivery Status Notification (Failure)", "BOUNCED"), ("Returned mail", "BOUNCED")
+        };
+        /// <summary>The kind of report a subject is (READ / NOT_READ / DELIVERED / BOUNCED) and the original subject, or null</summary>
+        private static (string Kind, string Orig)? ReportOf(string subject)
+        {
+            if (string.IsNullOrWhiteSpace(subject)) return null;
+            string t = subject.Trim();
+            foreach (var (p, k) in PREFIXES)
+                if (t.StartsWith(p, StringComparison.OrdinalIgnoreCase)) return (k, t.Substring(p.Length).Trim().TrimStart(':', '-').Trim());
+            return null;
+        }
+        private static string Matching(string orig, IReadOnlyCollection<string> subjects)
+        {
+            if (string.IsNullOrEmpty(orig)) return null;
+            return subjects.FirstOrDefault(x => string.Equals(x?.Trim(), orig, StringComparison.OrdinalIgnoreCase))
+                ?? subjects.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x) && orig.IndexOf(x.Trim(), StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+        private static string AddressIn(string from, string text, IReadOnlyCollection<string> addresses)
+        {
+            if (!string.IsNullOrWhiteSpace(from)) { var hit = addresses.FirstOrDefault(a => string.Equals(a, from.Trim(), StringComparison.OrdinalIgnoreCase)); if (hit != null) return hit; }
+            if (string.IsNullOrEmpty(text)) return null;
+            return addresses.FirstOrDefault(a => text.IndexOf(a, StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        /// <summary>
+        /// Read / delivery receipts and bounces that came back to the sending mailbox for the given subjects and addresses
+        /// (Microsoft 365: Graph with Mail.ReadBasic, asked for once in the browser; Outlook: the Inbox of the Outlook profile).
+        /// SMTP has no mailbox to read — its receipts arrive in that mailbox, read them there.
+        /// </summary>
+        public static async Task<object> ReceiptsAsync(string user, string method, DateTime since, List<string> subjects, List<string> addresses, CancellationToken ct)
+        {
+            var s = Load();
+            string how = string.IsNullOrWhiteSpace(method) ? s.Method : method.Trim().ToUpperInvariant();
+            var found = new List<Receipt>();
+            int scanned = 0;
+            if (how == "GRAPH")
+            {
+                var (token, account) = await GraphTokenAsync(s, user, string.IsNullOrWhiteSpace(s.SharedMailbox) ? SCOPES_READ : SCOPES_READ_SHARED, true, ct).ConfigureAwait(false);
+                string box = string.IsNullOrWhiteSpace(s.SharedMailbox) ? "/me" : "/users/" + Uri.EscapeDataString(s.SharedMailbox.Trim());
+                string path = box + "/mailFolders/inbox/messages?$select=subject,from,receivedDateTime,bodyPreview&$top=100&$orderby=receivedDateTime desc&$filter=receivedDateTime ge " +
+                              since.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ");
+                for (int page = 0; page < 15 && path != null; page++)
+                {
+                    var j = await GraphAsync(HttpMethod.Get, path, token, null, ct).ConfigureAwait(false);
+                    foreach (var it in (j?["value"] as JsonArray) ?? new JsonArray())
+                    {
+                        scanned++;
+                        var rep = ReportOf(it?["subject"]?.GetValue<string>());
+                        if (rep == null) continue;
+                        string subj = Matching(rep.Value.Orig, subjects); if (subj == null) continue;
+                        string from = it?["from"]?["emailAddress"]?["address"]?.GetValue<string>(), prev = it?["bodyPreview"]?.GetValue<string>() ?? "";
+                        string email = AddressIn(rep.Value.Kind == "READ" || rep.Value.Kind == "NOT_READ" ? from : null, prev, addresses);
+                        if (email == null) continue;
+                        found.Add(new Receipt { Kind = rep.Value.Kind, Email = email, Subject = subj, At = it?["receivedDateTime"]?.GetValue<string>(), Detail = rep.Value.Kind == "BOUNCED" ? Short(prev) : null });
+                    }
+                    string next = j?["@odata.nextLink"]?.GetValue<string>();
+                    path = next == null ? null : next.Substring(GRAPH.Length);
+                }
+                return new { ok = true, via = how, mailbox = string.IsNullOrWhiteSpace(s.SharedMailbox) ? account : s.SharedMailbox, scanned, receipts = found };
+            }
+            if (how == "OUTLOOK")
+            {
+                var (list, seen) = await Task.Run(() => OutlookReceipts(since, subjects, addresses), ct).ConfigureAwait(false);
+                return new { ok = true, via = how, mailbox = "Outlook", scanned = seen, receipts = list };
+            }
+            return new { ok = false, via = how, error = "SMTP sends have no mailbox the app can read — the receipts arrive in " + (string.IsNullOrWhiteSpace(s.SmtpFrom) ? s.SmtpUser : s.SmtpFrom) + ". Use Microsoft 365 or Outlook to collect them automatically; opens and confirmations are still tracked." };
+        }
+
+        private static (List<Receipt>, int) OutlookReceipts(DateTime since, List<string> subjects, List<string> addresses)
+        {
+            var found = new List<Receipt>();
+            int scanned = 0;
+            Type t = Type.GetTypeFromProgID("Outlook.Application") ?? throw new InvalidOperationException("Outlook (desktop) is not installed on this PC.");
+            dynamic app = Activator.CreateInstance(t);
+            dynamic inbox = app.GetNamespace("MAPI").GetDefaultFolder(6);   // olFolderInbox
+            dynamic items = inbox.Items;
+            items.Sort("[ReceivedTime]", true);
+            int n = 0;
+            foreach (dynamic it in items)
+            {
+                if (++n > 3000) break;
+                try
+                {
+                    DateTime at; try { at = (DateTime)it.ReceivedTime; } catch { at = (DateTime)it.CreationTime; }
+                    if (at < since) break;
+                    scanned++;
+                    string cls = "", subject = (string)it.Subject;
+                    try { cls = (string)it.MessageClass ?? ""; } catch { }
+                    string kind = cls.StartsWith("REPORT.IPM.Note.IPNRN", StringComparison.OrdinalIgnoreCase) ? "READ"
+                        : cls.StartsWith("REPORT.IPM.Note.IPNNRN", StringComparison.OrdinalIgnoreCase) ? "NOT_READ"
+                        : cls.StartsWith("REPORT.IPM.Note.DR", StringComparison.OrdinalIgnoreCase) ? "DELIVERED"
+                        : cls.StartsWith("REPORT.IPM.Note.NDR", StringComparison.OrdinalIgnoreCase) ? "BOUNCED" : null;
+                    var rep = ReportOf(subject);
+                    if (kind == null && rep == null) continue;
+                    kind ??= rep.Value.Kind;
+                    string subj = Matching(rep?.Orig ?? subject, subjects); if (subj == null) continue;
+                    string body = ""; try { body = (string)it.Body ?? ""; } catch { }
+                    string from = null; try { from = (string)it.PropertyAccessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x0C1F001F"); } catch { }
+                    string email = AddressIn(kind == "READ" || kind == "NOT_READ" ? from : null, body, addresses);
+                    if (email == null) continue;
+                    found.Add(new Receipt { Kind = kind, Email = email, Subject = subj, At = at.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"), Detail = kind == "BOUNCED" ? Short(body) : null });
+                }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[FinanceMail] receipt item: " + ex.Message); }
+            }
+            return (found, scanned);
         }
 
         // ------------------------------------------------------------------ helpers
@@ -378,7 +503,8 @@ namespace WMSApp
         public static Message FromJson(JsonElement root)
         {
             string S(JsonElement e, string k) => e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-            var m = new Message { To = S(root, "to"), Cc = S(root, "cc"), Bcc = S(root, "bcc"), Subject = S(root, "subject"), Html = S(root, "html"), Display = root.TryGetProperty("display", out var d) && d.ValueKind == JsonValueKind.True };
+            bool B(string k) => root.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.True;
+            var m = new Message { To = S(root, "to"), Cc = S(root, "cc"), Bcc = S(root, "bcc"), Subject = S(root, "subject"), Html = S(root, "html"), Display = B("display"), ReadReceipt = B("readReceipt"), DeliveryReceipt = B("deliveryReceipt") };
             if (m.Subject != null && m.Subject.Length > 250) m.Subject = m.Subject.Substring(0, 250);
             if (root.TryGetProperty("attachments", out var atts) && atts.ValueKind == JsonValueKind.Array)
                 foreach (var a in atts.EnumerateArray())

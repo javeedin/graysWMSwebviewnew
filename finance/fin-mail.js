@@ -109,6 +109,9 @@
                 '<label><input type="checkbox" id="mc-chart"' + (e.chart !== false && built.model.trendPng ? ' checked' : '') + (built.model.trendPng ? '' : ' disabled') + '> trend chart</label><label><input type="checkbox" id="mc-hl"' + (e.hl !== false ? ' checked' : '') + '> highlights</label>' +
                 (built.model.logo ? '<label><input type="checkbox" id="mc-logo"' + (e.logo !== false ? ' checked' : '') + '> logo</label>' : '') +
                 '<label><input type="checkbox" id="mc-att"' + (e.attach !== false ? ' checked' : '') + '> attach the interactive pack <span class="muted">(' + esc(built.file) + ', ' + Math.round(built.html.length / 1024) + ' KB)</span></label></div>' +
+                '<div class="field">Distribution <span class="muted sm">— every send is recorded in Board packs › Distribution</span></div><div class="ml-chks">' +
+                '<label title="Each person gets their own copy with a button to confirm receipt and a small picture that shows when it is opened"><input type="checkbox" id="mc-track"' + (e.track !== false ? ' checked' : '') + '> track: one copy per person with <b>Confirm receipt</b> and open tracking</label>' +
+                '<label title="The mail system sends a receipt back to your mailbox when it is delivered and when it is read (people can decline a read receipt)"><input type="checkbox" id="mc-rr"' + (e.receipts !== false ? ' checked' : '') + '> ask for delivery and read receipts</label></div>' +
                 '<div class="row ml-send"><label class="sm">Send with <select id="mc-how">' + ['OUTLOOK', 'GRAPH', 'SMTP'].map(function (k) { return '<option value="' + k + '"' + (k === me ? ' selected' : '') + '>' + METHODS[k].name + '</option>'; }).join('') + '</select></label>' +
                 '<button class="btn sm ghost" onclick="FL.mail.setup()" title="E-mail setup"><i class="fa-solid fa-gear"></i></button>' + (ok ? '' : '<span class="tag warn">not set up</span>') + '<span class="grow"></span>' +
                 (M.st && M.st.outlook ? '<button class="btn" id="mc-review" title="Open the message in Outlook to check it and send it yourself"><i class="fa-brands fa-microsoft"></i> Open in Outlook</button>' : '') +
@@ -119,33 +122,72 @@
                     chart: $('mc-chart').checked && built.model.trendPng ? (forSend ? 'cid:' + CID : built.model.trendPng) : null,
                     logo: $('mc-logo') && $('mc-logo').checked ? (forSend ? 'cid:' + LOGO : built.model.logo.png) : null, attached: $('mc-att').checked ? built.file : null, sections: built.sections };
             };
-            var paint = function () { $('mc-f').srcdoc = FL.packs.emailHtml(pack, built.model, opts(false)).html; };
-            ['mc-intro', 'mc-tiles', 'mc-lines', 'mc-chart', 'mc-hl', 'mc-att', 'mc-logo'].filter($).forEach(function (id) { $(id).oninput = $(id).onchange = function () { clearTimeout(M._pt); M._pt = setTimeout(paint, 250); }; });
+            var paint = function () { var o = opts(false); if ($('mc-track') && $('mc-track').checked) o.track = { ack: '#', copyFor: (String($('mc-to').value).split(/[;,\s]+/).filter(Boolean)[0] || 'name@company.com'), also: '' }; $('mc-f').srcdoc = FL.packs.emailHtml(pack, built.model, o).html; };
+            ['mc-intro', 'mc-tiles', 'mc-lines', 'mc-chart', 'mc-hl', 'mc-att', 'mc-logo', 'mc-track', 'mc-to'].filter($).forEach(function (id) { $(id).oninput = $(id).onchange = function () { clearTimeout(M._pt); M._pt = setTimeout(paint, 250); }; });
             paint();
+            var split = function (v) { return String(v || '').split(/[;,\s]+/).map(function (a) { return a.trim(); }).filter(function (a) { return /@/.test(a); }); };
             var send = function (how, display) {
                 var to2 = $('mc-to').value.trim();
                 if (!to2 && !(how === 'OUTLOOK' && display)) { FL.toast('Add at least one recipient', 'err'); $('mc-to').focus(); return; }
                 Object.assign(pack.email, { to: to2, cc: $('mc-cc').value.trim(), bcc: $('mc-bcc').value.trim(), subject: subjTemplate(pack, $('mc-subj').value, built), intro: $('mc-intro').value,
-                    tiles: $('mc-tiles').checked, lines: $('mc-lines').checked, chart: $('mc-chart').checked, hl: $('mc-hl').checked, logo: !$('mc-logo') || $('mc-logo').checked, attach: $('mc-att').checked });
+                    tiles: $('mc-tiles').checked, lines: $('mc-lines').checked, chart: $('mc-chart').checked, hl: $('mc-hl').checked, logo: !$('mc-logo') || $('mc-logo').checked, attach: $('mc-att').checked,
+                    track: $('mc-track').checked, receipts: $('mc-rr').checked });
+                var track = $('mc-track').checked && !display, rr = $('mc-rr').checked;
+                var seen = {}, people = [].concat(split(to2).map(function (e) { return { email: e, kind: 'TO' }; }), split(pack.email.cc).map(function (e) { return { email: e, kind: 'CC' }; }), split(pack.email.bcc).map(function (e) { return { email: e, kind: 'BCC' }; }))
+                    .filter(function (x) { var k = x.email.toLowerCase(); if (seen[k]) return false; seen[k] = 1; return true; });
+                people.forEach(function (x) { x.token = FL.packTrack.token(); });
                 var btns = document.querySelectorAll('#mc-send, #mc-review'); btns.forEach(function (b) { b.disabled = true; });
-                $('mc-msg').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> ' + (display ? 'Opening Outlook…' : 'Sending…');
+                var say = function (h) { $('mc-msg').innerHTML = h; };
+                say('<i class="fa-solid fa-circle-notch fa-spin"></i> ' + (display ? 'Opening Outlook…' : 'Preparing…'));
                 // the copy that leaves: the pack + its distribution page and document ID; its fingerprint goes in the e-mail and the archive
                 var via = { GRAPH: 'Microsoft 365', SMTP: 'SMTP', OUTLOOK: 'Outlook' }[how] || how;
                 var stamped = FL.packs.stamp(built, { to: to2, cc: pack.email.cc, by: (M.st && M.st.graphAccount) || (FL.who && FL.who.user) || '', via: via, kind: 'EMAIL' });
+                var subject = $('mc-subj').value, recorded = false;
                 FL.packArchive.sha256(stamped.html).then(function (sha) {
                     var o = opts(true); o.fingerprint = $('mc-att').checked ? sha : null; o.docId = stamped.docId; if (o.attached) o.attached = stamped.file;
-                    var mail = FL.packs.emailHtml(pack, built.model, o), att = [];
+                    var att = [];
                     if (o.attached) att.push({ name: stamped.file, contentType: 'text/html', base64: b64(stamped.html) });
                     if (o.logo) att.push({ name: 'logo.png', contentType: 'image/png', cid: LOGO, base64: built.model.logo.png.split(',')[1] });
                     if (o.chart) att.push({ name: 'trend.png', contentType: 'image/png', cid: CID, base64: built.model.trendPng.split(',')[1] });
-                    return FL.call('finMailSend', { method: how, display: !!display, to: to2, cc: pack.email.cc, bcc: pack.email.bcc, subject: $('mc-subj').value, html: mail.html, attachments: att }, 600000).then(function (r) {
-                        var txt = r.result === 'draft' ? 'Opened in Outlook — check it and press Send there.' : 'Sent' + (r.by ? ' from ' + r.by : '') + ' to ' + to2;
-                        $('mc-msg').innerHTML = '<span class="pos">✓ ' + esc(txt) + '</span>'; FL.toast(txt, 'ok');
-                        r.stamped = stamped; r.sha = sha;
+                    // the record in APEX first, so an open or a confirmation that comes at once finds its row
+                    var rec = FL.packTrack.record({ sendId: stamped.docId, docId: stamped.docId, pack: pack, period: built.model.period, ledgers: (built.model.ledgers || []).map(function (l) { return l.name; }).join(', '),
+                        subject: subject, method: how, mailbox: (M.st && M.st.graphAccount) || (M.st && M.st.settings && (M.st.settings.SmtpFrom || M.st.settings.SmtpUser)) || via, file: stamped.file, sha: sha, tracked: track, receipts: rr,
+                        note: display ? 'opened in Outlook to review' : '' }, people).then(function () { recorded = true; })
+                        .catch(function (e) { console.warn('[mail] distribution record', e); say('<span class="neg">The distribution record could not be written to APEX (' + esc(String(e && e.message || e)) + ') — sending anyway.</span>'); });
+                    var one = function (to, cc, bcc, oo) {
+                        return FL.call('finMailSend', { method: how, display: !!display, to: to, cc: cc, bcc: bcc, subject: subject, html: FL.packs.emailHtml(pack, built.model, oo).html, attachments: att, readReceipt: rr, deliveryReceipt: rr }, 600000);
+                    };
+                    var mark = function (tokens, st, err) { return recorded ? FL.packTrack.mark(tokens, st, err) : Promise.resolve(); };
+                    return rec.then(function () {
+                        if (!track) {
+                            return one(to2, pack.email.cc, pack.email.bcc, o).then(function (r) {
+                                return mark(people.map(function (x) { return x.token; }), r.result === 'draft' ? 'DRAFT' : 'SENT').then(function () { return { r: r, ok: people.length, failed: [] }; });
+                            }, function (e) { return mark(people.map(function (x) { return x.token; }), 'FAILED', String(e && e.message || e)).then(function () { throw e; }); });
+                        }
+                        // one copy per person: their own confirmation button and picture
+                        var shown = people.filter(function (x) { return x.kind !== 'BCC'; }).map(function (x) { return x.email; }), done = 0, failed = [], last = null;
+                        return people.reduce(function (pr, x, k) {
+                            return pr.then(function () {
+                                say('<i class="fa-solid fa-circle-notch fa-spin"></i> Sending ' + (k + 1) + ' of ' + people.length + ' — ' + esc(x.email) + '…');
+                                var oo = Object.assign({}, o, { track: { pixel: FL.packTrack.pixelUrl(x.token), ack: FL.packTrack.ackUrl(x.token), copyFor: x.email + (x.kind === 'TO' ? '' : ' (' + x.kind.toLowerCase() + ')'), also: shown.filter(function (e) { return e !== x.email; }).join(', ') } });
+                                return one(x.email, '', '', oo).then(function (r) { last = r; done++; return mark([x.token], 'SENT'); },
+                                    function (e) { failed.push({ email: x.email, error: String(e && e.message || e) }); return mark([x.token], 'FAILED', String(e && e.message || e)); });
+                            });
+                        }, Promise.resolve()).then(function () {
+                            if (!done) throw new Error('Not sent to anyone: ' + failed.map(function (f) { return f.email + ' — ' + f.error; }).join('; '));
+                            return { r: last, ok: done, failed: failed };
+                        });
+                    }).then(function (res) {
+                        var r = res.r;
+                        var txt = r.result === 'draft' ? 'Opened in Outlook — check it and press Send there.' : 'Sent' + (r.by ? ' from ' + r.by : '') + ' to ' + (track ? res.ok + ' of ' + people.length + ' people, one copy each' : to2) + (res.failed.length ? ' — not sent to ' + res.failed.map(function (f) { return f.email; }).join(', ') : '');
+                        say('<span class="' + (res.failed.length ? 'neg' : 'pos') + '">' + (res.failed.length ? '⚠ ' : '✓ ') + esc(txt) + '</span>' + (res.failed.length ? '<div class="sm">' + res.failed.map(function (f) { return esc(f.email + ': ' + f.error); }).join('<br>') + '</div>' : '') +
+                            (recorded ? '<div class="sm muted">Recorded in Board packs › Distribution' + (track ? ' — opens and confirmations show up there' : '') + '.</div>' : ''));
+                        FL.toast(txt, res.failed.length ? 'err' : 'ok');
+                        r.stamped = stamped; r.sha = sha; r.sendId = stamped.docId; r.sentTo = res.ok; r.failed = res.failed;
                         if (onSent) onSent(r);
-                        if (r.result !== 'draft') setTimeout(FL.closeModal, 1200);
+                        if (r.result !== 'draft' && !res.failed.length) setTimeout(FL.closeModal, 1200);
                     });
-                }).catch(function (e2) { $('mc-msg').innerHTML = '<span class="neg">✗ ' + esc(String(e2 && e2.message || e2)) + '</span>'; })
+                }).catch(function (e2) { say('<span class="neg">✗ ' + esc(String(e2 && e2.message || e2)) + '</span>'); })
                     .then(function () { btns.forEach(function (b) { b.disabled = false; }); });
             };
             $('mc-send').onclick = function () { send($('mc-how').value, false); };

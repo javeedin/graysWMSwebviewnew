@@ -583,6 +583,35 @@ namespace WMSApp
                             data = r;
                             break;
                         }
+                    case "finMailReceipts":
+                        {
+                            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                            var subs = new List<string>(); var adds = new List<string>();
+                            if (root.TryGetProperty("subjects", out var sj) && sj.ValueKind == JsonValueKind.Array) foreach (var x in sj.EnumerateArray()) if (x.ValueKind == JsonValueKind.String) subs.Add(x.GetString());
+                            if (root.TryGetProperty("addresses", out var ad) && ad.ValueKind == JsonValueKind.Array) foreach (var x in ad.EnumerateArray()) if (x.ValueKind == JsonValueKind.String) adds.Add(x.GetString().Trim());
+                            DateTime since = DateTime.TryParse(PipeSrvStr(root, "since"), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var sn) ? sn : DateTime.UtcNow.AddDays(-30);
+                            if (since < DateTime.UtcNow.AddDays(-120)) since = DateTime.UtcNow.AddDays(-120);
+                            data = await FinanceMail.ReceiptsAsync(user, PipeSrvStr(root, "method"), since, subs, adds, cts.Token);
+                            break;
+                        }
+                    case "finPackDesign":
+                        {
+                            if (!await AiControl.IsEnabledAsync(user)) { data = new { ok = false, error = "The AI is paused (AI Digital Employee › Control)." }; break; }
+                            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(6));
+                            var sw = System.Diagnostics.Stopwatch.StartNew();
+                            string fn = PipeSrvStr(root, "fileName");
+                            var r = await FinancePackAi.DesignAsync(fn, PipeSrvStr(root, "mime"), PipeSrvStr(root, "base64"), PipeSrvStr(root, "notes"), PipeSrvStr(root, "catalogue"), PipeSrvStr(root, "model"), cts.Token);
+                            double? cost = null;
+                            try { cost = await AiControl.CostAsync(r.Model, r.TokensIn, r.TokensOut, r.CacheRead, r.CacheWrite, user); } catch { }
+                            AiControl.Audit(new AiControl.AuditEvent
+                            {
+                                User = user, Source = "FINANCE", Action = "pack_design_ai", Outcome = r.Ok ? "OK" : "FAILED", Model = r.Model,
+                                TokensIn = r.TokensIn, TokensOut = r.TokensOut, CacheRead = r.CacheRead, CacheWrite = r.CacheWrite, CostUsd = cost, DurationMs = sw.ElapsedMilliseconds,
+                                Detail = (fn ?? "upload") + (r.Ok ? "" : " · " + r.Error)
+                            });
+                            data = new { ok = r.Ok, error = r.Error, answer = r.Answer, model = r.Model, costUsd = cost };
+                            break;
+                        }
                     case "finWho":
                         data = new { ok = true, user, admin = await AiControl.IsAdminAsync(user) };
                         break;
