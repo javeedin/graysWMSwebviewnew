@@ -142,6 +142,7 @@
         el.innerHTML = '<div class="pk-main"><div class="card pk-head" id="pk-head"></div><div class="pk-cols"><div class="pk-left" id="pk-left"></div><div class="card pk-prev"><div class="row"><b><i class="fa-regular fa-eye"></i> Preview</b><span class="sm muted" id="pk-pstat"></span><span class="grow"></span>' +
             '<div class="seg sm"><button data-v="desktop"' + (D.view === 'desktop' ? ' class="on"' : '') + '><i class="fa-solid fa-desktop"></i></button><button data-v="phone"' + (D.view === 'phone' ? ' class="on"' : '') + '><i class="fa-solid fa-mobile-screen"></i></button></div>' +
             '<button class="btn sm" id="pk-refresh"><i class="fa-solid fa-rotate"></i></button><button class="btn sm" id="pk-full" title="Open the preview full screen"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button></div>' +
+            '<div class="pk-qcol" id="pk-qcol"></div>' +
             '<div class="pk-frame ' + D.view + '"><iframe id="pk-f" title="Board pack preview"></iframe></div></div></div></div>';
         $('pk-refresh').onclick = function () { D.preview(); };
         $('pk-full').onclick = function () { if (D.built) FL.packView(D.built.html, { title: D.cur.title || D.cur.name }); };
@@ -151,7 +152,7 @@
         D.paint();
         if (!(FL.status && FL.status.loaded)) $('pk-pstat').textContent = 'no data loaded — the preview fills once a trial balance is synced';
     };
-    D.paint = function () { D.paintHead(); D.paintLeft(); D.preview(); };
+    D.paint = function () { D.paintHead(); D.paintLeft(); D.paintQuick(); D.preview(); };
     D.paintList = function () { D.paintTabs(); };
 
     D.paintHead = function () {
@@ -212,6 +213,7 @@
         return (names.length ? (names.length > 1 ? names.length + ' ledgers: ' : '') + names.join(', ') : FL.filterText()) + ' · ' + FL.periodName(FL.filter.period);
     };
     D.paintLeft = function () {
+        setTimeout(function () { D.paintQuick(); }, 0);
         var box = $('pk-left'), p = D.cur; if (!box || !p) return;
         var th = P().THEMES, types = P().TYPES;
         var h = '<div class="card"><h4 class="pk-h"><i class="fa-solid fa-palette"></i> Look and feel</h4><div class="grid g2">' +
@@ -445,6 +447,132 @@ D.heroBox(p, t) +
         }).catch(function (e) { FL.toast(String(e && e.message || e), 'err'); });
     };
 
+    // ── colours straight from the preview: point at a part, press 🎨 Colour, pick ──
+    D.PARTS = {
+        menu: { name: 'Menu', icon: 'fa-bars' }, hero: { name: 'Cover banner', icon: 'fa-panorama' }, tile: { name: 'KPI tiles', icon: 'fa-table-cells-large' },
+        thead: { name: 'Table headers', icon: 'fa-table' }, heading: { name: 'Headings', icon: 'fa-heading' }, accent: { name: 'Highlights', icon: 'fa-highlighter' }, page: { name: 'Page', icon: 'fa-file' }
+    };
+    var partOf = function (el) {
+        if (!el || !el.closest) return null;
+        if (el.closest('nav')) return ['menu', el.closest('nav')];
+        if (el.closest('.hero')) return ['hero', el.closest('.hero')];
+        if (el.closest('.tile')) return ['tile', el.closest('.tile')];
+        if (el.closest('table.st thead, table.st th')) return ['thead', el.closest('thead') || el.closest('th')];
+        if (el.closest('h3, .sh h2, .pnotes h4')) return ['heading', el.closest('h3, .sh h2, .pnotes h4')];
+        if (el.closest('ul.hl li')) return ['accent', el.closest('ul.hl')];
+        if (el.closest('main')) return ['page', el.closest('main')];
+        return null;
+    };
+    /** Adds the hover outline and the 🎨 Colour button inside the preview (the preview only — never the shared file) */
+    D.armPaint = function (f) {
+        var doc; try { doc = f.contentDocument; } catch (e) { return; }
+        if (!doc || !doc.body || doc.getElementById('pk-paint')) return;
+        var st = doc.createElement('style'); st.id = 'pk-paint';
+        st.textContent = '.pkp-hl{outline:3px dashed #f59e0b!important;outline-offset:-3px}#pkp-b{position:fixed;z-index:99999;display:none;align-items:center;gap:8px;background:#f59e0b;color:#111827;border:0;border-radius:10px;padding:9px 16px;font:700 19px "Segoe UI",Arial,sans-serif;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.25)}#pkp-b:hover{background:#fbbf24}';
+        doc.head.appendChild(st);
+        var btn = doc.createElement('button'); btn.id = 'pkp-b'; doc.body.appendChild(btn);
+        var cur = null, hideT = null;
+        var show = function (hit) {
+            if (cur && cur[1] !== hit[1]) cur[1].classList.remove('pkp-hl');
+            cur = hit; hit[1].classList.add('pkp-hl');
+            var r = hit[1].getBoundingClientRect(), vw = doc.documentElement.clientWidth;
+            btn.innerHTML = '🎨 Colour · ' + D.PARTS[hit[0]].name;
+            btn.style.display = 'flex';
+            var top = Math.max(6, Math.min(r.top + 8, doc.documentElement.clientHeight - 60));
+            btn.style.top = top + 'px'; btn.style.left = Math.max(6, Math.min(r.right - btn.offsetWidth - 8, vw - btn.offsetWidth - 6)) + 'px';
+        };
+        doc.addEventListener('mouseover', function (e) {
+            if (e.target === btn || btn.contains(e.target)) { clearTimeout(hideT); return; }
+            var hit = partOf(e.target); clearTimeout(hideT);
+            if (hit) show(hit); else hideT = setTimeout(function () { btn.style.display = 'none'; if (cur) cur[1].classList.remove('pkp-hl'); cur = null; }, 250);
+        });
+        doc.addEventListener('mouseleave', function () { hideT = setTimeout(function () { btn.style.display = 'none'; if (cur) cur[1].classList.remove('pkp-hl'); }, 300); });
+        btn.addEventListener('click', function (e) {
+            e.preventDefault(); e.stopPropagation(); if (!cur) return;
+            var fr = f.getBoundingClientRect(), sc = fr.width / (f.offsetWidth || fr.width), br = btn.getBoundingClientRect();
+            D.colorPop(cur[0], fr.left + br.left * sc, fr.top + br.bottom * sc + 6);
+        });
+    };
+    /** The pack's colours as a brand (so one of them can change) */
+    D.brandNow = function (p) {
+        var t = P().themeOf(p);
+        if (p.theme === 'brand' && p.brand && /^#/.test(p.brand.a || '')) return p.brand;
+        return { a: t.orig || t.a, b: t.b, c: t.c };
+    };
+    /** Instant look in the open preview (CSS variables and body classes); the full rebuild (charts) follows when the picker closes */
+    D.livePaint = function () {
+        var f = $('pk-f'), doc; try { doc = f && f.contentDocument; } catch (e) { return; }
+        if (!doc || !doc.body) return;
+        var p = D.cur, t = P().themeOf(p), L = P().look(p), H = P().hero(p);
+        doc.documentElement.style.setProperty('--a', t.a); doc.documentElement.style.setProperty('--b', t.b); doc.documentElement.style.setProperty('--c', t.c);
+        var cls = doc.body.className.split(/\s+/).filter(function (c) { return c && !/^(L|M|P|F|H|D|S|A)-/.test(c); });
+        doc.body.className = cls.concat(['L-' + L.layout, 'M-' + L.menu, 'P-' + L.paper, 'F-' + L.font, 'H-' + H.style, 'D-' + H.deco, 'S-' + H.size, 'A-' + H.align]).join(' ');
+        doc.querySelectorAll('.hero').forEach(function (h) { h.style.setProperty('--h1', H.c1 || t.a); h.style.setProperty('--h2', H.c2 || t.b); h.style.setProperty('--h3', H.c2 || t.c); });
+    };
+    D.changed = function () { D.dirty = true; D.paintHead(); D.paintTabs(); D.livePaint(); D._recolour = true; };
+    D.colorPop = function (part, x, y) {
+        D.closePop();
+        var p = D.cur, P0 = P(), t = P0.themeOf(p), br = D.brandNow(p), L = P0.look(p), H = P0.hero(p), raw = p.hero || {};
+        var pick = function (key, val, label) { return '<label class="pk-cp-c"><input type="color" data-c="' + key + '" value="' + esc(val) + '"><span>' + label + '</span><code>' + esc(val) + '</code></label>'; };
+        var chips = function (key, map, cur) { return '<div class="pk-cp-chips">' + Object.keys(map).map(function (k) { return '<button class="' + (cur === k ? 'on' : '') + '" data-k="' + key + '" data-v="' + k + '">' + esc(map[k].label || map[k]) + '</button>'; }).join('') + '</div>'; };
+        var themes = '<div class="pk-cp-th">' + Object.keys(P0.THEMES).map(function (k) { var th = P0.THEMES[k]; return '<button data-th="' + k + '" title="' + esc(th.name) + '" class="' + (p.theme === k ? 'on' : '') + '"><i style="background:' + th.a + '"></i><i style="background:' + th.b + '"></i><i style="background:' + th.c + '"></i></button>'; }).join('') + '</div>';
+        var h = '<div class="pk-cp-h"><i class="fa-solid ' + D.PARTS[part].icon + '"></i> ' + D.PARTS[part].name + '<span class="grow"></span><button class="pk-cp-x" title="Close">×</button></div>';
+        if (part === 'menu') h += '<div class="pk-cp-l">Menu style</div>' + chips('menu', P0.MENUS, L.menu) + '<div class="pk-cp-l">Its colour</div>' + pick('a', br.a, 'Main') + '<div class="pk-cp-s">The main colour is also the table headers and the e-mail header.</div>';
+        else if (part === 'hero') h += '<div class="pk-cp-l">Banner style</div>' + chips('hstyle', P0.HEROES, raw.style || H.style) + '<div class="pk-cp-l">Banner colours <span class="pk-cp-s">— only the banner</span></div>' + pick('h1', H.c1 || t.a, 'From') + pick('h2', H.c2 || t.b, 'To') +
+            (H.c1 || H.c2 ? '<button class="pk-cp-link" data-hreset="1">Use the pack colours</button>' : '') + '<div class="pk-cp-l">Pattern</div>' + chips('deco', P0.DECOS, H.deco);
+        else if (part === 'tile') h += pick('b', br.b, 'Tile edge (Second)') + '<div class="pk-cp-s">The second colour is also used for links and the menu of light packs.</div>';
+        else if (part === 'thead') h += pick('a', br.a, 'Table header (Main)');
+        else if (part === 'heading') h += pick('a', br.a, 'Headings (Main)') + pick('b', br.b, 'Second');
+        else if (part === 'accent') h += pick('c', br.c, 'Highlight edge (Accent)');
+        else if (part === 'page') h += '<div class="pk-cp-l">Page background</div>' + chips('paper', P0.PAPERS, L.paper) + '<div class="pk-cp-l">Font</div>' + chips('font', P0.FONTS, L.font);
+        if (part !== 'page') h += '<div class="pk-cp-l">Or a ready-made set</div>' + themes;
+        var pop = document.createElement('div'); pop.className = 'pk-cpop'; pop.innerHTML = h; document.body.appendChild(pop);
+        var w = pop.offsetWidth, hh = pop.offsetHeight;
+        pop.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px'; pop.style.top = Math.max(8, Math.min(y, window.innerHeight - hh - 8)) + 'px';
+        D._pop = pop;
+        var setBrand = function (k, v) { var b2 = Object.assign({}, D.brandNow(p)); b2[k] = v; p.brand = b2; p.theme = 'brand'; };
+        pop.querySelectorAll('[data-c]').forEach(function (inp) {
+            inp.oninput = function () {
+                var k = inp.dataset.c, v = inp.value; inp.parentNode.querySelector('code').textContent = v;
+                if (k === 'h1' || k === 'h2') { p.hero = Object.assign({}, p.hero || {}); p.hero[k === 'h1' ? 'c1' : 'c2'] = v; } else setBrand(k, v);
+                D.changed();
+            };
+        });
+        pop.querySelectorAll('[data-k]').forEach(function (b) {
+            b.onclick = function () {
+                var k = b.dataset.k, v = b.dataset.v;
+                if (k === 'hstyle' || k === 'deco') { p.hero = Object.assign({}, p.hero || {}); p.hero[k === 'hstyle' ? 'style' : 'deco'] = v; } else p[k] = v;
+                b.parentNode.querySelectorAll('button').forEach(function (x2) { x2.classList.toggle('on', x2 === b); });
+                D.changed();
+            };
+        });
+        pop.querySelectorAll('[data-th]').forEach(function (b) { b.onclick = function () { p.theme = b.dataset.th; D.changed(); D.colorPop(part, parseFloat(pop.style.left), parseFloat(pop.style.top)); }; });
+        var hr = pop.querySelector('[data-hreset]'); if (hr) hr.onclick = function () { p.hero = Object.assign({}, p.hero); delete p.hero.c1; delete p.hero.c2; D.changed(); D.colorPop(part, parseFloat(pop.style.left), parseFloat(pop.style.top)); };
+        pop.querySelector('.pk-cp-x').onclick = function () { D.closePop(); };
+        setTimeout(function () {
+            D._popOut = function (e) { if (D._pop && !D._pop.contains(e.target)) D.closePop(); };
+            D._popKey = function (e) { if (e.key === 'Escape') D.closePop(); };
+            document.addEventListener('mousedown', D._popOut); document.addEventListener('keydown', D._popKey);
+        }, 0);
+    };
+    D.closePop = function () {
+        if (D._pop) { D._pop.remove(); D._pop = null; }
+        if (D._popOut) { document.removeEventListener('mousedown', D._popOut); document.removeEventListener('keydown', D._popKey); D._popOut = null; }
+        if (D._recolour) { D._recolour = false; D.paintLeft(); D.paintList(); D.schedule(); }   // charts and the left panel follow the new colours
+    };
+    /** The quick strip above the preview: the three pack colours + where to click */
+    D.paintQuick = function () {
+        var box = $('pk-qcol'); if (!box || !D.cur) return;
+        var br = D.brandNow(D.cur), t = P().themeOf(D.cur);
+        box.innerHTML = '<span class="pk-q-l"><i class="fa-solid fa-palette"></i> Colours</span>' + [['a', 'Main'], ['b', 'Second'], ['c', 'Accent']].map(function (x) {
+            return '<label class="pk-q-c" title="' + x[1] + ' colour"><input type="color" data-q="' + x[0] + '" value="' + esc(br[x[0]] || t[x[0]]) + '"><span>' + x[1] + '</span></label>';
+        }).join('') + '<span class="pk-q-hint"><i class="fa-solid fa-hand-pointer"></i> or point at any part of the preview and press <b>🎨 Colour</b></span>';
+        box.querySelectorAll('[data-q]').forEach(function (inp) {
+            inp.oninput = function () { var b2 = Object.assign({}, D.brandNow(D.cur)); b2[inp.dataset.q] = inp.value; D.cur.brand = b2; D.cur.theme = 'brand'; D.changed(); };
+            inp.onchange = function () { if (D._recolour) { D._recolour = false; D.paintLeft(); D.paintList(); D.schedule(); } };
+        });
+    };
+
     /** Desktop preview = the pack at 1280 px wide, scaled to the panel (else the narrow frame would show the phone layout) */
     D.fit = function () {
         var fr = document.querySelector('.pk-frame'), f = $('pk-f'); if (!fr || !f) return;
@@ -464,6 +592,7 @@ D.heroBox(p, t) +
             if (n !== D._n) return;
             D.built = b; D.builtFor = JSON.stringify(D.cur) + FL.filter.period + FL.filterText();
             var keep = ''; try { var on = f.contentDocument && f.contentDocument.querySelector('section.on'); keep = on ? on.id : ''; } catch (e) { /* not loaded */ }
+            f.onload = function () { D.armPaint(f); };
             f.srcdoc = keep ? b.html.replace('<script>', '<script>window.PACK_START=' + JSON.stringify(keep) + ';') : b.html;   // stay on the section shown
             $('pk-pstat').textContent = b.sections.length + ' sections · ' + Math.round(b.html.length / 1024) + ' KB';
         }).catch(function (e) { if ($('pk-pstat')) $('pk-pstat').textContent = 'failed: ' + (e && e.message || e); console.error(e); });

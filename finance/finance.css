@@ -1059,3 +1059,21 @@ sup.st-nref { color: var(--accent); font-weight: 700; cursor: pointer; margin-le
 .pt-bar { display: inline-block; width: 60px; height: 6px; background: var(--line); border-radius: 3px; vertical-align: middle; margin-left: 6px; overflow: hidden; } .pt-bar i { display: block; height: 100%; background: var(--good); }
 .pt-prow { cursor: pointer; } .pt-prow:hover td { background: var(--bg); }
 .pt-hist div { padding: 4px 0; }
+/* colours from the preview */
+.pk-qcol { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; padding: 6px 10px; background: var(--bg); border-radius: 9px; font-size: .8rem; }
+.pk-q-l { font-weight: 700; color: var(--ink2); }
+.pk-q-c { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; cursor: pointer; }
+.pk-q-c input, .pk-cp-c input { width: 30px; height: 24px; border: 1px solid var(--line); border-radius: 6px; padding: 0 2px; background: var(--card); cursor: pointer; }
+.pk-q-hint { color: var(--muted); margin-left: auto; }
+.pk-cpop { position: fixed; z-index: 9999; width: 300px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 40px rgba(15,23,42,.22); padding: 10px 12px 12px; font-size: .82rem; }
+.pk-cp-h { display: flex; align-items: center; gap: 7px; font-weight: 800; margin-bottom: 4px; } .pk-cp-h i { color: var(--accent); }
+.pk-cp-x { border: 0; background: none; font-size: 18px; cursor: pointer; color: var(--muted); line-height: 1; }
+.pk-cp-l { font-size: .7rem; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 9px 0 4px; }
+.pk-cp-s { font-size: .72rem; color: var(--muted); text-transform: none; letter-spacing: 0; font-weight: 400; margin-top: 3px; }
+.pk-cp-c { display: flex; align-items: center; gap: 8px; margin: 5px 0; font-weight: 600; cursor: pointer; } .pk-cp-c code { margin-left: auto; color: var(--muted); font-size: .72rem; }
+.pk-cp-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.pk-cp-chips button { border: 1px solid var(--line); background: var(--card); border-radius: 99px; padding: 3px 9px; font: inherit; font-size: .74rem; cursor: pointer; }
+.pk-cp-chips button.on { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 700; }
+.pk-cp-th { display: flex; flex-wrap: wrap; gap: 5px; } .pk-cp-th button { display: flex; border: 2px solid transparent; border-radius: 7px; padding: 1px; background: none; cursor: pointer; } .pk-cp-th button.on { border-color: var(--accent); }
+.pk-cp-th i { width: 12px; height: 18px; } .pk-cp-th i:first-child { border-radius: 4px 0 0 4px; } .pk-cp-th i:last-child { border-radius: 0 4px 4px 0; }
+.pk-cp-link { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 2px 0; font: inherit; font-size: .76rem; text-decoration: underline; }

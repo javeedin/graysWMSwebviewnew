@@ -57,6 +57,8 @@ templates and mapping stay).
 
 ## Board packs and e-mail
 
+**Colours in the preview** — point at any part of the preview (menu, cover banner, KPI tiles, table headers, headings, highlights or the page) and press the **🎨 Colour** button that appears: its colours and style change right there. The bar above the preview has the three pack colours (Main, Second, Accent) to change everything at once.
+
 **Tabs** — *Templates* shows every design as a card (a small drawing of its look); *Open* puts the design in its own tab, so several can be edited side by side (× closes a tab, it asks when there are unsaved changes). *New* creates a pack: the standard one, a copy, or **Design from a PDF or picture** — upload a board pack, report, brand guide or screenshot, add what to keep or change, and the AI proposes the colours, layout, menu, cover and the sections in the same order (only the look is copied, never the numbers). Check the proposal, then *Create and open*. *Distribution* and *Archive* are the last two tabs.
 
 **Distribution — who received it and did they read it** — every e-mail sent from the app is recorded in APEX: the document ID, pack, period, who sent it and from which mailbox, and one line per person. In the e-mail dialog:
