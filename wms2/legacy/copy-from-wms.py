@@ -17,7 +17,7 @@ WMS source as of this copy; check them after a big change in wms/app.js.
   future-trip.js     wms/future-trip.js (MRA / Picker Assigned On / Actual Ship Date columns, Pinned Trips: pins store
                      + Pin button + the tab with the pinned trips and the Future Trip 999999999 grid, Set up trip)
   new-trip.js        wms/copilot.js 296-840 (Create New Trip modal)
-  agent-assign.js    wms/shipping-agent.js 8, 89-126, 5597-5659, 6502-6505 (Add to Agent)
+  agent-assign.js    wms/shipping-agent.js 8, 89-126, 5627-5689, 6532-6535 (Add to Agent)
   markup.js          wms/index.html from <!-- Add Orders Modal --> to <!-- Edit Trip Modal --> (Add Orders / Paste /
                      Fetch pending shipments) and <!-- New Trip Modal --> to <!-- WMS Co-Pilot --> (New Trip)
   wms-legacy.css     the rules of wms/styles.css those screens use
@@ -62,7 +62,7 @@ write('new-trip.js', head('wms/copilot.js lines 296-840 (Create New Trip)') + cu
 
 sa = lines('wms/shipping-agent.js')
 write('agent-assign.js', head('wms/shipping-agent.js lines 8, 89-126, 5597-5659, 6502-6505 (Add to Agent)') +
-      '(function () {\n    \'use strict\';\n' + cut(sa, 8, 8) + '\n' + cut(sa, 89, 126) + '\n' + cut(sa, 5597, 5659) + '\n' + cut(sa, 6502, 6505) +
+      '(function () {\n    \'use strict\';\n' + cut(sa, 8, 8) + '\n' + cut(sa, 89, 126) + '\n' + cut(sa, 5627, 5689) + '\n' + cut(sa, 6532, 6535) +
       '\n    // the agent dashboard is not on this page\n    if (typeof window.saRefreshDashboard !== \'function\') window.saRefreshDashboard = function () { return Promise.resolve(); };\n})();')
 
 html = lines('wms/index.html')

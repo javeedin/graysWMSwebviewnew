@@ -2106,8 +2106,21 @@
         let creds;
         try { creds = await saMraCredentials(); }
         catch (e) { showNotification('MRA needs the Fusion credentials: ' + e.message, 'error'); return; }
-        saMraSet(tripId, order, { st: 'RUNNING', step: 'retry', inst: instanceName });
-        const r = await saMraInterfaceOrder(order, instanceName, creds, (live) => saMraSet(tripId, order, Object.assign({ st: 'RUNNING', inst: instanceName }, live)), undefined, tripId);
+        // the MRA status table first: an order that reached MRA since (another PC, another screen) is not sent again
+        let r = null;
+        if (typeof window.wmsMraDone === 'function') {
+            saMraSet(tripId, order, { st: 'RUNNING', step: 'status table', inst: instanceName });
+            const d = (await window.wmsMraDone([order], instanceName).catch(() => ({})))[String(order).trim()];
+            if (d) {
+                const text = 'Already in MRA' + (d.irn ? ' (IRN ' + d.irn + ')' : '') + (d.at ? ' since ' + d.at : '') + ' — not sent again';
+                r = { st: 'ALREADY', irn: d.irn || '', msg: text, at: new Date().toLocaleTimeString(), log: [{ t: Date.now(), type: 'success', text }] };
+                showNotification(`Order ${order} already reached MRA — not sent again.`, 'info');
+            }
+        }
+        if (!r) {
+            saMraSet(tripId, order, { st: 'RUNNING', step: 'retry', inst: instanceName });
+            r = await saMraInterfaceOrder(order, instanceName, creds, (live) => saMraSet(tripId, order, Object.assign({ st: 'RUNNING', inst: instanceName }, live)), undefined, tripId);
+        }
         r.tries = (prev.tries || 1) + 1;
         r.inst = instanceName;
         saMraSet(tripId, order, r);
@@ -2366,6 +2379,23 @@
             if (mraOn && prev && (prev.st === 'DONE' || prev.st === 'ALREADY' || prev.st === 'SKIPPED')) results[i] = prev;   // this session already settled it
             else if (mraOn) { todo.push(i); saMraSet(tripId, o.orderNumber, { st: 'QUEUED', tries: prev?.tries || 0, inst: instanceName }); }
         });
+        // The MRA status table first (every PC, every screen — WMS_MRA_INTERFACE_STATUS): an order that already reached
+        // MRA is never sent again; orders this session or DuckDB already settled were left out above.
+        if (mraOn && todo.length && typeof window.wmsMraDone === 'function') {
+            setBtn('<i class="fas fa-spinner fa-spin"></i> MRA check...', true);
+            const already = await window.wmsMraDone(todo.map(i => printable[i].orderNumber), instanceName).catch(e => { console.warn('[ShippingAgent] MRA status table not read:', e); return {}; });
+            const keep = [];
+            todo.forEach(i => {
+                const o = printable[i], d = already[String(o.orderNumber).trim()];
+                if (!d) { keep.push(i); return; }
+                const prev = ((window._saMra[tripId] || {})[o.orderNumber]) || {};
+                const text = 'Already in MRA' + (d.irn ? ' (IRN ' + d.irn + ')' : '') + (d.at ? ' since ' + d.at : '') + (d.source ? ' via ' + d.source : '') + ' — not sent again';
+                results[i] = { st: 'ALREADY', irn: d.irn || '', msg: text, tries: prev.tries || 0, inst: instanceName, at: new Date().toLocaleTimeString(), log: [{ t: Date.now(), type: 'success', text }] };
+                saMraSet(tripId, o.orderNumber, results[i]);
+            });
+            if (keep.length !== todo.length) console.log(`[ShippingAgent] ${todo.length - keep.length} order(s) of trip ${tripId} already in MRA (status table) — not sent again`);
+            todo.length = 0; todo.push(...keep);
+        }
         let finished = 0;
         const t0 = Date.now();
         const paint = () => setBtn(`<i class="fas fa-spinner fa-spin"></i> MRA ${finished}/${todo.length}` + (finished ? ` · ${Math.round((Date.now() - t0) / 1000)}s` : ''), true);

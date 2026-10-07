@@ -376,15 +376,34 @@
         if (!list.length) return;
         if (!window.chrome || !window.chrome.webview) { notify('Open this page inside the Gray\'s WMS app.', 'error'); return; }
         var off = list.filter(function (r) { var fl = st.flags[r.INSTANCE_NAME]; return fl && String(fl.INTERFACE_FLAG).toUpperCase() === 'N'; });
-        var done = list.filter(function (r) { return r.MRA_INTERFACE_STATUS === 'SUCCESS' || r.MRA_INTERFACE_STATUS === 'ALREADY_DONE'; });
-        var msg = 'Interface ' + list.length + ' order(s) to MRA?' +
-            (done.length ? '\n\n' + done.length + ' already reached MRA — the app checks first and will not send them twice.' : '') +
+        var isDone = function (r) { return r.MRA_INTERFACE_STATUS === 'SUCCESS' || r.MRA_INTERFACE_STATUS === 'ALREADY_DONE'; };
+        var done = list.filter(isDone), send = list.filter(function (r) { return !isDone(r); });
+        if (!send.length) { notify('Every ticked order already reached MRA — nothing is sent twice.', 'info'); return; }
+        var msg = 'Interface ' + send.length + ' order(s) to MRA?' +
+            (done.length ? '\n\n' + done.length + ' already reached MRA — not sent again.' : '') +
             (off.length ? '\n\nNote: the MRA switch is OFF for ' + off.map(function (r) { return r.INSTANCE_NAME; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(', ') + ' (Setup tab). This sends them anyway.' : '');
         if (!window.confirm(msg)) return;
-        list.forEach(function (r) { H.busy[r.ID] = 1; H.live[r.ID] = { cls: 'RUN', text: 'Waiting' }; });
+        done.forEach(function (r) { H.live[r.ID] = { cls: 'ALREADY_DONE', text: 'Already in MRA', msg: 'not sent again' }; });
+        send.forEach(function (r) { H.busy[r.ID] = 1; H.live[r.ID] = { cls: 'RUN', text: 'Checking the MRA status table' }; });
         render();
-        var batch = 'mrh_' + Date.now(), queue = list.slice(), gwStreak = 0, stop = null, res = { SUCCESS: 0, FAILED: 0, SKIPPED: 0, ALREADY_DONE: 0, NOT_SENT: 0 };
-        fusionCreds().then(function (c) {
+        var batch = 'mrh_' + Date.now(), queue = [], gwStreak = 0, stop = null, res = { SUCCESS: 0, FAILED: 0, SKIPPED: 0, ALREADY_DONE: done.length, NOT_SENT: 0 };
+        // the status table first (every PC, every screen): the grid may show an older try of an order that reached MRA since
+        var byInst = {}; send.forEach(function (r) { (byInst[r.INSTANCE_NAME || ''] = byInst[r.INSTANCE_NAME || ''] || []).push(r); });
+        var pre = typeof window.wmsMraDone !== 'function' ? Promise.resolve() : Promise.all(Object.keys(byInst).map(function (inst) {
+            return window.wmsMraDone(byInst[inst].map(function (r) { return r.ORDER_NUMBER; }), inst).catch(function () { return {}; })
+                .then(function (d) { byInst[inst].forEach(function (r) { var x = d[String(r.ORDER_NUMBER).trim()]; if (x) r.__done = x; }); });
+        }));
+        pre.then(function () {
+            send.forEach(function (r) {
+                if (r.__done) {
+                    delete H.busy[r.ID]; res.ALREADY_DONE++;
+                    H.live[r.ID] = { cls: 'ALREADY_DONE', text: 'Already in MRA', msg: 'not sent again' + (r.__done.irn ? ' · IRN ' + r.__done.irn : '') + (r.__done.at ? ' · ' + r.__done.at : '') };
+                    delete r.__done;
+                } else { queue.push(r); H.live[r.ID] = { cls: 'RUN', text: 'Waiting' }; }
+            });
+            render();
+            if (!queue.length) return;
+            return fusionCreds().then(function (c) {
             function next() {
                 var r = queue.shift(); if (!r) return Promise.resolve();
                 if (stop) { res.NOT_SENT++; H.live[r.ID] = { cls: 'FAILED', text: 'Not sent', msg: stop }; delete H.busy[r.ID]; render(); return next(); }
@@ -398,6 +417,7 @@
                 });
             }
             return Promise.all([next(), next(), next()]);      // 3 at a time
+            });
         }).catch(function (e) {
             list.forEach(function (r) { if (H.busy[r.ID]) { delete H.busy[r.ID]; H.live[r.ID] = { cls: 'FAILED', text: 'Not sent', msg: e.message }; } });
             notify('MRA: ' + e.message, 'error');

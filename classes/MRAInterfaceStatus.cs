@@ -114,6 +114,44 @@ namespace WMSApp.MRA
             catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[MRA status] not recorded: " + ex.Message); }
         }
 
+        /// <summary>What the status table already holds for an order: the IRN, when, which screen sent it.</summary>
+        public sealed class PriorRun
+        {
+            public string Irn { get; set; }
+            public string Status { get; set; }
+            public string Source { get; set; }
+            public string At { get; set; }
+        }
+
+        /// <summary>
+        /// The order already reached MRA? The latest SUCCESS / ALREADY_DONE row of this order and instance in
+        /// WMS_MRA_INTERFACE_STATUS (whoever sent it, from whichever PC), the one with an IRN preferred; null when there is
+        /// none, when the table does not exist yet, or when the gateway does not answer within 8 s — then the Fusion check
+        /// report (MRA_TRX_NO_CHECK_BIP) decides as before. Never throws.
+        /// </summary>
+        public static async Task<PriorRun> FindDoneAsync(string orderNumber, string instance, string user)
+        {
+            try
+            {
+                string order = (orderNumber ?? "").Trim();
+                if (order.Length == 0) return null;
+                string sql = "SELECT * FROM (SELECT mra_interface_id, mra_interface_status, source, TO_CHAR(created_date, 'DD-MM-YYYY HH24:MI') AS at " +
+                    "FROM wms_mra_interface_status WHERE TRIM(order_number) = " + Lit(order, 60) +
+                    (string.IsNullOrWhiteSpace(instance) ? "" : " AND UPPER(instance_name) = " + Lit(instance.Trim().ToUpperInvariant(), 20)) +
+                    " AND mra_interface_status IN ('SUCCESS', 'ALREADY_DONE') " +
+                    "ORDER BY CASE WHEN mra_interface_id IS NULL THEN 1 ELSE 0 END, created_date DESC, id DESC) WHERE ROWNUM = 1";
+                var query = AiControl.QueryAsync(sql, string.IsNullOrWhiteSpace(user) ? Environment.UserName : user, 1);
+                var first = await Task.WhenAny(query, Task.Delay(8000)).ConfigureAwait(false);
+                if (first != query) { System.Diagnostics.Debug.WriteLine("[MRA status] prior check: no answer in 8 s"); return null; }
+                var rows = await query.ConfigureAwait(false);
+                if (rows == null || rows.Count == 0) return null;
+                var r = rows[0];
+                string G(string k) => r.TryGetValue(k, out var v) ? v : null;
+                return new PriorRun { Irn = G("MRA_INTERFACE_ID"), Status = G("MRA_INTERFACE_STATUS"), Source = G("SOURCE"), At = G("AT") };
+            }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[MRA status] prior check: " + ex.Message); return null; }
+        }
+
         private static string Lit(string s, int max) => AiControl.Lit(s, max);
         private static string Clob(string s) => string.IsNullOrEmpty(s) ? "NULL" : AiControl.Clob(s);
 

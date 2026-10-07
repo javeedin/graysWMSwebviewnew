@@ -97,6 +97,26 @@
             throw e;
         });
     };
+    /** {order: {irn, at, trip, source}} for the orders that already reached MRA — any SUCCESS / ALREADY_DONE row in
+        WMS_MRA_INTERFACE_STATUS, whoever sent them from whichever PC or screen. Every screen that sends to MRA asks this
+        first (trip grid button, Shipping Agent Print Trip / Retry, MRA history, WMS 2.0), so an order is never sent twice;
+        the host's MRAProcessor looks at the same table and then at MRA's own report before sending. Chunks of 300;
+        a missing table = none. */
+    window.wmsMraDone = function (orders, instance) {
+        var list = Array.from(new Set((orders || []).map(function (o) { return String(o || '').trim(); }).filter(Boolean)));
+        var out = {}, chunks = [];
+        for (var i = 0; i < list.length; i += 300) chunks.push(list.slice(i, i + 300));
+        return Promise.all(chunks.map(function (c) {
+            return apexQuery("SELECT TRIM(order_number) AS o, MAX(mra_interface_id) AS irn, TO_CHAR(MAX(created_date), 'DD-MM-YYYY HH24:MI') AS at, " +
+                'MAX(trip_id) KEEP (DENSE_RANK LAST ORDER BY created_date, id) AS trip, MAX(source) KEEP (DENSE_RANK LAST ORDER BY created_date, id) AS src ' +
+                "FROM wms_mra_interface_status WHERE mra_interface_status IN ('SUCCESS', 'ALREADY_DONE') AND TRIM(order_number) IN (" + c.map(lit).join(', ') + ')' +
+                (instance ? ' AND UPPER(instance_name) = ' + lit(String(instance).toUpperCase()) : '') + ' GROUP BY TRIM(order_number)', 5000)
+                .then(function (rows) { rows.forEach(function (r) { out[String(r.O).trim()] = { irn: r.IRN || '', at: r.AT || '', trip: r.TRIP || '', source: r.SRC || '' }; }); });
+        })).then(function () { return out; }, function (e) {
+            if (/ORA-00942|does not exist/i.test(String(e && e.message || e))) return out;   // table not created yet: no runs
+            throw e;
+        });
+    };
     /** MRA cell: ✔ when MRA has the order (SUCCESS / ALREADY_DONE — click = its history), otherwise an Interface button
         that runs MRAProcessor for that order right here (FAILED = red, the reason on hover; SKIPPED = order type not sent). */
     var MRA_OK = { SUCCESS: 1, ALREADY_DONE: 1 };
@@ -134,18 +154,31 @@
                 e.stopPropagation();
                 if (!window.MraInterface || !MraInterface.interfaceOrder) { note('MRA Interface page script is not loaded — refresh the page.', 'error'); return; }
                 var o = orderOf(r), inst = r.instance_name || r.INSTANCE_NAME || window.currentTripInstance || 'PROD';
-                if (!window.confirm('Interface order ' + o + ' (' + inst + ') to MRA now?' + (failed && r.MRA_REASON ? '\n\nLast try failed: ' + r.MRA_REASON : ''))) return;
-                r._mraBusy = 'Starting…'; mraCell(el, info);
-                MraInterface.interfaceOrder({ order: o, instance: inst, tripId: r.trip_id || r.TRIP_ID }, function (step) { r._mraBusy = step || 'Running…'; mraCell(el, info); })
-                    .then(function (x) {
-                        delete r._mraBusy;
-                        r[MRA_FIELD] = x.st; r.MRA_AT = new Date().toLocaleString(); r.MRA_TRIES = (Number(r.MRA_TRIES) || 0) + 1;
-                        if (x.st === 'SUCCESS') { r.MRA_IRN = String(x.msg || '').replace(/^IRN\s*/, ''); r.MRA_REASON = ''; }
-                        else if (!MRA_OK[x.st]) r.MRA_REASON = x.msg || '';
+                // the MRA status table first: an order some other screen or PC already interfaced is never sent again
+                r._mraBusy = 'Checking…'; mraCell(el, info);
+                window.wmsMraDone([o], inst).catch(function () { return {}; }).then(function (done) {
+                    var d = done[o];
+                    delete r._mraBusy;
+                    if (d) {
+                        r[MRA_FIELD] = 'SUCCESS'; r.MRA_REASON = ''; if (d.irn) r.MRA_IRN = d.irn; if (d.at) r.MRA_AT = d.at;
                         mraCell(el, info);
-                        note('MRA ' + o + ': ' + (MRA_OK[x.st] ? 'interfaced' : x.st === 'SKIPPED' ? 'skipped (order type not sent to MRA)' : 'failed — ' + (x.msg || '')),
-                            MRA_OK[x.st] ? 'success' : x.st === 'SKIPPED' ? 'info' : 'error');
-                    });
+                        note('Order ' + o + ' already reached MRA' + (d.irn ? ' (IRN ' + d.irn + ')' : '') + (d.at ? ' on ' + d.at : '') + ' — not sent again.', 'info');
+                        return;
+                    }
+                    mraCell(el, info);
+                    if (!window.confirm('Interface order ' + o + ' (' + inst + ') to MRA now?' + (failed && r.MRA_REASON ? '\n\nLast try failed: ' + r.MRA_REASON : ''))) return;
+                    r._mraBusy = 'Starting…'; mraCell(el, info);
+                    MraInterface.interfaceOrder({ order: o, instance: inst, tripId: r.trip_id || r.TRIP_ID }, function (step) { r._mraBusy = step || 'Running…'; mraCell(el, info); })
+                        .then(function (x) {
+                            delete r._mraBusy;
+                            r[MRA_FIELD] = x.st; r.MRA_AT = new Date().toLocaleString(); r.MRA_TRIES = (Number(r.MRA_TRIES) || 0) + 1;
+                            if (x.st === 'SUCCESS') { r.MRA_IRN = String(x.msg || '').replace(/^IRN\s*/, ''); r.MRA_REASON = ''; }
+                            else if (!MRA_OK[x.st]) r.MRA_REASON = x.msg || '';
+                            mraCell(el, info);
+                            note('MRA ' + o + ': ' + (MRA_OK[x.st] ? 'interfaced' : x.st === 'SKIPPED' ? 'skipped (order type not sent to MRA)' : 'failed — ' + (x.msg || '')),
+                                MRA_OK[x.st] ? 'success' : x.st === 'SKIPPED' ? 'info' : 'error');
+                        });
+                });
             }).appendTo(el);
         if (s) $('<i class="fas fa-clock-rotate-left">').attr('title', 'MRA history of this order').css({ marginLeft: '6px', color: '#94a3b8', cursor: 'pointer' })
             .on('click', function (e) { e.stopPropagation(); mraHistory(r); }).appendTo(el);

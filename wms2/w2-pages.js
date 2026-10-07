@@ -53,23 +53,35 @@
         if (!orders.length) return Promise.resolve();
         W2.busy.start('MRA · ' + orders.length + ' order(s) …', function () { W2.stopping = true; });
         W2.stopping = false;
-        var n = 0, ok = 0, bad = 0, gw = 0, stop = null, rows = [];
+        var n = 0, ok = 0, bad = 0, skip = 0, gw = 0, stop = null, rows = [], send = orders;
         return MRA.creds().then(function (creds) {
-            return W2.pool(orders, par, function (o) {
+            // the MRA status table first (every PC, every screen): orders that already reached MRA are not sent again
+            var pre = typeof window.wmsMraDone === 'function' ? window.wmsMraDone(orders.map(function (o) { return o.order_number; }), pod).catch(function () { return {}; }) : Promise.resolve({});
+            return pre.then(function (already) {
+            send = orders.filter(function (o) {
+                var d = already[String(o.order_number).trim()];
+                if (!d) return true;
+                skip++;
+                rows.push({ pod: pod, order_number: o.order_number, trip_date: date, trip_id: o.trip_id, status: 'ALREADY', irn: d.irn || '', msg: 'Already in MRA' + (d.irn ? ' (IRN ' + d.irn + ')' : '') + (d.at ? ' since ' + d.at : '') + ' — not sent again', checked_at: W2.now(), source: 'w2' });
+                return false;
+            });
+            W2.busy.step('MRA · ' + (skip ? skip + ' already in MRA · ' : '') + send.length + ' to send');
+            return W2.pool(send, par, function (o) {
                 if (stop) { rows.push({ pod: pod, order_number: o.order_number, trip_date: date, trip_id: o.trip_id, status: 'FAILED', msg: 'Not sent: ' + stop, checked_at: W2.now(), source: 'w2' }); return; }
                 return MRA.one(o.order_number, pod, creds, batch, null, o.trip_id).then(function (r) {
                     n++; if (r.status === 'FAILED') bad++; else ok++;
                     if (r.gw) gw++; else if (r.status !== 'FAILED') gw = 0;
                     if (gw >= 2 && !stop) stop = 'the MRA gateway did not answer for 2 orders in a row — stopped sending. Retry when MRA answers.';
                     rows.push({ pod: pod, order_number: o.order_number, trip_date: date, trip_id: o.trip_id, status: r.status, irn: r.irn || '', msg: String(r.msg || '').slice(0, 500), checked_at: W2.now(), source: 'w2', secs: r.secs, timings: r.timings, log: JSON.stringify({ log: r.log, req: r.req, res: r.res }).slice(0, 60000) });
-                    W2.busy.step('MRA · ' + n + ' of ' + orders.length + (bad ? ' · ' + bad + ' failed' : ''));
+                    W2.busy.step('MRA · ' + n + ' of ' + send.length + (bad ? ' · ' + bad + ' failed' : ''));
                 });
+            });
             });
         }).then(function () {
             return W2.put('w2_mra', { pod: pod, order_number: rows.map(function (r) { return r.order_number; }) }, rows);
         }).then(function () {
-            W2.busy.done('MRA: ' + ok + ' done, ' + bad + ' failed' + (stop ? ' — ' + stop : ''), bad > 0);
-            W2.call('aiAudit', { source: 'WMS2', actionKey: 'mra_interface', outcome: bad ? 'PARTIAL' : 'OK', instance: pod, refId: 'DATE:' + date, target: orders.length + ' order(s)', detail: ok + ' done, ' + bad + ' failed' }).catch(function () {});
+            W2.busy.done('MRA: ' + ok + ' done, ' + skip + ' already in MRA, ' + bad + ' failed' + (stop ? ' — ' + stop : ''), bad > 0);
+            W2.call('aiAudit', { source: 'WMS2', actionKey: 'mra_interface', outcome: bad ? 'PARTIAL' : 'OK', instance: pod, refId: 'DATE:' + date, target: orders.length + ' order(s)', detail: ok + ' done, ' + skip + ' already in MRA, ' + bad + ' failed' }).catch(function () {});
             W2.render();
         }, function (e) { W2.busy.done('MRA: ' + e, true); });
     };

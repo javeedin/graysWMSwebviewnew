@@ -86,6 +86,26 @@ namespace WMSApp.MRA
 
             try
             {
+                // Step 0: our own record first. WMS_MRA_INTERFACE_STATUS holds every run from every screen and PC; a
+                // SUCCESS / ALREADY_DONE row for this order and instance means MRA has it — nothing is sent again, and no
+                // Fusion report is needed. (The pages ask the same table before they call the processor; this guard
+                // covers every other caller: AI Digital Employee, AI Agent, Order Management, WMS 2.0.)
+                progressCallback?.Invoke("Checking the MRA status table...", MRAProcessingStep.CheckingMRAStatus);
+                result.CurrentStep = MRAProcessingStep.CheckingMRAStatus;
+                var prior = await MRAInterfaceStatus.FindDoneAsync(orderNumber, _instance, AppUser).ConfigureAwait(false);
+                Mark("status table");
+                if (prior != null)
+                {
+                    already = true;
+                    result.Success = false;
+                    result.IrnCode = prior.Irn;
+                    result.Message = $"MRA interface is already done for order {orderNumber} (recorded {prior.At}" +
+                        (string.IsNullOrEmpty(prior.Irn) ? "" : $", IRN {prior.Irn}") + (string.IsNullOrEmpty(prior.Source) ? "" : $", by {prior.Source}") + ") - not sent again";
+                    result.CurrentStep = MRAProcessingStep.Completed;
+                    logCallback?.Invoke(result.Message, "info");
+                    return result;
+                }
+
                 // Step 1: Check if already interfaced to MRA. The three Fusion reports (check, summary, details) are
                 // independent, so they run at the same time instead of one after the other.
                 progressCallback?.Invoke("Checking if order is already interfaced to MRA...", MRAProcessingStep.CheckingMRAStatus);
