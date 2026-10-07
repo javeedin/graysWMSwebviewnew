@@ -105,7 +105,7 @@
                 if (typeof window.openMoveOrderToTrip !== 'function') { W2.go('trip', { trip: r.trip, order: r.order }); return; }
                 if (W2.ws && W2.ws.feed) { try { W2.ws.feed(); } catch (e) {} }
                 window.openMoveOrderToTrip({ orderNumber: r.order, fromTripId: r.trip, instance: pod, row: W2.legacyRow ? W2.legacyRow(o || {}) : (o || {}), onMoved: function () { reread(['trips', 'lines']); } });
-                if (r.fix === 'future') W2.toast('Choose trip 9999 (Future trip) to keep the order off tomorrow until stock arrives.', 'info');
+                if (r.fix === 'future') W2.toast('Choose trip ' + (window.FUTURE_TRIP_ID || '999999999') + ' (Future trip) to keep the order off tomorrow until stock arrives.', 'info');
                 return;
             case 'details': if (o) W2.openOrderDialog(o); else W2.go('trip', { trip: r.trip, order: r.order }); return;
             case 'mra': W2.MRA.history(r.order, pod); return;

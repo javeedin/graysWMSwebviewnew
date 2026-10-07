@@ -1,19 +1,26 @@
 // ============================================================================
-// FUTURE TRIP (trip 9999) + PICKER ASSIGNMENT DATE + MRA STATUS
+// PINNED TRIPS (+ the Future trip 999999999) + PICKER ASSIGNMENT DATE + MRA STATUS
 // 1) Trip details grids get "MRA" (latest WMS_MRA_INTERFACE_STATUS row, right after Actions) and "Picker Assigned On"
 //    (WMS_PICKER_ASSIGNMENT.PICKER_ASSIGNMENT_DATE, right after the order number) — from the GETTRIPDETAILS handler when it
 //    sends them (apex_sql/91_gettripdetails_mra_picker.sql), else read through the APEX gateway ai/executequery.
-// 2) Trip 9999 is the "future trip": orders that have no real trip yet are moved there (Move dialog, pinned at the top).
-// 3) Trip Management › "Future Trip" (fixed tab): every order on trip 9999 with only Move (to a real trip) and Delete per
-//    line — the other trip buttons are shown disabled. "Set up trip 9999" creates the trip header row when it is missing
-//    (the header table is found from the trips/create ORDS handler; the INSERT is shown before it runs).
+// 2) Trip 999999999 is the "future trip": orders that have no real trip yet are moved there (Move dialog, pinned at the top).
+//    Trip 9999 was the future trip before; its orders are still shown (section "Trip 9999") until they are moved.
+// 3) Pinned trips: a Pin button on every trip card (wmsPinButtonHtml / wmsPinToggle) marks a trip pinned in the shared
+//    APEX table WMS_TRIP_PINS (instance × trip, who / when; created on first use, apex_sql/96_pinned_trips.sql has the DDL).
+// 4) Trip Management › "Pinned Trips" (fixed tab): the pinned trips of the instance as cards (date, lorry, bay, priority,
+//    orders; Open = the trip opens in its own tab exactly like from the trip cards; Unpin), then every order on the future
+//    trip 999999999 with only Move (to a real trip) and Delete per line — the other trip buttons are shown disabled.
+//    "Set up trip 999999999" creates the trip header row when it is missing (the header table is found from the
+//    trips/create ORDS handler; the INSERT is shown before it runs).
 // ============================================================================
 (function () {
     'use strict';
-    var FUTURE = '9999';
+    var FUTURE = '999999999';
+    var LEGACY = '9999';                 // the future trip before 999999999: shown until its orders are moved
     var ORDS = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP';
     var GW = ORDS + '/WAREHOUSEMANAGEMENT/ai';
     window.FUTURE_TRIP_ID = FUTURE;
+    window.LEGACY_FUTURE_TRIP_ID = LEGACY;
 
     var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
     var lit = function (s) { return "'" + String(s == null ? '' : s).replace(/'/g, "''") + "'"; };
@@ -351,7 +358,7 @@
         if (tries < 90) setTimeout(function () { datesWhenReady(tripId, before, tries + 1); }, 500);
     }
 
-    // ─── 2) trip 9999 exists? set it up ───────────────────────────────────
+    // ─── 2) the future trip 999999999 exists? set it up ───────────────────
     /** Finds the trip header table: the INSERT of the trips/create ORDS handler, else a table with TRIP_ID + a lorry column. */
     function headerTable() {
         return apexQuery("SELECT TO_CHAR(SUBSTR(h.source, 1, 4000)) AS src FROM user_ords_handlers h JOIN user_ords_templates t ON t.id = h.template_id " +
@@ -360,25 +367,26 @@
             if (m && !/wms_trip_details/i.test(m[1])) return { table: m[1].replace(/"/g, '').toUpperCase(), how: 'the trips/create ORDS handler' };
             return apexQuery("SELECT table_name FROM user_tab_columns WHERE column_name IN ('TRIP_ID', 'TRIP_LORRY', 'LORRY_NUMBER', 'VEHICLE') " +
                 "GROUP BY table_name HAVING SUM(CASE WHEN column_name = 'TRIP_ID' THEN 1 ELSE 0 END) = 1 AND COUNT(*) >= 2 ORDER BY table_name", 50).then(function (t) {
-                var names = t.map(function (r) { return r.TABLE_NAME; }).filter(function (n) { return !/TRIP_DETAILS|TRIP_CONFIG|^WMS_W2|PRINT|_V$|^FSQ_/i.test(n); });
+                var names = t.map(function (r) { return r.TABLE_NAME; }).filter(function (n) { return !/TRIP_DETAILS|TRIP_CONFIG|TRIP_PINS|^WMS_W2|PRINT|_V$|^FSQ_/i.test(n); });
                 if (!names.length) throw 'No trip header table found (a table with TRIP_ID and a lorry column).';
                 return { table: names[0], how: 'the tables with TRIP_ID + lorry columns (' + names.join(', ') + ')' };
             });
         });
     }
-    /** {exists, table, how, insert} — the INSERT fills the columns a new trip row needs. */
+    /** {exists, table, how, blocked, insert} — the INSERT fills the columns a new trip row needs. */
     window.futureTripStatus = function (instance) {
         return headerTable().then(function (h) {
-            return apexQuery("SELECT column_name, data_type, nullable, NVL(identity_column, 'NO') AS ident, data_default FROM user_tab_columns WHERE table_name = " + lit(h.table) + " ORDER BY column_id", 300).then(function (cols) {
+            return apexQuery("SELECT column_name, data_type, data_precision, nullable, NVL(identity_column, 'NO') AS ident, data_default FROM user_tab_columns WHERE table_name = " + lit(h.table) + " ORDER BY column_id", 300).then(function (cols) {
                 var has = function (c) { return cols.some(function (x) { return x.COLUMN_NAME === c; }); };
                 var inst = cols.find(function (x) { return /^(INSTANCE|INSTANCE_NAME|TRIP_INSTANCE|P_INSTANCE_NAME)$/.test(x.COLUMN_NAME); });
-                var where = 'trip_id = ' + FUTURE + (inst ? ' AND ' + inst.COLUMN_NAME + ' = ' + lit(instance) : '');
+                var idc = cols.find(function (x) { return x.COLUMN_NAME === 'TRIP_ID'; });
+                var idv = idc && /CHAR/.test(String(idc.DATA_TYPE || '')) ? lit(FUTURE) : FUTURE;
+                var where = 'trip_id = ' + idv + (inst ? ' AND ' + inst.COLUMN_NAME + ' = ' + lit(instance) : '');
                 return apexQuery('SELECT COUNT(*) AS n FROM ' + h.table + ' WHERE ' + where, 1).then(function (r) {
-                    var idc = cols.find(function (x) { return x.COLUMN_NAME === 'TRIP_ID'; });
                     var names = [], vals = [];
                     cols.forEach(function (c) {
                         var n = c.COLUMN_NAME, t = String(c.DATA_TYPE || ''), v = null;
-                        if (n === 'TRIP_ID') v = FUTURE;
+                        if (n === 'TRIP_ID') v = idv;
                         else if (/DATE$/.test(n) && /DATE|TIMESTAMP/.test(t)) v = /CREAT|UPDAT|LAST/.test(n) ? 'SYSDATE' : "DATE '2099-12-31'";
                         else if (/LORRY|VEHICLE/.test(n)) v = lit('FUTURE TRIP');
                         else if (/BAY/.test(n)) v = lit('FUTURE');
@@ -390,7 +398,9 @@
                         else if (c.NULLABLE === 'N' && c.IDENT !== 'YES' && !c.DATA_DEFAULT) v = /NUMBER/.test(t) ? '0' : /DATE|TIMESTAMP/.test(t) ? 'SYSDATE' : lit('-');
                         if (v != null) { names.push(n); vals.push(v); }
                     });
-                    var blocked = idc && idc.IDENT === 'YES' ? 'TRIP_ID of ' + h.table + ' is an identity column, so trip 9999 cannot be inserted with that number — ask the DBA (apex_sql/88_future_trip_9999.sql).' : '';
+                    var blocked = '';
+                    if (idc && idc.IDENT === 'YES') blocked = 'TRIP_ID of ' + h.table + ' is an identity column, so trip ' + FUTURE + ' cannot be inserted with that number — ask the DBA (apex_sql/96_pinned_trips.sql).';
+                    else if (idc && idc.DATA_PRECISION && +idc.DATA_PRECISION < FUTURE.length) blocked = 'TRIP_ID of ' + h.table + ' is NUMBER(' + idc.DATA_PRECISION + '): ' + FUTURE + ' does not fit — widen the column (apex_sql/96_pinned_trips.sql).';
                     if (!has('TRIP_ID')) blocked = h.table + ' has no TRIP_ID column.';
                     return { exists: (r[0] && +r[0].N) > 0, table: h.table, how: h.how, blocked: blocked,
                         insert: 'INSERT INTO ' + h.table + ' (' + names.join(', ') + ') VALUES (' + vals.join(', ') + ')' };
@@ -399,8 +409,92 @@
         });
     };
 
-    // ─── 3) Future Trip tab ───────────────────────────────────────────────
-    var F = window.FutureTrip = { rows: [], instance: null, grid: null };
+    // ─── 3) pinned trips (WMS_TRIP_PINS, shared by every PC) ──────────────
+    var pinsReady = null, pinsLoaded = null;
+    /** Creates WMS_TRIP_PINS on first use (apex_sql/96_pinned_trips.sql has the same DDL). */
+    function pinsEnsure() {
+        if (pinsReady) return pinsReady;
+        pinsReady = apexQuery("SELECT table_name FROM user_tables WHERE table_name = 'WMS_TRIP_PINS'", 5).then(function (r) {
+            if (r.length) return;
+            return apexWrite('CREATE TABLE wms_trip_pins (instance_name VARCHAR2(20) NOT NULL, trip_id VARCHAR2(50) NOT NULL, pinned_by VARCHAR2(120), ' +
+                'pinned_date DATE DEFAULT SYSDATE, note VARCHAR2(400), CONSTRAINT wms_trip_pins_pk PRIMARY KEY (instance_name, trip_id))');
+        }).catch(function (e) { pinsReady = null; throw e; });
+        return pinsReady;
+    }
+    function instOf(instance) {
+        var v = String(instance == null ? '' : instance).trim();
+        if (!v || v === 'null' || v === 'undefined') { try { v = localStorage.getItem('fusionInstance') || ''; } catch (e) { /* storage blocked */ } }
+        return (v || 'PROD').toUpperCase();
+    }
+    /** {INSTANCE: {tripId: {by, at, note}}} — every pin of every instance (the table is small). */
+    window.wmsPins = {};
+    window.wmsLoadPins = function (force) {
+        if (pinsLoaded && !force) return pinsLoaded;
+        pinsLoaded = apexQuery("SELECT instance_name, trip_id, pinned_by, TO_CHAR(pinned_date, 'DD-MM-YYYY HH24:MI') AS at, note FROM wms_trip_pins ORDER BY pinned_date DESC", 5000)
+            .then(function (rows) {
+                var m = {};
+                rows.forEach(function (r) {
+                    var i = String(r.INSTANCE_NAME || '').toUpperCase(), t = String(r.TRIP_ID || '').trim(); if (!i || !t) return;
+                    m[i] = m[i] || {}; m[i][t] = { by: r.PINNED_BY || '', at: r.AT || '', note: r.NOTE || '' };
+                });
+                window.wmsPins = m; window.wmsPaintPins(); return m;
+            }, function (e) {
+                if (/ORA-00942|does not exist/i.test(String(e && e.message || e))) { window.wmsPins = {}; window.wmsPaintPins(); return window.wmsPins; }   // nothing pinned yet
+                pinsLoaded = null; throw e;
+            });
+        return pinsLoaded;
+    };
+    window.wmsIsPinned = function (tripId, instance) { var m = window.wmsPins[instOf(instance)]; return !!(m && m[String(tripId == null ? '' : tripId).trim()]); };
+    window.wmsPinnedTrips = function (instance) { var m = window.wmsPins[instOf(instance)] || {}; return Object.keys(m).map(function (t) { return Object.assign({ trip: t }, m[t]); }); };
+    function pinCount() { var n = 0; Object.keys(window.wmsPins).forEach(function (i) { n += Object.keys(window.wmsPins[i]).length; }); return n; }
+    function paintPinBtn(b) {
+        var on = window.wmsIsPinned(b.dataset.trip, b.dataset.inst), info = on ? (window.wmsPins[instOf(b.dataset.inst)] || {})[String(b.dataset.trip).trim()] : null;
+        b.classList.toggle('pinned', on);
+        b.style.background = on ? '#fef3c7' : '#fff'; b.style.color = on ? '#b45309' : '#64748b'; b.style.borderColor = on ? '#fcd34d' : '#e2e8f0';
+        b.title = on ? 'Pinned' + (info && info.by ? ' by ' + info.by : '') + (info && info.at ? ' on ' + info.at : '') + ' — it is on the Pinned Trips tab. Click to unpin.' : 'Pin this trip — it stays on the Pinned Trips tab until you unpin it';
+        b.innerHTML = '<i class="fas fa-thumbtack" style="font-size:.55rem;' + (on ? '' : 'transform:rotate(45deg);opacity:.7;') + '"></i>' + (b.dataset.label ? ' ' + (on ? 'Pinned' : 'Pin') : '');
+    }
+    /** Repaints every Pin button on the page and the count on the tab. */
+    window.wmsPaintPins = function () {
+        document.querySelectorAll('.wms-pin-btn').forEach(paintPinBtn);
+        var n = pinCount();
+        document.querySelectorAll('.wms-pin-count').forEach(function (el) { el.textContent = n; el.style.display = n ? '' : 'none'; });
+    };
+    /** The Pin button of a trip card (app.js renders it between View Details and Assign Agent). */
+    window.wmsPinButtonHtml = function (tripId, instance, label) {
+        if (!pinsLoaded) window.wmsLoadPins().catch(function (e) { console.warn('[Pinned trips] not read:', e); });
+        var on = window.wmsIsPinned(tripId, instance);
+        return '<button type="button" class="wms-pin-btn' + (on ? ' pinned' : '') + '" data-trip="' + esc(tripId) + '" data-inst="' + esc(instOf(instance)) + '"' + (label ? ' data-label="1"' : '') +
+            ' onclick="event.stopPropagation();wmsPinToggle(this.dataset.trip,this.dataset.inst,this)" title="' + (on ? 'Pinned — click to unpin' : 'Pin this trip') + '"' +
+            ' style="flex:0 0 auto;font-size:.6rem;padding:.35rem .5rem;border:1px solid ' + (on ? '#fcd34d' : '#e2e8f0') + ';border-radius:4px;background:' + (on ? '#fef3c7' : '#fff') + ';color:' + (on ? '#b45309' : '#64748b') + ';cursor:pointer;display:flex;align-items:center;gap:.3rem;font-weight:700;">' +
+            '<i class="fas fa-thumbtack" style="font-size:.55rem;' + (on ? '' : 'transform:rotate(45deg);opacity:.7;') + '"></i>' + (label ? (on ? ' Pinned' : ' Pin') : '') + '</button>';
+    };
+    /** Pin / unpin one trip: one row in WMS_TRIP_PINS (every PC sees it); repaints the cards and the tab. */
+    window.wmsPinToggle = function (tripId, instance, btn) {
+        var t = String(tripId == null ? '' : tripId).trim(), i = instOf(instance);
+        if (!t) return Promise.resolve();
+        if (btn) { btn.disabled = true; btn.style.opacity = '.6'; }
+        var was = window.wmsIsPinned(t, i);
+        var p = was
+            ? pinsEnsure().then(function () { return apexWrite('DELETE FROM wms_trip_pins WHERE instance_name = ' + lit(i) + ' AND trip_id = ' + lit(t)); })
+            : pinsEnsure().then(function () {
+                return apexWrite('INSERT INTO wms_trip_pins (instance_name, trip_id, pinned_by) SELECT ' + lit(i) + ', ' + lit(t) + ', ' + lit(user()) +
+                    ' FROM dual WHERE NOT EXISTS (SELECT 1 FROM wms_trip_pins WHERE instance_name = ' + lit(i) + ' AND trip_id = ' + lit(t) + ')');
+            });
+        return p.then(function () {
+            window.wmsPins[i] = window.wmsPins[i] || {};
+            if (was) delete window.wmsPins[i][t]; else window.wmsPins[i][t] = { by: user(), at: new Date().toLocaleString(), note: '' };
+            window.wmsPaintPins();
+            note(was ? 'Trip ' + t + ' unpinned.' : 'Trip ' + t + ' pinned — see Trip Management › Pinned Trips.', 'success');
+            if (document.getElementById('pt-list') && document.getElementById('trip-future-trip-tab') && document.getElementById('trip-future-trip-tab').classList.contains('active')) loadPinned();
+            return !was;
+        }).catch(function (e) {
+            note('Could not ' + (was ? 'unpin' : 'pin') + ' trip ' + t + ': ' + (e && e.message || e), 'error');
+        }).then(function (r) { if (btn) { btn.disabled = false; btn.style.opacity = '1'; } return r; });
+    };
+
+    // ─── 4) Pinned Trips tab ──────────────────────────────────────────────
+    var F = window.FutureTrip = { rows: [], legacyRows: [], instance: null, grid: null, legacyGrid: null, pinned: [] };
     function inst() {
         if (F.instance) return F.instance;
         var s = document.getElementById('ft-inst'); return (s && s.value) || 'PROD';
@@ -411,31 +505,45 @@
     }
     var DISABLED = [['fa-edit', 'Edit Trip'], ['fa-user-plus', 'Assign Picker'], ['fa-boxes', 'Allocate Lots for S2V'], ['fa-truck-loading', 'Pick Release All'],
         ['fa-shipping-fast', 'All Shipment Lines'], ['fa-user-cog', 'Add to Agent'], ['fa-list', 'Show Lines'], ['fa-tags', 'Get Profit Centers'], ['fa-plus', 'Add Orders']];
+    var CARD = 'background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);padding:1rem;';
     function shell() {
         var root = document.getElementById('future-trip-root'); if (!root || root.dataset.ready) return root;
         root.dataset.ready = '1';
         root.innerHTML =
-            '<div style="padding:1rem;">' +
-            '<div style="background:linear-gradient(135deg,#fef3c7,#fde68a);border:1px solid #f59e0b;border-radius:12px;padding:.9rem 1.1rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:1rem;">' +
-              '<div style="width:42px;height:42px;border-radius:10px;background:#f59e0b;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.2rem;"><i class="fas fa-hourglass-half"></i></div>' +
-              '<div style="flex:1;min-width:220px;"><div style="font-weight:800;color:#78350f;font-size:1.05rem;">Trip ' + FUTURE + ' · Future Trip</div>' +
-                '<div style="font-size:.8rem;color:#92400e;">Orders parked until they get a real trip. Use <b>Move</b> to send an order to its trip, or <b>Delete</b> to take it off.</div></div>' +
+            '<div style="padding:1rem;display:flex;flex-direction:column;gap:1rem;">' +
+            '<div style="background:linear-gradient(135deg,#fffbeb,#fef3c7);border:1px solid #f59e0b;border-radius:12px;padding:.9rem 1.1rem;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">' +
+              '<div style="width:42px;height:42px;border-radius:10px;background:#b45309;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.2rem;"><i class="fas fa-thumbtack"></i></div>' +
+              '<div style="flex:1;min-width:220px;"><div style="font-weight:800;color:#78350f;font-size:1.05rem;">Pinned trips</div>' +
+                '<div style="font-size:.8rem;color:#92400e;">The trips you pinned from the trip cards (<i class="fas fa-thumbtack" style="font-size:.7rem;"></i> <b>Pin</b>) stay here until you unpin them — <b>Open</b> shows a trip in its own tab, exactly like from the cards. ' +
+                'Below them, the <b>Future trip ' + FUTURE + '</b>: orders parked until they get a real trip (Move / Delete per line).</div></div>' +
               '<label style="font-size:.75rem;color:#78350f;font-weight:700;">Instance <select id="ft-inst" style="margin-left:4px;padding:4px 8px;border-radius:6px;border:1px solid #f59e0b;"><option>PROD</option><option>TEST</option></select></label>' +
-              '<span id="ft-count" style="background:#fff;border-radius:20px;padding:4px 12px;font-weight:800;color:#92400e;font-size:.8rem;">…</span>' +
+              '<span id="pt-count" title="Pinned trips of this instance" style="background:#fff;border-radius:20px;padding:4px 12px;font-weight:800;color:#92400e;font-size:.8rem;">…</span>' +
+              '<span id="ft-count" title="Orders on the future trip ' + FUTURE + '" style="background:#fff;border-radius:20px;padding:4px 12px;font-weight:800;color:#92400e;font-size:.8rem;">…</span>' +
               '<span id="ft-setup"></span>' +
+              '<button class="btn btn-info" id="ft-refresh" style="font-size:.68rem;padding:.3rem .6rem;"><i class="fas fa-sync-alt"></i> Refresh</button>' +
             '</div>' +
-            '<div style="background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.08);padding:1rem;">' +
+            '<div style="' + CARD + '">' +
+              '<div style="display:flex;gap:8px;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;"><b style="color:#1e293b;"><i class="fas fa-thumbtack" style="color:#b45309;margin-right:6px;"></i>Pinned trips</b>' +
+                '<span id="pt-sub" style="font-size:.74rem;color:#64748b;"></span></div>' +
+              '<div id="pt-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:.75rem;"></div>' +
+            '</div>' +
+            '<div style="' + CARD + '">' +
               '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:.75rem;">' +
-                '<b style="margin-right:8px;color:#1e293b;">Order Details</b>' +
-                '<button class="btn btn-info" id="ft-refresh" style="font-size:.68rem;padding:.3rem .6rem;"><i class="fas fa-sync-alt"></i> Refresh</button>' +
+                '<b style="margin-right:8px;color:#1e293b;"><i class="fas fa-hourglass-half" style="color:#d97706;margin-right:6px;"></i>Future trip ' + FUTURE + ' · Order Details</b>' +
                 DISABLED.map(function (b) { return '<button class="btn" disabled title="Not available on the future trip — move the order to a real trip first" style="font-size:.68rem;padding:.3rem .6rem;background:#e2e8f0;color:#94a3b8;border:none;cursor:not-allowed;"><i class="fas ' + b[0] + '"></i> ' + b[1] + '</button>'; }).join('') +
               '</div>' +
               '<div id="ft-grid"></div>' +
-            '</div></div>';
+            '</div>' +
+            '<div id="ft-legacy" style="' + CARD + 'display:none;border:1px solid #fde68a;">' +
+              '<div style="display:flex;gap:8px;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;"><b style="color:#92400e;"><i class="fas fa-triangle-exclamation" style="margin-right:6px;"></i>Trip ' + LEGACY + ' (the future trip before ' + FUTURE + ')</b>' +
+                '<span id="ft-legacy-sub" style="font-size:.74rem;color:#92400e;">still holds orders — Move each one to trip ' + FUTURE + ' (first in the list) or to a real trip.</span></div>' +
+              '<div id="ft-legacy-grid"></div>' +
+            '</div>' +
+            '</div>';
         var s = document.getElementById('ft-inst');
         try { s.value = localStorage.getItem('futureTripInstance') || 'PROD'; } catch (e) { /* storage blocked */ }
         s.onchange = function () { try { localStorage.setItem('futureTripInstance', s.value); } catch (e) { /* storage blocked */ } F.load(); };
-        document.getElementById('ft-refresh').onclick = function () { F.load(); };
+        document.getElementById('ft-refresh').onclick = function () { F.load(true); };
         return root;
     }
     function setupBox(st) {
@@ -449,29 +557,123 @@
         if (st.blocked) { alert(st.blocked); return; }
         if (!confirm('Create trip ' + FUTURE + ' (Future Trip) in ' + inst() + '?\n\nFound the trip table through ' + st.how + '. This runs:\n\n' + st.insert)) return;
         apexWrite(st.insert).then(function () { note('Trip ' + FUTURE + ' created in ' + inst() + '.', 'success'); F.load(); },
-            function (e) { alert('Trip ' + FUTURE + ' was not created:\n' + e + '\n\nRun apex_sql/88_future_trip_9999.sql by hand instead.'); });
+            function (e) { alert('Trip ' + FUTURE + ' was not created:\n' + e + '\n\nRun apex_sql/96_pinned_trips.sql by hand instead.'); });
     };
-    F.load = function () {
-        shell();
-        var instance = inst(), gridEl = document.getElementById('ft-grid');
-        document.getElementById('ft-count').textContent = 'loading…';
-        window.futureTripStatus(instance).then(setupBox, function (e) { console.warn('[Future Trip] setup check:', e); setupBox(null); });
-        host({ action: 'executeGet', fullUrl: ORDS + '/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/' + FUTURE + '?P_INSTANCE_NAME=' + encodeURIComponent(instance) }).then(function (res) {
+    /** GETTRIPDETAILS/{trip} → the order rows (MRA fields of the handler mapped). */
+    function tripRows(tripId, instance) {
+        return host({ action: 'executeGet', fullUrl: ORDS + '/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/' + encodeURIComponent(tripId) + '?P_INSTANCE_NAME=' + encodeURIComponent(instance) }).then(function (res) {
             var rows = ((res && res.items) || []).filter(function (r) { return orderOf(r); });
-            F.rows = rows;
             rows.forEach(function (r) {
                 if (apiVal(r, 'mra_status') === undefined) return;
                 r[MRA_FIELD] = apiVal(r, 'mra_status') || ''; r.MRA_IRN = apiVal(r, 'mra_irn') || ''; r.MRA_REASON = apiVal(r, 'mra_reason') || '';
                 r.MRA_AT = apiVal(r, 'mra_at') || ''; r.MRA_TRIES = Number(apiVal(r, 'mra_tries')) || 0;
             });
-            document.getElementById('ft-count').textContent = rows.length + ' order' + (rows.length === 1 ? '' : 's');
-            return window.wmsPickerDates(rows.map(orderOf)).then(function (map) { rows.forEach(function (r) { r[DATE_FIELD] = map[orderOf(r)] || ''; }); }, function () {}).then(function () { draw(gridEl, rows, instance); });
+            return rows;
+        });
+    }
+    function dateOnly(v) { var s = String(v == null ? '' : v), m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s); return m ? m[3] + '-' + m[2] + '-' + m[1] : s; }
+    /** The facts of one pinned trip from its first order row (date, lorry, bay, priority) + the order count. */
+    function tripFacts(tripId, rows) {
+        var r = rows[0] || {};
+        return { trip: String(tripId), n: rows.length, date: pick(r, ['TRIP_DATE', 'trip_date', 'tripdate']), lorry: pick(r, ['TRIP_LORRY', 'trip_lorry', 'LORRY_NUMBER', 'lorry_number', 'VEHICLE']),
+            bay: pick(r, ['TRIP_LOADING_BAY', 'trip_loading_bay', 'LOADING_BAY', 'loading_bay']), prio: pick(r, ['TRIP_PRIORITY', 'trip_priority', 'PRIORITY', 'priority']),
+            pickers: Array.from(new Set(rows.map(function (x) { return pick(x, ['PICKER_NAME', 'picker_name', 'PICKER', 'picker']); }).filter(Boolean))).length };
+    }
+    /** Open a pinned trip exactly like a trip card does: openTripDetails fetches the trip and opens its tab. */
+    F.open = function (tripId, instance) {
+        var f = (F.pinned || []).find(function (x) { return x.trip === String(tripId); }) || {};
+        if (typeof window.openTripDetails !== 'function') { note('Trip details are not loaded — refresh the page.', 'error'); return; }
+        window.openTripDetails(String(tripId), f.date || '', f.lorry || '', instance, f.bay || '', f.prio || '');
+    };
+    function pinCard(p, f, instance) {
+        var missing = f && f.n === 0, err = f && f.error;
+        return '<div class="pt-card" data-trip="' + esc(p.trip) + '" style="border:1px solid ' + (err ? '#fecaca' : '#fde68a') + ';border-radius:10px;padding:.7rem .8rem;background:' + (err ? '#fff7f7' : '#fffdf5') + ';display:flex;flex-direction:column;gap:.45rem;">' +
+            '<div style="display:flex;align-items:center;gap:8px;"><i class="fas fa-thumbtack" style="color:#b45309;"></i><b style="font-size:1rem;color:#1e293b;">Trip ' + esc(p.trip) + '</b>' +
+              '<span style="margin-left:auto;font-size:.68rem;color:#64748b;" title="Pinned by ' + esc(p.by || '?') + (p.at ? ' on ' + esc(p.at) : '') + '">' + esc(p.by || '') + (p.at ? ' · ' + esc(String(p.at).split(' ')[0]) : '') + '</span></div>' +
+            (f ? (err ? '<div style="font-size:.74rem;color:#b91c1c;">Could not read this trip: ' + esc(err) + '</div>'
+                : '<div style="display:flex;gap:.4rem;flex-wrap:wrap;font-size:.7rem;">' +
+                    '<span style="background:#eff6ff;color:#1d4ed8;border-radius:6px;padding:2px 7px;font-weight:700;" title="Trip date"><i class="fas fa-calendar-day"></i> ' + esc(f.date ? dateOnly(f.date) : '—') + '</span>' +
+                    '<span style="background:#f1f5f9;color:#334155;border-radius:6px;padding:2px 7px;font-weight:700;" title="Lorry"><i class="fas fa-truck"></i> ' + esc(f.lorry || '—') + '</span>' +
+                    (f.bay ? '<span style="background:#f1f5f9;color:#334155;border-radius:6px;padding:2px 7px;font-weight:700;" title="Loading bay"><i class="fas fa-warehouse"></i> ' + esc(f.bay) + '</span>' : '') +
+                    (f.prio ? '<span style="background:#fef3c7;color:#92400e;border-radius:6px;padding:2px 7px;font-weight:700;" title="Priority"><i class="fas fa-flag"></i> ' + esc(f.prio) + '</span>' : '') +
+                    '<span style="background:#ecfdf5;color:#047857;border-radius:6px;padding:2px 7px;font-weight:700;" title="Orders on the trip"><i class="fas fa-box"></i> ' + f.n + ' order' + (f.n === 1 ? '' : 's') + '</span>' +
+                    (f.pickers ? '<span style="background:#f5f3ff;color:#6d28d9;border-radius:6px;padding:2px 7px;font-weight:700;" title="Pickers assigned"><i class="fas fa-user"></i> ' + f.pickers + '</span>' : '') +
+                  '</div>' + (missing ? '<div style="font-size:.72rem;color:#92400e;">No orders on this trip in ' + esc(instance) + ' (deleted, or on another instance).</div>' : ''))
+                : '<div style="font-size:.74rem;color:#64748b;"><i class="fas fa-spinner fa-spin"></i> reading the trip…</div>') +
+            (p.note ? '<div style="font-size:.72rem;color:#475569;font-style:italic;">' + esc(p.note) + '</div>' : '') +
+            '<div style="display:flex;gap:.4rem;margin-top:auto;">' +
+              '<button type="button" class="pt-open" style="flex:1;font-size:.7rem;padding:.4rem .6rem;background:#1d4ed8;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:700;display:flex;align-items:center;justify-content:center;gap:.35rem;" title="Open this trip in its own tab, like from the trip cards"><i class="fas fa-eye"></i> Open</button>' +
+              '<button type="button" class="pt-unpin" style="font-size:.7rem;padding:.4rem .6rem;background:#fff;color:#b45309;border:1px solid #fcd34d;border-radius:6px;cursor:pointer;font-weight:700;" title="Take this trip off the Pinned Trips tab"><i class="fas fa-thumbtack" style="transform:rotate(45deg);"></i> Unpin</button>' +
+            '</div></div>';
+    }
+    /** The pinned trips of the instance as cards; each trip's facts are read with GETTRIPDETAILS (4 at a time). */
+    function loadPinned() {
+        var instance = inst(), list = document.getElementById('pt-list'), sub = document.getElementById('pt-sub'), cnt = document.getElementById('pt-count');
+        if (!list) return Promise.resolve();
+        var token = loadPinned.token = {};
+        return window.wmsLoadPins(true).catch(function (e) { if (sub) sub.textContent = 'Pins not read: ' + (e && e.message || e); return {}; }).then(function () {
+            if (loadPinned.token !== token) return;
+            var pins = window.wmsPinnedTrips(instance).sort(function (a, b) { return String(b.at || '').localeCompare(String(a.at || '')); });
+            F.pinned = pins.map(function (p) { return { trip: p.trip }; });
+            if (cnt) cnt.textContent = pins.length + ' pinned';
+            if (sub) sub.textContent = pins.length ? instance + ' · newest first' : '';
+            if (!pins.length) {
+                list.innerHTML = '<div style="grid-column:1/-1;padding:1rem;text-align:center;color:#64748b;font-size:.82rem;border:1px dashed #e2e8f0;border-radius:10px;">' +
+                    'No pinned trips in ' + esc(instance) + ' yet. On <b>All Trips</b> press <i class="fas fa-thumbtack" style="color:#b45309;"></i> <b>Pin</b> on a trip card and it appears here.</div>';
+                return;
+            }
+            list.innerHTML = pins.map(function (p) { return pinCard(p, null, instance); }).join('');
+            list.onclick = function (e) {
+                var card = e.target.closest('.pt-card'); if (!card) return;
+                var t = card.dataset.trip;
+                if (e.target.closest('.pt-open')) F.open(t, instance);
+                else if (e.target.closest('.pt-unpin')) { if (confirm('Unpin trip ' + t + '?')) window.wmsPinToggle(t, instance, e.target.closest('.pt-unpin')); }
+            };
+            var i = 0;
+            function next() {
+                if (i >= pins.length || loadPinned.token !== token) return Promise.resolve();
+                var p = pins[i++];
+                return tripRows(p.trip, instance).then(function (rows) { return tripFacts(p.trip, rows); }, function (e) { return { trip: p.trip, n: 0, error: String(e && e.message || e) }; }).then(function (f) {
+                    if (loadPinned.token !== token) return;
+                    var k = F.pinned.findIndex(function (x) { return x.trip === p.trip; }); if (k >= 0) F.pinned[k] = f;
+                    var card = list.querySelector('.pt-card[data-trip="' + p.trip.replace(/"/g, '') + '"]');
+                    if (card) card.outerHTML = pinCard(p, f, instance);
+                    return next();
+                });
+            }
+            return Promise.all([next(), next(), next(), next()]);
+        });
+    }
+    /** The future trip's orders (and the old 9999's, shown only while it still has some). */
+    function loadFuture() {
+        var instance = inst(), gridEl = document.getElementById('ft-grid'), cnt = document.getElementById('ft-count');
+        if (cnt) cnt.textContent = 'loading…';
+        window.futureTripStatus(instance).then(setupBox, function (e) { console.warn('[Pinned Trips] setup check:', e); setupBox(null); });
+        var main = tripRows(FUTURE, instance).then(function (rows) {
+            F.rows = rows;
+            if (cnt) cnt.textContent = rows.length + ' order' + (rows.length === 1 ? '' : 's') + ' on ' + FUTURE;
+            return window.wmsPickerDates(rows.map(orderOf)).then(function (map) { rows.forEach(function (r) { r[DATE_FIELD] = map[orderOf(r)] || ''; }); }, function () {})
+                .then(function () { F.grid = draw(gridEl, rows, instance, FUTURE, F.grid); });
         }).catch(function (e) {
-            document.getElementById('ft-count').textContent = 'error';
+            if (cnt) cnt.textContent = 'error';
             gridEl.innerHTML = '<div style="padding:1.5rem;color:#b91c1c;">Could not read trip ' + FUTURE + ': ' + esc(e) + '</div>';
         });
+        var legacy = tripRows(LEGACY, instance).then(function (rows) {
+            F.legacyRows = rows;
+            var box = document.getElementById('ft-legacy'); if (!box) return;
+            box.style.display = rows.length ? '' : 'none';
+            if (!rows.length) return;
+            document.getElementById('ft-legacy-sub').innerHTML = 'still holds <b>' + rows.length + '</b> order' + (rows.length === 1 ? '' : 's') + ' — Move each one to trip ' + FUTURE + ' (first in the list) or to a real trip.';
+            F.legacyGrid = draw(document.getElementById('ft-legacy-grid'), rows, instance, LEGACY, F.legacyGrid);
+        }).catch(function (e) { console.warn('[Pinned Trips] trip ' + LEGACY + ' not read:', e); });
+        return Promise.all([main, legacy]);
+    }
+    F.load = function () {
+        shell();
+        return Promise.all([loadPinned(), loadFuture()]);
     };
-    function draw(el, rows, instance) {
+    function draw(el, rows, instance, tripId, oldGrid) {
+        if (!el) return null;
         var skip = { test: function (k) {
             return /^(trip_id|trip_date|trip_lorry|trip_loading_bay|loading_bay|trip_priority|instance|instance_name|links)$/i.test(k) ||
                 /^(mra_status|mra_irn|mra_reason|mra_at|mra_tries|picker_assigned_on|MRA_IRN|MRA_REASON|MRA_AT|MRA_TRIES)$/.test(k);   // handler fields: shown as MRA / Picker Assigned On
@@ -479,6 +681,27 @@
         var keys = []; rows.forEach(function (r) { Object.keys(r).forEach(function (k) { if (keys.indexOf(k) < 0 && !skip.test(k)) keys.push(k); }); });
         var first = [MRA_FIELD, 'ORDER_NUMBER', 'order_number', 'ORDER_TYPE', 'order_type', 'ACCOUNT_NAME', 'account_name', 'PICKER', 'picker', DATE_FIELD];
         keys.sort(function (a, b) { var x = first.indexOf(a), y = first.indexOf(b); return (x < 0 ? 99 : x) - (y < 0 ? 99 : y); });
+        var onMoved = function () { setTimeout(F.load, 400); };
+        if (oldGrid) { try { oldGrid.dispose(); } catch (e) { /* gone */ } }
+        el.innerHTML = '';
+        if (!(window.$ && $.fn && $.fn.dxDataGrid)) {
+            // no DevExtreme on this page: a plain table with the same Move / Delete
+            var show = keys.slice(0, 8);
+            el.innerHTML = '<table class="pt-plain" style="width:100%;border-collapse:collapse;font-size:.78rem;"><thead><tr><th style="text-align:left;padding:4px 6px;border-bottom:1px solid #e2e8f0;">Actions</th>' +
+                show.map(function (k) { return '<th style="text-align:left;padding:4px 6px;border-bottom:1px solid #e2e8f0;">' + esc(k === DATE_FIELD ? 'Picker Assigned On' : k.replace(/_/g, ' ')) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+                (rows.length ? rows.map(function (r, i) {
+                    return '<tr data-i="' + i + '"><td style="padding:4px 6px;white-space:nowrap;"><button type="button" class="pt-move" title="Move to a real trip" style="border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:6px;padding:3px 8px;margin-right:4px;cursor:pointer;"><i class="fas fa-right-left"></i></button>' +
+                        '<button type="button" class="pt-del" title="Delete from this trip" style="border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:6px;padding:3px 8px;cursor:pointer;"><i class="fas fa-trash"></i></button></td>' +
+                        show.map(function (k) { return '<td style="padding:4px 6px;">' + esc(r[k] == null ? '' : r[k]) + '</td>'; }).join('') + '</tr>';
+                }).join('') : '<tr><td colspan="' + (show.length + 1) + '" style="padding:12px;color:#64748b;">No orders on trip ' + esc(tripId) + '.</td></tr>') + '</tbody></table>';
+            el.onclick = function (e) {
+                var tr = e.target.closest('tr[data-i]'); if (!tr) return;
+                var r = rows[+tr.dataset.i], o = orderOf(r);
+                if (e.target.closest('.pt-move')) { if (typeof window.openMoveOrderToTrip === 'function') window.openMoveOrderToTrip({ orderNumber: o, fromTripId: tripId, instance: instance, row: r, onMoved: onMoved }); }
+                else if (e.target.closest('.pt-del')) F.remove(o, instance, tripId);
+            };
+            return null;
+        }
         var cols = [{
             caption: 'Actions', width: 96, alignment: 'center', allowSorting: false, allowFiltering: false,
             cellTemplate: function (c, info) {
@@ -486,10 +709,10 @@
                 $('<button title="Move to a real trip" style="border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:6px;padding:3px 8px;margin-right:4px;cursor:pointer;"><i class="fas fa-right-left"></i></button>')
                     .on('click', function () {
                         if (typeof window.openMoveOrderToTrip !== 'function') { alert('Move order is not loaded. Please refresh the page.'); return; }
-                        window.openMoveOrderToTrip({ orderNumber: o, fromTripId: FUTURE, instance: instance, row: r, onMoved: function () { setTimeout(F.load, 400); } });
+                        window.openMoveOrderToTrip({ orderNumber: o, fromTripId: tripId, instance: instance, row: r, onMoved: onMoved });
                     }).appendTo(c);
-                $('<button title="Delete from the future trip" style="border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:6px;padding:3px 8px;cursor:pointer;"><i class="fas fa-trash"></i></button>')
-                    .on('click', function () { F.remove(o, instance); }).appendTo(c);
+                $('<button title="Delete from this trip" style="border:1px solid #fecaca;background:#fef2f2;color:#b91c1c;border-radius:6px;padding:3px 8px;cursor:pointer;"><i class="fas fa-trash"></i></button>')
+                    .on('click', function () { F.remove(o, instance, tripId); }).appendTo(c);
             }
         }].concat(keys.map(function (k) {
             var c = { dataField: k, caption: k === DATE_FIELD ? 'Picker Assigned On' : k === MRA_FIELD ? 'MRA' : k.replace(/_/g, ' ') };
@@ -497,36 +720,37 @@
             if (/^order_number$/i.test(k)) c.cellTemplate = function (cell, info) { $('<b>').text(info.value || '').appendTo(cell); };
             return c;
         }));
-        if (F.grid) { try { F.grid.dispose(); } catch (e) { /* gone */ } }
-        el.innerHTML = '';
-        F.grid = $('<div>').appendTo(el).dxDataGrid({
+        return $('<div>').appendTo(el).dxDataGrid({
             dataSource: rows, columns: cols, showBorders: true, rowAlternationEnabled: true, columnAutoWidth: true, allowColumnResizing: true,
             searchPanel: { visible: true, width: 240, placeholder: 'Search…' }, filterRow: { visible: true }, headerFilter: { visible: true },
             paging: { pageSize: 50 }, export: { enabled: true }, height: 'auto',
-            noDataText: 'No orders on the future trip. Move an order here from any trip with the Move button (trip ' + FUTURE + ' is at the top of the list).',
+            noDataText: tripId === FUTURE ? 'No orders on the future trip. Move an order here from any trip with the Move button (trip ' + FUTURE + ' is at the top of the list).' : 'No orders on trip ' + tripId + '.',
             onExporting: function (e) {
                 if (typeof ExcelJS === 'undefined' || typeof saveAs === 'undefined') return;
-                var wb = new ExcelJS.Workbook(), ws = wb.addWorksheet('Trip ' + FUTURE);
+                var wb = new ExcelJS.Workbook(), ws = wb.addWorksheet('Trip ' + tripId);
                 DevExpress.excelExporter.exportDataGrid({ component: e.component, worksheet: ws }).then(function () {
                     return wb.xlsx.writeBuffer();
-                }).then(function (b) { saveAs(new Blob([b], { type: 'application/octet-stream' }), 'Future_Trip_' + FUTURE + '.xlsx'); });
+                }).then(function (b) { saveAs(new Blob([b], { type: 'application/octet-stream' }), 'Future_Trip_' + tripId + '.xlsx'); });
                 e.cancel = true;
             }
         }).dxDataGrid('instance');
     }
     /** Delete = the WMS Remove: deletetripline + the picker assignment row. */
-    F.remove = function (o, instance) {
-        if (!confirm('Delete order ' + o + ' from the future trip (' + FUTURE + ')?\n\nIt goes back to the pending orders; its picker assignment is deleted too.')) return;
+    F.remove = function (o, instance, tripId) {
+        tripId = tripId || FUTURE;
+        if (!confirm('Delete order ' + o + ' from trip ' + tripId + (tripId === FUTURE ? ' (the future trip)' : '') + '?\n\nIt goes back to the pending orders; its picker assignment is deleted too.')) return;
         host({ action: 'executeDelete', fullUrl: ORDS + '/TRIPMANAGEMENT/deletetripline?P_ORDER_NUMBER=' + encodeURIComponent(o) + '&P_INSTANCE_NAME=' + encodeURIComponent(instance) }).then(function (r) {
             if (r && (r.status === 'error' || r.success === false)) throw r.message || JSON.stringify(r);
             return (window.wmsClearPickerAssignment ? window.wmsClearPickerAssignment(o) : Promise.resolve({ ok: true }));
-        }).then(function () { note('Order ' + o + ' deleted from the future trip.', 'success'); F.load(); },
+        }).then(function () { note('Order ' + o + ' deleted from trip ' + tripId + '.', 'success'); F.load(); },
             function (e) { note('Could not delete ' + o + ': ' + e, 'error'); });
     };
 
     document.addEventListener('DOMContentLoaded', function () {
         var tab = document.querySelector('.tab-item[data-tab="future-trip"]');
         if (tab) tab.addEventListener('click', function () { activate(); F.load(); });
+        // the pin count on the tab and the Pin buttons of the first cards
+        if (window.chrome && window.chrome.webview) setTimeout(function () { window.wmsLoadPins().catch(function (e) { console.warn('[Pinned trips] not read:', e); }); }, 1500);
         // after app.js has set up its window functions: picker dates on every trip details grid
         setTimeout(function () {
             wrapShipDate();

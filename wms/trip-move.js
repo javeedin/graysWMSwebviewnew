@@ -49,10 +49,10 @@
         };
         (window.currentFullData || []).forEach(r => add(r, true));
         (window.tripDetailsAllData || []).forEach(r => add(r, true));
-        const FUTURE = String(window.FUTURE_TRIP_ID || '9999');
+        const FUTURE = String(window.FUTURE_TRIP_ID || '999999999');
         delete by[FUTURE];
         const list = Object.values(by).sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.id.localeCompare(a.id, undefined, { numeric: true }));
-        // trip 9999 = the Future Trip (Trip Management › Future Trip): orders that have no real trip yet; always first
+        // trip 999999999 = the Future Trip (Trip Management › Pinned Trips): orders that have no real trip yet; always first
         if (String(fromTripId) !== FUTURE) list.unshift({ id: FUTURE, date: '', lorry: 'Future trip — no trip yet', status: 'FUTURE', bay: '', orders: 0, future: true });
         return list;
     }

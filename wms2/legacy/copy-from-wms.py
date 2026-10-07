@@ -4,7 +4,7 @@ WMS 2.0 never edits these files: fix the original in wms/ and run this script ag
 (python wms2/legacy/copy-from-wms.py from the repo root). The line ranges below are the
 WMS source as of this copy; check them after a big change in wms/app.js.
 
-  trip-workspace.js  wms/app.js 5112-15811: the Trip Details page (openTripDetails, header actions
+  trip-workspace.js  wms/app.js 5113-15812: the Trip Details page (openTripDetails, header actions
                      Refresh / Edit Trip / Assign Picker / Allocate Lots for S2V / Pick Release All /
                      All Shipment Lines / Show Lines / Get Profit Centers / Add Orders, per-row Move /
                      Remove / Print), the picker dialog, pick release with or without lots, print store
@@ -14,7 +14,8 @@ WMS source as of this copy; check them after a big change in wms/app.js.
   trip-move.js       wms/trip-move.js (move an order to another trip)
   pickers.js         wms/pickers.js (loadPickers → window.pickersData)
   vehicles.js        wms/vehicles.js (loadVehicles → window.vehiclesData, lorry capacity)
-  future-trip.js     wms/future-trip.js (Picker Assigned On column, Future Trip 9999 grid + Set up trip 9999)
+  future-trip.js     wms/future-trip.js (MRA / Picker Assigned On / Actual Ship Date columns, Pinned Trips: pins store
+                     + Pin button + the tab with the pinned trips and the Future Trip 999999999 grid, Set up trip)
   new-trip.js        wms/copilot.js 296-840 (Create New Trip modal)
   agent-assign.js    wms/shipping-agent.js 8, 89-126, 5597-5659, 6502-6505 (Add to Agent)
   markup.js          wms/index.html from <!-- Add Orders Modal --> to <!-- Edit Trip Modal --> (Add Orders / Paste /
@@ -50,8 +51,8 @@ def head(what):
 
 
 app = lines('wms/app.js')
-write('trip-workspace.js', head('wms/app.js lines 5112-15811 (Trip Details page, its actions and the order dialogs)') +
-      '(function () {\n' + cut(app, 5112, 15811) + '\n})();')
+write('trip-workspace.js', head('wms/app.js lines 5113-15812 (Trip Details page, its actions and the order dialogs)') +
+      '(function () {\n' + cut(app, 5113, 15812) + '\n})();')
 
 for f in ['trip-details.js', 'trip-move.js', 'pickers.js', 'vehicles.js', 'future-trip.js']:
     write(f, head('wms/' + f) + '\n'.join(lines('wms/' + f)))

@@ -15,7 +15,7 @@ A new warehouse module next to the WMS. Home › **WMS 2.0** opens a control tow
 The left menu has these pages:
 
 - **Trips**: as a board by stage, or as a list. Each trip you open gets its own tab next to **All trips**, so several trips stay open at once. Ctrl+click or middle-click opens a trip in the background, × or middle-click on a tab closes it, and **Close all** closes them all. The tabs are kept per instance and trip date for the session.
-- **Future trip**: the orders on trip 9999 (orders without a real trip yet), for the instance in the top bar, with a count in the menu. Each line has only **Move** (to a real trip) and **Delete**; the other trip buttons are disabled. **Set up trip 9999** creates the trip when it is missing. This is the WMS Future Trip screen itself.
+- **Pinned trips**: the trips pinned from the WMS trip cards (Open = a trip tab, Unpin) and the orders on the Future trip 999999999 (orders without a real trip yet), for the instance in the top bar, with a count in the menu. Each future-trip line has only **Move** (to a real trip) and **Delete**; the other trip buttons are disabled. **Set up trip 999999999** creates the trip when it is missing. Trip 9999 (the future trip before) is shown while it still holds orders. This is the WMS Pinned Trips screen itself.
 - **Orders**: every order of the date, with filters.
 - **Picking**: the load per picker.
 - **Pick release (day)**: release every trip of the date at once.
@@ -51,8 +51,8 @@ Everything the WMS trip page does is available in WMS 2.0, from the WMS's own co
 | Print (sales order / store transaction) | Order panel › Print |
 | Order / Store Transactions (lines, lots, pick confirm, ship confirm, cancel lines by hand, QOH, set data, process) | Order panel › Order details |
 | Picker Assigned On (date the picker was assigned) | A column after Picker on the WMS page of every trip tab |
-| Move to the Future Trip (9999) | Trip 9999 is first in the Move dialog |
-| Future Trip tab | Future trip page in the left menu |
+| Move to the Future Trip (999999999) | Trip 999999999 is first in the Move dialog |
+| Pinned Trips tab (pinned trips + the Future trip) | Pinned trips page in the left menu |
 | Create New Trip (Co-Pilot) | Trips › Create trip (the new trip opens as a tab) |
 | Trip summary, volume vs lorry capacity, Excel export | The trip tab's cards (Lorry load) and the WMS page's grid |
 
@@ -128,7 +128,7 @@ Home has a **Tomorrow Check** tile that opens WMS 2.0 on tomorrow's trips. The s
 
 It works on the local copy and reads nothing new from Fusion. The rules (`wms2/w2-premortem-engine.js`, node-tested) look for:
 
-- **Ships empty**: every line of the order is Scheduled or Manual Reservation. The autopilot will cancel them all. Fix: move the order to the Future trip (9999).
+- **Ships empty**: every line of the order is Scheduled or Manual Reservation. The autopilot will cancel them all. Fix: move the order to the Future trip (999999999).
 - **Lines will be cancelled**: the same cancel rules as the autopilot, including the free item and sub-lines that go with each line.
 - **Free item / sub-line left behind**: a BOGO item or sub-line that cannot be cancelled with its main line (already shipped, or it has no fulfilment line id).
 - **Line cannot be cancelled**: a main line with no fulfilment line id.

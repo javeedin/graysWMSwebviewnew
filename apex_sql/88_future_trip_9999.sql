@@ -1,6 +1,9 @@
 -- ============================================================
 -- Trip 9999 = the FUTURE TRIP (WMS › Trip Management › Future Trip)
 -- ============================================================
+-- SUPERSEDED: the future trip is now 999999999 and the tab is "Pinned Trips" — see apex_sql/96_pinned_trips.sql
+-- (it also moves the orders still on 9999). Kept for pods set up before.
+-- ------------------------------------------------------------
 -- Orders that have no real trip yet are moved to trip 9999 (Move dialog: it is always first in the list).
 -- The Future Trip tab shows them (GETTRIPDETAILS/9999) with only Move and Delete per line.
 --
