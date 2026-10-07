@@ -553,6 +553,14 @@ namespace WMSApp
                     case "finMailStatus":
                         data = await FinanceMail.StatusAsync(user);
                         break;
+                    case "finMailSetAccount":   // the Outlook account to send from (remembered on this PC)
+                        {
+                            var ms = FinanceMail.Load();
+                            ms.OutlookAccount = (PipeSrvStr(root, "account") ?? "").Trim();
+                            FinanceMail.Save(ms);
+                            data = await FinanceMail.StatusAsync(user);
+                            break;
+                        }
                     case "finMailSave":
                         {
                             var ms = JsonSerializer.Deserialize<FinanceMail.Settings>(PipeSrvStr(root, "settings") ?? "{}", new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new FinanceMail.Settings();

@@ -58,7 +58,7 @@
                 '<div class="ml-chks" style="margin-top:6px"><label><input type="checkbox" data-o="track"' + (s.track ? ' checked' : '') + '> track: one copy per person with <b>Confirm receipt</b> and open tracking</label><label><input type="checkbox" data-o="rr"' + (s.rr ? ' checked' : '') + '> ask for delivery and read receipts</label></div>' +
                 '<div class="grid g2" style="margin-top:6px"><label class="field">Board meeting <span class="muted sm">(optional)</span><input type="date" id="dw-meet" value="' + esc(s.meeting) + '"></label><label class="field">Comment for the record<input id="dw-com" value="' + esc(s.comments) + '" placeholder="e.g. September board, final"></label></div>' +
                 '<div class="row" style="margin-top:8px"><label class="sm">Send with <select id="dw-how">' + ['OUTLOOK', 'GRAPH', 'SMTP'].map(function (k) { return '<option value="' + k + '"' + (k === me ? ' selected' : '') + '>' + ({ OUTLOOK: 'Outlook (this PC)', GRAPH: 'Microsoft 365', SMTP: 'SMTP' })[k] + '</option>'; }).join('') + '</select></label>' +
-                '<button class="btn sm ghost" onclick="FL.mail.setup()" title="E-mail setup"><i class="fa-solid fa-gear"></i></button></div></div>' +
+                FL.mail.fromSelect('dw-from', me) + '<button class="btn sm ghost" onclick="FL.mail.setup()" title="E-mail setup"><i class="fa-solid fa-gear"></i></button></div></div>' +
                 '</div><div class="dw-right card"><div class="row"><div class="seg sm" id="dw-view"><button data-v="pack"' + (s.view === 'pack' ? ' class="on"' : '') + '><i class="fa-solid fa-book-open"></i> The pack</button><button data-v="email"' + (s.view === 'email' ? ' class="on"' : '') + '><i class="fa-solid fa-envelope"></i> The e-mail</button></div>' +
                 '<span class="sm muted" id="dw-stat"></span><span class="grow"></span><button class="btn sm" id="dw-full" title="Full screen"><i class="fa-solid fa-up-right-and-down-left-from-center"></i></button></div>' +
                 '<div class="dw-frame"><iframe id="dw-f" title="Preview"></iframe></div>' +
@@ -100,6 +100,7 @@
         body.querySelectorAll('#dw-view button').forEach(function (b) { b.onclick = function () { s.view = b.dataset.v; body.querySelectorAll('#dw-view button').forEach(function (x) { x.classList.toggle('on', x === b); }); W.show(); }; });
         $('dw-full').onclick = function () { if (W.built) { if (s.view === 'email') FL.packView(W.emailHtml(), { title: 'E-mail preview' }); else FL.packView(W.built.html, { title: W.pack().title || W.pack().name }); } };
         $('dw-dist').onclick = W.distribute;
+        FL.mail.wireFrom('dw-from', 'dw-how');
     };
 
     /** Builds the pack for the chosen period / ledgers (the header filter is restored after) */

@@ -15,7 +15,33 @@
     };
     var v = function (id) { var e = $(id); return e ? (e.type === 'checkbox' ? e.checked : e.value) : ''; };
 
-    M.status = function () { return FL.call('finMailStatus').then(function (r) { M.st = r; M.paintHeader(); return r; }); };
+    M.status = function () { return FL.call('finMailStatus').then(function (r) { M.st = r; M.paintHeader(); return M.autoAccount(r); }); };
+    var PERSONAL = /@(outlook|hotmail|live|msn|gmail|googlemail|yahoo|icloud|me|aol|proton|protonmail)\./i;
+    /** Outlook with several accounts and none chosen: take the work one (not outlook.com / gmail …), remember it and say so */
+    M.autoAccount = function (r) {
+        var accs = (r && r.outlookAccounts) || [], st = (r && r.settings) || {};
+        if (!r || !r.outlook || accs.length < 2 || st.OutlookAccount) return Promise.resolve(r);
+        var work = accs.filter(function (a) { return !PERSONAL.test(a); }), pick = work[0] || accs[0];
+        return M.setAccount(pick, true).then(function (r2) {
+            FL.toast('Outlook has ' + accs.length + ' accounts — board packs will be sent from ' + pick + '. Change it in E-mail setup › Send from.', 'info');
+            return r2;
+        }).catch(function () { return r; });
+    };
+    /** Saves the Outlook account to send from (on this PC) */
+    M.setAccount = function (acc, quiet) {
+        return FL.call('finMailSetAccount', { account: acc || '' }).then(function (r) { M.st = r; M.paintHeader(); if (!quiet) FL.toast('Packs will be sent from ' + (acc || 'Outlook\'s default account'), 'ok'); return r; });
+    };
+    /** A "From" select for the Outlook accounts (shown when there are 2+), saving the choice as the default */
+    M.fromSelect = function (id, how) {
+        var r = M.st || {}, accs = r.outlookAccounts || [], cur = (r.settings || {}).OutlookAccount || '';
+        if (accs.length < 2) return '';
+        return '<label class="sm" id="' + id + '-w"' + (how && how !== 'OUTLOOK' ? ' hidden' : '') + ' title="The Outlook account the packs are sent from — remembered on this PC">From <select id="' + id + '">' +
+            accs.map(function (a) { return '<option' + (a.toLowerCase() === cur.toLowerCase() ? ' selected' : '') + '>' + esc(a) + '</option>'; }).join('') + '</select></label>';
+    };
+    M.wireFrom = function (id, howSel) {
+        if ($(id)) $(id).onchange = function () { M.setAccount(this.value); };
+        if (howSel && $(howSel) && $(id + '-w')) $(howSel).addEventListener('change', function () { $(id + '-w').hidden = this.value !== 'OUTLOOK'; });
+    };
     M.paintHeader = function () {
         var b = $('b-mail'); if (!b || !M.st) return;
         var s = M.st.settings || {}, ok = s.Method === 'GRAPH' ? !!M.st.graphAccount : s.Method === 'SMTP' ? !!(M.st.smtp && M.st.smtp.hasPassword) : M.st.outlook;
@@ -114,7 +140,7 @@
                 '<label title="Each person gets their own copy with a button to confirm receipt and a small picture that shows when it is opened"><input type="checkbox" id="mc-track"' + (e.track !== false ? ' checked' : '') + '> track: one copy per person with <b>Confirm receipt</b> and open tracking</label>' +
                 '<label title="The mail system sends a receipt back to your mailbox when it is delivered and when it is read (people can decline a read receipt)"><input type="checkbox" id="mc-rr"' + (e.receipts !== false ? ' checked' : '') + '> ask for delivery and read receipts</label></div>' +
                 '<div class="row ml-send"><label class="sm">Send with <select id="mc-how">' + ['OUTLOOK', 'GRAPH', 'SMTP'].map(function (k) { return '<option value="' + k + '"' + (k === me ? ' selected' : '') + '>' + METHODS[k].name + '</option>'; }).join('') + '</select></label>' +
-                '<button class="btn sm ghost" onclick="FL.mail.setup()" title="E-mail setup"><i class="fa-solid fa-gear"></i></button>' + (ok ? '' : '<span class="tag warn">not set up</span>') + '<span class="grow"></span>' +
+                M.fromSelect('mc-from', me) + '<button class="btn sm ghost" onclick="FL.mail.setup()" title="E-mail setup"><i class="fa-solid fa-gear"></i></button>' + (ok ? '' : '<span class="tag warn">not set up</span>') + '<span class="grow"></span>' +
                 (M.st && M.st.outlook ? '<button class="btn" id="mc-review" title="Open the message in Outlook to check it and send it yourself"><i class="fa-brands fa-microsoft"></i> Open in Outlook</button>' : '') +
                 '<button class="btn primary" id="mc-send"><i class="fa-solid fa-paper-plane"></i> Send</button></div><div id="mc-msg" class="sm"></div></div>' +
                 '<div class="ml-prev"><div class="sm muted" style="margin-bottom:4px"><i class="fa-regular fa-eye"></i> How the message looks</div><iframe id="mc-f" title="Message preview"></iframe></div></div>');
@@ -143,6 +169,7 @@
                     .then(function () { btns.forEach(function (b) { b.disabled = false; }); });
             };
             $('mc-send').onclick = function () { send($('mc-how').value, false); };
+            M.wireFrom('mc-from', 'mc-how');
             $('mc-ab').onclick = function (e) { e.preventDefault(); M.contacts(function (field, emails) { var el = $('mc-' + field); el.value = M.merge(el.value, emails); el.dispatchEvent(new Event('input')); }); };
             if ($('mc-review')) $('mc-review').onclick = function () { send('OUTLOOK', true); };
         };
