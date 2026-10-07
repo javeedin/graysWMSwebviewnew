@@ -367,6 +367,7 @@
 
     // ─── Page initialisation ────────────────────────────────
     window.saInitPage = async function() {
+        SADB.probe();
         // Default date filter: today
         const today = new Date().toISOString().slice(0, 10);
         const fromEl    = document.getElementById('sa-from-date');
@@ -422,6 +423,7 @@
                 ANOMALIES_TODAY:      a.ANOMALIES_TODAY || a.anomalies_today || 0
             }));
             window._saAgents = agents;
+            window._saAgentsLoaded = true;
             saRenderCards(agents);
             saUpdateStats(agents);
         } catch(e) {
@@ -506,6 +508,7 @@
                 <div style="margin-top:5px;font-size:10px;color:#cbd5e1;border-top:1px solid #f1f5f9;padding-top:4px;">
                     <i class="fas fa-calendar-plus" style="color:#a78bfa;"></i> Created: <span style="color:#7c3aed;font-weight:600;">${saFormatDate(agent.CREATED_DATE)}</span>
                 </div>
+                <div id="sa-card-asof-${agent.ID}" style="display:none;margin-top:3px;font-size:10px;color:#0e7490;font-weight:600;" title="DuckDB mode: when this agent's trips were last read from Fusion and APEX"></div>
                 ${isSelected ? `<div id="sa-left-trips-${agent.ID}" style="margin-top:6px;border-top:1px solid #e2e8f0;padding-top:6px;">
                     <div style="font-size:9px;color:#94a3b8;"><i class="fas fa-spinner fa-spin"></i> Loading trips...</div>
                 </div>` : ''}`;
@@ -613,6 +616,16 @@
         PENDING:     { bg: '#f1f5f9', color: '#475569', icon: 'fa-clock' }
     };
 
+    // The trip date / lorry / bay / priority chips of a trip card (drawn from GETTRIPDETAILS, or from DuckDB)
+    function saTripMetaChips(tripDate, lorry, bay, prio) {
+        return [
+            tripDate ? `<span style="background:#f0fdf4;color:#15803d;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-calendar-alt"></i> Trip Date: ${esc(tripDate)}</span>` : '',
+            lorry    ? `<span style="background:#e0f2fe;color:#0369a1;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-truck"></i> ${esc(lorry)}</span>` : '',
+            bay      ? `<span style="background:#fef9c3;color:#a16207;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-warehouse"></i> Bay ${esc(bay)}</span>` : '',
+            prio     ? `<span style="background:#fce7f3;color:#be185d;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-star"></i> Priority ${esc(prio)}</span>` : ''
+        ].filter(Boolean).join('');
+    }
+
     async function saLoadTrips() {
         const agent = window._saCurrentAgent;
         if (!agent) return;
@@ -691,6 +704,8 @@
                         </div>
                         <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
                             <span class="sa-mra-flag" data-inst="${esc((t.INSTANCE_NAME || 'PROD').toUpperCase())}">${saMraFlagChip(null)}</span>
+                            <span id="sa-trip-asof-${esc(t.TRIP_ID)}" style="display:none;background:#ecfeff;color:#0e7490;border:1px solid #a5f3fc;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;white-space:nowrap;" title="DuckDB mode: when this trip was last read from Fusion and APEX"></span>
+                            <button id="sa-trip-refresh-${esc(t.TRIP_ID)}" onclick="saDbRefreshTrip('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="display:none;background:#0e7490;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Read this trip from Fusion and APEX again and save it on this PC"><i class="fas fa-sync"></i> Refresh</button>
                             <span style="background:${st.bg};color:${st.color};padding:2px 10px;border-radius:10px;font-size:10px;font-weight:700;">${t.STATUS}</span>
                             <button onclick="saShowTripOrdersApiInfo('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#1e293b;color:#94a3b8;border:none;padding:3px 7px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Show API calls for this trip"><i class="fas fa-code"></i></button>
                             <button onclick="saLoadTripOrders('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#0891b2;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Load order details">
@@ -727,6 +742,9 @@
                 </div>`;
             }).join('');
 
+            // DuckDB mode: trips this PC holds are drawn from DuckDB, the others are read once (today's calls) and saved
+            if (await SADB.afterTripsRendered(agent, trips)) return;
+
             saMraPaintFlags(false);
 
             // Auto-load orders for ALL trips (silent) so DB status GET runs on agent open
@@ -752,13 +770,7 @@
                         if (!metaEl) return;
                         // Store trip date on the card element for use by saPrintOrder
                         metaEl.setAttribute('data-trip-date', tripDate);
-                        const chips = [
-                            tripDate ? `<span style="background:#f0fdf4;color:#15803d;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-calendar-alt"></i> Trip Date: ${esc(tripDate)}</span>` : '',
-                            lorry    ? `<span style="background:#e0f2fe;color:#0369a1;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-truck"></i> ${esc(lorry)}</span>` : '',
-                            bay      ? `<span style="background:#fef9c3;color:#a16207;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-warehouse"></i> Bay ${esc(bay)}</span>` : '',
-                            prio     ? `<span style="background:#fce7f3;color:#be185d;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-star"></i> Priority ${esc(prio)}</span>` : ''
-                        ].filter(Boolean).join('');
-                        metaEl.innerHTML = chips || '';
+                        metaEl.innerHTML = saTripMetaChips(tripDate, lorry, bay, prio);
                     })
                     .catch(() => {
                         const metaEl = document.getElementById(`sa-trip-meta-${t.TRIP_ID}`);
@@ -907,6 +919,7 @@
 
             if (rows.length === 0) {
                 container.innerHTML = `<div style="padding:0.75rem 1rem;font-size:11px;color:#94a3b8;text-align:center;">No orders found for this trip.</div>`;
+                if (SADB.on()) { SADB.onTripOrders(agent, tripId, inst, [], null); container.dataset.loaded = '1'; }
                 return;
             }
 
@@ -936,8 +949,12 @@
             container.dataset.loaded = '1';
             container.style.display = 'block';
 
-            // Pre-populate from DB (previously saved status)
-            try {
+            // DuckDB mode: the trip's orders (base columns) go to this PC; the status columns follow as they are read
+            if (SADB.on()) SADB.onTripOrders(agent, tripId, inst, orders, rows[0]);
+
+            // Pre-populate from DB (previously saved status) — DuckDB mode paints what this PC already holds instead
+            if (SADB.on()) Object.values(SADB.rows[tripId] || {}).forEach(r => SADB.paintRow(tripId, r));
+            else try {
                 const dbData = await apexGet(`agents/${agent.ID}/trips/${encodeURIComponent(tripId)}/orders/status`);
                 (dbData.items || []).forEach(rec => {
                     const on = (rec.ORDER_NUMBER || rec.order_number || '').toString().trim();
@@ -986,8 +1003,14 @@
             }
 
             // Auto-run print status + shipment lines after orders are loaded
-            setTimeout(() => saGetPrintStatus(tripId, inst).then(() => saRefreshTripCardStats(tripId)), 200);
-            setTimeout(() => saGetAllShipmentLines(tripId, inst).then(() => saRefreshTripCardStats(tripId)), 500);
+            // (DuckDB mode waits for them, so a refresh knows when the trip is complete and saves it)
+            if (SADB.on()) {
+                await saGetPrintStatus(tripId, inst); saRefreshTripCardStats(tripId);
+                await saGetAllShipmentLines(tripId, inst); saRefreshTripCardStats(tripId);
+            } else {
+                setTimeout(() => saGetPrintStatus(tripId, inst).then(() => saRefreshTripCardStats(tripId)), 200);
+                setTimeout(() => saGetAllShipmentLines(tripId, inst).then(() => saRefreshTripCardStats(tripId)), 500);
+            }
 
         } catch(e) {
             container.innerHTML = `<div style="padding:0.75rem 1rem;color:#dc2626;font-size:11px;">${e.message}</div>`;
@@ -1050,6 +1073,7 @@
                 setCell('print',     saBadge('N/A', '#f1f5f9', '#94a3b8', 'fa-print'));
                 setCell('checked',   saCheckedBadge(timeStr, 0));
                 fusionFetchOk = true;
+                if (SADB.on()) SADB.onOrderStatus(tripId, orderNumber, { statusText: 'No Lines', total: 0, staged: 0, interfaced: 0, released: 0, ready: 0, cancelled: 0, other: 0, shippedLines: 0, totalQty: 0, stagedQty: 0, shippedQty: 0, lines: [], inst: instanceName });
                 // Fall through to DB save with all zeros
             } else {
 
@@ -1162,6 +1186,7 @@
                 : releasedToWH > 0 ? 'Released to WH'
                 : readyToRelease > 0 ? 'Ready to Release'
                 : 'Pending';
+            if (SADB.on()) SADB.onOrderStatus(tripId, orderNumber, { statusText: orderStatusText, total: totalLines, staged, interfaced, released: releasedToWH, ready: readyToRelease, cancelled, other, shippedLines, totalQty, stagedQty, shippedQty, lines, inst: instanceName });
 
             setCell('status',    orderStatusBadge);
             // staged is set from WMS getsalesorderlines below (LINE_STATUS='Staged')
@@ -1172,7 +1197,7 @@
             setCell('checked',   saCheckedBadge(timeStr, lines.length));
             // Update shipped indicator in first column
             if (shippedLines > 0) {
-                const indEl = row.querySelector('[data-col="shipped-indicator"]');
+                const indEl = rowEl.querySelector('[data-col="shipped-indicator"]');
                 if (indEl) indEl.innerHTML = `<span style="background:#fef9c3;color:#a16207;border:1px solid #fde68a;padding:0px 5px;border-radius:4px;font-size:9px;font-weight:700;" title="${shippedLines} line(s) with Shipped status">${shippedLines}s</span>`;
             }
 
@@ -1193,6 +1218,7 @@
                 setCell('status', `<span style="color:#dc2626;font-size:9px;" title="${esc(e.message)}">Error</span>`);
             }
             setCell('checked', `<span style="color:#dc2626;font-size:9px;" title="${esc(e.message)}"><i class="fas fa-exclamation-circle"></i> ${timeStr}</span>`);
+            if (SADB.on()) SADB.onChecked(tripId, orderNumber, e.message);
 
             const agent = window._saCurrentAgent;
             if (agent) {
@@ -1228,6 +1254,7 @@
                 ? saBadge('Printed', '#dcfce7', '#15803d', 'fa-check')
                 : saBadge(`${pPrinted}/${pTotal}`, '#fef9c3', '#a16207', 'fa-print');
         setCell('print', printBadge);
+        if (SADB.on()) SADB.onPrintCount(tripId, orderNumber, pTotal, pPrinted);
 
         // ── Order Lines count + Staged count: GET getsalesorderlines ──
         let orderLinesCount = 0;
@@ -1246,6 +1273,7 @@
             setCell('staged', wmsStaged > 0
                 ? saBadge(`${wmsStaged}`, '#dbeafe', '#1d4ed8', 'fa-layer-group')
                 : saBadge('0', '#f1f5f9', '#94a3b8', null));
+            if (SADB.on()) SADB.onOrderLines(tripId, orderNumber, olItems, wmsStaged, orderLinesCount, instanceName);
         } catch(e) {
             setCell('order_lines', `<span style="color:#94a3b8;font-size:9px;">—</span>`);
         }
@@ -1306,6 +1334,7 @@
                             ? saBadge('Printed', '#dcfce7', '#15803d', 'fa-check')
                             : saBadge(`${pp}/${pt}`, '#fef9c3', '#a16207', 'fa-print');
                     setCell('print', pb);
+                    if (SADB.on()) SADB.onPrintCount(tripId, orderNumber, pt, pp);
                 }
             }
         } catch(e) {
@@ -1326,16 +1355,18 @@
         const rows = container.querySelectorAll('tr[id^="sa-order-row-"]');
 
         let fetched = 0;
-        const fetchPromises = Array.from(rows).map(async row => {
+        const fetchOne = async row => {
             // Extract orderNumber and instance from row id: sa-order-row-{tripId}-{orderNumber}
             const idParts = row.id.replace(`sa-order-row-${tripId}-`, '');
             const orderNumber = idParts;
             if (!orderNumber) return;
             await saFetchOrderStatus(orderNumber, instanceName, tripId);
             fetched++;
-        });
+        };
 
-        await Promise.all(fetchPromises);
+        // DuckDB mode: SADB.POOL orders at a time (traditional: every order of the trip at once)
+        if (SADB.on()) await SADB.pool(Array.from(rows), SADB.POOL, fetchOne);
+        else await Promise.all(Array.from(rows).map(fetchOne));
 
         // Post activity log entry
         if (agent) {
@@ -1346,7 +1377,7 @@
         }
 
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-download"></i> Get Shipment Lines'; }
-        showNotification(`Shipment lines fetched for ${fetched} order(s).`, 'success');
+        if (!SADB.quiet) showNotification(`Shipment lines fetched for ${fetched} order(s).`, 'success');
     };
 
     // Cache: { [tripId]: { [orderNumber]: { total, printed } } }
@@ -1371,9 +1402,10 @@
                 if (on) map[on] = { total, printed, filePath };
             });
             window._saPrintCache[tripId] = map;
+            if (SADB.on()) SADB.onPrintMap(tripId, map);
 
             if (rows.length === 0) {
-                showNotification('No print jobs found for this trip.', 'info');
+                if (!SADB.quiet) showNotification('No print jobs found for this trip.', 'info');
             } else {
                 // Update the print cell for every order row in this trip
                 const container = document.getElementById(`sa-trip-orders-${tripId}`);
@@ -1394,7 +1426,7 @@
                     });
                 }
 
-                showNotification(`Print status updated for ${rows.length} order(s).`, 'success');
+                if (!SADB.quiet) showNotification(`Print status updated for ${rows.length} order(s).`, 'success');
             }
         } catch(e) {
             showNotification(`Print status fetch failed: ${e.message}`, 'error');
@@ -1665,6 +1697,7 @@
     }
 
     function saUpdatePlinesCell(tripId, orderNumber, count) {
+        if (SADB.on()) SADB.onPlines(tripId, orderNumber, count);
         const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
         if (!rowEl) return;
         const pl = rowEl.querySelector('[data-col="plines"]');
@@ -1864,6 +1897,7 @@
                         ? saBadge('Downloaded', '#dcfce7', '#15803d', 'fa-check')
                         : saBadge('Empty PDF', '#fef9c3', '#a16207', 'fa-exclamation-triangle');
                 }
+                if (SADB.on()) SADB.onPrinted(tripId, orderNumber, hasLines ? 'Downloaded' : 'Empty PDF', filePath);
                 if (!silent) saShowPdfChoice(base64, orderNumber, filePath, fileSize, hasLines);
                 setBtn('<i class="fas fa-print"></i>', false);
                 if (!silent) showNotification(`PDF for ${orderNumber} downloaded.`, hasLines ? 'success' : 'warning');
@@ -1879,6 +1913,7 @@
                     const pc = rowEl.querySelector('[data-col="print"]');
                     if (pc) pc.innerHTML = saBadge('NoLines', '#f1f5f9', '#64748b', 'fa-minus-circle');
                 }
+                if (SADB.on()) SADB.onPrinted(tripId, orderNumber, 'NoLines', '');
                 setBtn('<i class="fas fa-print"></i>', false);
                 if (!silent) showNotification(`Order ${orderNumber} has no lines — nothing to print.`, 'warning');
                 return;
@@ -1914,6 +1949,8 @@
                     ? saBadge('Downloaded', '#dcfce7', '#15803d', 'fa-check')
                     : saBadge('Empty PDF', '#fef9c3', '#a16207', 'fa-exclamation-triangle');
             }
+
+            if (SADB.on()) SADB.onPrinted(tripId, orderNumber, hasLines ? 'Downloaded' : 'Empty PDF', filePath);
 
             // 5. Show choice popup only for individual prints (not batch Print Trip)
             if (!silent) saShowPdfChoice(base64, orderNumber, filePath, fileSize, hasLines);
@@ -1967,6 +2004,7 @@
     function saMraBadgeFor(tripId, order) { return saMraBadge(((window._saMra || {})[tripId] || {})[order], tripId, order); }
     function saMraSet(tripId, order, r) {
         (window._saMra[tripId] = window._saMra[tripId] || {})[order] = r;
+        if (r && !r.fromDb && SADB.on()) SADB.onMra(tripId, order, r);
         const cell = document.querySelector(`#sa-order-row-${CSS.escape(String(tripId))}-${CSS.escape(String(order))} [data-col="mra"]`);
         if (cell) cell.innerHTML = saMraBadge(r, tripId, order);
     }
@@ -4740,7 +4778,22 @@
 
         // Collect all lines needing cancellation grouped by order
         const cancelGroups = {}; // { orderNumber: [ line, ... ] }
-        for (const row of orderRows) {
+        if (SADB.on()) {
+            // DuckDB mode: the order lines were read with the shipment lines in Task 1 and sit on this PC — no second read per order
+            try {
+                const g = await SADB.groupsForTrip(agent, tripId);
+                for (const orderNumber of Object.keys(g)) {
+                    cancelGroups[orderNumber] = g[orderNumber];
+                    const childCnt = g[orderNumber].filter(l => l._saChildOf).length;
+                    saConsoleLog(`Task 2 ⚠ Order ${orderNumber}: ${g[orderNumber].length} line(s) need cancellation (${g[orderNumber].length - childCnt} main + ${childCnt} child) — from the lines kept on this PC`, 'warn');
+                    await saAppendCancelLog(tripId, saCancelLogText(orderNumber, g[orderNumber], []));
+                    await saLogActivity(agent.ID, tripId, orderNumber, 'ANOMALY_DETECT', 'SUCCESS', g[orderNumber].length,
+                        `Order ${orderNumber}: ${g[orderNumber].length} line(s) need cancellation (${g[orderNumber].length - childCnt} main Scheduled/Manual Reservations + ${childCnt} child)`, null, null);
+                }
+            } catch(e) {
+                saConsoleLog(`Task 2 ✗ Could not read the order lines kept on this PC: ${e.message}`, 'error');
+            }
+        } else for (const row of orderRows) {
             if (window._saAgentAbort && window._saAgentAbort[agent.ID]) {
                 saConsoleLog('⛔ Agent stopped — aborting Task 2', 'warn'); return;
             }
@@ -5246,6 +5299,7 @@
                     }, (err, data) => err ? rej(new Error(String(err))) : res(data));
                 });
                 autoCancelled += lines.length;
+                if (SADB.on() && !SADB.inConfirm) SADB.onCancelSent(agent, tripId, instance, orderNum, lines, 'SENT', 'Fusion accepted the PATCH', approvedBy);
                 const childCnt = lines.filter(l => l._saChildOf).length;
                 saConsoleLog(`Task 2 ✓ Order ${orderNum}: ${lines.length} line(s) cancelled successfully${childCnt ? ` (${childCnt} child)` : ''}`, 'success');
                 await saAppendCancelLog(tripId, `RESULT order ${orderNum}: SUCCESS — ${lines.length} line(s) cancelled (${lines.length - childCnt} main + ${childCnt} child)`);
@@ -5263,6 +5317,7 @@
             } catch(e) {
                 cancelFailed++;
                 saConsoleLog(`Task 2 ✗ Order ${orderNum}: cancel failed — ${e.message}`, 'error');
+                if (SADB.on() && !SADB.inConfirm) SADB.onCancelSent(agent, tripId, instance, orderNum, lines, 'FAILED', e.message, approvedBy);
                 await saAppendCancelLog(tripId, `RESULT order ${orderNum}: FAILED — ${e.message}`);
                 await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'FAILED', 1, e.message, null, null);
             }
@@ -5586,16 +5641,742 @@
         }
     };
 
-    // ─── Page show hook ──────────────────────────────────────
-    // Called when user navigates to shipping-agents page
-    document.addEventListener('DOMContentLoaded', function() {
-        const orig = window.showPage;
-        window.showPage = function(page) {
-            if (typeof orig === 'function') orig(page);
-            if (page === 'shipping-agents') {
-                setTimeout(saInitPage, 100);
-            }
+    // ═══════════════════════════════════════════════════════════════════════════════════════
+    // DuckDB mode — "Use DuckDB" (checkbox in the agent header, on by default, per PC)
+    // ───────────────────────────────────────────────────────────────────────────────────────
+    // Everything the agent reads for a trip (GETTRIPDETAILS orders, Fusion shipment lines, WMS order lines,
+    // print jobs, MRA results, PDF downloads, PLines) is ALSO written into the WMS 2.0 DuckDB file
+    // (C:\fusion\wms2\wms2.duckdb) through the host actions w2Put / w2Query / w2Queries, in the agent's own
+    // tables w2_sa_* (the host only accepts names starting with w2_; the WMS 2.0 tables are not touched):
+    //   w2_sa_trips        one row per agent × trip   — date, lorry, bay, priority, KPIs, refreshed_at
+    //   w2_sa_orders       one row per agent × trip × order — every column of the trip table
+    //   w2_sa_ship_lines   the Fusion shipment lines of each order (bucket READY / RELEASED / STAGED / INTERFACED / CANCELLED)
+    //   w2_sa_order_lines  the WMS order lines of each order (what the cancellation rule reads; raw_json = the APEX row)
+    //   w2_sa_cancel_log   every line sent to Fusion for cancellation (DONE / FAILED / GONE / SENT) with who and when
+    //   w2_sa_refresh_log  every first load / refresh / check
+    // The FIRST click on an agent runs today's calls (one trip after another, the per-order calls 5 at a time) and
+    // saves; the next clicks, tick boxes and page opens draw the trip tables from DuckDB alone; "Refresh all",
+    // the Refresh of one trip card and "Check cancellation lines" read Fusion + APEX again like the first time.
+    // After every load the lines eligible for cancellation (Task 2's rule on the order lines kept in DuckDB) are
+    // shown in a popup with tick boxes and Confirm: each order is read live before the PATCH and again 2.5 s after
+    // it (DONE only when the line now reads Cancelled), then the trips touched are refreshed from Fusion once.
+    // Off (localStorage sa.duck = '0'), or a host that does not answer w2Status (an exe built before WMS 2.0)
+    // = today's behaviour, unchanged.
+    const SADB_T = {
+        w2_sa_trips: ['agent_id', 'trip_id', 'trip_name', 'pod', 'trip_date', 'lorry', 'loading_bay', 'priority', 'assigned_date', 'status', 'mra_flag',
+            'orders_total', 'processed', 'printed', 'to_cancel', 'cancelled', 'refreshed_at', 'refresh_kind', 'refresh_ms', 'refresh_error', 'raw_json'],
+        w2_sa_orders: ['agent_id', 'trip_id', 'pod', 'order_number', 'account_name', 'account_number', 'order_type', 'trip_date', 'lorry', 'picker', 'priority', 'pick_confirm_st',
+            'order_status', 'total_lines', 'active_lines', 'staged_lines', 'interfaced_lines', 'released_lines', 'ready_lines', 'cancelled_lines', 'backorder_lines', 'shipped_lines',
+            'picked_count', 'shipped_count', 'total_qty', 'staged_qty', 'shipped_qty', 'order_lines_count', 'wms_staged',
+            'print_total', 'print_printed', 'print_file', 'print_state', 'printed_at', 'plines',
+            'mra_st', 'mra_irn', 'mra_msg', 'mra_tries', 'mra_at', 'mra_inst', 'last_checked', 'check_error', 'raw_json'],
+        w2_sa_ship_lines: ['agent_id', 'trip_id', 'pod', 'order_number', 'line', 'item', 'line_status', 'line_status_code', 'bucket', 'requested_qty', 'staged_qty', 'shipped_qty',
+            'shipment', 'shipment_line', 'fulfill_line_id', 'checked_at', 'raw_json'],
+        w2_sa_order_lines: ['agent_id', 'trip_id', 'pod', 'order_number', 'line_number', 'item', 'description', 'status', 'fulfill_line_id', 'ordered_qty', 'read_at', 'raw_json'],
+        w2_sa_cancel_log: ['run_id', 'ts', 'pc', 'by_user', 'agent_id', 'trip_id', 'pod', 'order_number', 'line_number', 'item', 'status_before', 'fulfill_line_id', 'via', 'result', 'message', 'source'],
+        w2_sa_refresh_log: ['run_id', 'agent_id', 'kind', 'trips', 'started_at', 'ended_at', 'ms', 'orders', 'failures', 'summary', 'by_user']
+    };
+    const SADB = window.SADB = {
+        POOL: 5,                 // per-order calls at the same time during a first load / refresh (today: every order at once)
+        host: null,              // null = not asked yet, true = the host answers w2Status, false = old exe / DuckDB broken
+        hostError: '',
+        probing: null,
+        quiet: false,            // an orchestrated refresh is running: the per-trip toasts stay silent
+        busy: false,             // a first load / refresh / confirm is running (one at a time)
+        agentId: null,
+        rows: {},                // mirror of w2_sa_orders: { tripId: { orderNumber: row } }
+        trips: {},               // mirror of w2_sa_trips: { tripId: row }
+        olines: {},              // mirror of w2_sa_order_lines (the APEX rows): { tripId: { orderNumber: [line] } }
+        dirty: {},               // { tripId: Set(orderNumber) } waiting for flush()
+        flushTimer: null,
+        io: Promise.resolve(),   // every DuckDB write runs through this chain, in order
+        shown: {},               // { agentId: true } the popup was shown once for this agent in this session
+        lastCands: null
+    };
+    const S = v => (v == null ? null : String(v));
+    SADB.lit = s => "'" + String(s == null ? '' : s).replace(/'/g, "''") + "'";
+    SADB.pad2 = n => ('0' + n).slice(-2);
+    SADB.ts = function(ms) { const d = new Date(ms || Date.now()); return `${d.getFullYear()}-${SADB.pad2(d.getMonth() + 1)}-${SADB.pad2(d.getDate())} ${SADB.pad2(d.getHours())}:${SADB.pad2(d.getMinutes())}:${SADB.pad2(d.getSeconds())}`; };
+    SADB.now = () => SADB.ts();
+    SADB.hm = s => (s ? String(s).slice(11, 16) || String(s) : '');
+    SADB.dateOf = s => (s ? String(s).slice(0, 10) : '');
+    SADB.user = function() { try { return localStorage.getItem('wms_user') || sessionStorage.getItem('loggedInUser') || localStorage.getItem('loggedInUser') || 'WMS'; } catch (e) { return 'WMS'; } };
+    SADB.sleep = ms => new Promise(r => setTimeout(r, ms));
+    SADB.enabled = function() { try { return localStorage.getItem('sa.duck') !== '0'; } catch (e) { return true; } };
+    SADB.on = () => SADB.enabled() && SADB.host === true;
+    /** n at a time (the first load / refresh / confirm); a failing item never stops the others. */
+    SADB.pool = function(items, n, fn) {
+        let i = 0;
+        const next = () => {
+            if (i >= items.length) return Promise.resolve();
+            const idx = i++;
+            return Promise.resolve().then(() => fn(items[idx], idx)).catch(e => console.warn('[ShippingAgent] pooled call failed:', e && e.message || e)).then(next);
         };
+        const w = []; for (let k = 0; k < Math.min(n, items.length); k++) w.push(next());
+        return Promise.all(w);
+    };
+
+    // ── host IO ─────────────────────────────────────────────
+    SADB.call = function(action, payload, ms) {
+        return new Promise((resolve, reject) => {
+            if (typeof sendMessageToCSharp !== 'function' || !(window.chrome && window.chrome.webview)) { reject(new Error('host not available')); return; }
+            sendMessageToCSharp(Object.assign({ action, appUser: SADB.user() }, payload || {}), (err, data) => {
+                if (err) { reject(new Error(typeof err === 'string' ? err : (err.message || JSON.stringify(err)))); return; }
+                if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { /* keep the text */ } }
+                resolve(data);
+            }, ms || 120000, false);
+        });
+    };
+    /** Does this build answer the WMS 2.0 DuckDB actions? Asked once per page; the answer paints the header controls. */
+    SADB.probe = function() {
+        if (SADB.probing) return SADB.probing;
+        SADB.probing = SADB.call('w2Status', {}, 15000)
+            .then(d => { SADB.host = !!(d && d.ok !== false); SADB.hostError = SADB.host ? '' : ((d && d.error) || 'DuckDB did not answer'); return SADB.host; },
+                  e => { SADB.host = false; SADB.hostError = /timed out/i.test(String(e && e.message)) ? 'this build has no WMS 2.0 DuckDB actions (rebuild the app)' : String(e && e.message || e); return false; })
+            .then(ok => { SADB.paintHeader(); if (!ok) console.warn('[ShippingAgent] DuckDB mode unavailable:', SADB.hostError); return ok; });
+        return SADB.probing;
+    };
+    SADB.rowsOf = function(d) { const cols = (d.columns || []).map(c => String(c).toLowerCase()); return (d.rows || []).map(r => { const o = {}; cols.forEach((c, i) => { o[c] = r[i]; }); return o; }); };
+    SADB.q = function(sql) {
+        return SADB.call('w2Query', { sql, maxRows: 200000 }).then(d => { if (!d || d.ok === false) throw new Error((d && d.error) || 'query failed'); return SADB.rowsOf(d); });
+    };
+    /** Several reads in one round trip; a failed one (e.g. the table does not exist yet) gives []. */
+    SADB.qs = function(list) {
+        return SADB.call('w2Queries', { queries: list }).then(d => ((d && d.results) || []).map((r, i) => {
+            if (!r || r.error) { if (r && r.error && !/does not exist|not found/i.test(r.error)) console.warn('[ShippingAgent] DuckDB query failed:', r.error, list[i]); return []; }
+            return SADB.rowsOf(r);
+        }));
+    };
+    SADB.put = function(table, scope, rows) {
+        return SADB.call('w2Put', { table, scope: scope || {}, rows: rows || [], replaceAll: false, columns: SADB_T[table] || [] }, 300000)
+            .then(d => { if (!d || d.ok === false) throw new Error((d && d.error) || 'save failed'); return d; });
+    };
+    /** Writes run one after another so a per-order update never lands before the trip's base rows. */
+    SADB.serial = function(fn) {
+        const p = SADB.io.then(fn, fn);
+        SADB.io = p.catch(e => console.warn('[ShippingAgent] DuckDB write failed:', e && e.message || e));
+        return p;
+    };
+
+    // ── mirror of w2_sa_orders ──────────────────────────────
+    SADB.reset = function(agentId) { SADB.agentId = agentId; SADB.rows = {}; SADB.trips = {}; SADB.olines = {}; SADB.dirty = {}; };
+    SADB.row = function(tripId, order) {
+        const t = SADB.rows[tripId] = SADB.rows[tripId] || {};
+        return t[order] = t[order] || { agent_id: S(SADB.agentId), trip_id: S(tripId), order_number: S(order) };
+    };
+    SADB.get = (tripId, order) => (SADB.rows[tripId] || {})[order] || null;
+    /** Merge a few columns into one order row and write it (with the other changed rows of the trip) a moment later. */
+    SADB.touch = function(tripId, order, patch) {
+        if (!SADB.on() || SADB.agentId == null) return;
+        const r = SADB.row(tripId, order);
+        Object.keys(patch).forEach(k => { r[k] = S(patch[k]); });
+        (SADB.dirty[tripId] = SADB.dirty[tripId] || new Set()).add(String(order));
+        clearTimeout(SADB.flushTimer);
+        SADB.flushTimer = setTimeout(() => SADB.flush(), 400);
+    };
+    SADB.flush = function() {
+        clearTimeout(SADB.flushTimer);
+        const work = [];
+        Object.keys(SADB.dirty).forEach(tripId => {
+            const orders = Array.from(SADB.dirty[tripId] || []);
+            delete SADB.dirty[tripId];
+            if (!orders.length) return;
+            const rows = orders.map(o => SADB.rows[tripId] && SADB.rows[tripId][o]).filter(Boolean);
+            if (!rows.length) return;
+            work.push(SADB.serial(() => SADB.put('w2_sa_orders', { agent_id: S(SADB.agentId), trip_id: S(tripId), order_number: orders }, rows)));
+        });
+        return Promise.all(work).catch(() => {});
+    };
+    /** Wait until every write so far has reached DuckDB. */
+    SADB.settle = async function() { await SADB.flush(); await SADB.io; };
+
+    // ── what the agent reads → DuckDB (hooks called from the agent's own functions) ──
+    SADB.bucket = function(l) {
+        const lsc = String(l.LineStatusCode || '').toUpperCase().trim(), ls = String(l.LineStatus || l.LineStatusCode || '').toUpperCase().trim();
+        if (lsc === 'Y' || ls.includes('INTERFACED') || ls.includes('PENDING INVENTORY') || ls.includes('SHIPPED')) return 'INTERFACED';
+        if (lsc === 'C' || ls.includes('STAGED')) return 'STAGED';
+        if (lsc === 'X' || ls.includes('CANCEL')) return 'CANCELLED';
+        if (ls.includes('RELEASED TO WAREHOUSE') || ls.includes('RELEASED')) return 'RELEASED';
+        if (ls.includes('READY')) return 'READY';
+        return 'OTHER';
+    };
+    /** GETTRIPDETAILS answered: the trip's orders (base columns; status columns of orders still on the trip are kept until read again). */
+    SADB.onTripOrders = function(agent, tripId, inst, orders, firstRow) {
+        if (!SADB.on()) return;
+        if (SADB.agentId !== agent.ID) SADB.reset(agent.ID);
+        const keep = SADB.rows[tripId] || {}, next = {};
+        orders.forEach(o => {
+            next[o.ORDER_NUMBER] = Object.assign({}, keep[o.ORDER_NUMBER] || {}, {
+                agent_id: S(agent.ID), trip_id: S(tripId), pod: inst, order_number: S(o.ORDER_NUMBER), account_name: o.ACCOUNT_NAME || '', account_number: o.ACCOUNT_NUMBER || '',
+                order_type: o.ORDER_TYPE || '', trip_date: SADB.dateOf(o.TRIP_DATE), lorry: o.LORRY_NUMBER || '', picker: o.PICKER || '', priority: o.PRIORITY || '',
+                pick_confirm_st: o.PICK_CONFIRM_ST || '', raw_json: JSON.stringify(o)
+            });
+        });
+        SADB.rows[tripId] = next;
+        delete SADB.dirty[tripId];
+        SADB.serial(() => SADB.put('w2_sa_orders', { agent_id: S(agent.ID), trip_id: S(tripId) }, Object.values(next)));
+        const r = firstRow || {};
+        SADB.saveTrip(tripId, {
+            pod: inst, orders_total: orders.length,
+            trip_date: SADB.dateOf(r.TRIP_DATE || r.trip_date || (orders[0] && orders[0].TRIP_DATE) || SADB.trips[tripId]?.trip_date || ''),
+            lorry: r.TRIP_LORRY || r.trip_lorry || r.LORRY_NUMBER || (orders[0] && orders[0].LORRY_NUMBER) || SADB.trips[tripId]?.lorry || '',
+            loading_bay: r.LOADING_BAY || r.loading_bay || SADB.trips[tripId]?.loading_bay || '',
+            priority: r.TRIP_PRIORITY || r.trip_priority || (orders[0] && orders[0].PRIORITY) || SADB.trips[tripId]?.priority || ''
+        });
+        SADB.paintMeta(tripId);
+    };
+    SADB.saveTrip = function(tripId, extra) {
+        const t = SADB.trips[tripId] = Object.assign(SADB.trips[tripId] || {}, { agent_id: S(SADB.agentId), trip_id: S(tripId) });
+        Object.keys(extra || {}).forEach(k => { t[k] = S(extra[k]); });
+        return SADB.serial(() => SADB.put('w2_sa_trips', { agent_id: S(SADB.agentId), trip_id: S(tripId) }, [t]));
+    };
+    /** Fusion shipmentLines answered for one order (saFetchOrderStatus): counts + the lines. */
+    SADB.onOrderStatus = function(tripId, order, c) {
+        if (!SADB.on()) return;
+        SADB.touch(tripId, order, {
+            order_status: c.statusText, total_lines: c.total, active_lines: c.total - c.cancelled, staged_lines: c.staged, interfaced_lines: c.interfaced,
+            released_lines: c.released, ready_lines: c.ready, cancelled_lines: c.cancelled, backorder_lines: c.other, shipped_lines: c.shippedLines || 0,
+            picked_count: c.staged + c.interfaced, shipped_count: c.interfaced, total_qty: c.totalQty, staged_qty: c.stagedQty, shipped_qty: c.shippedQty,
+            last_checked: SADB.now(), check_error: ''
+        });
+        const rows = (c.lines || []).map(l => ({
+            agent_id: S(SADB.agentId), trip_id: S(tripId), pod: c.inst || '', order_number: S(order),
+            line: S(l.OrderLineNumber || l.LineNumber || l.SourceLineNumber || l.ShipmentLine || ''), item: S(l.Item || l.ItemNumber || ''),
+            line_status: S(l.LineStatus || ''), line_status_code: S(l.LineStatusCode || ''), bucket: SADB.bucket(l),
+            requested_qty: S(l.RequestedQuantity || 0), staged_qty: S(l.StagedQuantity || 0), shipped_qty: S(l.ShippedQuantity || 0),
+            shipment: S(l.Shipment == null ? '' : l.Shipment), shipment_line: S(l.ShipmentLine || ''), fulfill_line_id: S(l.FulfillmentLineId || l.FulfillLineId || ''),
+            checked_at: SADB.now(), raw_json: JSON.stringify(l)
+        }));
+        SADB.serial(() => SADB.put('w2_sa_ship_lines', { agent_id: S(SADB.agentId), trip_id: S(tripId), order_number: S(order) }, rows));
+    };
+    SADB.onChecked = function(tripId, order, err) { if (SADB.on()) SADB.touch(tripId, order, { last_checked: SADB.now(), check_error: String(err || '').slice(0, 300) }); };
+    /** getsalesorderlines answered (the WMS order lines the cancellation rule reads). */
+    SADB.onOrderLines = function(tripId, order, items, wmsStaged, count, inst) {
+        if (!SADB.on()) return;
+        (SADB.olines[tripId] = SADB.olines[tripId] || {})[order] = items || [];
+        SADB.touch(tripId, order, { order_lines_count: count, wms_staged: wmsStaged });
+        const rows = (items || []).map(l => ({
+            agent_id: S(SADB.agentId), trip_id: S(tripId), pod: inst || '', order_number: S(order), line_number: saLineNum(l), item: saLineItem(l),
+            description: S(l.ITEM_DESC || l.item_desc || l.DESCRIPTION || l.description || ''), status: saLineStatus(l), fulfill_line_id: S(saLineFulfillId(l) || ''),
+            ordered_qty: S(l.ORDERED_QUANTITY || l.ordered_quantity || l.ORDERED_QTY || l.ordered_qty || ''), read_at: SADB.now(), raw_json: JSON.stringify(l)
+        }));
+        SADB.serial(() => SADB.put('w2_sa_order_lines', { agent_id: S(SADB.agentId), trip_id: S(tripId), order_number: S(order) }, rows));
+    };
+    SADB.onPrintCount = function(tripId, order, total, printed) { if (SADB.on()) SADB.touch(tripId, order, { print_total: total, print_printed: printed }); };
+    SADB.onPrintMap = function(tripId, map) { if (SADB.on()) Object.keys(map).forEach(o => SADB.touch(tripId, o, { print_total: map[o].total, print_printed: map[o].printed, print_file: map[o].filePath || '' })); };
+    SADB.onPrinted = function(tripId, order, state, filePath) {
+        if (!SADB.on()) return;
+        const r = SADB.get(tripId, order);
+        const patch = { print_state: state, print_file: filePath || '', printed_at: SADB.now() };
+        if (state === 'Downloaded') patch.print_total = Math.max(1, parseInt((r && r.print_total) || 0) || 0);   // downloaded = a print job row exists
+        SADB.touch(tripId, order, patch);
+    };
+    SADB.onMra = function(tripId, order, r) {
+        if (!SADB.on() || !r || r.st === 'RUNNING' || r.st === 'QUEUED') return;
+        SADB.touch(tripId, order, { mra_st: r.st, mra_irn: r.irn || '', mra_msg: String(r.msg || '').slice(0, 500), mra_tries: r.tries || 1, mra_at: r.at || SADB.hm(SADB.now()), mra_inst: r.inst || '' });
+    };
+    SADB.onPlines = function(tripId, order, count) { if (SADB.on() && count >= 0) SADB.touch(tripId, order, { plines: count }); };
+    /** The agent's approved cancel (Task 2 card / Inbox) sent lines: SENT = Fusion accepted the PATCH (not verified), FAILED = refused. */
+    SADB.onCancelSent = function(agent, tripId, inst, order, lines, result, message, by) {
+        if (!SADB.on()) return;
+        const runId = 'sa_' + Date.now().toString(36);
+        const rows = lines.map(l => SADB.logRow(runId, agent, tripId, inst, order, l, result, message, by, 'AGENT_CARD'));
+        if (rows.length) SADB.serial(() => SADB.put('w2_sa_cancel_log', { run_id: runId }, rows));
+    };
+    SADB.logRow = (runId, agent, tripId, inst, order, l, result, message, by, source) => ({
+        run_id: runId, ts: SADB.now(), pc: '', by_user: by || SADB.user(), agent_id: S(agent.ID), trip_id: S(tripId), pod: inst, order_number: S(order),
+        line_number: saLineNum(l), item: saLineItem(l), status_before: saLineStatus(l), fulfill_line_id: S(saLineFulfillId(l) || ''),
+        via: l._saChildOf ? (l._saChildVia || 'CHILD') : 'MAIN', result, message: String(message || '').slice(0, 500), source: source || 'POPUP'
+    });
+
+    // ── reading back ────────────────────────────────────────
+    /** The agent's rows on this PC → mirrors. */
+    SADB.loadAgent = async function(agent) {
+        const a = SADB.lit(S(agent.ID));
+        const [orders, trips, lines] = await SADB.qs([
+            `SELECT * FROM w2_sa_orders WHERE agent_id = ${a}`,
+            `SELECT * FROM w2_sa_trips WHERE agent_id = ${a}`,
+            `SELECT trip_id, order_number, raw_json FROM w2_sa_order_lines WHERE agent_id = ${a}`
+        ]);
+        SADB.reset(agent.ID);
+        orders.forEach(r => { (SADB.rows[r.trip_id] = SADB.rows[r.trip_id] || {})[r.order_number] = r; });
+        trips.forEach(t => { SADB.trips[t.trip_id] = t; });
+        lines.forEach(l => {
+            let raw = null; try { raw = JSON.parse(l.raw_json); } catch (e) { /* skip */ }
+            if (!raw) return;
+            const t = SADB.olines[l.trip_id] = SADB.olines[l.trip_id] || {};
+            (t[l.order_number] = t[l.order_number] || []).push(raw);
+        });
+    };
+    /** Was this trip ever read on this PC? (a trip with no orders counts once it was refreshed) */
+    SADB.hasTrip = tripId => !!(SADB.rows[tripId] && Object.keys(SADB.rows[tripId]).length) || !!(SADB.trips[tripId] && SADB.trips[tripId].refreshed_at);
+    SADB.statusBadge = function(status) {
+        const s = String(status || '');
+        if (!s) return '<span style="color:#94a3b8;font-size:9px;">—</span>';
+        if (s === 'No Lines') return saBadge('No Lines', '#f1f5f9', '#94a3b8', 'fa-clock');
+        if (s === 'Cancelled') return saBadge('Cancelled', '#fee2e2', '#b91c1c', 'fa-ban');
+        if ((s.includes('Interfaced') || s.includes('Shipped')) && !s.includes('/')) return saBadge('Interfaced', '#dcfce7', '#15803d', 'fa-check-circle');
+        if (s.includes('Interfaced') || s.includes('Shipped')) return saBadge(s, '#fef9c3', '#a16207', 'fa-truck');
+        if (s === 'Staged') return saBadge('Staged', '#dbeafe', '#1d4ed8', 'fa-layer-group');
+        if (s.includes('Staged')) return saBadge(s, '#e0f2fe', '#0369a1', 'fa-layer-group');
+        if (s.includes('Released')) return saBadge(s, '#e0f2fe', '#0369a1', 'fa-share-square');
+        if (s.includes('Ready')) return saBadge(s, '#fef9c3', '#a16207', 'fa-clock');
+        return saBadge(s, '#f1f5f9', '#64748b', 'fa-clock');
+    };
+    /** Draw one order row of the trip table from its DuckDB row (the same badges saFetchOrderStatus draws). */
+    SADB.paintRow = function(tripId, r) {
+        const order = r.order_number;
+        const rowEl = document.getElementById(`sa-order-row-${tripId}-${order}`);
+        if (!rowEl) return;
+        const sc = (col, html) => { const c = rowEl.querySelector(`[data-col="${col}"]`); if (c) c.innerHTML = html; };
+        const n = k => parseInt(r[k] || 0) || 0;
+        const status = r.order_status || '', total = n('total_lines'), activeL = n('active_lines'), stagedL = r.wms_staged != null && r.wms_staged !== '' ? n('wms_staged') : n('staged_lines');
+        const cancelL = n('cancelled_lines'), otherL = n('backorder_lines'), picked = n('picked_count'), shipped = n('shipped_count'), olCount = n('order_lines_count');
+        const checked = !!r.last_checked;
+        sc('status', checked ? SADB.statusBadge(status || (total === 0 ? 'No Lines' : 'Pending')) : '<span style="color:#94a3b8;font-size:9px;">—</span>');
+        if (checked && total === 0 && !status) {
+            ['staged', 'picking', 'shipping', 'backorder', 'cancel'].forEach(c => sc(c, saBadge('—', '#f1f5f9', '#94a3b8', null)));
+        } else if (checked) {
+            sc('staged', stagedL > 0 ? saBadge(`${stagedL}`, '#dbeafe', '#1d4ed8', 'fa-layer-group') : saBadge('0', '#f1f5f9', '#94a3b8', null));
+            sc('picking', activeL === 0 ? saBadge('N/A', '#f1f5f9', '#94a3b8', null)
+                : picked === activeL ? saBadge(`${picked}/${activeL}`, '#dcfce7', '#15803d', 'fa-check')
+                : picked === 0 ? saBadge(`0/${activeL}`, '#fef2f2', '#b91c1c', 'fa-times') : saBadge(`${picked}/${activeL}`, '#fef9c3', '#a16207', 'fa-box'));
+            sc('shipping', activeL === 0 ? saBadge('N/A', '#f1f5f9', '#94a3b8', null)
+                : shipped === activeL ? saBadge(`${shipped}/${activeL}`, '#dcfce7', '#15803d', 'fa-truck')
+                : shipped === 0 ? saBadge(`0/${activeL}`, '#fef2f2', '#b91c1c', 'fa-times') : saBadge(`${shipped}/${activeL}`, '#fef9c3', '#a16207', 'fa-truck'));
+            sc('backorder', otherL > 0 ? saBadge(`${otherL}`, '#fef9c3', '#a16207', 'fa-exclamation-triangle') : saBadge('0', '#f0fdf4', '#15803d', null));
+            sc('cancel', cancelL > 0 ? saBadge(`${cancelL}`, '#fee2e2', '#b91c1c', 'fa-ban') : saBadge('0', '#f0fdf4', '#15803d', null));
+        }
+        sc('order_lines', olCount > 0 ? `<span style="font-weight:700;color:#1e293b;font-size:11px;">${olCount}</span><div style="color:#94a3b8;font-size:8px;">lines</div>` : `<span style="color:#94a3b8;font-size:9px;">—</span>`);
+        if (n('shipped_lines') > 0) { const ind = rowEl.querySelector('[data-col="shipped-indicator"]'); if (ind) ind.innerHTML = `<span style="background:#fef9c3;color:#a16207;border:1px solid #fde68a;padding:0px 5px;border-radius:4px;font-size:9px;font-weight:700;" title="${n('shipped_lines')} line(s) with Shipped status">Shipped ${n('shipped_lines')}</span>`; }
+        // MRA: the saved result becomes this session's result too (Print Trip skips orders MRA already has)
+        if (r.mra_st) saMraSet(tripId, order, { st: r.mra_st, irn: r.mra_irn || '', msg: r.mra_msg || '', tries: parseInt(r.mra_tries || 1) || 1, at: r.mra_at || '', inst: r.mra_inst || '', fromDb: true });
+        // Printing
+        const pt = n('print_total'), pp = n('print_printed');
+        if (r.print_state === 'Downloaded') sc('print', saBadge('Downloaded', '#dcfce7', '#15803d', 'fa-check'));
+        else if (r.print_state === 'Empty PDF') sc('print', saBadge('Empty PDF', '#fef9c3', '#a16207', 'fa-exclamation-triangle'));
+        else if (r.print_state === 'NoLines') sc('print', saBadge('NoLines', '#f1f5f9', '#64748b', 'fa-minus-circle'));
+        else if (pt > 0) sc('print', pp === pt ? saBadge('Printed', '#dcfce7', '#15803d', 'fa-check') : saBadge(`${pp}/${pt}`, '#fef9c3', '#a16207', 'fa-print'));
+        else if (checked) sc('print', saBadge('No Jobs', '#f1f5f9', '#94a3b8', 'fa-print'));
+        if (r.plines != null && r.plines !== '') {
+            const c = n('plines'), pl = rowEl.querySelector('[data-col="plines"]');
+            if (pl) pl.innerHTML = c === 0 ? `<span style="background:#fef2f2;color:#b91c1c;padding:2px 6px;border-radius:5px;font-size:9px;font-weight:700;">0</span>`
+                : `<span style="background:#dcfce7;color:#15803d;padding:2px 6px;border-radius:5px;font-size:9px;font-weight:700;">${c}</span>`;
+        }
+        if (r.check_error) sc('checked', `<span style="color:#dc2626;font-size:9px;" title="${esc(r.check_error)}"><i class="fas fa-exclamation-circle"></i> ${esc(SADB.hm(r.last_checked))}</span>`);
+        else if (checked) sc('checked', `<div style="font-size:9px;color:#059669;" title="Read ${esc(r.last_checked)} — shown from DuckDB"><i class="fas fa-database"></i> ${esc(SADB.hm(r.last_checked))}</div><div style="font-size:9px;color:#94a3b8;">${total} line(s)</div>`);
+        if (checked) window._saOrderLastFetched[order] = new Date(String(r.last_checked).replace(' ', 'T'));
+    };
+    /** Draw a whole trip from DuckDB — no network. */
+    SADB.paintTrip = function(tripId, inst) {
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        if (!container) return;
+        const rows = Object.values(SADB.rows[tripId] || {}).sort((a, b) => String(a.order_number).localeCompare(String(b.order_number)));
+        const orders = rows.map(r => ({
+            ORDER_NUMBER: r.order_number, ACCOUNT_NAME: r.account_name || '', ACCOUNT_NUMBER: r.account_number || '', ORDER_TYPE: r.order_type || '', INSTANCE: r.pod || inst,
+            TRIP_ID: r.trip_id || tripId, TRIP_DATE: r.trip_date || '', LORRY_NUMBER: r.lorry || '', PICKER: r.picker || '', PRIORITY: r.priority || '', PICK_CONFIRM_ST: r.pick_confirm_st || ''
+        }));
+        container.style.display = 'block';
+        container.dataset.loaded = '1';
+        const t = SADB.trips[tripId] || {};
+        if (!orders.length) {
+            container.innerHTML = `<div style="padding:0.75rem 1rem;font-size:11px;color:#94a3b8;text-align:center;">No orders found for this trip${t.refreshed_at ? ' (read ' + esc(t.refreshed_at) + ')' : ''}.</div>`;
+        } else {
+            container.innerHTML = saRenderOrdersTable(orders, tripId, inst);
+            const pmap = window._saPrintCache[tripId] = window._saPrintCache[tripId] || {};
+            rows.forEach(r => {
+                SADB.paintRow(tripId, r);
+                const pt = parseInt(r.print_total || 0) || 0;
+                if (pt > 0 || r.print_state === 'Downloaded') pmap[r.order_number] = { total: Math.max(pt, r.print_state === 'Downloaded' ? 1 : 0), printed: parseInt(r.print_printed || 0) || 0, filePath: r.print_file || '' };
+            });
+        }
+        SADB.paintMeta(tripId);
+        saRefreshTripCardStats(tripId);
+    };
+    SADB.paintMeta = function(tripId) {
+        const t = SADB.trips[tripId];
+        const metaEl = document.getElementById(`sa-trip-meta-${tripId}`);
+        if (metaEl && t && (t.trip_date || t.lorry || t.loading_bay || t.priority)) {
+            metaEl.setAttribute('data-trip-date', t.trip_date || '');
+            metaEl.innerHTML = saTripMetaChips(t.trip_date, t.lorry, t.loading_bay, t.priority);
+        }
+        SADB.setAsOf(tripId, t && t.refreshed_at
+            ? `<i class="fas fa-database"></i> as of ${esc(SADB.hm(t.refreshed_at))}${t.refresh_error ? ' <i class="fas fa-exclamation-circle" style="color:#dc2626;" title="' + esc(t.refresh_error) + '"></i>' : ''}`
+            : '<i class="fas fa-database"></i> not read yet');
+    };
+    SADB.setAsOf = function(tripId, html) { const el = document.getElementById(`sa-trip-asof-${tripId}`); if (el) { el.innerHTML = html; el.style.display = SADB.on() ? '' : 'none'; } };
+
+    // ── reading Fusion + APEX again (first load / Refresh / Check) ──
+    /** One trip, today's calls (saLoadTripOrders → print status → shipment lines, 5 orders at a time), then the trip row + log. */
+    SADB.refreshTrip = async function(agent, trip, kind) {
+        const tripId = trip.TRIP_ID, inst = trip.INSTANCE_NAME || agent.INSTANCE_NAME || 'PROD';
+        const t0 = Date.now(), runId = 'sr_' + t0.toString(36) + Math.random().toString(36).slice(2, 6);
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        if (container) container.dataset.loaded = '';
+        SADB.setAsOf(tripId, '<i class="fas fa-sync fa-spin"></i> reading…');
+        let error = '';
+        try { await saLoadTripOrders(tripId, inst, true); }
+        catch (e) { error = e && e.message || String(e); }
+        await SADB.settle();
+        const kpi = saCpComputeKpi(tripId);
+        const all = Object.values(SADB.rows[tripId] || {});
+        const failures = all.filter(r => r.check_error).length;
+        await SADB.saveTrip(tripId, {
+            trip_name: trip.TRIP_NAME || '', pod: inst, status: trip.STATUS || '', assigned_date: trip.ASSIGNED_DATE || '',
+            orders_total: kpi.total, processed: kpi.interfaced, printed: kpi.printed, to_cancel: kpi.toCancel, cancelled: kpi.autoCancelled || 0,
+            refreshed_at: SADB.now(), refresh_kind: kind || 'refresh', refresh_ms: Date.now() - t0, refresh_error: error,
+            mra_flag: ((_saMraFlags || {})[String(inst).toUpperCase()] || {}).flag || ''
+        }).catch(() => {});
+        SADB.serial(() => SADB.put('w2_sa_refresh_log', { run_id: runId }, [{
+            run_id: runId, agent_id: S(agent.ID), kind: kind || 'refresh', trips: S(tripId), started_at: SADB.ts(t0), ended_at: SADB.now(), ms: S(Date.now() - t0),
+            orders: S(all.length), failures: S(failures), summary: error || `${all.length} order(s) read, ${failures} failed`, by_user: SADB.user()
+        }]));
+        SADB.paintMeta(tripId);
+        SADB.paintHeader();
+        return { tripId, orders: all.length, failures, error };
+    };
+    /** Every (visible) trip of the agent, one after another. */
+    SADB.refreshAll = async function(agent, kind) {
+        if (SADB.busy) { showNotification('A read is already running — wait for it to finish.', 'info'); return null; }
+        const trips = ((window._saAgentTrips || {})[agent.ID] || []).filter(t => document.getElementById(`sa-trip-orders-${t.TRIP_ID}`));
+        if (!trips.length) { showNotification('No trips to read.', 'info'); return []; }
+        SADB.busy = true; SADB.quiet = true; SADB.paintHeader();
+        const out = [];
+        try {
+            for (let i = 0; i < trips.length; i++) {
+                if (!window._saCurrentAgent || window._saCurrentAgent.ID !== agent.ID) break;      // the user moved to another agent
+                SADB.setHeaderStatus(`<i class="fas fa-sync fa-spin"></i> Reading trip ${esc(trips[i].TRIP_NAME || trips[i].TRIP_ID)} (${i + 1} of ${trips.length})…`);
+                out.push(await SADB.refreshTrip(agent, trips[i], kind));
+            }
+        } finally { SADB.busy = false; SADB.quiet = false; SADB.setHeaderStatus(''); SADB.paintHeader(); }
+        const failed = out.filter(o => o.error || o.failures).length;
+        showNotification(`Read ${out.length} trip(s) from Fusion and APEX${failed ? ', ' + failed + ' with failures' : ''}.`, failed ? 'warning' : 'success');
+        return out;
+    };
+    /**
+     * Called by saLoadTrips once the trip cards are on the page. DuckDB mode: paint the trips this PC holds,
+     * read the others like the first time (and save), then show the cancellation popup. Returns false when off.
+     */
+    SADB.afterTripsRendered = async function(agent, trips) {
+        if (!SADB.enabled()) return false;
+        await SADB.probe();
+        if (!SADB.on()) return false;
+        const visible = trips.filter(t => document.getElementById(`sa-trip-orders-${t.TRIP_ID}`));
+        if (SADB.busy) {                     // a read is running: show what is there, the running read paints the rest
+            visible.forEach(t => { if (SADB.hasTrip(t.TRIP_ID) && document.getElementById(`sa-trip-orders-${t.TRIP_ID}`).dataset.loaded !== '1') SADB.paintTrip(t.TRIP_ID, t.INSTANCE_NAME); });
+            saMraPaintFlags(false);
+            return true;
+        }
+        await SADB.settle();
+        await SADB.loadAgent(agent);
+        visible.forEach(t => { if (SADB.hasTrip(t.TRIP_ID)) SADB.paintTrip(t.TRIP_ID, t.INSTANCE_NAME); else SADB.setAsOf(t.TRIP_ID, '<i class="fas fa-database"></i> not read yet'); });
+        saMraPaintFlags(false);
+        SADB.paintHeader();
+        const missing = visible.filter(t => !SADB.hasTrip(t.TRIP_ID));
+        if (missing.length) {
+            SADB.busy = true; SADB.quiet = true; SADB.paintHeader();
+            try {
+                for (let i = 0; i < missing.length; i++) {
+                    if (!window._saCurrentAgent || window._saCurrentAgent.ID !== agent.ID) return true;
+                    SADB.setHeaderStatus(`<i class="fas fa-sync fa-spin"></i> First read of trip ${esc(missing[i].TRIP_NAME || missing[i].TRIP_ID)} (${i + 1} of ${missing.length})…`);
+                    await SADB.refreshTrip(agent, missing[i], 'first');
+                }
+            } finally { SADB.busy = false; SADB.quiet = false; SADB.setHeaderStatus(''); SADB.paintHeader(); }
+        }
+        if (missing.length || !SADB.shown[agent.ID]) {
+            SADB.shown[agent.ID] = true;
+            await SADB.askCancel(agent, missing.length ? `after reading ${missing.length} trip(s)` : 'from the data on this PC', !missing.length);
+        } else {
+            SADB.candidates(agent).then(c => SADB.paintCancelBadge(c)).catch(() => {});
+        }
+        return true;
+    };
+
+    // ── cancellation: candidates, popup, confirm ────────────
+    SADB.flagged = l => { const s = saLineStatus(l).toUpperCase(); return s.includes('SCHEDULED') || s.includes('MANUAL RESERVATION'); };
+    SADB.readLines = (order, inst) => apexGet(`trip/orders/getsalesorderlines/${encodeURIComponent(order)}?P_INSTANCE_NAME=${inst}`).then(d => (d && d.items) || []);
+    /** The order as Fusion has it now: fetchfusionorderlines refreshes the APEX copy, getsalesorderlines reads it. */
+    SADB.liveLines = async function(order, inst, tripId) {
+        try { await apexPost(`trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${inst}&p_order_number=${encodeURIComponent(order)}&p_trip_id=${encodeURIComponent(tripId)}`, {}); }
+        catch (e) { console.warn('[ShippingAgent] fetchfusionorderlines failed (reading the APEX copy as it is):', e.message); }
+        return SADB.readLines(order, inst);
+    };
+    SADB.wmsStaged = items => items.filter(l => saLineStatus(l).toUpperCase().includes('STAGED')).length;
+    /**
+     * The lines eligible for cancellation from the order lines on this PC — Task 2's rule (Scheduled / Manual Reservation
+     * main lines + their sub-lines or BOGO items through saExpandCancelLines). A line cancelled through this page in the last
+     * 15 minutes is left out (the APEX copy can lag behind Fusion for a moment); after that, what Fusion shows is what counts.
+     * → [{ tripId, tripName, inst, order, row, lines, skipped, already }]
+     */
+    SADB.candidates = async function(agent, tripIds) {
+        const trips = (window._saAgentTrips || {})[agent.ID] || [];
+        const want = tripIds ? new Set(tripIds.map(String)) : null;
+        const done = {};
+        try {
+            (await SADB.q(`SELECT order_number, fulfill_line_id FROM w2_sa_cancel_log WHERE agent_id = ${SADB.lit(S(agent.ID))} AND result = 'DONE' AND ts >= ${SADB.lit(SADB.ts(Date.now() - 15 * 60000))}`))
+                .forEach(r => { done[r.order_number + ':' + r.fulfill_line_id] = 1; });
+        } catch (e) { /* no log yet */ }
+        const out = [];
+        for (const t of trips) {
+            if (want && !want.has(String(t.TRIP_ID))) continue;
+            const inst = t.INSTANCE_NAME || agent.INSTANCE_NAME || 'PROD';
+            const byOrder = SADB.olines[t.TRIP_ID] || {};
+            for (const order of Object.keys(byOrder).sort()) {
+                const lines = byOrder[order].map(l => Object.assign({}, l));      // fresh copies: saExpandCancelLines marks children
+                const flagged = lines.filter(SADB.flagged);
+                if (!flagged.length) continue;
+                const exp = await saExpandCancelLines(order, lines, flagged, inst);
+                const fresh = exp.lines.filter(l => !done[order + ':' + (saLineFulfillId(l) || '')]);
+                if (!fresh.length) continue;
+                out.push({ tripId: t.TRIP_ID, tripName: t.TRIP_NAME || t.TRIP_ID, inst, order, row: SADB.get(t.TRIP_ID, order), lines: fresh, skipped: exp.skipped, already: exp.lines.length - fresh.length });
+            }
+        }
+        SADB.lastCands = out;
+        return out;
+    };
+    /** Task 2 on the agent tick in DuckDB mode: { order: lines } for one trip from the lines kept on this PC. */
+    SADB.groupsForTrip = async function(agent, tripId) {
+        const c = await SADB.candidates(agent, [tripId]);
+        const groups = {};
+        c.forEach(x => { groups[x.order] = x.lines; });
+        return groups;
+    };
+    SADB.askCancel = async function(agent, why, quietWhenNone) {
+        let c = [];
+        try { c = await SADB.candidates(agent); } catch (e) { showNotification('Could not work out the cancellation lines: ' + e.message, 'error'); return []; }
+        SADB.paintCancelBadge(c);
+        if (!c.length) { if (!quietWhenNone) showNotification(`No order lines are eligible for cancellation (${why}).`, 'success'); return c; }
+        SADB.showPopup(agent, c, why);
+        return c;
+    };
+    SADB.paintCancelBadge = function(c) {
+        const el = document.getElementById('sa-duck-cancel-badge');
+        if (!el) return;
+        const n = (c || []).reduce((s, x) => s + x.lines.length, 0);
+        el.style.display = SADB.on() && n ? '' : 'none';
+        el.innerHTML = `<i class="fas fa-ban"></i> ${n} line(s) to cancel · <u>Review</u>`;
+        el.title = `${(c || []).length} order(s) have Scheduled / Manual Reservation lines — click to review and confirm`;
+    };
+    SADB.showPopup = function(agent, cands, why) {
+        document.getElementById('sa-duck-cancel-dlg')?.remove();
+        const totalLines = cands.reduce((s, c) => s + c.lines.length, 0);
+        const tripIds = [...new Set(cands.map(c => String(c.tripId)))];
+        const prod = cands.some(c => String(c.inst || '').toUpperCase() !== 'TEST');
+        const lineRow = (l, i, c) => `<tr style="border-top:1px solid #f1f5f9;">
+            <td style="padding:4px 6px;">${saEscHtml(saLineNum(l) || '—')}${l._saChildOf ? ` <span style="color:#64748b;font-size:10px;">child of ${saEscHtml(l._saChildOf)} · ${saEscHtml(l._saChildVia || '')}</span>` : ''}</td>
+            <td style="padding:4px 6px;">${saEscHtml(saLineItem(l))}</td>
+            <td style="padding:4px 6px;color:#64748b;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${saEscHtml(l.ITEM_DESC || l.item_desc || l.DESCRIPTION || l.description || '')}">${saEscHtml(l.ITEM_DESC || l.item_desc || l.DESCRIPTION || l.description || '')}</td>
+            <td style="padding:4px 6px;"><span style="background:#fee2e2;color:#b91c1c;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;">${saEscHtml(saLineStatus(l))}</span></td>
+            <td style="padding:4px 6px;text-align:right;">${saEscHtml(l.ORDERED_QUANTITY || l.ordered_quantity || l.ORDERED_QTY || l.ordered_qty || '')}</td>
+            <td style="padding:4px 6px;font-size:10px;color:${saLineFulfillId(l) ? '#64748b' : '#b91c1c'};">${saLineFulfillId(l) ? saEscHtml(String(saLineFulfillId(l))) : 'no id — will be skipped'}</td></tr>`;
+        const skipRow = s => `<tr style="border-top:1px solid #f1f5f9;opacity:.6;">
+            <td style="padding:4px 6px;">${saEscHtml(saLineNum(s.line) || '—')} <span style="color:#64748b;font-size:10px;">child of ${saEscHtml(s.parentNum || '')} · ${saEscHtml(s.via || '')}</span></td>
+            <td style="padding:4px 6px;">${saEscHtml(saLineItem(s.line))}</td><td style="padding:4px 6px;color:#64748b;"></td>
+            <td style="padding:4px 6px;"><span style="background:#f1f5f9;color:#475569;padding:1px 6px;border-radius:4px;font-size:10px;">${saEscHtml(saLineStatus(s.line))}</span></td>
+            <td style="padding:4px 6px;text-align:right;"></td><td style="padding:4px 6px;font-size:10px;color:#a16207;">skipped — ${saEscHtml(s.reason)}</td></tr>`;
+        const groups = tripIds.map(tid => {
+            const list = cands.filter(c => String(c.tripId) === tid);
+            const orders = list.map((c, idx) => `<div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:8px;" data-sa-cand="${cands.indexOf(c)}">
+                <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#f8fafc;">
+                    <label style="display:flex;align-items:center;gap:6px;font-weight:700;cursor:pointer;"><input type="checkbox" checked data-sa-pick="${cands.indexOf(c)}" style="accent-color:#b91c1c;cursor:pointer;"> ${saEscHtml(c.order)}</label>
+                    <span style="color:#64748b;font-size:11px;">${saEscHtml(c.row && c.row.account_name || '')}${c.row && c.row.order_type ? ' · ' + saEscHtml(c.row.order_type) : ''}</span>
+                    <span style="margin-left:auto;font-size:10px;color:#b91c1c;font-weight:700;">${c.lines.length} line(s)</span>
+                    ${c.already ? `<span style="font-size:10px;color:#15803d;" title="Cancelled through this page in the last 15 minutes; the next refresh from Fusion shows it">${c.already} already sent</span>` : ''}
+                    <span style="font-size:10px;color:#64748b;">${saEscHtml(c.row && c.row.order_status || '')}</span>
+                </div>
+                <table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="color:#475569;text-align:left;background:#fff;">
+                    <th style="padding:4px 6px;">Line</th><th style="padding:4px 6px;">Item</th><th style="padding:4px 6px;">Description</th><th style="padding:4px 6px;">Status</th><th style="padding:4px 6px;text-align:right;">Qty</th><th style="padding:4px 6px;">Fulfill line id</th></tr></thead>
+                    <tbody>${c.lines.map((l, i) => lineRow(l, i, c)).join('')}${c.skipped.map(skipRow).join('')}</tbody></table>
+            </div>`).join('');
+            const t = list[0];
+            return `<div style="margin-bottom:12px;"><div style="font-size:11px;font-weight:800;color:#475569;margin:0 0 6px;"><i class="fas fa-truck" style="color:#7c3aed;"></i> ${saEscHtml(t.tripName)} · ${saEscHtml(t.inst)} · ${list.length} order(s)</div>${orders}</div>`;
+        }).join('');
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-duck-cancel-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99998;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `<div style="background:#fff;border-radius:14px;width:min(900px,94vw);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.45);overflow:hidden;border:1px solid #fecaca;">
+            <div style="display:flex;gap:10px;align-items:center;padding:12px 16px;background:linear-gradient(135deg,#fef2f2,#fff7ed);border-bottom:1px solid #fecaca;">
+                <span style="font-size:20px;">✋</span>
+                <div style="flex:1;">
+                    <div style="font-weight:800;color:#7f1d1d;font-size:14px;">Lines eligible for cancellation — ${saEscHtml(agent.NAME || '')}</div>
+                    <div style="font-size:11px;color:#9a3412;">${totalLines} line(s) in ${cands.length} order(s) on ${tripIds.length} trip(s) · Scheduled / Manual Reservation main lines with their sub-lines or BOGO items · ${saEscHtml(why || '')}</div>
+                </div>
+                <span style="font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;background:${prod ? '#b91c1c' : '#0e7490'};color:#fff;">${prod ? 'PROD' : 'TEST'}</span>
+                <button type="button" data-sa-close style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;line-height:1;">×</button>
+            </div>
+            <div style="overflow:auto;padding:12px 16px;flex:1;">${groups}</div>
+            <div id="sa-duck-cancel-prog" style="display:none;padding:8px 16px;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:600;border-top:1px solid #dbeafe;"></div>
+            <div style="display:flex;gap:8px;align-items:center;padding:10px 16px;border-top:1px solid #e2e8f0;background:#fafafa;flex-wrap:wrap;">
+                <span style="margin-right:auto;font-size:11px;color:#64748b;">Reason sent to Fusion: OUT OF STOCK · each order is read live before the PATCH and again 2.5 s after it · the trips are then refreshed from Fusion</span>
+                <button type="button" data-sa-close style="border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:7px 12px;font-weight:600;cursor:pointer;">Close</button>
+                <button type="button" data-sa-check style="border:1px solid #0e7490;background:#fff;color:#0e7490;border-radius:8px;padding:7px 12px;font-weight:700;cursor:pointer;" title="Read every trip from Fusion and APEX again and show what is still eligible"><i class="fas fa-redo"></i> Check cancellation lines</button>
+                <button type="button" data-sa-confirm style="border:0;background:#b91c1c;color:#fff;border-radius:8px;padding:7px 14px;font-weight:700;cursor:pointer;"><i class="fas fa-ban"></i> Confirm — cancel ${totalLines} line(s)</button>
+            </div></div>`;
+        document.body.appendChild(dlg);
+        const confirmBtn = dlg.querySelector('[data-sa-confirm]');
+        const recount = () => {
+            const picked = cands.filter((c, i) => dlg.querySelector(`input[data-sa-pick="${i}"]`)?.checked);
+            const n = picked.reduce((s, c) => s + c.lines.length, 0);
+            confirmBtn.disabled = !n; confirmBtn.style.opacity = n ? '1' : '.5';
+            confirmBtn.innerHTML = `<i class="fas fa-ban"></i> Confirm — cancel ${n} line(s)`;
+            dlg.querySelectorAll('[data-sa-cand]').forEach(box => { box.style.opacity = dlg.querySelector(`input[data-sa-pick="${box.dataset.saCand}"]`)?.checked ? '1' : '.45'; });
+            return picked;
+        };
+        dlg.addEventListener('change', e => { if (e.target.matches('input[data-sa-pick]')) recount(); });
+        dlg.querySelectorAll('[data-sa-close]').forEach(b => b.addEventListener('click', () => { if (!SADB.busy) dlg.remove(); }));
+        dlg.querySelector('[data-sa-check]').addEventListener('click', async () => { if (SADB.busy) return; dlg.remove(); await saDbCheckCancel(); });
+        confirmBtn.addEventListener('click', async () => {
+            if (SADB.busy) return;
+            const picked = recount();
+            if (!picked.length) return;
+            const n = picked.reduce((s, c) => s + c.lines.length, 0);
+            if (!confirm(`Cancel ${n} line(s) in ${picked.length} order(s) in Fusion (${prod ? 'PROD' : 'TEST'})?\n\nReason: OUT OF STOCK. Each order is read live first; a line that is no longer Scheduled / Manual Reservation is not sent.`)) return;
+            await SADB.confirm(agent, picked, dlg);
+        });
+    };
+    /** Confirm: live read → PATCH (saExecuteCancels: FulfillLineId guard, Fusion PATCH, activity log) → verify → DuckDB log → refresh → ask again. */
+    SADB.confirm = async function(agent, cands, dlg) {
+        const ctl = await saAiStatus();
+        if (ctl && ctl.enabled === false) { showNotification(`AI actions are paused${ctl.reason ? ' (' + ctl.reason + ')' : ''} — nothing was cancelled.`, 'warning'); return; }
+        const user = SADB.user(), runId = 'sc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        const prog = dlg.querySelector('#sa-duck-cancel-prog');
+        const say = html => { if (prog) { prog.style.display = ''; prog.innerHTML = html; } };
+        dlg.querySelectorAll('button, input').forEach(b => { b.disabled = true; });
+        const logRows = [];
+        let done = 0, failed = 0, gone = 0, skippedNoId = 0;
+        SADB.busy = true; SADB.quiet = true; SADB.inConfirm = true; SADB.paintHeader();   // inConfirm: saExecuteCancels' SENT rows stay out, the verified rows below are the record
+        try {
+            for (let i = 0; i < cands.length; i++) {
+                const c = cands[i];
+                const where = `Order ${saEscHtml(c.order)} · trip ${saEscHtml(c.tripName)} (${i + 1} of ${cands.length})`;
+                say(`<i class="fas fa-sync fa-spin"></i> ${where} — reading the order live…`);
+                let fresh;
+                try { fresh = await SADB.liveLines(c.order, c.inst, c.tripId); }
+                catch (e) {
+                    c.lines.forEach(l => logRows.push(SADB.logRow(runId, agent, c.tripId, c.inst, c.order, l, 'FAILED', 'live read failed: ' + e.message, user)));
+                    failed += c.lines.length; continue;
+                }
+                SADB.onOrderLines(c.tripId, c.order, fresh, SADB.wmsStaged(fresh), fresh.length, c.inst);
+                const flagged = fresh.filter(SADB.flagged);
+                const exp = flagged.length ? await saExpandCancelLines(c.order, fresh, flagged, c.inst) : { lines: [], skipped: [] };
+                const want = new Set(c.lines.map(saLineKey));
+                const toSend = exp.lines.filter(l => want.has(saLineKey(l)));
+                c.lines.filter(l => !exp.lines.some(x => saLineKey(x) === saLineKey(l))).forEach(l => {
+                    gone++; logRows.push(SADB.logRow(runId, agent, c.tripId, c.inst, c.order, l, 'GONE', 'no longer Scheduled / Manual Reservation when read live — nothing sent', user));
+                });
+                const noId = toSend.filter(l => !saLineFulfillId(l));
+                noId.forEach(l => { skippedNoId++; logRows.push(SADB.logRow(runId, agent, c.tripId, c.inst, c.order, l, 'FAILED', 'no FulfillLineId — not sent', user)); });
+                const send = toSend.filter(l => saLineFulfillId(l));
+                if (!send.length) continue;
+                say(`<i class="fas fa-sync fa-spin"></i> ${where} — cancelling ${send.length} line(s) in Fusion…`);
+                let res;
+                try { res = await saExecuteCancels(agent, c.tripId, c.inst, { [c.order]: send }, user) || { cancelled: 0, failed: 1 }; }
+                catch (e) { res = { cancelled: 0, failed: 1, error: e.message }; }
+                say(`<i class="fas fa-sync fa-spin"></i> ${where} — checking Fusion…`);
+                await SADB.sleep(2500);
+                let after = null;
+                try { after = await SADB.readLines(c.order, c.inst); } catch (e) { /* verify from the PATCH result */ }
+                send.forEach(l => {
+                    const k = saLineKey(l), now = after ? after.find(x => saLineKey(x) === k) : null;
+                    const ok = !res.failed && (after ? (!now || saLineStatus(now).toUpperCase().includes('CANCEL')) : true);
+                    const msg = ok ? (after ? (now ? 'cancelled in Fusion' : 'line gone from the order') : 'Fusion accepted the PATCH (not read back)')
+                        : res.failed ? 'Fusion refused the PATCH' + (res.error ? ': ' + res.error : ' (see the activity log)') : 'still ' + saLineStatus(now) + ' after the PATCH';
+                    logRows.push(SADB.logRow(runId, agent, c.tripId, c.inst, c.order, l, ok ? 'DONE' : 'FAILED', msg, user));
+                    if (ok) done++; else failed++;
+                });
+                if (after) SADB.onOrderLines(c.tripId, c.order, after, SADB.wmsStaged(after), after.length, c.inst);
+            }
+        } finally { SADB.busy = false; SADB.quiet = false; SADB.inConfirm = false; }
+        if (logRows.length) await SADB.serial(() => SADB.put('w2_sa_cancel_log', { run_id: runId }, logRows)).catch(() => {});
+        saHost('aiAudit', { source: 'SHIPPING_AGENT', actionKey: 'cancel_lines', outcome: failed ? 'FAILED' : 'OK', approval: 'POPUP', instance: cands[0].inst, refId: 'AGENT:' + agent.ID,
+            target: [...new Set(cands.map(c => c.order))].join(','), detail: `${done} line(s) cancelled, ${failed} failed, ${gone} no longer eligible — confirmed by ${user} on the Shipping Agent popup` });
+        saConsoleLog(`Popup ✓ ${done} line(s) cancelled, ${failed} failed, ${gone} no longer eligible (confirmed by ${user})`, failed ? 'warn' : 'success');
+        say(`<i class="fas fa-sync fa-spin"></i> ${done} cancelled, ${failed} failed, ${gone} no longer eligible${skippedNoId ? `, ${skippedNoId} without id` : ''} — refreshing the trips from Fusion…`);
+        const tripIds = [...new Set(cands.map(c => String(c.tripId)))];
+        const trips = ((window._saAgentTrips || {})[agent.ID] || []).filter(t => tripIds.includes(String(t.TRIP_ID)));
+        SADB.busy = true; SADB.quiet = true;
+        try { for (const t of trips) await SADB.refreshTrip(agent, t, 'after-cancel'); }
+        finally { SADB.busy = false; SADB.quiet = false; SADB.paintHeader(); }
+        dlg.remove();
+        showNotification(`Cancellation: ${done} line(s) cancelled, ${failed} failed, ${gone} no longer eligible.`, failed ? 'warning' : 'success');
+        await SADB.askCancel(agent, 'after the cancellation and the refresh', true);
+    };
+
+    // ── header controls ─────────────────────────────────────
+    SADB.setHeaderStatus = function(html) { const el = document.getElementById('sa-duck-status'); if (el) { el.innerHTML = html || ''; el.style.display = html ? '' : 'none'; } };
+    SADB.paintHeader = function() {
+        const chk = document.getElementById('sa-duck-chk');
+        const on = SADB.on(), en = SADB.enabled();
+        if (chk) {
+            chk.checked = en;
+            chk.disabled = SADB.host === false;
+            const wrap = chk.closest('label');
+            if (wrap) wrap.title = SADB.host === false ? 'DuckDB mode is not available: ' + SADB.hostError
+                : 'Use DuckDB: the first click on an agent reads Fusion + APEX and saves every answer on this PC; the next clicks draw the trips from DuckDB alone. Refresh reads again.';
+            if (wrap) wrap.style.opacity = SADB.host === false ? '.55' : '1';
+        }
+        ['sa-btn-db-refresh', 'sa-btn-db-check'].forEach(id => { const b = document.getElementById(id); if (b) { b.style.display = on ? '' : 'none'; b.disabled = SADB.busy; b.style.opacity = SADB.busy ? '.6' : '1'; } });
+        const asof = document.getElementById('sa-duck-asof');
+        if (asof) {
+            const a = window._saCurrentAgent;
+            const trips = a ? ((window._saAgentTrips || {})[a.ID] || []) : [];
+            const times = trips.map(t => SADB.trips[t.TRIP_ID] && SADB.trips[t.TRIP_ID].refreshed_at).filter(Boolean).sort();
+            asof.style.display = on && a ? '' : 'none';
+            asof.innerHTML = !trips.length ? '' : times.length === trips.length ? `<i class="fas fa-database"></i> data as of ${esc(SADB.hm(times[0]))}`
+                : times.length ? `<i class="fas fa-database"></i> ${trips.length - times.length} trip(s) not read yet · oldest ${esc(SADB.hm(times[0]))}` : '<i class="fas fa-database"></i> nothing read yet';
+            asof.title = times.length ? 'Oldest trip read: ' + times[0] + (times.length > 1 ? ' · newest: ' + times[times.length - 1] : '') : '';
+        }
+        const card = window._saCurrentAgent && document.getElementById(`sa-card-asof-${window._saCurrentAgent.ID}`);
+        if (card) { const asofEl = document.getElementById('sa-duck-asof'); card.innerHTML = on && asofEl && asofEl.innerHTML ? asofEl.innerHTML : ''; card.style.display = on ? '' : 'none'; }
+        document.querySelectorAll('[id^="sa-trip-asof-"], [id^="sa-trip-refresh-"]').forEach(el => { el.style.display = on ? '' : 'none'; });
+        if (!on) SADB.paintCancelBadge([]);
+    };
+    window.saDuckToggle = function(on) {
+        try { localStorage.setItem('sa.duck', on ? '1' : '0'); } catch (e) { /* ignore */ }
+        SADB.paintHeader();
+        showNotification(on ? 'DuckDB mode on — trips are drawn from this PC; Refresh reads Fusion and APEX again.' : 'DuckDB mode off — the traditional per-order calls run.', 'info');
+        if (window._saCurrentAgent) saLoadTrips();
+    };
+    window.saDbRefreshAll = async function() {
+        const a = window._saCurrentAgent;
+        if (!a || !SADB.on()) return;
+        const out = await SADB.refreshAll(a, 'refresh');
+        if (out) await SADB.askCancel(a, 'after the refresh');
+    };
+    window.saDbCheckCancel = async function() {
+        const a = window._saCurrentAgent;
+        if (!a || !SADB.on()) return;
+        const out = await SADB.refreshAll(a, 'check');
+        if (out) await SADB.askCancel(a, 'after re-reading every trip');
+    };
+    window.saDbRefreshTrip = async function(tripId, inst) {
+        const a = window._saCurrentAgent;
+        if (!a || !SADB.on()) return;
+        if (SADB.busy) { showNotification('A read is already running — wait for it to finish.', 'info'); return; }
+        const t = ((window._saAgentTrips || {})[a.ID] || []).find(x => String(x.TRIP_ID) === String(tripId)) || { TRIP_ID: tripId, INSTANCE_NAME: inst };
+        SADB.busy = true; SADB.quiet = true; SADB.paintHeader();
+        let r;
+        try { r = await SADB.refreshTrip(a, t, 'trip'); }
+        finally { SADB.busy = false; SADB.quiet = false; SADB.paintHeader(); }
+        showNotification(`Trip ${tripId}: ${r.orders} order(s) read from Fusion and APEX${r.failures ? ', ' + r.failures + ' failed' : ''}${r.error ? ' — ' + r.error : ''}.`, r.error || r.failures ? 'warning' : 'success');
+        await SADB.askCancel(a, `after refreshing trip ${tripId}`, true);
+    };
+    window.saDbShowCancel = function() { const a = window._saCurrentAgent; if (a && SADB.on()) SADB.askCancel(a, 'from the data on this PC'); };
+
+    // ─── Page show hook ──────────────────────────────────────
+    // The WMS navigates with navigateToPage (app.js): the agents list is read the first time the page is opened and
+    // kept after that (before, this wrapped window.showPage, which nothing ever called, so the page never loaded itself).
+    document.addEventListener('DOMContentLoaded', function() {
+        const orig = window.navigateToPage;
+        if (typeof orig === 'function') {
+            window.navigateToPage = function(pageId) {
+                const r = orig.apply(this, arguments);
+                if (pageId === 'shipping-agents' && !window._saAgentsLoaded) setTimeout(saInitPage, 100);
+                return r;
+            };
+        }
+        if ((window.location.hash || '').replace('#', '') === 'shipping-agents' && !window._saAgentsLoaded) setTimeout(saInitPage, 300);
+        SADB.probe();
     });
 
     // ─── CSS animation ───────────────────────────────────────
