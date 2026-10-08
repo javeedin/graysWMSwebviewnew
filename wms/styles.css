@@ -5041,13 +5041,17 @@ input:checked + .toggle-slider:before {
 }
 
 /* ══════════════════════════════════════════════════════
-   WMS Header — gradient style matching Inventory module
+   WMS Header — the WMS 2.0 top bar colour (wms2/wms2.css .top: navy #0b2545 → #13315c → #1e3a8a),
+   the same on every WMS page: picker-view.html, tracker.html, release-manager.html
 ══════════════════════════════════════════════════════ */
 .header {
-    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
-    box-shadow: 0 2px 12px rgba(99,102,241,0.35) !important;
+    background: linear-gradient(100deg, #0b2545, #13315c 60%, #1e3a8a) !important;
+    box-shadow: 0 2px 12px rgba(11,37,69,0.35) !important;
     color: white !important;
 }
+/* icons that were grey / indigo on the light header */
+.header .fa-user-circle { color: rgba(255,255,255,0.9) !important; }
+.header button .fa-wave-square, .header button .fa-bell { color: #cbd5e1 !important; }
 
 /* Logo text and icon */
 .logo { color: white !important; }
