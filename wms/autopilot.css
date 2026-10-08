@@ -41,6 +41,9 @@
 .ap-days { display: inline-flex; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; }
 .ap-days button { border: 0; background: #fff; color: var(--ink2); padding: 0 12px; height: 30px; font: inherit; font-size: .78rem; font-weight: 600; cursor: pointer; }
 .ap-days button.on { background: var(--accent); color: #fff; }
+.ap-nav.ap-btn.sm { width: 30px; height: 30px; padding: 0; font-size: 1.1rem; line-height: 1; }
+.ap-date { height: 30px; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0 8px; font: inherit; font-size: .78rem; color: var(--ink2); background: #fff; }
+.ap-date:focus { outline: none; border-color: var(--accent); }
 /* grids */
 .ap-gridhead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .ap-count { font-size: .74rem; color: var(--muted); }

@@ -491,7 +491,7 @@
             '<label class="ap-row"><input type="checkbox" id="ap-today"' + (s.today ? ' checked' : '') + '> trips dated today</label><label class="ap-row"><input type="checkbox" id="ap-tom"' + (s.tomorrow ? ' checked' : '') + '> trips dated tomorrow</label>' +
             '<label class="ap-row">Stop a run after <input id="ap-max" type="number" min="10" max="5000" value="' + (s.maxLines || 300) + '" style="width:80px"> lines (safety)</label>' +
             '<div><button class="ap-btn" id="ap-save"><i class="fas fa-save"></i> Save settings</button></div></div></div>' +
-            '<div class="ap-card"><h3>Trip date <small>what the check looks at</small></h3><div class="ap-row" style="margin-bottom:10px"><span class="ap-days"><button data-d="' + today() + '"' + (st.date === today() ? ' class="on"' : '') + '>Today</button><button data-d="' + addDays(today(), 1) + '"' + (st.date === addDays(today(), 1) ? ' class="on"' : '') + '>Tomorrow</button></span><span class="sm muted">' + esc(dayName(st.date)) + '</span></div>' +
+            '<div class="ap-card"><h3>Trip date <small>what the check looks at</small></h3><div class="ap-row" style="margin-bottom:10px"><button class="ap-btn sm ap-nav" id="ap-prev" title="The day before">&lsaquo;</button><span class="ap-days"><button data-d="' + today() + '"' + (st.date === today() ? ' class="on"' : '') + '>Today</button><button data-d="' + addDays(today(), 1) + '"' + (st.date === addDays(today(), 1) ? ' class="on"' : '') + '>Tomorrow</button></span><button class="ap-btn sm ap-nav" id="ap-next" title="The day after">&rsaquo;</button><input type="date" id="ap-date" class="ap-date" value="' + esc(st.date) + '" title="Pick any trip date"><span class="sm muted">' + esc(dayName(st.date)) + '</span></div>' +
             '<div class="ap-kpis"><div class="ap-kpi"><span class="l">Lines to cancel</span><span class="n">' + (st.plan ? st.plan.filter(function (p) { return p.why.indexOf('skipped') < 0; }).length : '–') + '</span><span class="s">' + (st.plan ? 'on ' + uniq(st.plan.filter(function (p) { return p.why.indexOf('skipped') < 0; }), 'order_number') + ' order(s) · ' + st.planTrips + ' trip(s)' : 'press Check') + '</span></div>' +
             '<div class="ap-kpi"><span class="l">Cancelled today</span><span class="n">' + (L ? L.doneToday : '–') + '</span><span class="s">all PCs</span></div></div></div></div>' +
             '<div class="ap-card"><h3>Would be cancelled now · ' + esc(dayName(st.date)) + ' <small>Scheduled / Manual Reservation lines + their sub-lines / BOGO items' + (st.planAt ? ', read ' + esc(ago(st.planAt)) : '') + '</small><span class="grow"></span><button class="ap-btn sm" id="ap-check2"' + (st.loadingPlan ? ' disabled' : '') + '><i class="fas fa-sync"></i> Read order lines again</button></h3><div id="ap-plan"></div></div>' +
@@ -535,6 +535,10 @@
         var s = st.settings || DEFAULTS;
         $q('#ap-pod').onchange = function () { st.pod = this.value; ls('wms.ap.pod', st.pod); st.plan = null; st.planAt = null; st.lists = null; st.lease = null; st.checks = []; A.nextAt = null; paint(); refresh(); };
         root().querySelectorAll('.ap-days button').forEach(function (b) { b.onclick = function () { st.date = b.dataset.d; st.plan = null; st.planAt = null; paint(); }; });
+        var setDate = function (d) { if (!/^\d{4}-\d{2}-\d{2}$/.test(d || '')) return; st.date = d; st.plan = null; st.planAt = null; paint(); };
+        $q('#ap-date').onchange = function () { setDate(this.value); };
+        $q('#ap-prev').onclick = function () { setDate(addDays(st.date, -1)); };
+        $q('#ap-next').onclick = function () { setDate(addDays(st.date, 1)); };
         $q('#ap-on').onchange = function () {
             var on = this.checked, box = this, pod = st.pod;
             modal(on ? 'Switch the autopilot ON for ' + pod : 'Switch the autopilot OFF for ' + pod,
