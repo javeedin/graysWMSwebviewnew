@@ -2423,7 +2423,7 @@ if (window.chrome && window.chrome.webview) {
             } else if (msg.action === 'restResponse' || msg.action === 'error') {
                 // Route executeGet / executePost responses back to pvApexGet promises
                 const reqId = msg.requestId;
-                if (reqId && window.pendingRequests && window.pendingRequests[reqId]) {
+                if (reqId && /^pvd?-/.test(String(reqId)) && window.pendingRequests && window.pendingRequests[reqId]) {   // the WMS dialogs' bridge (picker-drill.js) answers the other ids
                     if (msg.action === 'error' || !msg.success) {
                         window.pendingRequests[reqId](msg.data || 'error', null);
                     } else {

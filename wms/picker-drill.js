@@ -11,12 +11,12 @@
       Shipped / interfaced is picked, an order whose lines are ALL cancelled shows Picked with "all n lines cancelled".
       So 12 picked + 4 cancelled = "12 / 12 · Picked · 4 cancelled". The summary strip, grid, cards and Excel follow,
       because the page's own buildOrderMap runs on the corrected rows.
-   2. Drill-down. A click on an order card (or a grid row) opens a dialog chosen by the ORDER TYPE exactly like the WMS's
-      editTripOrder: Store to Van / Van to Store → Store transactions (WAREHOUSEMANAGEMENT/trip/s2vdetails/{order} with the
-      QOH of each item from trip/tripqoh — the Transaction Details columns in the WMS order, requested qty > QOH in red),
-      every other type → Order details (TRIPMANAGEMENT/trip/orders/getsalesorderlines/{order}, Pick release details, Lots).
-      Read-only: this page has no jQuery / DevExtreme / app.js, so the WMS dialogs themselves cannot run here; the
-      actions (pick release, cancel lines, process transaction …) stay in Trip Management. */
+   2. Drill-down. A click on an order card (or a grid row) opens the WMS's OWN dialog — a sales order (a plain number) →
+      Order Transactions, anything else (S2V-…, V2S-…, or typed Store to Van / Van to Store) → Store Transactions — through
+      editTripOrder from the copies of the WMS code that WMS 2.0 keeps in ../wms2/legacy/ (loaded with jQuery + DevExtreme on
+      the first click, the WMS 2.0 load order; bridge.js then answers the dialogs' host calls, this page's listener only its
+      own pv-/pvd- requests). When those copies are not installed (a WMS-only release) a read-only dialog with the same
+      choice shows the first tabs' data (s2vdetails + QOH like the Store Transactions grid; order lines, pick release, lots). */
 (function () {
     'use strict';
     var PV = window.PickerDrill = { ctx: null, seq: 0, busy: false };
@@ -66,7 +66,11 @@
     PV.lineStatus = function (l) { return String(pick(l, ['LINE_STATUS', 'STATUS'], null) || '').trim(); };
     /** Store to Van / Van to Store: the order type (also the short codes S2V / V2S) or, when the headers do not carry it,
         the WMS transaction number itself (S2V-SP4051851 / V2S-…). */
-    PV.isStore = function (type, orderNum) { return /store\s*to\s*van|van\s*to\s*store|^\s*(s2v|v2s)\s*$/i.test(String(type || '')) || /^\s*(S2V|V2S)[-_]/i.test(String(orderNum || '')); };
+    PV.isStoreType = function (type) { return /store\s*to\s*van|van\s*to\s*store|^\s*(s2v|v2s)\s*$/i.test(String(type || '')); };
+    /** Which dialog: a sales ORDER (a plain number, e.g. 78326003965, and not typed Store to Van / Van to Store) → Order Transactions;
+        anything else (S2V-SP4051851, V2S-…, or typed as a store transaction) → Store Transactions. */
+    PV.kind = function (orderNum, type) { return /^\s*\d+\s*$/.test(String(orderNum || '')) && !PV.isStoreType(type) ? 'order' : 'store'; };
+    PV.isStore = function (type, orderNum) { return PV.kind(orderNum, type) === 'store'; };
     PV.trxStatus = function (l) { return String(pick(l, ['TRANSACTION_STATUS', 'TRX_STATUS', 'LINE_STATUS', 'STATUS'], null) || '').trim(); };
     var TRX_DONE = /complete|process|done|closed|confirm|shipped|interfac/i;
     PV.orderOf = function (r) { return String(pick(r, ['SOURCE_ORDER_NUMBER', 'ORDER_NUMBER', 'ORDERNUMBER'], /order.?(num|no)/i) || '').trim(); };
@@ -152,7 +156,7 @@
             if (all) { eff = 0; effPicked = 0; }
             r.total_lines = eff; r.picked_lines = effPicked; r.balance_lines = Math.max(0, eff - effPicked);
             base.cancelled = all ? (L ? L.total : total) : cancelled; base.done = done; base.all = all;
-            base.type = H.type || base.type || (PV.isStore('', o) ? (/^\s*V2S/i.test(o) ? 'Van to Store' : 'Store to Van') : ''); base.status = H.status || ''; base.pick = H.pick || ''; base.ship = H.ship || ''; base.head = H.raw || null; base.account = H.account || '';
+            base.type = H.type || base.type || (PV.isStore('', o) ? (/^\s*V2S/i.test(o) ? 'Van to Store' : 'Store to Van') : ''); base.tripDate = H.tripDate || ''; base.status = H.status || ''; base.pick = H.pick || ''; base.ship = H.ship || ''; base.head = H.raw || null; base.account = H.account || '';
             base.lines = L ? L.rows : null;
         });
     };
@@ -190,7 +194,7 @@
             if (span && o.allCancelled) span.innerHTML = '<span class="pvd-cancel">all ' + o.cancelledLines + ' line' + (o.cancelledLines === 1 ? '' : 's') + ' cancelled</span>';
             else if (span && o.cancelledLines) span.innerHTML = esc(span.textContent) + ' <span class="pvd-cancel">· ' + o.cancelledLines + ' cancelled</span>';
             if (o.orderType) { var top = div.querySelector('.card-account'); if (top) top.title = o.orderType; }
-            div.title = 'Click for ' + (PV.isStore(o.orderType) ? 'the store transactions' : 'the order details');
+            div.title = 'Click for ' + (PV.kind(o.orderNum, o.orderType) === 'store' ? 'Store Transactions' : 'Order Transactions');
         } catch (e) { /* card markup changed */ }
         return div;
     };
@@ -205,7 +209,64 @@
     });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && $('pvd-overlay')) PV.close(); });
 
+    // ── the WMS's own dialogs (Order Transactions / Store Transactions), loaded on the first click from the copies WMS 2.0 keeps
+    //    in ../wms2/legacy/ (jQuery + DevExtreme + config / bridge / trip-details / trip-workspace / markup, the WMS 2.0 load order) ──
+    var LEGACY = { base: '../wms2/legacy/', state: null, DX: 'https://cdn3.devexpress.com/jslib/23.2.6/', JQ: 'https://code.jquery.com/jquery-3.6.0.min.js' };
+    PV.loadLegacy = function () {
+        if (typeof window.editTripOrder === 'function') return Promise.resolve(true);
+        if (LEGACY.state) return LEGACY.state;
+        var css = function (href) { if (!document.querySelector('link[href="' + href + '"]')) { var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = href; document.head.appendChild(l); } };
+        LEGACY.loaded = LEGACY.loaded || {};
+        var js = function (src, optional) {                     // a file that loaded once is never injected again (a retry after a failure redeclared its globals)
+            if (LEGACY.loaded[src]) return Promise.resolve(true);
+            return new Promise(function (res, rej) {
+                var el = document.createElement('script'); el.src = src;
+                el.onload = function () { LEGACY.loaded[src] = true; res(true); };
+                el.onerror = function () { el.remove(); if (optional) res(false); else rej(new Error('could not load ' + src.replace(/^.*\//, ''))); };
+                document.head.appendChild(el);
+            });
+        };
+        css(LEGACY.DX + 'css/dx.light.css'); css(LEGACY.base + 'wms-legacy.css');
+        var pend = null;
+        LEGACY.state = (window.jQuery ? Promise.resolve(true) : js(LEGACY.JQ))
+            .then(function () { return window.DevExpress ? true : js(LEGACY.DX + 'js/dx.all.js', true); })     // without it the dialogs draw plain tables
+            .then(function () { return js(LEGACY.base + 'config.js'); })
+            .then(function () { pend = window.pendingRequests; return js(LEGACY.base + 'bridge.js'); })       // bridge.js resets window.pendingRequests: keep this page's open requests
+            .then(function () { if (pend && pend !== window.pendingRequests) Object.assign(window.pendingRequests, pend); return js(LEGACY.base + 'trip-details.js'); })
+            .then(function () { return js(LEGACY.base + 'trip-workspace.js'); })
+            .then(function () { return js(LEGACY.base + 'markup.js', true); })
+            .then(function () { if (typeof window.editTripOrder !== 'function') throw new Error('the WMS dialogs did not load'); return true; });
+        LEGACY.state.catch(function () { LEGACY.state = null; });
+        return LEGACY.state;
+    };
+    /** Click on an order: the WMS's Order Transactions dialog for a sales order, Store Transactions for anything else — exactly like
+        editTripOrder in Trip Management; the read-only dialog below is the fallback when the WMS 2.0 copies are not installed. */
     PV.open = function (orderNum) {
+        var I = PV.info(orderNum), r = I.row || {}, p = I.pv || {}, pod = ($('fpInstance') || {}).value || 'PROD';
+        var kind = PV.kind(orderNum, p.type), name = kind === 'store' ? 'Store Transactions' : 'Order Transactions';
+        if (PV.busy) return; PV.busy = true;
+        PV.note('<i class="fas fa-circle-notch fa-spin"></i> opening ' + name + ' for #' + esc(orderNum) + '…');
+        return PV.loadLegacy().then(function () {
+            PV.busy = false; PV.note('');
+            var row = Object.assign({}, p.head || {});
+            row.ORDER_NUMBER = String(orderNum); if (!row.SOURCE_ORDER_NUMBER) row.SOURCE_ORDER_NUMBER = String(orderNum);
+            row.TRIP_ID = row.TRIP_ID || r.trip_id || ''; row.TRIP_DATE = row.TRIP_DATE || p.tripDate || ($('fpDate') || {}).value || '';
+            row.ACCOUNT_NAME = row.ACCOUNT_NAME || r.account_name || ''; row.PICKER = row.PICKER || r.picker_name || '';
+            row.LORRY_NUMBER = row.LORRY_NUMBER || r.lorry_number || ''; row.PRIORITY = row.PRIORITY || r.order_priority || '';
+            // editTripOrder reads exactly 'Store to Van' / 'Van to Store' for the store dialog
+            row.ORDER_TYPE = kind === 'store' ? (/van\s*to\s*store|^\s*v2s/i.test(String(row.ORDER_TYPE || p.type || '') + ' ' + orderNum) ? 'Van to Store' : 'Store to Van')
+                                              : (PV.isStoreType(row.ORDER_TYPE) ? 'Standard' : (row.ORDER_TYPE || p.type || ''));
+            row.instance_name = pod; row.INSTANCE_NAME = pod;
+            window.currentTripInstance = pod; try { sessionStorage.setItem('loggedInInstance', pod); } catch (e) { /* ok */ }
+            window.editTripOrder(row);
+        }).catch(function (e) {
+            PV.busy = false;
+            PV.note('<i class="fas fa-circle-info"></i> ' + esc(name) + ' of the WMS is not available here (' + esc(e && e.message || e) + ') — showing the read-only view', String(e && e.message || e));
+            PV.openLite(orderNum);
+        });
+    };
+    /** The read-only dialog (fallback): the same choice by order type, the data of the WMS dialogs' first tabs. */
+    PV.openLite = function (orderNum) {
         var I = PV.info(orderNum), r = I.row || {}, p = I.pv || {}, pod = ($('fpInstance') || {}).value || 'PROD';
         var store = PV.isStore(p.type, orderNum), root = ordsRoot();
         var lines = r._pv ? (Number(r.picked_lines) || 0) + ' / ' + (Number(r.total_lines) || 0) + ' lines picked' : '';
