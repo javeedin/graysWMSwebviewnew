@@ -851,13 +851,13 @@
             (busy || done ? '<div class="mbd-live">' + (busy ? '<i class="fas fa-spinner fa-spin"></i> <b>Running</b> — 3 orders at a time · ' : '<i class="fas fa-check" style="color:#16a34a;"></i> <b>Done</b> — ') +
                 c.SUCCESS + ' interfaced · ' + c.FAILED + ' failed · ' + c.SKIPPED + ' skipped · ' + c.ALREADY_DONE + ' already done' + (busy ? ' · ' + Math.max(0, toGo) + ' to go' : '') + '</div>' : '');
         var all = rows.every(function (r) { return D.sel[r.KEY]; });
-        html += '<div class="mrh-tw" style="margin-top:0;max-height:52vh;"><table class="mrh-t"><thead><tr><th><input type="checkbox" id="mbd-all"' + (all ? ' checked' : '') + (busy || done ? ' disabled' : '') + '></th><th>Trip</th><th>Order</th><th>Customer</th><th>Type</th><th>Before</th><th>Result</th></tr></thead><tbody>';
+        html += '<div class="mrh-tw" style="margin-top:0;max-height:52vh;"><table class="mrh-t"><thead><tr><th><input type="checkbox" id="mbd-all"' + (all ? ' checked' : '') + (busy ? ' disabled' : '') + '></th><th>Trip</th><th>Order</th><th>Customer</th><th>Type</th><th>Before</th><th>Result</th></tr></thead><tbody>';
         var byDate = {}; rows.forEach(function (r) { (byDate[bdKey(r)] = byDate[bdKey(r)] || []).push(r); });
         Object.keys(byDate).sort().forEach(function (k) {
             if (D.all) html += '<tr class="mbd-dt"><td colspan="7"><i class="fas fa-calendar-day" style="color:#4f46e5;"></i> ' + esc(dayName(k) || '(no date)') + ' · ' + byDate[k].length + ' order(s)</td></tr>';
             byDate[k].forEach(function (r) {
                 var l = bdResult(r), b = D.before[r.KEY], bl = b === 'FAILED' ? '<span class="mrh-s FAILED" title="' + esc(r.MRA_WHY) + '">Failed before</span>' : '<span class="mrh-s NONE">Not interfaced</span>';
-                html += '<tr' + (D.sel[r.KEY] ? ' class="sel"' : '') + '><td><input type="checkbox" data-bk="' + esc(r.KEY) + '"' + (D.sel[r.KEY] ? ' checked' : '') + (busy || done ? ' disabled' : '') + '></td>' +
+                html += '<tr' + (D.sel[r.KEY] ? ' class="sel"' : '') + '><td><input type="checkbox" data-bk="' + esc(r.KEY) + '"' + (D.sel[r.KEY] ? ' checked' : '') + (busy ? ' disabled' : '') + '></td>' +
                     '<td>' + esc(r.TRIP_ID) + (r.LORRY ? ' <span class="sub">' + esc(r.LORRY) + '</span>' : '') + '</td><td><b>' + esc(r.ORDER_NUMBER) + '</b></td>' +
                     '<td class="cut" title="' + esc(r.CUSTOMER_NAME) + '">' + esc(r.CUSTOMER_NAME) + '</td><td class="cut n">' + esc(r.ORDER_TYPE) + '</td><td>' + bl + '</td>' +
                     '<td class="cut w" title="' + esc(l ? (l.msg || '') : '') + '">' + (l ? '<span class="mrh-s ' + esc(l.cls) + '">' + (O.busy[r.KEY] ? '<i class="fas fa-spinner fa-spin"></i> ' : '') + esc(l.text) + '</span>' + (l.msg ? ' <span class="pc">' + esc(l.msg) + '</span>' : '')
@@ -868,7 +868,7 @@
         var failedNow = rows.filter(function (r) { var l = bdResult(r); return l && l.cls === 'FAILED'; }).length;
         html += '<div class="mbd-b"><span class="n">' + (done ? (failedNow ? failedNow + ' failed — tick them and Confirm to try again, or see the reason on hover.' : 'Every order answered. The By date figures are read again.') : nSel + ' of ' + rows.length + ' ticked') + '</span>' +
             '<button class="mrh-btn n" id="mbd-x"' + (busy ? ' disabled' : '') + '>' + (done ? 'Close' : 'Cancel') + '</button>' +
-            (done && !failedNow ? '' : '<button class="mrh-btn g" id="mbd-ok"' + (busy || !nSel ? ' disabled' : '') + '><i class="fas fa-' + (busy ? 'spinner fa-spin' : 'paper-plane') + '"></i> ' + (busy ? 'Running…' : done ? 'Try the ticked again' : 'Confirm — interface ' + nSel + ' order' + (nSel === 1 ? '' : 's')) + '</button>') + '</div></div>';
+            (done && !failedNow && !nSel ? '' : '<button class="mrh-btn g" id="mbd-ok"' + (busy || !nSel ? ' disabled' : '') + '><i class="fas fa-' + (busy ? 'spinner fa-spin' : 'paper-plane') + '"></i> ' + (busy ? 'Running…' : done ? 'Try the ticked again' : 'Confirm — interface ' + nSel + ' order' + (nSel === 1 ? '' : 's')) + '</button>') + '</div></div>';
         d.innerHTML = html;
         var g = function (id) { return document.getElementById(id); };
         if (g('mbd-all')) g('mbd-all').onchange = function () { var on = g('mbd-all').checked; rows.forEach(function (r) { if (on) D.sel[r.KEY] = 1; else delete D.sel[r.KEY]; }); bdPaint(); };
