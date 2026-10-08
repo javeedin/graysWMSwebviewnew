@@ -25,13 +25,38 @@
     var AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
     var INSTANCES = ['PROD', 'TEST'];
     var st = { flags: {}, log: [], loading: false, error: null, busy: {}, tab: 'setup' };
-    try { var savedTab = localStorage.getItem('mri.tab'); if (savedTab === 'history' || savedTab === 'orders') st.tab = savedTab; } catch (e) { /* storage blocked */ }
+    try { var savedTab = localStorage.getItem('mri.tab'); if (['history', 'orders', 'bydate', 'bymonth'].indexOf(savedTab) >= 0) st.tab = savedTab; } catch (e) { /* storage blocked */ }
     var ready = null;
 
     function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
     function lit(s) { return "'" + String(s == null ? '' : s).replace(/'/g, "''") + "'"; }
     function appUser() { try { return localStorage.getItem('wms_user') || (typeof appUserName === 'function' ? appUserName() : 'WMS'); } catch (e) { return 'WMS'; } }
-    function curInstance() { try { return (typeof currentInstance === 'function' ? currentInstance() : (localStorage.getItem('wms_instance') || 'PROD')).toUpperCase(); } catch (e) { return 'PROD'; } }
+    /** The instance of the WMS top toolbar (Instance: PROD ▾) — what it shows, else the login's, else the toolbar's own key. The page never asks for it a second time. */
+    function curInstance() {
+        try {
+            var el = document.getElementById('current-instance-display'), v = el ? el.textContent.trim() : '';
+            if (!v) { try { v = sessionStorage.getItem('loggedInInstance') || ''; } catch (e1) { v = ''; } }
+            if (!v) v = localStorage.getItem('fusionInstance') || localStorage.getItem('wms_instance') || (typeof currentInstance === 'function' ? currentInstance() : '') || '';
+            return String(v || 'PROD').trim().toUpperCase();
+        } catch (e) { return 'PROD'; }
+    }
+    /** Follows the toolbar: when the person switches PROD ▾ / TEST, every tab reads its data again. */
+    function followToolbar() {
+        var el = document.getElementById('current-instance-display');
+        if (!el || el.__mriWatched || typeof MutationObserver !== 'function') return;
+        el.__mriWatched = true;
+        new MutationObserver(function () { instanceChanged(false); }).observe(el, { childList: true, characterData: true, subtree: true });
+    }
+    function instanceChanged(silent) {
+        var cur = curInstance(), f = filters();
+        if (cur === f.inst) return false;
+        f.inst = cur; H.loaded = false; H.rows = []; H.sel = {}; O.loaded = false; O.rows = []; O.trips = []; O.sel = {}; M.loaded = false; M.rows = []; M.runs = [];
+        if (silent) return true;
+        var el = document.getElementById('mra-interface');
+        render();
+        if (el && el.offsetParent !== null) reloadTab();
+        return true;
+    }
     function notify(m, t) { if (typeof showNotification === 'function') showNotification(m, t || 'info'); else console.log('[MRA Interface]', m); }
 
     function call(op, payload) {
@@ -157,13 +182,17 @@
         '.mrh-kv span.k{display:block;font-size:.68rem;color:#64748b;font-weight:700;text-transform:uppercase;}' +
         '.mrh-pre{background:#0f172a;color:#e2e8f0;border-radius:10px;padding:.7rem;font-size:.72rem;max-height:260px;overflow:auto;white-space:pre-wrap;word-break:break-all;}' +
         '.mrh-sec{margin-top:.8rem;} .mrh-sec h5{margin:0 0 .3rem;font-size:.8rem;color:#334155;display:flex;align-items:center;gap:.5rem;}' +
-        // the global bar (dates + instance for every tab) and the All-orders tab
-        '.mri-global{display:flex;flex-wrap:wrap;gap:.6rem;align-items:flex-end;background:linear-gradient(100deg,#0b2545,#13315c 60%,#1e3a8a);border-radius:12px;padding:.7rem 1rem;margin-bottom:.8rem;color:#fff;}' +
-        '.mri-global label{display:flex;flex-direction:column;font-size:.68rem;font-weight:700;color:#cbd5e1;gap:.2rem;text-transform:uppercase;letter-spacing:.02em;}' +
-        '.mri-global input,.mri-global select{border:1px solid #334155;border-radius:8px;padding:.4rem .5rem;font:inherit;font-size:.85rem;color:#0f172a;background:#fff;min-width:120px;}' +
-        '.mri-global .mrh-quick button{border-color:rgba(255,255,255,.35);background:rgba(255,255,255,.12);color:#fff;} .mri-global .mrh-quick button:hover{background:rgba(255,255,255,.25);}' +
-        '.mri-global .mrh-btn.p{background:#fff;color:#1e3a8a;} .mri-global .gl-t{font-size:.72rem;color:#cbd5e1;margin-left:auto;align-self:center;}' +
-        '.mri-global .gl-h{display:flex;align-items:center;gap:.5rem;font-weight:800;font-size:.85rem;align-self:center;margin-right:.4rem;}' +
+        // the global bar (the dates every tab works with — the instance is the WMS toolbar's), the All-orders, By-date and By-month tabs
+        '.mri-global{display:flex;flex-wrap:wrap;gap:.6rem;align-items:flex-end;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:.6rem .9rem;margin-bottom:.8rem;}' +
+        '.mri-global label{display:flex;flex-direction:column;font-size:.68rem;font-weight:700;color:#64748b;gap:.2rem;text-transform:uppercase;letter-spacing:.02em;}' +
+        '.mri-global input{border:1px solid #cbd5e1;border-radius:8px;padding:.4rem .5rem;font:inherit;font-size:.85rem;color:#0f172a;background:#fff;min-width:120px;}' +
+        '.mri-global .gl-h{display:flex;align-items:center;gap:.5rem;font-weight:800;font-size:.85rem;color:#1e293b;align-self:center;margin-right:.4rem;} .mri-global .gl-h i{color:#4f46e5;}' +
+        '.mbar{display:inline-flex;width:150px;height:10px;border-radius:999px;overflow:hidden;background:#e2e8f0;vertical-align:middle;} .mbar i{display:block;height:100%;} .mbar i.d{background:#22c55e;} .mbar i.f{background:#ef4444;} .mbar i.s{background:#f59e0b;} .mbar i.n{background:#cbd5e1;}' +
+        '.mrh-t tr.tot td{font-weight:800;background:#f8fafc;border-top:2px solid #cbd5e1;} .mrh-t td.pc{color:#475569;font-size:.74rem;} .mrh-t td.now{color:#4338ca;font-size:.7rem;}' +
+        '.mbd-p{font-size:.82rem;color:#334155;margin:.2rem 0 .6rem;line-height:1.45;} .mbd-live{background:#eef2ff;border:1px solid #c7d2fe;border-radius:10px;padding:.5rem .8rem;font-size:.82rem;color:#3730a3;margin-bottom:.6rem;}' +
+        '.mbd-b{display:flex;justify-content:flex-end;gap:.5rem;margin-top:.8rem;align-items:center;} .mbd-b .n{margin-right:auto;font-size:.8rem;color:#475569;}' +
+        '.mbd-dt td{background:#f8fafc;font-weight:800;color:#1e293b;font-size:.78rem;}' +
+        '.mbm-chart{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:.6rem .8rem;margin-top:.8rem;height:250px;position:relative;} .mbm-chart canvas{width:100%!important;height:100%!important;}' +
         '.mrh-s.NONE{background:#fef3c7;color:#92400e;} .mrh-s.DONE{background:#dcfce7;color:#15803d;}' +
         '.mrh-t tr.mro-trip td{background:#eef2ff;border-top:2px solid #c7d2fe;font-size:.78rem;color:#1e293b;padding:.45rem .6rem;} .mrh-t tr.mro-trip:hover td{background:#e0e7ff;}' +
         '.mro-th{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;} .mro-th b{font-size:.85rem;} .mro-th .m{color:#475569;font-weight:600;} .mro-th .mrh-s{font-size:.64rem;}' +
@@ -177,16 +206,17 @@
     function filters() {
         if (!H.f) {
             var saved = {}; try { saved = JSON.parse(localStorage.getItem('mri.hist.f') || '{}') || {}; } catch (e) { saved = {}; }
-            H.f = { from: today(-7), to: today(0), trip: '', status: saved.status || '', inst: saved.inst || curInstance(), q: '', latest: saved.latest !== false };
+            H.f = { from: today(-7), to: today(0), trip: '', status: saved.status || '', inst: curInstance(), q: '', latest: saved.latest !== false };
         }
         return H.f;
     }
-    /** The global bar (dates, instance — every tab) and the history tab's own fields, as typed. */
+    /** The global bar (dates — every tab; the instance is the toolbar's) and the history tab's own fields, as typed. */
     function readForm() {
         var f = filters(), g = function (id) { var e = document.getElementById(id); return e ? e : null; };
-        if (g('mri-from')) { f.from = g('mri-from').value || today(-7); f.to = g('mri-to').value || today(0); f.inst = g('mri-inst').value; }
+        if (g('mri-from')) { f.from = g('mri-from').value || today(-7); f.to = g('mri-to').value || today(0); }
+        f.inst = curInstance();
         if (g('mrh-trip')) { f.trip = g('mrh-trip').value.trim(); f.status = g('mrh-status').value; f.q = g('mrh-q').value.trim(); f.latest = g('mrh-latest').checked; }
-        try { localStorage.setItem('mri.hist.f', JSON.stringify({ status: f.status, inst: f.inst, latest: f.latest })); } catch (e) { /* storage blocked */ }
+        try { localStorage.setItem('mri.hist.f', JSON.stringify({ status: f.status, latest: f.latest })); } catch (e) { /* storage blocked */ }
         return f;
     }
     function ddmmyyyy(iso) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || '')); return m ? m[3] + '-' + m[2] + '-' + m[1] : String(iso || ''); }
@@ -275,7 +305,7 @@
             '<label>Order / customer / IRN<input id="mrh-q" placeholder="search" value="' + esc(f.q) + '"></label>' +
             '<label class="chk"><input type="checkbox" id="mrh-latest"' + (f.latest ? ' checked' : '') + '> Latest try per order only</label>' +
             '<button class="mrh-btn p" id="mrh-go"' + (H.loading ? ' disabled' : '') + '><i class="fas fa-' + (H.loading ? 'spinner fa-spin' : 'search') + '"></i> Search</button>' +
-            '<span style="font-size:.72rem;color:#64748b;align-self:center;">Runs written between the dates of the bar above' + (f.inst ? ' on ' + esc(f.inst) : ' on every instance') + '.</span>' +
+            '<span style="font-size:.72rem;color:#64748b;align-self:center;">Runs written between the dates of the bar above on ' + esc(f.inst) + ' (the toolbar\'s instance).</span>' +
             '</div>';
         if (H.error) return html + '<div class="mri-err"><i class="fas fa-exclamation-triangle"></i> ' + esc(H.error) + '</div>';
         if (!H.loaded) return html + '<div class="mrh-tw"><div class="mrh-empty"><i class="fas fa-spinner fa-spin"></i> Reading…</div></div>';
@@ -396,7 +426,7 @@
         carry ORDER_NUMBER / INSTANCE_NAME / TRIP_ID / MRA_INTERFACE_STATUS; after() runs 1.5 s after the last order
         (the history reads its new rows, All orders reads the statuses again). Orders that already reached MRA are
         never sent again (the grid's status, then the status table, then the processor's own check). */
-    function mraRun(list, S, keyOf, after, source) {
+    function mraRun(list, S, keyOf, after, source, opts) {
         if (!list.length) return;
         if (!window.chrome || !window.chrome.webview) { notify('Open this page inside the Gray\'s WMS app.', 'error'); return; }
         var off = list.filter(function (r) { var fl = st.flags[r.INSTANCE_NAME]; return fl && String(fl.INTERFACE_FLAG).toUpperCase() === 'N'; });
@@ -406,7 +436,7 @@
         var msg = 'Interface ' + send.length + ' order(s) to MRA?' +
             (done.length ? '\n\n' + done.length + ' already reached MRA — not sent again.' : '') +
             (off.length ? '\n\nNote: the MRA switch is OFF for ' + off.map(function (r) { return r.INSTANCE_NAME; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(', ') + ' (Setup tab). This sends them anyway.' : '');
-        if (!window.confirm(msg)) return;
+        if (!(opts && opts.confirmed) && !window.confirm(msg)) return;
         done.forEach(function (r) { S.live[keyOf(r)] = { cls: 'ALREADY_DONE', text: 'Already in MRA', msg: 'not sent again' }; });
         send.forEach(function (r) { S.busy[keyOf(r)] = 1; S.live[keyOf(r)] = { cls: 'RUN', text: 'Checking the MRA status table' }; });
         render();
@@ -417,7 +447,7 @@
             return window.wmsMraDone(byInst[inst].map(function (r) { return r.ORDER_NUMBER; }), inst).catch(function () { return {}; })
                 .then(function (d) { byInst[inst].forEach(function (r) { var x = d[String(r.ORDER_NUMBER).trim()]; if (x) r.__done = x; }); });
         }));
-        pre.then(function () {
+        return pre.then(function () {
             send.forEach(function (r) {
                 var k = keyOf(r);
                 if (r.__done) {
@@ -480,7 +510,7 @@
     function printOrders(ids) { printRun(picked(ids), H, idOf); }
 
     // ── All orders — every sales order on the trips of the dates, one row per order, with its MRA status ──────
-    var O = { loaded: false, loading: false, error: null, step: '', trips: [], rows: [], sel: {}, busy: {}, live: {}, kpi: null, grep: '', hidden: { store: 0, cancelled: 0 }, statusErr: '', at: '' };
+    var O = { loaded: false, loading: false, error: null, step: '', trips: [], rows: [], sel: {}, busy: {}, live: {}, kpi: null, grep: '', date: '', hidden: { store: 0, cancelled: 0 }, statusErr: '', at: '' };   // date = one trip date only (By date › Orders)
     var O_KIND = ['DONE', 'FAILED', 'SKIPPED', 'NONE'];
     var O_LABEL = { DONE: 'Interfaced', FAILED: 'Failed', SKIPPED: 'Skipped', NONE: 'Not interfaced' };
     var STORE = /store\s*to\s*van|van\s*to\s*store|^s2v$|^v2s$/i;
@@ -562,7 +592,7 @@
     }
     /** The whole picture: trips of the dates → every trip's orders (4 trips at a time) → sales orders only → the MRA status per order. */
     function loadOrders() {
-        var f = filters(), insts = f.inst ? [f.inst] : INSTANCES.slice();
+        var f = filters(), insts = [f.inst || curInstance()];
         O.loading = true; O.error = null; O.statusErr = ''; O.step = 'reading the trips of ' + insts.join(' / '); render();
         var trips = [], rows = [], hidden = { store: 0, cancelled: 0 };
         return insts.reduce(function (p, inst) { return p.then(function () { return tripsOf(inst, f.from, f.to).then(function (t) { trips = trips.concat(t); }); }); }, Promise.resolve())
@@ -615,7 +645,7 @@
         return r.__hay + (live ? ' ' + String(live.text || '').toLowerCase() + ' ' + String(live.msg || '').toLowerCase() : '');
     }
     function oTokens() { return O.grep.trim().toLowerCase().split(/\s+/).filter(Boolean); }
-    function oKpiMatch(r) { return !O.kpi || (O.kpi === 'PRINTED' ? r.PRINTED : O.kpi === 'NOTPRINTED' ? !r.PRINTED : oClass(r) === O.kpi); }
+    function oKpiMatch(r) { return (!O.date || (r.TRIP_DATE || '') === O.date) && (!O.kpi || (O.kpi === 'PRINTED' ? r.PRINTED : O.kpi === 'NOTPRINTED' ? !r.PRINTED : oClass(r) === O.kpi)); }
     function oShown() { var tok = oTokens(); return O.rows.filter(function (r) { if (!oKpiMatch(r)) return false; if (!tok.length) return true; var h = hayO(r); return tok.every(function (t) { return h.indexOf(t) >= 0; }); }); }
     function oNotDone(r) { var c = oClass(r); return c === 'NONE' || c === 'FAILED'; }
     function jsArg(v) { return JSON.stringify(String(v)).replace(/"/g, '&quot;'); }
@@ -639,7 +669,7 @@
             kpi('', O.rows.length, 'Sales orders') + kpi('DONE', counts.DONE, 'Interfaced', 'DONE') + kpi('FAILED', counts.FAILED, 'Failed', 'FAILED') + kpi('SKIPPED', counts.SKIPPED, 'Skipped', 'SKIPPED') +
             kpi('NONE', counts.NONE, 'Not interfaced', 'NONE') + kpi('PRINTED', counts.PRINTED, 'Printed') + kpi('NOTPRINTED', O.rows.length - counts.PRINTED, 'Not printed') +
             (amount ? '<div style="cursor:default;"><b>' + money(amount) + '</b><span>Order amount shown</span></div>' : '') + '</div>';
-        html += '<div class="mro-note">' + (O.loading ? '<i class="fas fa-spinner fa-spin"></i> ' + esc(O.step) + ' · ' : '') + 'Trips of <b>' + esc(ddmmyyyy(f.from)) + '</b> to <b>' + esc(ddmmyyyy(f.to)) + '</b> on <b>' + esc(f.inst || 'PROD + TEST') + '</b>' +
+        html += '<div class="mro-note">' + (O.loading ? '<i class="fas fa-spinner fa-spin"></i> ' + esc(O.step) + ' · ' : '') + 'Trips of <b>' + esc(ddmmyyyy(f.from)) + '</b> to <b>' + esc(ddmmyyyy(f.to)) + '</b> on <b>' + esc(f.inst) + '</b>' +
             (O.at ? ' · read at ' + esc(O.at) : '') + (O.hidden.store ? ' · ' + O.hidden.store + ' store / van transaction(s) left out' : '') + (O.hidden.cancelled ? ' · ' + O.hidden.cancelled + ' cancelled line(s) left out' : '') +
             (O.statusErr ? ' · <span style="color:#b91c1c;">MRA status not read: ' + esc(O.statusErr) + '</span>' : '') + '</div>';
         html += '<div class="mrh-bar"><b>' + nSel + '</b> ticked' +
@@ -652,8 +682,9 @@
                 '<input id="mro-grep" placeholder="Filter the rows shown — any column" value="' + esc(O.grep) + '" autocomplete="off" spellcheck="false">' +
                 '<button id="mro-grep-x" title="Clear the filter"' + (O.grep ? '' : ' style="display:none;"') + '>✕</button></span>' +
             (oTokens().length ? '<span class="mrh-grep-n">' + rows.length + ' of ' + O.rows.filter(oKpiMatch).length + ' match</span>' : '') +
+            (O.date ? '<span class="mrh-grep-n" title="Only the trips of this date (By date › Orders)"><i class="fas fa-calendar-day"></i> ' + esc(dayName(O.date)) + ' <button id="mro-date-x" title="Every date again" style="border:0;background:#e0e7ff;color:#3730a3;border-radius:50%;width:18px;height:18px;cursor:pointer;font-size:.65rem;">✕</button></span>' : '') +
             '<span style="margin-left:auto;"></span><button class="mrh-btn n s" onclick="MraInterface.oCsv()"><i class="fas fa-file-csv"></i> CSV</button></div>';
-        if (!O.trips.length) return html + '<div class="mrh-tw"><div class="mrh-empty">No trips between these dates on ' + esc(f.inst || 'PROD / TEST') + '.</div></div>';
+        if (!O.trips.length) return html + '<div class="mrh-tw"><div class="mrh-empty">No trips between these dates on ' + esc(f.inst) + '.</div></div>';
         if (!rows.length) return html + '<div class="mrh-tw"><div class="mrh-empty">' + (oTokens().length ? 'No row shown matches <b>' + esc(O.grep.trim()) + '</b>.' : O.kpi ? 'No order of this kind.' : 'The trips hold no sales orders.') + '</div></div>';
         var all = rows.every(function (r) { return O.sel[r.KEY]; });
         var fl = function (on, t, title) { return '<i class="' + (on ? 'y' : '') + '" title="' + esc(title) + '">' + t + '</i>'; };
@@ -665,7 +696,7 @@
             var c = { DONE: 0, FAILED: 0, SKIPPED: 0, NONE: 0 }, nd = 0; t.orders.forEach(function (r) { c[oClass(r)]++; if (oNotDone(r)) nd++; });
             var tAll = list.every(function (r) { return O.sel[r.KEY]; });
             html += '<tr class="mro-trip"><td><input type="checkbox" data-trip="' + esc(tk) + '"' + (tAll ? ' checked' : '') + ' title="Tick every order of this trip shown"></td><td colspan="11"><div class="mro-th">' +
-                '<b><i class="fas fa-truck" style="color:#4f46e5;"></i> Trip ' + esc(t.trip_id) + '</b><span class="m">' + esc(dayName(t.date)) + '</span>' + (f.inst ? '' : '<span class="m">' + esc(t.inst) + '</span>') +
+                '<b><i class="fas fa-truck" style="color:#4f46e5;"></i> Trip ' + esc(t.trip_id) + '</b><span class="m">' + esc(dayName(t.date)) + '</span>' +
                 (t.lorry ? '<span class="m" title="Lorry">' + esc(t.lorry) + '</span>' : '') + (t.bay ? '<span class="m" title="Loading bay">Bay ' + esc(t.bay) + '</span>' : '') + (t.priority ? '<span class="m" title="Priority">' + esc(t.priority) + '</span>' : '') +
                 '<span class="m">' + t.orders.length + ' order' + (t.orders.length === 1 ? '' : 's') + '</span>' +
                 '<span class="mrh-s DONE">' + c.DONE + ' interfaced</span>' + (c.FAILED ? '<span class="mrh-s FAILED">' + c.FAILED + ' failed</span>' : '') + (c.SKIPPED ? '<span class="mrh-s SKIPPED">' + c.SKIPPED + ' skipped</span>' : '') + (c.NONE ? '<span class="mrh-s NONE">' + c.NONE + ' not interfaced</span>' : '') +
@@ -708,6 +739,7 @@
         if (g('mro-notdone')) g('mro-notdone').onclick = function () { O.sel = {}; oShown().forEach(function (r) { if (oNotDone(r)) O.sel[r.KEY] = 1; }); render(); };
         if (g('mro-failed')) g('mro-failed').onclick = function () { O.sel = {}; oShown().forEach(function (r) { if (oClass(r) === 'FAILED') O.sel[r.KEY] = 1; }); render(); };
         if (g('mro-none')) g('mro-none').onclick = function () { O.sel = {}; render(); };
+        if (g('mro-date-x')) g('mro-date-x').onclick = function () { O.date = ''; render(); };
         var gi = g('mro-grep'), gt = null;
         if (gi) {
             var regrep = function () {
@@ -727,6 +759,232 @@
         var text = '﻿' + cols.join(',') + '\r\n' + rows.map(function (r) { return cols.map(function (c) { var v = r[c]; return q(typeof v === 'boolean' ? (v ? 'Y' : 'N') : v); }).join(','); }).join('\r\n');
         var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
         a.download = 'mra_all_orders_' + filters().from + '_' + filters().to + '.csv'; document.body.appendChild(a); a.click(); a.remove();
+    }
+
+    // ── By date: the All-orders read folded per trip date — orders, interfaced, failed, not interfaced — and Interface to MRA
+    //    per date (a dialog lists the eligible orders — not interfaced yet or failed — ticked; Confirm starts the runs). ──
+    var D = { open: false, all: false, dates: [], rows: [], sel: {}, before: {}, running: false, finished: false, res: null };
+    function bdKey(r) { return r.TRIP_DATE || ''; }
+    function bdRows() {
+        var by = {}, list = [];
+        O.rows.forEach(function (r) {
+            var k = bdKey(r), d = by[k];
+            if (!d) { d = by[k] = { date: k, trips: {}, orders: 0, DONE: 0, FAILED: 0, SKIPPED: 0, NONE: 0, printed: 0, amount: 0, eligible: 0, nTrips: 0 }; list.push(d); }
+            d.trips[r.INSTANCE_NAME + '|' + r.TRIP_ID] = 1; d.orders++; d[oClass(r)]++; if (r.PRINTED) d.printed++; d.amount += num(r.AMOUNT); if (oNotDone(r)) d.eligible++;
+        });
+        list.forEach(function (d) { d.nTrips = Object.keys(d.trips).length; });
+        return list.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    }
+    function pct(n, of) { return of ? Math.round(n * 100 / of) + '%' : '—'; }
+    /** One stacked share bar: interfaced · failed · skipped · not interfaced (hover = the counts). */
+    function barHtml(d) {
+        var n = d.orders || 1, seg = function (k, cls, label) { return d[k] ? '<i class="' + cls + '" style="width:' + (d[k] * 100 / n).toFixed(1) + '%" title="' + d[k] + ' ' + label + '"></i>' : ''; };
+        return '<span class="mbar" title="' + d.DONE + ' interfaced · ' + d.FAILED + ' failed · ' + d.SKIPPED + ' skipped · ' + d.NONE + ' not interfaced">' + seg('DONE', 'd', 'interfaced') + seg('FAILED', 'f', 'failed') + seg('SKIPPED', 's', 'skipped') + seg('NONE', 'n', 'not interfaced') + '</span>';
+    }
+    function sumOf(list, keys) { var t = {}; keys.forEach(function (k) { t[k] = 0; }); list.forEach(function (d) { keys.forEach(function (k) { t[k] += d[k] || 0; }); }); return t; }
+    function byDateHtml() {
+        var f = filters();
+        if (O.error) return '<div class="mri-err"><i class="fas fa-exclamation-triangle"></i> ' + esc(O.error) + '</div>';
+        if (!O.loaded || (O.loading && !O.rows.length)) return '<div class="mrh-tw"><div class="mrh-empty"><i class="fas fa-spinner fa-spin"></i> ' + esc(O.step || 'Reading…') + '</div></div>';
+        var rows = bdRows(), t = sumOf(rows, ['nTrips', 'orders', 'DONE', 'FAILED', 'SKIPPED', 'NONE', 'printed', 'amount', 'eligible']), busyAny = Object.keys(O.busy).length > 0;
+        var kpi = function (n, label, cls, sub) { return '<div style="cursor:default;"><b>' + n + (sub ? ' <small style="font-size:.75rem;color:#64748b;font-weight:600;">' + sub + '</small>' : '') + '</b>' + (cls ? '<span class="mrh-s ' + cls + '">' + label + '</span>' : '<span>' + label + '</span>') + '</div>'; };
+        var html = '<div class="mrh-kpi">' + kpi(rows.length, 'Dates') + kpi(t.nTrips, 'Trips') + kpi(t.orders, 'Sales orders') + kpi(t.DONE, 'Interfaced', 'DONE', pct(t.DONE, t.orders)) +
+            kpi(t.FAILED, 'Failed', 'FAILED') + kpi(t.SKIPPED, 'Skipped', 'SKIPPED') + kpi(t.NONE, 'Not interfaced', 'NONE') + kpi(t.printed, 'Printed', '', pct(t.printed, t.orders)) + '</div>';
+        html += '<div class="mro-note">' + (O.loading ? '<i class="fas fa-spinner fa-spin"></i> ' + esc(O.step) + ' · ' : '') + 'Trips of <b>' + esc(ddmmyyyy(f.from)) + '</b> to <b>' + esc(ddmmyyyy(f.to)) + '</b> on <b>' + esc(f.inst) + '</b>, one line per trip date — sales orders only' +
+            (O.at ? ' · read at ' + esc(O.at) : '') + (O.hidden.store ? ' · ' + O.hidden.store + ' store / van transaction(s) left out' : '') + (O.hidden.cancelled ? ' · ' + O.hidden.cancelled + ' cancelled line(s) left out' : '') +
+            (O.statusErr ? ' · <span style="color:#b91c1c;">MRA status not read: ' + esc(O.statusErr) + '</span>' : '') + '</div>';
+        html += '<div class="mrh-bar"><b>' + t.eligible + '</b> eligible — not interfaced yet or failed' +
+            '<button class="mrh-btn g s" onclick="MraInterface.bdRun()"' + (!t.eligible || busyAny ? ' disabled' : '') + ' title="Shows the eligible orders of every date first; Confirm starts the runs"><i class="fas fa-paper-plane"></i> Interface to MRA — all dates</button>' +
+            '<span style="margin-left:auto;"></span><button class="mrh-btn n s" onclick="MraInterface.bdCsv()"' + (rows.length ? '' : ' disabled') + '><i class="fas fa-file-csv"></i> CSV</button></div>';
+        if (!rows.length) return html + '<div class="mrh-tw"><div class="mrh-empty">No trips between these dates on ' + esc(f.inst) + '.</div></div>';
+        html += '<div class="mrh-tw"><table class="mrh-t"><thead><tr><th>Trip date</th><th class="num">Trips</th><th class="num">Sales orders</th><th class="num">Interfaced</th><th class="num">%</th><th class="num">Failed</th><th class="num">Skipped</th><th class="num">Not interfaced</th><th class="num">Printed</th><th class="num">Order amount</th><th>Share</th><th></th></tr></thead><tbody>';
+        rows.forEach(function (d) {
+            var live = 0; O.rows.forEach(function (r) { if (bdKey(r) === d.date && O.busy[r.KEY]) live++; });
+            html += '<tr><td><b>' + esc(dayName(d.date) || '(no date)') + '</b></td><td class="num">' + d.nTrips + '</td><td class="num"><b>' + d.orders + '</b></td>' +
+                '<td class="num"><span class="mrh-s DONE">' + d.DONE + '</span></td><td class="num pc">' + pct(d.DONE, d.orders) + '</td>' +
+                '<td class="num">' + (d.FAILED ? '<span class="mrh-s FAILED">' + d.FAILED + '</span>' : '<span class="pc">0</span>') + '</td>' +
+                '<td class="num">' + (d.SKIPPED ? '<span class="mrh-s SKIPPED">' + d.SKIPPED + '</span>' : '<span class="pc">0</span>') + '</td>' +
+                '<td class="num">' + (d.NONE ? '<span class="mrh-s NONE">' + d.NONE + '</span>' : '<span class="pc">0</span>') + '</td>' +
+                '<td class="num">' + d.printed + ' <span class="pc">' + pct(d.printed, d.orders) + '</span></td><td class="num">' + money(d.amount) + '</td><td>' + barHtml(d) + '</td>' +
+                '<td><div class="mrh-act">' +
+                    '<button class="mrh-btn g s" onclick="MraInterface.bdRun([' + jsArg(d.date) + '])"' + (!d.eligible || busyAny ? ' disabled' : '') + ' title="Shows the ' + d.eligible + ' eligible order(s) of this date first; Confirm starts the runs"><i class="fas fa-' + (live ? 'spinner fa-spin' : 'paper-plane') + '"></i> Interface ' + d.eligible + '</button>' +
+                    '<button class="mrh-btn n s" onclick="MraInterface.bdShow(' + jsArg(d.date) + ')" title="The orders of this date on the All orders tab"><i class="fas fa-list"></i> Orders</button>' +
+                '</div></td></tr>';
+        });
+        var tot = { orders: t.orders, DONE: t.DONE, FAILED: t.FAILED, SKIPPED: t.SKIPPED, NONE: t.NONE };
+        html += '<tr class="tot"><td>Total</td><td class="num">' + t.nTrips + '</td><td class="num">' + t.orders + '</td><td class="num">' + t.DONE + '</td><td class="num pc">' + pct(t.DONE, t.orders) + '</td><td class="num">' + t.FAILED + '</td><td class="num">' + t.SKIPPED + '</td><td class="num">' + t.NONE + '</td>' +
+            '<td class="num">' + t.printed + '</td><td class="num">' + money(t.amount) + '</td><td>' + barHtml(tot) + '</td><td></td></tr>';
+        return html + '</tbody></table></div>';
+    }
+    function wireByDate() { /* every control is an onclick */ }
+    function bdCsv() {
+        var rows = bdRows(); if (!rows.length) return;
+        var cols = ['TRIP_DATE', 'TRIPS', 'SALES_ORDERS', 'INTERFACED', 'FAILED', 'SKIPPED', 'NOT_INTERFACED', 'PRINTED', 'ORDER_AMOUNT'];
+        var text = '﻿' + cols.join(',') + '\r\n' + rows.map(function (d) { return [d.date, d.nTrips, d.orders, d.DONE, d.FAILED, d.SKIPPED, d.NONE, d.printed, d.amount.toFixed(2)].join(','); }).join('\r\n');
+        var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
+        a.download = 'mra_by_date_' + filters().from + '_' + filters().to + '.csv'; document.body.appendChild(a); a.click(); a.remove();
+    }
+    /** The dialog: the eligible orders of the date(s), ticked; Confirm runs them (3 at a time) and the rows show each one's result. */
+    function bdRun(dates) {
+        var all = !dates || !dates.length, list = O.rows.filter(function (r) { return oNotDone(r) && (all || dates.indexOf(bdKey(r)) >= 0); });
+        if (!list.length) { notify('Nothing to interface — every sales order of ' + (all ? 'these dates' : 'that date') + ' is interfaced or skipped.', 'info'); return; }
+        if (Object.keys(O.busy).length) { notify('An MRA run is still going — wait for it to finish.', 'warning'); return; }
+        D = { open: true, all: all, dates: all ? bdRows().map(function (d) { return d.date; }) : dates.slice(), rows: list, sel: {}, before: {}, running: false, finished: false, res: null };
+        list.forEach(function (r) { D.sel[r.KEY] = 1; D.before[r.KEY] = r.MRA_INTERFACE_STATUS || ''; });
+        var old = document.getElementById('mri-bd'); if (old) old.remove();
+        var d = document.createElement('div'); d.id = 'mri-bd'; d.className = 'mrh-dlg';
+        document.body.appendChild(d);
+        d.addEventListener('click', function (e) { if (e.target === d && !D.running) bdClose(); });
+        bdPaint();
+    }
+    function bdClose() { D.open = false; var d = document.getElementById('mri-bd'); if (d) d.remove(); }
+    function bdResult(r) { return O.live[r.KEY] || (D.res && D.res[r.KEY]) || null; }
+    function bdPaint() {
+        var d = document.getElementById('mri-bd'); if (!d) { D.open = false; return; }
+        var rows = D.rows, nSel = rows.filter(function (r) { return D.sel[r.KEY]; }).length, c = { SUCCESS: 0, FAILED: 0, SKIPPED: 0, ALREADY_DONE: 0, RUN: 0 };
+        rows.forEach(function (r) { var l = bdResult(r); if (l) c[l.cls] = (c[l.cls] || 0) + 1; });
+        var off = INSTANCES.filter(function (i) { var fl = st.flags[i]; return fl && String(fl.INTERFACE_FLAG).toUpperCase() === 'N' && rows.some(function (r) { return r.INSTANCE_NAME === i; }); });
+        var busy = D.running, done = D.finished, toGo = nSel - c.SUCCESS - c.FAILED - c.SKIPPED - c.ALREADY_DONE;
+        var html = '<div><h4><i class="fas fa-paper-plane" style="color:#16a34a;"></i> Interface to MRA — ' + (D.all ? 'every date (' + D.dates.length + ')' : esc(D.dates.map(dayName).join(', '))) + '</h4>' +
+            '<p class="mbd-p"><b>' + rows.length + ' eligible order(s)</b>: not interfaced yet or failed before. Orders already in MRA are never sent again (checked once more just before each run). Untick what should wait, then <b>Confirm</b>.' +
+            (off.length ? '<br><b style="color:#b45309;"><i class="fas fa-triangle-exclamation"></i> The MRA switch is OFF for ' + esc(off.join(', ')) + ' (Setup tab) — the orders are sent anyway.</b>' : '') + '</p>' +
+            (busy || done ? '<div class="mbd-live">' + (busy ? '<i class="fas fa-spinner fa-spin"></i> <b>Running</b> — 3 orders at a time · ' : '<i class="fas fa-check" style="color:#16a34a;"></i> <b>Done</b> — ') +
+                c.SUCCESS + ' interfaced · ' + c.FAILED + ' failed · ' + c.SKIPPED + ' skipped · ' + c.ALREADY_DONE + ' already done' + (busy ? ' · ' + Math.max(0, toGo) + ' to go' : '') + '</div>' : '');
+        var all = rows.every(function (r) { return D.sel[r.KEY]; });
+        html += '<div class="mrh-tw" style="margin-top:0;max-height:52vh;"><table class="mrh-t"><thead><tr><th><input type="checkbox" id="mbd-all"' + (all ? ' checked' : '') + (busy || done ? ' disabled' : '') + '></th><th>Trip</th><th>Order</th><th>Customer</th><th>Type</th><th>Before</th><th>Result</th></tr></thead><tbody>';
+        var byDate = {}; rows.forEach(function (r) { (byDate[bdKey(r)] = byDate[bdKey(r)] || []).push(r); });
+        Object.keys(byDate).sort().forEach(function (k) {
+            if (D.all) html += '<tr class="mbd-dt"><td colspan="7"><i class="fas fa-calendar-day" style="color:#4f46e5;"></i> ' + esc(dayName(k) || '(no date)') + ' · ' + byDate[k].length + ' order(s)</td></tr>';
+            byDate[k].forEach(function (r) {
+                var l = bdResult(r), b = D.before[r.KEY], bl = b === 'FAILED' ? '<span class="mrh-s FAILED" title="' + esc(r.MRA_WHY) + '">Failed before</span>' : '<span class="mrh-s NONE">Not interfaced</span>';
+                html += '<tr' + (D.sel[r.KEY] ? ' class="sel"' : '') + '><td><input type="checkbox" data-bk="' + esc(r.KEY) + '"' + (D.sel[r.KEY] ? ' checked' : '') + (busy || done ? ' disabled' : '') + '></td>' +
+                    '<td>' + esc(r.TRIP_ID) + (r.LORRY ? ' <span class="sub">' + esc(r.LORRY) + '</span>' : '') + '</td><td><b>' + esc(r.ORDER_NUMBER) + '</b></td>' +
+                    '<td class="cut" title="' + esc(r.CUSTOMER_NAME) + '">' + esc(r.CUSTOMER_NAME) + '</td><td class="cut n">' + esc(r.ORDER_TYPE) + '</td><td>' + bl + '</td>' +
+                    '<td class="cut w" title="' + esc(l ? (l.msg || '') : '') + '">' + (l ? '<span class="mrh-s ' + esc(l.cls) + '">' + (O.busy[r.KEY] ? '<i class="fas fa-spinner fa-spin"></i> ' : '') + esc(l.text) + '</span>' + (l.msg ? ' <span class="pc">' + esc(l.msg) + '</span>' : '')
+                        : (D.sel[r.KEY] ? '<span class="pc">' + (busy ? 'queued' : 'will be sent') + '</span>' : '<span class="pc">—</span>')) + '</td></tr>';
+            });
+        });
+        html += '</tbody></table></div>';
+        var failedNow = rows.filter(function (r) { var l = bdResult(r); return l && l.cls === 'FAILED'; }).length;
+        html += '<div class="mbd-b"><span class="n">' + (done ? (failedNow ? failedNow + ' failed — tick them and Confirm to try again, or see the reason on hover.' : 'Every order answered. The By date figures are read again.') : nSel + ' of ' + rows.length + ' ticked') + '</span>' +
+            '<button class="mrh-btn n" id="mbd-x"' + (busy ? ' disabled' : '') + '>' + (done ? 'Close' : 'Cancel') + '</button>' +
+            (done && !failedNow ? '' : '<button class="mrh-btn g" id="mbd-ok"' + (busy || !nSel ? ' disabled' : '') + '><i class="fas fa-' + (busy ? 'spinner fa-spin' : 'paper-plane') + '"></i> ' + (busy ? 'Running…' : done ? 'Try the ticked again' : 'Confirm — interface ' + nSel + ' order' + (nSel === 1 ? '' : 's')) + '</button>') + '</div></div>';
+        d.innerHTML = html;
+        var g = function (id) { return document.getElementById(id); };
+        if (g('mbd-all')) g('mbd-all').onchange = function () { var on = g('mbd-all').checked; rows.forEach(function (r) { if (on) D.sel[r.KEY] = 1; else delete D.sel[r.KEY]; }); bdPaint(); };
+        d.querySelectorAll('input[data-bk]').forEach(function (c0) { c0.onchange = function () { var k = c0.getAttribute('data-bk'); if (c0.checked) D.sel[k] = 1; else delete D.sel[k]; bdPaint(); }; });
+        if (g('mbd-x')) g('mbd-x').onclick = bdClose;
+        if (g('mbd-ok')) g('mbd-ok').onclick = bdConfirm;
+    }
+    function bdConfirm() {
+        var list = D.rows.filter(function (r) { return D.sel[r.KEY]; }); if (!list.length || D.running) return;
+        if (D.finished) { D.rows.forEach(function (r) { if (D.sel[r.KEY]) { D.before[r.KEY] = r.MRA_INTERFACE_STATUS || ''; if (D.res) delete D.res[r.KEY]; } }); }
+        D.running = true; D.finished = false; bdPaint();
+        var p = mraRun(list, O, keyOfO, refreshMra, 'WMS_MRA_BYDATE', { confirmed: true });
+        if (!p || typeof p.then !== 'function') { D.running = false; bdPaint(); return; }
+        p.then(function () {
+            var res = D.res || {}; D.rows.forEach(function (r) { if (O.live[r.KEY]) res[r.KEY] = O.live[r.KEY]; });
+            D.res = res; D.running = false; D.finished = true;
+            D.sel = {}; D.rows.forEach(function (r) { var l = res[r.KEY]; if (l && l.cls === 'FAILED') D.sel[r.KEY] = 1; });    // the failed ones stay ticked for another try
+            bdPaint();
+        });
+    }
+
+    // ── By month: statistics only — the trips of the last n months (WMS_TRIP_DETAILS × WMS_TRIP_HEADER by trip date, sales orders only)
+    //    with the latest MRA status per order, plus the MRA runs written per month (WMS_MRA_INTERFACE_STATUS by created_date). ──
+    var M = { loaded: false, loading: false, error: null, runsErr: '', rows: [], runs: [], n: 12, at: '', inst: '', chart: null };
+    try { var savedN = Number(localStorage.getItem('mri.bm.n')); if ([6, 12, 24].indexOf(savedN) >= 0) M.n = savedN; } catch (e) { /* storage blocked */ }
+    function monthsTripSql(inst, n) {
+        return "WITH t AS (SELECT TO_CHAR(h.trip_date, 'YYYY-MM') AS ym, d.trip_id, TRIM(d.order_number) AS o FROM wms_trip_details d JOIN wms_trip_header h ON h.trip_id = d.trip_id " +
+            'WHERE UPPER(d.instance_name) = ' + lit(inst) + " AND h.trip_date >= ADD_MONTHS(TRUNC(SYSDATE, 'MM'), " + (-(n - 1)) + ") AND h.trip_date < ADD_MONTHS(TRUNC(SYSDATE, 'MM'), 1) " +
+            "AND NOT REGEXP_LIKE(NVL(d.order_type, ' '), 'store[[:space:]]*to[[:space:]]*van|van[[:space:]]*to[[:space:]]*store|^s2v$|^v2s$', 'i') AND NOT REGEXP_LIKE(TRIM(d.order_number), '^(S2V|V2S)[-_ ]', 'i')), " +
+            'm AS (SELECT TRIM(order_number) AS o, MAX(mra_interface_status) KEEP (DENSE_RANK LAST ORDER BY created_date, id) AS s FROM wms_mra_interface_status WHERE UPPER(instance_name) = ' + lit(inst) + ' AND TRIM(order_number) IN (SELECT o FROM t) GROUP BY TRIM(order_number)), ' +
+            'x AS (SELECT t.ym, t.trip_id, t.o, MAX(m.s) AS s FROM t LEFT JOIN m ON m.o = t.o GROUP BY t.ym, t.trip_id, t.o) ' +
+            "SELECT ym, COUNT(DISTINCT trip_id) AS trips, COUNT(DISTINCT o) AS orders, COUNT(DISTINCT CASE WHEN s IN ('SUCCESS', 'ALREADY_DONE') THEN o END) AS done, " +
+            "COUNT(DISTINCT CASE WHEN s = 'FAILED' THEN o END) AS failed, COUNT(DISTINCT CASE WHEN s = 'SKIPPED' THEN o END) AS skipped, COUNT(DISTINCT CASE WHEN s IS NULL THEN o END) AS none " +
+            'FROM x GROUP BY ym ORDER BY ym';
+    }
+    function monthsRunSql(inst, n, lean) {
+        return "SELECT TO_CHAR(created_date, 'YYYY-MM') AS ym, COUNT(*) AS runs, COUNT(DISTINCT TRIM(order_number)) AS orders, " +
+            "SUM(CASE WHEN mra_interface_status = 'SUCCESS' THEN 1 ELSE 0 END) AS ok, SUM(CASE WHEN mra_interface_status = 'FAILED' THEN 1 ELSE 0 END) AS failed, " +
+            "SUM(CASE WHEN mra_interface_status = 'SKIPPED' THEN 1 ELSE 0 END) AS skipped, SUM(CASE WHEN mra_interface_status = 'ALREADY_DONE' THEN 1 ELSE 0 END) AS already" +
+            (lean ? '' : ', SUM(CASE WHEN gateway_problem IS NOT NULL THEN 1 ELSE 0 END) AS gw, COUNT(DISTINCT app_user) AS users') +
+            ' FROM wms_mra_interface_status WHERE UPPER(instance_name) = ' + lit(inst) + " AND created_date >= ADD_MONTHS(TRUNC(SYSDATE, 'MM'), " + (-(n - 1)) + ") GROUP BY TO_CHAR(created_date, 'YYYY-MM') ORDER BY 1";
+    }
+    function loadMonths() {
+        var inst = curInstance(), n = M.n;
+        M.loading = true; M.error = null; M.runsErr = ''; M.inst = inst; render();
+        var noTable = function (e) { return /ORA-00942|does not exist/i.test(String(e && e.message || e)); };
+        var trips = read(monthsTripSql(inst, n), 500).then(function (rows) { M.rows = rows; }, function (e) { M.rows = []; M.error = e.message; });
+        var runs = read(monthsRunSql(inst, n, false), 500)
+            .catch(function (e) { if (noTable(e)) return []; return read(monthsRunSql(inst, n, true), 500).catch(function (e2) { if (noTable(e2)) return []; throw e2; }); })   // an older status table: without gateway / users
+            .then(function (rows) { M.runs = rows; }, function (e) { M.runs = []; M.runsErr = e.message; });
+        return Promise.all([trips, runs]).then(function () { M.loaded = true; M.loading = false; M.at = new Date().toLocaleTimeString(); render(); });
+    }
+    function monthLabel(ym) { var m = /^(\d{4})-(\d{2})/.exec(String(ym || '')); return m ? ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][+m[2] - 1] + ' ' + m[1] : String(ym || ''); }
+    function monthRows() {
+        var by = {}, list = [], add = function (ym) { if (!by[ym]) { by[ym] = { ym: ym, trips: 0, orders: 0, DONE: 0, FAILED: 0, SKIPPED: 0, NONE: 0, runs: 0, tried: 0, ok: 0, rfailed: 0, rskipped: 0, already: 0, gw: null, users: null }; list.push(by[ym]); } return by[ym]; };
+        M.rows.forEach(function (r) { var d = add(String(r.YM || '')); d.trips = num(r.TRIPS); d.orders = num(r.ORDERS); d.DONE = num(r.DONE); d.FAILED = num(r.FAILED); d.SKIPPED = num(r.SKIPPED); d.NONE = num(r.NONE); });
+        M.runs.forEach(function (r) { var d = add(String(r.YM || '')); d.runs = num(r.RUNS); d.tried = num(r.ORDERS); d.ok = num(r.OK); d.rfailed = num(r.FAILED); d.rskipped = num(r.SKIPPED); d.already = num(r.ALREADY); d.gw = r.GW == null ? null : num(r.GW); d.users = r.USERS == null ? null : num(r.USERS); });
+        return list.sort(function (a, b) { return a.ym < b.ym ? -1 : a.ym > b.ym ? 1 : 0; });
+    }
+    function byMonthHtml() {
+        var thisYm = today(0).slice(0, 7);
+        var html = '<div class="mrh-f" style="margin-top:.6rem;">' +
+            '<label>Months<select id="mbm-n">' + [6, 12, 24].map(function (n) { return '<option value="' + n + '"' + (n === M.n ? ' selected' : '') + '>Last ' + n + ' months</option>'; }).join('') + '</select></label>' +
+            '<span style="font-size:.74rem;color:#64748b;align-self:center;max-width:720px;">Trips on <b>' + esc(M.inst || curInstance()) + '</b> by trip month (the toolbar\'s instance) — sales orders only, store / van transactions left out; the MRA status is the latest try of each order. ' +
+            '<b>MRA runs</b> = every try written in that month, whoever started it.' + (M.at ? ' Read at ' + esc(M.at) + '.' : '') + '</span></div>';
+        if (M.loading && !M.loaded) return html + '<div class="mrh-tw"><div class="mrh-empty"><i class="fas fa-spinner fa-spin"></i> Reading the months…</div></div>';
+        if (!M.loaded) return html + '<div class="mrh-tw"><div class="mrh-empty">Reading…</div></div>';
+        if (M.error) html += '<div class="mri-err"><i class="fas fa-exclamation-triangle"></i> Trips by month not read: ' + esc(M.error) + '</div>';
+        if (M.runsErr) html += '<div class="mri-err"><i class="fas fa-exclamation-triangle"></i> MRA runs by month not read: ' + esc(M.runsErr) + '</div>';
+        var rows = monthRows(), t = sumOf(rows, ['trips', 'orders', 'DONE', 'FAILED', 'SKIPPED', 'NONE', 'runs', 'ok', 'rfailed', 'gw']), hasGw = rows.some(function (d) { return d.gw != null; });
+        var kpi = function (n, label, cls, sub) { return '<div style="cursor:default;"><b>' + n + (sub ? ' <small style="font-size:.75rem;color:#64748b;font-weight:600;">' + sub + '</small>' : '') + '</b>' + (cls ? '<span class="mrh-s ' + cls + '">' + label + '</span>' : '<span>' + label + '</span>') + '</div>'; };
+        html += '<div class="mrh-kpi">' + kpi(rows.length, 'Months') + kpi(t.trips, 'Trips') + kpi(t.orders, 'Sales orders') + kpi(t.DONE, 'Interfaced', 'DONE', pct(t.DONE, t.orders)) + kpi(t.FAILED, 'Failed', 'FAILED') +
+            kpi(t.SKIPPED, 'Skipped', 'SKIPPED') + kpi(t.NONE, 'Not interfaced', 'NONE') + kpi(t.runs, 'MRA runs', '', t.runs ? pct(t.ok, t.runs) + ' success' : '') + kpi(hasGw ? t.gw : '—', 'Gateway problems') + '</div>';
+        if (!rows.length) return html + '<div class="mrh-tw"><div class="mrh-empty">No trips or MRA runs in the last ' + M.n + ' months on ' + esc(M.inst) + '.</div></div>';
+        if (typeof window.Chart === 'function') html += '<div class="mbm-chart"><canvas id="mbm-chart"></canvas></div>';
+        html += '<div class="mrh-bar" style="background:#f8fafc;border-color:#e2e8f0;color:#334155;"><b>Statistics only</b> — nothing is sent from here; <i>By date</i> on a month opens that month with Interface to MRA.' +
+            '<span style="margin-left:auto;"></span><button class="mrh-btn n s" onclick="MraInterface.mCsv()"><i class="fas fa-file-csv"></i> CSV</button></div>';
+        html += '<div class="mrh-tw"><table class="mrh-t"><thead><tr><th>Month</th><th class="num">Trips</th><th class="num">Sales orders</th><th class="num">Interfaced</th><th class="num">%</th><th class="num">Failed</th><th class="num">Skipped</th><th class="num">Not interfaced</th><th>Share</th>' +
+            '<th class="num" title="Every try written in the month">MRA runs</th><th class="num" title="Distinct orders tried in the month">Orders tried</th><th class="num">Success runs</th><th class="num">Failed runs</th><th class="num">Gateway problems</th><th class="num">Users</th><th></th></tr></thead><tbody>';
+        rows.forEach(function (d) {
+            html += '<tr><td><b>' + esc(monthLabel(d.ym)) + '</b>' + (d.ym === thisYm ? ' <span class="now">so far</span>' : '') + '</td><td class="num">' + d.trips + '</td><td class="num"><b>' + d.orders + '</b></td>' +
+                '<td class="num"><span class="mrh-s DONE">' + d.DONE + '</span></td><td class="num pc">' + pct(d.DONE, d.orders) + '</td>' +
+                '<td class="num">' + (d.FAILED ? '<span class="mrh-s FAILED">' + d.FAILED + '</span>' : '<span class="pc">0</span>') + '</td><td class="num">' + (d.SKIPPED ? '<span class="mrh-s SKIPPED">' + d.SKIPPED + '</span>' : '<span class="pc">0</span>') + '</td>' +
+                '<td class="num">' + (d.NONE ? '<span class="mrh-s NONE">' + d.NONE + '</span>' : '<span class="pc">0</span>') + '</td><td>' + barHtml(d) + '</td>' +
+                '<td class="num">' + d.runs + '</td><td class="num">' + d.tried + '</td><td class="num">' + d.ok + ' <span class="pc">' + pct(d.ok, d.runs) + '</span></td><td class="num">' + (d.rfailed ? '<span class="mrh-s FAILED">' + d.rfailed + '</span>' : '<span class="pc">0</span>') + '</td>' +
+                '<td class="num">' + (d.gw == null ? '<span class="pc">—</span>' : d.gw) + '</td><td class="num">' + (d.users == null ? '<span class="pc">—</span>' : d.users) + '</td>' +
+                '<td><button class="mrh-btn n s" onclick="MraInterface.bdMonth(' + jsArg(d.ym) + ')" title="Open By date on this month"><i class="fas fa-calendar-day"></i> By date</button></td></tr>';
+        });
+        html += '<tr class="tot"><td>Total</td><td class="num">' + t.trips + '</td><td class="num">' + t.orders + '</td><td class="num">' + t.DONE + '</td><td class="num pc">' + pct(t.DONE, t.orders) + '</td><td class="num">' + t.FAILED + '</td><td class="num">' + t.SKIPPED + '</td><td class="num">' + t.NONE + '</td><td>' + barHtml({ orders: t.orders, DONE: t.DONE, FAILED: t.FAILED, SKIPPED: t.SKIPPED, NONE: t.NONE }) + '</td>' +
+            '<td class="num">' + t.runs + '</td><td class="num"></td><td class="num">' + t.ok + '</td><td class="num">' + t.rfailed + '</td><td class="num">' + (hasGw ? t.gw : '—') + '</td><td></td><td></td></tr>';
+        return html + '</tbody></table></div>';
+    }
+    function wireByMonth() {
+        var sel = document.getElementById('mbm-n');
+        if (sel) sel.onchange = function () { M.n = Number(sel.value) || 12; try { localStorage.setItem('mri.bm.n', String(M.n)); } catch (e) { /* storage blocked */ } loadMonths(); };
+        var cv = document.getElementById('mbm-chart');
+        if (M.chart) { try { M.chart.destroy(); } catch (e) { /* gone */ } M.chart = null; }
+        if (!cv || typeof window.Chart !== 'function') return;
+        var rows = monthRows();
+        try {
+            M.chart = new window.Chart(cv.getContext('2d'), { type: 'bar', data: { labels: rows.map(function (d) { return monthLabel(d.ym); }), datasets: [
+                { label: 'Interfaced', data: rows.map(function (d) { return d.DONE; }), backgroundColor: '#22c55e', stack: 'o' },
+                { label: 'Failed', data: rows.map(function (d) { return d.FAILED; }), backgroundColor: '#ef4444', stack: 'o' },
+                { label: 'Skipped', data: rows.map(function (d) { return d.SKIPPED; }), backgroundColor: '#f59e0b', stack: 'o' },
+                { label: 'Not interfaced', data: rows.map(function (d) { return d.NONE; }), backgroundColor: '#cbd5e1', stack: 'o' },
+                { label: '% interfaced', type: 'line', data: rows.map(function (d) { return d.orders ? Math.round(d.DONE * 100 / d.orders) : null; }), borderColor: '#4f46e5', backgroundColor: '#4f46e5', yAxisID: 'y1', tension: .3, pointRadius: 3 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } },
+                    scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Sales orders' } }, y1: { position: 'right', min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { callback: function (v) { return v + '%'; } } } } } });
+        } catch (e) { console.log('[MRA Interface] chart', e); }
+    }
+    function mCsv() {
+        var rows = monthRows(); if (!rows.length) return;
+        var cols = ['MONTH', 'TRIPS', 'SALES_ORDERS', 'INTERFACED', 'FAILED', 'SKIPPED', 'NOT_INTERFACED', 'MRA_RUNS', 'ORDERS_TRIED', 'SUCCESS_RUNS', 'FAILED_RUNS', 'SKIPPED_RUNS', 'ALREADY_DONE_RUNS', 'GATEWAY_PROBLEMS', 'USERS'];
+        var text = '﻿' + cols.join(',') + '\r\n' + rows.map(function (d) { return [d.ym, d.trips, d.orders, d.DONE, d.FAILED, d.SKIPPED, d.NONE, d.runs, d.tried, d.ok, d.rfailed, d.rskipped, d.already, d.gw == null ? '' : d.gw, d.users == null ? '' : d.users].join(','); }).join('\r\n');
+        var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' }));
+        a.download = 'mra_by_month_' + (M.inst || 'PROD') + '_' + today(0) + '.csv'; document.body.appendChild(a); a.click(); a.remove();
     }
 
     // ── Details: the whole row + the order header, MRA request and MRA answer (CLOBs read in pieces) ──
@@ -841,24 +1099,31 @@
                 (r.NOTE ? '<div class="mri-note">“' + esc(r.NOTE) + '”</div>' : '') : 'Not set yet — enabled by default') + '</div></div>';
     }
 
-    /** The bar above the tabs: the dates and the instance every tab works with (the Setup tab has none). */
+    /** The bar above the tabs: the dates the history, All orders and By date tabs work with (the instance is the toolbar's; Setup and By month have no bar). */
     function globalHtml() {
         var f = filters(), busy = H.loading || O.loading;
-        var opt = function (v, t, cur) { return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(t) + '</option>'; };
         return '<div class="mri-global"><span class="gl-h"><i class="fas fa-calendar-days"></i> Dates</span>' +
             '<label>Date from<input type="date" id="mri-from" value="' + esc(f.from) + '"></label>' +
             '<label>Date to<input type="date" id="mri-to" value="' + esc(f.to) + '"></label>' +
-            '<label>Instance<select id="mri-inst">' + opt('', 'All', f.inst) + INSTANCES.map(function (x) { return opt(x, x, f.inst); }).join('') + '</select></label>' +
             '<button class="mrh-btn p" id="mri-go"' + (busy ? ' disabled' : '') + '><i class="fas fa-' + (busy ? 'spinner fa-spin' : 'search') + '"></i> Apply</button>' +
-            '<div class="mrh-quick"><button data-q="0">Today</button><button data-q="1">Tomorrow</button><button data-q="-1">Yesterday</button><button data-q="7">Last 7 days</button><button data-q="30">Last 30 days</button></div>' +
-            '<span class="gl-t">The same dates drive the history and All orders tabs</span></div>';
+            '<div class="mrh-quick"><button data-q="0">Today</button><button data-q="1">Tomorrow</button><button data-q="-1">Yesterday</button><button data-q="7">Last 7 days</button><button data-q="30">Last 30 days</button></div></div>';
     }
-    function reloadTab() { if (st.tab === 'history') search(); else if (st.tab === 'orders') loadOrders(); }
+    function reloadTab() { if (st.tab === 'history') search(); else if (st.tab === 'orders' || st.tab === 'bydate') loadOrders(); else if (st.tab === 'bymonth') loadMonths(); }
+    function loadIfNeeded() {
+        if (st.tab === 'history' && !H.loaded && !H.loading) search();
+        if ((st.tab === 'orders' || st.tab === 'bydate') && !O.loaded && !O.loading) loadOrders();
+        if (st.tab === 'bymonth' && !M.loaded && !M.loading) loadMonths();
+    }
+    function showTab(t) {
+        st.tab = ['history', 'orders', 'bydate', 'bymonth'].indexOf(t) >= 0 ? t : 'setup';
+        try { localStorage.setItem('mri.tab', st.tab); } catch (e) { /* storage blocked */ }
+        render();
+        loadIfNeeded();
+    }
     function wireGlobal() {
         var g = function (id) { return document.getElementById(id); };
         if (g('mri-go')) g('mri-go').onclick = function () { readForm(); reloadTab(); };
         ['mri-from', 'mri-to'].forEach(function (id) { if (g(id)) g(id).onkeydown = function (e) { if (e.key === 'Enter') { readForm(); reloadTab(); } }; });
-        if (g('mri-inst')) g('mri-inst').onchange = function () { readForm(); reloadTab(); };
         document.querySelectorAll('.mri-global .mrh-quick button').forEach(function (b) {
             b.onclick = function () {
                 var n = Number(b.getAttribute('data-q')), f = readForm();
@@ -875,13 +1140,16 @@
             return '<tr><td>' + esc(l.CHANGED_AT) + '</td><td><b>' + esc(l.INSTANCE_NAME) + '</b></td><td><span class="mri-f ' + esc(l.OLD_FLAG || 'Y') + '">' + (l.OLD_FLAG === 'N' ? 'No' : 'Yes') +
                 '</span> → <span class="mri-f ' + esc(l.NEW_FLAG) + '">' + (l.NEW_FLAG === 'N' ? 'No' : 'Yes') + '</span></td><td>' + esc(l.CHANGED_BY) + '</td><td>' + esc(l.NOTE || '') + '</td></tr>';
         }).join('') : '<tr><td colspan="5" style="color:#94a3b8;text-align:center;padding:1rem;">No changes yet.</td></tr>';
-        var hist = st.tab === 'history', ord = st.tab === 'orders', setup = !hist && !ord, busy = st.loading || H.loading || O.loading;
-        el.innerHTML = '<div class="mri-wrap' + (setup ? '' : ' wide') + '">' + (setup ? '' : globalHtml()) +
+        var hist = st.tab === 'history', ord = st.tab === 'orders', byd = st.tab === 'bydate', bym = st.tab === 'bymonth', setup = !hist && !ord && !byd && !bym, busy = st.loading || H.loading || O.loading || M.loading;
+        var withBar = hist || ord || byd;      // the dates bar; Setup and By month work without it
+        el.innerHTML = '<div class="mri-wrap' + (setup ? '' : ' wide') + '">' + (withBar ? globalHtml() : '') +
             '<div class="mri-tabs"><button class="' + (setup ? 'on' : '') + '" onclick="MraInterface.tab(\'setup\')"><i class="fas fa-sliders"></i> Setup</button>' +
             '<button class="' + (hist ? 'on' : '') + '" onclick="MraInterface.tab(\'history\')"><i class="fas fa-clock-rotate-left"></i> MRA transactions history</button>' +
             '<button class="' + (ord ? 'on' : '') + '" onclick="MraInterface.tab(\'orders\')"><i class="fas fa-truck-fast"></i> All orders' + (O.loaded && ord ? ' <span class="sub">' + O.rows.length + '</span>' : '') + '</button>' +
-            '<button class="rf" onclick="MraInterface.' + (hist ? 'search()' : ord ? 'orders()' : 'refresh()') + '"' + (busy ? ' disabled' : '') + ' title="Refresh"><i class="fas fa-sync-alt' + (busy ? ' fa-spin' : '') + '"></i> Refresh</button></div>' +
-            (hist ? histHtml() + '</div>' : '') + (ord ? ordersHtml() + '</div>' : '') + (!setup ? '' :
+            '<button class="' + (byd ? 'on' : '') + '" onclick="MraInterface.tab(\'bydate\')"><i class="fas fa-calendar-day"></i> By date' + (O.loaded && byd ? ' <span class="sub">' + bdRows().length + '</span>' : '') + '</button>' +
+            '<button class="' + (bym ? 'on' : '') + '" onclick="MraInterface.tab(\'bymonth\')"><i class="fas fa-calendar"></i> By month</button>' +
+            '<button class="rf" onclick="MraInterface.' + (hist ? 'search()' : ord ? 'orders()' : byd ? 'bydate()' : bym ? 'months()' : 'refresh()') + '"' + (busy ? ' disabled' : '') + ' title="Refresh"><i class="fas fa-sync-alt' + (busy ? ' fa-spin' : '') + '"></i> Refresh</button></div>' +
+            (hist ? histHtml() + '</div>' : '') + (ord ? ordersHtml() + '</div>' : '') + (byd ? byDateHtml() + '</div>' : '') + (bym ? byMonthHtml() + '</div>' : '') + (!setup ? '' :
             (st.error ? '<div class="mri-err"><i class="fas fa-exclamation-triangle"></i> Could not read the MRA setting: ' + esc(st.error) + '</div>' : '') +
             '<div class="mri-grid">' + INSTANCES.map(card).join('') + '</div>' +
             '<div class="mri-box"><h3><i class="fas fa-circle-info" style="color:#6366f1;"></i> How it works</h3><div class="mri-how">' +
@@ -891,9 +1159,12 @@
             '<div class="mri-box"><h3><i class="fas fa-clock-rotate-left" style="color:#6366f1;"></i> Change history</h3>' +
             '<div style="overflow-x:auto;"><table class="mri-tbl"><thead><tr><th>When</th><th>Instance</th><th>Change</th><th>By</th><th>Reason</th></tr></thead><tbody>' + logRows + '</tbody></table></div></div>' +
             '</div>');
-        if (!setup) wireGlobal();
+        if (withBar) wireGlobal();
         if (hist) wireHist();
         if (ord) wireOrders();
+        if (byd) wireByDate();
+        if (bym) wireByMonth();
+        if (D.open) bdPaint();       // the Interface-to-MRA dialog shows the live results
     }
 
     function toggle(inst) {
@@ -919,16 +1190,10 @@
     }
 
     window.MraInterface = {
-        onShow: function () { render(); load(); if (st.tab === 'history' && !H.loaded) search(); if (st.tab === 'orders' && !O.loaded) loadOrders(); },
+        onShow: function () { followToolbar(); instanceChanged(true); render(); load(); loadIfNeeded(); },
         refresh: load,
         toggle: toggle,
-        tab: function (t) {
-            st.tab = t === 'history' ? 'history' : t === 'orders' ? 'orders' : 'setup';
-            try { localStorage.setItem('mri.tab', st.tab); } catch (e) { /* storage blocked */ }
-            render();
-            if (st.tab === 'history' && !H.loaded) search();
-            if (st.tab === 'orders' && !O.loaded) loadOrders();
-        },
+        tab: showTab,
         search: function () { readForm(); search(); },
         retry: function (ids) { retry(ids); },
         print: function (ids) { printOrders(ids); },
@@ -943,7 +1208,21 @@
             if (what === 'print') printRun(list, O, keyOfO); else mraRun(list.filter(oNotDone), O, keyOfO, refreshMra, 'WMS_MRA_ORDERS');
         },
         oCsv: function () { oCsv(); },
-        state: function () { return { tab: st.tab, filters: filters(), orders: O, history: H }; },
+        /** By date: the same read as All orders folded per trip date; bdRun(dates?) opens the eligible-orders dialog (Confirm starts the runs);
+            bdShow(date) = that date's orders on the All orders tab; bdMonth('YYYY-MM') = By date on that month. By month: months(), mCsv(). */
+        bydate: function () { readForm(); return loadOrders(); },
+        bdRun: function (dates) { bdRun(dates); },
+        bdShow: function (date) { O.date = String(date || ''); O.kpi = null; showTab('orders'); },
+        bdCsv: function () { bdCsv(); },
+        bdMonth: function (ym) {
+            var m = /^(\d{4})-(\d{2})$/.exec(String(ym || '')); if (!m) return;
+            var f = filters(), last = new Date(+m[1], +m[2], 0).getDate();
+            f.from = ym + '-01'; f.to = ym + '-' + (last < 10 ? '0' : '') + last; O.loaded = false; O.rows = []; O.trips = []; O.sel = {};
+            showTab('bydate');
+        },
+        months: function () { return loadMonths(); },
+        mCsv: function () { mCsv(); },
+        state: function () { return { tab: st.tab, filters: filters(), orders: O, history: H, bydate: { rows: O.loaded ? bdRows() : [], dialog: D }, months: M }; },
         /** Interfaces one order from another screen (the trip grids' Interface button): {order, instance, tripId},
             onStep(text) → {st: SUCCESS | FAILED | SKIPPED | ALREADY_DONE, msg, gw}. */
         interfaceOrder: function (o, onStep, source) {
@@ -962,4 +1241,5 @@
             setTimeout(function () { render(); search(); }, 50);
         }
     };
+    followToolbar();
 })();
