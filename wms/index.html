@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="trip-summary.css">
     <link rel="stylesheet" href="pick-release.css">
     <link rel="stylesheet" href="autopilot.css">
+    <link rel="stylesheet" href="pending-cancel.css">
     <style>
         /* Hide body content until login is verified */
         body.auth-pending {
@@ -3542,6 +3543,16 @@
                         <button id="psl-volume-cancel-btn" onclick="cancelPslOrderVolume()" style="display: none; background: #dc2626; color: white; border: none; padding: 0.35rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; align-items: center; gap: 0.4rem;">
                             <i class="fas fa-stop-circle"></i> Cancel
                         </button>
+                        <!-- Identify lines to Cancel (pending-cancel.js): background check of every pending order's Fusion lines with the Shipping Agent's rule -->
+                        <button id="psl-identify-btn" class="pc-identify" onclick="PendingCancel.start()" title="Reads the lines of every pending order from Fusion in the background (ticked orders, else all) and lists the Scheduled / Manual Reservation lines the Shipping Agent would cancel — review and cancel them from the dialog">
+                            <i class="fas fa-cut" id="psl-identify-icon"></i> Identify lines to Cancel
+                        </button>
+                        <span id="pc-progress" class="pc-chip run" style="display: none;">
+                            <i class="fas fa-spinner fa-spin" style="font-size: 10px;"></i>
+                            <span id="pc-progress-text">starting</span>
+                            <button class="pc-mini" type="button" onclick="PendingCancel.stop()">Stop</button>
+                        </span>
+                        <span id="pc-last" class="pc-chip" style="display: none;"></span>
                         <div style="margin-left: auto; font-size: 11px; color: #64748b;">
                             <span id="psl-last-fetch">Last fetched: Never</span>
                         </div>
@@ -8970,6 +8981,7 @@
     <!-- Pending Shipment Lines Script -->
     <script>
         document.write('<script src="pending-shipment-lines.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="pending-cancel.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 
     <!-- BI Dashboard Script -->
