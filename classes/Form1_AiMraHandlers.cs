@@ -55,7 +55,7 @@ namespace WMSApp
 
                 Func<object, Task> onEvent = (evt) =>
                 {
-                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    try { PostWebViewMessage(wv, JsonSerializer.Serialize(evt)); }   // UI thread: the batch runs on the thread pool
                     catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
                     return Task.CompletedTask;
                 };

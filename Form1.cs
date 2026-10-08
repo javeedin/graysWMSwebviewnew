@@ -4899,7 +4899,8 @@ navPanel.Controls.Add(wmsDevButton);
                     mraProcessor.TripId = MraStr("tripId");
                     mraProcessor.AppUser = MraStr("appUser");
 
-                    // Process with progress updates and data callbacks
+                    // Process with progress updates and data callbacks. The processor's callbacks may arrive on a
+                    // thread-pool thread (its awaits), so every post goes through PostWebViewMessage (UI thread).
                     var result = await mraProcessor.ProcessMRAInterfaceAsync(
                         orderNumber,
                         // Progress callback
@@ -4915,7 +4916,7 @@ navPanel.Controls.Add(wmsDevButton);
                             };
 
                             string progressJson = JsonSerializer.Serialize(progressUpdate);
-                            wv.CoreWebView2.PostWebMessageAsJson(progressJson);
+                            PostWebViewMessage(wv, progressJson);
                             System.Diagnostics.Debug.WriteLine($"[C#] MRA Progress: {step} - {message}");
                         },
                         // Order data callback (for Tab 1)
@@ -4930,7 +4931,7 @@ navPanel.Controls.Add(wmsDevButton);
                             };
 
                             string orderDataJson = JsonSerializer.Serialize(orderDataMsg);
-                            wv.CoreWebView2.PostWebMessageAsJson(orderDataJson);
+                            PostWebViewMessage(wv, orderDataJson);
                             System.Diagnostics.Debug.WriteLine($"[C#] MRA Order Data sent to JS");
                         },
                         // MRA Request callback (for Tab 2)
@@ -4945,7 +4946,7 @@ navPanel.Controls.Add(wmsDevButton);
                             };
 
                             string requestDataJson = JsonSerializer.Serialize(requestDataMsg);
-                            wv.CoreWebView2.PostWebMessageAsJson(requestDataJson);
+                            PostWebViewMessage(wv, requestDataJson);
                             System.Diagnostics.Debug.WriteLine($"[C#] MRA Request Data sent to JS");
                         },
                         // MRA Response callback (for Tab 2)
@@ -4960,7 +4961,7 @@ navPanel.Controls.Add(wmsDevButton);
                             };
 
                             string responseDataJson = JsonSerializer.Serialize(responseDataMsg);
-                            wv.CoreWebView2.PostWebMessageAsJson(responseDataJson);
+                            PostWebViewMessage(wv, responseDataJson);
                             System.Diagnostics.Debug.WriteLine($"[C#] MRA Response Data sent to JS");
                         },
                         // Diagnostic log callback (XDO report request/response -> Logging tab)
@@ -4975,7 +4976,7 @@ navPanel.Controls.Add(wmsDevButton);
                             };
 
                             string logJson = JsonSerializer.Serialize(logMsg);
-                            wv.CoreWebView2.PostWebMessageAsJson(logJson);
+                            PostWebViewMessage(wv, logJson);
                         }
                     );
 
@@ -4998,7 +4999,7 @@ navPanel.Controls.Add(wmsDevButton);
                     };
 
                     string responseJson = JsonSerializer.Serialize(response);
-                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+                    PostWebViewMessage(wv, responseJson);
 
                     System.Diagnostics.Debug.WriteLine($"[C#] ✅ MRA Processing completed: {result.Success}");
                 }

@@ -92,7 +92,9 @@ namespace WMSApp.MRA
                 // covers every other caller: AI Digital Employee, AI Agent, Order Management, WMS 2.0.)
                 progressCallback?.Invoke("Checking the MRA status table...", MRAProcessingStep.CheckingMRAStatus);
                 result.CurrentStep = MRAProcessingStep.CheckingMRAStatus;
-                var prior = await MRAInterfaceStatus.FindDoneAsync(orderNumber, _instance, AppUser).ConfigureAwait(false);
+                // No ConfigureAwait(false) here: the progress / log callbacks that follow must run on the caller's context
+                // (Form1 posts them to the WebView, which only the UI thread may touch).
+                var prior = await MRAInterfaceStatus.FindDoneAsync(orderNumber, _instance, AppUser);
                 Mark("status table");
                 if (prior != null)
                 {
