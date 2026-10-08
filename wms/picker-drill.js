@@ -64,7 +64,11 @@
     // ── the line vocabulary (same words as the Trip Details summary and the autopilot) ──
     var DONE = /shipped|closed|interfac|billing|billed|invoic/i, CANCEL = /^cancel/i;
     PV.lineStatus = function (l) { return String(pick(l, ['LINE_STATUS', 'STATUS'], null) || '').trim(); };
-    PV.isStore = function (type) { return /store\s*to\s*van|van\s*to\s*store/i.test(String(type || '')); };
+    /** Store to Van / Van to Store: the order type (also the short codes S2V / V2S) or, when the headers do not carry it,
+        the WMS transaction number itself (S2V-SP4051851 / V2S-…). */
+    PV.isStore = function (type, orderNum) { return /store\s*to\s*van|van\s*to\s*store|^\s*(s2v|v2s)\s*$/i.test(String(type || '')) || /^\s*(S2V|V2S)[-_]/i.test(String(orderNum || '')); };
+    PV.trxStatus = function (l) { return String(pick(l, ['TRANSACTION_STATUS', 'TRX_STATUS', 'LINE_STATUS', 'STATUS'], null) || '').trim(); };
+    var TRX_DONE = /complete|process|done|closed|confirm|shipped|interfac/i;
     PV.orderOf = function (r) { return String(pick(r, ['SOURCE_ORDER_NUMBER', 'ORDER_NUMBER', 'ORDERNUMBER'], /order.?(num|no)/i) || '').trim(); };
 
     // ── 1. read the order headers + lines of the date and correct the counts ──
@@ -106,7 +110,20 @@
                 ctx.read++;
             }).catch(function (e) { ctx.failed.push('trip ' + trip + ': ' + (e && e.message || e)); });
         });
-        return Promise.all([heads, lines]).then(function () {
+        var stores = Promise.all([heads, lines]).then(function () {
+            if (seq !== PV.seq) return;
+            var todo = rows.map(PV.orderOf).filter(function (o, i, a) { return o && a.indexOf(o) === i && !ctx.lines[o] && PV.isStore((ctx.heads[o] || {}).type, o); });
+            ctx.s2v = ctx.s2v || {};
+            return pool(todo, 4, function (o) {
+                return rest(root + '/WAREHOUSEMANAGEMENT/trip/s2vdetails/' + enc(o) + '?p_instance_name=' + enc(ctx.pod), 60000).then(function (j) {
+                    var a = items(j); ctx.s2v[o] = a;
+                    if (!a.length) return;
+                    var L = ctx.lines[o] = { total: 0, cancelled: 0, done: 0, rows: a, store: true };
+                    a.forEach(function (l) { var st = PV.trxStatus(l); L.total++; if (CANCEL.test(st) || /cancel/i.test(st)) L.cancelled++; else if (TRX_DONE.test(st)) L.done++; });
+                }).catch(function (e) { ctx.failed.push('store ' + o + ': ' + (e && e.message || e)); });
+            });
+        });
+        return stores.then(function () {
             if (seq !== PV.seq) return;                       // a newer Fetch Data took over
             PV.apply(ctx);
             if (typeof window.buildFilterDropdowns === 'function') window.buildFilterDropdowns();
@@ -135,7 +152,7 @@
             if (all) { eff = 0; effPicked = 0; }
             r.total_lines = eff; r.picked_lines = effPicked; r.balance_lines = Math.max(0, eff - effPicked);
             base.cancelled = all ? (L ? L.total : total) : cancelled; base.done = done; base.all = all;
-            base.type = H.type || base.type || ''; base.status = H.status || ''; base.pick = H.pick || ''; base.ship = H.ship || ''; base.head = H.raw || null; base.account = H.account || '';
+            base.type = H.type || base.type || (PV.isStore('', o) ? (/^\s*V2S/i.test(o) ? 'Van to Store' : 'Store to Van') : ''); base.status = H.status || ''; base.pick = H.pick || ''; base.ship = H.ship || ''; base.head = H.raw || null; base.account = H.account || '';
             base.lines = L ? L.rows : null;
         });
     };
@@ -190,7 +207,7 @@
 
     PV.open = function (orderNum) {
         var I = PV.info(orderNum), r = I.row || {}, p = I.pv || {}, pod = ($('fpInstance') || {}).value || 'PROD';
-        var store = PV.isStore(p.type), root = ordsRoot();
+        var store = PV.isStore(p.type, orderNum), root = ordsRoot();
         var lines = r._pv ? (Number(r.picked_lines) || 0) + ' / ' + (Number(r.total_lines) || 0) + ' lines picked' : '';
         var chips = [
             p.type ? chip(store ? 'fa-exchange-alt' : 'fa-file-invoice', esc(p.type), store ? '#c2410c' : '#4338ca', store ? '#ffedd5' : '#e0e7ff') : '',
@@ -250,7 +267,7 @@
             org: first([/^(source_?|src_?|from_?)?org(anization)?(_?code)?$/i]),
             sub: first([/^(source_?|src_?|from_?)?sub_?inv(entory)?(_?code)?$/i]),
             line: first([/^line_?(number|num|no)$/i]),
-            status: first([/^line_?status$/i, /^status$/i]),
+            status: first([/^line_?status$/i, /^(transaction|trx)_?status$/i, /^status$/i]),
             fid: first([/fulfill/i])
         };
     };
@@ -282,8 +299,9 @@
             '<button class="pvd-btn pvd-csv"><i class="fas fa-file-csv"></i> CSV</button></div>' +
             '<div class="pvd-scroll"><table class="pvd-grid"><thead><tr>' + keys.map(function (k) { return '<th>' + esc(label(k)) + '</th>'; }).join('') + '</tr></thead><tbody>' +
             rows.map(function (r) {
-                var st = K.status && r[K.status];
-                return '<tr' + (kind === 'lines' && st && CANCEL.test(String(st)) ? ' class="cancelled"' : '') + (r.__qohShort ? ' class="short"' : '') + '>' + keys.map(function (k) { return '<td>' + cell(r, k) + '</td>'; }).join('') + '</tr>';
+                var st = kind === 'trx' ? PV.trxStatus(r) : (K.status && r[K.status]);
+                var cls = [st && (kind === 'lines' ? CANCEL.test(String(st)) : /cancel/i.test(String(st))) ? 'cancelled' : '', r.__qohShort ? 'short' : ''].filter(Boolean).join(' ');
+                return '<tr' + (cls ? ' class="' + cls + '"' : '') + '>' + keys.map(function (k) { return '<td>' + cell(r, k) + '</td>'; }).join('') + '</tr>';
             }).join('') + '</tbody></table></div>';
         var inp = pane.querySelector('.pvd-filter'), trs = Array.prototype.slice.call(pane.querySelectorAll('tbody tr')), cnt = pane.querySelector('.pvd-count');
         inp.oninput = function () {
