@@ -527,6 +527,124 @@
         });
     }
     function items(r) { return Array.isArray(r) ? r : (r && Array.isArray(r.items)) ? r.items : []; }
+    function hostMsg(msg, ms) {
+        return new Promise(function (resolve, reject) {
+            if (typeof sendMessageToCSharp !== 'function') { reject(new Error('Open this page inside the Gray\'s WMS app.')); return; }
+            sendMessageToCSharp(msg, function (err, data) {
+                if (err) { reject(new Error(typeof err === 'string' ? err : (err.message || JSON.stringify(err)))); return; }
+                var r = data; if (typeof data === 'string') { try { r = JSON.parse(data); } catch (e) { r = data; } }
+                resolve(r);
+            }, ms || 120000, false);
+        });
+    }
+    function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+    function nowIso() { return new Date().toISOString(); }
+    function strOf(v) { return v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v); }
+
+    // ── DuckDB cache (the WMS 2.0 file through w2Status / w2Put / w2Queries; own tables w2_mri_*): every trip's orders as the API
+    //    sent them (raw_json) and the MRA status per order are kept on this PC. The next search of the same days draws the trips
+    //    from DuckDB — a COUNT(*) per trip on WMS_TRIP_DETAILS (one query per 300 trips) against the count kept at read time finds
+    //    the trips whose orders changed or are missing, and only those (and the trips of today / later, which are still moving)
+    //    are read from the API again. Final MRA statuses (SUCCESS / ALREADY_DONE) are never asked again; the rest are read fresh.
+    //    An exe built before WMS 2.0 never answers w2Status: everything then works as before, nothing is kept. ──
+    var COLS = {
+        w2_mri_trips: ['pod', 'trip_id', 'trip_date', 'api_rows', 'td_n', 'read_at'],
+        w2_mri_orders: ['pod', 'trip_id', 'trip_date', 'order_number', 'seq', 'raw_json', 'read_at'],
+        w2_mri_mra: ['pod', 'order_number', 's', 'irn', 'why', 'at_txt', 'n', 'read_at']
+    };
+    var FINAL = { SUCCESS: 1, ALREADY_DONE: 1 };
+    var DB = {
+        host: null, probing: null, io: Promise.resolve(),
+        call: function (action, payload, ms, attempt) {
+            return hostMsg(Object.assign({ action: action, appUser: appUser() }, payload || {}), ms || 120000).then(function (d) {
+                var busy = d && d.ok === false && (d.busy || /another .*window|busy/i.test(String(d.error || '')));
+                if (busy && (attempt || 0) < 3) return sleep(1500 + 1500 * (attempt || 0)).then(function () { return DB.call(action, payload, ms, (attempt || 0) + 1); });
+                return d;
+            });
+        },
+        probe: function () {
+            if (DB.probing) return DB.probing;
+            DB.probing = DB.call('w2Status', {}, 15000).then(function (d) { DB.host = !!(d && d.ok !== false); return DB.host; }, function () { DB.host = false; return false; });
+            return DB.probing;
+        },
+        on: function () { return DB.host === true; },
+        rowsOf: function (d) { var cols = (d.columns || []).map(function (c) { return String(c).toLowerCase(); }); return (d.rows || []).map(function (r) { var o = {}; cols.forEach(function (c, i) { o[c] = r[i]; }); return o; }); },
+        /** Several reads in one open of the file, after any write still going; a failing one (the table does not exist yet) gives []. */
+        qs: function (list) {
+            if (!DB.on() || !list.length) return Promise.resolve(list.map(function () { return []; }));
+            return DB.io.then(function () { return DB.call('w2Queries', { queries: list }); })
+                .then(function (d) { return ((d && d.results) || []).map(function (r) { if (!r || r.error) return []; return DB.rowsOf(r); }); }, function () { return list.map(function () { return []; }); });
+        },
+        /** Replaces the rows of one scope (pod + a list of trip ids / order numbers) of a w2_mri_* table; writes are queued one after the other. */
+        put: function (table, scope, rows) {
+            if (!DB.on() || !rows.length) return Promise.resolve();
+            var clean = rows.map(function (r) { var o = {}; Object.keys(r).forEach(function (k) { o[k] = strOf(r[k]); }); return o; });
+            var p = DB.io.then(function () { return DB.call('w2Put', { table: table, scope: scope, rows: clean, replaceAll: false, columns: COLS[table] || [] }, 300000); });
+            DB.io = p.catch(function (e) { console.warn('[MRA Interface] DuckDB write failed:', e && e.message || e); });
+            return p.catch(function () {});
+        }
+    };
+    function inList(list) { return list.map(lit).join(', '); }
+    function chunksOf(list, n) { var out = []; for (var i = 0; i < list.length; i += n) out.push(list.slice(i, i + n)); return out; }
+    /** COUNT(*) per trip on WMS_TRIP_DETAILS for the instance — the "counting" that tells a changed trip from a kept one; null when it cannot be read. */
+    function tdCounts(inst, tripIds) {
+        var out = {};
+        return chunksOf(tripIds, 300).reduce(function (p, c) {
+            return p.then(function () {
+                return read('SELECT TO_CHAR(trip_id) AS t, COUNT(*) AS n FROM wms_trip_details WHERE UPPER(instance_name) = ' + lit(inst) + ' AND TO_CHAR(trip_id) IN (' + inList(c) + ') GROUP BY TO_CHAR(trip_id)', 5000)
+                    .then(function (rows) { rows.forEach(function (r) { out[String(r.T).trim()] = Number(r.N) || 0; }); });
+            });
+        }, Promise.resolve()).then(function () { return out; }, function (e) { console.warn('[MRA Interface] trip counts not read:', e && e.message || e); return null; });
+    }
+    /** Which trips come from DuckDB and which are read from the API: kept = meta row with the same WMS_TRIP_DETAILS count and every row
+        still in DuckDB, trip date before today, not forced. */
+    function cachePlan(inst, trips, force) {
+        var plan = { cached: [], live: trips.slice(), tdNow: null, db: DB.on() };
+        if (!DB.on() || force || !trips.length) return Promise.resolve(plan);
+        var ids = trips.map(function (t) { return t.trip_id; }), where = ' WHERE pod = ' + lit(inst) + ' AND trip_id IN (' + inList(ids) + ')';
+        return Promise.all([
+            DB.qs(['SELECT trip_id, td_n, api_rows, read_at FROM w2_mri_trips' + where, 'SELECT trip_id, COUNT(*) AS n FROM w2_mri_orders' + where + ' GROUP BY trip_id']),
+            tdCounts(inst, ids)
+        ]).then(function (res) {
+            var meta = {}, have = {}, tdNow = res[1], cut = today(0);
+            res[0][0].forEach(function (r) { meta[String(r.trip_id)] = r; });
+            res[0][1].forEach(function (r) { have[String(r.trip_id)] = Number(r.n) || 0; });
+            plan.tdNow = tdNow; plan.live = []; plan.cached = [];
+            trips.forEach(function (t) {
+                var m = meta[t.trip_id], keep = !!m && !!tdNow && String(m.td_n) === String(tdNow[t.trip_id] || 0) && (have[t.trip_id] || 0) === (Number(m.api_rows) || 0) && !!t.date && t.date < cut;
+                if (keep) { t.read_at = m.read_at; plan.cached.push(t); } else plan.live.push(t);
+            });
+            return plan;
+        }, function () { return plan; });
+    }
+    /** The raw API rows kept for these trips: {trip_id: [rows]} (a trip kept with 0 rows → []). */
+    function readCached(inst, trips) {
+        var out = {}; trips.forEach(function (t) { out[t.trip_id] = []; });
+        if (!trips.length) return Promise.resolve(out);
+        var qs = chunksOf(trips.map(function (t) { return t.trip_id; }), 150).map(function (c) {
+            return 'SELECT trip_id, raw_json FROM w2_mri_orders WHERE pod = ' + lit(inst) + ' AND trip_id IN (' + inList(c) + ') ORDER BY trip_id, CAST(seq AS INTEGER)';
+        });
+        return DB.qs(qs).then(function (lists) {
+            lists.forEach(function (rows) { rows.forEach(function (r) { var k = String(r.trip_id); if (!out[k]) return; try { out[k].push(JSON.parse(r.raw_json)); } catch (e) { /* a broken row is left out */ } }); });
+            return out;
+        });
+    }
+    /** The MRA status per order: final ones (SUCCESS / ALREADY_DONE) from DuckDB, the rest read from WMS_MRA_INTERFACE_STATUS and kept. */
+    function mraStatusesCached(orders, inst, src) {
+        var list = Array.from(new Set(orders.map(function (o) { return String(o || '').trim(); }).filter(Boolean))), out = {};
+        var qs = DB.on() ? chunksOf(list, 1000).map(function (c) { return 'SELECT order_number, s, irn, why, at_txt, n FROM w2_mri_mra WHERE pod = ' + lit(inst) + ' AND order_number IN (' + inList(c) + ')'; }) : [];
+        return DB.qs(qs).then(function (lists) {
+            lists.forEach(function (rows) { rows.forEach(function (r) { var st_ = String(r.s || '').toUpperCase(); if (FINAL[st_]) out[String(r.order_number)] = { s: st_, irn: r.irn || '', why: r.why || '', at: r.at_txt || '', n: Number(r.n) || 0 }; }); });
+            var pending = list.filter(function (o) { return !out[o]; });
+            if (src) { src.mraCached += list.length - pending.length; src.mraLive += pending.length; }
+            return mraStatuses(pending, inst).then(function (m) {
+                var save = [];
+                pending.forEach(function (o) { if (m[o]) { out[o] = m[o]; save.push({ pod: inst, order_number: o, s: m[o].s, irn: m[o].irn, why: m[o].why, at_txt: m[o].at, n: m[o].n, read_at: nowIso() }); } });
+                if (save.length) DB.put('w2_mri_mra', { pod: inst, order_number: save.map(function (x) { return x.order_number; }) }, save);
+                return out;
+            });
+        });
+    }
     function pick(row, names) {
         if (!row) return '';
         var keys = Object.keys(row);
@@ -581,58 +699,79 @@
         });
     }
     function applyStatus(r, x) { r.MRA_INTERFACE_STATUS = x ? x.s : ''; r.MRA_INTERFACE_ID = x ? x.irn : ''; r.MRA_WHY = x ? x.why : ''; r.MRA_AT = x ? x.at : ''; r.TRIES = x ? x.n : 0; }
-    /** The MRA statuses of the rows read again (after a run; the trips stay as they are). */
+    /** The MRA statuses of the rows read again (after a run; the trips stay as they are; final statuses come from DuckDB). */
     function refreshMra() {
         var byInst = {}; O.rows.forEach(function (r) { (byInst[r.INSTANCE_NAME] = byInst[r.INSTANCE_NAME] || []).push(r); });
         O.statusErr = '';
         return Promise.all(Object.keys(byInst).map(function (inst) {
-            return mraStatuses(byInst[inst].map(function (r) { return r.ORDER_NUMBER; }), inst)
+            return mraStatusesCached(byInst[inst].map(function (r) { return r.ORDER_NUMBER; }), inst, null)
                 .then(function (m) { byInst[inst].forEach(function (r) { applyStatus(r, m[r.ORDER_NUMBER]); }); }, function (e) { O.statusErr = e.message; });
         })).then(function () { O.rows.forEach(function (r) { delete r.__hay; }); render(); });
     }
-    /** The whole picture: trips of the dates → every trip's orders (4 trips at a time) → sales orders only → the MRA status per order. */
-    function loadOrders() {
-        var f = filters(), insts = [f.inst || curInstance()];
-        O.loading = true; O.error = null; O.statusErr = ''; O.step = 'reading the trips of ' + insts.join(' / '); render();
-        var trips = [], rows = [], hidden = { store: 0, cancelled: 0 };
-        return insts.reduce(function (p, inst) { return p.then(function () { return tripsOf(inst, f.from, f.to).then(function (t) { trips = trips.concat(t); }); }); }, Promise.resolve())
-            .then(function () {
-                var n = 0;
-                return pool(trips, 4, function (t) {
-                    return ordersOf(t.inst, t.trip_id).then(function (list) {
-                        list.forEach(function (r) {
-                            var o = orderOf(r); if (!o) return;
-                            var type = String(pick(r, ['ORDER_TYPE', 'order_type', 'ORDER_TYPE_CODE']) || '').trim();
-                            if (STORE.test(type) || /^(S2V|V2S)[-_\s]/i.test(o)) { hidden.store++; return; }   // store / van transactions (type, or the S2V- / V2S- number) are never invoiced to MRA
-                            var ls = String(pick(r, ['LINE_STATUS', 'line_status', 'STATUS']) || '').trim();
-                            if (/^cancel/i.test(ls)) { hidden.cancelled++; return; }
-                            var picked_ = yes(pick(r, ['PICK_CONFIRM_ST', 'pick_confirm_st'])), shipped = yes(pick(r, ['SHIP_CONFIRM_ST', 'ship_confirm_st']));
-                            var closed = /closed|interfac|billing|billed|invoic|shipped/i.test(ls);
-                            var released = picked_ || shipped || closed || yes(pick(r, ['PICK_RELEASE_STATUS', 'pick_release_status'])) || num(pick(r, ['picks_count', 'PICKS_COUNT'])) > 0 ||
-                                num(pick(r, ['lot_count', 'LOT_COUNT'])) > 0 || !!pick(r, ['PICK_SLIP_NO', 'pick_slip_no', 'RELEASE_DATE', 'release_date']);
-                            var pr = String(pick(r, ['PRINTING_ST', 'printing_st']) || '');
-                            var row = { KEY: t.inst + '|' + o, INSTANCE_NAME: t.inst, TRIP_ID: t.trip_id, TRIP_DATE: t.date || isoOf(pick(r, ['TRIP_DATE', 'trip_date'])), LORRY: t.lorry, BAY: t.bay, PRIORITY: t.priority,
-                                ORDER_NUMBER: o, CUSTOMER_NAME: String(pick(r, ['ACCOUNT_NAME', 'account_name', 'CUSTOMER_NAME', 'customer_name']) || ''), CUSTOMER_NUMBER: String(pick(r, ['ACCOUNT_NUMBER', 'account_number', 'CUSTOMER_NUMBER']) || ''),
-                                ORDER_TYPE: type, LINE_STATUS: ls, PICKER: String(pick(r, ['picker', 'PICKER', 'PICKER_NAME', 'picker_name']) || ''), RELEASED: released, PICKED: picked_, SHIPPED: shipped || closed, PRINTING_ST: pr, PRINTED: yes(pr),
-                                AMOUNT: pick(r, ['ORDER_AMOUNT', 'order_amount', 'TOTAL_AMOUNT', 'AMOUNT']), MRA_INTERFACE_STATUS: '', MRA_INTERFACE_ID: '', MRA_WHY: '', MRA_AT: '', TRIES: 0 };
-                            if (!t.date) t.date = row.TRIP_DATE;
-                            t.orders.push(row); rows.push(row);
-                        });
-                    }, function (e) { t.error = e.message; }).then(function () { n++; O.step = 'trip ' + n + ' of ' + trips.length + ' · ' + rows.length + ' orders'; render(); });
+    /** One API row of a trip → the page's row (null for a store / van transaction or a cancelled line, counted in hidden). */
+    function rowOf(t, r, hidden) {
+        var o = orderOf(r); if (!o) return null;
+        var type = String(pick(r, ['ORDER_TYPE', 'order_type', 'ORDER_TYPE_CODE']) || '').trim();
+        if (STORE.test(type) || /^(S2V|V2S)[-_\s]/i.test(o)) { hidden.store++; return null; }   // store / van transactions (type, or the S2V- / V2S- number) are never invoiced to MRA
+        var ls = String(pick(r, ['LINE_STATUS', 'line_status', 'STATUS']) || '').trim();
+        if (/^cancel/i.test(ls)) { hidden.cancelled++; return null; }
+        var picked_ = yes(pick(r, ['PICK_CONFIRM_ST', 'pick_confirm_st'])), shipped = yes(pick(r, ['SHIP_CONFIRM_ST', 'ship_confirm_st']));
+        var closed = /closed|interfac|billing|billed|invoic|shipped/i.test(ls);
+        var released = picked_ || shipped || closed || yes(pick(r, ['PICK_RELEASE_STATUS', 'pick_release_status'])) || num(pick(r, ['picks_count', 'PICKS_COUNT'])) > 0 ||
+            num(pick(r, ['lot_count', 'LOT_COUNT'])) > 0 || !!pick(r, ['PICK_SLIP_NO', 'pick_slip_no', 'RELEASE_DATE', 'release_date']);
+        var pr = String(pick(r, ['PRINTING_ST', 'printing_st']) || '');
+        var row = { KEY: t.inst + '|' + o, INSTANCE_NAME: t.inst, TRIP_ID: t.trip_id, TRIP_DATE: t.date || isoOf(pick(r, ['TRIP_DATE', 'trip_date'])), LORRY: t.lorry, BAY: t.bay, PRIORITY: t.priority,
+            ORDER_NUMBER: o, CUSTOMER_NAME: String(pick(r, ['ACCOUNT_NAME', 'account_name', 'CUSTOMER_NAME', 'customer_name']) || ''), CUSTOMER_NUMBER: String(pick(r, ['ACCOUNT_NUMBER', 'account_number', 'CUSTOMER_NUMBER']) || ''),
+            ORDER_TYPE: type, LINE_STATUS: ls, PICKER: String(pick(r, ['picker', 'PICKER', 'PICKER_NAME', 'picker_name']) || ''), RELEASED: released, PICKED: picked_, SHIPPED: shipped || closed, PRINTING_ST: pr, PRINTED: yes(pr),
+            AMOUNT: pick(r, ['ORDER_AMOUNT', 'order_amount', 'TOTAL_AMOUNT', 'AMOUNT']), MRA_INTERFACE_STATUS: '', MRA_INTERFACE_ID: '', MRA_WHY: '', MRA_AT: '', TRIES: 0 };
+        if (!t.date) t.date = row.TRIP_DATE;
+        return row;
+    }
+    /** The whole picture: trips of the dates → every trip's orders (kept ones from DuckDB, the rest 4 trips at a time from the API and kept)
+        → sales orders only → the MRA status per order (final ones from DuckDB). opts.force = read every trip from the API again. */
+    function loadOrders(opts) {
+        var force = !!(opts && opts.force), f = filters(), inst = f.inst || curInstance();
+        O.loading = true; O.error = null; O.statusErr = ''; O.src = null; O.step = 'reading the trips of ' + inst; render();
+        var trips = [], rows = [], hidden = { store: 0, cancelled: 0 }, src = { db: false, cached: 0, live: 0, mraCached: 0, mraLive: 0, counted: false };
+        var addRows = function (t, list) { list.forEach(function (r) { var row = rowOf(t, r, hidden); if (row) { t.orders.push(row); rows.push(row); } }); };
+        return DB.probe().then(function () { return tripsOf(inst, f.from, f.to); }).then(function (list) {
+            trips = list; src.db = DB.on();
+            return cachePlan(inst, trips, force);
+        }).then(function (plan) {
+            src.counted = !!plan.tdNow;
+            return readCached(inst, plan.cached).then(function (byTrip) {
+                plan.cached.forEach(function (t) { src.cached++; addRows(t, byTrip[t.trip_id] || []); });
+                var n = 0, saved = [], metas = [];
+                if (plan.live.length) { O.step = 'reading ' + plan.live.length + ' trip(s)' + (plan.cached.length ? ' · ' + plan.cached.length + ' from DuckDB' : ''); render(); }
+                return pool(plan.live, 4, function (t) {
+                    return ordersOf(inst, t.trip_id).then(function (list) {
+                        src.live++; addRows(t, list); var at = nowIso();
+                        list.forEach(function (r, i) { saved.push({ pod: inst, trip_id: t.trip_id, trip_date: t.date || '', order_number: orderOf(r), seq: i, raw_json: JSON.stringify(r), read_at: at }); });
+                        metas.push({ pod: inst, trip_id: t.trip_id, trip_date: t.date || '', api_rows: list.length, td_n: plan.tdNow ? (plan.tdNow[t.trip_id] || 0) : '', read_at: at });
+                    }, function (e) { t.error = e.message; }).then(function () { n++; O.step = 'trip ' + n + ' of ' + plan.live.length + ' · ' + rows.length + ' orders'; render(); });
+                }).then(function () {
+                    if (!metas.length || !DB.on()) return;
+                    var ids = metas.map(function (m) { return m.trip_id; });
+                    DB.put('w2_mri_orders', { pod: inst, trip_id: ids }, saved);
+                    DB.put('w2_mri_trips', { pod: inst, trip_id: ids }, metas);
                 });
-            }).then(function () {
-                O.step = 'MRA status of ' + rows.length + ' orders'; render();
-                var byInst = {}; rows.forEach(function (r) { (byInst[r.INSTANCE_NAME] = byInst[r.INSTANCE_NAME] || []).push(r); });
-                return Promise.all(Object.keys(byInst).map(function (inst) {
-                    return mraStatuses(byInst[inst].map(function (r) { return r.ORDER_NUMBER; }), inst)
-                        .then(function (m) { byInst[inst].forEach(function (r) { applyStatus(r, m[r.ORDER_NUMBER]); }); }, function (e) { O.statusErr = e.message; });
-                }));
-            }).then(function () {
-                trips.sort(function (a, b) { return a.inst < b.inst ? -1 : a.inst > b.inst ? 1 : (a.date || '') < (b.date || '') ? -1 : (a.date || '') > (b.date || '') ? 1 : num(a.trip_id) - num(b.trip_id); });
-                O.trips = trips; O.rows = rows; O.hidden = hidden; O.loaded = true; O.at = new Date().toLocaleTimeString();
-                var keep = {}; rows.forEach(function (r) { if (O.sel[r.KEY]) keep[r.KEY] = 1; }); O.sel = keep;
-            }).catch(function (e) { O.error = e.message; O.rows = []; O.trips = []; O.loaded = true; })
+            });
+        }).then(function () {
+            O.step = 'MRA status of ' + rows.length + ' orders'; render();
+            return mraStatusesCached(rows.map(function (r) { return r.ORDER_NUMBER; }), inst, src)
+                .then(function (m) { rows.forEach(function (r) { applyStatus(r, m[r.ORDER_NUMBER]); }); }, function (e) { O.statusErr = e.message; });
+        }).then(function () {
+            trips.sort(function (a, b) { return (a.date || '') < (b.date || '') ? -1 : (a.date || '') > (b.date || '') ? 1 : num(a.trip_id) - num(b.trip_id); });
+            O.trips = trips; O.rows = rows; O.hidden = hidden; O.src = src; O.loaded = true; O.at = new Date().toLocaleTimeString();
+            var keep = {}; rows.forEach(function (r) { if (O.sel[r.KEY]) keep[r.KEY] = 1; }); O.sel = keep;
+        }).catch(function (e) { O.error = e.message; O.rows = []; O.trips = []; O.loaded = true; })
             .then(function () { O.loading = false; O.step = ''; render(); });
+    }
+    /** Where the rows came from: "n trips from DuckDB · m read now · MRA k kept / j read" (nothing when DuckDB is not there). */
+    function srcNote() {
+        var x = O.src; if (!x || !x.db) return '';
+        return ' · <span title="Trips before today whose WMS_TRIP_DETAILS count is unchanged come from this PC\'s DuckDB; the rest are read from the API and kept. Final MRA statuses are kept too. Refresh reads every trip again."><i class="fas fa-database" style="color:#4f46e5;"></i> ' +
+            x.cached + ' trip(s) from DuckDB · ' + x.live + ' read now' + (x.counted ? '' : ' (trip counts not read)') + ' · MRA ' + x.mraCached + ' kept / ' + x.mraLive + ' read</span>';
     }
     function hayO(r) {
         if (!r.__hay) {
@@ -670,7 +809,7 @@
             kpi('NONE', counts.NONE, 'Not interfaced', 'NONE') + kpi('PRINTED', counts.PRINTED, 'Printed') + kpi('NOTPRINTED', O.rows.length - counts.PRINTED, 'Not printed') +
             (amount ? '<div style="cursor:default;"><b>' + money(amount) + '</b><span>Order amount shown</span></div>' : '') + '</div>';
         html += '<div class="mro-note">' + (O.loading ? '<i class="fas fa-spinner fa-spin"></i> ' + esc(O.step) + ' · ' : '') + 'Trips of <b>' + esc(ddmmyyyy(f.from)) + '</b> to <b>' + esc(ddmmyyyy(f.to)) + '</b> on <b>' + esc(f.inst) + '</b>' +
-            (O.at ? ' · read at ' + esc(O.at) : '') + (O.hidden.store ? ' · ' + O.hidden.store + ' store / van transaction(s) left out' : '') + (O.hidden.cancelled ? ' · ' + O.hidden.cancelled + ' cancelled line(s) left out' : '') +
+            (O.at ? ' · read at ' + esc(O.at) : '') + srcNote() + (O.hidden.store ? ' · ' + O.hidden.store + ' store / van transaction(s) left out' : '') + (O.hidden.cancelled ? ' · ' + O.hidden.cancelled + ' cancelled line(s) left out' : '') +
             (O.statusErr ? ' · <span style="color:#b91c1c;">MRA status not read: ' + esc(O.statusErr) + '</span>' : '') + '</div>';
         html += '<div class="mrh-bar"><b>' + nSel + '</b> ticked' +
             '<button class="mrh-btn g s" onclick="MraInterface.oRetry()"' + (!nSel || busyAny ? ' disabled' : '') + '><i class="fas fa-paper-plane"></i> Interface to MRA</button>' +
@@ -697,6 +836,7 @@
             var tAll = list.every(function (r) { return O.sel[r.KEY]; });
             html += '<tr class="mro-trip"><td><input type="checkbox" data-trip="' + esc(tk) + '"' + (tAll ? ' checked' : '') + ' title="Tick every order of this trip shown"></td><td colspan="11"><div class="mro-th">' +
                 '<b><i class="fas fa-truck" style="color:#4f46e5;"></i> Trip ' + esc(t.trip_id) + '</b><span class="m">' + esc(dayName(t.date)) + '</span>' +
+                (t.read_at ? '<span class="m" title="From this PC\'s DuckDB — read from the API on ' + esc(String(t.read_at).replace('T', ' ').slice(0, 16)) + '; Refresh reads it again"><i class="fas fa-database" style="color:#4f46e5;"></i></span>' : '') +
                 (t.lorry ? '<span class="m" title="Lorry">' + esc(t.lorry) + '</span>' : '') + (t.bay ? '<span class="m" title="Loading bay">Bay ' + esc(t.bay) + '</span>' : '') + (t.priority ? '<span class="m" title="Priority">' + esc(t.priority) + '</span>' : '') +
                 '<span class="m">' + t.orders.length + ' order' + (t.orders.length === 1 ? '' : 's') + '</span>' +
                 '<span class="mrh-s DONE">' + c.DONE + ' interfaced</span>' + (c.FAILED ? '<span class="mrh-s FAILED">' + c.FAILED + ' failed</span>' : '') + (c.SKIPPED ? '<span class="mrh-s SKIPPED">' + c.SKIPPED + ' skipped</span>' : '') + (c.NONE ? '<span class="mrh-s NONE">' + c.NONE + ' not interfaced</span>' : '') +
@@ -791,7 +931,7 @@
         var html = '<div class="mrh-kpi">' + kpi(rows.length, 'Dates') + kpi(t.nTrips, 'Trips') + kpi(t.orders, 'Sales orders') + kpi(t.DONE, 'Interfaced', 'DONE', pct(t.DONE, t.orders)) +
             kpi(t.FAILED, 'Failed', 'FAILED') + kpi(t.SKIPPED, 'Skipped', 'SKIPPED') + kpi(t.NONE, 'Not interfaced', 'NONE') + kpi(t.printed, 'Printed', '', pct(t.printed, t.orders)) + '</div>';
         html += '<div class="mro-note">' + (O.loading ? '<i class="fas fa-spinner fa-spin"></i> ' + esc(O.step) + ' · ' : '') + 'Trips of <b>' + esc(ddmmyyyy(f.from)) + '</b> to <b>' + esc(ddmmyyyy(f.to)) + '</b> on <b>' + esc(f.inst) + '</b>, one line per trip date — sales orders only' +
-            (O.at ? ' · read at ' + esc(O.at) : '') + (O.hidden.store ? ' · ' + O.hidden.store + ' store / van transaction(s) left out' : '') + (O.hidden.cancelled ? ' · ' + O.hidden.cancelled + ' cancelled line(s) left out' : '') +
+            (O.at ? ' · read at ' + esc(O.at) : '') + srcNote() + (O.hidden.store ? ' · ' + O.hidden.store + ' store / van transaction(s) left out' : '') + (O.hidden.cancelled ? ' · ' + O.hidden.cancelled + ' cancelled line(s) left out' : '') +
             (O.statusErr ? ' · <span style="color:#b91c1c;">MRA status not read: ' + esc(O.statusErr) + '</span>' : '') + '</div>';
         html += '<div class="mrh-bar"><b>' + t.eligible + '</b> eligible — not interfaced yet or failed' +
             '<button class="mrh-btn g s" onclick="MraInterface.bdRun()"' + (!t.eligible || busyAny ? ' disabled' : '') + ' title="Shows the eligible orders of every date first; Confirm starts the runs"><i class="fas fa-paper-plane"></i> Interface to MRA — all dates</button>' +
@@ -1200,7 +1340,7 @@
         details: function (id) { details(id); },
         csv: function () { csv(); },
         /** All orders tab: read the trips of the dates again; Interface / Print the ticked (or given) orders; one trip's orders. */
-        orders: function () { readForm(); return loadOrders(); },
+        orders: function () { readForm(); return loadOrders({ force: true }); },
         oRetry: function (keys) { mraRun(oPicked(keys), O, keyOfO, refreshMra, 'WMS_MRA_ORDERS'); },
         oPrint: function (keys) { printRun(oPicked(keys), O, keyOfO); },
         oTrip: function (tk, what) {
@@ -1210,7 +1350,7 @@
         oCsv: function () { oCsv(); },
         /** By date: the same read as All orders folded per trip date; bdRun(dates?) opens the eligible-orders dialog (Confirm starts the runs);
             bdShow(date) = that date's orders on the All orders tab; bdMonth('YYYY-MM') = By date on that month. By month: months(), mCsv(). */
-        bydate: function () { readForm(); return loadOrders(); },
+        bydate: function () { readForm(); return loadOrders({ force: true }); },
         bdRun: function (dates) { bdRun(dates); },
         bdShow: function (date) { O.date = String(date || ''); O.kpi = null; showTab('orders'); },
         bdCsv: function () { bdCsv(); },
@@ -1222,7 +1362,7 @@
         },
         months: function () { return loadMonths(); },
         mCsv: function () { mCsv(); },
-        state: function () { return { tab: st.tab, filters: filters(), orders: O, history: H, bydate: { rows: O.loaded ? bdRows() : [], dialog: D }, months: M }; },
+        state: function () { return { tab: st.tab, filters: filters(), orders: O, history: H, bydate: { rows: O.loaded ? bdRows() : [], dialog: D }, months: M, db: DB.host }; },
         /** Interfaces one order from another screen (the trip grids' Interface button): {order, instance, tripId},
             onStep(text) → {st: SUCCESS | FAILED | SKIPPED | ALREADY_DONE, msg, gw}. */
         interfaceOrder: function (o, onStep, source) {
