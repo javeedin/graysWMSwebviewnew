@@ -665,10 +665,11 @@ def foundry_install(cfg: HubConfig) -> dict:
         except Exception as e:  # noqa: BLE001 - reported to the page
             _fsetup.update(state="error", error=f"{type(e).__name__}: {e}")
 
-    _fsetup["state"] = "running"
+    _fsetup.update(state="running", log="", error=None)
+    st = foundry_status(cfg)                 # the answer to this call says "running" - the thread may finish before the caller reads it
     _fthread = threading.Thread(target=run, daemon=True, name="foundry-setup")
     _fthread.start()
-    return foundry_status(cfg)
+    return st
 
 
 def status(cfg: HubConfig) -> dict:
