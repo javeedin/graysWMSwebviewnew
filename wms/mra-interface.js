@@ -541,14 +541,14 @@
     function nowIso() { return new Date().toISOString(); }
     function strOf(v) { return v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v); }
 
-    // ── DuckDB cache (the WMS 2.0 file through w2Status / w2Put / w2Queries; own tables w2_mri_*): every trip's orders as the API
-    //    sent them (raw_json) and the MRA status per order are kept on this PC. The next search of the same days draws the trips
-    //    from DuckDB — a COUNT(*) per trip on WMS_TRIP_DETAILS (one query per 300 trips) against the count kept at read time finds
-    //    the trips whose orders changed or are missing, and only those (and the trips of today / later, which are still moving)
-    //    are read from the API again. Final MRA statuses (SUCCESS / ALREADY_DONE) are never asked again; the rest are read fresh.
-    //    An exe built before WMS 2.0 never answers w2Status: everything then works as before, nothing is kept. ──
+    // ── DuckDB (the WMS 2.0 file through w2Status / w2Put / w2Queries; own tables w2_mri_*): the page's own copy of the trips.
+    //    Open / Apply / the quick chips draw from DuckDB alone — instant, no APEX call — for every date this PC has read before
+    //    (w2_mri_days); dates never read go to APEX once and are kept. Refresh reads EVERYTHING for the dates from APEX (the trips,
+    //    every trip's orders, every MRA status) and overwrites DuckDB. An Interface-to-MRA run on the page re-reads the statuses
+    //    of its orders and keeps them. An exe built before WMS 2.0 never answers w2Status: everything then reads live as before. ──
     var COLS = {
-        w2_mri_trips: ['pod', 'trip_id', 'trip_date', 'api_rows', 'td_n', 'read_at'],
+        w2_mri_days: ['pod', 'trip_date', 'n_trips', 'read_at'],
+        w2_mri_trips: ['pod', 'trip_id', 'trip_date', 'lorry', 'bay', 'priority', 'api_rows', 'read_at'],
         w2_mri_orders: ['pod', 'trip_id', 'trip_date', 'order_number', 'seq', 'raw_json', 'read_at'],
         w2_mri_mra: ['pod', 'order_number', 's', 'irn', 'why', 'at_txt', 'n', 'read_at']
     };
@@ -576,8 +576,8 @@
                 .then(function (d) { return ((d && d.results) || []).map(function (r) { if (!r || r.error) return []; return DB.rowsOf(r); }); }, function () { return list.map(function () { return []; }); });
         },
         /** Replaces the rows of one scope (pod + a list of trip ids / order numbers) of a w2_mri_* table; writes are queued one after the other. */
-        put: function (table, scope, rows) {
-            if (!DB.on() || !rows.length) return Promise.resolve();
+        put: function (table, scope, rows, allowEmpty) {
+            if (!DB.on() || (!rows.length && !allowEmpty)) return Promise.resolve();
             var clean = rows.map(function (r) { var o = {}; Object.keys(r).forEach(function (k) { o[k] = strOf(r[k]); }); return o; });
             var p = DB.io.then(function () { return DB.call('w2Put', { table: table, scope: scope, rows: clean, replaceAll: false, columns: COLS[table] || [] }, 300000); });
             DB.io = p.catch(function (e) { console.warn('[MRA Interface] DuckDB write failed:', e && e.message || e); });
@@ -586,39 +586,44 @@
     };
     function inList(list) { return list.map(lit).join(', '); }
     function chunksOf(list, n) { var out = []; for (var i = 0; i < list.length; i += n) out.push(list.slice(i, i + n)); return out; }
-    /** COUNT(*) per trip on WMS_TRIP_DETAILS for the instance — the "counting" that tells a changed trip from a kept one; null when it cannot be read. */
-    function tdCounts(inst, tripIds) {
+    /** Every date from .. to (ISO), inclusive. */
+    function datesBetween(from, to) {
+        var out = [], m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(from || ''), n = /^(\d{4})-(\d{2})-(\d{2})$/.exec(to || '');
+        if (!m || !n) return out;
+        var d = new Date(+m[1], +m[2] - 1, +m[3]), e = new Date(+n[1], +n[2] - 1, +n[3]);
+        for (var i = 0; d <= e && i < 2000; i++, d.setDate(d.getDate() + 1)) out.push(d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2));
+        return out;
+    }
+    /** Consecutive dates folded into [from, to] runs (the trips API takes a range). */
+    function runsOf(dates) {
+        var runs = [], sorted = dates.slice().sort();
+        sorted.forEach(function (d) {
+            var last = runs[runs.length - 1];
+            if (last && datesBetween(last.to, d).length === 2) last.to = d; else runs.push({ from: d, to: d });
+        });
+        return runs;
+    }
+    /** {date: read_at} for the dates this PC has read before. */
+    function duckDays(inst, dates) {
         var out = {};
-        return chunksOf(tripIds, 300).reduce(function (p, c) {
-            return p.then(function () {
-                return read('SELECT TO_CHAR(trip_id) AS t, COUNT(*) AS n FROM wms_trip_details WHERE UPPER(instance_name) = ' + lit(inst) + ' AND TO_CHAR(trip_id) IN (' + inList(c) + ') GROUP BY TO_CHAR(trip_id)', 5000)
-                    .then(function (rows) { rows.forEach(function (r) { out[String(r.T).trim()] = Number(r.N) || 0; }); });
-            });
-        }, Promise.resolve()).then(function () { return out; }, function (e) { console.warn('[MRA Interface] trip counts not read:', e && e.message || e); return null; });
+        return DB.qs(chunksOf(dates, 400).map(function (c) { return 'SELECT trip_date, read_at FROM w2_mri_days WHERE pod = ' + lit(inst) + ' AND trip_date IN (' + inList(c) + ')'; }))
+            .then(function (lists) { lists.forEach(function (rows) { rows.forEach(function (r) { out[String(r.trip_date)] = r.read_at || ''; }); }); return out; });
     }
-    /** Which trips come from DuckDB and which are read from the API: kept = meta row with the same WMS_TRIP_DETAILS count and every row
-        still in DuckDB, trip date before today, not forced. */
-    function cachePlan(inst, trips, force) {
-        var plan = { cached: [], live: trips.slice(), tdNow: null, db: DB.on() };
-        if (!DB.on() || force || !trips.length) return Promise.resolve(plan);
-        var ids = trips.map(function (t) { return t.trip_id; }), where = ' WHERE pod = ' + lit(inst) + ' AND trip_id IN (' + inList(ids) + ')';
-        return Promise.all([
-            DB.qs(['SELECT trip_id, td_n, api_rows, read_at FROM w2_mri_trips' + where, 'SELECT trip_id, COUNT(*) AS n FROM w2_mri_orders' + where + ' GROUP BY trip_id']),
-            tdCounts(inst, ids)
-        ]).then(function (res) {
-            var meta = {}, have = {}, tdNow = res[1], cut = today(0);
-            res[0][0].forEach(function (r) { meta[String(r.trip_id)] = r; });
-            res[0][1].forEach(function (r) { have[String(r.trip_id)] = Number(r.n) || 0; });
-            plan.tdNow = tdNow; plan.live = []; plan.cached = [];
-            trips.forEach(function (t) {
-                var m = meta[t.trip_id], keep = !!m && !!tdNow && String(m.td_n) === String(tdNow[t.trip_id] || 0) && (have[t.trip_id] || 0) === (Number(m.api_rows) || 0) && !!t.date && t.date < cut;
-                if (keep) { t.read_at = m.read_at; plan.cached.push(t); } else plan.live.push(t);
+    /** The trips kept for these dates, as tripsOf() shapes them (+ read_at). */
+    function duckTrips(inst, dates) {
+        return DB.qs(chunksOf(dates, 400).map(function (c) { return 'SELECT trip_id, trip_date, lorry, bay, priority, api_rows, read_at FROM w2_mri_trips WHERE pod = ' + lit(inst) + ' AND trip_date IN (' + inList(c) + ')'; }))
+            .then(function (lists) {
+                var map = {}, list = [];
+                lists.forEach(function (rows) { rows.forEach(function (r) {
+                    var id = String(r.trip_id || '').trim(); if (!id || map[id]) return;
+                    map[id] = { inst: inst, trip_id: id, date: String(r.trip_date || ''), lorry: r.lorry || '', bay: r.bay || '', priority: r.priority || '', orders: [], error: '', read_at: r.read_at || '' };
+                    list.push(map[id]);
+                }); });
+                return list;
             });
-            return plan;
-        }, function () { return plan; });
     }
-    /** The raw API rows kept for these trips: {trip_id: [rows]} (a trip kept with 0 rows → []). */
-    function readCached(inst, trips) {
+    /** The raw API rows kept for these trips: {trip_id: [rows]}. */
+    function duckOrders(inst, trips) {
         var out = {}; trips.forEach(function (t) { out[t.trip_id] = []; });
         if (!trips.length) return Promise.resolve(out);
         var qs = chunksOf(trips.map(function (t) { return t.trip_id; }), 150).map(function (c) {
@@ -629,19 +634,53 @@
             return out;
         });
     }
-    /** The MRA status per order: final ones (SUCCESS / ALREADY_DONE) from DuckDB, the rest read from WMS_MRA_INTERFACE_STATUS and kept. */
-    function mraStatusesCached(orders, inst, src) {
+    /** The MRA statuses kept for these orders, as last read: {order: {s, irn, why, at, n}}. */
+    function duckStatuses(inst, orders) {
         var list = Array.from(new Set(orders.map(function (o) { return String(o || '').trim(); }).filter(Boolean))), out = {};
-        var qs = DB.on() ? chunksOf(list, 1000).map(function (c) { return 'SELECT order_number, s, irn, why, at_txt, n FROM w2_mri_mra WHERE pod = ' + lit(inst) + ' AND order_number IN (' + inList(c) + ')'; }) : [];
-        return DB.qs(qs).then(function (lists) {
-            lists.forEach(function (rows) { rows.forEach(function (r) { var st_ = String(r.s || '').toUpperCase(); if (FINAL[st_]) out[String(r.order_number)] = { s: st_, irn: r.irn || '', why: r.why || '', at: r.at_txt || '', n: Number(r.n) || 0 }; }); });
-            var pending = list.filter(function (o) { return !out[o]; });
+        return DB.qs(chunksOf(list, 1000).map(function (c) { return 'SELECT order_number, s, irn, why, at_txt, n FROM w2_mri_mra WHERE pod = ' + lit(inst) + ' AND order_number IN (' + inList(c) + ')'; }))
+            .then(function (lists) { lists.forEach(function (rows) { rows.forEach(function (r) { out[String(r.order_number)] = { s: String(r.s || '').toUpperCase(), irn: r.irn || '', why: r.why || '', at: r.at_txt || '', n: Number(r.n) || 0 }; }); }); return out; });
+    }
+    function statusRow(inst, o, x, at) { return { pod: inst, order_number: o, s: x.s, irn: x.irn, why: x.why, at_txt: x.at, n: x.n, read_at: at }; }
+    /** Reads these orders' statuses from WMS_MRA_INTERFACE_STATUS and keeps them; onlyOpen = the ones kept as SUCCESS / ALREADY_DONE are not asked again. */
+    function liveStatuses(inst, orders, onlyOpen, src) {
+        var list = Array.from(new Set(orders.map(function (o) { return String(o || '').trim(); }).filter(Boolean)));
+        var pre = onlyOpen && DB.on() ? duckStatuses(inst, list) : Promise.resolve({});
+        return pre.then(function (kept) {
+            var out = {}, pending = [];
+            list.forEach(function (o) { var x = kept[o]; if (x && FINAL[x.s]) out[o] = x; else pending.push(o); });
             if (src) { src.mraCached += list.length - pending.length; src.mraLive += pending.length; }
             return mraStatuses(pending, inst).then(function (m) {
-                var save = [];
-                pending.forEach(function (o) { if (m[o]) { out[o] = m[o]; save.push({ pod: inst, order_number: o, s: m[o].s, irn: m[o].irn, why: m[o].why, at_txt: m[o].at, n: m[o].n, read_at: nowIso() }); } });
+                var at = nowIso(), save = [];
+                pending.forEach(function (o) { if (m[o]) { out[o] = m[o]; save.push(statusRow(inst, o, m[o], at)); } });
                 if (save.length) DB.put('w2_mri_mra', { pod: inst, order_number: save.map(function (x) { return x.order_number; }) }, save);
                 return out;
+            });
+        });
+    }
+    /** The APEX read of a date range: the trips list, every trip's orders (4 at a time) → the trips (orders attached) — and DuckDB
+        overwritten for those dates (trips, orders, days; trips that vanished from APEX go with them). */
+    function liveRead(inst, from, to, onStep) {
+        var at = nowIso(), dates = datesBetween(from, to);
+        return tripsOf(inst, from, to).then(function (trips) {
+            var n = 0;
+            return pool(trips, 4, function (t) {
+                return ordersOf(inst, t.trip_id).then(function (list) { t.raw = list; }, function (e) { t.error = e.message; t.raw = []; })
+                    .then(function () { n++; if (onStep) onStep(n, trips.length); });
+            }).then(function () {
+                if (DB.on() && dates.length) {
+                    var tripRows = [], orderRows = [];
+                    trips.forEach(function (t) {
+                        if (t.error) return;                                        // a trip that did not answer is not kept (read again next time)
+                        if (!t.date) t.date = (t.raw.length && isoOf(pick(t.raw[0], ['TRIP_DATE', 'trip_date']))) || from;
+                        tripRows.push({ pod: inst, trip_id: t.trip_id, trip_date: t.date, lorry: t.lorry, bay: t.bay, priority: t.priority, api_rows: t.raw.length, read_at: at });
+                        t.raw.forEach(function (r, i) { orderRows.push({ pod: inst, trip_id: t.trip_id, trip_date: t.date, order_number: orderOf(r), seq: i, raw_json: JSON.stringify(r), read_at: at }); });
+                    });
+                    var scope = { pod: inst, trip_date: dates };
+                    DB.put('w2_mri_orders', scope, orderRows, true);          // empty = the dates' old rows go, nothing comes
+                    DB.put('w2_mri_trips', scope, tripRows, true);
+                    DB.put('w2_mri_days', scope, dates.map(function (d) { return { pod: inst, trip_date: d, n_trips: trips.filter(function (t) { return t.date === d; }).length, read_at: at }; }));
+                }
+                return trips;
             });
         });
     }
@@ -699,12 +738,12 @@
         });
     }
     function applyStatus(r, x) { r.MRA_INTERFACE_STATUS = x ? x.s : ''; r.MRA_INTERFACE_ID = x ? x.irn : ''; r.MRA_WHY = x ? x.why : ''; r.MRA_AT = x ? x.at : ''; r.TRIES = x ? x.n : 0; }
-    /** The MRA statuses of the rows read again (after a run; the trips stay as they are; final statuses come from DuckDB). */
+    /** The MRA statuses of the rows read again after a run (the trips stay as they are; orders kept as SUCCESS / ALREADY_DONE are not asked). */
     function refreshMra() {
         var byInst = {}; O.rows.forEach(function (r) { (byInst[r.INSTANCE_NAME] = byInst[r.INSTANCE_NAME] || []).push(r); });
         O.statusErr = '';
         return Promise.all(Object.keys(byInst).map(function (inst) {
-            return mraStatusesCached(byInst[inst].map(function (r) { return r.ORDER_NUMBER; }), inst, null)
+            return liveStatuses(inst, byInst[inst].map(function (r) { return r.ORDER_NUMBER; }), true, null)
                 .then(function (m) { byInst[inst].forEach(function (r) { applyStatus(r, m[r.ORDER_NUMBER]); }); }, function (e) { O.statusErr = e.message; });
         })).then(function () { O.rows.forEach(function (r) { delete r.__hay; }); render(); });
     }
@@ -727,39 +766,48 @@
         if (!t.date) t.date = row.TRIP_DATE;
         return row;
     }
-    /** The whole picture: trips of the dates → every trip's orders (kept ones from DuckDB, the rest 4 trips at a time from the API and kept)
-        → sales orders only → the MRA status per order (final ones from DuckDB). opts.force = read every trip from the API again. */
+    /** The whole picture for the bar's dates. Default = this PC's DuckDB (dates never read go to APEX once); opts.refresh = everything
+        from APEX again and DuckDB overwritten. Then sales orders only → the MRA status per order. */
     function loadOrders(opts) {
-        var force = !!(opts && opts.force), f = filters(), inst = f.inst || curInstance();
-        O.loading = true; O.error = null; O.statusErr = ''; O.src = null; O.step = 'reading the trips of ' + inst; render();
-        var trips = [], rows = [], hidden = { store: 0, cancelled: 0 }, src = { db: false, cached: 0, live: 0, mraCached: 0, mraLive: 0, counted: false };
+        var refresh = !!(opts && opts.refresh), f = filters(), inst = f.inst || curInstance();
+        O.loading = true; O.error = null; O.statusErr = ''; O.src = null; O.step = refresh ? 'reading the trips of ' + inst + ' from APEX' : 'opening ' + inst; render();
+        var trips = [], rows = [], hidden = { store: 0, cancelled: 0 }, dates = datesBetween(f.from, f.to);
+        var src = { db: false, refresh: refresh, dDates: 0, lDates: 0, asOf: '', cached: 0, live: 0, mraCached: 0, mraLive: 0 };
         var addRows = function (t, list) { list.forEach(function (r) { var row = rowOf(t, r, hidden); if (row) { t.orders.push(row); rows.push(row); } }); };
-        return DB.probe().then(function () { return tripsOf(inst, f.from, f.to); }).then(function (list) {
-            trips = list; src.db = DB.on();
-            return cachePlan(inst, trips, force);
-        }).then(function (plan) {
-            src.counted = !!plan.tdNow;
-            return readCached(inst, plan.cached).then(function (byTrip) {
-                plan.cached.forEach(function (t) { src.cached++; addRows(t, byTrip[t.trip_id] || []); });
-                var n = 0, saved = [], metas = [];
-                if (plan.live.length) { O.step = 'reading ' + plan.live.length + ' trip(s)' + (plan.cached.length ? ' · ' + plan.cached.length + ' from DuckDB' : ''); render(); }
-                return pool(plan.live, 4, function (t) {
-                    return ordersOf(inst, t.trip_id).then(function (list) {
-                        src.live++; addRows(t, list); var at = nowIso();
-                        list.forEach(function (r, i) { saved.push({ pod: inst, trip_id: t.trip_id, trip_date: t.date || '', order_number: orderOf(r), seq: i, raw_json: JSON.stringify(r), read_at: at }); });
-                        metas.push({ pod: inst, trip_id: t.trip_id, trip_date: t.date || '', api_rows: list.length, td_n: plan.tdNow ? (plan.tdNow[t.trip_id] || 0) : '', read_at: at });
-                    }, function (e) { t.error = e.message; }).then(function () { n++; O.step = 'trip ' + n + ' of ' + plan.live.length + ' · ' + rows.length + ' orders'; render(); });
-                }).then(function () {
-                    if (!metas.length || !DB.on()) return;
-                    var ids = metas.map(function (m) { return m.trip_id; });
-                    DB.put('w2_mri_orders', { pod: inst, trip_id: ids }, saved);
-                    DB.put('w2_mri_trips', { pod: inst, trip_id: ids }, metas);
-                });
+        var step = function (text) { O.step = text; render(); };
+        var live = function (from, to) {
+            return liveRead(inst, from, to, function (n, of) { step('APEX · trip ' + n + ' of ' + of + ' (' + ddmmyyyy(from) + (to !== from ? ' – ' + ddmmyyyy(to) : '') + ') · ' + rows.length + ' orders'); })
+                .then(function (list) { list.forEach(function (t) { src.live++; addRows(t, t.raw || []); delete t.raw; trips.push(t); }); });
+        };
+        return DB.probe().then(function () {
+            src.db = DB.on();
+            if (refresh || !DB.on() || !dates.length) { src.lDates = dates.length; return live(f.from, f.to); }
+            return duckDays(inst, dates).then(function (have) {
+                var kept = dates.filter(function (d) { return have[d] != null; }), missing = dates.filter(function (d) { return have[d] == null; });
+                src.dDates = kept.length; src.lDates = missing.length;
+                src.asOf = kept.map(function (d) { return have[d]; }).filter(Boolean).sort()[0] || '';
+                var p = Promise.resolve();
+                if (kept.length) {
+                    p = duckTrips(inst, kept).then(function (list) {
+                        return duckOrders(inst, list).then(function (byTrip) { list.forEach(function (t) { src.cached++; addRows(t, byTrip[t.trip_id] || []); trips.push(t); }); });
+                    });
+                }
+                runsOf(missing).forEach(function (r) { p = p.then(function () { return live(r.from, r.to); }); });
+                return p;
             });
         }).then(function () {
-            O.step = 'MRA status of ' + rows.length + ' orders'; render();
-            return mraStatusesCached(rows.map(function (r) { return r.ORDER_NUMBER; }), inst, src)
-                .then(function (m) { rows.forEach(function (r) { applyStatus(r, m[r.ORDER_NUMBER]); }); }, function (e) { O.statusErr = e.message; });
+            var liveOrders = []; trips.forEach(function (t) { if (!t.read_at) t.orders.forEach(function (r) { liveOrders.push(r.ORDER_NUMBER); }); });
+            step('MRA status of ' + rows.length + ' orders');
+            var kept = !DB.on() || refresh ? Promise.resolve({}) : duckStatuses(inst, rows.map(function (r) { return r.ORDER_NUMBER; }));
+            return kept.then(function (m) {
+                rows.forEach(function (r) { if (!liveOrders.length || liveOrders.indexOf(r.ORDER_NUMBER) < 0) applyStatus(r, m[r.ORDER_NUMBER]); });
+                src.mraCached = rows.length - liveOrders.length;
+                if (!liveOrders.length) return;
+                return liveStatuses(inst, liveOrders, false, null).then(function (lm) {
+                    src.mraLive = liveOrders.length;
+                    rows.forEach(function (r) { if (liveOrders.indexOf(r.ORDER_NUMBER) >= 0) applyStatus(r, lm[r.ORDER_NUMBER]); });
+                }, function (e) { O.statusErr = e.message; });
+            });
         }).then(function () {
             trips.sort(function (a, b) { return (a.date || '') < (b.date || '') ? -1 : (a.date || '') > (b.date || '') ? 1 : num(a.trip_id) - num(b.trip_id); });
             O.trips = trips; O.rows = rows; O.hidden = hidden; O.src = src; O.loaded = true; O.at = new Date().toLocaleTimeString();
@@ -767,11 +815,15 @@
         }).catch(function (e) { O.error = e.message; O.rows = []; O.trips = []; O.loaded = true; })
             .then(function () { O.loading = false; O.step = ''; render(); });
     }
-    /** Where the rows came from: "n trips from DuckDB · m read now · MRA k kept / j read" (nothing when DuckDB is not there). */
+    function asOfText(iso) { var m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(String(iso || '')); return m ? m[3] + '-' + m[2] + '-' + m[1] + ' ' + m[4] + ':' + m[5] : String(iso || ''); }
+    /** Where the rows came from (nothing when DuckDB is not there). */
     function srcNote() {
         var x = O.src; if (!x || !x.db) return '';
-        return ' · <span title="Trips before today whose WMS_TRIP_DETAILS count is unchanged come from this PC\'s DuckDB; the rest are read from the API and kept. Final MRA statuses are kept too. Refresh reads every trip again."><i class="fas fa-database" style="color:#4f46e5;"></i> ' +
-            x.cached + ' trip(s) from DuckDB · ' + x.live + ' read now' + (x.counted ? '' : ' (trip counts not read)') + ' · MRA ' + x.mraCached + ' kept / ' + x.mraLive + ' read</span>';
+        var t = ' · <span title="Open / Apply draw from this PC\'s DuckDB; dates never read on this PC are read from APEX once and kept. Refresh reads every trip and every MRA status of these dates from APEX again and overwrites DuckDB."><i class="fas fa-database" style="color:#4f46e5;"></i> ';
+        if (x.refresh) return t + 'read from APEX and kept (' + x.live + ' trip' + (x.live === 1 ? '' : 's') + ')</span>';
+        if (!x.lDates) return t + 'from DuckDB as of <b>' + esc(asOfText(x.asOf)) + '</b> — Refresh reads APEX again</span>';
+        if (!x.dDates) return t + 'these dates were not on this PC yet — read from APEX and kept</span>';
+        return t + x.dDates + ' of ' + (x.dDates + x.lDates) + ' dates from DuckDB (as of ' + esc(asOfText(x.asOf)) + '), ' + x.lDates + ' read from APEX now and kept</span>';
     }
     function hayO(r) {
         if (!r.__hay) {
@@ -836,7 +888,7 @@
             var tAll = list.every(function (r) { return O.sel[r.KEY]; });
             html += '<tr class="mro-trip"><td><input type="checkbox" data-trip="' + esc(tk) + '"' + (tAll ? ' checked' : '') + ' title="Tick every order of this trip shown"></td><td colspan="11"><div class="mro-th">' +
                 '<b><i class="fas fa-truck" style="color:#4f46e5;"></i> Trip ' + esc(t.trip_id) + '</b><span class="m">' + esc(dayName(t.date)) + '</span>' +
-                (t.read_at ? '<span class="m" title="From this PC\'s DuckDB — read from the API on ' + esc(String(t.read_at).replace('T', ' ').slice(0, 16)) + '; Refresh reads it again"><i class="fas fa-database" style="color:#4f46e5;"></i></span>' : '') +
+                (t.read_at ? '<span class="m" title="From this PC\'s DuckDB — read from APEX on ' + esc(asOfText(t.read_at)) + '; Refresh reads it again"><i class="fas fa-database" style="color:#4f46e5;"></i></span>' : '') +
                 (t.lorry ? '<span class="m" title="Lorry">' + esc(t.lorry) + '</span>' : '') + (t.bay ? '<span class="m" title="Loading bay">Bay ' + esc(t.bay) + '</span>' : '') + (t.priority ? '<span class="m" title="Priority">' + esc(t.priority) + '</span>' : '') +
                 '<span class="m">' + t.orders.length + ' order' + (t.orders.length === 1 ? '' : 's') + '</span>' +
                 '<span class="mrh-s DONE">' + c.DONE + ' interfaced</span>' + (c.FAILED ? '<span class="mrh-s FAILED">' + c.FAILED + ' failed</span>' : '') + (c.SKIPPED ? '<span class="mrh-s SKIPPED">' + c.SKIPPED + ' skipped</span>' : '') + (c.NONE ? '<span class="mrh-s NONE">' + c.NONE + ' not interfaced</span>' : '') +
@@ -1340,7 +1392,7 @@
         details: function (id) { details(id); },
         csv: function () { csv(); },
         /** All orders tab: read the trips of the dates again; Interface / Print the ticked (or given) orders; one trip's orders. */
-        orders: function () { readForm(); return loadOrders({ force: true }); },
+        orders: function () { readForm(); return loadOrders({ refresh: true }); },
         oRetry: function (keys) { mraRun(oPicked(keys), O, keyOfO, refreshMra, 'WMS_MRA_ORDERS'); },
         oPrint: function (keys) { printRun(oPicked(keys), O, keyOfO); },
         oTrip: function (tk, what) {
@@ -1350,7 +1402,7 @@
         oCsv: function () { oCsv(); },
         /** By date: the same read as All orders folded per trip date; bdRun(dates?) opens the eligible-orders dialog (Confirm starts the runs);
             bdShow(date) = that date's orders on the All orders tab; bdMonth('YYYY-MM') = By date on that month. By month: months(), mCsv(). */
-        bydate: function () { readForm(); return loadOrders({ force: true }); },
+        bydate: function () { readForm(); return loadOrders({ refresh: true }); },
         bdRun: function (dates) { bdRun(dates); },
         bdShow: function (date) { O.date = String(date || ''); O.kpi = null; showTab('orders'); },
         bdCsv: function () { bdCsv(); },
