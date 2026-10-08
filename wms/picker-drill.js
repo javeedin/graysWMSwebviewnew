@@ -74,6 +74,17 @@
     PV.trxStatus = function (l) { return String(pick(l, ['TRANSACTION_STATUS', 'TRX_STATUS', 'LINE_STATUS', 'STATUS'], null) || '').trim(); };
     var TRX_DONE = /complete|process|done|closed|confirm|shipped|interfac/i;
     PV.orderOf = function (r) { return String(pick(r, ['SOURCE_ORDER_NUMBER', 'ORDER_NUMBER', 'ORDERNUMBER'], /order.?(num|no)/i) || '').trim(); };
+    /** The WMS's own number of a row (WMS_TRIP_DETAILS.ORDER_NUMBER = pos_store_transactions.trx_number for a store transaction). */
+    PV.wmsNumberOf = function (r) { return String(pick(r, ['ORDER_NUMBER', 'ORDERNUMBER', 'SOURCE_ORDER_NUMBER'], null) || '').trim(); };
+    PV.bare = function (n) { return String(n == null ? '' : n).trim().replace(/^(S2V|V2S)[-_\s]+/i, ''); };
+    /** Every form a number may be stored under: as given, bare, and the two prefixed forms (the picker assignment keeps the label
+        the Trip Details grid showed — e.g. S2V-SP4051851 — while the WMS tables hold the transaction number SP4051851). */
+    PV.keysOf = function () {
+        var out = {};
+        Array.prototype.forEach.call(arguments, function (n) { n = String(n == null ? '' : n).trim(); if (!n) return; var b = PV.bare(n); [n, b, 'S2V-' + b, 'V2S-' + b].forEach(function (k) { out[k] = 1; out[k.toUpperCase()] = 1; }); });
+        return Object.keys(out);
+    };
+    PV.lookup = function (map, orderNum) { var ks = PV.keysOf(orderNum); for (var i = 0; i < ks.length; i++) if (map && map[ks[i]]) return map[ks[i]]; return null; };
 
     // ── 1. read the order headers + lines of the date and correct the counts ──
     function pageCtx() {
@@ -95,8 +106,10 @@
                 a.forEach(function (r) {
                     var inst = up(pick(r, ['INSTANCE_NAME', 'INSTANCE'], null));
                     if (inst && inst !== up(ctx.pod)) return;
-                    var o = PV.orderOf(r); if (!o) return;
-                    var h = ctx.heads[o] || (ctx.heads[o] = { raw: r });
+                    var o = PV.orderOf(r), wn = PV.wmsNumberOf(r); if (!o) return;
+                    var h = PV.lookup(ctx.heads, o) || PV.lookup(ctx.heads, wn) || { raw: r };
+                    PV.keysOf(o, wn).forEach(function (k) { ctx.heads[k] = h; });
+                    h.wmsNumber = h.wmsNumber || wn || o;
                     h.type = h.type || pick(r, ['ORDER_TYPE', 'ORDER_TYPE_CODE'], null) || '';
                     h.status = h.status || pick(r, ['LINE_STATUS', 'STATUS'], null) || '';
                     h.pick = h.pick || pick(r, ['PICK_CONFIRM_ST'], null) || ''; h.ship = h.ship || pick(r, ['SHIP_CONFIRM_ST'], null) || '';
@@ -108,7 +121,8 @@
             return rest(root + '/TRIPMANAGEMENT/trip/orders/getsalesorderlinesbytrip/' + enc(trip) + '?P_INSTANCE_NAME=' + enc(ctx.pod), 120000).then(function (j) {
                 items(j).forEach(function (l) {
                     var o = PV.orderOf(l); if (!o) return;
-                    var L = ctx.lines[o] || (ctx.lines[o] = { total: 0, cancelled: 0, done: 0, rows: [] });
+                    var L = PV.lookup(ctx.lines, o) || { total: 0, cancelled: 0, done: 0, rows: [] };
+                    PV.keysOf(o).forEach(function (k) { ctx.lines[k] = L; });
                     var st = PV.lineStatus(l); L.total++; if (CANCEL.test(st)) L.cancelled++; else if (DONE.test(st)) L.done++; L.rows.push(l);
                 });
                 ctx.read++;
@@ -116,13 +130,21 @@
         });
         var stores = Promise.all([heads, lines]).then(function () {
             if (seq !== PV.seq) return;
-            var todo = rows.map(PV.orderOf).filter(function (o, i, a) { return o && a.indexOf(o) === i && !ctx.lines[o] && PV.isStore((ctx.heads[o] || {}).type, o); });
-            ctx.s2v = ctx.s2v || {};
+            var todo = rows.map(PV.orderOf).filter(function (o, i, a) { return o && a.indexOf(o) === i && !PV.lookup(ctx.lines, o) && PV.isStore((PV.lookup(ctx.heads, o) || {}).type, o); });
+            ctx.s2v = ctx.s2v || {}; ctx.s2vKey = ctx.s2vKey || {};
             return pool(todo, 4, function (o) {
-                return rest(root + '/WAREHOUSEMANAGEMENT/trip/s2vdetails/' + enc(o) + '?p_instance_name=' + enc(ctx.pod), 60000).then(function (j) {
-                    var a = items(j); ctx.s2v[o] = a;
-                    if (!a.length) return;
-                    var L = ctx.lines[o] = { total: 0, cancelled: 0, done: 0, rows: a, store: true };
+                var H = PV.lookup(ctx.heads, o) || {}, tries = [];
+                [PV.bare(o), H.wmsNumber, o].forEach(function (n) { if (n && tries.indexOf(n) < 0) tries.push(n); });   // S2V-VVLC51938 → VVLC51938 first
+                var attempt = function (i) {
+                    if (i >= tries.length) return Promise.resolve(null);
+                    return rest(root + '/WAREHOUSEMANAGEMENT/trip/s2vdetails/' + enc(tries[i]) + '?p_instance_name=' + enc(ctx.pod), 60000)
+                        .then(function (j) { var a = items(j); if (a.length) { ctx.s2vKey[o] = tries[i]; return a; } return attempt(i + 1); });
+                };
+                return attempt(0).then(function (a) {
+                    ctx.s2v[o] = a || [];
+                    if (!a || !a.length) return;
+                    var L = { total: 0, cancelled: 0, done: 0, rows: a, store: true };
+                    PV.keysOf(o).forEach(function (k) { ctx.lines[k] = L; });
                     a.forEach(function (l) { var st = PV.trxStatus(l); L.total++; if (CANCEL.test(st) || /cancel/i.test(st)) L.cancelled++; else if (TRX_DONE.test(st)) L.done++; });
                 }).catch(function (e) { ctx.failed.push('store ' + o + ': ' + (e && e.message || e)); });
             });
@@ -132,7 +154,7 @@
             PV.apply(ctx);
             if (typeof window.buildFilterDropdowns === 'function') window.buildFilterDropdowns();
             if (typeof window.applyFilters === 'function') window.applyFilters();
-            var n = Object.keys(ctx.lines).length;
+            var seen = {}, n = 0; rows.forEach(function (r) { var o = PV.orderOf(r); if (o && !seen[o] && PV.lookup(ctx.lines, o)) { seen[o] = 1; n++; } });   // orders with line statuses (one order is filed under several key forms)
             PV.note((ctx.failed.length ? '<i class="fas fa-triangle-exclamation" style="color:#b45309"></i> ' : '<i class="fas fa-check" style="color:#059669"></i> ') +
                 'line statuses of ' + n + ' order(s) from ' + ctx.read + ' of ' + ctx.trips.length + ' trip(s)' + (ctx.failed.length ? ' · ' + ctx.failed.length + ' failed' : ''), ctx.failed.join('\n'));
         });
@@ -140,8 +162,9 @@
     /** Corrects total / picked / balance in the API rows from the lines (the page's buildOrderMap then reads them). */
     PV.apply = function (ctx) {
         rowsNow().forEach(function (r) {
-            var o = PV.orderOf(r), base = r._pv, L = ctx.lines[o], H = ctx.heads[o] || {};
+            var o = PV.orderOf(r), base = r._pv, L = PV.lookup(ctx.lines, o), H = PV.lookup(ctx.heads, o) || {};
             if (!base) return;
+            base.wmsNumber = (ctx.s2vKey && ctx.s2vKey[o]) || H.wmsNumber || '';
             var total = base.total, picked = base.picked, cancelled = 0, done = 0, all = false;
             if (L) {
                 // the API counts every line (total = the lines read) → cancelled ones leave; counted without them already → nothing to take out
@@ -249,8 +272,10 @@
         return PV.loadLegacy().then(function () {
             PV.busy = false; PV.note('');
             var row = Object.assign({}, p.head || {});
-            row.ORDER_NUMBER = String(orderNum); if (!row.SOURCE_ORDER_NUMBER) row.SOURCE_ORDER_NUMBER = String(orderNum);
-            row.TRIP_ID = row.TRIP_ID || r.trip_id || ''; row.TRIP_DATE = row.TRIP_DATE || p.tripDate || ($('fpDate') || {}).value || '';
+            // a store transaction is keyed by its bare number (S2V-VVLC51938 → VVLC51938); the S2V- / V2S- label comes from the trip grid
+            var wmsNum = kind === 'store' ? ((PV.ctx && PV.ctx.s2vKey && PV.ctx.s2vKey[orderNum]) || PV.bare(orderNum)) : (p.wmsNumber || String(orderNum));
+            row.ORDER_NUMBER = String(wmsNum); row.SOURCE_ORDER_NUMBER = row.SOURCE_ORDER_NUMBER || String(orderNum);
+            row.TRIP_ID = row.TRIP_ID || r.trip_id || r.TRIP_ID || ''; row.TRIP_DATE = row.TRIP_DATE || p.tripDate || ($('fpDate') || {}).value || '';
             row.ACCOUNT_NAME = row.ACCOUNT_NAME || r.account_name || ''; row.PICKER = row.PICKER || r.picker_name || '';
             row.LORRY_NUMBER = row.LORRY_NUMBER || r.lorry_number || ''; row.PRIORITY = row.PRIORITY || r.order_priority || '';
             // editTripOrder reads exactly 'Store to Van' / 'Van to Store' for the store dialog
@@ -269,6 +294,7 @@
     PV.openLite = function (orderNum) {
         var I = PV.info(orderNum), r = I.row || {}, p = I.pv || {}, pod = ($('fpInstance') || {}).value || 'PROD';
         var store = PV.isStore(p.type, orderNum), root = ordsRoot();
+        var wmsNum = store ? ((PV.ctx && PV.ctx.s2vKey && PV.ctx.s2vKey[orderNum]) || PV.bare(orderNum)) : (p.wmsNumber || String(orderNum));
         var lines = r._pv ? (Number(r.picked_lines) || 0) + ' / ' + (Number(r.total_lines) || 0) + ' lines picked' : '';
         var chips = [
             p.type ? chip(store ? 'fa-exchange-alt' : 'fa-file-invoice', esc(p.type), store ? '#c2410c' : '#4338ca', store ? '#ffedd5' : '#e0e7ff') : '',
@@ -280,8 +306,8 @@
         ].join('');
         var meta = [r.account_name, r.trip_id ? 'Trip #' + r.trip_id : '', r.picker_name, r.lorry_number, r.loading_bay ? 'Bay ' + r.loading_bay : '', r.order_priority ? 'P' + r.order_priority : '', pod].filter(Boolean).map(esc).join(' · ');
         var tabs = store
-            ? [{ id: 'trx', label: 'Transaction details', icon: 'fa-list', url: root + '/WAREHOUSEMANAGEMENT/trip/s2vdetails/' + enc(orderNum) + '?p_instance_name=' + enc(pod), kind: 'trx' },
-               { id: 'qoh', label: 'QOH details', icon: 'fa-boxes-stacked', url: root + '/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=' + enc(orderNum) + '&p_instance_name=' + enc(pod), kind: 'qoh' }]
+            ? [{ id: 'trx', label: 'Transaction details', icon: 'fa-list', url: root + '/WAREHOUSEMANAGEMENT/trip/s2vdetails/' + enc(wmsNum) + '?p_instance_name=' + enc(pod), kind: 'trx' },
+               { id: 'qoh', label: 'QOH details', icon: 'fa-boxes-stacked', url: root + '/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=' + enc(wmsNum) + '&p_instance_name=' + enc(pod), kind: 'qoh' }]
             : [{ id: 'lines', label: 'Order lines', icon: 'fa-list', url: root + '/TRIPMANAGEMENT/trip/orders/getsalesorderlines/' + enc(orderNum) + '?P_INSTANCE_NAME=' + enc(pod), kind: 'lines' },
                { id: 'pick', label: 'Pick release details', icon: 'fa-dolly', url: root + '/TRIPMANAGEMENT/trips/orders/getpickreleasedetails/' + enc(orderNum) + '?P_INSTANCE_NAME=' + enc(pod), kind: 'generic' },
                { id: 'lots', label: 'Lots', icon: 'fa-layer-group', url: root + '/TRIPMANAGEMENT/trips/orders/getlotdetails/' + enc(orderNum) + '?P_INSTANCE_NAME=' + enc(pod), kind: 'generic' }];
