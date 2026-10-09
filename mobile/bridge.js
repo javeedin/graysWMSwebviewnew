@@ -7,7 +7,11 @@
 // so there is no CORS problem and the Fusion credentials stay in C#. "View only" (the panel's switch) blocks the calls
 // that change data and tells the WMS page which ones. Opened on its own (no parent, or a parent that never answers
 // "hello") the app calls Oracle directly as it always did.
-// Messages: → parent  {type:'wms-mobile-hello', build}  {type:'wms-mobile-relay', id, method, url, headers, body, instance}  {type:'wms-mobile-blocked', method, url}
+// Inside a WMS frame the app also gets its OWN storage: window.localStorage (what AsyncStorage uses on web) is replaced
+// by an in-memory store, so several frames — one per picker — never share a login or cache. The WMS page may seed that
+// store through the page address: #wms=<base64url JSON {storage: {key: value…}, viewOnly, label}> — e.g. the picker's
+// `userData` and `app_instance`, which signs the app in as that picker without the login screen.
+// Messages: → parent  {type:'wms-mobile-hello', build, label}  {type:'wms-mobile-relay', id, method, url, headers, body, instance}  {type:'wms-mobile-blocked', method, url}
 //           ← parent  {type:'wms-mobile-ready', viewOnly}  {type:'wms-mobile-mode', viewOnly}  {type:'wms-mobile-reply', id, ok, status, body, contentType}
 // ═══════════════════════════════════════════════════════════════════════════════
 (function () {
@@ -17,7 +21,30 @@
     var WRITE_PATH = /(confirm|update|process|cancel|create|cration|close|insert|delete|submit|save|callpickwave|backorder|requisition|pending_picking|assign|release|print|sync)/i;
     var READ_PATH = /(getopenpicks|getlots|fetchfusionorderlines|get[a-z_]*details|getshipmentnumber|query|search|summary|onhand|lov|list)/i;
     var inFrame = false; try { inFrame = !!(window.parent && window.parent !== window); } catch (e) { inFrame = false; }
-    var B = { relay: false, viewOnly: true, seq: 0, pending: {}, hello: 0 };
+    var B = { relay: false, viewOnly: true, seq: 0, pending: {}, hello: 0, label: '' };
+
+    // ── the frame's own storage, seeded from #wms=… ──
+    var seed = null;
+    try {
+        var m = /[#&]wms=([A-Za-z0-9_-]+)/.exec(location.hash || '');
+        if (m) seed = JSON.parse(decodeURIComponent(escape(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')))));
+    } catch (e) { seed = null; }
+    if (inFrame) {
+        var mem = {};
+        var store = {
+            getItem: function (k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+            setItem: function (k, v) { mem[String(k)] = String(v); },
+            removeItem: function (k) { delete mem[k]; },
+            clear: function () { mem = {}; },
+            key: function (i) { return Object.keys(mem)[i] || null; },
+            get length() { return Object.keys(mem).length; }
+        };
+        if (seed && seed.storage && typeof seed.storage === 'object') Object.keys(seed.storage).forEach(function (k) { var v = seed.storage[k]; if (v != null) store.setItem(k, typeof v === 'string' ? v : JSON.stringify(v)); });
+        try { Object.defineProperty(window, 'localStorage', { configurable: true, get: function () { return store; } }); } catch (e) { /* keep the real one */ }
+        if (seed && typeof seed.viewOnly === 'boolean') B.viewOnly = seed.viewOnly;
+        if (seed && seed.label) B.label = String(seed.label);
+    }
+
     function post(msg) { try { window.parent.postMessage(msg, '*'); } catch (e) { /* no parent */ } }
     function instance() { try { return (localStorage.getItem('app_instance') || 'TEST').toUpperCase(); } catch (e) { return 'TEST'; } }
     /** A call that changes data: PUT / PATCH / DELETE always, every Fusion POST, and APEX POSTs whose path says so. */
@@ -46,7 +73,8 @@
     }
     function blocked(method, url) {
         post({ type: 'wms-mobile-blocked', method: method, url: url });
-        return { ok: false, status: 403, body: JSON.stringify({ success: false, status: 'BLOCKED', error: 'View only is on in the WMS desktop. Switch it off in the Picker app panel to make changes.', message: 'View only is on in the WMS desktop. Switch it off in the Picker app panel to make changes.' }) };
+        var text = 'View only is on in the WMS desktop. Switch it off in the Picker app panel to make changes.';
+        return { ok: false, status: 403, body: JSON.stringify({ success: false, status: 'BLOCKED', error: text, message: text }) };
     }
     /** null = not ours (the browser calls it), else a promise of {ok, status, body, contentType}. */
     function handle(method, url, headers, body) {
@@ -62,7 +90,7 @@
             else if (m.type === 'wms-mobile-mode') { B.viewOnly = !!m.viewOnly; }
             else if (m.type === 'wms-mobile-reply') { var p = B.pending[m.id]; if (p) { delete B.pending[m.id]; p(m); } }
         });
-        var hello = function () { if (B.relay || B.hello > 20) return; B.hello++; post({ type: 'wms-mobile-hello', build: window.WMS_MOBILE_BUILD || null, href: location.href }); setTimeout(hello, 500); };
+        var hello = function () { if (B.relay || B.hello > 20) return; B.hello++; post({ type: 'wms-mobile-hello', build: window.WMS_MOBILE_BUILD || null, label: B.label, href: location.href.replace(/#.*$/, '') }); setTimeout(hello, 500); };
         hello();
     }
     // ── fetch ──
@@ -116,5 +144,5 @@
     };
     BridgedXHR.UNSENT = 0; BridgedXHR.OPENED = 1; BridgedXHR.HEADERS_RECEIVED = 2; BridgedXHR.LOADING = 3; BridgedXHR.DONE = 4;
     window.XMLHttpRequest = BridgedXHR;
-    window.WMS_MOBILE_BRIDGE = { state: function () { return { inFrame: inFrame, relay: B.relay, viewOnly: B.viewOnly, pending: Object.keys(B.pending).length }; }, isWrite: isWrite };
+    window.WMS_MOBILE_BRIDGE = { state: function () { return { inFrame: inFrame, relay: B.relay, viewOnly: B.viewOnly, label: B.label, seeded: !!seed, pending: Object.keys(B.pending).length }; }, isWrite: isWrite };
 })();
