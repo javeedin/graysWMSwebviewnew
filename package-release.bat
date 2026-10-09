@@ -84,6 +84,15 @@ if errorlevel 1 (
     goto :error
 )
 
+REM --- Copy mobile folder (the FCPos picker app web build shown by WMS > Picker app; node tools\mobile\build-mobile.js writes it) ---
+if exist "%SCRIPT_DIR%mobile" (
+    echo Copying mobile folder...
+    mkdir "%APP_DIR%\mobile"
+    xcopy "%SCRIPT_DIR%mobile\*" "%APP_DIR%\mobile\" /s /e /y /q
+) else (
+    echo WARNING: mobile folder not found - the WMS Picker app page will say the app is not installed
+)
+
 REM --- Copy dist folder ---
 echo Copying dist folder...
 if not exist "%SCRIPT_DIR%%DIST_OUT%" (

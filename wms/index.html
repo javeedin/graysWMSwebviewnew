@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="trip-summary.css">
     <link rel="stylesheet" href="pick-release.css">
     <link rel="stylesheet" href="autopilot.css">
+    <link rel="stylesheet" href="picker-app.css">
     <link rel="stylesheet" href="page-tabs.css">
     <link rel="stylesheet" href="pending-cancel.css">
     <link rel="stylesheet" href="alerts.css">
@@ -180,6 +181,11 @@
                 <span>Cancellation autopilot</span>
                 <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('cancel-autopilot')" title="Open in new window"></i>
             </div>
+            <div class="menu-item" data-page="picker-app">
+                <i class="fas fa-mobile-alt"></i>
+                <span>Picker app</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('picker-app')" title="Open in new window"></i>
+            </div>
             <div class="menu-item" data-page="vehicles">
                 <i class="fas fa-car"></i>
                 <span>Vehicles Dashboard</span>
@@ -282,6 +288,7 @@
             <div id="mra-interface" class="page-content" style="display: none;"></div>
             <div id="pick-release" class="page-content" style="display: none;"></div>
             <div id="cancel-autopilot" class="page-content" style="display: none;"></div>
+            <div id="picker-app" class="page-content" style="display: none;"></div>
             <div id="trip-management" class="page-content">
                 <div class="parameters-section">
                     <div class="parameters-header" id="parameters-toggle">
@@ -8605,6 +8612,7 @@
         document.write('<script src="pick-release.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="cancel-rules.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="autopilot.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="picker-app.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="mra-processor.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="shipping-agent.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="mra-interface.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
