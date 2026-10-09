@@ -72,3 +72,5 @@
 .pa-hint a { color: #1e3a8a; font-weight: 700; cursor: pointer; }
 .pa-hint[hidden] { display: none; }
 .pa-log li .w { width: 18px; height: 18px; border-radius: 50%; color: #fff; font-size: 8px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; font-family: system-ui, sans-serif; }
+.pa-nolog { color: #b45309; font-style: italic; }
+.pa-row .pa-chk i { color: #64748b; margin-right: 2px; }

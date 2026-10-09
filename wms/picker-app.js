@@ -6,11 +6,13 @@
 // (executeGet / executePost / executeOracleFusionGet / Post / Patch) and posts the answer back — no CORS, Fusion
 // credentials stay in C#. "View only" (default on, localStorage wms.pa.viewOnly) blocks the calls that change data
 // (pick confirm, ship confirm, cancel, pick wave …) and lists them in the panel; off = fully live.
-// PICKERS: the panel lists the app users whose type is PICKER (the table behind the LOGIN/user ORDS handler, found
-// through user_ords_handlers; else the WMS pickers list) — a click opens the app in a NEW frame signed in as that picker
+// PICKERS: the panel lists the mobile app's users of type PICKER from GR_MOBILE_USER (the username / password table the
+// app logs in with — read DISTINCT, PICKER type only, the password column is never selected; another users table is found
+// by its columns when GR_MOBILE_USER is missing, the WMS pickers list when there is none), each with the WMS picker of the
+// same name (type Bulk / Individual / Relief, area) — a click opens the app in a NEW frame signed in as that picker
 // (the frame's own storage is seeded with the user row, no password; audited picker_app_open), so several pickers' apps
 // run side by side, each with its own login and cache. "Sign in yourself" opens a plain frame with the login screen.
-// Size phone / large phone / tablet, rotate, reload / close per frame, open in its own tab. Frames are kept while other
+// Size phone / large phone / tablet, zoom fit / 75–150 % (100 % = real size, the page scrolls), rotate, reload / close per frame, own tab. Frames are kept while other
 // pages are shown. window.WmsPickerApp = {onShow, open, openPicker, close, reload, setViewOnly, loadPickers, state}
 // ═══════════════════════════════════════════════════════════════════════════════
 (function () {
@@ -48,54 +50,107 @@
         });
     }
     var st = { drawn: false, viewOnly: ls('wms.pa.viewOnly') !== '0', size: ls('wms.pa.size') || 'phone', landscape: false, frames: [], seq: 0,
-        pickers: null, pickersSrc: '', pickersErr: '', pickersBusy: false, showAll: false, filter: '', calls: 0, log: [], blocked: [] };
+        zoom: ls('wms.pa.zoom') || '100', rowTop: 0, pickers: null, pickersSrc: '', pickersErr: '', pickersBusy: false, filter: '', calls: 0, log: [], blocked: [] };
 
     function root() { return document.getElementById(PAGE); }
     function pathOf(url) { try { var u = new URL(url); return u.pathname.replace(/^\/ords\/WKSP_GRAYSAPP\//, '').replace(/^\/fscmRestApi\/resources\/[\d.]+\//, 'fusion/') + (u.search ? '?' + u.search.slice(1, 40) : ''); } catch (e) { return String(url).slice(0, 80); } }
     function frameOf(win) { for (var i = 0; i < st.frames.length; i++) { var f = st.frames[i]; if (f.el && f.el.contentWindow === win) return f; } return null; }
     function frameById(id) { for (var i = 0; i < st.frames.length; i++) if (st.frames[i].id === id) return st.frames[i]; return null; }
 
-    // ── the pickers (app users of type PICKER) ─────────────────────────────────────────────────────────────────────
-    function typeOf(r) { var k = ['USER_TYPE', 'USERTYPE', 'TYPE', 'USER_ROLE', 'ROLE', 'USER_CATEGORY', 'CATEGORY']; for (var i = 0; i < k.length; i++) if (r[k[i]] != null && String(r[k[i]]).trim()) return String(r[k[i]]).trim().toUpperCase(); return ''; }
-    function usernameOf(r) { var k = ['USERNAME', 'USER_NAME', 'LOGIN', 'LOGIN_NAME', 'USER_ID', 'USERID']; for (var i = 0; i < k.length; i++) if (r[k[i]] != null && String(r[k[i]]).trim()) return String(r[k[i]]).trim(); return ''; }
-    function nameOf(r) { var k = ['PICKER_NAME', 'FULL_NAME', 'DISPLAY_NAME', 'NAME', 'EMPLOYEE_NAME']; for (var i = 0; i < k.length; i++) if (r[k[i]] != null && String(r[k[i]]).trim()) return String(r[k[i]]).trim(); return usernameOf(r); }
-    function toPicker(r, src) {
-        var clean = {}; Object.keys(r).forEach(function (k) { if (!SECRET.test(k)) clean[k] = r[k]; });
-        var username = usernameOf(r), name = nameOf(r);
-        return { username: username, name: name, type: typeOf(r), warehouse: r.WAREHOUSE || r.ORGANIZATION || r.ORG_CODE || '', active: !(r.ACTIVE === 'N' || r.STATUS === 'INACTIVE' || r.IS_ACTIVE === 'N'), row: clean, src: src };
+    // ── the pickers: the WMS pickers list (what Assign Picker uses, deleted ones out) + each one's app login ─────────
+    var TYPE_COLS = ['USER_TYPE', 'USERTYPE', 'USER_ROLE', 'ROLE', 'USER_CATEGORY'], USER_COLS = ['USERNAME', 'USER_NAME', 'LOGIN', 'LOGIN_NAME', 'USER_ID', 'USERID'], NAME_COLS = ['PICKER_NAME', 'FULL_NAME', 'DISPLAY_NAME', 'NAME', 'EMPLOYEE_NAME'];
+    function firstOf(r, keys) { for (var i = 0; i < keys.length; i++) if (r[keys[i]] != null && String(r[keys[i]]).trim()) return String(r[keys[i]]).trim(); return ''; }
+    function key(s) { return String(s || '').trim().toUpperCase().replace(/\s+/g, ' '); }
+    function upper(o) { var r = {}; Object.keys(o || {}).forEach(function (k) { r[k.toUpperCase()] = o[k]; }); return r; }
+    function sqlStr(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
+    /** The WMS pickers (pickers/getpickers): name, type Bulk / Individual / Relief, area, category; deleted = 1 left out. */
+    function loadWmsPickers() {
+        return host({ action: 'executeGet', fullUrl: WM + '/pickers/getpickers' }, 60000).then(function (d) {
+            var items = Array.isArray(d) ? d : (d && d.items) || [];
+            return items.map(upper).filter(function (r) { var del = r.DELETED; return !(del === 1 || del === '1' || del === 'Y' || del === true); })
+                .map(function (r) { return { name: firstOf(r, ['NAME', 'PICKER_NAME', 'PICKER']), pickerType: firstOf(r, ['PICKER_TYPE', 'TYPE']), area: firstOf(r, ['ASSIGNED_AREA', 'AREA']), category: firstOf(r, ['CATEGORY']), contact: firstOf(r, ['CONTACT']), id: r.PICKER_ID }; })
+                .filter(function (p) { return p.name; });
+        });
     }
-    /** The users table = the one the LOGIN/user ORDS handler reads (user_ords_handlers), else the WMS pickers list. */
+    var USERS_TABLE = /^GR_MOBILE_USERS?$/;   // the mobile app's own users table: username + password = what the app logs in with
+    /** The app logins of type PICKER from GR_MOBILE_USER (else a table found by its columns — a username and a user-type
+     *  column, the LOGIN/user handler's table preferred). Only the table's non-secret columns are selected, DISTINCT,
+     *  filtered to the PICKER type in the database — the password column never leaves Oracle. */
+    function loadLogins() {
+        var want = TYPE_COLS.concat(USER_COLS, NAME_COLS, ['PASSWORD', 'PASSWD', 'PWD']);
+        var colsSql = "SELECT table_name, column_name, data_type FROM user_tab_columns WHERE table_name LIKE 'GR_MOBILE_USER%' OR column_name IN (" + want.map(sqlStr).join(', ') + ')';
+        var handlerSql = "SELECT TO_CHAR(SUBSTR(h.source, 1, 4000)) AS src FROM user_ords_handlers h JOIN user_ords_templates t ON t.id = h.template_id JOIN user_ords_modules m ON m.id = t.module_id " +
+            "WHERE h.method = 'GET' AND (UPPER(m.name) = 'LOGIN' OR UPPER(m.uri_prefix) LIKE '%LOGIN%') AND LOWER(t.uri_template) LIKE 'user%'";
+        return Promise.all([gw(colsSql, 1000), gw(handlerSql, 10).catch(function () { return []; })]).then(function (res) {
+            var tables = {}; res[0].forEach(function (r) { var t = String(r.TABLE_NAME || ''), c = String(r.COLUMN_NAME || ''); if (!t) return; (tables[t] = tables[t] || []).push({ c: c, ty: String(r.DATA_TYPE || '') }); });
+            var fromHandler = {}; res[1].forEach(function (r) { var m, re = /\b(?:FROM|JOIN)\s+("?[A-Za-z0-9_$#]+"?)/gi, src = String(r.SRC || ''); while ((m = re.exec(src))) fromHandler[m[1].replace(/"/g, '').toUpperCase()] = true; });
+            var best = null, bestScore = 0;
+            Object.keys(tables).forEach(function (t) {
+                var cols = tables[t].map(function (x) { return x.c; }), has = function (list) { return list.filter(function (c) { return cols.indexOf(c) >= 0; })[0] || ''; };
+                var u = has(USER_COLS), ty = has(TYPE_COLS), mobile = USERS_TABLE.test(t);
+                if (mobile) { u = u || cols.filter(function (c) { return /USER|LOGIN/.test(c) && !SECRET.test(c) && !/TYPE|ROLE|ID$/.test(c); })[0] || ''; ty = ty || cols.filter(function (c) { return /TYPE|ROLE/.test(c); })[0] || ''; }
+                if (!u || (!ty && !mobile)) return;
+                var score = 4 + (mobile ? 20 : 0) + (has(['PASSWORD', 'PASSWD', 'PWD']) ? 2 : 0) + (has(['PICKER_NAME']) ? 2 : 0) + (fromHandler[t] ? 5 : 0) + (/USER/.test(t) ? 1 : 0) - (/LOG$|_LOG|HIST|AUDIT|TRANS|TRX|_V$/.test(t) ? 3 : 0);
+                if (score > bestScore) { bestScore = score; best = { table: t, userCol: u, typeCol: ty, mobile: mobile }; }
+            });
+            if (!best) return { table: '', users: [] };
+            var colsP = best.mobile ? Promise.resolve(tables[best.table].map(function (x) { return { COLUMN_NAME: x.c, DATA_TYPE: x.ty }; })) : gw("SELECT column_name, data_type FROM user_tab_columns WHERE table_name = " + sqlStr(best.table) + ' ORDER BY column_id', 300);
+            return colsP.then(function (cols) {
+                var pick = cols.filter(function (c) { return !SECRET.test(String(c.COLUMN_NAME || '')) && !/LOB|RAW|LONG|XML/.test(String(c.DATA_TYPE || '')); }).map(function (c) { return String(c.COLUMN_NAME); });
+                if (!pick.length) return { table: best.table, users: [], typeCol: best.typeCol };
+                var sql = 'SELECT DISTINCT ' + pick.join(', ') + ' FROM ' + best.table + (best.typeCol ? ' WHERE UPPER(' + best.typeCol + ") LIKE '%PICK%'" : '') + ' ORDER BY ' + best.userCol;
+                return gw(sql, 1000).then(function (rows) { return { table: best.table, typeCol: best.typeCol, users: rows.map(function (r) { return toLogin(r, best.table, best.userCol); }) }; });
+            });
+        });
+    }
+    function toLogin(r, src, userCol) {
+        var clean = {}; Object.keys(r).forEach(function (k) { if (!SECRET.test(k)) clean[k] = r[k]; });
+        var username = firstOf(r, USER_COLS) || (userCol && r[userCol] != null ? String(r[userCol]).trim() : '');
+        return { username: username, pickerName: firstOf(r, ['PICKER_NAME']), name: firstOf(r, NAME_COLS) || username, type: firstOf(r, TYPE_COLS).toUpperCase(), warehouse: firstOf(r, ['WAREHOUSE', 'ORGANIZATION', 'ORG_CODE']), active: !(r.ACTIVE === 'N' || r.STATUS === 'INACTIVE' || r.IS_ACTIVE === 'N' || r.DELETED === 1 || r.DELETED === 'Y'), row: clean, src: src };
+    }
+    /** One list: the app logins of type PICKER (GR_MOBILE_USER — the username the app signs in with), each with the WMS
+     *  picker of the same name when there is one (type Bulk / Individual / Relief, area). WMS pickers without a mobile login
+     *  are counted, not shown; without any users table the WMS pickers list is shown instead. Sorted by name. */
     function loadPickers(force) {
         if (st.pickersBusy || (st.pickers && !force)) return Promise.resolve(st.pickers);
         st.pickersBusy = true; st.pickersErr = ''; paintPickers();
-        var sql = "SELECT TO_CHAR(SUBSTR(h.source, 1, 4000)) AS src, t.uri_template AS tpl FROM user_ords_handlers h JOIN user_ords_templates t ON t.id = h.template_id JOIN user_ords_modules m ON m.id = t.module_id " +
-            "WHERE h.method = 'GET' AND (UPPER(m.name) = 'LOGIN' OR UPPER(m.uri_prefix) LIKE '%LOGIN%') AND LOWER(t.uri_template) LIKE 'user%'";
-        return gw(sql, 10).then(function (rows) {
-            var src = rows.map(function (r) { return r.SRC || ''; }).join('\n'), m = /FROM\s+("?[A-Za-z0-9_$#]+"?)/i.exec(src);
-            if (!m) throw new Error('no LOGIN/user handler');
-            var table = m[1].replace(/"/g, '').toUpperCase();
-            return gw('SELECT * FROM ' + table + ' ORDER BY 1', 2000).then(function (users) { st.pickersSrc = 'the ' + table + ' table (the LOGIN/user handler)'; return users.map(function (r) { return toPicker(r, table); }); });
-        }).catch(function () {
-            return host({ action: 'executeGet', fullUrl: WM + '/pickers/getpickers' }, 60000).then(function (d) {
-                var items = Array.isArray(d) ? d : (d && d.items) || [];
-                st.pickersSrc = 'the WMS pickers list (no users table found)';
-                return items.map(function (p) { var name = String(p.name || p.NAME || p.picker_name || p.PICKER_NAME || '').trim(); return { username: name, name: name, type: 'PICKER', warehouse: '', active: !(p.active === 'N' || p.ACTIVE === 'N'), row: { PICKER_NAME: name, USER_TYPE: 'PICKER', USERNAME: name }, src: 'pickers' }; }).filter(function (p) { return p.name; });
-            });
-        }).then(function (list) {
+        var errs = [];
+        return Promise.all([
+            loadWmsPickers().catch(function (e) { errs.push('WMS pickers: ' + (e && e.message || e)); return []; }),
+            loadLogins().catch(function (e) { errs.push('mobile users: ' + (e && e.message || e)); return { table: '', users: [] }; })
+        ]).then(function (res) {
+            var wms = res[0], logins = res[1], by = {}, list = [], wmsBy = {};
+            wms.forEach(function (p) { wmsBy[key(p.name)] = wmsBy[key(p.name)] || p; });
+            if (logins.table) {
+                logins.users.forEach(function (u) {
+                    var k = key(u.username || u.name); if (!k || by[k]) return;
+                    var w = wmsBy[key(u.pickerName)] || wmsBy[key(u.name)] || wmsBy[key(u.username)] || null; if (w) w.matched = true;
+                    var e = by[k] = { name: u.pickerName || (w ? w.name : '') || u.name, username: u.username || u.name, pickerName: u.pickerName || (w ? w.name : ''), type: u.type || 'PICKER', pickerType: w ? w.pickerType : '', area: w ? w.area : '', category: w ? w.category : '', wms: !!w, login: u, warehouse: u.warehouse, active: u.active, row: Object.assign({}, u.row) };
+                    if (w) { e.row.PICKER_TYPE = w.pickerType; e.row.ASSIGNED_AREA = w.area; }
+                    list.push(e);
+                });
+                var noLogin = wms.filter(function (p) { return !p.matched; });
+                st.pickersSrc = list.length + ' picker' + (list.length === 1 ? '' : 's') + ' with an app login in ' + logins.table + (logins.typeCol ? ' (type PICKER)' : ' (no user-type column — every mobile user)') +
+                    (wms.length ? ' · ' + list.filter(function (e) { return e.wms; }).length + ' also in the WMS pickers list' + (noLogin.length ? ' · ' + noLogin.length + ' WMS picker' + (noLogin.length === 1 ? '' : 's') + ' without an app login not shown (' + noLogin.slice(0, 6).map(function (p) { return p.name; }).join(', ') + (noLogin.length > 6 ? ', …' : '') + ')' : '') : '');
+            } else {
+                wms.forEach(function (p) { var k = key(p.name); if (by[k]) return; by[k] = { name: p.name, username: p.name, pickerName: p.name, type: 'PICKER', pickerType: p.pickerType, area: p.area, category: p.category, wms: true, login: null, warehouse: '', active: true, row: { PICKER_NAME: p.name, USERNAME: p.name, USER_TYPE: 'PICKER', PICKER_TYPE: p.pickerType, ASSIGNED_AREA: p.area } }; list.push(by[k]); });
+                st.pickersSrc = wms.length + ' from the WMS pickers list (deleted ones left out) — no mobile users table (GR_MOBILE_USER) found, so the app opens on the picker name alone';
+            }
             list.sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); });
+            st.pickersErr = errs.join(' · ');
             st.pickers = list; st.pickersBusy = false; paintPickers(); return list;
         }).catch(function (e) { st.pickers = []; st.pickersErr = e && e.message || String(e); st.pickersBusy = false; paintPickers(); return []; });
     }
     function visiblePickers() {
         var q = st.filter.trim().toUpperCase();
-        return (st.pickers || []).filter(function (p) { return (st.showAll || p.type === 'PICKER') && (!q || (p.name + ' ' + p.username + ' ' + p.type + ' ' + p.warehouse).toUpperCase().indexOf(q) >= 0); });
+        return (st.pickers || []).filter(function (p) { return !q || (p.name + ' ' + p.username + ' ' + p.pickerType + ' ' + p.area + ' ' + p.category + ' ' + p.warehouse).toUpperCase().indexOf(q) >= 0; });
     }
     /** The user object the app keeps after its own login (AuthContext fullUserData), from the picker's row — no password. */
     function userDataOf(p, instance) {
         var u = {}; Object.keys(p.row || {}).forEach(function (k) { u[k] = p.row[k]; });
         u.username = p.username || p.name; u.user_name = u.username; u.USERNAME = u.username;
-        u.PICKER_NAME = p.name; u.picker_name = p.name;
-        u.user_type = p.type || 'PICKER'; u.USER_TYPE = u.user_type; u.userType = u.user_type;
+        if (p.pickerName) { u.PICKER_NAME = p.pickerName; u.picker_name = p.pickerName; }
+        u.user_type = 'PICKER'; u.USER_TYPE = u.user_type; u.userType = u.user_type;
         if (p.warehouse) u.warehouse = p.warehouse;
         u.instance = instance; u.loginTime = new Date().toISOString(); u.wmsDesktop = true;
         return u;
@@ -145,13 +200,23 @@
     function hideMissing(f) { var el = document.getElementById('pa-missing-' + f.id); if (el) el.hidden = true; }
     function sizeFrames() {
         var s = SIZES[st.size] || SIZES.phone, w = st.landscape ? s[1] : s[0], h = st.landscape ? s[0] : s[1];
-        var scale = Math.min(1, (window.innerHeight - 200) / (h + 28));
+        var scale = zoomScale(h);
         st.frames.forEach(function (f) {
             var p = document.getElementById('pa-phone-' + f.id); if (!p) return;
-            p.style.width = w + 'px'; p.style.height = h + 'px'; p.style.transform = scale < 1 ? 'scale(' + scale.toFixed(3) + ')' : ''; p.style.transformOrigin = 'top left'; p.classList.toggle('tablet', st.size === 'tablet');
-            var dev = document.getElementById('pa-dev-' + f.id); if (dev) { dev.style.width = Math.round((w + 28) * (scale < 1 ? scale : 1)) + 'px'; dev.style.height = Math.round((h + 28) * (scale < 1 ? scale : 1) + 54) + 'px'; }
+            p.style.width = w + 'px'; p.style.height = h + 'px'; p.style.transform = Math.abs(scale - 1) > 0.001 ? 'scale(' + scale.toFixed(3) + ')' : ''; p.style.transformOrigin = 'top left'; p.classList.toggle('tablet', st.size === 'tablet');
+            var dev = document.getElementById('pa-dev-' + f.id); if (dev) { dev.style.width = Math.round((w + 28) * scale) + 'px'; dev.style.height = Math.round((h + 28) * scale + 54) + 'px'; }
         });
+        var zl = document.getElementById('pa-zoom-now'); if (zl) zl.textContent = st.zoom === 'fit' ? Math.round(scale * 100) + ' %' : '';
         paintHint();
+    }
+    /** The frame scale: a fixed zoom (100 % = the phone's real size, the page scrolls), or Fit = the room under the frame
+     *  headers down to the bottom of the window (measured where the frames row sits; up to 160 % on a tall screen). */
+    function zoomScale(h) {
+        if (st.zoom !== 'fit') return Math.max(0.4, Math.min(2, (parseInt(st.zoom, 10) || 100) / 100));
+        var row = document.getElementById('pa-frames'), top = row ? row.getBoundingClientRect().top : 0;
+        if (top > 40) st.rowTop = top;
+        var avail = window.innerHeight - (st.rowTop || 180) - 54 - 30;
+        return Math.max(0.4, Math.min(1.6, avail / (h + 28)));
     }
 
     // ── the relay: one request of an app → the host → the answer back to that frame ──────────────────────────────
@@ -198,10 +263,11 @@
             '<div class="pa-card"><label class="pa-switch"><input type="checkbox" id="pa-viewonly"' + (st.viewOnly ? ' checked' : '') + '><span class="k"></span><span><b>View only</b><small>Pick confirm, ship confirm, cancel and pick wave are blocked in every open app. Off = live, exactly like the phone.</small></span></label></div>' +
             '<div class="pa-card pa-pickers"><h3><i class="fas fa-users" style="color:#1e3a8a"></i> Pickers <small id="pa-pickers-n"></small></h3>' +
             '<div class="pa-row" style="margin-top:0"><input type="search" class="pa-sel pa-q" id="pa-q" placeholder="Find a picker…" autocomplete="off"><button class="pa-btn" id="pa-pickers-refresh" title="Read the list again"><i class="fas fa-sync-alt"></i></button></div>' +
-            '<div class="pa-row" style="margin-top:6px"><label class="pa-chk"><input type="checkbox" id="pa-showall"> All users, not only pickers</label><button class="pa-btn" id="pa-self" style="margin-left:auto"><i class="fas fa-user"></i> Sign in yourself</button></div>' +
+            '<div class="pa-row" style="margin-top:6px"><small style="color:#64748b">The mobile app users of type PICKER (GR_MOBILE_USER) — the login the app uses.</small><button class="pa-btn" id="pa-self" style="margin-left:auto"><i class="fas fa-user"></i> Sign in yourself</button></div>' +
             '<ul class="pa-plist" id="pa-plist"></ul><p class="pa-src" id="pa-src"></p></div>' +
             '<div class="pa-card"><h3>Screen</h3><div class="pa-row" style="margin-top:0"><select class="pa-sel" id="pa-size">' + Object.keys(SIZES).map(function (k) { return '<option value="' + k + '"' + (k === st.size ? ' selected' : '') + '>' + SIZES[k][2] + '</option>'; }).join('') + '</select>' +
-            '<button class="pa-btn" id="pa-rotate" title="Rotate"><i class="fas fa-sync-alt"></i> Rotate</button><button class="pa-btn" id="pa-open" title="Open the app in its own tab"><i class="fas fa-external-link-alt"></i> Own tab</button></div></div>' +
+            '<button class="pa-btn" id="pa-rotate" title="Rotate"><i class="fas fa-sync-alt"></i> Rotate</button><button class="pa-btn" id="pa-open" title="Open the app in its own tab"><i class="fas fa-external-link-alt"></i> Own tab</button></div>' +
+            '<div class="pa-row"><label class="pa-chk" for="pa-zoom"><i class="fas fa-search-plus"></i> Zoom</label><select class="pa-sel" id="pa-zoom">' + [['fit', 'Fit to the window'], ['75', '75 %'], ['100', '100 % · real size'], ['125', '125 %'], ['150', '150 %']].map(function (z) { return '<option value="' + z[0] + '"' + (z[0] === st.zoom ? ' selected' : '') + '>' + z[1] + '</option>'; }).join('') + '</select><small id="pa-zoom-now" style="color:#64748b"></small></div></div>' +
             '<div class="pa-card"><h3>Blocked by View only <small id="pa-blocked-n"></small></h3><ul class="pa-log" id="pa-blocked"></ul></div>' +
             '<div class="pa-card"><h3>Calls through this PC <small id="pa-calls-n"></small></h3><ul class="pa-log" id="pa-log"></ul></div>' +
             '</div>' +
@@ -209,10 +275,10 @@
         r.querySelector('#pa-viewonly').onchange = function () { setViewOnly(this.checked); };
         r.querySelector('#pa-size').onchange = function () { st.size = this.value; ls('wms.pa.size', st.size); sizeFrames(); };
         r.querySelector('#pa-rotate').onclick = function () { st.landscape = !st.landscape; sizeFrames(); };
+        r.querySelector('#pa-zoom').onchange = function () { st.zoom = this.value; ls('wms.pa.zoom', st.zoom); sizeFrames(); };
         r.querySelector('#pa-open').onclick = function () { try { window.open(SRC, '_blank'); } catch (e) { /* blocked */ } };
         r.querySelector('#pa-self').onclick = function () { open(null); };
         r.querySelector('#pa-q').oninput = function () { st.filter = this.value; paintPickers(); };
-        r.querySelector('#pa-showall').onchange = function () { st.showAll = this.checked; paintPickers(); };
         r.querySelector('#pa-pickers-refresh').onclick = function () { loadPickers(true); };
         st.drawn = true;
         paintStatus(); paintLog(); paintBlocked(); paintPickers(); paintHint();
@@ -238,17 +304,19 @@
     function paintPickers() {
         var el = document.getElementById('pa-plist'), n = document.getElementById('pa-pickers-n'), src = document.getElementById('pa-src'); if (!el) return;
         var list = visiblePickers(), openBy = {}; st.frames.forEach(function (f) { if (f.picker) openBy[f.picker.username] = f.id; });
-        if (n) n.textContent = st.pickersBusy ? 'reading…' : st.pickers ? list.length + (st.showAll ? ' users' : ' picker' + (list.length === 1 ? '' : 's')) : '';
+        if (n) n.textContent = st.pickersBusy ? 'reading…' : st.pickers ? list.length + ' picker' + (list.length === 1 ? '' : 's') : '';
         if (st.pickersBusy && !st.pickers) el.innerHTML = '<li class="pa-empty"><i class="fas fa-spinner fa-spin"></i> reading the users…</li>';
         else if (st.pickersErr && !(st.pickers || []).length) el.innerHTML = '<li class="pa-empty">Could not read the pickers: ' + esc(st.pickersErr) + '</li>';
-        else if (!list.length) el.innerHTML = '<li class="pa-empty">' + (st.pickers && st.pickers.length ? 'No ' + (st.showAll ? 'user' : 'picker') + ' matches.' : 'No pickers found.') + '</li>';
+        else if (!list.length) el.innerHTML = '<li class="pa-empty">' + (st.pickers && st.pickers.length ? 'No picker matches.' : 'No pickers found — add them on the WMS Pickers page.') + '</li>';
         else el.innerHTML = list.slice(0, 200).map(function (p) {
             var fid = openBy[p.username];
-            return '<li class="pa-p' + (fid ? ' open' : '') + (p.active ? '' : ' off') + '" data-u="' + esc(p.username) + '"><span class="pa-av sm" style="background:' + colour(p.name) + '">' + esc(initials(p.name)) + '</span><span class="pa-who"><b>' + esc(p.name) + '</b><small>' + esc(p.username) + (p.type && p.type !== 'PICKER' ? ' · ' + esc(p.type) : '') + (p.warehouse ? ' · ' + esc(p.warehouse) : '') + (p.active ? '' : ' · inactive') + '</small></span>' +
+            var bits = [p.pickerType, p.area || p.category, p.warehouse].filter(Boolean).map(esc);
+            var who = p.login ? esc(p.username) : '<span class="pa-nolog" title="No mobile users table — the app opens with the picker name only">no app login</span>';
+            return '<li class="pa-p' + (fid ? ' open' : '') + (p.active ? '' : ' off') + '" data-u="' + esc(p.username) + '" title="' + esc(p.name) + (p.wms ? ' · WMS picker' : ' · app login only') + (p.login ? ' · login ' + esc(p.username) : '') + '"><span class="pa-av sm" style="background:' + colour(p.name) + '">' + esc(initials(p.name)) + '</span><span class="pa-who"><b>' + esc(p.name) + (p.wms || !p.login ? '' : ' <i class="fas fa-mobile-alt" style="color:#94a3b8;font-size:10px" title="App login of type PICKER — not in the WMS pickers list"></i>') + '</b><small>' + who + (bits.length ? ' · ' + bits.join(' · ') : '') + (p.active ? '' : ' · inactive') + '</small></span>' +
                 '<button class="pa-btn sm' + (fid ? '' : ' primary') + '" data-open="' + esc(p.username) + '">' + (fid ? '<i class="fas fa-eye"></i> Show' : '<i class="fas fa-mobile-alt"></i> Open') + '</button></li>';
         }).join('');
         el.querySelectorAll('[data-open]').forEach(function (b) { b.onclick = function () { var u = b.getAttribute('data-open'), p = (st.pickers || []).filter(function (x) { return x.username === u; })[0]; if (p) open(p); }; });
-        if (src) src.textContent = st.pickers && st.pickers.length ? 'From ' + st.pickersSrc + '. Opening a picker signs the app in as them without a password; what they do here is recorded under their name.' : '';
+        if (src) src.textContent = st.pickers && st.pickers.length ? st.pickersSrc + '. Opening a picker signs the app in as them without a password; what they do here is recorded under their name.' + (st.pickersErr ? ' Could not read: ' + st.pickersErr : '') : '';
     }
     function paintLog() {
         var el = document.getElementById('pa-log'), n = document.getElementById('pa-calls-n'); if (!el) return;
@@ -268,7 +336,7 @@
         open: function () { return open(null); },
         openPicker: function (username) { var p = (st.pickers || []).filter(function (x) { return x.username === username || x.name === username; })[0]; return p ? open(p) : null; },
         close: close, reload: reloadAll, setViewOnly: setViewOnly, loadPickers: function () { return loadPickers(true); },
-        state: function () { return { drawn: st.drawn, viewOnly: st.viewOnly, size: st.size, landscape: st.landscape, calls: st.calls, log: st.log.slice(), blocked: st.blocked.slice(), src: SRC, pickers: st.pickers, pickersSrc: st.pickersSrc, pickersErr: st.pickersErr, showAll: st.showAll,
+        state: function () { return { drawn: st.drawn, viewOnly: st.viewOnly, size: st.size, landscape: st.landscape, calls: st.calls, log: st.log.slice(), blocked: st.blocked.slice(), src: SRC, zoom: st.zoom, pickers: st.pickers, pickersSrc: st.pickersSrc, pickersErr: st.pickersErr,
             frames: st.frames.map(function (f) { return { id: f.id, label: f.label, picker: f.picker ? f.picker.username : null, instance: f.instance, ready: f.ready, loaded: f.loaded, calls: f.calls, build: f.build }; }) }; }
     };
     function hook() {
