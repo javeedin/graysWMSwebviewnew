@@ -65,7 +65,7 @@ jobs:
       - name: Cancel rules (same lines as the Shipping Agent; one file for the WMS and WMS 2.0)
         run: cmp wms/cancel-rules.js wms2/w2-cancel-rules.js && node wms2/tests/cancel-rules.test.js && node wms2/tests/premortem.test.js && node wms/tests/alert-rules.test.js && node wms/tests/debrief-engine.test.js
       - name: Field Apps (POS engine on the Order Pad engine; the built POS bundle is up to date)
-        run: node fieldapps/tests/pos-engine.test.js && node fieldapps/build-app.js --check
+        run: node fieldapps/tests/pos-engine.test.js && node fieldapps/tests/clob.test.js && node fieldapps/build-app.js --check
 
   engine:
     name: Fusion Model engine (xUnit)

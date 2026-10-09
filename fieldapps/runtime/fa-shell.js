@@ -221,7 +221,8 @@
             return SH.verify(b, ctx.keys || []).then(function (v) {
                 b.signedOk = !!v.ok; b.verify = v;
                 if (!v.ok && !ctx.allowUnsigned) throw new Error('This app cannot run: ' + v.why);
-                if (!v.ok) toast('Draft — ' + v.why, 'warn');
+                if (!v.ok) { toast('Draft — ' + v.why, 'warn'); hostSend('log', { m: 'NOT VERIFIED — ' + v.why + ' (' + String(b.code).length.toLocaleString() + ' characters read, SHA-256 ' + String(v.codeSha || '').slice(0, 12) + '…' + (b.codeSha256 ? ', signed ' + String(b.codeSha256).slice(0, 12) + '…' : '') + '); the phones refuse it, this preview runs it as a draft', level: 'error' }).catch(function () { }); }
+                else hostSend('log', { m: 'verified · ' + String(b.code).length.toLocaleString() + ' characters · SHA-256 ' + String(v.codeSha || '').slice(0, 12) + '… · key ' + b.keyId }).catch(function () { });
                 if (b.expiresAt && new Date(b.expiresAt.replace(' ', 'T')) < new Date() && !ctx.allowUnsigned) throw new Error('This app expired on ' + b.expiresAt.slice(0, 16).replace('T', ' '));
                 paintChip();
                 mount();

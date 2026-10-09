@@ -1,6 +1,6 @@
 /* Field Apps · APEX layer of the desktop page (window.FAS).
  * Everything the page keeps lives in APEX through the ai/executequery | executewrite gateway (one statement per call,
- * CLOBs written in TO_CLOB pieces and read back with TO_CHAR(SUBSTR())); the phones use the ORDS handlers of
+ * CLOBs written in TO_CLOB pieces and read back as TO_CHAR(SUBSTR()) columns, both checked against LENGTH()); the phones use the ORDS handlers of
  * apex_sql/97_field_apps.sql instead. Host actions go through this page's own postMessage bridge (no app.js here). */
 (function (root) {
     'use strict';
@@ -68,32 +68,88 @@
         return page(0);
     };
     FAS.write = function (sql) { return FAS.call('executewrite', { sql: sql }); };
-    FAS.lit = function (s, max) { if (s == null || s === '') return 'NULL'; s = String(s); if (max) s = s.slice(0, max); return "'" + s.replace(/'/g, "''") + "'"; };
+    /** A SQL literal; `max` cuts to that many characters without ever cutting inside a surrogate pair. */
+    FAS.lit = function (s, max) { if (s == null || s === '') return 'NULL'; s = String(s); if (max && s.length > max) { s = s.slice(0, max); if (/[\uD800-\uDBFF]$/.test(s)) s = s.slice(0, -1); } return "'" + s.replace(/'/g, "''") + "'"; };
     FAS.num = function (n) { if (n == null || n === '' || isNaN(+n)) return 'NULL'; return String(+n); };
     FAS.date = function (iso) { if (!iso) return 'NULL'; var s = String(iso).replace(' ', 'T').slice(0, 19); if (s.length === 10) s += 'T00:00:00'; if (s.length === 16) s += ':00'; return "TO_DATE('" + s + "', 'YYYY-MM-DD\"T\"HH24:MI:SS')"; };
-    FAS.clob = function (s) { if (s == null || s === '') return 'NULL'; var p = []; for (var i = 0; i < s.length; i += 1000) p.push("TO_CLOB('" + s.slice(i, i + 1000).replace(/'/g, "''") + "')"); return p.join(' || '); };
-    /** Writes a long CLOB: empty it, then append pieces of 16,000 characters (one statement each). */
+
+    // ── CLOBs through the gateway ─────────────────────────────────
+    // Oracle counts CHARACTERS (code points) where a JS string counts UTF-16 units, and the gateway fetches every text
+    // column into a 4,000-BYTE buffer: a 3,900-character piece of code with box-drawing banners or accents came back
+    // cut short (the end of every long piece was lost — syntax errors in the published app). So: every length that
+    // reaches Oracle is a code-point count, no piece is ever cut inside a surrogate pair, a read piece is at most
+    // CLOB_READ characters (≤ 3,600 bytes even when every character is escaped as \uXXXX), a written literal at most
+    // CLOB_WRITE characters and CLOB_WRITE_BYTES bytes (Oracle's 4,000-byte literal limit, quotes doubled), and every
+    // write and read is checked against LENGTH() — a CLOB that does not round-trip throws instead of running damaged.
+    FAS.CLOB_READ = 600; FAS.CLOB_WRITE = 1000; FAS.CLOB_WRITE_BYTES = 3800; FAS.CLOB_COLS = 200;
+    FAS.cpLen = function (s) { s = String(s == null ? '' : s); var pairs = s.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g); return s.length - (pairs ? pairs.length : 0); };
+    FAS.utf8Len = function (s) { s = String(s == null ? '' : s); var n = 0; for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); if (c < 0x80) n += 1; else if (c < 0x800) n += 2; else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xFC00) === 0xDC00) { n += 4; i++; } else n += 3; } return n; };
+    /** Cuts a string into pieces of at most `chars` code points and (when given) `bytes` UTF-8 bytes — a quote counts twice when `dq` (it will be doubled). */
+    FAS.pieces = function (s, chars, bytes, dq) {
+        s = String(s == null ? '' : s); var out = [], i = 0, n = s.length;
+        while (i < n) {
+            var j = i, cp = 0, b = 0;
+            while (j < n && cp < chars) {
+                var c = s.charCodeAt(j), w = 1, cb;
+                if (c >= 0xD800 && c <= 0xDBFF && j + 1 < n && (s.charCodeAt(j + 1) & 0xFC00) === 0xDC00) { w = 2; cb = 4; } else cb = c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
+                if (dq && c === 39) cb = 2;
+                if (bytes && b + cb > bytes && cp > 0) break;
+                j += w; cp++; b += cb;
+            }
+            out.push(s.slice(i, j)); i = j;
+        }
+        return out;
+    };
+    FAS.clob = function (s) { if (s == null || s === '') return 'NULL'; return FAS.pieces(s, FAS.CLOB_WRITE, FAS.CLOB_WRITE_BYTES, true).map(function (p) { return "TO_CLOB('" + p.replace(/'/g, "''") + "')"; }).join(' || '); };
+    /** Writes a long CLOB: empty it, append groups of literals (one statement each, about 16,000 characters), then check LENGTH() against the code points written. */
     FAS.writeClob = function (table, col, where, text) {
         text = text == null ? '' : String(text);
+        var pieces = FAS.pieces(text, FAS.CLOB_WRITE, FAS.CLOB_WRITE_BYTES, true), groups = [];
+        for (var i = 0; i < pieces.length; i += 16) groups.push(pieces.slice(i, i + 16));
         return FAS.write('UPDATE ' + table + ' SET ' + col + ' = EMPTY_CLOB() WHERE ' + where).then(function () {
-            var starts = []; for (var i = 0; i < text.length; i += 16000) starts.push(i);
-            return starts.reduce(function (p, i) { return p.then(function () { return FAS.write('UPDATE ' + table + ' SET ' + col + ' = ' + col + ' || ' + FAS.clob(text.slice(i, i + 16000)) + ' WHERE ' + where); }); }, Promise.resolve());
+            return groups.reduce(function (p, g) { return p.then(function () { return FAS.write('UPDATE ' + table + ' SET ' + col + ' = ' + col + ' || ' + g.map(function (x) { return "TO_CLOB('" + x.replace(/'/g, "''") + "')"; }).join(' || ') + ' WHERE ' + where); }); }, Promise.resolve());
+        }).then(function () {
+            return FAS.rows('SELECT NVL(LENGTH(' + col + '), 0) AS L FROM ' + table + ' WHERE ' + where, 2);
+        }).then(function (r) {
+            var want = FAS.cpLen(text), got = r.length ? +r[0].L || 0 : -1;
+            if (got !== want) throw new Error('APEX kept ' + (got < 0 ? 'no row' : got.toLocaleString() + ' characters') + ' of the ' + want.toLocaleString() + ' written to ' + table + '.' + col + ' — the write is damaged, nothing was changed on the phones');
+            return want;
         });
     };
-    /** Reads a CLOB column of some rows in pieces → { key: text }. */
+    /** Reads a CLOB column of some rows → { key: text }: LENGTH() first, then pieces of CLOB_READ characters as columns of one query (CLOB_COLS per call), checked against LENGTH(). */
     FAS.readClob = function (table, col, keyCol, ids, piece) {
-        piece = piece || 3900; var out = {};
+        piece = Math.min(piece || FAS.CLOB_READ, FAS.CLOB_READ); var out = {}, lens = {};
         if (!ids.length) return Promise.resolve(out);
         var where = ' WHERE ' + keyCol + ' IN (' + ids.map(function (i) { return FAS.lit(i); }).join(', ') + ')';
-        return FAS.rows('SELECT ' + keyCol + ' AS K, NVL(LENGTH(' + col + '), 0) AS L FROM ' + table + where, 1000).then(function (lens) {
-            var max = 0; lens.forEach(function (x) { out[x.K] = ''; max = Math.max(max, +x.L || 0); });
-            var starts = []; for (var p = 1; p <= max; p += piece) starts.push(p);
-            return starts.reduce(function (pr, p) {
+        return FAS.rows('SELECT ' + keyCol + ' AS K, NVL(LENGTH(' + col + '), 0) AS L FROM ' + table + where, 1000).then(function (r) {
+            var max = 0; r.forEach(function (x) { out[x.K] = ''; lens[x.K] = +x.L || 0; max = Math.max(max, lens[x.K]); });
+            var calls = []; for (var p = 1; p <= max; p += piece * FAS.CLOB_COLS) calls.push(p);
+            return calls.reduce(function (pr, p0) {
                 return pr.then(function () {
-                    return FAS.rows('SELECT ' + keyCol + ' AS K, TO_CHAR(SUBSTR(' + col + ', ' + p + ', ' + piece + ')) AS P FROM ' + table + where + ' AND LENGTH(' + col + ') >= ' + p, 1000).then(function (r) { r.forEach(function (x) { out[x.K] = (out[x.K] || '') + (x.P || ''); }); });
+                    var cols = []; for (var k = 0; k < FAS.CLOB_COLS && p0 + k * piece <= max; k++) cols.push('TO_CHAR(SUBSTR(' + col + ', ' + (p0 + k * piece) + ', ' + piece + ')) AS P' + k);
+                    return FAS.rows('SELECT ' + keyCol + ' AS K, ' + cols.join(', ') + ' FROM ' + table + where + ' AND LENGTH(' + col + ') >= ' + p0, 1000).then(function (rows) {
+                        rows.forEach(function (x) { var s = ''; for (var k = 0; k < cols.length; k++) { var v = x['P' + k]; if (v == null) break; s += v; } out[x.K] = (out[x.K] || '') + s; });
+                    });
                 });
-            }, Promise.resolve()).then(function () { return out; });
-        }).catch(function (e) { if (piece > 1000) return FAS.readClob(table, col, keyCol, ids, 1000); throw e; });
+            }, Promise.resolve());
+        }).then(function () {
+            Object.keys(out).forEach(function (k) { var got = FAS.cpLen(out[k]); if (got !== lens[k]) throw new Error(table + '.' + col + ' of ' + k + ' came back damaged from APEX: ' + got.toLocaleString() + ' of ' + lens[k].toLocaleString() + ' characters'); });
+            return out;
+        });
+    };
+    /** First position (code points) where two texts differ, with a little context — for the publish check. */
+    FAS.firstDiff = function (a, b) {
+        a = Array.from(String(a || '')); b = Array.from(String(b || ''));
+        var n = Math.min(a.length, b.length), i = 0; while (i < n && a[i] === b[i]) i++;
+        if (i === n && a.length === b.length) return null;
+        return { at: i, line: a.slice(0, i).join('').split('\n').length, expected: a.slice(i, i + 40).join(''), got: b.slice(i, i + 40).join(''), lenA: a.length, lenB: b.length };
+    };
+    /** ECDSA P-256 / SHA-256 check of `appId.version.codeSha.manifestSha` with a public key (SPKI base64) — the same check the phones run. */
+    FAS.verifySig = function (spki, payload, sigB64) {
+        function bytes(b64) { var bin = atob(String(b64 || '').replace(/-/g, '+').replace(/_/g, '/')), u = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
+        return crypto.subtle.importKey('spki', bytes(spki), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify'])
+            .then(function (key) { return crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, bytes(sigB64), new TextEncoder().encode(String(payload))); })
+            .then(function (ok) { return !!ok; }, function () { return false; });
     };
     FAS.sha256 = function (text) {
         return crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text))).then(function (b) { var a = new Uint8Array(b), s = ''; for (var i = 0; i < a.length; i++) s += (a[i] < 16 ? '0' : '') + a[i].toString(16); return s; });
@@ -175,15 +231,34 @@
                 });
             });
         },
+        /** What the phones will get: reads the row back and re-checks it like the shell does → {ok, why, len, codeSha, manSha, signed, keyKnown, diff?}. `expectCode` = the code just written (names the first difference). */
+        check: function (id, expectCode, expectManifest) {
+            return FAS.apps.get(id).then(function (a) {
+                if (!a) return { ok: false, why: 'App ' + id + ' is not in APEX' };
+                var r = { ok: true, why: '', len: FAS.cpLen(a.CODE), bytes: FAS.utf8Len(a.CODE), status: a.STATUS, version: a.VERSION, keyId: a.KEY_ID };
+                if (expectCode != null && a.CODE !== expectCode) { r.ok = false; r.diff = FAS.firstDiff(expectCode, a.CODE); r.why = 'the code in APEX is not the code written (differs at character ' + (r.diff ? r.diff.at.toLocaleString() + ', line ' + r.diff.line : '?') + ')'; return r; }
+                if (expectManifest != null && a.MANIFEST !== expectManifest) { r.ok = false; r.diff = FAS.firstDiff(expectManifest, a.MANIFEST); r.why = 'the manifest in APEX is not the manifest written'; return r; }
+                return Promise.all([FAS.sha256(a.CODE), FAS.sha256(a.MANIFEST), FAS.keys.list()]).then(function (x) {
+                    r.codeSha = x[0]; r.manSha = x[1];
+                    if (a.CODE_SHA256 && a.CODE_SHA256.toLowerCase() !== x[0]) { r.ok = false; r.why = 'the code in APEX is not the code that was signed (SHA-256 ' + x[0].slice(0, 12) + '… instead of ' + a.CODE_SHA256.slice(0, 12) + '…)'; return r; }
+                    if (a.MANIFEST_SHA256 && a.MANIFEST_SHA256.toLowerCase() !== x[1]) { r.ok = false; r.why = 'the manifest in APEX is not the manifest that was signed'; return r; }
+                    if (!a.SIGNATURE || !a.KEY_ID) { r.signed = false; r.why = a.STATUS === 'PUBLISHED' ? 'published but not signed' : 'a draft, not signed'; return r; }
+                    var key = (x[2] || []).filter(function (k) { return k && k.keyId === a.KEY_ID && k.spki; })[0];
+                    r.keyKnown = !!key;
+                    if (!key) { r.ok = false; r.why = 'signed with key ' + a.KEY_ID + ', which is not in the published keys — the phones will refuse it'; return r; }
+                    return FAS.verifySig(key.spki, id + '.' + a.VERSION + '.' + x[0] + '.' + x[1], a.SIGNATURE).then(function (ok) { r.signed = ok; if (!ok) { r.ok = false; r.why = 'the signature does not match'; } return r; });
+                });
+            });
+        },
         /** a = {appId, name, kind, version, status, pod, icon, manifest (string), code (string), codeSha256, manifestSha256, signature, keyId, expiresAt, notes, publish} */
         save: function (a) {
             var me = FAS.lit(FAS.user());
             var set = 'name = ' + FAS.lit(a.name, 200) + ', kind = ' + FAS.lit(a.kind || 'CODE') + ', version = ' + FAS.num(a.version != null ? a.version : 1) + ', status = ' + FAS.lit(a.status || 'DRAFT') + ', pod = ' + FAS.lit(a.pod, 20) + ', icon = ' + FAS.lit(a.icon, 16) +
-                ', code_sha256 = ' + FAS.lit(a.codeSha256) + ', manifest_sha256 = ' + FAS.lit(a.manifestSha256) + ', signature = ' + FAS.lit(a.signature) + ', key_id = ' + FAS.lit(a.keyId) + ', code_bytes = ' + FAS.num(a.code ? a.code.length : 0) +
+                ', code_sha256 = ' + FAS.lit(a.codeSha256) + ', manifest_sha256 = ' + FAS.lit(a.manifestSha256) + ', signature = ' + FAS.lit(a.signature) + ', key_id = ' + FAS.lit(a.keyId) + ', code_bytes = ' + FAS.num(a.code ? FAS.utf8Len(a.code) : 0) +
                 ', expires_at = ' + FAS.date(a.expiresAt) + ', notes = ' + FAS.lit(a.notes, 1000) + ', changed_by = ' + me + ', changed_date = SYSDATE' + (a.publish ? ', published_by = ' + me + ', published_date = SYSDATE' : '');
             return FAS.write('MERGE INTO wms_field_apps t USING (SELECT ' + FAS.lit(a.appId) + ' AS app_id FROM dual) s ON (t.app_id = s.app_id) WHEN MATCHED THEN UPDATE SET ' + set +
                 ' WHEN NOT MATCHED THEN INSERT (app_id, name, kind, version, status, pod, icon, manifest_json, code, code_sha256, manifest_sha256, signature, key_id, code_bytes, expires_at, notes, created_by, created_date, changed_by, changed_date, published_by, published_date) VALUES (' +
-                FAS.lit(a.appId) + ', ' + FAS.lit(a.name, 200) + ', ' + FAS.lit(a.kind || 'CODE') + ', ' + FAS.num(a.version != null ? a.version : 1) + ', ' + FAS.lit(a.status || 'DRAFT') + ', ' + FAS.lit(a.pod, 20) + ', ' + FAS.lit(a.icon, 16) + ', EMPTY_CLOB(), EMPTY_CLOB(), ' + FAS.lit(a.codeSha256) + ', ' + FAS.lit(a.manifestSha256) + ', ' + FAS.lit(a.signature) + ', ' + FAS.lit(a.keyId) + ', ' + FAS.num(a.code ? a.code.length : 0) + ', ' + FAS.date(a.expiresAt) + ', ' + FAS.lit(a.notes, 1000) + ', ' + me + ', SYSDATE, ' + me + ', SYSDATE, ' + (a.publish ? me + ', SYSDATE' : 'NULL, NULL') + ')')
+                FAS.lit(a.appId) + ', ' + FAS.lit(a.name, 200) + ', ' + FAS.lit(a.kind || 'CODE') + ', ' + FAS.num(a.version != null ? a.version : 1) + ', ' + FAS.lit(a.status || 'DRAFT') + ', ' + FAS.lit(a.pod, 20) + ', ' + FAS.lit(a.icon, 16) + ', EMPTY_CLOB(), EMPTY_CLOB(), ' + FAS.lit(a.codeSha256) + ', ' + FAS.lit(a.manifestSha256) + ', ' + FAS.lit(a.signature) + ', ' + FAS.lit(a.keyId) + ', ' + FAS.num(a.code ? FAS.utf8Len(a.code) : 0) + ', ' + FAS.date(a.expiresAt) + ', ' + FAS.lit(a.notes, 1000) + ', ' + me + ', SYSDATE, ' + me + ', SYSDATE, ' + (a.publish ? me + ', SYSDATE' : 'NULL, NULL') + ')')
                 .then(function () { return a.manifest == null ? null : FAS.writeClob('wms_field_apps', 'manifest_json', 'app_id = ' + FAS.lit(a.appId), a.manifest); })
                 .then(function () { return a.code == null ? null : FAS.writeClob('wms_field_apps', 'code', 'app_id = ' + FAS.lit(a.appId), a.code); });
         },

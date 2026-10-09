@@ -12,9 +12,10 @@
     function today() { var d = new Date(); function z(n) { return (n < 10 ? '0' : '') + n; } return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()); }
     function fmt(iso) { return iso ? String(iso).replace('T', ' ').slice(0, 16) : ''; }
     function money(n) { return POSE.money(n, { currency: 'Rs', precision: 2 }); }
-    function toast(msg, kind) { var t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); } t.className = 'toast ' + (kind || ''); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(function () { t.style.display = 'none'; }, kind === 'bad' ? 5000 : 2500); }
+    function toast(msg, kind, ms) { var t = $('toast'); if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); } t.className = 'toast ' + (kind || ''); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(function () { t.style.display = 'none'; }, ms || (kind === 'bad' ? 7000 : 2500)); }
     function busy(label) { P.busyN++; var b = $('busy'); if (!b) { b = document.createElement('div'); b.id = 'busy'; b.className = 'busy'; document.body.appendChild(b); } b.innerHTML = '<span class="spin"></span><span>' + esc(label || 'Working…') + '</span>'; b.style.display = 'flex'; return function () { P.busyN = Math.max(0, P.busyN - 1); if (!P.busyN && $('busy')) $('busy').style.display = 'none'; }; }
-    function run(label, p) { var done = busy(label); return Promise.resolve().then(p).then(function (r) { done(); return r; }, function (e) { done(); toast(String(e && e.message || e), 'bad'); throw e; }); }
+    /** Runs p(step) under the busy banner; step(label) changes the banner's text; a failure is toasted and rethrown. */
+    function run(label, p) { var done = busy(label); function step(l) { var b = $('busy'); if (b && b.lastChild) b.lastChild.textContent = l; } return Promise.resolve().then(function () { return p(step); }).then(function (r) { done(); return r; }, function (e) { done(); toast(String(e && e.message || e), 'bad', 12000); throw e; }); }
     function builtins() { return window.FA_APPS || {}; }
     function appById(id) { return P.apps.filter(function (a) { return a.APP_ID === id; })[0] || null; }
     function usersText(a) { return !a.USERS_N ? 'nobody yet' : a.USERS === '*' ? 'everyone' : a.USERS; }
@@ -52,7 +53,7 @@
                 '<div class="meta"><span>👥 ' + esc(usersText(a)) + '</span>' + exp + '<span>' + Math.round((+a.CODE_BYTES || 0) / 1024) + ' KB</span>' + (a.SIGNATURE ? '<span title="key ' + esc(a.KEY_ID) + '">🔏 signed</span>' : '<span>not signed</span>') + (a.PUBLISHED ? '<span>published ' + esc(fmt(a.PUBLISHED)) + ' by ' + esc(a.PUBLISHED_BY) + '</span>' : '') + newer + '</div>' +
                 '<div class="acts"><button class="btn sm" data-act="preview" data-id="' + esc(a.APP_ID) + '"><i class="fas fa-mobile-screen"></i> Preview</button><button class="btn sm" data-act="edit" data-id="' + esc(a.APP_ID) + '"><i class="fas fa-pen"></i> Edit</button>' +
                 (a.STATUS === 'PUBLISHED' ? '<button class="btn sm" data-act="kill" data-id="' + esc(a.APP_ID) + '"><i class="fas fa-ban"></i> Kill</button>' : '<button class="btn sm pri" data-act="publish" data-id="' + esc(a.APP_ID) + '" ' + (P.admin ? '' : 'disabled') + '><i class="fas fa-paper-plane"></i> Publish</button>') +
-                '<button class="btn sm ghost" data-act="delete" data-id="' + esc(a.APP_ID) + '">Delete</button></div></div>';
+                '<button class="btn sm" data-act="check" data-id="' + esc(a.APP_ID) + '" title="Read the app back from APEX exactly as a phone would and check the code, the hash and the signature"><i class="fas fa-shield-halved"></i> Check</button><button class="btn sm ghost" data-act="delete" data-id="' + esc(a.APP_ID) + '">Delete</button></div></div>';
         }).join('') + '</div>';
         var bis = Object.keys(builtins()).filter(function (id) { return !appById(id); });
         if (bis.length) h += '<div class="card" style="margin-top:14px"><h2>Built into this version of the WMS</h2><div class="apps">' + bis.map(function (id) { var m = builtins()[id].manifest; return '<div class="app"><div class="row"><span class="ic">' + esc(m.icon || '📱') + '</span><div><div class="nm">' + esc(m.name) + '</div><div class="small muted mono">' + esc(id) + ' · v' + esc(m.version) + ' · ' + Math.round(builtins()[id].code.length / 1024) + ' KB</div></div></div><div class="ds">' + esc(m.description || '') + '</div><div class="acts"><button class="btn sm pri" data-act="addBuiltin" data-id="' + esc(id) + '"><i class="fas fa-plus"></i> Add to APEX</button><button class="btn sm" data-act="previewBuiltin" data-id="' + esc(id) + '"><i class="fas fa-mobile-screen"></i> Try it</button></div></div>'; }).join('') + '</div></div>';
@@ -114,22 +115,45 @@
                 .then(function () { return FAS.apps.setUsers(e.appId, e.users); }).then(function () { return FAS.apps.setQueries(e.appId, e.queries); }).then(loadApps);
         });
     }
-    /** Sign and publish: version + 1, SHA-256 of code and manifest, the host's ECDSA signature, the public key in APEX, the row PUBLISHED. */
+    /** Sign and publish: version + 1, the code and manifest written to APEX and READ BACK — only code that APEX kept
+     *  exactly (same SHA-256) is signed with the host's ECDSA key, the public key published, the row set PUBLISHED.
+     *  A damaged round trip leaves the row a draft with no signature and says where the stored code differs. */
     function publish(e) {
         var man = e.manifestObj, version = (e.version || 0) + 1; man.version = version;
         var manifest = JSON.stringify(man), code = e.code;
         if (!code || code.length < 20) return Promise.reject(new Error('The app has no code'));
-        return run('Signing and publishing ' + e.name + '…', function () {
+        var row = { appId: e.appId, name: e.name, kind: 'CODE', version: version, pod: e.pod, icon: e.icon, expiresAt: e.expiresAt, notes: e.notes };
+        return run('Publishing ' + e.name + '…', function (step) {
             return Promise.all([FAS.sha256(code), FAS.sha256(manifest)]).then(function (h) {
-                var payload = e.appId + '.' + version + '.' + h[0] + '.' + h[1];
-                return FAS.hostOk('fieldAppSign', { payload: payload, appId: e.appId, version: String(version) }).then(function (s) {
-                    return FAS.keys.ensure({ keyId: s.keyId, spki: s.spki }).then(function (list) {
-                        P.keys = list;
-                        return FAS.apps.save({ appId: e.appId, name: e.name, kind: 'CODE', version: version, status: 'PUBLISHED', pod: e.pod, icon: e.icon, manifest: manifest, code: code, codeSha256: h[0], manifestSha256: h[1], signature: s.signature, keyId: s.keyId, expiresAt: e.expiresAt, notes: e.notes, publish: true });
+                step('Writing ' + e.name + ' to APEX (' + Math.round(FAS.utf8Len(code) / 1024) + ' KB)…');
+                return FAS.apps.save(Object.assign({}, row, { status: 'DRAFT', manifest: manifest, code: code, codeSha256: h[0], manifestSha256: h[1], signature: null, keyId: null })).then(function () {
+                    step('Reading it back from APEX…');
+                    return FAS.apps.check(e.appId, code, manifest);
+                }).then(function (c) {
+                    if (!c.ok) { var d = c.diff; throw new Error('Not published: ' + c.why + (d ? ' — expected “' + d.expected.slice(0, 24) + '”, found “' + d.got.slice(0, 24) + '” (' + d.lenB.toLocaleString() + ' of ' + d.lenA.toLocaleString() + ' characters kept)' : '') + '. The app stays a draft; the phones keep the version they have.'); }
+                    step('Signing…');
+                    var payload = e.appId + '.' + version + '.' + h[0] + '.' + h[1];
+                    return FAS.hostOk('fieldAppSign', { payload: payload, appId: e.appId, version: String(version) }).then(function (s) {
+                        return FAS.keys.ensure({ keyId: s.keyId, spki: s.spki }).then(function (list) {
+                            P.keys = list;
+                            return FAS.apps.save(Object.assign({}, row, { status: 'PUBLISHED', codeSha256: h[0], manifestSha256: h[1], signature: s.signature, keyId: s.keyId, publish: true }));
+                        });
                     });
                 });
-            }).then(function () { return FAS.apps.setUsers(e.appId, e.users); }).then(function () { return FAS.apps.setQueries(e.appId, e.queries); }).then(loadApps)
-                .then(function () { toast(e.name + ' v' + version + ' published to ' + (e.users.indexOf('*') >= 0 ? 'everyone' : e.users.length + ' user(s)') + ' — the phones see it within a minute', 'ok'); });
+            }).then(function () { return FAS.apps.setUsers(e.appId, e.users); }).then(function () { return FAS.apps.setQueries(e.appId, e.queries); }).then(function () { return FAS.apps.check(e.appId); }).then(function (c) {
+                if (!c.ok || !c.signed) throw new Error('Published, but the check after publishing failed: ' + c.why);
+                return loadApps();
+            }).then(function () { toast(e.name + ' v' + version + ' published to ' + (e.users.indexOf('*') >= 0 ? 'everyone' : e.users.length + ' user(s)') + ' — read back from APEX and verified, the phones see it within a minute', 'ok'); });
+        });
+    }
+    /** Apps › Check: reads the app back exactly as a phone would and says whether it will run there. */
+    function checkApp(id) {
+        return run('Checking ' + id + ' in APEX…', function () { return FAS.apps.check(id); }).then(function (c) {
+            if (!c) return;
+            var where = c.diff ? ' — first difference at character ' + c.diff.at.toLocaleString() + ' (line ' + c.diff.line + '): expected “' + c.diff.expected.slice(0, 24) + '”, found “' + c.diff.got.slice(0, 24) + '”' : '';
+            if (c.ok && c.signed) toast('✓ ' + id + ' v' + c.version + ': the code in APEX is exactly what was signed (' + c.len.toLocaleString() + ' characters, ' + Math.round(c.bytes / 1024) + ' KB, SHA-256 ' + c.codeSha.slice(0, 12) + '…, key ' + c.keyId + ') — the phones will run it', 'ok', 9000);
+            else if (c.ok) toast(id + ' v' + c.version + ': ' + c.why + ' (' + c.len.toLocaleString() + ' characters read back intact) — Publish signs it', 'warn', 9000);
+            else toast('✗ ' + id + ' v' + c.version + ': ' + c.why + where + ' — publish it again; the phones refuse this copy', 'bad', 12000);
         });
     }
 
@@ -187,7 +211,7 @@
         FAH.attach(fr, {
             user: function () { return P.previewUser; }, device: function () { return P.previewDevice; }, pod: function () { return P.pod; }, online: function () { return P.previewOnline; },
             keys: function () { return P.keys; }, allowUnsigned: function () { return true; }, appId: function () { return id; }, settings: function () { return {}; },
-            bundle: function () { log('bundle ' + src, 'q'); return previewBundle().then(function (b) { cur.bundle = b; log('bundle ok · ' + Math.round(b.code.length / 1024) + ' KB · ' + (b.unsigned ? 'draft (not signed)' : 'signed ' + b.keyId), 'ok'); return b; }); },
+            bundle: function () { log('bundle ' + src, 'q'); return previewBundle().then(function (b) { cur.bundle = b; log('bundle read · ' + FAS.cpLen(b.code).toLocaleString() + ' characters · ' + Math.round(FAS.utf8Len(b.code) / 1024) + ' KB · ' + (b.unsigned ? 'draft (not signed)' : 'signed ' + b.keyId + ' — the shell verifies it next'), 'ok'); return b; }); },
             query: function (name, params) {
                 var b = cur.bundle; if (!b) return Promise.reject(new Error('no bundle'));
                 var q = (b.queries || {})[name]; if (!q || !q.sql) return Promise.reject(new Error('No query "' + name + '" in the app'));
@@ -419,6 +443,7 @@
         newBlank: function () { var name = prompt('Name of the new app:', 'My app'); if (!name) return; newFromCode('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>' + esc(name) + '</title><style>body{font-family:system-ui;padding:16px}button{font-size:16px;padding:10px 14px}</style></head><body><h2>' + esc(name) + '</h2><p id="who"></p><button id="b">Submit a test</button><script>FA.ready(function(c){document.getElementById("who").textContent="Hello "+c.user+" on "+c.device;});document.getElementById("b").onclick=function(){FA.submit("test",{hello:"world",at:new Date().toISOString()}).then(function(r){FA.toast("Sent "+r.subId);});};<\/script></body></html>', name); },
         preview: function (d) { P.previewSrc = 'apex:' + d.id; go('preview'); },
         edit: function (d) { editApp(d.id); },
+        check: function (d) { checkApp(d.id); },
         publish: function (d) { run('Opening ' + d.id + '…', function () { return FAS.apps.get(d.id); }).then(function (a) { if (!a) return; var man = a.manifest || {}; var users = (a.USERS || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean); if (!users.length && !confirm('Nobody is listed for this app yet — publish anyway?')) return; publish({ appId: d.id, name: a.NAME, icon: a.ICON, pod: a.POD, expiresAt: a.EXPIRES_AT || '', notes: a.NOTES, manifestObj: Object.assign(man, { queries: a.QUERIES && Object.keys(a.QUERIES).length ? a.QUERIES : man.queries || {} }), code: a.CODE, users: users, queries: a.QUERIES && Object.keys(a.QUERIES).length ? a.QUERIES : man.queries || {}, version: +a.VERSION || 0 }).then(render); }); },
         kill: function (d) { var why = prompt('Kill ' + d.id + ' on every phone? Reason:'); if (why == null) return; run('Killing…', function () { return FAS.apps.setStatus(d.id, 'KILLED'); }).then(loadApps).then(render).then(function () { toast(d.id + ' killed — phones hide it on their next check', 'ok'); }); },
         'delete': function (d) { if (!confirm('Delete app ' + d.id + ' from APEX? Submissions and photos stay.')) return; run('Deleting…', function () { return FAS.apps.del(d.id); }).then(loadApps).then(render); },
@@ -505,6 +530,6 @@
     go = function (tab) { origGo(tab); if (tab === 'results') loadSubs().then(render); if (tab === 'photos') loadPhotos().then(render); if (tab === 'pos') loadPos().then(render); if (tab === 'devices') loadDevices().then(render); if (tab === 'setup') loadSetup().then(render); };
     FAP.state = function () { return P; };
     FAP.go = function (t) { go(t); };
-    FAP.publish = publish; FAP.editApp = editApp;
+    FAP.publish = publish; FAP.editApp = editApp; FAP.checkApp = checkApp;
     document.addEventListener('DOMContentLoaded', boot);
 })();

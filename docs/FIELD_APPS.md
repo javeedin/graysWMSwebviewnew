@@ -27,7 +27,7 @@ desktop (fieldapps/)                       APEX (WKSP_GRAYSAPP)                 
 | Build | `node fieldapps/build-app.js` (`--check` in CI) |
 | APEX | `apex_sql/97_field_apps.sql` — tables (the page creates them too), procedures, ORDS handlers |
 | FCPos reference | `tools/mobile/fieldapps/FieldAppsScreen.jsx` — the screen to add to the mobile repo |
-| Tests | `fieldapps/tests/pos-engine.test.js` |
+| Tests | `fieldapps/tests/pos-engine.test.js`, `fieldapps/tests/clob.test.js` |
 
 ## Setup, once
 
@@ -47,9 +47,19 @@ Apps › *New app from a built-in* (the POS), *from an HTML file*, or *Blank app
 name, icon, pod, expiry, **who gets it** (mobile logins from `GR_MOBILE_USER`, or everyone), the settings
 JSON the app reads as `FA.ctx.settings`, the **queries** it may ask for by name, and the code.
 
-*Save & publish* = version + 1, SHA-256 of the code and the manifest, the host's ECDSA P-256 signature over
-`appId.version.codeSha.manifestSha`, the public key published, the row set to PUBLISHED. *Kill* hides the
-app on every phone at its next check. An expired app stops the same way.
+*Save & publish* = version + 1, the code and manifest written to APEX and **read back**: only a copy APEX kept
+exactly (same SHA-256) is signed — the host's ECDSA P-256 signature over `appId.version.codeSha.manifestSha` —
+the public key published, the row set to PUBLISHED. A copy that comes back different leaves the app a draft
+and the message names the first character that differs. **Check** on an app card reads it back exactly as a
+phone would (code, hash, key, signature) and says whether the phones will run it. *Kill* hides the app on every
+phone at its next check. An expired app stops the same way.
+
+CLOBs through the gateway: Oracle counts characters (code points) where JavaScript counts UTF-16 units, and the
+query gateway fetches every text column into a 4,000-**byte** buffer — a 3,900-character piece of code with
+box-drawing banners or accents came back cut short and the published app died with syntax errors. `fa-store.js`
+therefore writes `TO_CLOB` literals of at most 1,000 characters / 3,800 bytes (never cut inside a surrogate
+pair), reads pieces of 600 characters as columns of one query, and checks every write and read against
+`LENGTH()`; a CLOB that does not round-trip throws instead of running damaged.
 
 **Preview** runs the app in a phone frame with this page as the host: the queries go through the gateway,
 the submissions land in APEX exactly as a phone's would, photos come from the webcam or a file and go
