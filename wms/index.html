@@ -19,6 +19,7 @@
     <link rel="stylesheet" href="page-tabs.css">
     <link rel="stylesheet" href="pending-cancel.css">
     <link rel="stylesheet" href="alerts.css">
+    <link rel="stylesheet" href="user-menu.css">
     <style>
         /* Hide body content until login is verified */
         body.auth-pending {
@@ -92,37 +93,15 @@
             <i class="fas fa-warehouse"></i>
             <span>WMS</span>
 <span id="app-version-badge" style="font-size: 9px; background: #4CAF50; color: white; padding: 2px 5px; border-radius: 3px; margin-left: 8px; font-weight: 600;">v12.1.0</span>
-            <button onclick="window.location.reload()" title="Refresh Page" style="margin-left: 10px; background: none; border: 1px solid #dee2e6; border-radius: 5px; cursor: pointer; padding: 3px 8px; color: #667eea; font-size: 13px; transition: all 0.2s; display: inline-flex; align-items: center;" onmouseover="this.style.background='#f0f0ff';this.style.borderColor='#667eea'" onmouseout="this.style.background='none';this.style.borderColor='#dee2e6'">
-                <i class="fas fa-sync-alt"></i>
-            </button>
-            <span id="integration-user-badge" title="Checking Fusion Integration user..." style="margin-left: 12px; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: #64748b; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 12px; padding: 3px 10px; cursor: default;">
-                <i id="integration-user-icon" class="fas fa-circle-notch fa-spin" style="color: #94a3b8;"></i>
-                Integration User
-            </span>
             <span id="current-page-title" style="font-size: 14px; color: #2d3748; margin-left: 20px; font-weight: 700;"></span>
         </div>
         <div class="module-buttons">
             <!-- Module buttons hidden - navigation handled by C# Form -->
         </div>
 
-        <!-- Right Side: User Info & Instance Selector -->
-        <div style="margin-left: auto; display: flex; align-items: center; gap: 1rem;">
-            <!-- User Info Panel with Logout -->
-            <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.4rem 0.5rem;">
-                <i class="fas fa-user-circle" style="font-size: 24px; color: #667eea;"></i>
-                <div style="display: flex; flex-direction: column; align-items: flex-start;">
-                    <span id="logged-in-username" style="font-weight: 700; font-size: 13px; color: #2d3748;"></span>
-                    <span id="login-datetime" style="font-size: 10px; color: #888; margin-top: 1px;">Not logged in</span>
-                </div>
-                <span style="display:none;" id="current-instance-display-mini"></span>
-                <button onclick="navigateToHome()" title="Go to Home Dashboard" style="background: #667eea; color: white; border: none; padding: 0.4rem 0.8rem; border-radius: 5px; cursor: pointer; font-weight: 600; font-size: 11px; transition: background 0.2s; margin-right: 4px;" onmouseover="this.style.background='#5a67d8'" onmouseout="this.style.background='#667eea'">
-                    <i class="fas fa-home"></i> Home
-                </button>
-                <button onclick="handleLogout()" style="background: #dc3545; color: white; border: none; padding: 0.4rem 0.8rem; border-radius: 5px; cursor: pointer; font-weight: 600; font-size: 11px; transition: background 0.2s;" onmouseover="this.style.background='#c82333'" onmouseout="this.style.background='#dc3545'">
-                    <i class="fas fa-sign-out-alt"></i> Logout
-                </button>
-            </div>
-
+        <!-- Right side: activity log · alerts (added by alerts.js) · bell · the avatar. Who is signed in, since when, the instance
+             switch, the Fusion integration-user check, Home / Refresh / Logout all live in the avatar's popup (wms/user-menu.js). -->
+        <div style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem;">
             <!-- Activity Log viewer -->
             <div style="position:relative;">
                 <button id="wms-actlog-btn" onclick="window.WMSActivity && WMSActivity.openLogViewer()" title="Activity Log — what is being captured"
@@ -143,16 +122,13 @@
                 </button>
             </div>
 
-            <!-- Instance Selector -->
-            <div id="instance-selector" style="display: flex; align-items: center; gap: 0.5rem; background: #f8f9fa; padding: 0.6rem 1rem; border-radius: 8px; cursor: pointer; border: 2px solid #dee2e6; transition: all 0.2s;" onclick="toggleInstanceMenu()">
-                <i class="fas fa-server" style="color: #667eea;"></i>
-                <span style="font-weight: 600; color: #2d3748; font-size: 13px;">Instance:</span>
-                <span id="current-instance-display" style="font-weight: 700; color: #667eea; font-size: 13px;">PROD</span>
-                <i class="fas fa-chevron-down" style="color: #667eea; font-size: 11px;"></i>
-            </div>
+            <!-- Account & instance avatar — the popup (#um-pop) is built by user-menu.js and holds #logged-in-username, #login-datetime,
+                 #current-instance-display, #integration-user-badge so the login / instance scripts keep working unchanged -->
+            <div id="wms-user-menu" style="margin-left: 0.5rem;"></div>
         </div>
 
-        <!-- Instance Dropdown Menu -->
+        <!-- Instance Dropdown Menu — never shown any more (the avatar popup switches the instance); kept because selectInstance() /
+             updateInstanceCheckmarks() still write the check marks here -->
         <div id="instance-dropdown-menu" style="display: none; position: absolute; top: 60px; right: 20px; background: white; border: 2px solid #dee2e6; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10000; min-width: 150px;">
             <div class="instance-menu-item" data-instance="PROD" style="padding: 0.75rem 1rem; cursor: pointer; border-bottom: 1px solid #f0f0f0; transition: background 0.2s; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'" onclick="selectInstance('PROD')">
                 <i class="fas fa-check" id="check-PROD" style="color: #28a745; visibility: visible;"></i>
@@ -164,6 +140,11 @@
             </div>
         </div>
     </header>
+    <script>
+        // the avatar + its popup; loaded here (not with the other scripts) so the popup's ids exist before app.js and the
+        // login handler run on DOMContentLoaded
+        document.write('<script src="user-menu.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+    </script>
 
 <!-- Version is set statically in the badge above -->
 

@@ -5068,9 +5068,7 @@ input:checked + .toggle-slider:before {
     color: white !important;
 }
 
-/* User info text */
-#logged-in-username { color: white !important; font-weight: 700; }
-#login-datetime     { color: rgba(255,255,255,0.75) !important; }
+/* Page title (the user's name / login time moved into the avatar popup — wms/user-menu.css styles them there) */
 #current-page-title { color: white !important; }
 
 /* Version badge */
@@ -5090,30 +5088,7 @@ input:checked + .toggle-slider:before {
     border-color: white !important;
 }
 
-/* Instance selector */
-#instance-selector {
-    background: rgba(255,255,255,0.15) !important;
-    border-color: rgba(255,255,255,0.3) !important;
-}
-#instance-selector i,
-#current-instance-display,
-#instance-selector span { color: white !important; }
-#instance-selector:hover { background: rgba(255,255,255,0.22) !important; }
-
-/* Home & Logout buttons */
-.header button[onclick="navigateToHome()"] {
-    background: rgba(255,255,255,0.2) !important;
-    border: 1px solid rgba(255,255,255,0.35) !important;
-}
-.header button[onclick="navigateToHome()"]:hover {
-    background: rgba(255,255,255,0.32) !important;
-}
-.header button[onclick="handleLogout()"] {
-    background: rgba(220,53,69,0.75) !important;
-}
-.header button[onclick="handleLogout()"]:hover {
-    background: rgba(200,35,51,0.9) !important;
-}
+/* The instance selector and the Home / Logout buttons left the header: they sit in the avatar popup (wms/user-menu.css). */
 
 /* ── RAG Knowledge Base ── */
 .rag-range-btn {

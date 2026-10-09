@@ -8,6 +8,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="../wms/user-menu.css">
     <style>
         * {
             margin: 0;
@@ -23,14 +24,15 @@
 
         /* ── Header ── */
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            /* the same blue as the WMS header (wms/styles.css) and the WMS 2.0 top bar */
+            background: linear-gradient(100deg, #0b2545, #13315c 60%, #1e3a8a);
             color: white;
             padding: 0 30px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             height: 64px;
-            box-shadow: 0 2px 12px rgba(102, 126, 234, 0.35);
+            box-shadow: 0 2px 12px rgba(11, 37, 69, 0.35);
             position: sticky;
             top: 0;
             z-index: 100;
@@ -249,17 +251,8 @@
             </div>
         </div>
         <div class="header-right">
-            <div class="user-info">
-                <div class="user-avatar">👤</div>
-                <div class="user-details">
-                    <div class="user-name" id="displayUsername">User</div>
-                    <div class="user-instance" id="displayInstance">—</div>
-                </div>
-            </div>
-            <button id="authBtn" class="btn-auth" onclick="handleAuthAction()">
-                <i id="authIcon" class="fa-solid fa-right-to-bracket"></i>
-                <span id="authLabel">Login</span>
-            </button>
+            <!-- the avatar + popup shared with the WMS (wms/user-menu.js): name, login time, instance, Login / Logout -->
+            <div id="wms-user-menu"></div>
         </div>
     </div>
 
@@ -545,24 +538,10 @@
             const username = localStorage.getItem('username') || localStorage.getItem('fusionUsername') || 'User';
             const instance = localStorage.getItem('instanceName') || localStorage.getItem('fusionInstance') || '';
 
-            if (loggedIn) {
-                // Show user info and logout button
-                document.getElementById('displayUsername').textContent = username;
-                document.getElementById('welcomeName').textContent = username;
-                document.getElementById('displayInstance').textContent = instance ? 'Instance: ' + instance : '';
-
-                document.getElementById('authIcon').className = 'fa-solid fa-right-from-bracket';
-                document.getElementById('authLabel').textContent = 'Logout';
-            } else {
-                // Not logged in — hide user info, show login button
-                document.getElementById('displayUsername').textContent = 'Guest';
-                document.getElementById('welcomeName').textContent = 'Guest';
-                document.getElementById('displayInstance').textContent = 'Not logged in';
-                document.querySelector('.user-avatar').textContent = '🔒';
-
-                document.getElementById('authIcon').className = 'fa-solid fa-right-to-bracket';
-                document.getElementById('authLabel').textContent = 'Login';
-            }
+            // the header's avatar popup (user-menu.js) reads the same localStorage keys and shows name / instance / Login or Logout
+            document.getElementById('welcomeName').textContent = loggedIn ? username : 'Guest';
+            void instance;
+            if (window.WmsUserMenu) WmsUserMenu.refresh();
         })();
 
         function handleAuthAction() {
@@ -594,6 +573,10 @@
             window.location.href = '../login.html';
         }
     </script>
+
+    <!-- the avatar + popup in the header (shared with the WMS) -->
+    <script>window.USER_MENU = { mode: 'home' };</script>
+    <script src="../wms/user-menu.js"></script>
 
     <!-- Release module list: written by package-release.bat. Missing in dev = show every module. -->
     <script src="modules.js"></script>
