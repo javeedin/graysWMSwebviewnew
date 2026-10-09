@@ -2361,6 +2361,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleFieldAppAction(wv, action, root, requestId);
                                     break;
 
+                                // Oracle BIP Reporting (bip/index.html): catalog, parameters, runs streamed to disk, the SQL of a data model
+                                case var bipAction when IsBipAction(bipAction):
+                                    await HandleBipAction(wv, action, root, requestId);
+                                    break;
+
                                 case var pbiAction when IsPowerBiAction(pbiAction):
                                     await HandlePowerBiAction(wv, action, root, requestId);
                                     break;

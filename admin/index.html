@@ -212,6 +212,7 @@ var MODS = [
     { key: 'wms2', label: 'WMS 2.0 (beta)', note: 'Control tower per trip date, Trip 360, day pick release, cancellation autopilot (DuckDB copy)' },
     { key: 'teachme', label: 'Teach Me', note: 'Lessons you teach the app: notes + recorded portal navigation it repeats (stops before Submit)' },
     { key: 'fieldapps', label: 'Field Apps', note: 'Apps for the pickers\' phones made on the desktop: templates, the POS, photos counted by the desktop; published through APEX' },
+    { key: 'bip', label: 'Oracle BIP Reporting', note: 'The BI Publisher catalog browsed, report parameters and values, runs in date / value buckets streamed to disk, pivot / chart, dashboards in APEX' },
     { key: 'finance', label: 'Finance Lens', note: 'CFO: statements from journal balances, KPIs, analytics, journal risk, board pack' },
     { key: 'aiagent', label: 'AI Agent (beta)', note: 'LangGraph specialists: Fusion SQL, WMS, orders, loads, reports — confirm before acting' },
     { key: 'dllexplorer', label: 'DLL Explorer', note: 'Read a .dll/.exe, AI feature map' },
@@ -221,7 +222,7 @@ var MODS = [
 ];
 var MOD_PRESETS = {
     all: null,
-    default: ['Inventory', 'wms2', 'aianalysis', 'dataload', 'dllexplorer', 'powerbi', 'fusionmodel', 'aihub', 'aiagent', 'finance', 'teachme', 'fieldapps'],
+    default: ['Inventory', 'wms2', 'aianalysis', 'dataload', 'dllexplorer', 'powerbi', 'fusionmodel', 'aihub', 'aiagent', 'finance', 'teachme', 'fieldapps', 'bip'],
     wms: ['Inventory', 'wms2'],
     fusion: ['fscm', 'dataload', 'fusionmodel', 'powerbi', 'aianalysis', 'aihub', 'aiagent', 'finance']
 };
