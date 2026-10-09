@@ -1423,6 +1423,23 @@
                 return mraOne({ ORDER_NUMBER: o.order, INSTANCE_NAME: o.instance, TRIP_ID: o.tripId }, c, 'trip_' + Date.now(), onStep, source || 'WMS_TRIP_GRID');
             }, function (e) { return { st: 'FAILED', msg: e.message }; });
         },
+        /** One date range read LIVE for another script (the WMS alerts): the trips + every trip's orders from APEX, then every MRA status —
+            DuckDB (w2_mri_*) overwritten for those dates exactly like Refresh, the page's own tabs untouched.
+            onStep(n, of, text) reports the trips read. → {inst, from, to, trips (orders attached), rows (RAW = the API row), hidden, statusErr, at} */
+        sync: function (inst, from, to, onStep) {
+            inst = String(inst || curInstance()).toUpperCase(); to = to || from;
+            var hidden = { store: 0, cancelled: 0 }, rows = [], out = { inst: inst, from: from, to: to, trips: [], rows: rows, hidden: hidden, statusErr: '', at: '' };
+            return DB.probe().then(function () { return liveRead(inst, from, to, onStep); }).then(function (trips) {
+                trips.forEach(function (t) {
+                    (t.raw || []).forEach(function (r) { var row = rowOf(t, r, hidden); if (row) { row.RAW = r; t.orders.push(row); rows.push(row); } });
+                    delete t.raw;
+                });
+                out.trips = trips;
+                if (onStep) onStep(trips.length, trips.length, 'MRA status of ' + rows.length + ' orders');
+                return liveStatuses(inst, rows.map(function (r) { return r.ORDER_NUMBER; }), false, null)
+                    .then(function (m) { rows.forEach(function (r) { applyStatus(r, m[r.ORDER_NUMBER]); }); }, function (e) { out.statusErr = e.message; });
+            }).then(function () { out.at = nowIso(); return out; });
+        },
         /** Opens MRA transactions history on one order (every try, last 2 years) — the MRA column of the trip grids. */
         history: function (order, inst) {
             var f = filters();
