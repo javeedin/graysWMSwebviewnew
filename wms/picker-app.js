@@ -12,7 +12,8 @@
 // same name (type Bulk / Individual / Relief, area) — a click opens the app in a NEW frame signed in as that picker
 // (the frame's own storage is seeded with the user row, no password; audited picker_app_open), so several pickers' apps
 // run side by side, each with its own login and cache. "Sign in yourself" opens a plain frame with the login screen.
-// Size phone / large phone / tablet, zoom fit / 75–150 % (100 % = real size, the page scrolls), rotate, reload / close per frame, own tab. Frames are kept while other
+// Size handheld (default) / phone / large phone / tablet, zoom fit (default) / 75–150 % (100 % = real size, the page scrolls), rotate, reload / close per frame,
+// own tab; the side panel hides behind a slim Panel tab (localStorage wms.pa.side) so the apps get the whole width. Frames are kept while other
 // pages are shown. window.WmsPickerApp = {onShow, open, openPicker, close, reload, setViewOnly, loadPickers, state}
 // ═══════════════════════════════════════════════════════════════════════════════
 (function () {
@@ -20,7 +21,7 @@
     var PAGE = 'picker-app', MAX_FRAMES = 6;
     var SRC = window.WMS_PICKER_APP_SRC || '../mobile/index.html';
     var ORDS = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP', WM = ORDS + '/WAREHOUSEMANAGEMENT', GW = WM + '/ai';
-    var SIZES = { phone: [390, 844, 'Phone · 390 × 844'], large: [430, 932, 'Large phone · 430 × 932'], tablet: [820, 1180, 'Tablet · 820 × 1180'] };
+    var SIZES = { handheld: [360, 640, 'Handheld · 360 × 640'], phone: [390, 844, 'Phone · 390 × 844'], large: [430, 932, 'Large phone · 430 × 932'], tablet: [820, 1180, 'Tablet · 820 × 1180'] };
     var SECRET = /(PASSWORD|PASSWD|PWD|SECRET|TOKEN|HASH|SALT|PIN)/i;
     var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
     function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
@@ -49,8 +50,8 @@
             return (d.rows || []).map(function (r) { if (!Array.isArray(r)) { var o = {}; Object.keys(r).forEach(function (k) { o[k.toUpperCase()] = r[k]; }); return o; } var x = {}; cols.forEach(function (c, i) { x[c] = r[i]; }); return x; });
         });
     }
-    var st = { drawn: false, viewOnly: ls('wms.pa.viewOnly') !== '0', size: ls('wms.pa.size') || 'phone', landscape: false, frames: [], seq: 0,
-        zoom: ls('wms.pa.zoom') || '100', rowTop: 0, pickers: null, pickersSrc: '', pickersErr: '', pickersBusy: false, filter: '', calls: 0, log: [], blocked: [] };
+    var st = { drawn: false, viewOnly: ls('wms.pa.viewOnly') !== '0', size: SIZES[ls('wms.pa.size')] ? ls('wms.pa.size') : 'handheld', landscape: false, frames: [], seq: 0,
+        zoom: ls('wms.pa.zoom') || 'fit', side: ls('wms.pa.side') !== '0', rowTop: 0, pickers: null, pickersSrc: '', pickersErr: '', pickersBusy: false, filter: '', calls: 0, log: [], blocked: [] };
 
     function root() { return document.getElementById(PAGE); }
     function pathOf(url) { try { var u = new URL(url); return u.pathname.replace(/^\/ords\/WKSP_GRAYSAPP\//, '').replace(/^\/fscmRestApi\/resources\/[\d.]+\//, 'fusion/') + (u.search ? '?' + u.search.slice(1, 40) : ''); } catch (e) { return String(url).slice(0, 80); } }
@@ -256,23 +257,25 @@
     // ── page ─────────────────────────────────────────────────────────────────────────────────────────────────────
     function draw() {
         var r = root(); if (!r) return;
-        r.innerHTML = '<div class="pa">' +
+        r.innerHTML = '<div class="pa' + (st.side ? '' : ' side-hidden') + '">' +
             '<div class="pa-side">' +
-            '<div class="pa-card"><h3><i class="fas fa-mobile-alt" style="color:#1e3a8a"></i> Picker app <small id="pa-build"></small></h3><p>The FCPos app your pickers use, exactly as it is on their phones. Open it as any picker from the list, or sign in yourself. Every Oracle call runs through this PC.</p>' +
-            '<div class="pa-status" id="pa-status" style="margin-top:8px"></div></div>' +
-            '<div class="pa-card"><label class="pa-switch"><input type="checkbox" id="pa-viewonly"' + (st.viewOnly ? ' checked' : '') + '><span class="k"></span><span><b>View only</b><small>Pick confirm, ship confirm, cancel and pick wave are blocked in every open app. Off = live, exactly like the phone.</small></span></label></div>' +
-            '<div class="pa-card pa-pickers"><h3><i class="fas fa-users" style="color:#1e3a8a"></i> Pickers <small id="pa-pickers-n"></small></h3>' +
-            '<div class="pa-row" style="margin-top:0"><input type="search" class="pa-sel pa-q" id="pa-q" placeholder="Find a picker…" autocomplete="off"><button class="pa-btn" id="pa-pickers-refresh" title="Read the list again"><i class="fas fa-sync-alt"></i></button></div>' +
-            '<div class="pa-row" style="margin-top:6px"><small style="color:#64748b">The mobile app users of type PICKER (GR_MOBILE_USER) — the login the app uses.</small><button class="pa-btn" id="pa-self" style="margin-left:auto"><i class="fas fa-user"></i> Sign in yourself</button></div>' +
-            '<ul class="pa-plist" id="pa-plist"></ul><p class="pa-src" id="pa-src"></p></div>' +
-            '<div class="pa-card"><h3>Screen</h3><div class="pa-row" style="margin-top:0"><select class="pa-sel" id="pa-size">' + Object.keys(SIZES).map(function (k) { return '<option value="' + k + '"' + (k === st.size ? ' selected' : '') + '>' + SIZES[k][2] + '</option>'; }).join('') + '</select>' +
+            // ONE section: the app header, View only and the pickers — hidden as a whole by the chevron (the Panel tab brings it back)
+            '<div class="pa-card pa-main"><h3><i class="fas fa-mobile-alt" style="color:#1e3a8a"></i> Picker app <small id="pa-build"></small><button class="pa-ib" id="pa-side-hide" title="Hide this panel — the apps get the whole width"><i class="fas fa-chevron-left"></i></button></h3>' +
+            '<div class="pa-status" id="pa-status"></div>' +
+            '<label class="pa-switch pa-switch-sm"><input type="checkbox" id="pa-viewonly"' + (st.viewOnly ? ' checked' : '') + '><span class="k"></span><span><b>View only</b><small>Pick / ship confirm, cancel and pick wave are blocked in every open app. Off = live, like the phone.</small></span></label>' +
+            '<div class="pa-pickers"><div class="pa-row pa-pickers-head"><i class="fas fa-users" style="color:#1e3a8a"></i><b>Pickers</b><small id="pa-pickers-n"></small><input type="search" class="pa-sel pa-q" id="pa-q" placeholder="Find a picker…" autocomplete="off"><button class="pa-ib" id="pa-pickers-refresh" title="Read the list again"><i class="fas fa-sync-alt"></i></button></div>' +
+            '<ul class="pa-plist" id="pa-plist"></ul><p class="pa-src" id="pa-src"></p>' +
+            '<div class="pa-row"><button class="pa-btn" id="pa-self"><i class="fas fa-user"></i> Sign in yourself</button><small style="color:#64748b">the app\'s own login screen</small></div></div></div>' +
+            '<details class="pa-card pa-fold" open><summary><i class="fas fa-desktop"></i> Screen</summary><div class="pa-row" style="margin-top:0"><select class="pa-sel" id="pa-size">' + Object.keys(SIZES).map(function (k) { return '<option value="' + k + '"' + (k === st.size ? ' selected' : '') + '>' + SIZES[k][2] + '</option>'; }).join('') + '</select>' +
             '<button class="pa-btn" id="pa-rotate" title="Rotate"><i class="fas fa-sync-alt"></i> Rotate</button><button class="pa-btn" id="pa-open" title="Open the app in its own tab"><i class="fas fa-external-link-alt"></i> Own tab</button></div>' +
-            '<div class="pa-row"><label class="pa-chk" for="pa-zoom"><i class="fas fa-search-plus"></i> Zoom</label><select class="pa-sel" id="pa-zoom">' + [['fit', 'Fit to the window'], ['75', '75 %'], ['100', '100 % · real size'], ['125', '125 %'], ['150', '150 %']].map(function (z) { return '<option value="' + z[0] + '"' + (z[0] === st.zoom ? ' selected' : '') + '>' + z[1] + '</option>'; }).join('') + '</select><small id="pa-zoom-now" style="color:#64748b"></small></div></div>' +
-            '<div class="pa-card"><h3>Blocked by View only <small id="pa-blocked-n"></small></h3><ul class="pa-log" id="pa-blocked"></ul></div>' +
-            '<div class="pa-card"><h3>Calls through this PC <small id="pa-calls-n"></small></h3><ul class="pa-log" id="pa-log"></ul></div>' +
+            '<div class="pa-row"><label class="pa-chk" for="pa-zoom"><i class="fas fa-search-plus"></i> Zoom</label><select class="pa-sel" id="pa-zoom">' + [['fit', 'Fit to the window'], ['75', '75 %'], ['100', '100 % · real size'], ['125', '125 %'], ['150', '150 %']].map(function (z) { return '<option value="' + z[0] + '"' + (z[0] === st.zoom ? ' selected' : '') + '>' + z[1] + '</option>'; }).join('') + '</select><small id="pa-zoom-now" style="color:#64748b"></small></div></details>' +
+            '<details class="pa-card pa-fold"><summary><i class="fas fa-ban"></i> Blocked by View only <small id="pa-blocked-n"></small></summary><ul class="pa-log" id="pa-blocked"></ul></details>' +
+            '<details class="pa-card pa-fold"><summary><i class="fas fa-exchange-alt"></i> Calls through this PC <small id="pa-calls-n"></small></summary><ul class="pa-log" id="pa-log"></ul></details>' +
             '</div>' +
-            '<div class="pa-stage"><div class="pa-hint" id="pa-hint" hidden></div><div class="pa-frames" id="pa-frames"></div></div></div>';
+            '<div class="pa-stage"><button class="pa-sidetab" id="pa-side-show"' + (st.side ? ' hidden' : '') + ' title="Show the panel (pickers, View only, screen)"><i class="fas fa-chevron-right"></i> Panel <span class="pa-sidetab-n" id="pa-side-n"></span></button><div class="pa-hint" id="pa-hint" hidden></div><div class="pa-frames" id="pa-frames"></div></div></div>';
         r.querySelector('#pa-viewonly').onchange = function () { setViewOnly(this.checked); };
+        r.querySelector('#pa-side-hide').onclick = function () { setSide(false); };
+        r.querySelector('#pa-side-show').onclick = function () { setSide(true); };
         r.querySelector('#pa-size').onchange = function () { st.size = this.value; ls('wms.pa.size', st.size); sizeFrames(); };
         r.querySelector('#pa-rotate').onclick = function () { st.landscape = !st.landscape; sizeFrames(); };
         r.querySelector('#pa-zoom').onchange = function () { st.zoom = this.value; ls('wms.pa.zoom', st.zoom); sizeFrames(); };
@@ -285,7 +288,14 @@
         loadPickers(false);
         open(null);
     }
-    function paintHint() { var el = document.getElementById('pa-hint'); if (!el) return; el.hidden = st.frames.length > 0; el.innerHTML = '<i class="fas fa-mobile-alt"></i><b>No app open.</b> Click a picker on the left to open the app as that picker, or <a id="pa-hint-self">sign in yourself</a>.'; var a = el.querySelector('#pa-hint-self'); if (a) a.onclick = function () { open(null); }; }
+    function paintHint() { var el = document.getElementById('pa-hint'); if (!el) return; el.hidden = st.frames.length > 0; el.innerHTML = '<i class="fas fa-mobile-alt"></i><b>No app open.</b> ' + (st.side ? 'Click a picker on the left' : '<a id="pa-hint-side">Show the panel</a> and click a picker') + ' to open the app as that picker, or <a id="pa-hint-self">sign in yourself</a>.'; var a = el.querySelector('#pa-hint-self'); if (a) a.onclick = function () { open(null); }; var b = el.querySelector('#pa-hint-side'); if (b) b.onclick = function () { setSide(true); }; }
+    /** The side panel (pickers, View only, screen, logs) hidden = the apps get the whole width; a slim Panel tab brings it back. */
+    function setSide(on) {
+        st.side = !!on; ls('wms.pa.side', st.side ? '1' : '0');
+        var pa = root() && root().querySelector('.pa'); if (pa) pa.classList.toggle('side-hidden', !st.side);
+        var tab = document.getElementById('pa-side-show'); if (tab) tab.hidden = st.side;
+        paintHint(); sizeFrames();
+    }
     function setViewOnly(on) {
         st.viewOnly = !!on; ls('wms.pa.viewOnly', st.viewOnly ? '1' : '0');
         var c = document.getElementById('pa-viewonly'); if (c && c.checked !== st.viewOnly) c.checked = st.viewOnly;
@@ -295,6 +305,7 @@
     function paintStatus() {
         var el = document.getElementById('pa-status'); if (!el) return;
         var ready = st.frames.filter(function (f) { return f.ready; }).length;
+        var tn = document.getElementById('pa-side-n'); if (tn) tn.textContent = st.frames.length ? st.frames.length + ' open' + (st.viewOnly ? '' : ' · LIVE') : '';
         el.innerHTML = '<span class="pa-pill' + (st.frames.length ? ' ok' : '') + '">' + st.frames.length + ' app' + (st.frames.length === 1 ? '' : 's') + ' open' + (st.frames.length ? ' · ' + ready + ' connected' : '') + '</span>' +
             (hosted() ? '<span class="pa-pill ok">relay on</span>' : '<span class="pa-pill bad">no desktop host — Oracle calls will fail</span>') +
             (st.viewOnly ? '<span class="pa-pill warn"><i class="fas fa-eye"></i> view only</span>' : '<span class="pa-pill bad"><i class="fas fa-bolt"></i> live</span>');
@@ -333,10 +344,11 @@
 
     var PA = window.WmsPickerApp = {
         onShow: function () { if (!st.drawn) draw(); else sizeFrames(); },
+        setSide: setSide,
         open: function () { return open(null); },
         openPicker: function (username) { var p = (st.pickers || []).filter(function (x) { return x.username === username || x.name === username; })[0]; return p ? open(p) : null; },
         close: close, reload: reloadAll, setViewOnly: setViewOnly, loadPickers: function () { return loadPickers(true); },
-        state: function () { return { drawn: st.drawn, viewOnly: st.viewOnly, size: st.size, landscape: st.landscape, calls: st.calls, log: st.log.slice(), blocked: st.blocked.slice(), src: SRC, zoom: st.zoom, pickers: st.pickers, pickersSrc: st.pickersSrc, pickersErr: st.pickersErr,
+        state: function () { return { drawn: st.drawn, viewOnly: st.viewOnly, size: st.size, landscape: st.landscape, calls: st.calls, log: st.log.slice(), blocked: st.blocked.slice(), src: SRC, zoom: st.zoom, side: st.side, pickers: st.pickers, pickersSrc: st.pickersSrc, pickersErr: st.pickersErr,
             frames: st.frames.map(function (f) { return { id: f.id, label: f.label, picker: f.picker ? f.picker.username : null, instance: f.instance, ready: f.ready, loaded: f.loaded, calls: f.calls, build: f.build }; }) }; }
     };
     function hook() {

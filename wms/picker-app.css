@@ -44,7 +44,16 @@
 @media (max-width: 1100px) { .pa { flex-direction: column; } .pa-side { position: static; flex-basis: auto; width: 100%; } }
 
 /* pickers list + several apps side by side */
-.pa-side { flex-basis: 320px; }
+.pa-side { flex: 0 0 320px; width: 320px; max-width: 320px; min-width: 0; }   /* min-width 0: long log lines must never widen the panel */
+.pa-card { min-width: 0; }
+.pa.side-hidden .pa-side { display: none; }
+.pa-sidetab { position: sticky; left: 0; align-self: flex-start; margin: 4px 0 6px; height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff; color: #0b2545; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06); }
+.pa-sidetab:hover { background: #eef2ff; }
+.pa-sidetab[hidden] { display: none; }
+.pa-sidetab-n { font-weight: 600; color: #64748b; }
+.pa-sidetab-n:not(:empty)::before { content: '·'; margin-right: 6px; }
+.pa-card h3 .pa-ib { margin-left: 6px; width: 24px; height: 24px; font-size: 11px; }
+.pa-card h3 small + .pa-ib { margin-left: 8px; }
 .pa-q { flex: 1; min-width: 0; }
 .pa-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #475569; cursor: pointer; }
 .pa-plist { list-style: none; margin: 8px 0 0; padding: 0; max-height: 300px; overflow: auto; }
@@ -74,3 +83,21 @@
 .pa-log li .w { width: 18px; height: 18px; border-radius: 50%; color: #fff; font-size: 8px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; font-family: system-ui, sans-serif; }
 .pa-nolog { color: #b45309; font-style: italic; }
 .pa-row .pa-chk i { color: #64748b; margin-right: 2px; }
+/* one section for the app header, View only and the pickers; Screen / Blocked / Calls fold below it */
+.pa-main .pa-status { margin-top: 6px; }
+.pa-switch-sm { margin: 10px 0 8px; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+.pa-switch-sm b { font-size: 12.5px; }
+.pa-switch-sm small { font-size: 10.5px; }
+.pa-pickers-head { margin-top: 4px; }
+.pa-pickers-head b { font-size: 13px; color: #0b2545; }
+.pa-pickers-head small { font-size: 11px; color: #64748b; margin-right: 2px; }
+.pa-pickers-head .pa-q { height: 30px; }
+.pa-card h3 .pa-ib { margin-left: 8px; }
+details.pa-fold { padding: 8px 12px; }
+details.pa-fold > summary { cursor: pointer; list-style: none; font-size: 12.5px; font-weight: 800; color: #0b2545; display: flex; align-items: center; gap: 8px; user-select: none; }
+details.pa-fold > summary::-webkit-details-marker { display: none; }
+details.pa-fold > summary::before { content: '\25B8'; font-size: 11px; color: #94a3b8; width: 10px; transition: transform 0.15s; }
+details.pa-fold[open] > summary::before { transform: rotate(90deg); }
+details.pa-fold > summary i { color: #64748b; font-size: 12px; }
+details.pa-fold > summary small { font-weight: 600; color: #64748b; margin-left: auto; font-size: 11px; }
+details.pa-fold[open] > summary { margin-bottom: 8px; }
