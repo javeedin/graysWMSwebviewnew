@@ -565,10 +565,12 @@
     function refresh() { return Promise.all([loadSettings(), loadLists()]).then(paint); }
 
     // ─── page plumbing ─────────────────────────────────────────────────────────
+    // the toolbar's trip date moves the Trip date card too (not while a run is going)
+    (function () { var reg = function () { if (window.wmsTripDate) window.wmsTripDate.on(function (d) { if (A.running || st.date === d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return; st.date = d; st.plan = null; st.planAt = null; if (st.pod && root()) paint(); }); }; if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', reg); else reg(); })();
     var AP = window.WmsAutopilot = {
         onShow: function () {
             if (!st.pod) st.pod = ls('wms.ap.pod') || (document.getElementById('trip-instance-name') || {}).value || (function () { try { return localStorage.getItem('fusionInstance'); } catch (e) { return null; } })() || 'PROD';
-            if (!st.date) st.date = addDays(today(), 1);
+            if (!st.date) st.date = window.wmsTripDate ? window.wmsTripDate.get() : addDays(today(), 1);   // the trip date chosen when the WMS opened
             paint();
             DB.probe();
             refresh();

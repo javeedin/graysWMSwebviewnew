@@ -582,7 +582,7 @@ function populateNewTripForm() {
 
     // Set default dates to today
     const today = new Date().toISOString().split('T')[0];
-    document.getElementById('new-trip-date').value = today;
+    document.getElementById('new-trip-date').value = (window.wmsTripDate ? window.wmsTripDate.get() : today);   // the toolbar's trip date
     document.getElementById('new-trip-cost-date').value = today;
 
     // Populate vehicles dropdown

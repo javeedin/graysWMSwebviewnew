@@ -44,7 +44,7 @@
     function tdGet() { try { var v = sessionStorage.getItem('wms.tripDate'); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v; } catch (e) {} return addDays(today(), 1); }
     function tdSet(d, quiet) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(String(d || ''))) return;
-        try { sessionStorage.setItem('wms.tripDate', d); } catch (e) {}
+        try { sessionStorage.setItem('wms.tripDate', d); localStorage.setItem('wms.tripDate.last', JSON.stringify({ date: d, at: Date.now() })); } catch (e) {}
         var inp = document.getElementById('wtb-date'); if (inp && inp.value !== d) inp.value = d;
         var w = document.getElementById('wtb-day'); if (w) w.textContent = dayWord(d);
         ['trip-date-from', 'trip-date-to'].forEach(function (id) { var el = document.getElementById(id); if (el && el.type === 'date') el.value = d; });

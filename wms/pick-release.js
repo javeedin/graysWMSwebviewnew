@@ -654,12 +654,14 @@
     var PR = window.PickRelease = {
         onShow: function () {
             if (!st.pod) { st.pod = (ls('wms.pr.pod') || (document.getElementById('trip-instance-name') || {}).value || 'PROD'); }
-            if (!st.date) st.date = tomorrow();
+            if (!st.date) st.date = window.wmsTripDate ? window.wmsTripDate.get() : tomorrow();   // the trip date chosen when the WMS opened
             shell(); paint();
             DB.probe().then(function (ok) { paint(); if (ok && !st.trips.length && !st.loading) loadDb(); });
         },
         load: load, start: start, stop: stop, state: st, run: function () { return R.run; }, settings: function () { return SET; }, isReleased: isReleased, DB: DB
     };
+    // the toolbar's trip date moves this page too (not during a run; the page's own date controls still work)
+    (function () { var reg = function () { if (window.wmsTripDate) window.wmsTripDate.on(function (d) { if (R.run || st.date === d) return; st.date = d; var inp = root() && root().querySelector('#pr-date'); if (inp) { inp.value = d; reset(); } }); }; if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', reg); else reg(); })();
     // the menu's navigateToPage shows the page; this wrapper draws it (app.js itself is unchanged)
     function hook() {
         var orig = window.navigateToPage;

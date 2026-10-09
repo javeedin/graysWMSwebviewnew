@@ -275,7 +275,7 @@
     function open(tab) {
         st.pod = curInstance();
         if (tab && A.kind(tab)) st.view.tab = tab;
-        if (!st.open) { st.open = true; st.view.grep = ''; }
+        if (!st.open) { st.open = true; st.view.grep = ''; if (window.wmsTripDate) st.view.date = window.wmsTripDate.get(); }   // opens on the toolbar's trip date
         render();
         if (!current()) showDate(st.view.date);
     }

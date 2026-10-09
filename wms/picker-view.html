@@ -1231,7 +1231,10 @@ let lastFetchUrl   = '';
 // ── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function () {
     const today = new Date().toISOString().split('T')[0];
-    document.getElementById('fpDate').value = today;
+    // the trip date chosen in the WMS (the opening prompt / the toolbar) within the last 12 h, else today
+    let tripDate = '';
+    try { const l = JSON.parse(localStorage.getItem('wms.tripDate.last') || 'null'); if (l && /^\d{4}-\d{2}-\d{2}$/.test(l.date) && Date.now() - l.at < 12 * 3600 * 1000) tripDate = l.date; } catch (e) { tripDate = ''; }
+    document.getElementById('fpDate').value = tripDate || today;
 
     const savedInst = localStorage.getItem('instanceName');
     if (savedInst) document.getElementById('fpInstance').value = savedInst;
