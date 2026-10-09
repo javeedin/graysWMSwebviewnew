@@ -72,7 +72,8 @@
     function dayRange(date) { return "TO_DATE(" + lit(date) + ", 'YYYY-MM-DD')"; }
 
     // ─── state ─────────────────────────────────────────────────────────────────
-    var st = { open: false, pod: curInstance(), date: today(), models: {}, busy: false, step: '', err: '', chart: null, loading: false };
+    var st = { open: false, pod: curInstance(), date: today(), models: {}, busy: false, step: '', err: '', chart: null, loading: false,
+        keep: { running: false, step: '', i: 0, n: 0, stop: false, menu: false, from: '', to: '' }, cov: null, covPod: '' };
     function key(pod, date) { return pod + '|' + date; }
     function current() { return st.models[key(st.pod, st.date)] || null; }
 
@@ -148,6 +149,7 @@
                 return linesOfTrip(pod, t.trip_id).then(function (rows) { lines.push({ trip_id: t.trip_id, lorry: t.lorry, bay: t.bay, priority: t.priority, lines: rows }); }, function (e) { errors.push('trip ' + t.trip_id + ' lines: ' + (e && e.message || e)); lines.push({ trip_id: t.trip_id, lorry: t.lorry, bay: t.bay, priority: t.priority, lines: [] }); })
                     .then(function () { n++; tell('order lines of trip ' + n + ' of ' + trips.length); });
             }).then(function () {
+                try { if (typeof window.MraInterface.keepLines === 'function') window.MraInterface.keepLines(pod, date, lines); } catch (e) {}   // the lines → DuckDB too (the toolbar search finds items)
                 tell('the day\'s records (MRA tries, cancellations, activity, print, audit)');
                 var names = Object.keys(reads);
                 return Promise.all(names.map(function (k) { return reads[k]; })).then(function (vals) {
@@ -156,6 +158,7 @@
                     var model = E.model({ pod: pod, date: date, builtAt: now(), rows: s.rows, trips: lines, hidden: s.hidden, findings: findings, mraRuns: g.mraRuns, cancelLog: g.cancelLog, activity: g.activity, actions: g.actions, hourly: g.hAct.concat(g.hMra, g.hCancel), audit: g.audit, prints: g.prints, shipDates: g.shipDates, pins: g.pins, errors: errors });
                     model.src = 'live';
                     st.models[key(pod, date)] = model;
+                    loadCov();
                     keep(pod, date, model);
                     return model;
                 });
@@ -169,6 +172,7 @@
         st.openedOnce = true;
         st.open = true; st.err = ''; render();
         if (!current()) showDate(st.date);
+        DB.probe().then(loadCov);                                   // the coverage strip (what this PC holds)
     }
     function close() { st.open = false; closePdf(); destroyChart(); var d = document.getElementById('dbf-dlg'); if (d) d.remove(); }
     function showDate(date) {
@@ -276,8 +280,11 @@
             '<div class="dbf-head"><h3><i class="fas fa-clipboard-list"></i> Day debrief <span class="dbf-pod">' + esc(st.pod) + '</span></h3><span class="dbf-day">' + esc(E.dayWord(st.date)) + '</span><button class="dbf-x" id="dbf-close" title="Close">✕</button></div>' +
             '<div class="dbf-bar"><button class="dbf-btn light icon" id="dbf-prev" title="Previous day"><i class="fas fa-chevron-left"></i></button><input type="date" id="dbf-date" value="' + esc(st.date) + '"><button class="dbf-btn light icon" id="dbf-next" title="Next day"><i class="fas fa-chevron-right"></i></button>' +
             [addDays(t, -1), t, addDays(t, 1)].map(function (d) { return '<button class="dbf-chip' + (st.date === d ? ' on' : '') + '" data-d="' + d + '">' + esc(dayShort(d).split(' ')[0]) + '</button>'; }).join('') +
-            '<button class="dbf-btn" id="dbf-build" ' + (st.busy ? 'disabled' : '') + ' title="Read the whole day again from APEX, Fusion and the WMS records"><i class="fas fa-sync-alt"></i> ' + (m ? 'Build again' : 'Build') + '</button><span class="dbf-step" id="dbf-step"></span><span class="dbf-sep"></span>' +
+            '<button class="dbf-btn" id="dbf-build" ' + (st.busy ? 'disabled' : '') + ' title="Read the whole day again from APEX, Fusion and the WMS records"><i class="fas fa-sync-alt"></i> ' + (m ? 'Build again' : 'Build') + '</button>' +
+            '<span class="dbf-keepwrap"><button class="dbf-btn light" id="dbf-keep-btn" ' + (st.keep.running ? 'disabled' : '') + ' title="Read whole dates from APEX and keep them on this PC: trips, orders, MRA statuses and order lines — the toolbar search and the debrief then work without APEX"><i class="fas fa-database"></i> Keep on this PC <i class="fas fa-caret-down"></i></button>' + keepMenuHtml() + '</span>' +
+            '<span class="dbf-step" id="dbf-step">' + keepProgHtml() + '</span><span class="dbf-sep"></span>' +
             '<button class="dbf-btn light" id="dbf-copy" ' + (m ? '' : 'disabled') + ' title="Copy the debrief as text for e-mail / Teams"><i class="fas fa-copy"></i> Copy text</button><button class="dbf-btn light" id="dbf-print" ' + (m ? '' : 'disabled') + '><i class="fas fa-print"></i> Print</button><button class="dbf-btn" id="dbf-pdf" ' + (m ? '' : 'disabled') + '><i class="fas fa-file-pdf"></i> PDF</button></div>' +
+            '<div class="dbf-cov" id="dbf-cov">' + covHtml() + '</div>' +
             '<div class="dbf-body" id="dbf-body">' + bodyHtml() + '</div>' +
             '<div class="dbf-foot"><span>' + (m ? (m.src === 'db' ? '<i class="fas fa-database" style="color:#4f46e5"></i> from this PC, built ' + esc(m.builtAt) + ' — Build again reads the day afresh' : '<i class="fas fa-sync-alt" style="color:#16a34a"></i> built ' + esc(m.builtAt) + (DB.on() ? ' · kept on this PC' : '')) : DB.host === false ? 'no DuckDB on this build — nothing kept' : '') + '</span><span class="dbf-sep"></span><span>Gray\'s WMS · Day debrief</span></div></div>';
         wire(dlg);
@@ -293,7 +300,68 @@
         dlg.querySelector('#dbf-copy').onclick = copyText;
         dlg.querySelector('#dbf-print').onclick = printView;
         dlg.querySelector('#dbf-pdf').onclick = pdf;
+        dlg.querySelector('#dbf-keep-btn').onclick = function (e) { e.stopPropagation(); st.keep.menu = !st.keep.menu; paintKeepMenu(); };
+        wireKeep(dlg); wireCov(dlg);
     }
+    // ─── "Keep on this PC": whole dates into DuckDB (MraInterface.keepRange) + the coverage strip ─────────────────────────────
+    function rangeDates(from, to) { var out = [], d = from; if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return out; while (d <= to && out.length < 120) { out.push(d); d = addDays(d, 1); } return out; }
+    function covDates() { var t = today(), out = []; for (var i = -28; i <= 1; i++) out.push(addDays(t, i)); return out; }   // the last 4 weeks, today and tomorrow
+    function covGaps() { var cov = st.cov || {}; return covDates().filter(function (d) { return !cov[d]; }); }
+    function keepMenuHtml() {
+        var t = today(), gaps = covGaps(), k = st.keep;
+        return '<div class="dbf-keepmenu" id="dbf-keep-menu" style="display:' + (k.menu ? 'block' : 'none') + '">' +
+            '<div class="hd">Read from APEX and keep on this PC</div>' +
+            '<button data-keep="this"><i class="fas fa-calendar-day"></i> This date <small>' + esc(st.date) + '</small></button>' +
+            '<button data-keep="7"><i class="fas fa-calendar-week"></i> Last 7 days <small>' + esc(addDays(t, -6)) + ' → ' + esc(t) + '</small></button>' +
+            '<button data-keep="30"><i class="fas fa-calendar-alt"></i> Last 30 days <small>' + esc(addDays(t, -29)) + ' → ' + esc(t) + '</small></button>' +
+            (gaps.length ? '<button data-keep="gaps"><i class="fas fa-fill-drip"></i> Fill the gaps <small>' + gaps.length + ' date' + (gaps.length === 1 ? '' : 's') + ' of the last 4 weeks not on this PC</small></button>' : '') +
+            '<div class="rng"><span>From</span><input type="date" id="dbf-keep-from" value="' + esc(k.from || addDays(t, -13)) + '"><span>to</span><input type="date" id="dbf-keep-to" value="' + esc(k.to || t) + '"><button class="dbf-btn" id="dbf-keep-go">Keep</button></div>' +
+            '<div class="ft">About 20 APEX calls a date · at most 120 dates a run · a kept date is a snapshot (Build / Refresh read it again)</div></div>';
+    }
+    function keepProgHtml() { var k = st.keep; return k.running ? '<i class="fas fa-spinner fa-spin"></i> keeping ' + (k.i + 1) + ' of ' + k.n + ' · ' + esc(k.step) + ' <a class="dbf-stop" onclick="WmsDebrief.keepStop()">Stop</a>' : ''; }
+    function paintKeepMenu() { var el = document.getElementById('dbf-keep-menu'); if (el) el.style.display = st.keep.menu ? 'block' : 'none'; }
+    function paintKeepProg() { var el = document.getElementById('dbf-step'); if (el && (st.keep.running || /keeping/.test(el.textContent))) el.innerHTML = keepProgHtml(); }
+    document.addEventListener('click', function (e) { if (st.keep.menu && !(e.target.closest && e.target.closest('.dbf-keepwrap'))) { st.keep.menu = false; paintKeepMenu(); } });
+    function wireKeep(dlg) {
+        dlg.querySelectorAll('#dbf-keep-menu [data-keep]').forEach(function (b) {
+            b.onclick = function () {
+                var t = today(), w = b.getAttribute('data-keep');
+                if (w === 'this') keepDates([st.date]); else if (w === '7') keepDates(rangeDates(addDays(t, -6), t)); else if (w === '30') keepDates(rangeDates(addDays(t, -29), t)); else if (w === 'gaps') keepDates(covGaps());
+            };
+        });
+        var go = dlg.querySelector('#dbf-keep-go'); if (go) go.onclick = function () { var f = dlg.querySelector('#dbf-keep-from').value, t = dlg.querySelector('#dbf-keep-to').value; if (!f || !t) return; if (f > t) { var x = f; f = t; t = x; } st.keep.from = f; st.keep.to = t; keepDates(rangeDates(f, t)); };
+    }
+    function keepDates(dates) {
+        st.keep.menu = false; paintKeepMenu();
+        if (!dates.length) { note('Nothing to keep.', 'info'); return Promise.resolve(); }
+        if (!window.MraInterface || typeof window.MraInterface.keepRange !== 'function') { note('mra-interface.js is not loaded.', 'warning'); return Promise.resolve(); }
+        if (!DB.on()) { note('This build has no DuckDB — nothing can be kept on this PC.', 'warning'); return Promise.resolve(); }
+        if (st.keep.running) { note('A keep run is already going — Stop it first.', 'warning'); return Promise.resolve(); }
+        var k = st.keep, pod = st.pod; k.running = true; k.stop = false; k.i = 0; k.n = dates.length; k.step = 'starting'; render();
+        return window.MraInterface.keepRange(pod, dates, null, function (text, i) { k.i = i; k.step = text; paintKeepProg(); covMark(dates[i], 'busy'); }, function () { return k.stop; }).then(function (r) {
+            k.running = false;
+            var msg = r.dates + ' date' + (r.dates === 1 ? '' : 's') + ' kept on this PC — ' + r.trips + ' trips, ' + r.orders + ' orders, ' + r.lines + ' lines' + (r.failed.length ? ' · ' + r.failed.length + ' failed (' + r.failed[0].date + ': ' + r.failed[0].error + ')' : '') + (r.stopped ? ' · stopped' : '') + '. The toolbar search now finds them; Build reads a date\'s debrief.';
+            note(msg, r.failed.length ? 'warning' : 'success');
+            try { if (typeof window.aiAudit === 'function') window.aiAudit({ source: 'WMS_DEBRIEF', actionKey: 'keep_dates', outcome: r.failed.length ? 'PARTIAL' : 'OK', detail: msg }); } catch (e) {}
+            return loadCov().then(render);
+        }).catch(function (e) { k.running = false; note('Keep failed: ' + (e && e.message || e), 'error'); render(); });
+    }
+    function loadCov() {
+        if (!window.MraInterface || typeof window.MraInterface.coverage !== 'function') return Promise.resolve();
+        var pod = st.pod;
+        return window.MraInterface.coverage(pod).then(function (rows) { var m = {}; (rows || []).forEach(function (r) { m[r.trip_date] = r; }); st.cov = m; st.covPod = pod; paintCov(); }).catch(function () {});
+    }
+    function covHtml() {
+        if (!DB.on()) return '';
+        var cov = st.cov || {}, dates = covDates(), kept = dates.filter(function (d) { return cov[d]; }).length, all = Object.keys(cov).sort(), t = today();
+        return '<span class="lbl"><i class="fas fa-database"></i> On this PC</span>' +
+            '<span class="cells">' + dates.map(function (d) { var c = cov[d]; return '<i class="c ' + (c ? (c.lines ? 'k kl' : 'k') : 'm') + (d === t ? ' t' : '') + (d === st.date ? ' s' : '') + '" data-d="' + d + '" title="' + esc(dayWord(d) ? dayWord(d) + ' · ' : '') + esc(d) + (c ? ' · ' + c.n_trips + ' trip' + (c.n_trips === 1 ? '' : 's') + (c.lines ? ' · ' + c.lines + ' lines' : ' · no lines yet') + ' · read ' + esc(String(c.read_at).replace('T', ' ').slice(0, 16)) : ' · not on this PC — click to open, Keep to read it') + '"></i>'; }).join('') + '</span>' +
+            '<span class="sum">' + kept + ' of the last ' + dates.length + ' days' + (all.length > kept ? ' · ' + all.length + ' dates in all (' + esc(all[0]) + ' → ' + esc(all[all.length - 1]) + ')' : '') + (kept < dates.length ? ' · <a onclick="WmsDebrief.keepGaps()">fill the ' + (dates.length - kept) + ' missing</a>' : ' · complete') + '</span>';
+    }
+    function paintCov() { var el = document.getElementById('dbf-cov'); if (el) { el.innerHTML = covHtml(); wireCov(el); } }
+    function covMark(d, cls) { var el = document.querySelector('#dbf-cov .c[data-d="' + d + '"]'); if (el) el.classList.add(cls); }
+    function wireCov(root) { root.querySelectorAll('#dbf-cov .c, .dbf-cov .c').forEach(function (c) { c.onclick = function () { showDate(c.getAttribute('data-d')); }; }); }
+    function dayWord(s) { return E.dayWord ? String(E.dayWord(s)).split(' ')[0].replace(/,$/, '') : ''; }
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && st.open) close(); });
 
     // ─── outputs: copy / print / PDF ──────────────────────────────────────────
@@ -444,8 +512,9 @@
 
     window.WmsDebrief = {
         open: open, close: close, show: showDate, build: rebuild, pdf: pdf, print: printView, copy: copyText, closePdf: closePdf, savePdf: savePdf, reveal: revealSaved,
+        keep: function (from, to) { return keepDates(Array.isArray(from) ? from : rangeDates(from, to || from)); }, keepStop: function () { st.keep.stop = true; st.keep.step = 'stopping after this date'; paintKeepProg(); }, keepGaps: function () { return keepDates(covGaps()); }, coverage: loadCov,
         trip: function (tripId) { var m = current(), t = m && m.trips.filter(function (x) { return String(x.trip_id) === String(tripId); })[0]; if (typeof window.openTripDetails !== 'function') return; close(); if (typeof window.navigateToPage === 'function') window.navigateToPage('trip-management'); try { window.openTripDetails(String(tripId), m ? m.date : st.date, t ? t.lorry : '', st.pod, t ? t.bay : '', t ? t.priority : ''); } catch (e) { note('Could not open trip ' + tripId + ': ' + (e && e.message || e), 'error'); } },
         html: function () { var m = current(); return m ? printHtml(m) : ''; },
-        state: function () { return { pod: st.pod, date: st.date, open: st.open, busy: st.busy, step: st.step, err: st.err, model: current(), db: DB.host }; }
+        state: function () { return { pod: st.pod, date: st.date, open: st.open, busy: st.busy, step: st.step, err: st.err, model: current(), db: DB.host, keep: st.keep, cov: st.cov }; }
     };
 })();

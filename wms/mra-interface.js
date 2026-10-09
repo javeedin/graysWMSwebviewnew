@@ -550,7 +550,8 @@
         w2_mri_days: ['pod', 'trip_date', 'n_trips', 'read_at'],
         w2_mri_trips: ['pod', 'trip_id', 'trip_date', 'lorry', 'bay', 'priority', 'api_rows', 'read_at'],
         w2_mri_orders: ['pod', 'trip_id', 'trip_date', 'order_number', 'seq', 'raw_json', 'read_at'],
-        w2_mri_mra: ['pod', 'order_number', 's', 'irn', 'why', 'at_txt', 'n', 'read_at']
+        w2_mri_mra: ['pod', 'order_number', 's', 'irn', 'why', 'at_txt', 'n', 'read_at'],
+        w2_mri_lines: ['pod', 'trip_id', 'trip_date', 'order_number', 'line_number', 'item', 'description', 'line_status', 'qty', 'fid', 'raw_json', 'read_at']
     };
     var FINAL = { SUCCESS: 1, ALREADY_DONE: 1 };
     var DB = {
@@ -725,6 +726,67 @@
         });
     }
     function ordersOf(inst, trip) { return getJson(WM_BASE + '/GETTRIPDETAILS/' + enc(trip) + '?P_INSTANCE_NAME=' + enc(inst)).then(items); }
+    // ── the order LINES of a trip (TRIPMANAGEMENT), kept in w2_mri_lines so the toolbar search finds items and line statuses and a
+    //    kept date needs no APEX at all. The debrief and the alerts read these lines anyway and hand them here (keepLines);
+    //    keepRange reads whole dates for the "Keep on this PC" loader. ──
+    var TM_BASE = WM_BASE.replace(/\/WAREHOUSEMANAGEMENT$/, '/TRIPMANAGEMENT');
+    function linesOf(inst, trip) { return getJson(TM_BASE + '/trip/orders/getsalesorderlinesbytrip/' + enc(trip) + '?P_INSTANCE_NAME=' + enc(inst)).then(items); }
+    function lineOrder(l) { return String(pick(l, ['SOURCE_ORDER_NUMBER', 'ORDER_NUMBER', 'source_order_number', 'order_number']) || '').trim(); }
+    /** tripLines = [{trip_id, lines: [API row]}] of one date → w2_mri_lines (the date's rows replaced). Never throws. */
+    function keepLines(inst, date, tripLines) {
+        inst = String(inst || '').toUpperCase();
+        if (!DB.on() || !date) return Promise.resolve(0);
+        var at = nowIso(), rows = [];
+        (tripLines || []).forEach(function (t) {
+            (t.lines || []).forEach(function (l) {
+                rows.push({ pod: inst, trip_id: String(t.trip_id), trip_date: date, order_number: lineOrder(l),
+                    line_number: String(pick(l, ['LINE_NUMBER', 'line_number']) || ''), item: String(pick(l, ['PRODUCT_NUMBER', 'ITEM_NUMBER', 'ITEM', 'product_number', 'item']) || ''),
+                    description: String(pick(l, ['PRODUCT_DESCRIPTION', 'ITEM_DESCRIPTION', 'DESCRIPTION', 'description']) || ''), line_status: String(pick(l, ['LINE_STATUS', 'STATUS', 'line_status', 'status']) || ''),
+                    qty: String(pick(l, ['ORDERED_QUANTITY', 'ORDERED_QTY', 'QUANTITY', 'ordered_quantity', 'quantity']) || ''), fid: String(pick(l, ['FULFILL_LINE_ID', 'fulfill_line_id']) || ''),
+                    raw_json: JSON.stringify(l), read_at: at });
+            });
+        });
+        return DB.put('w2_mri_lines', { pod: inst, trip_date: [date] }, rows, true).then(function () { return rows.length; }, function () { return 0; });
+    }
+    /** One or more dates read LIVE and kept whole (trips, orders, MRA statuses, order lines). `from` may be an array of dates.
+        onStep(text, i, n, date); stop() → true ends the run after the date in hand. → {dates, trips, orders, lines, failed: [{date, error}], stopped} */
+    function keepRange(inst, from, to, onStep, stop) {
+        inst = String(inst || curInstance()).toUpperCase();
+        var dates = Array.isArray(from) ? from.slice() : datesBetween(from, to || from);
+        if (dates.length > 120) dates = dates.slice(0, 120);
+        var out = { inst: inst, dates: 0, trips: 0, orders: 0, lines: 0, failed: [], stopped: false }, i = 0;
+        var say = function (t, d) { if (onStep) onStep(t, i, dates.length, d); };
+        var next = function () {
+            if (i >= dates.length) return Promise.resolve(out);
+            if (stop && stop()) { out.stopped = true; return Promise.resolve(out); }
+            var d = dates[i];
+            say('reading ' + d, d);
+            return DB.probe().then(function () { return liveRead(inst, d, d, function (n, of) { say(d + ' · trip ' + n + ' of ' + of, d); }); }).then(function (trips) {
+                var rows = [], hidden = { store: 0, cancelled: 0 };
+                trips.forEach(function (t) { (t.raw || []).forEach(function (r) { var row = rowOf(t, r, hidden); if (row) rows.push(row); }); });
+                say(d + ' · MRA status of ' + rows.length + ' orders', d);
+                return liveStatuses(inst, rows.map(function (r) { return r.ORDER_NUMBER; }), false, null).catch(function () {}).then(function () {
+                    var tl = [], n = 0;
+                    return pool(trips, 3, function (t) {
+                        return linesOf(inst, t.trip_id).then(function (ls) { tl.push({ trip_id: t.trip_id, lines: ls }); }, function () {}).then(function () { n++; say(d + ' · order lines of trip ' + n + ' of ' + trips.length, d); });
+                    }).then(function () { return keepLines(inst, d, tl); }).then(function (nl) { out.dates++; out.trips += trips.length; out.orders += rows.length; out.lines += nl; });
+                });
+            }).catch(function (e) { out.failed.push({ date: d, error: e && e.message || String(e) }); }).then(function () { i++; return next(); });
+        };
+        return next();
+    }
+    /** What this PC holds for an instance: one row per kept date {trip_date, n_trips, read_at, lines}. */
+    function coverage(inst) {
+        inst = String(inst || curInstance()).toUpperCase();
+        return DB.probe().then(function () {
+            if (!DB.on()) return [];
+            return DB.qs(['SELECT trip_date, n_trips, read_at FROM w2_mri_days WHERE pod = ' + lit(inst) + ' ORDER BY trip_date',
+                'SELECT trip_date, COUNT(*) AS n FROM w2_mri_lines WHERE pod = ' + lit(inst) + ' GROUP BY trip_date']).then(function (q) {
+                var ln = {}; (q[1] || []).forEach(function (r) { ln[String(r.trip_date)] = Number(r.n) || 0; });
+                return (q[0] || []).map(function (r) { return { trip_date: String(r.trip_date), n_trips: Number(r.n_trips) || 0, read_at: String(r.read_at || ''), lines: ln[String(r.trip_date)] || 0 }; });
+            });
+        }).catch(function () { return []; });
+    }
     /** {order: {s, irn, why, at, n}} — the latest WMS_MRA_INTERFACE_STATUS row per order on the instance (every PC, every screen); chunks of 300; a missing table = none. */
     function mraStatuses(orders, inst) {
         var list = Array.from(new Set(orders.map(function (o) { return String(o || '').trim(); }).filter(Boolean))), out = {}, chunks = [];
@@ -1444,6 +1506,13 @@
                     .then(function (m) { rows.forEach(function (r) { applyStatus(r, m[r.ORDER_NUMBER]); }); }, function (e) { out.statusErr = e.message; });
             }).then(function () { out.at = nowIso(); return out; });
         },
+        /** The order lines of one date → w2_mri_lines (see keepLines); the debrief and the alerts call it with the lines they read. */
+        keepLines: keepLines,
+        /** "Keep on this PC": whole dates read live and kept — trips, orders, MRA statuses and order lines. */
+        keepRange: keepRange,
+        /** The dates this PC holds for an instance. */
+        coverage: coverage,
+        linesOf: linesOf,
         /** Opens MRA transactions history on one order (every try, last 2 years) — the MRA column of the trip grids. */
         history: function (order, inst) {
             var f = filters();

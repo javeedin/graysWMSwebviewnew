@@ -160,6 +160,7 @@
                 return linesOfTrip(pod, t.trip_id).then(function (rows) { lines.push({ trip_id: t.trip_id, lines: rows }); }, function (e) { errors.push('trip ' + t.trip_id + ' lines: ' + (e && e.message || e)); })
                     .then(function () { n++; tell(dayWord(date) + ' · order lines of trip ' + n + ' of ' + trips.length); });
             }).then(function () {
+                try { if (typeof window.MraInterface.keepLines === 'function') window.MraInterface.keepLines(pod, date, lines); } catch (e) {}   // the lines → DuckDB too (the toolbar search finds items)
                 var list = A.run({ date: date, rows: sync.rows, trips: lines, bogo: bg }), byOrder = {}, tripOf = {};
                 sync.rows.forEach(function (x) { byOrder[x.ORDER_NUMBER] = x; });
                 trips.forEach(function (t) { tripOf[t.trip_id] = t; });

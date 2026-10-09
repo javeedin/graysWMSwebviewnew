@@ -41,3 +41,15 @@
 @keyframes wtb-pulse { 0%, 100% { box-shadow: 0 0 0 2px #0b2545; } 50% { box-shadow: 0 0 0 5px rgba(220, 38, 38, 0.45); } }
 @keyframes wtb-spin { to { transform: rotate(360deg); } }
 @media (max-width: 1250px) { .wtb-search input { width: 160px; } .wtb-date .wtb-day { display: none; } }
+
+/* search scope (toolbar date / every date on this PC / APEX) */
+.wtb-scope { display: flex; gap: 6px; padding: 8px 10px 6px; border-bottom: 1px solid #f1f5f9; background: #f8fafc; position: sticky; top: 0; z-index: 1; }
+.wtb-scope .chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; border: 1px solid #cbd5e1; background: #fff; color: #334155; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.wtb-scope .chip.on { background: #1e3a8a; border-color: #1e3a8a; color: #fff; }
+.wtb-scope .chip small { font-weight: 600; opacity: 0.8; }
+.wtb-scope .chip.apexc { margin-left: auto; border-style: dashed; }
+.wtb-scope .chip.apexc:hover { background: #eef2ff; }
+.wtb-pill.apex { background: #ede9fe; color: #5b21b6; }
+.wtb-pill.date { background: #e0f2fe; color: #075985; }
+.wtb-dd .g a { color: #1e3a8a; text-transform: none; letter-spacing: 0; font-weight: 700; cursor: pointer; }
+.wtb-dd .g a:hover { text-decoration: underline; }
