@@ -2356,6 +2356,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleTeachAction(wv, action, root, requestId);
                                     break;
 
+                                // Field Apps (fieldapps/index.html): signing keys, sign, fetch / upload photos through the APEX handlers
+                                case var faAction when IsFieldAppAction(faAction):
+                                    await HandleFieldAppAction(wv, action, root, requestId);
+                                    break;
+
                                 case var pbiAction when IsPowerBiAction(pbiAction):
                                     await HandlePowerBiAction(wv, action, root, requestId);
                                     break;

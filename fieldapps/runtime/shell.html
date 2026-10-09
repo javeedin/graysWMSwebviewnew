@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Field App</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b1220; color: #e5e7eb; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  #fa-root { position: fixed; inset: 0; }
+  .fa-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+  .fa-ov { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(100deg, #0b2545, #13315c 60%, #1e3a8a); z-index: 5; }
+  .fa-ov[hidden] { display: none; }
+  .fa-card { text-align: center; max-width: 320px; padding: 24px; }
+  .fa-spin { width: 34px; height: 34px; border: 3px solid rgba(255,255,255,.25); border-top-color: #fff; border-radius: 50%; margin: 0 auto 14px; animation: faspin .9s linear infinite; }
+  .fa-spin[hidden] { display: none; }
+  @keyframes faspin { to { transform: rotate(360deg); } }
+  #fa-msg { font-size: 17px; font-weight: 600; }
+  #fa-sub { margin-top: 6px; opacity: .8; font-size: 13px; word-break: break-word; }
+  #fa-retry { margin-top: 16px; background: #fff; color: #0b2545; border: 0; border-radius: 10px; padding: 10px 18px; font-weight: 600; font-size: 14px; }
+  .fa-chip { position: absolute; top: 6px; right: 6px; z-index: 6; background: rgba(15,23,42,.85); color: #fff; font-size: 11px; padding: 3px 9px; border-radius: 999px; pointer-events: none; }
+  .fa-chip.off { background: #b45309; }
+  .fa-chip.draft { background: #7c3aed; }
+  .fa-toast { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 7; background: #0f172a; color: #fff; padding: 9px 14px; border-radius: 10px; font-size: 13px; max-width: 86%; box-shadow: 0 6px 20px rgba(0,0,0,.3); pointer-events: none; }
+  .fa-toast.ok { background: #065f46; } .fa-toast.warn { background: #92400e; } .fa-toast.error { background: #991b1b; }
+  .fa-toast[hidden], .fa-chip[hidden] { display: none; }
+</style>
+</head>
+<body>
+<div id="fa-root">
+  <div id="fa-ov" class="fa-ov">
+    <div class="fa-card">
+      <div class="fa-spin" id="fa-spin"></div>
+      <div id="fa-msg">Starting…</div>
+      <div id="fa-sub"></div>
+      <button id="fa-retry" type="button" hidden>Try again</button>
+    </div>
+  </div>
+  <div id="fa-chip" class="fa-chip" hidden></div>
+  <div id="fa-toast" class="fa-toast" hidden></div>
+</div>
+<script src="fa-shell.js"></script>
+</body>
+</html>

@@ -25,7 +25,7 @@ if errorlevel 2 (
 :rag_chosen
 if /i "%INCLUDE_RAG%"=="Y" (echo   RAG service: INCLUDED) else (echo   RAG service: EXCLUDED)
 REM Modules packaged besides wms (package-release.bat always adds fusionsql if it is missing)
-if not defined MODULES set "MODULES=Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel aihub aiagent finance wms2 teachme"
+if not defined MODULES set "MODULES=Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel aihub aiagent finance wms2 teachme fieldapps"
 REM Admin > Create ZIP passes the modules ticked on the page in MODULES; Fusion SQL is always added
 echo " %MODULES% " | findstr /i /c:" fusionsql " >nul || set "MODULES=%MODULES% fusionsql"
 set "APP_VER=?"
@@ -134,7 +134,7 @@ if errorlevel 1 (
 )
 
 REM --- The zip must contain the chosen modules (Fusion SQL always) and nothing that was left out ---
-powershell -NoProfile -Command "Add-Type -Assembly 'System.IO.Compression.FileSystem'; $z=[System.IO.Compression.ZipFile]::OpenRead('%~dp0fusionclientweb.zip'); $n=$z.Entries | ForEach-Object { $_.FullName -replace '\\','/' }; $z.Dispose(); $want=@($env:MODULES -split '\s+' | Where-Object { $_ }); $all=@('Inventory','om','fscm','fusionsql','dataload','dllexplorer','fusionmodel','powerbi','aihub','aiagent','finance','wms2','teachme','aianalysis','formsdesigner','agentflow','internetsearch'); $need=@('graysWMSwebviewnew/dist/GraysWMS.exe','graysWMSwebviewnew/Home/modules.js','graysWMSwebviewnew/fusionsql/fusionsql.js') + ($want | ForEach-Object { 'graysWMSwebviewnew/' + $_ + '/index.html' }); $miss=$need | Where-Object { $n -notcontains $_ }; $extra=$all | Where-Object { $want -notcontains $_ -and $_ -ne 'formsdesigner' -and ($n -contains ('graysWMSwebviewnew/' + $_ + '/index.html')) }; if ($miss) { Write-Host ('  MISSING in zip: ' + ($miss -join ', ')) }; if ($extra) { Write-Host ('  NOT CHOSEN but in zip: ' + ($extra -join ', ')) }; if ($miss -or $extra) { exit 1 } else { Write-Host ('  Zip check: modules = wms ' + ($want -join ' ') + ' - all present, nothing extra') }"
+powershell -NoProfile -Command "Add-Type -Assembly 'System.IO.Compression.FileSystem'; $z=[System.IO.Compression.ZipFile]::OpenRead('%~dp0fusionclientweb.zip'); $n=$z.Entries | ForEach-Object { $_.FullName -replace '\\','/' }; $z.Dispose(); $want=@($env:MODULES -split '\s+' | Where-Object { $_ }); $all=@('Inventory','om','fscm','fusionsql','dataload','dllexplorer','fusionmodel','powerbi','aihub','aiagent','finance','wms2','teachme','fieldapps','aianalysis','formsdesigner','agentflow','internetsearch'); $need=@('graysWMSwebviewnew/dist/GraysWMS.exe','graysWMSwebviewnew/Home/modules.js','graysWMSwebviewnew/fusionsql/fusionsql.js') + ($want | ForEach-Object { 'graysWMSwebviewnew/' + $_ + '/index.html' }); $miss=$need | Where-Object { $n -notcontains $_ }; $extra=$all | Where-Object { $want -notcontains $_ -and $_ -ne 'formsdesigner' -and ($n -contains ('graysWMSwebviewnew/' + $_ + '/index.html')) }; if ($miss) { Write-Host ('  MISSING in zip: ' + ($miss -join ', ')) }; if ($extra) { Write-Host ('  NOT CHOSEN but in zip: ' + ($extra -join ', ')) }; if ($miss -or $extra) { exit 1 } else { Write-Host ('  Zip check: modules = wms ' + ($want -join ' ') + ' - all present, nothing extra') }"
 if errorlevel 1 (
     echo.
     echo ERROR: the zip is incomplete.

@@ -1,0 +1,135 @@
+# Field Apps — apps made on the desktop, running on the pickers' phones
+
+Field Apps is the channel between the Gray's WMS desktop and the FCPos mobile app. A supervisor makes an
+app on the desktop (the built-in POS, an HTML file, something the AI Agent wrote), signs it, and publishes
+it to chosen mobile logins. The phones see it within a minute, run it offline, and send back sales, counts,
+reports and photos. The desktop reads them, counts the photos with its vision worker, and keeps the POS
+books.
+
+```
+desktop (fieldapps/)                       APEX (WKSP_GRAYSAPP)                         FCPos (phone)
+┌──────────────────────┐   gateway SQL    ┌──────────────────────────┐   field/* ORDS   ┌──────────────────────┐
+│ Apps · Preview       │ ───────────────▶ │ WMS_FIELD_APPS (signed)  │ ◀─────────────── │ Field Apps screen    │
+│ Results · Photos     │ ◀─────────────── │ WMS_FIELD_SUBMISSIONS    │ ───────────────▶ │ runtime/shell.html   │
+│ POS · Devices · Setup│                  │ WMS_FIELD_PHOTOS (BLOB)  │                  │   └ app (sealed)     │
+│ host: sign, fetch    │                  │ WMS_POS_*                │                  │ camera · scanner     │
+└──────────────────────┘                  └──────────────────────────┘                  └──────────────────────┘
+```
+
+## What is where
+
+| Piece | Path |
+|---|---|
+| Desktop page | `fieldapps/index.html`, `fa-core.js` (screens), `fa-store.js` (APEX), `fa-host.js` (host of the preview), `fieldapps.css` |
+| Host | `classes/Form1_FieldAppHandlers.cs` — `fieldAppKeys`, `fieldAppSign`, `fieldAppFetch`, `fieldAppUpload` |
+| Runtime shell | `fieldapps/runtime/shell.html` + `fa-shell.js` — embedded by the desktop preview and by FCPos |
+| POS app | `fieldapps/apps/pos/` (manifest, engine, screens, styles) → built into `fieldapps/apps/pos.app.js` |
+| Build | `node fieldapps/build-app.js` (`--check` in CI) |
+| APEX | `apex_sql/97_field_apps.sql` — tables (the page creates them too), procedures, ORDS handlers |
+| FCPos reference | `tools/mobile/fieldapps/FieldAppsScreen.jsx` — the screen to add to the mobile repo |
+| Tests | `fieldapps/tests/pos-engine.test.js` |
+
+## Setup, once
+
+1. Open **Field Apps › Setup** inside the WMS. The tables are created on first use.
+2. Run `apex_sql/97_field_apps.sql` in SQL Developer or APEX SQL Workshop as the workspace schema. It adds the
+   procedures and the `field/*` handlers the phones call. The gateway cannot do this (it refuses PL/SQL), so
+   Setup only tells you whether `field/ping` answers.
+3. Publish an app once as an AI admin. That creates this PC's signing key
+   (`%APPDATA%\GraysWMS\FieldApps\signing.key`, DPAPI) and puts its public key into
+   `WMS_FIELD_SETTINGS.signing_keys`. Every other admin PC gets its own key the same way.
+4. **POS › Import items** and **Import customers** for the pod the tills sell on (paste from Excel, or an
+   APEX SQL returning the Order Pad's price-list columns). Discount rules come from `WMS_OM_DISCOUNTS`.
+
+## Publishing an app
+
+Apps › *New app from a built-in* (the POS), *from an HTML file*, or *Blank app*. The editor holds the
+name, icon, pod, expiry, **who gets it** (mobile logins from `GR_MOBILE_USER`, or everyone), the settings
+JSON the app reads as `FA.ctx.settings`, the **queries** it may ask for by name, and the code.
+
+*Save & publish* = version + 1, SHA-256 of the code and the manifest, the host's ECDSA P-256 signature over
+`appId.version.codeSha.manifestSha`, the public key published, the row set to PUBLISHED. *Kill* hides the
+app on every phone at its next check. An expired app stops the same way.
+
+**Preview** runs the app in a phone frame with this page as the host: the queries go through the gateway,
+the submissions land in APEX exactly as a phone's would, photos come from the webcam or a file and go
+through `field/photos` with the desktop's own device key, the console shows every host call, and the
+*online* switch queues what the app sends until it is ticked again.
+
+## Pairing a phone
+
+Devices › *Pair a phone*: choose the mobile login, a label, and show the QR (or the 8-letter code). In FCPos,
+*Field Apps › Add app* scans it. The phone posts the code to `field/pair` and gets its device key once; the
+key is kept hashed in `WMS_FIELD_DEVICES`. *Revoke* cuts a phone off at once.
+
+## The app contract
+
+An app is one HTML file. The shell seals it (sandboxed frame, CSP with no network), so bundle every library
+the app needs. The SDK `FA` is injected before the app's code:
+
+```js
+FA.ready(function (ctx) { /* ctx: appId, version, user, device, pod, platform, online, settings, manifest, signed */ });
+FA.query('items', { POD: ctx.pod })          // rows of the app's stored query "items" (upper-case keys)
+FA.submit('stock_count', doc, { ref, amount }) // → { ok, subId, queued }   queued = kept on the device while offline
+FA.photo({ title }).then(p => FA.upload(p, { trip, bay, ref1, ref2, note, expected }))  // p = { dataUrl, width, height, at, gps }
+FA.scan()        // → { code, format } | null       FA.gps() // → { lat, lng, acc } | null
+FA.print({ text, html, copies, title })        // ESC/POS text and HTML; the host prints
+FA.store.get(k) / set(k, v) / del(k) / keys()  // this device, this app
+FA.toast(msg), FA.close(), FA.open(appId), FA.log(...)
+FA.on('barcode' | 'online' | 'back' | 'ctx', fn)
+```
+
+Queries are SQL stored in APEX by the desktop (`WMS_FIELD_QUERIES`): a single SELECT or WITH;
+`{{POD}}`, `{{USER}}`, `{{DEVICE}}` and the parameters the app passes become quoted literals. The phone never
+sends SQL. Submissions are stored raw in `WMS_FIELD_SUBMISSIONS`; the kinds `pos_sale` and `pos_shift` are
+unpacked into the POS tables by the handler (and by the desktop's *Process new* for anything left NEW).
+
+## Host protocol (what FCPos implements)
+
+The shell (`runtime/shell.html#app=<id>`) talks to its host with `{ faHost: 1, id, op, args, app }` and
+expects `{ faHost: 1, id, ok, data | error }`. In react-native-webview: `onMessage` receives the shell's
+messages (`window.ReactNativeWebView.postMessage`), and the screen answers with
+`injectJavaScript('window.__faDeliver(' + JSON.stringify(reply) + ')')`. Events go the same way:
+`{ faHost: 1, event: 'barcode' | 'online' | 'back' | 'ctx', data }`.
+
+| op | args | answer |
+|---|---|---|
+| `hello` | `{ app, shell }` | `{ user, device, pod, platform, keys: [{keyId, spki}], online, allowUnsigned: false, params, settings, appId }` |
+| `bundle` | `{ app }` | the row of `field/apps/:id` (cached on the phone per version) |
+| `query` | `{ app, name, params }` | rows of `field/query` |
+| `submit` | `{ app, subId, kind, ref, amount, doc }` | `field/submit` |
+| `upload` | `{ app, photo: {dataUrl, width, height, at}, meta }` | `field/photos` → `{ ok, photoId }` |
+| `photo` | `{ title }` | expo-camera → `{ dataUrl, width, height, at, gps }` (resized to ~1600 px) |
+| `scan` | `{}` | the barcode scanner → `{ code, format }` |
+| `gps` | `{}` | `{ lat, lng, acc }` |
+| `print` | `{ text, html, copies, title }` | the receipt printer (ESC/POS text) |
+| `log`, `appReady`, `appError` | | fire and forget |
+
+The shell verifies the bundle's signature with the `keys` the host hands over (from `field/apps` or pairing)
+before anything runs. A bundle that does not verify, or has expired, never runs on a phone.
+
+## The POS
+
+A till for vans and shop counters, priced by the Order Pad's engine so the shop, the van and Fusion agree:
+customer + marketing + additional discounts, VAT by tax code, deposits, crates (`om/om-engine.js`). Shift
+with a float, sales, returns at the price paid, cash / card / mobile money / on account, change, parked
+sales, receipts on the printer, X report and close with a cash count. Everything is kept on the device and
+sent to APEX; offline sales are queued and flushed. The desktop's POS tab shows sales, tenders and shifts
+per pod and day, each sale with its lines and payments, and imports the catalogue.
+
+Settings the maker edits in the manifest: `currency`, `precision`, `cashRounding` (0 = none, 0.05, 1),
+`maxDiscountPct`, `allowPriceEdit`, `allowReturns`, `receiptCols` (32 / 42 / 48), `receiptCopies`,
+`catalogueHours`, `numberPrefix`, `taxRates`, `tenders`, `quickCash`, `language` (en / fr), `shop` (name,
+address, phone, brn, vat, footer).
+
+Not in this version: real-time MRA from the van (the sale is stored with `mra.status = PENDING` for the
+existing MRA paths), card terminal SDKs, cash drawer control.
+
+## Security
+
+- The database is not the trust boundary; the signature is. Only AI admins can sign (`fieldAppSign`), it is
+  audited, and the private key never leaves the PC.
+- Apps run sealed: no network from the app, no access to the shell or the phone's storage beyond `FA.store`.
+- The phone holds a device key (hashed in APEX), never Oracle credentials; every handler checks it; revoke
+  cuts it off.
+- Queries are stored SQL chosen by the desktop, read-only, with parameters as literals.

@@ -22,7 +22,7 @@ REM  row in APEX table WMS_AI_TRIAL (apex_sql\67_trial_period.sql).
 REM
 REM  Options (set before calling, e.g. from release.bat):
 REM    MODULES      module folders besides wms
-REM                 default: Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel aihub aiagent finance wms2 teachme
+REM                 default: Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel aihub aiagent finance wms2 teachme fieldapps
 REM    INCLUDE_RAG  Y to add the compiled RAG service (default N)
 REM ============================================================
 
@@ -128,7 +128,7 @@ if errorlevel 1 (
 )
 
 REM --- Copy module folders ---
-if not defined MODULES set "MODULES=Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel aihub aiagent finance wms2 teachme"
+if not defined MODULES set "MODULES=Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel aihub aiagent finance wms2 teachme fieldapps"
 REM Fusion SQL is part of every release (the Fusion Model and Data Loading use its runner too)
 echo " %MODULES% " | findstr /i /c:" fusionsql " >nul || set "MODULES=%MODULES% fusionsql"
 echo Modules in this release: wms %MODULES%

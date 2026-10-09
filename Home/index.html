@@ -295,6 +295,15 @@
                 <span class="card-badge">BETA</span>
             </a>
 
+            <!-- Field Apps: apps made on the desktop (templates or the AI Agent), signed, published to the pickers' phones through APEX; the POS is the first (fieldapps/) -->
+            <a href="../fieldapps/index.html" class="module-card"
+               style="--card-color:#b45309; --card-bg:rgba(245,158,11,0.14); --card-text:#b45309;">
+                <div class="card-icon">📲</div>
+                <div class="card-title">Field Apps</div>
+                <div class="card-desc">Make an app on this desktop and it runs on the chosen phones a minute later: stock counts, bay load checks with photos the desktop counts, and a full POS — signed, versioned, offline, inside the pickers' own app.</div>
+                <span class="card-badge">NEW</span>
+            </a>
+
             <!-- Tomorrow check: WMS 2.0's pre-mortem of tomorrow's trips (wms2/w2-tomorrow.js) -->
             <a href="../wms2/index.html#tomorrow" class="module-card"
                style="--card-color:#1e1b4b; --card-bg:rgba(129,140,248,0.14); --card-text:#1e1b4b;">
@@ -633,7 +642,7 @@
         // this package; the tiles keep their hrefs (release filter / trial badges).
         (function () {
             var GROUPS = [
-                { id: 'wms', title: 'Warehouse & Orders', icon: 'fa-warehouse', color: '#667eea', folders: ['wms', 'wms2', 'om', 'inventory'] },
+                { id: 'wms', title: 'Warehouse & Orders', icon: 'fa-warehouse', color: '#667eea', folders: ['wms', 'wms2', 'om', 'inventory', 'fieldapps'] },
                 { id: 'finance', title: 'Finance', icon: 'fa-sack-dollar', color: '#0d9488', folders: ['finance'] },
                 { id: 'fusion', title: 'Oracle Fusion', icon: 'fa-cloud', color: '#c74634', folders: ['fscm', 'fusionsql', 'dataload', 'fusionmodel', 'powerbi'] },
                 { id: 'ai', title: 'AI', icon: 'fa-wand-magic-sparkles', color: '#7c3aed', folders: ['aiagent', 'aihub', 'teachme', 'aianalysis', 'rag', 'agentflow', 'internetsearch'] },
