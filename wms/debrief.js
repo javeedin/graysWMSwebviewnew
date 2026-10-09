@@ -7,6 +7,9 @@
 // is an empty section). The numbers and the narrative come from wms/debrief-engine.js (WMSDBF, pure, node-tested).
 // The built debrief is kept per pod × date in DuckDB w2_dbf_days (opening a date is instant; Build reads everything again).
 // PDF = jsPDF + autotable when loaded (CDN in wms/index.html), else the print view; Print = the same page; Copy = plain text.
+// E-mail = Outlook on this PC through the Finance Lens mail host (finMailStatus / finMailContacts / finMailSend, method OUTLOOK):
+// sent silently with the PDF attached and the summary in the message, people picked from the Outlook address book (contacts +
+// the company directory), the recipients remembered on this PC (localStorage wms.debrief.mail) and filled in next time.
 // ============================================================================
 (function () {
     'use strict';
@@ -283,7 +286,8 @@
             '<button class="dbf-btn" id="dbf-build" ' + (st.busy ? 'disabled' : '') + ' title="Read the whole day again from APEX, Fusion and the WMS records"><i class="fas fa-sync-alt"></i> ' + (m ? 'Build again' : 'Build') + '</button>' +
             '<span class="dbf-keepwrap"><button class="dbf-btn light" id="dbf-keep-btn" ' + (st.keep.running ? 'disabled' : '') + ' title="Read whole dates from APEX and keep them on this PC: trips, orders, MRA statuses and order lines — the toolbar search and the debrief then work without APEX"><i class="fas fa-database"></i> Keep on this PC <i class="fas fa-caret-down"></i></button>' + keepMenuHtml() + '</span>' +
             '<span class="dbf-step" id="dbf-step">' + keepProgHtml() + '</span><span class="dbf-sep"></span>' +
-            '<button class="dbf-btn light" id="dbf-copy" ' + (m ? '' : 'disabled') + ' title="Copy the debrief as text for e-mail / Teams"><i class="fas fa-copy"></i> Copy text</button><button class="dbf-btn light" id="dbf-print" ' + (m ? '' : 'disabled') + '><i class="fas fa-print"></i> Print</button><button class="dbf-btn" id="dbf-pdf" ' + (m ? '' : 'disabled') + '><i class="fas fa-file-pdf"></i> PDF</button></div>' +
+            '<button class="dbf-btn light" id="dbf-copy" ' + (m ? '' : 'disabled') + ' title="Copy the debrief as text for e-mail / Teams"><i class="fas fa-copy"></i> Copy text</button><button class="dbf-btn light" id="dbf-print" ' + (m ? '' : 'disabled') + '><i class="fas fa-print"></i> Print</button><button class="dbf-btn" id="dbf-pdf" ' + (m ? '' : 'disabled') + '><i class="fas fa-file-pdf"></i> PDF</button>' +
+            '<button class="dbf-btn" id="dbf-mail" ' + (m ? '' : 'disabled') + ' title="' + esc(mailTip()) + '"><i class="fas fa-envelope"></i> E-mail</button></div>' +
             '<div class="dbf-cov" id="dbf-cov">' + covHtml() + '</div>' +
             '<div class="dbf-body" id="dbf-body">' + bodyHtml() + '</div>' +
             '<div class="dbf-foot"><span>' + (m ? (m.src === 'db' ? '<i class="fas fa-database" style="color:#4f46e5"></i> from this PC, built ' + esc(m.builtAt) + ' — Build again reads the day afresh' : '<i class="fas fa-sync-alt" style="color:#16a34a"></i> built ' + esc(m.builtAt) + (DB.on() ? ' · kept on this PC' : '')) : DB.host === false ? 'no DuckDB on this build — nothing kept' : '') + '</span><span class="dbf-sep"></span><span>Gray\'s WMS · Day debrief</span></div></div>';
@@ -300,6 +304,7 @@
         dlg.querySelector('#dbf-copy').onclick = copyText;
         dlg.querySelector('#dbf-print').onclick = printView;
         dlg.querySelector('#dbf-pdf').onclick = pdf;
+        dlg.querySelector('#dbf-mail').onclick = mailOpen;
         dlg.querySelector('#dbf-keep-btn').onclick = function (e) { e.stopPropagation(); st.keep.menu = !st.keep.menu; paintKeepMenu(); };
         wireKeep(dlg); wireCov(dlg);
     }
@@ -398,10 +403,18 @@
         f.onload = function () { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { note('Print failed: ' + e.message, 'error'); } setTimeout(function () { f.remove(); }, 60000); };
     }
     /** The PDF with jsPDF + autotable: header band, KPIs, the story, every table, the timeline chart, page numbers. */
+    function pdfName(m) { return 'day-debrief-' + m.pod + '-' + m.date + '.pdf'; }
     function pdf() {
         var m = current(); if (!m) return;
+        var doc = makePdf(m);
+        if (!doc) { note('The PDF library is not loaded — the print view opens instead (Save as PDF).', 'warning'); printView(); return; }
+        showPdf(doc, pdfName(m));
+        return doc;
+    }
+    /** The jsPDF document of a built debrief (null without the library) — shown by pdf(), attached by the e-mail. */
+    function makePdf(m) {
         var J = window.jspdf && window.jspdf.jsPDF;
-        if (!J) { note('The PDF library is not loaded — the print view opens instead (Save as PDF).', 'warning'); printView(); return; }
+        if (!J) return null;
         var doc = new J({ orientation: 'portrait', unit: 'pt', format: 'a4' }), W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 36, y = 0, k = m.kpis, n = m.narrative;
         var auto = typeof doc.autoTable === 'function';
         var head = function () { doc.setFillColor(11, 37, 69); doc.rect(0, 0, W, 64, 'F'); doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.text('Day debrief — ' + m.dayWord, M, 28); doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.text(m.pod + ' · ' + n.headline + (m.score != null ? ' · readiness ' + m.score + ' %' : '') + ' · built ' + m.builtAt, M, 46); doc.setTextColor(15, 23, 42); y = 80; };
@@ -445,8 +458,190 @@
         // page numbers
         var pages = doc.internal.getNumberOfPages();
         for (var p = 1; p <= pages; p++) { doc.setPage(p); doc.setFontSize(8); doc.setTextColor(148, 163, 184); doc.text('Gray\'s WMS · Day debrief · ' + m.dayWord + ' · ' + m.pod, M, H - 18); doc.text('Page ' + p + ' of ' + pages, W - M, H - 18, { align: 'right' }); }
-        showPdf(doc, 'day-debrief-' + m.pod + '-' + m.date + '.pdf');
         return doc;
+    }
+
+    // ─── e-mail: Outlook on this PC, silently, with the PDF — the people it went to last time are filled in next time ──────────
+    var MAIL = { st: null, busy: false, cache: {}, n: 0, t: 0 }, LS_MAIL = 'wms.debrief.mail';
+    var q = function (id) { return document.getElementById(id); };
+    function mailPrefs() { try { return JSON.parse(localStorage.getItem(LS_MAIL) || 'null') || {}; } catch (e) { return {}; } }
+    function mailSave(p) { try { localStorage.setItem(LS_MAIL, JSON.stringify(p)); } catch (e) { /* private mode */ } }
+    function addrList(s) { return String(s || '').split(/[;,\n]+/).map(function (x) { return x.trim(); }).filter(Boolean); }
+    function mergeList(list, add) {
+        var have = addrList(list), low = have.map(function (x) { return x.toLowerCase(); });
+        (add || []).forEach(function (e) { e = String(e || '').trim(); if (e && low.indexOf(e.toLowerCase()) < 0) { have.push(e); low.push(e.toLowerCase()); } });
+        return have.join('; ');
+    }
+    function mailTip() { var p = mailPrefs(); return 'E-mail the debrief through Outlook on this PC — silently, with the PDF' + (p.to ? '. Last sent to ' + p.to + (p.at ? ' (' + p.at + ')' : '') + ' — the same people are filled in' : ''); }
+    function mailStatus(force) {
+        if (MAIL.st && !force) return Promise.resolve(MAIL.st);
+        return host({ action: 'finMailStatus', appUser: user() }, 30000).then(function (r) { MAIL.st = (r && typeof r === 'object') ? r : {}; return MAIL.st; });
+    }
+    /** Outlook-safe HTML (tables + inline styles): the band, the intro, headline + overview, and with withBody the KPIs, highlights,
+        the story, Needs attention and the trips table. */
+    function mailHtml(m, intro, withBody, withPdf) {
+        var k = m.kpis, n = m.narrative, F = 'font-family:Segoe UI,Arial,sans-serif;';
+        var th = function (t, extra) { return '<th style="' + F + 'font-size:11px;color:#fff;background:#1e3a8a;padding:5px 8px;text-align:left;' + (extra || '') + '">' + esc(t) + '</th>'; };
+        var td = function (t, extra) { return '<td style="' + F + 'font-size:12px;color:#0f172a;padding:5px 8px;border-bottom:1px solid #e2e8f0;' + (extra || '') + '">' + t + '</td>'; };
+        var tile = function (l, v) { return '<td width="25%" valign="top" style="padding:3px"><table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0"><tr><td style="' + F + 'font-size:17px;font-weight:700;color:#0b2545;padding:7px 10px 0">' + esc(v) + '</td></tr><tr><td style="' + F + 'font-size:11px;color:#64748b;padding:0 10px 7px">' + esc(l) + '</td></tr></table></td>'; };
+        var p = function (t, extra) { return '<p style="' + F + 'font-size:13.5px;line-height:1.5;margin:8px 0;' + (extra || '') + '">' + t + '</p>'; };
+        var h = '<div style="' + F + 'color:#0f172a;max-width:700px">' +
+            '<table width="100%" cellpadding="0" cellspacing="0" style="background:#0b2545"><tr><td style="' + F + 'color:#fff;padding:14px 16px"><div style="font-size:18px;font-weight:700">Day debrief · ' + esc(m.dayWord) + '</div>' +
+            '<div style="font-size:12px;opacity:.85;margin-top:2px">' + esc(m.pod) + (m.builtAt ? ' · built ' + esc(m.builtAt) : '') + '</div></td>' +
+            (m.score != null ? '<td align="right" style="' + F + 'color:#fff;padding:14px 16px;font-size:28px;font-weight:800;white-space:nowrap">' + esc(m.score) + ' %<div style="font-size:10px;font-weight:400;opacity:.8">readiness</div></td>' : '') + '</tr></table>';
+        if (intro && intro.trim()) h += p(esc(intro.trim()).replace(/\n/g, '<br>'), 'margin:14px 0');
+        h += p('<b>' + esc(n.headline || '') + '</b>', 'margin-top:14px') + (n.paragraphs[0] ? p(esc(n.paragraphs[0].text)) : '');
+        if (withBody) {
+            var tiles = [['Trips', k.trips], ['Sales orders', k.orders], ['Order lines', k.lines], ['Pickers', k.pickers],
+                ['Released', k.released + (k.orders ? ' (' + pct(k.released, k.orders) + ' %)' : '')], ['Picked', k.picked], ['Shipped', k.shipped + (k.orders ? ' (' + pct(k.shipped, k.orders) + ' %)' : '')], ['Printed', k.printed],
+                ['MRA done', k.mraDone + (k.orders ? ' (' + m.mra.pct + ' %)' : '')], ['MRA failed', k.mraFailed], ['Pending cancel', k.pendingCancel], ['No picker', k.noPicker]];
+            h += '<table width="100%" cellpadding="0" cellspacing="0" style="margin:10px 0">';
+            for (var i = 0; i < tiles.length; i += 4) h += '<tr>' + tiles.slice(i, i + 4).map(function (t) { return tile(t[0], t[1]); }).join('') + '</tr>';
+            h += '</table>';
+            if (n.highlights.length) h += p('<b style="color:#15803d">Highlights:</b> ' + esc(n.highlights.join(' · ')));
+            if (n.lowlights.length) h += p('<b style="color:#b91c1c">Watch:</b> ' + esc(n.lowlights.join(' · ')));
+            n.paragraphs.slice(1).forEach(function (x) { h += p('<b>' + esc(x.title) + '.</b> ' + esc(x.text)); });
+            if (m.issues.length) h += p('<b>Needs attention</b>', 'margin-bottom:4px') + '<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0"><tr>' + th('Kind') + th('n', 'text-align:right') + th('Detail') + '</tr>' +
+                m.issues.map(function (x) { return '<tr>' + td(esc(x.kind)) + td(esc(x.n), 'text-align:right') + td(esc(x.text)) + '</tr>'; }).join('') + '</table>';
+            if (m.trips.length) h += p('<b>Trips</b>', 'margin:12px 0 4px') + '<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0"><tr>' + ['Trip', 'Lorry', 'Orders', 'Lines', 'Released', 'Picked', 'Shipped', 'Printed', 'MRA', 'Ready'].map(function (c, j) { return th(c, j > 1 ? 'text-align:right' : ''); }).join('') + '</tr>' +
+                m.trips.map(function (t) { return '<tr>' + td(esc(t.trip_id)) + td(esc(t.lorry || '')) + [t.orders, t.lines, t.released, t.picked, t.shipped, t.printed, t.mraDone + '/' + t.orders + (t.mraFailed ? ' (' + t.mraFailed + ' f)' : ''), t.readiness + ' %'].map(function (v) { return td(esc(v), 'text-align:right'); }).join('') + '</tr>'; }).join('') + '</table>';
+        }
+        h += '<p style="' + F + 'font-size:11px;color:#94a3b8;margin-top:18px">Sent from Gray\'s WMS by ' + esc(user()) + ' · ' + esc(now()) + (withPdf ? ' · the full debrief is attached as a PDF' : '') + '</p></div>';
+        return h;
+    }
+    function mailOpen() {
+        var m = current(); if (!m) return;
+        if (!hosted()) { note('E-mail needs the Gray\'s WMS app on this PC (it sends through Outlook).', 'warning'); return; }
+        mailClose();
+        var p = mailPrefs(), dlg = document.createElement('div'); dlg.id = 'dbf-mdlg'; dlg.className = 'dbf-mdlg';
+        var hist = (p.hist || []).filter(function (h) { return h && h.e; }).slice(0, 14);
+        dlg.innerHTML = '<div class="dbf-mbox" role="dialog" aria-label="E-mail the day debrief">' +
+            '<div class="dbf-head"><h3><i class="fas fa-envelope"></i> E-mail the day debrief <span class="dbf-pod">' + esc(m.pod) + '</span></h3><span class="dbf-day">' + esc(m.dayWord) + '</span><button class="dbf-x" id="dbm-close" title="Close">✕</button></div>' +
+            '<div class="dbf-mbody">' +
+            '<div class="dbf-mst" id="dbm-st"><i class="fas fa-circle-notch fa-spin"></i> Looking for Outlook on this PC…</div>' +
+            (p.to ? '<div class="dbf-mlast" id="dbm-last"><i class="fas fa-history"></i> Last sent to <b>' + esc(p.to) + '</b>' + (p.cc ? ' · cc ' + esc(p.cc) : '') + (p.at ? ' · ' + esc(p.at) : '') + ' — the same people are filled in below.</div>' : '') +
+            '<label class="dbf-ml"><span>To</span><span class="dbf-mrow"><input id="dbm-to" value="' + esc(p.to || '') + '" placeholder="name@company.com; another@company.com" autocomplete="off"><button class="dbf-btn light" id="dbm-ab" title="Pick people from the Outlook address book — your contacts and the company directory"><i class="fas fa-address-book"></i> Address book</button></span></label>' +
+            '<label class="dbf-ml"><span>Cc</span><input id="dbm-cc" value="' + esc(p.cc || '') + '" placeholder="optional" autocomplete="off"></label>' +
+            (hist.length ? '<div class="dbf-mhist" id="dbm-hist"><span class="dbf-muted">Sent to before:</span>' + hist.map(function (h) { return '<button class="dbf-chip" data-e="' + esc(h.e) + '" title="Add to To' + (h.n > 1 ? ' · ' + h.n + ' times' : '') + '">+ ' + esc(h.e) + '</button>'; }).join('') + '</div>' : '') +
+            '<label class="dbf-ml"><span>Subject</span><input id="dbm-subj" value="' + esc('Day debrief · ' + m.dayWord + ' · ' + m.pod) + '"></label>' +
+            '<label class="dbf-ml"><span>Message</span><textarea id="dbm-intro" rows="3" placeholder="A line or two above the debrief (optional)">' + esc(p.intro || '') + '</textarea></label>' +
+            '<div class="dbf-mopts"><label><input type="checkbox" id="dbm-pdf"' + (p.pdf === false ? '' : ' checked') + '> attach the PDF</label><label><input type="checkbox" id="dbm-body"' + (p.body === false ? '' : ' checked') + '> the summary in the message (KPIs, highlights, needs attention, trips)</label></div>' +
+            '<div class="dbf-mfoot"><span class="dbf-muted" id="dbm-note">Send = silently through Outlook, no window opens. Open in Outlook = look at it first.</span><span class="sp"></span>' +
+            '<button class="dbf-btn light" id="dbm-open" title="Open the message in Outlook and send it from there"><i class="fas fa-external-link-alt"></i> Open in Outlook</button><button class="dbf-btn" id="dbm-send"><i class="fas fa-paper-plane"></i> Send</button></div>' +
+            '</div></div>';
+        document.body.appendChild(dlg);
+        dlg.addEventListener('click', function (e) { if (e.target === dlg) mailClose(); });
+        q('dbm-close').onclick = mailClose;
+        q('dbm-ab').onclick = function () { mailBook(function (field, emails) { var el = q('dbm-' + field); if (el) el.value = mergeList(el.value, emails); }); };
+        dlg.querySelectorAll('#dbm-hist [data-e]').forEach(function (b) { b.onclick = function () { q('dbm-to').value = mergeList(q('dbm-to').value, [b.getAttribute('data-e')]); }; });
+        q('dbm-send').onclick = function () { mailSend(false); };
+        q('dbm-open').onclick = function () { mailSend(true); };
+        mailStatus().then(mailPaintStatus, function (e) { var el = q('dbm-st'); if (el) el.innerHTML = '<i class="fas fa-exclamation-triangle" style="color:#b45309"></i> Could not ask the app about Outlook: ' + esc(e && e.message || e) + ' — Send still tries Outlook.'; });
+        setTimeout(function () { var el = q(p.to ? 'dbm-subj' : 'dbm-to'); if (el) el.focus(); }, 50);
+    }
+    function mailClose() { var d = q('dbf-mdlg'); if (d) d.remove(); var ab = q('dbf-ab'); if (ab) ab.remove(); }
+    /** The status line: Outlook found (+ the account to send from when the profile has several — remembered by the app), or not installed. */
+    function mailPaintStatus(st) {
+        var el = q('dbm-st'); if (!el) return;
+        st = st || {};
+        if (st.outlook === false) {
+            el.innerHTML = '<i class="fas fa-times-circle" style="color:#b91c1c"></i> <b>Outlook is not installed on this PC</b> — the debrief is sent through Outlook. Install Outlook, or send the PDF (Save PDF) another way.';
+            el.classList.add('bad'); ['dbm-send', 'dbm-open'].forEach(function (id) { if (q(id)) q(id).disabled = true; });
+            return;
+        }
+        var accs = st.outlookAccounts || [], cur = (st.settings && st.settings.OutlookAccount) || '';
+        el.innerHTML = '<i class="fab fa-microsoft" style="color:#1e3a8a"></i> <b>Outlook on this PC</b> · from ' +
+            (accs.length > 1 ? '<select id="dbm-from" title="The Outlook account the debrief is sent from — remembered on this PC"><option value="">Outlook\'s default account</option>' + accs.map(function (a) { return '<option value="' + esc(a) + '"' + (a === cur ? ' selected' : '') + '>' + esc(a) + '</option>'; }).join('') + '</select>'
+                : accs.length === 1 ? '<b>' + esc(accs[0]) + '</b>' : 'Outlook\'s default account');
+        var sel = q('dbm-from');
+        if (sel) sel.onchange = function () { var a = sel.value; host({ action: 'finMailSetAccount', appUser: user(), account: a }, 30000).then(function (r) { MAIL.st = r || MAIL.st; note('The debrief is sent from ' + (a || 'Outlook\'s default account') + ' from now on.', 'success'); }).catch(function (e) { note('Could not keep the account: ' + (e && e.message || e), 'error'); }); };
+    }
+    /** The Outlook address book (host finMailContacts, method OUTLOOK: the Contacts folder, contact groups with their members, and the
+        company directory for 2+ letters): search, tick people, Add to To / Cc. add(field, emails) puts them into the dialog. */
+    function mailBook(add) {
+        var old = q('dbf-ab'); if (old) old.remove();
+        var ov = document.createElement('div'); ov.id = 'dbf-ab'; ov.className = 'dbf-ab';
+        var picked = {}, rows = [];
+        ov.innerHTML = '<div class="dbf-abbox" role="dialog" aria-label="Outlook address book"><div class="dbf-abh"><i class="fas fa-address-book"></i> <b>Outlook address book</b><span class="sp"></span><button class="dbf-x" id="dbf-ab-x" title="Close">✕</button></div>' +
+            '<input id="dbf-ab-q" type="search" placeholder="Search a name, e-mail or company… (2+ letters also search the company directory)" autocomplete="off">' +
+            '<div class="dbf-ablist" id="dbf-ab-list"></div>' +
+            '<div class="dbf-abf"><span class="dbf-muted" id="dbf-ab-n"></span><span class="sp"></span><button class="dbf-btn light" data-add="cc">Add to Cc</button><button class="dbf-btn" data-add="to">Add to To</button></div></div>';
+        document.body.appendChild(ov);
+        var close = function () { ov.remove(); document.removeEventListener('keydown', key, true); };
+        var key = function (e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+        document.addEventListener('keydown', key, true);
+        ov.addEventListener('mousedown', function (e) { if (e.target === ov) close(); });
+        q('dbf-ab-x').onclick = close;
+        var badge = { contact: 'Contact', person: 'Works with', directory: 'Company', group: 'Group' };
+        var count = function () { var n = Object.keys(picked).length; q('dbf-ab-n').textContent = n ? n + ' ticked' : 'tick people, then add them'; };
+        var paint = function (noteText) {
+            q('dbf-ab-list').innerHTML = (noteText ? '<div class="dbf-abnote">' + noteText + '</div>' : '') + (rows.length ? rows.map(function (c) {
+                var id = c.Email || ''; if (!id) return '';
+                return '<label class="dbf-abr' + (picked[id] ? ' on' : '') + '"><input type="checkbox" data-e="' + esc(id) + '"' + (picked[id] ? ' checked' : '') + '><span class="dbf-abav">' + esc(((c.Name || id).trim()[0] || '?').toUpperCase()) + '</span>' +
+                    '<span class="dbf-abt"><b>' + esc(c.Name || id) + '</b><small>' + esc(c.Kind === 'group' ? (c.Members ? c.Members + ' · ' : '') + id : id) + (c.Company ? ' · ' + esc(c.Company) : '') + '</small></span>' +
+                    '<span class="dbf-abk">' + esc(badge[c.Kind] || c.Kind || '') + '</span></label>';
+            }).join('') : '<div class="dbf-abnote">Nobody found.</div>');
+            q('dbf-ab-list').querySelectorAll('[data-e]').forEach(function (x) { x.onchange = function () { if (x.checked) picked[x.dataset.e] = 1; else delete picked[x.dataset.e]; x.closest('.dbf-abr').classList.toggle('on', x.checked); count(); }; });
+            count();
+        };
+        var load = function () {
+            var qv = q('dbf-ab-q').value.trim(), k = qv.toLowerCase(), n = ++MAIL.n;
+            if (MAIL.cache[k]) { rows = MAIL.cache[k].contacts; paint(MAIL.cache[k].note); return; }
+            q('dbf-ab-list').innerHTML = '<div class="dbf-abnote"><i class="fas fa-circle-notch fa-spin"></i> Reading the Outlook address book…</div>';
+            host({ action: 'finMailContacts', appUser: user(), method: 'OUTLOOK', q: qv }, 180000).then(function (r) {
+                if (n !== MAIL.n) return;
+                if (!r || r.ok === false) throw new Error((r && r.error) || 'No answer from Outlook');
+                var noteText = (r.notes || []).map(esc).join(' · ');
+                MAIL.cache[k] = { contacts: r.contacts || [], note: noteText }; rows = MAIL.cache[k].contacts; paint(noteText);
+            }).catch(function (e) { if (n !== MAIL.n) return; rows = []; paint('<span style="color:#b91c1c">' + esc(String(e && e.message || e)) + '</span>'); });
+        };
+        q('dbf-ab-q').oninput = function () { clearTimeout(MAIL.t); MAIL.t = setTimeout(load, 350); };
+        ov.querySelectorAll('[data-add]').forEach(function (b) {
+            b.onclick = function () {
+                var emails = []; Object.keys(picked).forEach(function (e) { e.split(/[;,]\s*/).forEach(function (x) { if (/@/.test(x)) emails.push(x.trim()); }); });   // a group adds its members
+                if (!emails.length) { note('Tick at least one person first.', 'warning'); return; }
+                add(b.getAttribute('data-add'), emails); note(emails.length + ' added to ' + b.getAttribute('data-add').toUpperCase() + '.', 'success');
+                picked = {}; paint();
+            };
+        });
+        q('dbf-ab-q').focus();
+        load();
+    }
+    function histAdd(hist, emails, at) {
+        var list = (hist || []).filter(function (h) { return h && h.e; }), seen = {};
+        emails = (emails || []).filter(function (e) { var k = String(e).toLowerCase(); if (seen[k]) return false; seen[k] = 1; return true; });   // To + Cc of one send count once
+        emails.forEach(function (e) { var k = e.toLowerCase(), h = list.filter(function (x) { return x.e.toLowerCase() === k; })[0]; if (h) { h.n = (h.n || 0) + 1; h.at = at; } else list.unshift({ e: e, n: 1, at: at }); });
+        list.sort(function (a, b) { return (b.n || 0) - (a.n || 0) || String(b.at || '').localeCompare(String(a.at || '')); });
+        return list.slice(0, 30);
+    }
+    /** Send (display = false: silently) or open in Outlook (display = true). The recipients, the message and the options are kept on this PC. */
+    function mailSend(display) {
+        var m = current(); if (!m || MAIL.busy || !q('dbm-to')) return Promise.resolve(null);
+        var to = q('dbm-to').value.trim(), cc = q('dbm-cc').value.trim(), subj = q('dbm-subj').value.trim() || ('Day debrief · ' + m.dayWord + ' · ' + m.pod), intro = q('dbm-intro').value, withPdf = q('dbm-pdf').checked, withBody = q('dbm-body').checked;
+        if (!display && !addrList(to).length) { note('Add at least one address in To — or pick people from the address book.', 'warning'); q('dbm-to').focus(); return Promise.resolve(null); }
+        var bad = addrList(to).concat(addrList(cc)).filter(function (a) { return !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a); });
+        if (bad.length) { note('Not an e-mail address: ' + bad.join(', '), 'warning'); return Promise.resolve(null); }
+        var att = [], doc = withPdf ? makePdf(m) : null;
+        if (withPdf && !doc) note('The PDF library is not loaded — sent without the PDF.', 'warning');
+        if (doc) { try { att.push({ name: pdfName(m), contentType: 'application/pdf', base64: String(doc.output('datauristring')).split(',')[1] || '' }); } catch (e) { note('Could not build the PDF: ' + (e && e.message || e), 'warning'); } }
+        var html = mailHtml(m, intro, withBody, att.length > 0);
+        MAIL.busy = true;
+        ['dbm-send', 'dbm-open'].forEach(function (id) { if (q(id)) q(id).disabled = true; });
+        if (q('dbm-note')) q('dbm-note').innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> ' + (display ? 'Opening in Outlook…' : 'Sending through Outlook…');
+        return host({ action: 'finMailSend', appUser: user(), method: 'OUTLOOK', display: !!display, to: to, cc: cc, subject: subj, html: html, attachments: att, source: 'WMS_DEBRIEF', auditAction: display ? 'debrief_email_open' : 'debrief_email' }, 600000).then(function (r) {
+            if (!r || r.ok === false) throw new Error((r && r.error) || 'Outlook did not send the message');
+            var p = mailPrefs(), at = now();
+            p.to = to; p.cc = cc; p.intro = intro; p.pdf = withPdf; p.body = withBody; p.at = at; p.hist = histAdd(p.hist, addrList(to).concat(addrList(cc)), at); mailSave(p);
+            MAIL.last = { at: at, to: to, cc: cc, display: !!display, subject: subj };
+            note(display ? 'Opened in Outlook — look it over and press Send there.' : 'Day debrief sent through Outlook to ' + addrList(to).join(', ') + (cc ? ' (cc ' + addrList(cc).join(', ') + ')' : '') + '.', 'success');
+            mailClose();
+            var b = q('dbf-mail'); if (b) b.title = mailTip();
+            return r;
+        }).catch(function (e) {
+            note('Could not send: ' + (e && e.message || e), 'error');
+            if (q('dbm-note')) q('dbm-note').innerHTML = '<span style="color:#b91c1c">' + esc(String(e && e.message || e)) + '</span>';
+            return null;
+        }).then(function (r) { MAIL.busy = false; ['dbm-send', 'dbm-open'].forEach(function (id) { if (q(id)) q(id).disabled = false; }); return r; });
     }
 
     // ─── the PDF viewer: inside the app, with its own Save / Print / Close ───────────────────────────────────────────
@@ -515,6 +710,7 @@
         keep: function (from, to) { return keepDates(Array.isArray(from) ? from : rangeDates(from, to || from)); }, keepStop: function () { st.keep.stop = true; st.keep.step = 'stopping after this date'; paintKeepProg(); }, keepGaps: function () { return keepDates(covGaps()); }, coverage: loadCov,
         trip: function (tripId) { var m = current(), t = m && m.trips.filter(function (x) { return String(x.trip_id) === String(tripId); })[0]; if (typeof window.openTripDetails !== 'function') return; close(); if (typeof window.navigateToPage === 'function') window.navigateToPage('trip-management'); try { window.openTripDetails(String(tripId), m ? m.date : st.date, t ? t.lorry : '', st.pod, t ? t.bay : '', t ? t.priority : ''); } catch (e) { note('Could not open trip ' + tripId + ': ' + (e && e.message || e), 'error'); } },
         html: function () { var m = current(); return m ? printHtml(m) : ''; },
-        state: function () { return { pod: st.pod, date: st.date, open: st.open, busy: st.busy, step: st.step, err: st.err, model: current(), db: DB.host, keep: st.keep, cov: st.cov }; }
+        mail: mailOpen, mailSend: mailSend, mailClose: mailClose, mailHtml: function (intro, body) { var m = current(); return m ? mailHtml(m, intro || '', body !== false, true) : ''; },
+        state: function () { return { pod: st.pod, date: st.date, open: st.open, busy: st.busy, step: st.step, err: st.err, model: current(), db: DB.host, keep: st.keep, cov: st.cov, mail: { prefs: mailPrefs(), last: MAIL.last || null, busy: MAIL.busy, status: MAIL.st } }; }
     };
 })();

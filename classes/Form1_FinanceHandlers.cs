@@ -586,7 +586,11 @@ namespace WMSApp
                             FinanceMail.Message msg = null;
                             if (action == "finMailTest") r = await FinanceMail.TestAsync(user, PipeSrvStr(root, "method"), PipeSrvStr(root, "to"), cts.Token);
                             else { msg = FinanceMail.FromJson(root); r = await FinanceMail.SendAsync(user, msg, PipeSrvStr(root, "method"), cts.Token); }
-                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = "FINANCE", Action = action == "finMailTest" ? "mail_test" : "pack_email", Outcome = "OK",
+                            // another page may send through this host (the WMS Day debrief): it names its audit source / action in the message
+                            string auditSrc = PipeSrvStr(root, "source"), auditAct = PipeSrvStr(root, "auditAction");
+                            auditSrc = string.IsNullOrWhiteSpace(auditSrc) || !System.Text.RegularExpressions.Regex.IsMatch(auditSrc, "^[A-Za-z0-9_]{1,40}$") ? "FINANCE" : auditSrc.ToUpperInvariant();
+                            auditAct = string.IsNullOrWhiteSpace(auditAct) || !System.Text.RegularExpressions.Regex.IsMatch(auditAct, "^[a-z0-9_]{1,40}$") ? "pack_email" : auditAct;
+                            AiControl.Audit(new AiControl.AuditEvent { User = user, Source = auditSrc, Action = action == "finMailTest" ? "mail_test" : auditAct, Outcome = "OK",
                                 Detail = msg == null ? "test" : (msg.Subject + " → " + string.Join("; ", FinanceMail.Addresses(msg.To).Concat(FinanceMail.Addresses(msg.Cc)))) });
                             data = r;
                             break;
