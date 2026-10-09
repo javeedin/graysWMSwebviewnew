@@ -98,11 +98,15 @@ try {
     rmrf(OUT); fs.mkdirSync(OUT, { recursive: true });
     copyDir(path.join(dist, '_expo'), path.join(OUT, '_expo'));
     if (fs.existsSync(path.join(dist, 'assets'))) copyDir(path.join(dist, 'assets'), path.join(OUT, 'assets'));
+    // Expo files the icon fonts and navigation images under assets/node_modules/… — a folder name every .gitignore, packager
+    // and linter treats as packages, so it is renamed to assets/pkg and the bundles are pointed at it.
+    const nm = path.join(OUT, 'assets', 'node_modules');
+    if (fs.existsSync(nm)) fs.renameSync(nm, path.join(OUT, 'assets', 'pkg'));
     if (fs.existsSync(path.join(dist, 'favicon.ico'))) fs.copyFileSync(path.join(dist, 'favicon.ico'), path.join(OUT, 'favicon.ico'));
     let patched = 0;
     for (const f of fs.readdirSync(path.join(OUT, '_expo', 'static', 'js', 'web'))) {
         const p = path.join(OUT, '_expo', 'static', 'js', 'web', f); let js = fs.readFileSync(p, 'utf8');
-        const before = js.length; js = js.replace(/"\/assets\//g, '"assets/').replace(/"\/_expo\//g, '"_expo/');
+        const before = js.length; js = js.replace(/"\/assets\//g, '"assets/').replace(/"\/_expo\//g, '"_expo/').replace(/"assets\/node_modules\//g, '"assets/pkg/');
         if (js.length !== before || true) { fs.writeFileSync(p, js); patched++; }
     }
     let html = fs.readFileSync(path.join(dist, 'index.html'), 'utf8')
