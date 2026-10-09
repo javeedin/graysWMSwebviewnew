@@ -14,7 +14,14 @@
 // run side by side, each with its own login and cache. "Sign in yourself" opens a plain frame with the login screen.
 // Size handheld (default) / phone / large phone / tablet, zoom fit (default) / 75–150 % (100 % = real size, the page scrolls), rotate, reload / close per frame,
 // own tab; the side panel hides behind a slim Panel tab (localStorage wms.pa.side) so the apps get the whole width. Frames are kept while other
-// pages are shown. window.WmsPickerApp = {onShow, open, openPicker, close, reload, setViewOnly, loadPickers, state}
+// pages are shown. window.WmsPickerApp = {onShow, open, openPicker, popup, close, reload, setViewOnly, loadPickers, state}
+//
+// Popup mode (WmsPickerApp.popup(name, {instance})): one picker's phone as a floating, draggable panel at the top right of ANY
+// page — the Picker Monitor's cards and picker headers use it (wms/picker-phone.js). The picker is found in the users list by
+// picker name / name / login; without a login the app opens on the picker name alone and the panel says so. The script talks
+// to the host through sendMessageToCSharp when the page has the WMS bridge, else through its own small transport on
+// window.chrome.webview (request ids pa-…, the host's restResponse / error / generic replies read like the bridge does), so it
+// works on pages without app.js such as wms/picker-view.html.
 // ═══════════════════════════════════════════════════════════════════════════════
 (function () {
     'use strict';
@@ -25,7 +32,28 @@
     var SECRET = /(PASSWORD|PASSWD|PWD|SECRET|TOKEN|HASH|SALT|PIN)/i;
     var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
     function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
-    function hosted() { return !!(window.chrome && window.chrome.webview && typeof sendMessageToCSharp === 'function'); }
+    function hosted() { return !!(window.chrome && window.chrome.webview); }
+    /** Own transport for pages without the WMS bridge (no sendMessageToCSharp): posts the message with a pa- request id and reads
+     *  the host's reply the way app.js does — error → cb(message), restResponse → cb(null, data, statusCode) / cb({message,
+     *  statusCode, body}), anything else → cb(null, data || reply). Ids live in OWN.pending, never in window.pendingRequests. */
+    var OWN = { pending: {}, on: false };
+    function ownSend(msg, cb, ms) {
+        if (!OWN.on) {
+            OWN.on = true;
+            window.chrome.webview.addEventListener('message', function (ev) {
+                var r = ev.data; if (typeof r === 'string') { try { r = JSON.parse(r); } catch (e) { return; } }
+                if (!r || !r.requestId || !OWN.pending[r.requestId]) return;
+                var w = OWN.pending[r.requestId]; delete OWN.pending[r.requestId]; clearTimeout(w.t);
+                if (r.action === 'error') w.cb(r.message || (r.data && r.data.message) || 'error', null);
+                else if (r.action === 'restResponse') { if (r.success === false) w.cb({ message: 'HTTP ' + r.statusCode, statusCode: r.statusCode, body: r.data }, null); else w.cb(null, r.data, r.statusCode); }
+                else w.cb(null, r.data || r);
+            });
+        }
+        var id = 'pa-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7); msg.requestId = id;
+        OWN.pending[id] = { cb: cb, t: setTimeout(function () { if (OWN.pending[id]) { delete OWN.pending[id]; cb('Request timed out after ' + ms + 'ms. C# did not respond for action: ' + msg.action, null); } }, ms || 120000) };
+        try { window.chrome.webview.postMessage(msg); } catch (e) { var w2 = OWN.pending[id]; delete OWN.pending[id]; if (w2) clearTimeout(w2.t); cb('Error posting message to C#: ' + (e && e.message || e), null); }
+    }
+    function send(msg, cb, ms) { if (typeof sendMessageToCSharp === 'function') return sendMessageToCSharp(msg, cb, ms, false); return ownSend(msg, cb, ms); }
     function user() { try { return localStorage.getItem('wms_user') || sessionStorage.getItem('loggedInUser') || 'WMS'; } catch (e) { return 'WMS'; } }
     function curInstance() {
         var el = document.getElementById('current-instance-display'), v = el ? String(el.textContent || '').trim().toUpperCase() : '';
@@ -39,7 +67,8 @@
     function host(msg, ms) {
         return new Promise(function (resolve, reject) {
             if (!hosted()) { reject(new Error('Open this inside the Gray\'s WMS app.')); return; }
-            sendMessageToCSharp(msg, function (err, data) { if (err) { reject(new Error(typeof err === 'string' ? err : (err.message || JSON.stringify(err)))); return; } var r = data; if (typeof data === 'string') { try { r = JSON.parse(data); } catch (e) { r = data; } } resolve(r); }, ms || 60000, false);
+            if (/^ai/.test(String(msg.action || '')) && !msg.appUser) msg.appUser = user();   // the host resolves policies / audit rows for this login
+            send(msg, function (err, data) { if (err) { reject(new Error(typeof err === 'string' ? err : (err.message || JSON.stringify(err)))); return; } var r = data; if (typeof data === 'string') { try { r = JSON.parse(data); } catch (e) { r = data; } } resolve(r); }, ms || 60000);
         });
     }
     /** One APEX read through the AI gateway → rows with upper-case keys. */
@@ -51,8 +80,9 @@
         });
     }
     var st = { drawn: false, viewOnly: ls('wms.pa.viewOnly') !== '0', size: SIZES[ls('wms.pa.size')] ? ls('wms.pa.size') : 'handheld', landscape: false, frames: [], seq: 0,
-        zoom: ls('wms.pa.zoom') || 'fit', side: ls('wms.pa.side') !== '0', rowTop: 0, pickers: null, pickersSrc: '', pickersErr: '', pickersBusy: false, filter: '', calls: 0, log: [], blocked: [] };
+        zoom: ls('wms.pa.zoom') || 'fit', side: ls('wms.pa.side') !== '0', rowTop: 0, pickers: null, pickersSrc: '', pickersErr: '', pickersBusy: false, pickersTable: '', filter: '', calls: 0, log: [], blocked: [], pop: null };
 
+    try { st.pop = JSON.parse(ls('wms.pa.pop') || 'null'); if (st.pop && (st.pop.left > window.innerWidth - 80 || st.pop.top > window.innerHeight - 80)) st.pop = null; } catch (e) { st.pop = null; }
     function root() { return document.getElementById(PAGE); }
     function pathOf(url) { try { var u = new URL(url); return u.pathname.replace(/^\/ords\/WKSP_GRAYSAPP\//, '').replace(/^\/fscmRestApi\/resources\/[\d.]+\//, 'fusion/') + (u.search ? '?' + u.search.slice(1, 40) : ''); } catch (e) { return String(url).slice(0, 80); } }
     function frameOf(win) { for (var i = 0; i < st.frames.length; i++) { var f = st.frames[i]; if (f.el && f.el.contentWindow === win) return f; } return null; }
@@ -113,14 +143,16 @@
      *  picker of the same name when there is one (type Bulk / Individual / Relief, area). WMS pickers without a mobile login
      *  are counted, not shown; without any users table the WMS pickers list is shown instead. Sorted by name. */
     function loadPickers(force) {
-        if (st.pickersBusy || (st.pickers && !force)) return Promise.resolve(st.pickers);
+        if (st.pickersBusy && st.pickersWait) return st.pickersWait;          // a second caller while the first read runs gets the same list
+        if (st.pickers && !force) return Promise.resolve(st.pickers);
         st.pickersBusy = true; st.pickersErr = ''; paintPickers();
         var errs = [];
-        return Promise.all([
+        return st.pickersWait = Promise.all([
             loadWmsPickers().catch(function (e) { errs.push('WMS pickers: ' + (e && e.message || e)); return []; }),
             loadLogins().catch(function (e) { errs.push('mobile users: ' + (e && e.message || e)); return { table: '', users: [] }; })
         ]).then(function (res) {
             var wms = res[0], logins = res[1], by = {}, list = [], wmsBy = {};
+            st.pickersTable = logins.table || '';
             wms.forEach(function (p) { wmsBy[key(p.name)] = wmsBy[key(p.name)] || p; });
             if (logins.table) {
                 logins.users.forEach(function (u) {
@@ -158,22 +190,32 @@
     }
 
     // ── frames ───────────────────────────────────────────────────────────────────────────────────────────────────
-    function open(picker) {
-        if (!st.drawn) draw();
-        if (picker) { var had = st.frames.filter(function (f) { return f.picker && f.picker.username === picker.username; })[0]; if (had) { focusFrame(had); return had; } }
-        if (st.frames.length >= MAX_FRAMES) { note('At most ' + MAX_FRAMES + ' apps at a time — close one first.', 'warning'); return null; }
-        var instance = curInstance(), f = { id: ++st.seq, picker: picker || null, label: picker ? picker.name : 'Sign in yourself', instance: instance, ready: false, loaded: false, build: null, calls: 0, el: null, missingTimer: null, openedAt: hhmm() };
+    /** opts.pop = the floating popup (one frame, replaces the one before), opts.instance = the pod when the page has no WMS toolbar. */
+    function open(picker, opts) {
+        opts = opts || {};
+        var pop = !!opts.pop;
+        if (!pop && !st.drawn) draw();
+        if (picker) { var had = st.frames.filter(function (f) { return !!f.pop === pop && f.picker && f.picker.username === picker.username; })[0]; if (had) { if (pop) showPop(); else focusFrame(had); return had; } }
+        if (pop) { st.frames.filter(function (f) { return f.pop; }).forEach(function (f) { close(f.id); }); ensurePop(); }
+        else if (st.frames.filter(function (f) { return !f.pop; }).length >= MAX_FRAMES) { note('At most ' + MAX_FRAMES + ' apps at a time — close one first.', 'warning'); return null; }
+        var instance = String(opts.instance || curInstance()).toUpperCase(), f = { id: ++st.seq, pop: pop, picker: picker || null, label: picker ? picker.name : 'Sign in yourself', instance: instance, ready: false, loaded: false, build: null, calls: 0, el: null, missingTimer: null, openedAt: hhmm() };
         st.frames.push(f);
-        var dev = document.createElement('div'); dev.className = 'pa-dev'; dev.id = 'pa-dev-' + f.id;
+        var dev = document.createElement('div'); dev.className = 'pa-dev' + (pop ? ' pop' : ''); dev.id = 'pa-dev-' + f.id;
         dev.innerHTML = '<div class="pa-devhead"><span class="pa-av" style="background:' + (picker ? colour(picker.name) : '#475569') + '">' + (picker ? esc(initials(picker.name)) : '<i class="fas fa-user"></i>') + '</span>' +
             '<span class="pa-who"><b>' + esc(f.label) + '</b><small>' + (picker ? esc(picker.username) + ' · ' + esc(instance) : 'the app\'s own login screen') + '</small></span>' +
             '<span class="pa-devpills" id="pa-pills-' + f.id + '"></span>' +
+            (pop ? '<label class="pa-chk pa-popview" title="View only: the app may read but every change is blocked"><input type="checkbox" data-act="view"' + (st.viewOnly ? ' checked' : '') + '> view only</label>' : '') +
+            (pop ? '<button class="pa-ib" data-act="dock" title="Back to the corner (the page makes room for the phone there)"><i class="fas fa-compress-arrows-alt"></i></button>' : '') +
             '<button class="pa-ib" data-act="reload" title="Load the app again"><i class="fas fa-redo"></i></button><button class="pa-ib" data-act="close" title="Close this app"><i class="fas fa-times"></i></button></div>' +
+            (pop ? '<div class="pa-pop-note" id="pa-pop-note-' + f.id + '"></div>' : '') +
             '<div class="pa-phone" id="pa-phone-' + f.id + '"><div class="pa-missing" id="pa-missing-' + f.id + '" hidden></div><iframe class="pa-screen" id="pa-frame-' + f.id + '" title="' + esc(f.label) + '" allow="camera; microphone; clipboard-write"></iframe></div>';
-        var row = document.getElementById('pa-frames'); row.appendChild(dev);
+        var row = document.getElementById(pop ? 'pa-pop' : 'pa-frames'); row.appendChild(dev);
         dev.querySelector('[data-act="reload"]').onclick = function () { load(f); };
         dev.querySelector('[data-act="close"]').onclick = function () { close(f.id); };
+        var vc = dev.querySelector('[data-act="view"]'); if (vc) vc.onchange = function () { setViewOnly(vc.checked); };
+        var dk = dev.querySelector('[data-act="dock"]'); if (dk) dk.onclick = function () { dockBack(); };
         f.el = dev.querySelector('iframe');
+        if (pop) { showPop(); popDrag(dev.querySelector('.pa-devhead')); }
         sizeFrames(); load(f); paintStatus(); paintPickers();
         if (picker) host({ action: 'aiAudit', source: 'WMS_PICKER_APP', actionKey: 'picker_app_open', outcome: 'OK', instance: instance, refId: 'USER:' + (picker.username || picker.name), target: picker.name, detail: 'Picker app opened as ' + picker.name + ' (' + (picker.username || '') + ') on ' + instance + ' · ' + (st.viewOnly ? 'view only' : 'LIVE') + ' · by ' + user() }, 15000).catch(function () {});
         setTimeout(function () { focusFrame(f); }, 50);
@@ -189,7 +231,7 @@
         f.missingTimer = setTimeout(function () { if (!f.ready) showMissing(f); }, 8000);
         paintPills(f); paintStatus();
     }
-    function close(id) { var f = frameById(id); if (!f) return; clearTimeout(f.missingTimer); var dev = document.getElementById('pa-dev-' + id); if (dev) dev.remove(); st.frames = st.frames.filter(function (x) { return x.id !== id; }); sizeFrames(); paintStatus(); paintPickers(); paintHint(); }
+    function close(id) { var f = frameById(id); if (!f) return; clearTimeout(f.missingTimer); var dev = document.getElementById('pa-dev-' + id); if (dev) dev.remove(); st.frames = st.frames.filter(function (x) { return x.id !== id; }); if (f.pop && !st.frames.some(function (x) { return x.pop; })) { var pp = document.getElementById('pa-pop'); if (pp) pp.hidden = true; dock(); } sizeFrames(); paintStatus(); paintPickers(); paintHint(); }
     function focusFrame(f) { var dev = document.getElementById('pa-dev-' + f.id); if (dev && dev.scrollIntoView) { try { dev.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); } catch (e) { dev.scrollIntoView(); } } }
     function reloadAll() { st.frames.forEach(load); }
     function showMissing(f) {
@@ -204,11 +246,65 @@
         var scale = zoomScale(h);
         st.frames.forEach(function (f) {
             var p = document.getElementById('pa-phone-' + f.id); if (!p) return;
-            p.style.width = w + 'px'; p.style.height = h + 'px'; p.style.transform = Math.abs(scale - 1) > 0.001 ? 'scale(' + scale.toFixed(3) + ')' : ''; p.style.transformOrigin = 'top left'; p.classList.toggle('tablet', st.size === 'tablet');
-            var dev = document.getElementById('pa-dev-' + f.id); if (dev) { dev.style.width = Math.round((w + 28) * scale) + 'px'; dev.style.height = Math.round((h + 28) * scale + 54) + 'px'; }
+            var fw = w, fh = h, fs = scale;
+            if (f.pop) { fw = SIZES.handheld[0]; fh = SIZES.handheld[1]; fs = popScale(fh, f); }
+            p.style.width = fw + 'px'; p.style.height = fh + 'px'; p.style.transform = Math.abs(fs - 1) > 0.001 ? 'scale(' + fs.toFixed(3) + ')' : ''; p.style.transformOrigin = 'top left'; p.classList.toggle('tablet', !f.pop && st.size === 'tablet');
+            var dev = document.getElementById('pa-dev-' + f.id); if (dev) { dev.style.width = Math.round((fw + 28) * fs) + 'px'; dev.style.height = f.pop ? '' : Math.round((fh + 28) * fs + 54) + 'px'; var ph = dev.querySelector('.pa-phone'); if (ph && f.pop) ph.style.marginBottom = Math.round((fh + 28) * (fs - 1)) + 'px'; }
         });
         var zl = document.getElementById('pa-zoom-now'); if (zl) zl.textContent = st.zoom === 'fit' ? Math.round(scale * 100) + ' %' : '';
-        paintHint();
+        paintHint(); dock();
+    }
+    /** The popup phone: the handheld size, shrunk so the whole panel (header, note, phone) fits the window height — never enlarged. */
+    function popScale(h, f) {
+        var noteEl = document.getElementById('pa-pop-note-' + f.id), noteH = noteEl && noteEl.textContent ? noteEl.offsetHeight + 6 : 0;
+        var avail = window.innerHeight - 164 - noteH;   // top 72 + margin 18 + padding 16 + header 46 + gaps 12
+        return Math.max(0.45, Math.min(1, avail / (h + 28)));
+    }
+    /** The floating popup panel (top right, draggable by the frame's header) that holds one picker's phone. */
+    function ensurePop() {
+        var pp = document.getElementById('pa-pop');
+        if (!pp) { pp = document.createElement('div'); pp.id = 'pa-pop'; pp.className = 'pa-pop'; pp.hidden = true; document.body.appendChild(pp); }
+        return pp;
+    }
+    function showPop() { var pp = ensurePop(); pp.hidden = false; if (st.pop && st.pop.left != null) { pp.style.left = st.pop.left + 'px'; pp.style.top = st.pop.top + 'px'; pp.style.right = 'auto'; pp.style.bottom = 'auto'; } dock(); }
+    /** Docked (in its corner, not dragged): the page gets a right padding as wide as the panel, so nothing sits under the phone. */
+    function dock() {
+        var pp = document.getElementById('pa-pop'), b = document.body, on = !!(pp && !pp.hidden && !st.pop);
+        document.querySelectorAll('.pa-dev.pop [data-act="dock"]').forEach(function (x) { x.hidden = !st.pop; });
+        if (on) { var w = Math.round(pp.getBoundingClientRect().width) + 36; if (b.style.paddingRight !== w + 'px') b.style.paddingRight = w + 'px'; b.classList.add('pa-docked'); }
+        else if (b.classList.contains('pa-docked')) { b.style.paddingRight = ''; b.classList.remove('pa-docked'); }
+    }
+    function dockBack() { st.pop = null; try { localStorage.removeItem('wms.pa.pop'); } catch (e) { /* ok */ } var pp = document.getElementById('pa-pop'); if (pp) { pp.style.left = ''; pp.style.top = ''; pp.style.right = ''; pp.style.bottom = ''; } dock(); }
+    function popDrag(head) {
+        if (!head) return;
+        head.addEventListener('pointerdown', function (e) {
+            if (e.button !== 0 || e.target.closest('button, input, label, a')) return;
+            var pp = document.getElementById('pa-pop'); if (!pp) return;
+            var r = pp.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top, moved = false;
+            var mv = function (ev) {
+                var l = Math.max(0, Math.min(window.innerWidth - r.width, ev.clientX - sx)), t = Math.max(0, Math.min(window.innerHeight - 46, ev.clientY - sy));
+                moved = true; st.pop = { left: Math.round(l), top: Math.round(t) }; pp.style.left = l + 'px'; pp.style.top = t + 'px'; pp.style.right = 'auto'; pp.style.bottom = 'auto'; dock();
+            };
+            var up = function () { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); head.classList.remove('dragging'); if (moved) ls('wms.pa.pop', JSON.stringify(st.pop)); };
+            head.classList.add('dragging'); window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); e.preventDefault();
+        });
+    }
+    /** One picker's phone in the popup: the picker found by picker name / name / login in the users list (read once), else the app
+     *  opens on the name alone and the panel says so. Returns a promise of the frame. */
+    function popup(who, opts) {
+        opts = opts || {};
+        var name = String(who || '').trim(); if (!name) return Promise.resolve(null);
+        var inst = String(opts.instance || curInstance()).toUpperCase();
+        ensurePop();
+        return loadPickers(false).then(function (list) {
+            var k = key(name), p = (list || []).filter(function (x) { return key(x.pickerName) === k || key(x.name) === k || key(x.username) === k; })[0], plain = !p;
+            if (!p) p = { name: name, username: name, pickerName: name, type: 'PICKER', pickerType: '', area: '', category: '', wms: false, login: null, warehouse: '', active: true, row: { PICKER_NAME: name, USERNAME: name, USER_TYPE: 'PICKER' }, plain: true };
+            var f = open(p, { pop: true, instance: inst }); if (!f) return null;
+            var n = document.getElementById('pa-pop-note-' + f.id);
+            if (n) n.innerHTML = plain ? '<i class="fas fa-circle-info"></i> No app login for <b>' + esc(name) + '</b>' + (st.pickersTable ? ' in ' + esc(st.pickersTable) : (hosted() ? '' : ' (no desktop host)')) + ' — the app opens on the picker name alone.' : '';
+            sizeFrames();
+            return f;
+        });
     }
     /** The frame scale: a fixed zoom (100 % = the phone's real size, the page scrolls), or Fit = the room under the frame
      *  headers down to the bottom of the window (measured where the frames row sits; up to 160 % on a tall screen). */
@@ -238,10 +334,10 @@
         else if (fusion && method === 'PATCH') msg = { action: 'executeOracleFusionPatch', fullUrl: url, body: m.body == null ? '' : String(m.body), instance: inst };
         if (!msg) { reply(false, 405, JSON.stringify({ success: false, error: method + ' is not relayed by the WMS desktop.' }), 'not relayed'); return; }
         try {
-            sendMessageToCSharp(msg, function (err, data, statusCode) {
+            send(msg, function (err, data, statusCode) {
                 if (err) { var body = err.body != null ? String(err.body) : JSON.stringify({ success: false, error: err.message || String(err) }); reply(false, err.statusCode || 500, body, err.message || ''); return; }
                 reply(true, statusCode || 200, typeof data === 'string' ? data : JSON.stringify(data == null ? {} : data));
-            }, 180000, false);
+            }, 180000);
         } catch (e) { reply(false, 500, JSON.stringify({ success: false, error: e && e.message || String(e) }), 'relay error'); }
     }
     function onMessage(e) {
@@ -299,6 +395,7 @@
     function setViewOnly(on) {
         st.viewOnly = !!on; ls('wms.pa.viewOnly', st.viewOnly ? '1' : '0');
         var c = document.getElementById('pa-viewonly'); if (c && c.checked !== st.viewOnly) c.checked = st.viewOnly;
+        document.querySelectorAll('.pa-popview input').forEach(function (x) { if (x.checked !== st.viewOnly) x.checked = st.viewOnly; });
         sendMode(); paintStatus(); st.frames.forEach(paintPills);
         if (!st.viewOnly && st.frames.some(function (f) { return f.picker; })) host({ action: 'aiAudit', source: 'WMS_PICKER_APP', actionKey: 'picker_app_live', outcome: 'OK', instance: curInstance(), refId: 'PICKERS:' + st.frames.filter(function (f) { return f.picker; }).map(function (f) { return f.picker.username || f.picker.name; }).join(','), target: st.frames.length + ' app(s)', detail: 'View only switched OFF by ' + user() + ' with picker apps open' }, 15000).catch(function () {});
     }
@@ -311,7 +408,14 @@
             (st.viewOnly ? '<span class="pa-pill warn"><i class="fas fa-eye"></i> view only</span>' : '<span class="pa-pill bad"><i class="fas fa-bolt"></i> live</span>');
         var b = document.getElementById('pa-build'), bf = st.frames.filter(function (f) { return f.build; })[0]; if (b) b.textContent = bf ? (bf.build.app || 'FCPos') + ' ' + (bf.build.version || '') + (bf.build.commit ? ' · ' + bf.build.commit : '') : '';
     }
-    function paintPills(f) { var el = document.getElementById('pa-pills-' + f.id); if (!el) return; el.innerHTML = (f.ready ? '<span class="pa-pill ok">connected</span>' : f.loaded ? '<span class="pa-pill warn">no bridge</span>' : '<span class="pa-pill">loading…</span>') + (f.picker ? (st.viewOnly ? '<span class="pa-pill warn">view only</span>' : '<span class="pa-pill bad">live</span>') : ''); }
+    function paintPills(f) {
+        var el = document.getElementById('pa-pills-' + f.id); if (!el) return;
+        if (f.pop) {   // the popup header is narrow: one dot for the connection, the header turns red while changes are live
+            var dev = document.getElementById('pa-dev-' + f.id); if (dev) dev.classList.toggle('live', !st.viewOnly);
+            el.innerHTML = '<span class="pa-dot' + (f.ready ? ' ok' : f.loaded ? ' warn' : '') + '" title="' + (f.ready ? 'connected' : f.loaded ? 'no bridge' : 'loading…') + '"></span>' + (st.viewOnly ? '' : '<span class="pa-pill bad" title="View only is off: what is done in the app changes data">live</span>');
+            return;
+        }
+        el.innerHTML = (f.ready ? '<span class="pa-pill ok">connected</span>' : f.loaded ? '<span class="pa-pill warn">no bridge</span>' : '<span class="pa-pill">loading…</span>') + (f.picker ? (st.viewOnly ? '<span class="pa-pill warn">view only</span>' : '<span class="pa-pill bad">live</span>') : ''); }
     function paintPickers() {
         var el = document.getElementById('pa-plist'), n = document.getElementById('pa-pickers-n'), src = document.getElementById('pa-src'); if (!el) return;
         var list = visiblePickers(), openBy = {}; st.frames.forEach(function (f) { if (f.picker) openBy[f.picker.username] = f.id; });
@@ -347,9 +451,10 @@
         setSide: setSide,
         open: function () { return open(null); },
         openPicker: function (username) { var p = (st.pickers || []).filter(function (x) { return x.username === username || x.name === username; })[0]; return p ? open(p) : null; },
+        popup: popup, dockPopup: dockBack, closePopup: function () { st.frames.filter(function (f) { return f.pop; }).forEach(function (f) { close(f.id); }); },
         close: close, reload: reloadAll, setViewOnly: setViewOnly, loadPickers: function () { return loadPickers(true); },
         state: function () { return { drawn: st.drawn, viewOnly: st.viewOnly, size: st.size, landscape: st.landscape, calls: st.calls, log: st.log.slice(), blocked: st.blocked.slice(), src: SRC, zoom: st.zoom, side: st.side, pickers: st.pickers, pickersSrc: st.pickersSrc, pickersErr: st.pickersErr,
-            frames: st.frames.map(function (f) { return { id: f.id, label: f.label, picker: f.picker ? f.picker.username : null, instance: f.instance, ready: f.ready, loaded: f.loaded, calls: f.calls, build: f.build }; }) }; }
+            pop: st.pop, frames: st.frames.map(function (f) { return { id: f.id, pop: !!f.pop, label: f.label, picker: f.picker ? f.picker.username : null, plain: !!(f.picker && f.picker.plain), instance: f.instance, ready: f.ready, loaded: f.loaded, calls: f.calls, build: f.build }; }) }; }
     };
     function hook() {
         var orig = window.navigateToPage;

@@ -101,3 +101,32 @@ details.pa-fold[open] > summary::before { transform: rotate(90deg); }
 details.pa-fold > summary i { color: #64748b; font-size: 12px; }
 details.pa-fold > summary small { font-weight: 600; color: #64748b; margin-left: auto; font-size: 11px; }
 details.pa-fold[open] > summary { margin-bottom: 8px; }
+/* popup mode — one picker's phone docked at the top right of any page (draggable) (WmsPickerApp.popup; the Picker Monitor's phone icons) */
+.pa-pop { position: fixed; right: 18px; top: 72px; z-index: 9500; background: #fff; border: 1px solid #cbd5e1; border-radius: 16px; box-shadow: 0 24px 64px rgba(11, 37, 69, 0.4); padding: 8px; }
+.pa-pop[hidden] { display: none; }
+.pa-dev.pop { gap: 6px; overflow: hidden; }
+.pa-dev.pop .pa-devhead { cursor: grab; background: linear-gradient(100deg, #0b2545, #13315c 60%, #1e3a8a); border-color: transparent; color: #fff; touch-action: none; }
+.pa-dev.pop .pa-devhead.dragging { cursor: grabbing; }
+.pa-dev.pop .pa-who b { color: #fff; }
+.pa-dev.pop .pa-who small { color: #cbd5e1; }
+.pa-dev.pop .pa-ib { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.28); color: #fff; }
+.pa-dev.pop .pa-ib:hover { background: rgba(255, 255, 255, 0.24); }
+.pa-dev.pop .pa-devpills .pa-pill { background: rgba(255, 255, 255, 0.16); color: #fff; }
+.pa-dev.pop .pa-devpills .pa-pill.ok { background: #16a34a; }
+.pa-dev.pop .pa-devpills .pa-pill.warn { background: #d97706; }
+.pa-dev.pop .pa-devpills .pa-pill.bad { background: #dc2626; }
+.pa-popview { color: #fff; font-size: 11px; white-space: nowrap; }
+.pa-popview input { accent-color: #f59e0b; }
+.pa-pop-note { font-size: 11px; color: #92400e; background: #fef3c7; border-radius: 6px; padding: 4px 8px; line-height: 1.4; }
+.pa-pop-note:empty { display: none; }
+.pa-pop-note i { margin-right: 4px; }
+@media print { .pa-pop { display: none; } }
+.pa-dev.pop .pa-ib[hidden] { display: none; }
+body.pa-docked { transition: padding-right 0.15s; }
+.pa-dev.pop .pa-devhead { gap: 6px; padding: 6px 7px; }
+.pa-dev.pop .pa-ib { width: 24px; height: 24px; font-size: 11px; }
+.pa-dot { width: 9px; height: 9px; border-radius: 50%; background: #94a3b8; display: inline-block; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35); }
+.pa-dot.ok { background: #22c55e; }
+.pa-dot.warn { background: #f59e0b; }
+.pa-dev.pop.live .pa-devhead { background: linear-gradient(100deg, #7f1d1d, #b91c1c 70%, #dc2626); }
+.pa-dev.pop .pa-devpills .pa-pill.bad { background: #fff; color: #b91c1c; }
