@@ -171,6 +171,7 @@
                     var at = now(); A.carry(prev ? prev.items : [], list, at);
                     var res = { pod: pod, date: date, items: list, summary: A.summary(list), at: at, trips: trips.length, orders: sync.rows.length, errors: errors, src: 'live', mode: mode, ms: Date.now() - t0, hidden: sync.hidden };
                     st.last[keyOf(pod, date)] = res;
+                    try { document.dispatchEvent(new CustomEvent('wms-alerts', { detail: { pod: pod, date: date, summary: res.summary } })); } catch (e) {}
                     var s = res.summary;
                     DB.put('w2_nt_items', { pod: pod, trip_date: [date] }, list.map(function (it) {
                         var o = {}; COLS.w2_nt_items.forEach(function (k) { o[k] = it[k]; }); o.pod = pod; o.trip_date = date; o.run_id = runId; o.raw_json = it.raw ? JSON.stringify(it.raw) : ''; return o;
@@ -336,7 +337,7 @@
     function tabTools(kind, list) {
         var r = current(), h = '<div class="wa-tools"><input type="text" id="wa-grep" placeholder="Filter these rows…" value="' + esc(st.view.grep) + '"><span style="font-size:12px;color:#64748b;">' + list.length + ' of ' + (r ? r.summary[kind].n : 0) + '</span>';
         h += '<button class="wa-btn light sm" onclick="WmsAlerts.csv()"><i class="fas fa-file-csv"></i> CSV</button><span class="wa-sep" style="flex:1"></span>';
-        if (kind === 'CANCEL') h += '<button class="wa-btn light sm" onclick="WmsAlerts.page(\'cancel-autopilot\')"><i class="fas fa-robot"></i> Open Cancellation autopilot</button>';
+        if (kind === 'CANCEL') h += (list.length && window.WmsAutopilot ? '<button class="wa-btn red sm" ' + (st.busy.cancel ? 'disabled' : '') + ' onclick="WmsAlerts.cancelNow()" title="Run the cancellation autopilot for this date now: every order is read live again and only the lines still Scheduled / Manual Reservation are cancelled in Fusion"><i class="fas fa-ban"></i> ' + (st.busy.cancel ? 'Cancelling…' : 'Cancel these ' + r.summary.CANCEL.n + ' lines now') + '</button>' : '') + '<button class="wa-btn light sm" onclick="WmsAlerts.page(\'cancel-autopilot\')"><i class="fas fa-robot"></i> Open Cancellation autopilot</button>';
         if (kind === 'PICKER') h += '<span style="font-size:12px;color:#64748b;">Open the trip to assign a picker</span>';
         if (kind === 'MRA') { var open_ = list.filter(function (it) { return it.status !== 'SUCCESS' && it.status !== 'ALREADY_DONE' && !st.live[it.key]; }); h += '<button class="wa-btn sm" ' + (open_.length ? '' : 'disabled') + ' onclick="WmsAlerts.mra()"><i class="fas fa-paper-plane"></i> Interface all ' + open_.length + '</button><button class="wa-btn light sm" onclick="WmsAlerts.page(\'mra-interface\')"><i class="fas fa-file-invoice"></i> Open MRA Interface</button>'; }
         if (kind === 'ERROR') h += '<span style="font-size:12px;color:#64748b;">A main line cancelled while its BOGO free item / sub-line is still open or closed — fix the lines in the order dialog</span>';
@@ -447,8 +448,25 @@
         new MutationObserver(function () { var p = curInstance(); if (p !== st.pod) { st.pod = p; paintBtn(); if (st.open) { render(); if (!current()) showDate(st.view.date); } } }).observe(el, { childList: true, characterData: true, subtree: true });
     })();
 
+    /** The autopilot run for the date on screen (kill switch, lease, live re-check, PATCH, ledger, audit — all the autopilot's), then the date is checked again. */
+    function cancelNow() {
+        var r = current(); if (!r || !window.WmsAutopilot || st.busy.cancel) return Promise.resolve();
+        var n = r.summary.CANCEL.n; if (!n) return Promise.resolve();
+        if (!window.confirm('Cancel the ' + n + ' pending line' + (n === 1 ? '' : 's') + ' of ' + dayWord(r.date) + ' on ' + st.pod + ' in Fusion now?\n\nEvery order is read live first; only lines still Scheduled / Manual Reservation are sent (OUT OF STOCK).')) return Promise.resolve();
+        st.busy.cancel = true; render();
+        try { window.WmsAutopilot.state.pod = st.pod; } catch (e) {}
+        return Promise.resolve(window.WmsAutopilot.run({ dates: [r.date] })).then(function (sum) {
+            if (sum && typeof sum === 'object' && 'done' in sum) note('Autopilot: ' + sum.done + ' line(s) cancelled, ' + sum.failed + ' failed.', sum.failed ? 'warning' : 'success');
+        }, function (e) { note('Autopilot: ' + (e && e.message || e), 'error'); }).then(function () { st.busy.cancel = false; return search(r.date); });
+    }
     window.WmsAlerts = {
-        open: open, close: close, check: function () { return runAuto(true); }, search: search, show: showDate,
+        open: open, close: close, check: function () { return runAuto(true); }, search: search, show: showDate, cancelNow: cancelNow,
+        /** The findings of a date for another script (the toolbar's pending-cancellations icon): memory, else this PC's DuckDB → {summary, at, src} | null. */
+        counts: function (date) {
+            var pod = curInstance(), k = keyOf(pod, date || today());
+            if (st.last[k]) return Promise.resolve({ summary: st.last[k].summary, at: st.last[k].at, src: st.last[k].src });
+            return loadDate(pod, date || today()).then(function (r) { if (r) { st.last[k] = r; return { summary: r.summary, at: r.at, src: 'db' }; } return null; }).catch(function () { return null; });
+        },
         trip: openTrip, order: openOrder, mra: mraRun, csv: csv,
         history: function (order) { close(); if (window.MraInterface && typeof window.MraInterface.history === 'function') window.MraInterface.history(order, st.pod); },
         page: function (id) { close(); if (typeof window.navigateToPage === 'function') window.navigateToPage(id); },

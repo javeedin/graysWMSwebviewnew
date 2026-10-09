@@ -676,9 +676,13 @@
                         t.raw.forEach(function (r, i) { orderRows.push({ pod: inst, trip_id: t.trip_id, trip_date: t.date, order_number: orderOf(r), seq: i, raw_json: JSON.stringify(r), read_at: at }); });
                     });
                     var scope = { pod: inst, trip_date: dates };
-                    DB.put('w2_mri_orders', scope, orderRows, true);          // empty = the dates' old rows go, nothing comes
-                    DB.put('w2_mri_trips', scope, tripRows, true);
-                    DB.put('w2_mri_days', scope, dates.map(function (d) { return { pod: inst, trip_date: d, n_trips: trips.filter(function (t) { return t.date === d; }).length, read_at: at }; }));
+                    // the read is "kept" only once the three writes are done — a caller (the toolbar search, the alerts) that
+                    // queries DuckDB right after this must find the rows (w2Put and w2Queries are separate host calls)
+                    return Promise.all([
+                        DB.put('w2_mri_orders', scope, orderRows, true),      // empty = the dates' old rows go, nothing comes
+                        DB.put('w2_mri_trips', scope, tripRows, true),
+                        DB.put('w2_mri_days', scope, dates.map(function (d) { return { pod: inst, trip_date: d, n_trips: trips.filter(function (t) { return t.date === d; }).length, read_at: at }; }))
+                    ]).then(function () { return trips; });
                 }
                 return trips;
             });

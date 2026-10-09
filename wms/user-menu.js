@@ -1,7 +1,7 @@
 // ============================================================================
 // USER MENU — one avatar at the right end of the header; a click opens a popup with everything the old toolbar spread out:
 // who is signed in and since when, the instance (PROD / TEST switch inside the WMS, read-only on Home), the Fusion
-// integration-user check, Home / Refresh / Logout. Shared by wms/index.html (mode "wms") and Home/index.html (mode "home").
+// integration-user check, Refresh / Logout (Home is an icon on the toolbar). Shared by wms/index.html (mode "wms") and Home/index.html (mode "home").
 // The ids the other scripts write to keep living inside the popup, so nothing else changes: #logged-in-username,
 // #login-datetime, #current-instance-display (+ -mini), #integration-user-badge / #integration-user-icon, and the WMS's own
 // selectInstance() still does the switching. window.USER_MENU = { mode, mount } configures it before this script loads.
@@ -69,7 +69,7 @@
             '<div class="um-sec um-row"><span class="um-lbl">Instance</span><div class="um-seg"><button type="button" data-inst="PROD"><i class="fas fa-check"></i>PROD</button><button type="button" data-inst="TEST" class="test"><i class="fas fa-check"></i>TEST</button></div>' +
             '<span id="current-instance-display" class="um-hidden">PROD</span><span id="current-instance-display-mini" class="um-hidden"></span></div>' +
             '<div class="um-sec um-row"><span class="um-lbl">Fusion integration user</span><span id="integration-user-badge" title="Checking Fusion Integration user..." style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:#64748b;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:12px;padding:3px 10px;cursor:default;"><i id="integration-user-icon" class="fas fa-circle-notch fa-spin" style="color:#94a3b8;"></i> Integration User</span></div>' +
-            '<div class="um-actions"><button type="button" class="primary" onclick="navigateToHome()"><i class="fas fa-home"></i> Home</button><button type="button" onclick="window.location.reload()" title="Refresh this page"><i class="fas fa-sync-alt"></i> Refresh</button><button type="button" class="danger" onclick="handleLogout()"><i class="fas fa-sign-out-alt"></i> Logout</button></div>' +
+            '<div class="um-actions"><button type="button" onclick="window.location.reload()" title="Refresh this page"><i class="fas fa-sync-alt"></i> Refresh</button><button type="button" class="danger" onclick="handleLogout()"><i class="fas fa-sign-out-alt"></i> Logout</button></div>' +
             '<div class="um-foot"><span>Gray\'s WMS' + (version() ? ' · ' + esc(version()) : '') + '</span><span id="um-foot-right"></span></div>';
     }
     function homeHtml() {

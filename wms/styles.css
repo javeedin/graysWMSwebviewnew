@@ -5051,7 +5051,8 @@ input:checked + .toggle-slider:before {
 }
 /* icons that were grey / indigo on the light header */
 .header .fa-user-circle { color: rgba(255,255,255,0.9) !important; }
-.header button .fa-wave-square, .header button .fa-bell { color: #cbd5e1 !important; }
+.header button .fa-wave-square, .header button .fa-bell, .header button .fa-home, .header button .fa-clipboard-list { color: #cbd5e1 !important; }
+.header button:hover .fa-home, .header button:hover .fa-clipboard-list { color: #fff !important; }
 
 /* Logo text and icon */
 .logo { color: white !important; }

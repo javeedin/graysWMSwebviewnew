@@ -20,6 +20,8 @@
     <link rel="stylesheet" href="pending-cancel.css">
     <link rel="stylesheet" href="alerts.css">
     <link rel="stylesheet" href="user-menu.css">
+    <link rel="stylesheet" href="debrief.css">
+    <link rel="stylesheet" href="toolbar.css">
     <style>
         /* Hide body content until login is verified */
         body.auth-pending {
@@ -77,6 +79,8 @@
         console.log('[DevExpress] License configured');
     </script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script>
@@ -102,6 +106,16 @@
         <!-- Right side: activity log · alerts (added by alerts.js) · bell · the avatar. Who is signed in, since when, the instance
              switch, the Fusion integration-user check, Home / Refresh / Logout all live in the avatar's popup (wms/user-menu.js). -->
         <div style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem;">
+            <!-- Home (back on the toolbar) and the Day debrief -->
+            <div style="position:relative;">
+                <button id="wms-home-btn" onclick="navigateToHome()" title="Home" style="background:none;border:none;cursor:pointer;padding:0.4rem;color:#64748b;font-size:1.25rem;position:relative;transition:color 0.2s;"
+                    onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#64748b'"><i class="fas fa-home"></i></button>
+            </div>
+            <div style="position:relative;">
+                <button id="wms-debrief-btn" onclick="window.WmsDebrief && WmsDebrief.open()" title="Day debrief — the whole day on one page, with a PDF" style="background:none;border:none;cursor:pointer;padding:0.4rem;color:#64748b;font-size:1.25rem;position:relative;transition:color 0.2s;"
+                    onmouseover="this.style.color='#fff'" onmouseout="this.style.color='#64748b'"><i class="fas fa-clipboard-list"></i></button>
+            </div>
+
             <!-- Activity Log viewer -->
             <div style="position:relative;">
                 <button id="wms-actlog-btn" onclick="window.WMSActivity && WMSActivity.openLogViewer()" title="Activity Log — what is being captured"
@@ -8597,6 +8611,9 @@
         document.write('<script src="page-tabs.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="alert-rules.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="alerts.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="debrief-engine.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="debrief.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="toolbar.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 
     <!-- Login Session Handler -->
