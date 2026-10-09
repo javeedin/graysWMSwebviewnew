@@ -1807,6 +1807,14 @@ navPanel.Controls.Add(wmsDevButton);
                                     if (!CloseTabOf(wv) && wv.CoreWebView2.CanGoBack) wv.CoreWebView2.GoBack();
                                     break;
 
+                                case "saveFileAs":              // a page's own file (e.g. the Day debrief PDF) → Save dialog (Form1_FileSaveHandlers.cs)
+                                    await HandleSaveFileAs(wv, root, requestId);
+                                    break;
+
+                                case "revealFile":              // Explorer with a file saveFileAs wrote selected
+                                    HandleRevealFile(root);
+                                    break;
+
                                 case "executeOracleFusionPost":
                                     await HandleOracleFusionPostRequest(wv, messageJson, requestId);
                                     break;

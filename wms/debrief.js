@@ -170,7 +170,7 @@
         st.open = true; st.err = ''; render();
         if (!current()) showDate(st.date);
     }
-    function close() { st.open = false; destroyChart(); var d = document.getElementById('dbf-dlg'); if (d) d.remove(); }
+    function close() { st.open = false; closePdf(); destroyChart(); var d = document.getElementById('dbf-dlg'); if (d) d.remove(); }
     function showDate(date) {
         st.date = date; st.err = '';
         if (current()) { render(); return Promise.resolve(); }
@@ -377,13 +377,73 @@
         // page numbers
         var pages = doc.internal.getNumberOfPages();
         for (var p = 1; p <= pages; p++) { doc.setPage(p); doc.setFontSize(8); doc.setTextColor(148, 163, 184); doc.text('Gray\'s WMS · Day debrief · ' + m.dayWord + ' · ' + m.pod, M, H - 18); doc.text('Page ' + p + ' of ' + pages, W - M, H - 18, { align: 'right' }); }
-        doc.save('day-debrief-' + m.pod + '-' + m.date + '.pdf');
-        note('PDF saved.', 'success');
+        showPdf(doc, 'day-debrief-' + m.pod + '-' + m.date + '.pdf');
         return doc;
     }
 
+    // ─── the PDF viewer: inside the app, with its own Save / Print / Close ───────────────────────────────────────────
+    // jsPDF's own save() hands a blob: download to the host, and this app's WebView2 opened it as a bare new tab with no
+    // way back. So the PDF is shown here, in an overlay over the debrief: Chromium's viewer in an iframe, a bar with the
+    // file name, Save PDF (host `saveFileAs` → a Save dialog; without the host the browser download), Print and ✕ / Esc.
+    var PV = { url: null, blob: null, name: '', saved: '' };
+    function fmtBytes(n) { return n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; }
+    function showPdf(doc, name) {
+        closePdf();
+        var blob; try { blob = doc.output('blob'); } catch (e) { note('Could not build the PDF: ' + (e && e.message || e), 'error'); return; }
+        var pages = 0; try { pages = doc.internal.getNumberOfPages(); } catch (e) {}
+        PV.blob = blob; PV.name = name; PV.saved = ''; PV.url = URL.createObjectURL(blob);
+        var ov = document.createElement('div'); ov.id = 'dbf-pdfv'; ov.className = 'dbf-pdfv';
+        ov.innerHTML = '<div class="dbf-pdfbar"><i class="fas fa-file-pdf"></i><b>' + esc(name) + '</b><span class="dbf-pdfn">' + (pages ? pages + ' page' + (pages === 1 ? '' : 's') + ' · ' : '') + fmtBytes(blob.size) + '</span><span id="dbf-pdf-saved" class="dbf-pdfsaved"></span><span class="sp"></span>' +
+            '<button class="dbf-btn" id="dbf-pdf-save" title="Save the PDF where you choose"><i class="fas fa-download"></i> Save PDF</button>' +
+            '<button class="dbf-btn light" id="dbf-pdf-print" title="Print the PDF"><i class="fas fa-print"></i> Print</button>' +
+            '<button class="dbf-x" id="dbf-pdf-close" title="Close the PDF (Esc)">✕</button></div>' +
+            '<iframe class="dbf-pdfframe" src="' + PV.url + '#view=FitH" title="' + esc(name) + '"></iframe>' +
+            '<div class="dbf-pdfhint">Shown inside the app. <b>Save PDF</b> keeps a copy where you choose · <b>Close</b> (or Esc) returns to the debrief.</div>';
+        document.body.appendChild(ov);
+        ov.querySelector('#dbf-pdf-close').onclick = closePdf;
+        ov.querySelector('#dbf-pdf-print').onclick = printPdf;
+        ov.querySelector('#dbf-pdf-save').onclick = savePdf;
+        try { ov.querySelector('#dbf-pdf-save').focus(); } catch (e) {}
+    }
+    function closePdf() {
+        var ov = document.getElementById('dbf-pdfv'); if (ov) ov.remove();
+        if (PV.url) { try { URL.revokeObjectURL(PV.url); } catch (e) {} }
+        PV.url = null; PV.blob = null;
+    }
+    function printPdf() {
+        var f = document.querySelector('#dbf-pdfv iframe');
+        try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { printView(); }
+    }
+    /** Save PDF: the host's Save dialog (saveFileAs), else the browser's own download. */
+    function savePdf() {
+        if (!PV.blob) return;
+        var btn = document.getElementById('dbf-pdf-save'), tag = document.getElementById('dbf-pdf-saved');
+        if (!hosted()) { var a = document.createElement('a'); a.href = PV.url; a.download = PV.name; document.body.appendChild(a); a.click(); a.remove(); note('PDF downloaded.', 'success'); return; }
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving…'; }
+        var done = function () { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-download"></i> Save PDF'; } };
+        var rd = new FileReader();
+        rd.onerror = function () { done(); note('Could not read the PDF for saving.', 'error'); };
+        rd.onload = function () {
+            var b64 = String(rd.result || '').split(',')[1] || '';
+            sendMessageToCSharp({ action: 'saveFileAs', fileName: PV.name, base64: b64, filter: 'PDF files (*.pdf)|*.pdf|All files (*.*)|*.*', title: 'Save the day debrief' }, function (err, data) {
+                done();
+                if (err) { note('Could not save the PDF: ' + (err.message || err), 'error'); return; }
+                var d = typeof data === 'string' ? (function () { try { return JSON.parse(data); } catch (e) { return {}; } })() : (data || {});
+                if (d.cancelled) return;
+                if (!d.ok) { note('Could not save the PDF: ' + (d.error || 'the host did not save it'), 'error'); return; }
+                PV.saved = d.path || '';
+                if (tag) tag.innerHTML = '<i class="fas fa-check"></i> saved · <span title="' + esc(PV.saved) + '">' + esc(PV.saved.split(/[\\/]/).pop()) + '</span> <a onclick="WmsDebrief.reveal()">Show in folder</a>';
+                note('PDF saved: ' + PV.saved, 'success');
+            }, 15 * 60000, false);
+        };
+        rd.readAsDataURL(PV.blob);
+    }
+    function revealSaved() { if (PV.saved && hosted()) sendMessageToCSharp({ action: 'revealFile', path: PV.saved }, function () {}, 5000, false); }
+    // Esc closes the PDF first (capture phase, so the debrief behind it stays open)
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && document.getElementById('dbf-pdfv')) { e.stopPropagation(); e.preventDefault(); closePdf(); } }, true);
+
     window.WmsDebrief = {
-        open: open, close: close, show: showDate, build: rebuild, pdf: pdf, print: printView, copy: copyText,
+        open: open, close: close, show: showDate, build: rebuild, pdf: pdf, print: printView, copy: copyText, closePdf: closePdf, savePdf: savePdf, reveal: revealSaved,
         trip: function (tripId) { var m = current(), t = m && m.trips.filter(function (x) { return String(x.trip_id) === String(tripId); })[0]; if (typeof window.openTripDetails !== 'function') return; close(); if (typeof window.navigateToPage === 'function') window.navigateToPage('trip-management'); try { window.openTripDetails(String(tripId), m ? m.date : st.date, t ? t.lorry : '', st.pod, t ? t.bay : '', t ? t.priority : ''); } catch (e) { note('Could not open trip ' + tripId + ': ' + (e && e.message || e), 'error'); } },
         html: function () { var m = current(); return m ? printHtml(m) : ''; },
         state: function () { return { pod: st.pod, date: st.date, open: st.open, busy: st.busy, step: st.step, err: st.err, model: current(), db: DB.host }; }
