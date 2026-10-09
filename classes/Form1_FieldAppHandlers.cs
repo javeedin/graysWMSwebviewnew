@@ -45,7 +45,8 @@ namespace WMSApp
                     {
                         bool admin = await AiControl.IsAdminAsync(user);
                         var k = FieldAppsLoadKeys(create: admin && PBool(root, "create"));
-                        data = k == null ? new { ok = true, admin, exists = false } : new { ok = true, admin, exists = true, keyId = k.Value.KeyId, spki = k.Value.Spki, created = k.Value.Created };
+                        if (k == null) data = new { ok = true, admin, exists = false, keyId = (string)null, spki = (string)null, created = (string)null };
+                        else data = new { ok = true, admin, exists = true, keyId = k.Value.KeyId, spki = k.Value.Spki, created = k.Value.Created };
                         break;
                     }
                     case "fieldAppSign":
