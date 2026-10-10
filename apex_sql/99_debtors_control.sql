@@ -1,5 +1,6 @@
 -- ============================================================================
 -- 99  Fusion Debtors Control — statements, who got them, and the customer CRM
+-- Tip: the page creates all of this itself — Setup › Database objects › Create missing (APEX execute API).
 -- ============================================================================
 -- The page (debtors/index.html) creates the tables on first use (debtors/dc-store.js S.DDL); Setup › Customer links
 -- creates parts 3–5 through ai/executewrite. Run this script in SQL Developer when that is not allowed.

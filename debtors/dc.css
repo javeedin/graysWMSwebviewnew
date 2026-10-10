@@ -171,3 +171,24 @@ textarea.code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size
 .trail { max-height: 70vh; overflow: auto; }
 .trail .tr { border-left: 2px solid var(--line); padding: 2px 0 10px 12px; position: relative; }
 .trail .tr::before { content: ''; position: absolute; left: -6px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--pri); }
+
+/* ── the check workbench (full-screen panel over the page) ── */
+.wb { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 900; display: none; }
+.wb.on { display: flex; }
+.wb-in { margin: 14px; flex: 1; background: var(--bg); border-radius: 14px; box-shadow: 0 20px 60px rgba(2,6,23,.35); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.wb-top { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: var(--top); color: #fff; flex: none; }
+.wb-top .btn { background: rgba(255,255,255,.12); color: #fff; border-color: transparent; }
+.wb-top .crumbs { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.wb-top .crumbs a { color: #e0f2f1; font-weight: 600; } .wb-top .crumbs a.cur { color: #fff; font-weight: 800; }
+.wb-top .crumbs i { opacity: .6; font-size: 11px; }
+.wb-body { flex: 1; overflow: auto; padding: 16px; min-height: 0; }
+.wb-head { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; margin-bottom: 12px; }
+.wb-grid { max-height: calc(100vh - 360px); }
+.wb-grid tr.flt th { position: sticky; top: 31px; background: var(--card); padding: 4px 6px; }
+.wb-grid tr.flt input { width: 100%; min-width: 70px; min-height: 26px; padding: 2px 6px; font-size: 12px; }
+.wb-grid tfoot td { position: sticky; bottom: 0; background: var(--soft); border-top: 2px solid var(--line); }
+.chips { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 4px 0 8px; }
+.chip { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: 2px 8px; font-size: 12px; display: inline-flex; gap: 6px; align-items: center; }
+.chip.on { border-color: var(--pri); box-shadow: 0 0 0 2px rgba(15,118,110,.2); }
+.lnk { border: 0; background: transparent; color: var(--acc); padding: 0 2px; font-size: 11px; cursor: pointer; }
+.lnk:hover { color: var(--pri); }

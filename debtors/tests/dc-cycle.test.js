@@ -14,7 +14,10 @@ const ids = E.CHECKS.map(c => c.id);
 check('checklist: unapplied receipts, AR not accounted, OM not billed, OM vs AR, e-mails', ['UNAPPLIED_RECEIPTS', 'AR_NOT_ACCOUNTED', 'OM_NOT_BILLED', 'OM_AR_AMOUNTS', 'NO_EMAIL', 'BAD_EMAIL'].every(i => ids.indexOf(i) >= 0));
 check('checklist: every SQL fills without unknown placeholders', E.CHECKS.filter(c => c.kind === 'SQL').every(c => E.unknownVars(c.sql, v).length === 0), E.CHECKS.filter(c => c.kind === 'SQL').map(c => [c.id, E.unknownVars(c.sql, v)]).filter(x => x[1].length));
 check('checklist: the BU and the date reach the SQL', E.fill(E.CHECKS[0].sql, v, 'sql').indexOf('ps.org_id = 300000003234003') > 0 && E.fill(E.CHECKS[0].sql, v, 'sql').indexOf("TO_DATE('2026-09-30'") > 0);
-check('checklist: OM vs AR uses the month and the tolerance', /TO_DATE\('2026-09-01'/.test(E.fill(E.CHECKS.find(c => c.id === 'OM_AR_AMOUNTS').sql, v, 'sql')) && /> 5$/.test(E.fill(E.CHECKS.find(c => c.id === 'OM_AR_AMOUNTS').sql, v, 'sql')));
+const omar = E.fill(E.CHECKS.find(c => c.id === 'OM_AR_AMOUNTS').sql, v, 'sql');
+check('checklist: OM vs AR per customer × order, the month, the tolerance, the accounting status', /TO_DATE\('2026-09-01'/.test(omar) && /> 5\)\n/.test(omar) && /'Y' = 'N' OR/.test(omar) && /order_number/.test(omar) && /om_amount/.test(omar) && /ar_amount/.test(omar) && /acct_status/.test(omar) && /FULL OUTER JOIN/.test(omar));
+check('checklist: "every order of the month" = the same SQL with ONLY_DIFF N', /'N' = 'N' OR/.test(E.fill(E.CHECKS.find(c => c.id === 'OM_AR_AMOUNTS').sql, Object.assign({}, v, { ONLY_DIFF: 'N' }), 'sql')));
+check('checklist: AR accounted + transferred to GL, with customer and source ids', ['AR_NOT_ACCOUNTED', 'AR_NOT_IN_GL'].every(id => { const q = E.CHECKS.find(c => c.id === id).sql; return /acct_status/.test(q) && /source_id/.test(q) && /account_number/.test(q); }));
 
 // local checks
 const custs = [
@@ -80,11 +83,31 @@ const stm = [
 const cov = E.coverage(rows, stm).counts;
 check('coverage: the latest try counts (resend over a failure), NONE is not due', cov.customers === 5 && cov.deliverable === 4 && cov.emailed === 1 && cov.posted === 1 && cov.failed === 1 && cov.notSent === 1 && cov.agreed === 1 && cov.pct === 50, cov);
 let s = E.cycleSteps({ STATUS: 'OPEN' });
-check('steps: a new cycle starts on the checklist, the rest locked', s.active === 'checks' && s.steps.map(x => x.state).join() === 'active,locked,locked,locked,locked');
+check('steps: a new cycle starts on the checklist, every other step may be opened', s.active === 'checks' && s.steps.map(x => x.state).join() === 'active,open,open,open,open');
 s = E.cycleSteps({ STATUS: 'READY', CHECKS_AT: 'x', SNAP_AT: 'x', REVIEW_AT: 'x' });
 check('steps: after the statement check, send is next and close may be used', s.active === 'send' && s.steps[3].state === 'active' && s.steps[4].state === 'open');
 s = E.cycleSteps({ STATUS: 'CLOSED', CHECKS_AT: 'x' });
 check('steps: a closed cycle is done everywhere', s.closed && s.steps.every(x => x.state === 'done'));
+
+
+// drill-down + links
+const dr = E.rowDrill({ ACCOUNT_NUMBER: '1001', ORDER_NUMBER: '78326003965', HEADER_ID: '300000123', AMOUNT: 10 });
+check('rowDrill: an order row opens the order', dr.kind === 'ORDER' && dr.key === 'ORDER:78326003965' && dr.vars.HEADER_ID === '300000123');
+check('rowDrill: an accounting row opens its transaction / receipt by source id', E.rowDrill({ KIND: 'TRANSACTIONS', SOURCE_ID: '55', TRX_NUMBER: 'INV1' }).key === 'TRX:55' && E.rowDrill({ KIND: 'RECEIPTS', SOURCE_ID: '77' }).key === 'RECEIPT:77' && E.rowDrill({ CASH_RECEIPT_ID: '9', RECEIPT_NUMBER: 'R9' }).kind === 'RECEIPT' && E.rowDrill({ X: 1 }) === null);
+const osql = E.drillSql(E.DRILLS.ORDER.parts[0], { ORDER_NUMBER: "78'1" }, bu);
+check('drillSql: the order number quoted and escaped, the BU filled, ids digits only', /order_number = '78''1'/.test(osql) && /org_id = 300000003234003/.test(osql) && /= 0$/m.test(E.drillSql(E.DRILLS.TRX.parts[0], { TRX_ID: '1; DROP' }, bu)));
+check('drills: order → OM lines, AR lines with accounting status, AutoInvoice, events; trx → journal lines', E.DRILLS.ORDER.parts.map(p => p.id).join() === 'om,ar,ai,ev' && /acct_status/.test(E.DRILLS.ORDER.parts[1].sql) && /xla_ae_lines/.test(E.DRILLS.TRX.parts[3].sql) && /ar_receivable_applications_all/.test(E.DRILLS.RECEIPT.parts[1].sql));
+check('cellLink: order number, transaction (by its id), customer', E.cellLink('ORDER_NUMBER', { ORDER_NUMBER: '5', HEADER_ID: '9' }).fusion === 'ORDER' && E.cellLink('TRX_NUMBER', { TRX_NUMBER: 'I1', CUSTOMER_TRX_ID: '8' }).open.key === 'TRX:8' && E.cellLink('TRX_NUMBER', { TRX_NUMBER: 'I1' }) === null && E.cellLink('ACCOUNT_NUMBER', { ACCOUNT_NUMBER: '1' }).customer === '1');
+check('fusionUrl: Oracle\'s sales order deep link by HeaderId, else by OrderNumber', E.fusionUrl('ORDER', { id: '300000123', number: '78' }, 'https://x.fa.oraclecloud.com/') === 'https://x.fa.oraclecloud.com/fndSetup/faces/deeplink?objType=SALES_ORDER&action=VIEW&objKey=HeaderId=300000123' && /objKey=OrderNumber=78$/.test(E.fusionUrl('ORDER', { number: '78' }, 'https://x.fa.oraclecloud.com')));
+check('fusionUrl: no template for a transaction = no link; a template from Setup is used; http refused', E.fusionUrl('TRX', { id: '5' }, 'https://x') === null && E.fusionUrl('TRX', { id: '5', number: 'I 1' }, 'https://x', { TRX: '{BASE}/t?id={ID}&n={NUMBER}' }) === 'https://x/t?id=5&n=I%201' && E.fusionUrl('ORDER', { id: '1' }, 'http://x') === null);
+const gs = E.gridSummary([{ OM_AMOUNT: '10', AR_AMOUNT: '4', AMOUNT: '6', ACCT_STATUS: 'Accounted' }, { OM_AMOUNT: '5', AR_AMOUNT: '0', AMOUNT: '5', ACCT_STATUS: 'No invoice' }, { OM_AMOUNT: '1', AR_AMOUNT: '1', AMOUNT: '0', ACCT_STATUS: 'Accounted' }], ['OM_AMOUNT', 'AR_AMOUNT', 'AMOUNT', 'ACCT_STATUS']);
+check('gridSummary: OM / AR / difference totals and the accounting status counts', gs.sums.OM_AMOUNT === 16 && gs.sums.AR_AMOUNT === 5 && gs.sums.AMOUNT === 11 && gs.counts.ACCT_STATUS.Accounted === 2);
+// send plan
+const plan = E.sendPlan(checks, { A: { status: 'PASS' }, B: { status: 'FAIL', rows: 3 }, C: { status: 'FAIL', rows: 1 } }, { STATUS: 'OPEN' });
+check('sendPlan: blocking failures and checks not run must be bypassed; warnings listed; archive and review still to do', plan.bypass.map(x => x.id + ':' + x.state).join() === 'B:3 found' && plan.warnings.join() === 'C' && plan.archive && plan.review && !plan.ready);
+const plan2 = E.sendPlan(checks, { A: { status: 'PASS' } }, { SNAP_AT: 'x', REVIEW_AT: 'x' });
+check('sendPlan: a check never run is listed as not run', plan2.bypass.map(x => x.id + ':' + x.state).join() === 'B:not run,C:not run');
+check('sendPlan: everything done → ready', E.sendPlan(checks, { A: { status: 'PASS' }, B: { status: 'PASS' }, C: { status: 'FAIL', rows: 2 } }, { SNAP_AT: 'x', REVIEW_AT: 'y' }).ready);
 
 console.log(bad ? 'FAILED ' + bad + ' of ' + n + ' statement cycle checks' : 'ok ' + n + ' statement cycle checks');
 process.exit(bad ? 1 : 0);

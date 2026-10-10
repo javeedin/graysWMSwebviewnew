@@ -18,6 +18,60 @@
 
     var C = DC.cycles = { list: null, open: null, cy: null, results: {}, checks: null, cust: null, bal: null, stmts: null, events: null, sql: null, prevSql: null, snap: null, step: null, f: { bu: ls('cy.bu', ''), state: '' }, running: false };
 
+    // ── this PC's copy (DuckDB w2_dc_*, through the WMS 2.0 file): a cycle opens from here at once; APEX is read after ──
+    var L = DC.local = {
+        saveCycle: function () {
+            if (!C.cy) return Promise.resolve();
+            return S.duck.put('w2_dc_cycles', { cycle_id: [C.cy.CYCLE_ID] }, [{ cycle_id: C.cy.CYCLE_ID, pod: C.cy.POD, json: JSON.stringify({ cy: C.cy, events: C.events || [] }), saved_at: new Date().toISOString() }]);
+        },
+        saveChecks: function () {
+            if (!C.cy) return Promise.resolve();
+            var id = C.cy.CYCLE_ID, rows = Object.keys(C.results).filter(function (k) { var r = C.results[k]; return r && r.status && r.status !== 'RUNNING'; }).map(function (k) {
+                var r = C.results[k];
+                return { cycle_id: id, check_id: k, status: r.status, rows_n: r.rows, amount: r.amount, ms: r.ms, error_text: r.error, ran_at: r.ranAt, ran_by: r.ranBy, bypass_note: r.bypassNote, bypass_by: r.bypassBy, bypass_at: r.bypassAt, sql_text: r.sql, truncated: r.truncated ? 'Y' : '', saved_at: new Date().toISOString() };
+            });
+            return S.duck.put('w2_dc_checks', { cycle_id: [id] }, rows);
+        },
+        saveRows: function (checkId, variant, rows) {
+            var id = C.cy.CYCLE_ID;
+            return S.duck.put('w2_dc_check_rows', { cycle_id: [id], check_id: [checkId], variant: [variant] }, (rows || []).map(function (r, i) { return { cycle_id: id, check_id: checkId, variant: variant, seq: i, row_json: JSON.stringify(r) }; }));
+        },
+        rows: function (checkId, variant) {
+            if (!C.cy) return Promise.resolve([]);
+            return S.duck.qs(['SELECT row_json FROM w2_dc_check_rows WHERE cycle_id = ' + S.duck.lit(C.cy.CYCLE_ID) + ' AND check_id = ' + S.duck.lit(checkId) + ' AND variant = ' + S.duck.lit(variant) + ' ORDER BY CAST(seq AS INTEGER)'])
+                .then(function (r) { return r[0].map(function (x) { try { return JSON.parse(x.row_json); } catch (e) { return {}; } }); });
+        },
+        saveCust: function (list, info) {
+            var id = C.cy.CYCLE_ID, at = info && info.readAt || new Date().toISOString();
+            return S.duck.put('w2_dc_cust', { cycle_id: [id] }, (list || []).map(function (c, i) { return { cycle_id: id, seq: i, account: c.account, json: JSON.stringify(c), read_at: at }; }));
+        },
+        saveDrill: function (cid, key, part, rows, sql) {
+            return S.duck.put('w2_dc_drill', { cycle_id: [cid], dkey: [key], part: [part] }, (rows.length ? rows : [null]).map(function (r, i) { return { cycle_id: cid, dkey: key, part: part, seq: i, row_json: r ? JSON.stringify(r) : '', sql_text: i ? '' : sql, read_at: new Date().toISOString() }; }));
+        },
+        drill: function (cid, key) {
+            return S.duck.qs(['SELECT part, row_json, read_at FROM w2_dc_drill WHERE cycle_id = ' + S.duck.lit(cid) + ' AND dkey = ' + S.duck.lit(key) + ' ORDER BY part, CAST(seq AS INTEGER)']).then(function (r) {
+                var out = {};
+                r[0].forEach(function (x) { var o = out[x.part] = out[x.part] || { rows: [], at: x.read_at }; if (x.row_json) { try { o.rows.push(JSON.parse(x.row_json)); } catch (e) { } } });
+                return out;
+            });
+        },
+        /** the cycle as kept on this PC → {cy, events, results, cust, custAt} or null */
+        load: function (id) {
+            var k = S.duck.lit(id);
+            return S.duck.qs(['SELECT json, saved_at FROM w2_dc_cycles WHERE cycle_id = ' + k, 'SELECT * FROM w2_dc_checks WHERE cycle_id = ' + k,
+                'SELECT json, read_at FROM w2_dc_cust WHERE cycle_id = ' + k + ' ORDER BY CAST(seq AS INTEGER)']).then(function (r) {
+                if (!r[0].length) return null;
+                var j = {}; try { j = JSON.parse(r[0][0].json); } catch (e) { return null; }
+                var res = {};
+                r[1].forEach(function (x) { res[x.check_id] = { status: x.status, rows: x.rows_n === '' ? null : x.rows_n, amount: x.amount === '' ? null : x.amount, ms: x.ms, error: x.error_text || null, ranAt: x.ran_at, ranBy: x.ran_by, bypassNote: x.bypass_note || null, bypassBy: x.bypass_by, bypassAt: x.bypass_at, sql: x.sql_text, truncated: x.truncated === 'Y' }; });
+                var cust = r[2].map(function (x) { try { return JSON.parse(x.json); } catch (e) { return null; } }).filter(Boolean);
+                return { cy: j.cy, events: j.events || [], results: res, savedAt: r[0][0].saved_at, cust: cust.length ? cust : null, custAt: r[2].length ? r[2][0].read_at : null };
+            });
+        }
+    };
+    C.canRun = function () { return C.cy && !closed() && !((+C.cy.SENT_N || 0) + (+C.cy.POSTED_N || 0) > 0); };
+    C.runOne = function (id) { var x = C.defs().filter(function (c) { return c.id === id; })[0]; return x ? runMany([x]) : Promise.resolve(); };
+
     // ── the checklist definition: the starters, with the saved changes (WMS_DC_SETTINGS.CHECKS) on top ──
     C.defs = function () {
         var saved = C.saved || [], byId = {}, out = [];
@@ -45,21 +99,41 @@
         if (P.tab !== 'cycles') A.go('cycles'); else A.render();
         return loadCycle(id);
     };
-    function loadCycle(id) {
-        var end = A.busy('Opening the cycle…');
-        return Promise.all([S.cycle.get(id), S.cycle.checks(id), S.cycle.events(id), C.saved ? null : loadDefs()]).then(function (r) {
-            C.cy = r[0]; C.events = r[2]; C.results = {};
-            r[1].forEach(function (x) { C.results[x.CHECK_ID] = { status: x.STATUS, rows: x.ROWS_N, amount: x.AMOUNT, ms: x.MS, error: x.ERROR_TEXT, ranAt: x.RAN_AT, ranBy: x.RAN_BY, bypassNote: x.BYPASS_NOTE, bypassBy: x.BYPASS_BY, bypassAt: x.BYPASS_AT }; });
-            if (!C.cy) { end(); A.toast('The cycle is gone', 'bad'); C.open = null; A.render(); return; }
-            var more = [];
-            if (C.cy.SNAP_AT) more.push(S.cycle.bal(id).then(function (b) { C.bal = b; }));
-            if (C.cy.SNAP_AT) more.push(S.stmt.search({ cycleId: id, limit: 50000 }).then(function (s) { C.stmts = s; }));
-            if (C.cy.STMT_SHA) more.push(S.cycle.sql(id).then(function (t) { C.sql = t; }));
-            return Promise.all(more).then(function () { end(); A.render(); });
-        }).catch(function (e) { end(); A.toast(A.errText(e), 'bad', 7000); });
+    function apexResults(rows) {
+        var out = {};
+        rows.forEach(function (x) { out[x.CHECK_ID] = { status: x.STATUS, rows: x.ROWS_N, amount: x.AMOUNT, ms: x.MS, error: x.ERROR_TEXT, ranAt: x.RAN_AT, ranBy: x.RAN_BY, bypassNote: x.BYPASS_NOTE, bypassBy: x.BYPASS_BY, bypassAt: x.BYPASS_AT }; });
+        return out;
     }
-    function event(ev, detail) { return S.cycle.event(C.cy.CYCLE_ID, ev, detail).then(function () { return S.cycle.events(C.cy.CYCLE_ID); }).then(function (r) { C.events = r; }); }
-    function setCycle(sets) { return S.cycle.set(C.cy.CYCLE_ID, sets).then(function () { return S.cycle.get(C.cy.CYCLE_ID); }).then(function (c) { C.cy = c; }); }
+    /** Open a cycle: this PC's copy first (checks, every row found, the balances read — no Fusion call), then APEX, which
+     *  wins where another PC ran or bypassed something since. Full rows of a check another PC ran newer are dropped here. */
+    function loadCycle(id) {
+        var end = A.busy('Opening the cycle…'), t0 = Date.now();
+        return Promise.all([L.load(id).catch(function () { return null; }), C.saved ? null : loadDefs()]).then(function (r) {
+            var loc = r[0];
+            if (loc && loc.cy && C.open === id) {
+                C.cy = loc.cy; C.events = loc.events; C.results = loc.results; C.src = { kind: 'pc', at: loc.savedAt, ms: Date.now() - t0 };
+                if (loc.cust && !C.cust) { C.cust = loc.cust; C.custInfo = { at: loc.custAt ? new Date(loc.custAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '', src: 'this PC', missing: [] }; }
+                A.render();
+            }
+            return Promise.all([S.cycle.get(id), S.cycle.checks(id), S.cycle.events(id)]).then(function (a) {
+                if (C.open !== id) return;
+                if (!a[0]) { end(); A.toast('The cycle is gone', 'bad'); C.open = null; A.render(); return; }
+                var ap = apexResults(a[1]), mine = C.results || {};
+                Object.keys(ap).forEach(function (k) {
+                    var m = mine[k];
+                    if (m && m.ranAt === ap[k].ranAt && m.status === ap[k].status) { ap[k].rowsAll = m.rowsAll; ap[k].sql = m.sql; ap[k].truncated = m.truncated; }
+                });
+                C.cy = a[0]; C.events = a[2]; C.results = ap; C.src = { kind: loc ? 'both' : 'apex', at: new Date().toISOString(), ms: Date.now() - t0 };
+                var more = [];
+                if (C.cy.SNAP_AT) more.push(S.cycle.bal(id).then(function (b) { C.bal = b; }));
+                if (C.cy.SNAP_AT) more.push(S.stmt.search({ cycleId: id, limit: 50000 }).then(function (s2) { C.stmts = s2; }));
+                if (C.cy.STMT_SHA) more.push(S.cycle.sql(id).then(function (t) { C.sql = t; }));
+                return Promise.all(more).then(function () { end(); A.render(); L.saveCycle(); L.saveChecks(); });
+            });
+        }).catch(function (e) { end(); A.toast(A.errText(e), 'bad', 7000); A.render(); });
+    }
+    function event(ev, detail) { return S.cycle.event(C.cy.CYCLE_ID, ev, detail).then(function () { return S.cycle.events(C.cy.CYCLE_ID); }).then(function (r) { C.events = r; L.saveCycle(); }); }
+    function setCycle(sets) { return S.cycle.set(C.cy.CYCLE_ID, sets).then(function () { return S.cycle.get(C.cy.CYCLE_ID); }).then(function (c) { C.cy = c; L.saveCycle(); }); }
     function closed() { return C.cy && C.cy.STATUS === 'CLOSED'; }
     function cycleObj() { return { stmtDate: C.cy.STMT_DATE, tolerance: C.cy.TOLERANCE != null && C.cy.TOLERANCE !== '' ? +C.cy.TOLERANCE : 1 }; }
     function profile(acct) { return A.profileOf(C.cy.BU_ID, acct); }
@@ -98,7 +172,7 @@
             '<button class="btn sm" data-act="cyPack" title="One HTML file with everything about this cycle — for the auditors"><i class="fas fa-file-shield"></i> Audit pack</button><button class="btn sm" data-act="cyReload"><i class="fas fa-rotate"></i></button></div>' +
             '<div class="stepper">' + steps.steps.map(function (s, i) {
                 var d = E.CYCLE_STEPS[i];
-                return '<button class="stp ' + s.state + (show === s.key ? ' cur' : '') + '" data-act="cyStep" data-k="' + s.key + '"' + (s.state === 'locked' ? ' disabled' : '') + '><span class="n">' + (s.state === 'done' ? '<i class="fas fa-check"></i>' : i + 1) + '</span><span><b>' + d.label + '</b><span class="small">' + stepNote(s.key) + '</span></span></button>';
+                return '<button class="stp ' + s.state + (show === s.key ? ' cur' : '') + '" data-act="cyStep" data-k="' + s.key + '"><span class="n">' + (s.state === 'done' ? '<i class="fas fa-check"></i>' : i + 1) + '</span><span><b>' + d.label + '</b><span class="small">' + stepNote(s.key) + '</span></span></button>';
             }).join('') + '</div></div>';
         h += '<div class="cols"><div>' + (show === 'checks' ? vChecks() : show === 'archive' ? vArchive() : show === 'review' ? vReview() : show === 'send' ? vSend() : vClose()) + '</div><div>' + vTrail() + '</div></div>';
         return h;
@@ -119,12 +193,13 @@
 
     // ── ① the checklist ──
     function vChecks() {
-        var defs = C.defs(), g = E.gate(defs, C.results), locked = !!C.cy.SNAP_AT || closed();
+        var defs = C.defs(), g = E.gate(defs, C.results), locked = !C.canRun();
         var h = '<div class="card"><h2><i class="fas fa-list-check"></i> Pre-send checklist<span class="sp"></span>' +
-            (locked ? pill('locked — the balances are archived', 'muted') : '<button class="btn sm" data-act="ckRunAll"' + (C.running ? ' disabled' : '') + '><i class="fas fa-play"></i> ' + (C.running ? 'Running…' : 'Run every check') + '</button>' + (g.blocking.length + g.warnings.length ? '<button class="btn sm" data-act="ckRunFailed"' + (C.running ? ' disabled' : '') + '>Run the failed again</button>' : '')) + '</h2>' +
-            '<div class="small muted" style="margin-bottom:10px">The same checks apply to every customer of the cycle. A <b>blocking</b> check must pass — or be bypassed with a comment saying why. Checks on customers use the balances read for this cycle.' + (C.cust ? ' <span class="pill info">' + C.cust.length + ' customers read</span>' : '') + '</div>' +
+            (locked ? pill(closed() ? 'locked — the cycle is closed' : 'locked — statements were sent', 'muted') : '<button class="btn sm" data-act="ckRunAll"' + (C.running ? ' disabled' : '') + '><i class="fas fa-play"></i> ' + (C.running ? 'Running…' : 'Run every check') + '</button>' + (g.blocking.length + g.warnings.length ? '<button class="btn sm" data-act="ckRunFailed"' + (C.running ? ' disabled' : '') + '>Run the failed again</button>' : '')) + '</h2>' +
+            '<div class="small muted" style="margin-bottom:10px">The same checks apply to every customer of the cycle. A <b>blocking</b> check must pass — or be bypassed with a comment saying why. Checks on customers use the balances read for this cycle.' + (C.cust ? ' <span class="pill info">' + C.cust.length + ' customers read' + (C.custInfo && C.custInfo.at ? ' · ' + esc(C.custInfo.at) : '') + (C.custInfo && C.custInfo.src === 'this PC' ? ' · kept on this PC' : '') + '</span>' : '') + srcNote() + '</div>' +
             '<div class="gatebar"><div class="ring" style="--p:' + g.score + '"><span>' + g.score + '%</span></div><div class="row small" style="gap:14px"><span><b style="color:var(--ok)">' + g.passed.length + '</b> passed</span><span><b class="badc">' + g.blocking.length + '</b> blocking</span><span><b class="warnc">' + g.warnings.length + '</b> warnings</span><span><b>' + g.bypassed.length + '</b> bypassed</span><span><b>' + g.pending.length + '</b> not run</span></div><span class="sp"></span>' +
-            (C.cy.CHECKS_AT ? pill('<i class="fas fa-check"></i> signed off ' + esc(S.local(C.cy.CHECKS_AT)) + ' by ' + esc(C.cy.CHECKS_BY || ''), 'ok') : '<button class="btn pri" data-act="ckDone"' + (g.ready && !C.running ? '' : ' disabled') + ' title="' + (g.ready ? 'Record the checklist and go to the archive' : 'Every check must run, and every blocking failure be fixed or bypassed') + '">Checklist done <i class="fas fa-arrow-right"></i></button>') + '</div>';
+            (C.cy.CHECKS_AT ? pill('<i class="fas fa-check"></i> signed off ' + esc(S.local(C.cy.CHECKS_AT)) + ' by ' + esc(C.cy.CHECKS_BY || ''), 'ok') : g.ready ? '<button class="btn pri" data-act="ckDone"' + (C.running ? ' disabled' : '') + ' title="Record the checklist and go to the archive">Checklist done <i class="fas fa-arrow-right"></i></button>' :
+                '<button class="btn" data-act="cyStep" data-k="archive" title="Look at the balances now; checks still failing are confirmed (bypassed with one comment) when you send">Next: preview the balances <i class="fas fa-arrow-right"></i></button>') + '</div>';
         E.AREAS.concat(['Other']).forEach(function (area) {
             var list = defs.filter(function (d) { return d.enabled !== false && (d.area === area || (area === 'Other' && E.AREAS.indexOf(d.area) < 0)); });
             if (!list.length) return;
@@ -138,37 +213,39 @@
     function ckRow(d, locked) {
         var r = C.results[d.id] || {}, st = r.status, bypassed = st && st !== 'PASS' && r.bypassNote;
         var icon = bypassed ? 'fa-circle-minus' : CK_ICON[st] || 'fa-circle muted';
-        var res = !st ? '<span class="muted">not run</span>' : st === 'RUNNING' ? 'running…' : st === 'PASS' ? '<span class="okc">passed</span>' : st === 'ERROR' ? '<span class="warnc">could not run: ' + esc(String(r.error || '').slice(0, 160)) + '</span>' : '<b class="badc">' + esc(r.rows) + ' found</b>' + (r.amount != null && r.amount !== '' ? ' · ' + money(+r.amount) : '');
+        var res = !st || st === 'NOT_RUN' ? '<span class="muted">not run</span>' : st === 'RUNNING' ? 'running…' : st === 'PASS' ? '<span class="okc">passed</span>' : st === 'ERROR' ? '<span class="warnc">could not run: ' + esc(String(r.error || '').slice(0, 160)) + '</span>' : '<b class="badc">' + esc(r.rows) + (r.truncated ? '+' : '') + ' found</b>' + (r.amount != null && r.amount !== '' ? ' · ' + money(+r.amount) : '');
         return '<div class="ck' + (bypassed ? ' byp' : '') + '"><i class="fas ' + icon + '"></i><div class="tx"><b>' + esc(d.title) + '</b> ' + pill(d.severity === 'BLOCK' ? 'blocking' : 'warning', d.severity === 'BLOCK' ? 'bad' : 'warn') + ' <span class="pill muted">' + esc(d.kind === 'LOCAL' ? 'balances' : d.kind) + '</span>' +
             '<div class="small">' + res + (r.ranAt ? ' <span class="muted">· ' + when(r.ranAt) + ' · ' + esc(r.ranBy || '') + (r.ms ? ' · ' + (Math.round(+r.ms / 100) / 10) + ' s' : '') + '</span>' : '') + '</div>' +
             (bypassed ? '<div class="small byn"><i class="fas fa-user-shield"></i> Bypassed by ' + esc(r.bypassBy || '') + ' · ' + when(r.bypassAt) + ': “' + esc(r.bypassNote) + '”</div>' : '') +
             (d.help ? '<div class="small muted">' + esc(d.help) + '</div>' : '') + '</div><div class="ac">' +
-            (st && st !== 'RUNNING' ? '<button class="btn sm" data-act="ckDetail" data-id="' + esc(d.id) + '">Details</button>' : '') +
+            (st && st !== 'RUNNING' && st !== 'NOT_RUN' ? '<button class="btn sm' + (st === 'FAIL' ? ' pri' : '') + '" data-act="ckDetail" data-id="' + esc(d.id) + '">' + (d.compare && st !== 'ERROR' ? 'Compare' : 'Details') + '</button>' : '') +
             (!locked ? '<button class="btn sm" data-act="ckRun" data-id="' + esc(d.id) + '"' + (C.running ? ' disabled' : '') + '><i class="fas fa-play"></i></button>' : '') +
-            (!locked && (st === 'FAIL' || st === 'ERROR') && !bypassed ? '<button class="btn sm" data-act="ckBypass" data-id="' + esc(d.id) + '">Bypass…</button>' : '') + '</div></div>';
+            (!locked && (st === 'FAIL' || st === 'ERROR' || st === 'NOT_RUN') && !bypassed ? '<button class="btn sm" data-act="ckBypass" data-id="' + esc(d.id) + '">Bypass…</button>' : '') + '</div></div>';
     }
     /** the customers of the cycle as read now (the checks on the balances and the archive use them) */
     function ensureCust() {
         if (C.cust) return Promise.resolve(C.cust);
         var b = bu(C.cy.BU_ID), end = A.busy('Reading the balances of ' + b.name + ' as at ' + C.cy.STMT_DATE + '…');
         return A.readBalances(b, C.cy.STMT_DATE, C.cy.POD).then(function (m) {
-            end(); C.cust = m.customers; C.custInfo = { missing: m.missing, columns: m.columns, rows: m.rawCount, at: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) };
+            end(); C.cust = m.customers; C.custInfo = { missing: m.missing, columns: m.columns, rows: m.rawCount, at: new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }), src: 'Fusion' }; L.saveCust(C.cust);
             if (m.missing.length) A.toast('The balances answer has no column for ' + m.missing.join(', ') + ' — check Setup', 'warn', 8000);
             return C.cust;
         }, function (e) { end(); throw e; });
     }
+    var ROW_LIMIT = 20000;
     function runCheck(d) {
         var b = bu(C.cy.BU_ID), vars = E.cycleVars(b, cycleObj()), t0 = Date.now(), sqlText = '';
         C.results[d.id] = Object.assign({}, C.results[d.id] || {}, { status: 'RUNNING' }); A.render();
         var p;
         if (d.kind === 'LOCAL') { sqlText = 'checked on the balances of ' + b.name + ' as at ' + C.cy.STMT_DATE; p = ensureCust().then(function (list) { return E.localCheck(d.id, list, { bu: b, profile: profile, activities: P.acts.filter(function (a) { return a.BU_ID === b.id; }) }); }); }
         else if (d.kind === 'BIP') { var prm = E.fillParams(d.params, vars); sqlText = d.path + '\n' + JSON.stringify(prm, null, 1); p = S.call('dcBipRows', { instance: C.cy.POD, path: d.path, params: prm }, 600000).then(function (x) { return x.rows || []; }); }
-        else { sqlText = E.fill(d.sql, vars, 'sql'); p = S.fusionSql(sqlText, 5000); }
+        else { sqlText = E.fill(d.sql, vars, 'sql'); p = S.fusionSql(sqlText, ROW_LIMIT); }
         return p.then(function (rows) {
-            var o = E.checkOutcome(rows); o.ms = Date.now() - t0; o.sql = sqlText; o.sample = rows.slice(0, 50); return o;
+            var o = E.checkOutcome(rows); o.ms = Date.now() - t0; o.sql = sqlText; o.sample = rows; o.all = rows; o.truncated = d.kind !== 'LOCAL' && rows.length >= ROW_LIMIT; return o;
         }, function (e) { return { status: 'ERROR', rows: null, amount: null, error: A.errText(e), ms: Date.now() - t0, sql: sqlText, sample: [] }; })
             .then(function (o) {
-                return S.cycle.saveCheck(C.cy.CYCLE_ID, d, o).then(function () { C.results[d.id] = { status: o.status, rows: o.rows, amount: o.amount, ms: o.ms, error: o.error, ranAt: null, ranBy: S.user(), sample: o.sample, sql: o.sql }; },
+                L.saveRows(d.id, 'check', o.all || []);
+                return S.cycle.saveCheck(C.cy.CYCLE_ID, d, o).then(function () { C.results[d.id] = { status: o.status, rows: o.rows, amount: o.amount, ms: o.ms, error: o.error, ranAt: null, ranBy: S.user(), rowsAll: o.all || [], sql: o.sql, truncated: o.truncated }; },
                     function (e) { C.results[d.id] = { status: 'ERROR', error: 'Ran, but the result could not be kept in APEX: ' + A.errText(e) }; });
             });
     }
@@ -185,25 +262,17 @@
             var g = E.gate(C.defs(), C.results);
             return event('CHECKS_RUN', list.length + ' check(s) run · ' + g.passed.length + ' passed, ' + g.blocking.length + ' blocking, ' + g.warnings.length + ' warnings').then(function () { return S.cycle.checks(C.cy.CYCLE_ID); }).then(function (r) {
                 r.forEach(function (x) { var cur = C.results[x.CHECK_ID] || {}; C.results[x.CHECK_ID] = Object.assign(cur, { ranAt: x.RAN_AT, ranBy: x.RAN_BY }); });
+                L.saveChecks();
                 A.render(); A.toast(g.blocking.length ? g.blocking.length + ' blocking check(s) failed — fix and run again, or bypass with a comment' : 'Checks done', g.blocking.length ? 'warn' : 'ok', 6000);
             });
         }).catch(function (e) { C.running = false; A.render(); A.toast(A.errText(e), 'bad'); });
     }
-    function ckDetail(id) {
-        var d = C.defs().filter(function (x) { return x.id === id; })[0], r = C.results[id] || {};
-        var show = function (det) {
-            var rows = det.sample || [], cols = rows.length ? Object.keys(rows[0]) : [];
-            A.modal('<i class="fas fa-list-check"></i> ' + esc(d ? d.title : id),
-                '<div class="small muted" style="margin-bottom:8px">' + esc(d ? d.help || '' : '') + '</div>' + (r.error ? '<div class="note bad" style="margin-bottom:10px">' + esc(r.error) + '</div>' : '') +
-                (r.bypassNote ? '<div class="note warn" style="margin-bottom:10px"><b>Bypassed</b> by ' + esc(r.bypassBy || '') + ' · ' + when(r.bypassAt) + ': “' + esc(r.bypassNote) + '”</div>' : '') +
-                '<h3>What ran</h3><pre class="sqlbox">' + esc(det.sql || '') + '</pre>' +
-                '<h3>' + (r.status === 'PASS' ? 'Nothing found' : esc(r.rows || rows.length) + ' found' + (rows.length < (+r.rows || 0) ? ' — the first ' + rows.length + ' kept' : '')) + '</h3>' +
-                (rows.length ? '<div class="tblw" style="max-height:340px"><table class="tbl"><thead><tr>' + cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' + rows.map(function (x) { return '<tr>' + cols.map(function (c) { return '<td>' + esc(x[c]) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>' : ''),
-                (rows.length ? '<button class="btn" data-act="ckCsv" data-id="' + esc(id) + '"><i class="fas fa-file-csv"></i> CSV</button>' : '') + '<button class="btn" data-act="ckCopy"><i class="fas fa-copy"></i> Copy SQL</button><span class="sp"></span><button class="btn" data-act="mclose">Close</button>', true);
-            C._detail = { id: id, rows: rows, sql: det.sql };
-        };
-        if (r.sample && r.sql != null) { show({ sql: r.sql, sample: r.sample }); return; }
-        S.cycle.checkDetail(C.cy.CYCLE_ID, id).then(show).catch(function (e) { A.toast(A.errText(e), 'bad'); });
+    function ckDetail(id) { DC.wb.openCheck(id); }
+    /** where the screen's figures come from: this PC's copy, APEX, or both */
+    function srcNote() {
+        var x = C.src; if (!x) return '';
+        return ' <span class="pill ' + (x.kind === 'pc' ? 'vio' : 'muted') + '" title="Saved in APEX and on this PC (DuckDB). Opening a cycle shows this PC\'s copy at once, then APEX is read; nothing is run again.">' +
+            (x.kind === 'pc' ? '<i class="fas fa-database"></i> from this PC · checking APEX…' : x.kind === 'both' ? '<i class="fas fa-database"></i> this PC + APEX' : '<i class="fas fa-cloud"></i> from APEX') + '</span>';
     }
     function ckBypass(id) {
         var d = C.defs().filter(function (x) { return x.id === id; })[0], r = C.results[id] || {};
@@ -231,7 +300,6 @@
                 }).join('') + '</tbody></table></div></div>';
             return h;
         }
-        if (!C.cy.CHECKS_AT) return '<div class="card note warn">Finish the checklist first.</div>';
         var h2 = '<div class="card"><h2><i class="fas fa-box-archive"></i> Archive the balances as at ' + esc(c.STMT_DATE) + '</h2><div class="small muted" style="margin-bottom:10px">One frozen row per customer — total due, aging buckets, overdue, number of items, e-mail and how the statement goes — and the totals of the cycle. Statements of this cycle are sent from this archive, so what was sent can always be shown later, even after Fusion moved on.</div>';
         if (!C.snap) {
             h2 += '<button class="btn pri" data-act="arRead"><i class="fas fa-download"></i> ' + (C.cust ? 'Prepare the archive (' + C.cust.length + ' customers read at ' + esc(C.custInfo ? C.custInfo.at : '') + ')' : 'Read the balances') + '</button>' + (C.cust ? ' <button class="btn" data-act="arReread">Read them again first</button>' : '') + '</div>';
@@ -239,8 +307,19 @@
         }
         var t = C.snap.totals;
         h2 += totalsHtml({ CUSTOMERS: t.customers, TOTAL_DUE: t.total, OWED: t.owed, OVERDUE: t.overdue, CUR_AMT: t.hasAging ? t.cur : null, D30: t.d30, D60: t.d60, D90: t.d90, D90P: t.d90p, CREDIT_N: t.creditN, CREDIT_AMT: t.creditAmt, EMAIL_N: t.emailN, POST_N: t.postN, NONE_N: t.noneN, ITEMS_N: t.items }) +
-            '<div class="row" style="margin-top:12px"><button class="btn pri" data-act="arSave"><i class="fas fa-lock"></i> Archive these ' + t.customers + ' balances</button><button class="btn" data-act="arReread">Read again</button></div></div>';
-        return h2 + movementHtml(t.movement);
+            '<div class="row" style="margin-top:12px"><button class="btn pri" data-act="arSave"><i class="fas fa-lock"></i> Archive these ' + t.customers + ' balances</button><button class="btn" data-act="arReread">Read again</button>' +
+            '<span class="small muted">' + (C.custInfo && C.custInfo.at ? 'read ' + esc(C.custInfo.at) + (C.custInfo.src === 'this PC' ? ' · kept on this PC' : '') : '') + (C.cy.CHECKS_AT ? '' : ' · the checklist is not done — sending asks you to confirm it') + '</span></div></div>';
+        return h2 + movementHtml(t.movement) + previewHtml(C.snap.rows);
+    }
+    /** the balances before they are archived — one row per customer, searchable */
+    function previewHtml(rows) {
+        var q = String(C.balQ || '').toLowerCase(), list = rows.filter(function (r) { return !q || (r.account + ' ' + r.name + ' ' + (r.email || '')).toLowerCase().indexOf(q) >= 0; });
+        return '<div class="card"><h2><i class="fas fa-eye"></i> Preview — the balances that will be archived <span class="pill">' + rows.length + '</span></h2><div class="row" style="margin-bottom:8px"><input type="search" id="ar-q" placeholder="Search account, name, e-mail…" value="' + esc(C.balQ || '') + '" style="min-width:240px"><span class="sp"></span><span class="small muted">' + list.length + ' of ' + rows.length + '</span></div>' +
+            '<div class="tblw"><table class="tbl"><thead><tr><th>Account</th><th>Customer</th><th class="r">Balance</th><th class="r">Last cycle</th><th class="r">Overdue</th><th class="r">90+</th><th class="r">Items</th><th>Goes to</th></tr></thead><tbody>' +
+            list.slice(0, 1500).map(function (r) {
+                return '<tr class="click" data-act="open360" data-bu="' + esc(C.cy.BU_ID) + '" data-acct="' + esc(r.account) + '"><td class="mono">' + esc(r.account) + '</td><td>' + esc(r.name) + '</td><td class="r num">' + money(r.balance) + '</td><td class="r num small">' + (r.prev != null ? money(r.prev) : '<span class="muted">new</span>') + '</td>' +
+                    '<td class="r num">' + (r.overdue != null ? money(r.overdue) : '—') + '</td><td class="r num">' + (r.aging ? money(r.aging.d90p || 0) : '—') + '</td><td class="r">' + esc(r.items || '') + '</td><td class="cut small" title="' + esc(r.why || '') + '">' + (r.delivery === 'EMAIL' ? esc(r.email) : pill(esc(r.delivery || ''), r.delivery === 'POST' ? 'warn' : 'muted')) + '</td></tr>';
+            }).join('') + '</tbody></table></div></div>';
     }
     function totalsHtml(c) {
         var tot = +c.TOTAL_DUE || 0, aging = c.CUR_AMT != null && c.CUR_AMT !== '' ? [['Current', +c.CUR_AMT, '#10b981'], ['1–30', +c.D30, '#84cc16'], ['31–60', +c.D60, '#f59e0b'], ['61–90', +c.D90, '#f97316'], ['90+', +c.D90P, '#dc2626']] : null;
@@ -268,20 +347,20 @@
             });
         }).catch(function (e) { A.toast(A.errText(e), 'bad', 8000); A.render(); });
     }
-    function saveArchive() {
+    function saveArchive(opts) {
+        opts = opts || {};
         var s = C.snap, t = s.totals, m = t.movement, end = A.busy('Archiving ' + t.customers + ' balances in APEX…'), again = !!C.cy.SNAP_AT;
         return S.cycle.saveBal(C.cy.CYCLE_ID, s.rows).then(function () {
             return setCycle({ snap_at: 'SYSDATE', snap_by: S.user(), snap_source: (bu(C.cy.BU_ID).balances || {}).kind || 'BIP', customers: t.customers, total_due: t.total, owed: t.owed, overdue: t.overdue, cur_amt: t.hasAging ? t.cur : null, d30: t.hasAging ? t.d30 : null, d60: t.hasAging ? t.d60 : null, d90: t.hasAging ? t.d90 : null, d90p: t.hasAging ? t.d90p : null,
-                credit_n: t.creditN, credit_amt: t.creditAmt, email_n: t.emailN, post_n: t.postN, none_n: t.noneN, items_n: t.items, new_n: m.hasPrev ? m.newN : null, cleared_n: m.hasPrev ? m.clearedN : null, up_n: m.hasPrev ? m.upN : null, down_n: m.hasPrev ? m.downN : null, prev_total: m.hasPrev ? m.prevTotal : null, status: C.cy.REVIEW_AT ? C.cy.STATUS : 'ARCHIVED' });
+                credit_n: t.creditN, credit_amt: t.creditAmt, email_n: t.emailN, post_n: t.postN, none_n: t.noneN, items_n: t.items, new_n: m.hasPrev ? m.newN : null, cleared_n: m.hasPrev ? m.clearedN : null, up_n: m.hasPrev ? m.upN : null, down_n: m.hasPrev ? m.downN : null, prev_total: m.hasPrev ? m.prevTotal : null, status: C.cy.REVIEW_AT || C.cy.STATUS === 'SENDING' ? C.cy.STATUS : 'ARCHIVED' });
         }).then(function () { return event(again ? 'ARCHIVED_AGAIN' : 'ARCHIVED', t.customers + ' customers · total due ' + money(t.total) + ' · overdue ' + money(t.overdue) + (m.hasPrev ? ' · ' + m.newN + ' new, ' + m.clearedN + ' cleared' : '')); })
-            .then(function () { return S.cycle.bal(C.cy.CYCLE_ID); }).then(function (b) { C.bal = b; C.snap = null; C.step = 'review'; end(); A.render(); A.toast('Balances archived — next: the statement check', 'ok'); })
-            .catch(function (e) { end(); A.toast(A.errText(e), 'bad', 9000); });
+            .then(function () { return S.cycle.bal(C.cy.CYCLE_ID); }).then(function (b) { C.bal = b; C.snap = null; end(); if (!opts.quiet) { C.step = 'review'; A.render(); A.toast('Balances archived — next: the statement check', 'ok'); } })
+            .catch(function (e) { end(); A.toast(A.errText(e), 'bad', 9000); if (opts.quiet) throw e; });
     }
 
     // ── ③ the statement check ──
     function vReview() {
         var c = C.cy, b = bu(c.BU_ID), path = c.STMT_PATH || (b.statement || {}).path || '';
-        if (!c.SNAP_AT) return '<div class="card note warn">Archive the balances first.</div>';
         var h = '<div class="card"><h2><i class="fas fa-code"></i> The statement report\'s query</h2><div class="small muted" style="margin-bottom:8px">The SQL behind the statement report (its BI Publisher data model) is captured with the cycle and fingerprinted, so you can show exactly what produced the statements — and see at once when somebody changed the report since the last cycle.</div>' +
             '<div class="row"><span class="mono small">' + esc(path) + '</span><span class="sp"></span><button class="btn sm' + (c.STMT_SHA ? '' : ' pri') + '" data-act="rvCapture"' + (closed() ? ' disabled' : '') + '><i class="fas fa-download"></i> ' + (c.STMT_SHA ? 'Capture again' : 'Capture the query') + '</button></div>';
         if (c.STMT_SHA) {
@@ -290,7 +369,8 @@
                 (C.sql ? '<pre class="sqlbox" style="max-height:320px">' + esc(C.sql) + '</pre>' : '<div class="muted small">loading…</div>');
         }
         h += '</div>';
-        var cust = E.fromArchive(C.bal || []), smp = E.samples(cust);
+        var cust = C.bal && C.bal.length ? E.fromArchive(C.bal) : (C.cust || []), smp = E.samples(cust);
+        if (!c.SNAP_AT) h += '<div class="card note warn small">The balances are not archived yet — the samples below use the balances read' + (C.cust ? ' (' + C.cust.length + ' customers)' : ' (none read yet: open Archive balances)') + '.</div>';
         h += '<div class="card"><h2><i class="fas fa-file-pdf"></i> Sample statements</h2><div class="small muted" style="margin-bottom:8px">Open a few statements before sending hundreds: the largest balance, the oldest debt, a credit and the longest one. Compare the figures with the archive.</div>' +
             (smp.length ? '<table class="tbl"><tbody>' + smp.map(function (x) { return '<tr><td>' + pill(esc(x.why), 'info') + '</td><td><b>' + esc(x.c.name) + '</b> <span class="muted small">' + esc(x.c.account) + '</span></td><td class="r num">' + money(x.c.balance) + '</td><td class="r"><button class="btn sm" data-act="rvSample" data-acct="' + esc(x.c.account) + '"><i class="fas fa-file-pdf"></i> Make + open</button></td></tr>'; }).join('') + '</tbody></table>' : '<div class="muted">No customer in the archive.</div>') +
             '<div class="row" style="margin-top:8px"><input type="text" id="rv-acct" placeholder="any account number" style="width:200px"><button class="btn sm" data-act="rvSampleAny">Make + open</button></div></div>';
@@ -334,8 +414,8 @@
         }).catch(function (e) { A.toast(A.errText(e), 'bad'); });
     }
     function sample(acct) {
-        var c = C.cy, b = bu(c.BU_ID), r = (C.bal || []).filter(function (x) { return x.ACCOUNT_NUMBER === acct; })[0] || { ACCOUNT_NUMBER: acct, ACCOUNT_NAME: '' };
-        var cu = E.fromArchive([r])[0], end = A.busy('Making the statement of ' + acct + '…');
+        var c = C.cy, b = bu(c.BU_ID), r = (C.bal || []).filter(function (x) { return x.ACCOUNT_NUMBER === acct; })[0];
+        var cu = r ? E.fromArchive([r])[0] : (C.cust || []).filter(function (x) { return x.account === acct; })[0] || { account: acct, name: '' }, end = A.busy('Making the statement of ' + acct + '…');
         S.call('dcStatementPdf', { instance: c.POD, path: b.statement.path, params: E.fillParams(b.statement.params, E.vars(b, c.STMT_DATE, cu)), bu: b.name || b.id, stmtDate: c.STMT_DATE, fileName: 'SAMPLE ' + acct + ' ' + (cu.name || '').slice(0, 40) }, 300000)
             .then(function (p) { end(); event('SAMPLE_PDF', acct + ' ' + (cu.name || '') + ' · ' + Math.round(p.bytes / 1024) + ' KB · ' + String(p.sha256).slice(0, 12)).then(A.render); return S.call('dcOpenFile', { path: p.path }); })
             .catch(function (e) { end(); A.toast(A.errText(e), 'bad', 8000); });
@@ -343,8 +423,8 @@
 
     // ── ④ send ──
     function vSend() {
-        var c = C.cy;
-        if (!c.REVIEW_AT) return '<div class="card note warn">Sign off the statement check first.</div>';
+        var c = C.cy, plan = E.sendPlan(C.defs(), C.results, c), started = (+c.SENT_N || 0) + (+c.POSTED_N || 0) > 0;
+        if (!plan.ready && !started && !closed()) return readyHtml(plan);
         if (!C.bal || !C.stmts) return '<div class="card empty"><i class="fas fa-spinner fa-spin"></i></div>';
         var cov = E.coverage(C.bal, C.stmts), k = cov.counts, f = C.sendF || '';
         var per = cov.per.filter(function (x) { return !f || (f === 'NOT_SENT' ? x.state === 'NOT_SENT' : f === 'FAILED' ? x.state === 'FAILED' || x.state === 'BOUNCED' : f === 'DONE' ? x.stmt && ['SENT', 'POSTED', 'DRAFT'].indexOf(x.stmt.STATUS) >= 0 : f === 'ANSWERED' ? x.stmt && x.stmt.RESP_STATUS : true); });
@@ -359,6 +439,49 @@
                     '<td>' + (s ? A.statePill(s) : x.state === 'NONE' ? pill('no statement', 'muted') : pill('not sent', 'warn')) + '</td><td class="small">' + (s ? when(s.SENT_AT || s.CREATED_AT) : '') + '</td></tr>';
             }).join('') + '</tbody></table></div></div>';
         return h;
+    }
+    /** what sending still needs — confirmed in one dialog (bypass with one comment, archive now, statement check skipped) */
+    function readyHtml(plan) {
+        var c = C.cy, n = C.cust ? C.cust.length : 0;
+        var line = function (ok, title, body) { return '<div class="ck"><i class="fas ' + (ok ? 'fa-circle-check okc' : 'fa-circle-exclamation warnc') + '"></i><div class="tx"><b>' + title + '</b><div class="small">' + body + '</div></div></div>'; };
+        return '<div class="card"><h2><i class="fas fa-paper-plane"></i> Send the statements of this cycle</h2><div class="small muted" style="margin-bottom:8px">You may send now. What is not done yet is listed here and confirmed in one step — your comment is kept with every bypassed check and printed in the audit pack.</div>' +
+            line(!plan.bypass.length, 'Checklist', plan.bypass.length ? plan.bypass.length + ' check(s) will be bypassed: ' + plan.bypass.map(function (x) { return esc(x.title) + ' <span class="muted">(' + esc(x.state) + ')</span>'; }).join(' · ') : (c.CHECKS_AT ? 'done ' + esc(S.local(c.CHECKS_AT)) : 'every blocking check passed or bypassed') + (plan.warnings.length ? ' · ' + plan.warnings.length + ' warning(s)' : '')) +
+            line(!plan.archive, 'Archive balances', plan.archive ? (n ? 'the ' + n + ' customers read' + (C.custInfo && C.custInfo.at ? ' at ' + esc(C.custInfo.at) : '') + ' will be archived now' : 'the balances will be read from Fusion and archived now') : esc(c.CUSTOMERS) + ' customers archived · ' + money(+c.TOTAL_DUE)) +
+            line(!plan.review, 'Statement check', plan.review ? 'not signed off — recorded as sent without the statement check' : 'signed off by ' + esc(c.REVIEW_BY)) +
+            '<div class="row" style="margin-top:12px"><button class="btn pri" data-act="sdConfirm"><i class="fas fa-paper-plane"></i> Send statements…</button></div></div>';
+    }
+    function sendConfirm() {
+        var plan = E.sendPlan(C.defs(), C.results, C.cy), need = plan.bypass.length || plan.review;
+        A.modal('<i class="fas fa-paper-plane"></i> Send the statements — confirm',
+            (plan.bypass.length ? '<div class="note warn" style="margin-bottom:10px"><b>' + plan.bypass.length + ' check(s) will be bypassed</b> for every customer of the cycle:<ul style="margin:6px 0 0 18px;padding:0">' + plan.bypass.map(function (x) { return '<li>' + esc(x.title) + ' — ' + esc(x.state) + '</li>'; }).join('') + '</ul></div>' : '') +
+            (plan.warnings.length ? '<div class="small muted" style="margin-bottom:8px">Warnings (not blocking): ' + plan.warnings.map(function (id) { var d = C.defs().filter(function (x) { return x.id === id; })[0]; return esc(d ? d.title : id); }).join(' · ') + '</div>' : '') +
+            (plan.archive ? '<div class="note" style="margin-bottom:8px"><i class="fas fa-box-archive"></i> The balances are archived now' + (C.cust ? ' (' + C.cust.length + ' customers read' + (C.custInfo && C.custInfo.at ? ' at ' + esc(C.custInfo.at) : '') + ')' : ' — read from Fusion first') + ' and the statements are sent from that archive.</div>' : '') +
+            (plan.review ? '<div class="note warn" style="margin-bottom:8px"><i class="fas fa-signature"></i> The statement check is not signed off — the cycle records that the statements went without it.</div>' : '') +
+            (need ? '<div class="field"><label>Why is it all right to send now? (at least ' + E.BYPASS_MIN + ' characters — kept with every bypass)</label><textarea id="sd-note" rows="3" placeholder="e.g. unapplied receipts are bank charges cleared with Finance on 2 Oct; OM ↔ AR differences are timing (shipped 30 Sep, invoiced 1 Oct)"></textarea></div>' : '<div class="small">Everything is done — the statements go from the archive.</div>'),
+            '<button class="btn" data-act="mclose">Cancel</button><button class="btn pri" data-act="sdConfirmGo">' + (need ? 'Confirm and continue to Send' : 'Continue to Send') + '</button>');
+        setTimeout(function () { var t = $('sd-note'); if (t) t.focus(); }, 50);
+    }
+    function sendConfirmGo() {
+        var plan = E.sendPlan(C.defs(), C.results, C.cy), t = $('sd-note'), note = t ? t.value.trim() : '';
+        if ((plan.bypass.length || plan.review) && !E.bypassOk(note)) { A.toast('Write why (at least ' + E.BYPASS_MIN + ' characters)', 'warn'); return; }
+        A.mclose();
+        var id = C.cy.CYCLE_ID, defs = C.defs(), end = A.busy('Getting the cycle ready to send…');
+        var chain = plan.bypass.reduce(function (p, x) {
+            return p.then(function () {
+                var r = C.results[x.id], d = defs.filter(function (y) { return y.id === x.id; })[0] || { id: x.id, title: x.title };
+                var first = !r || !r.status || r.status === 'RUNNING' ? S.cycle.saveCheck(id, d, { status: 'NOT_RUN', rows: null, amount: null, ms: null, error: null, sql: '', sample: [] }) : Promise.resolve();
+                return first.then(function () { return S.cycle.bypass(id, x.id, note); }).then(function () {
+                    C.results[x.id] = Object.assign(r && r.status && r.status !== 'RUNNING' ? r : { status: 'NOT_RUN' }, { bypassNote: note, bypassBy: S.user(), bypassAt: null });
+                });
+            });
+        }, Promise.resolve());
+        chain.then(function () { return plan.bypass.length ? event('SEND_BYPASS', plan.bypass.length + ' check(s) bypassed to send (' + plan.bypass.map(function (x) { return x.title + ': ' + x.state; }).join('; ') + '): ' + note) : null; })
+            .then(function () { if (C.cy.CHECKS_AT) return; var g = E.gate(defs, C.results); return setCycle({ checks_at: 'SYSDATE', checks_by: S.user(), checks_score: g.score, status: 'CHECKED' }).then(function () { return event('CHECKLIST_DONE', 'at send · ' + g.passed.length + ' passed · ' + g.bypassed.length + ' bypassed · score ' + g.score + '%'); }); })
+            .then(function () { if (!plan.archive) return; return (C.snap ? Promise.resolve() : prepareArchive(false)).then(function () { if (!C.snap) throw new Error('The balances could not be read — nothing was archived'); return saveArchive({ quiet: true }); }); })
+            .then(function () { if (!plan.review) return; return setCycle({ review_at: 'SYSDATE', review_by: S.user(), review_note: 'Sent without the statement check: ' + note, status: 'READY' }).then(function () { return event('STATEMENT_CHECK_SKIPPED', note); }); })
+            .then(function () { return S.stmt.search({ cycleId: id, limit: 50000 }); })
+            .then(function (st) { C.stmts = st; L.saveChecks(); end(); goSend('NOT_SENT'); })
+            .catch(function (e) { end(); A.render(); A.toast(A.errText(e), 'bad', 9000); });
     }
     function goSend(which) {
         var c = C.cy, b = bu(c.BU_ID), cov = E.coverage(C.bal, C.stmts);
@@ -470,7 +593,7 @@
         if (!E.bypassOk(note)) { A.toast('Write why (at least ' + E.BYPASS_MIN + ' characters)', 'warn'); return; }
         var x = C.defs().filter(function (c) { return c.id === d.id; })[0];
         S.cycle.bypass(C.cy.CYCLE_ID, d.id, note).then(function () {
-            var r = C.results[d.id] || {}; r.bypassNote = note; r.bypassBy = S.user(); r.bypassAt = null; C.results[d.id] = r;
+            var r = C.results[d.id] || {}; r.bypassNote = note; r.bypassBy = S.user(); r.bypassAt = null; C.results[d.id] = r; L.saveChecks();
             return event('CHECK_BYPASSED', (x ? x.title : d.id) + ' (' + (r.status === 'ERROR' ? 'could not run' : r.rows + ' found') + '): ' + note);
         }).then(function () { return S.cycle.checks(C.cy.CYCLE_ID); }).then(function (rows) { rows.forEach(function (r) { if (C.results[r.CHECK_ID]) C.results[r.CHECK_ID].bypassAt = r.BYPASS_AT; }); A.mclose(); A.render(); A.toast('Bypassed — kept with your reason', 'ok'); })
             .catch(function (e) { A.toast(A.errText(e), 'bad'); });
@@ -505,6 +628,8 @@
             .then(function () { return S.stmt.search({ cycleId: C.cy.CYCLE_ID, limit: 50000 }); }).then(function (s) { C.stmts = s; C.step = 'send'; A.render(); }).catch(function (e) { A.toast(A.errText(e), 'bad'); });
     };
     ACT.sdGo = function (d) { goSend(d.w); };
+    ACT.sdConfirm = sendConfirm;
+    ACT.sdConfirmGo = sendConfirmGo;
     ACT.sdReload = function () { S.stmt.search({ cycleId: C.cy.CYCLE_ID, limit: 50000 }).then(function (s) { C.stmts = s; A.render(); }); };
     ACT.clGo = function () {
         var note = ($('cl-note').value || '').trim(), cov = C.bal && C.stmts ? E.coverage(C.bal, C.stmts).counts : { pct: 0, failed: 0, notSent: 0 };

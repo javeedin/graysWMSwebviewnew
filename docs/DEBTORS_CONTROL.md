@@ -16,19 +16,43 @@ opened / delivered / read / bounced and the customer's answer.
 
 **Statement cycles** is the way to send the month's statements. One cycle = one business unit × one month (one per pod;
 a second cycle for the same month is refused). **New cycle**: business unit, month, statement date (the month end),
-pod, owner, send-by date, the OM ↔ AR tolerance. It is worked through five steps, each recorded in APEX with who and
-when; the *Trail* beside it lists every step, run, bypass and send.
+pod, owner, send-by date, the OM ↔ AR tolerance. It has five steps, each recorded in APEX with who and when; the
+*Trail* beside it lists every step, run, bypass and send. **Every step can be opened at any time** — e.g. look at the
+balances while checks still fail. Only **Send** asks: it lists the checks still failing or not run, whether the
+balances are archived and whether the statement check is signed off, and one confirmation with one comment bypasses
+those checks, archives the balances read and records that the statement check was skipped.
+
+**Saved, not re-run.** Every result is kept in APEX (status, rows found, amount, SQL, the first 500 rows) **and on this
+PC** in the WMS 2.0 DuckDB file (`w2_dc_cycles`, `w2_dc_checks`, `w2_dc_check_rows` = every row found,
+`w2_dc_cust` = the balances read, `w2_dc_drill` = drill-downs). Opening a cycle shows this PC's copy at once, then
+reads APEX, which wins where another PC ran or bypassed something since. Nothing is run against Fusion again until
+you press Run.
+
+**Details / Compare** opens a full-screen workbench on a check: every row it found, totals of the amount columns,
+status chips that filter, a filter per column (text, `=exact`, `!not`, `>100`, `<0`), sort, CSV, the SQL. The
+**OM and AR amounts** check lists per customer and order: customer number, customer, order, OM amount (lines shipped
+in the month), AR amount (invoice lines of the month that carry the order), the difference, why (shipped not invoiced
+/ invoiced not shipped / amounts differ) and the **accounting status** of its invoices (Accounted / Not accounted /
+Error / No invoice); *Every order of the month* shows the orders that agree too. Click a row or an order / transaction
+number to drill down: the **sales order** (its OM lines, the AR invoice lines that carry it, what waits in
+AutoInvoice, the accounting events), an **AR transaction** (lines, accounting events, journal lines from Subledger
+Accounting with account and GL transfer) or a **receipt** (applications, events, journal lines) — each part one
+read-only Fusion query with its SQL, kept on this PC (*Read again from Fusion* refreshes). The
+<i>↗</i> beside a number opens it **in Oracle Fusion**: sales orders use Oracle's documented deep link
+(`/fndSetup/faces/deeplink?objType=SALES_ORDER&action=VIEW&objKey=HeaderId=…`); for transactions and receipts paste
+your pod's link in Setup › Fusion links (`{BASE}` `{ID}` `{NUMBER}`), otherwise the number is copied and Fusion opens
+on its home page.
 
 1. **Checklist** — the same checks for every customer of the cycle:
 
    | Area | Check | Default |
    |---|---|---|
-   | Receivables | no unapplied receipts (≤ statement date) · no unidentified receipts · no incomplete transactions · every AR event accounted (XLA) · AR period open/closed | blocking (period: warning) |
+   | Receivables | no unapplied receipts (≤ statement date) · no unidentified receipts · no incomplete transactions · every AR transaction and receipt accounted (XLA events: not accounted / draft / error, with customer and amount) · every AR journal transferred to GL · AR period open/closed | blocking (period: warning) |
    | Order to cash | AutoInvoice interface empty · shipped OM lines billed · OM vs AR amounts of the month within the tolerance · the legacy OM ↔ AR reconciliation BIP (off by default) | blocking |
    | Customers (on the balances read for the cycle) | every customer with a balance has an e-mail (or is set to post) · every address is valid · addresses shared by two accounts · credit balances · old debt (> 25 % over 90 days) without a follow-up | e-mail checks blocking, the rest warnings |
 
    Fusion checks run through the read-only SQL runner (`{BU_ID}`, `{STMT_DATE}`, `{PERIOD_START}`, `{MON_YY}`,
-   `{PERIOD_NAME}`, `{TOLERANCE}` filled in), two at a time; each keeps its SQL, the rows found (first 50), the amount,
+   `{PERIOD_NAME}`, `{TOLERANCE}`, `{ONLY_DIFF}` filled in), two at a time, up to 20,000 rows; each keeps its SQL, the rows found, the amount,
    the time and who ran it — **Details** shows them, with CSV. A failed (or not runnable) check is fixed in Fusion and run
    again, or **bypassed with a comment** (at least 10 characters; name, time and reason are kept and printed in the audit
    pack). *Checklist done* is only possible when every check ran and no blocking failure is left; the score (passed /
@@ -86,8 +110,9 @@ valid address, else post.
 - **Delivered / read / bounced** — ask for read / delivery receipts when sending, then **Statements sent › Check
   receipts** reads them from the mailbox (Outlook or Microsoft 365) and matches them to the statements.
 
-Set up the customer links once: **Setup › Customer links › Set up** (or run `apex_sql/99_debtors_control.sql` in SQL
-Developer).
+**Setup › Database objects** lists every table, column, index, procedure and REST endpoint the module needs with its
+status, and **Create missing** creates them through the app's APEX execute API (nothing is dropped) — the way to set
+up a new customer without running SQL files. `apex_sql/99_debtors_control.sql` stays as the same script for a DBA.
 
 ## The customer (CRM)
 

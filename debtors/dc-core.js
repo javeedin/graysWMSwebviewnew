@@ -698,6 +698,8 @@
         h += '<div class="card"><h2><i class="fas fa-sliders"></i> General</h2><div class="form"><div class="field"><label>PDFs made at the same time</label><select id="g-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + (+g.parallelPdf === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></div>' +
             '<div class="field"><label>"Not opened" after (days)</label><input type="number" id="g-unop" min="1" max="60" value="' + esc(g.unopenedDays) + '"></div><div class="field"><label>Follow-up after (days)</label><input type="number" id="g-fu" min="1" max="60" value="' + esc(g.followupDays) + '"></div>' +
             '<div class="field wide"><label>Collectors (for "For" and the card)</label><input type="text" id="g-col" value="' + esc((g.collectors || []).join(', ')) + '" placeholder="user1, user2"></div></div><div class="row" style="margin-top:10px"><button class="btn sm pri" data-act="genSave">Save</button></div></div>';
+        if (window.DC.dbCard) h += window.DC.dbCard();
+        if (window.DC.linksCard) h += window.DC.linksCard();
         if (window.DC.checklistCard) h += window.DC.checklistCard();
         return h + '</div></div>';
     }

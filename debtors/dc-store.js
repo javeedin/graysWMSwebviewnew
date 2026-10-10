@@ -357,7 +357,7 @@
             return S.write('MERGE INTO wms_dc_cycle_checks t USING (SELECT ' + S.lit(id) + ' AS cycle_id, ' + S.lit(c.id) + ' AS check_id FROM dual) s ON (t.cycle_id = s.cycle_id AND t.check_id = s.check_id) WHEN NOT MATCHED THEN INSERT (cycle_id, check_id) VALUES (' + S.lit(id) + ', ' + S.lit(c.id) + ')')
                 .then(function () { return S.write('UPDATE wms_dc_cycle_checks SET ' + setList(sets) + ' WHERE ' + k); })
                 .then(function () { return S.writeClob('wms_dc_cycle_checks', 'sql_text', k, r.sql || ''); })
-                .then(function () { return S.writeClob('wms_dc_cycle_checks', 'sample_json', k, JSON.stringify((r.sample || []).slice(0, 50))); });
+                .then(function () { return S.writeClob('wms_dc_cycle_checks', 'sample_json', k, JSON.stringify(S.fitRows(r.sample || [], S.APEX_ROWS, 400000))); });
         },
         bypass: function (id, checkId, note) {
             return S.write('UPDATE wms_dc_cycle_checks SET bypass_note = ' + S.lit(note, 2000) + ', bypass_by = ' + S.lit(S.user(), 100) + ', bypass_at = SYSDATE WHERE cycle_id = ' + S.lit(id) + ' AND check_id = ' + S.lit(checkId));
@@ -422,6 +422,126 @@
     S.linksCheck = function () {
         return S.get(S.respUrl('0000000000000000'), 30000).then(function (r) { S.linksOk = /not valid/i.test(r.text || ''); return S.linksOk; }).catch(function () { S.linksOk = false; return false; });
     };
+    /** The first rows of a list whose JSON stays under maxChars (APEX keeps the first S.APEX_ROWS rows of a check; this PC keeps all) */
+    S.APEX_ROWS = 500;
+    S.fitRows = function (rows, max, maxChars) {
+        var out = [], len = 2;
+        for (var i = 0; i < rows.length && out.length < max; i++) { var j = JSON.stringify(rows[i]).length + 1; if (len + j > maxChars) break; out.push(rows[i]); len += j; }
+        return out;
+    };
+
+    // ── this PC's copy: the WMS 2.0 DuckDB file through w2Status / w2Put / w2Queries (tables w2_dc_*) ──
+    // A cycle opens from here at once (checks, every row each check found, the balances read, drill-downs); APEX is
+    // read after it and wins when another PC ran something newer. Without the host (an older exe) everything is APEX only.
+    var DCOLS = {
+        w2_dc_cycles: ['cycle_id', 'pod', 'json', 'saved_at'],
+        w2_dc_checks: ['cycle_id', 'check_id', 'status', 'rows_n', 'amount', 'ms', 'error_text', 'ran_at', 'ran_by', 'bypass_note', 'bypass_by', 'bypass_at', 'sql_text', 'truncated', 'saved_at'],
+        w2_dc_check_rows: ['cycle_id', 'check_id', 'variant', 'seq', 'row_json'],
+        w2_dc_cust: ['cycle_id', 'seq', 'account', 'json', 'read_at'],
+        w2_dc_drill: ['cycle_id', 'dkey', 'part', 'seq', 'row_json', 'sql_text', 'read_at']
+    };
+    S.duck = {
+        on: null, io: Promise.resolve(),
+        probe: function () {
+            if (S.duck.p) return S.duck.p;
+            if (!S.hasHost()) { S.duck.on = false; return (S.duck.p = Promise.resolve(false)); }
+            S.duck.p = S.duck.call('w2Status', {}, 15000).then(function (d) { S.duck.on = !!(d && d.ok !== false); return S.duck.on; }, function () { S.duck.on = false; return false; });
+            return S.duck.p;
+        },
+        call: function (action, payload, ms, n) {
+            return S.host(action, payload, ms || 120000).then(function (d) {
+                if (d && d.ok === false && d.busy && (n || 0) < 3) return new Promise(function (r) { setTimeout(r, 1200 * ((n || 0) + 1)); }).then(function () { return S.duck.call(action, payload, ms, (n || 0) + 1); });
+                return d;
+            });
+        },
+        rowsOf: function (d) { var cols = (d.columns || []).map(function (c) { return String(c).toLowerCase(); }); return (d.rows || []).map(function (r) { var o = {}; cols.forEach(function (c, i) { o[c] = r[i]; }); return o; }); },
+        /** several reads in one open of the file → [rows]; a missing table = [] */
+        qs: function (list) {
+            return S.duck.probe().then(function (on) {
+                if (!on) return list.map(function () { return []; });
+                return S.duck.call('w2Queries', { queries: list }).then(function (d) { return ((d && d.results) || []).map(function (r) { return !r || r.error ? [] : S.duck.rowsOf(r); }); }, function () { return list.map(function () { return []; }); });
+            });
+        },
+        /** replace one scope of a table (rows may be empty = delete the scope); writes are queued one after the other */
+        put: function (table, scope, rows) {
+            var p = S.duck.io.then(function () { return S.duck.probe(); }).then(function (on) {
+                if (!on) return null;
+                var clean = (rows || []).map(function (r) { var o = {}; Object.keys(r).forEach(function (k) { var v = r[k]; o[k] = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v); }); return o; });
+                return S.duck.call('w2Put', { table: table, scope: scope, rows: clean, replaceAll: false, columns: DCOLS[table] || [] }, 300000).then(function (d) { if (d && d.ok === false) throw new Error(d.error || 'DuckDB write failed'); return d; });
+            });
+            S.duck.io = p.catch(function (e) { console.warn('[DC] DuckDB:', e && e.message || e); });
+            return p.catch(function () { return null; });
+        },
+        lit: function (v) { return "'" + String(v == null ? '' : v).replace(/'/g, "''") + "'"; }
+    };
+
+    // ── every database object of the module: check what exists, create what is missing (Setup › Database objects) ──
+    function idxName(ddl) { return (/CREATE INDEX (\w+)/i.exec(ddl) || [])[1].toUpperCase(); }
+    S.OBJECTS = function () {
+        var out = [];
+        Object.keys(S.DDL).forEach(function (t) { out.push({ kind: 'TABLE', name: t, sql: S.DDL[t] }); });
+        [['WMS_DC_STMTS', 'CYCLE_ID'], ['WMS_DC_RUNS', 'CYCLE_ID']].forEach(function (c) { out.push({ kind: 'COLUMN', name: c[0] + '.' + c[1], table: c[0], col: c[1], sql: 'ALTER TABLE ' + c[0].toLowerCase() + ' ADD (' + c[1].toLowerCase() + ' VARCHAR2(40))' }); });
+        S.INDEXES.forEach(function (d) { out.push({ kind: 'INDEX', name: idxName(d), sql: d }); });
+        out.push({ kind: 'DATA', name: 'WMS_DC_GIF · the tracking picture', sql: "INSERT INTO wms_dc_gif (id, gif) SELECT 1, TO_BLOB(HEXTORAW('47494638396101000100800000FFFFFF00000021F90401000000002C00000000010001000002024401003B')) FROM dual WHERE NOT EXISTS (SELECT 1 FROM wms_dc_gif WHERE id = 1)" });
+        out.push({ kind: 'PROCEDURE', name: 'WMS_DC_PX', sql: PX, help: 'counts statement opens (the tracking picture)' });
+        out.push({ kind: 'PROCEDURE', name: 'WMS_DC_RESP', sql: S.RESP_SQL, help: 'the customer\'s Agree / Query page' });
+        out.push({ kind: 'ORDS', name: 'dc/px/:tok + dc/resp/:tok', sql: ORDS_SETUP, help: 'REST endpoints in the WAREHOUSEMANAGEMENT module' });
+        return out;
+    };
+    S.objects = {
+        /** every object with ok true / false / null (could not tell) and a detail */
+        status: function () {
+            var objs = S.OBJECTS(), tabs = Object.keys(S.DDL);
+            var q = function (sql) { return S.rows(sql, 500).catch(function (e) { return { error: e.message }; }); };
+            return Promise.all([
+                q("SELECT table_name AS T FROM user_tables WHERE table_name IN ('" + tabs.join("','") + "')"),
+                q("SELECT table_name || '.' || column_name AS T FROM user_tab_columns WHERE table_name IN ('WMS_DC_STMTS', 'WMS_DC_RUNS') AND column_name = 'CYCLE_ID'"),
+                q("SELECT index_name AS T FROM user_indexes WHERE index_name LIKE 'WMS_DC%'"),
+                q("SELECT object_name AS T, status AS S FROM user_objects WHERE object_type = 'PROCEDURE' AND object_name IN ('WMS_DC_PX', 'WMS_DC_RESP')"),
+                q("SELECT uri_template AS T FROM user_ords_templates WHERE uri_template LIKE 'dc/%'")
+            ]).then(function (r) {
+                var set = function (x) { var o = {}; if (Array.isArray(x)) x.forEach(function (y) { o[String(y.T).toUpperCase()] = y.S || 1; }); return o; };
+                var T = set(r[0]), C = set(r[1]), I = set(r[2]), P = set(r[3]), O = Array.isArray(r[4]) ? r[4].map(function (x) { return x.T; }) : null;
+                var gif = T.WMS_DC_GIF ? S.rows('SELECT COUNT(*) AS N FROM wms_dc_gif WHERE id = 1', 2).then(function (x) { return +x[0].N > 0; }, function () { return null; }) : Promise.resolve(false);
+                return gif.then(function (g) {
+                    objs.forEach(function (o) {
+                        if (o.kind === 'TABLE') { o.ok = !!T[o.name]; o.detail = o.ok ? 'exists' : 'missing'; }
+                        else if (o.kind === 'COLUMN') { o.ok = !!C[o.name]; o.detail = !T[o.table] ? 'comes with the table' : o.ok ? 'exists' : 'missing (table made before statement cycles)'; if (!T[o.table]) o.ok = false; }
+                        else if (o.kind === 'INDEX') { o.ok = !!I[o.name]; o.detail = o.ok ? 'exists' : 'missing'; }
+                        else if (o.kind === 'DATA') { o.ok = g; o.detail = g ? 'row 1 present' : 'missing'; }
+                        else if (o.kind === 'PROCEDURE') { o.ok = P[o.name] === 'VALID'; o.detail = !P[o.name] ? 'missing' : P[o.name] === 'VALID' ? 'valid' : 'exists but ' + String(P[o.name]).toLowerCase(); }
+                        else if (o.kind === 'ORDS') {
+                            if (O) { var need = ['dc/px/:tok', 'dc/resp/:tok'], miss = need.filter(function (n) { return O.indexOf(n) < 0; }); o.ok = !miss.length; o.detail = o.ok ? 'both endpoints defined' : 'missing: ' + miss.join(', '); }
+                            else { o.ok = S.linksOk === true ? true : null; o.detail = 'ORDS views not readable here — use Check in Customer links'; }
+                        }
+                    });
+                    return objs;
+                });
+            });
+        },
+        /** create what is missing (or everything with force) one object after the other; onStep(obj) after each */
+        create: function (objs, force, onStep) {
+            var todo = objs.filter(function (o) { return force || !o.ok; });
+            return todo.reduce(function (p, o) {
+                return p.then(function () {
+                    o.state = 'running'; if (onStep) onStep(o);
+                    var t0 = Date.now();
+                    return S.write(o.sql).then(function () { o.state = 'done'; o.ok = true; o.detail = 'created ' + (Date.now() - t0) + ' ms'; },
+                        function (e) {
+                            var m = e.message || String(e);
+                            if (/ORA-00955|ORA-01430|ORA-01408/.test(m)) { o.state = 'done'; o.ok = true; o.detail = 'already there'; return; }
+                            o.state = 'failed'; o.ok = false; o.detail = m;
+                        }).then(function () {
+                        if (o.kind !== 'PROCEDURE' || o.state !== 'done') return;
+                        return S.rows("SELECT line AS L, text AS T FROM user_errors WHERE name = '" + o.name + "' AND type = 'PROCEDURE' ORDER BY sequence", 5).then(function (er) {
+                            if (er.length) { o.state = 'failed'; o.ok = false; o.detail = 'compiled with errors: line ' + er[0].L + ' ' + er[0].T; }
+                        }, function () { });
+                    }).then(function () { if (onStep) onStep(o); });
+                });
+            }, Promise.resolve()).then(function () { ensured = null; S.linksOk = null; return objs; });
+        }
+    };
+
     S.linksSetup = function () {
         return S.ensure().then(function () { return S.write(PX); }).then(function () { return S.write(S.RESP_SQL); }).then(function () { return S.write(ORDS_SETUP); }).then(S.linksCheck);
     };
