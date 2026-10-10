@@ -27,7 +27,8 @@
         dashes: [], dash: null, dashRes: {}, dashBusy: {}, dashTimer: null,
         runs: [], log: [],
         explore: { sql: ls('explore.sql', ''), res: null, tables: [], duck: null, busy: false },
-        set: Object.assign({ chunkMb: 8, timeoutMin: 20, rowsAtOnce: 20000, indexRoot: '/', dateDefaultDays: 30 }, ls('set', {}))
+        set: Object.assign({ chunkMb: 8, timeoutMin: 20, rowsAtOnce: 20000, indexRoot: '/', dateDefaultDays: 30, indexAutoDays: 1 }, ls('set', {})),
+        q: { text: '', open: false, hl: 0, rows: [], t: null }
     };
 
     // ── boot ──────────────────────────────────────────────────────
@@ -39,8 +40,9 @@
         document.addEventListener('input', onInput);
         document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDrawer(); if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.target && e.target.id === 'ex-sql') { e.preventDefault(); runExplore(); } });
         if (!S.hasHost()) { render(); $('main').innerHTML = '<div class="card warnbox">Open this page inside the Gray\'s WMS app — the BI Publisher calls run in the desktop host with the application\'s Fusion credentials.</div>'; return; }
+        hqMount();
         go(P.tab);   // draws the tab that was open last and starts its loader (dashboards, history, explore)
-        S.bip('bipStatus', { instance: P.pod }).then(function (st) { P.status = st; if (st.index) { P.index.at = st.index.at; P.index.folders = st.index.folders; P.index.reports = st.index.reports; } paintWho(); if (P.tab === 'catalog') render(); }).catch(function (e) { toast(e.message, 'bad'); });
+        S.bip('bipStatus', { instance: P.pod }).then(function (st) { P.status = st; if (st.index) { P.index.at = st.index.at; P.index.folders = st.index.folders; P.index.reports = st.index.reports; } paintWho(); if (P.tab === 'catalog') render(); return ensureIndex(); }).then(function () { hqFoot(); indexAuto(); }).catch(function (e) { toast(e.message, 'bad'); });
         loadShared();
         if (P.tab === 'catalog') loadFolder(P.cat.path);
         var m = /[#&]run=([^&]+)/.exec(location.hash); if (m) openReport(decodeURIComponent(m[1]));
@@ -108,15 +110,12 @@
     function vCatalog() {
         var h = '';
         var q = P.cat.q.trim();
-        h += '<div class="card"><div class="row"><input type="search" id="cat-q" placeholder="Find a report — in this folder, or the whole catalog once it is indexed" value="' + esc(P.cat.q) + '" style="flex:1;min-width:260px">' +
-            '<button class="btn" data-act="index" title="Walk the whole catalog once (every folder, breadth-first) so the search box finds any report by name; kept on this PC and shared through APEX">' + (P.indexing ? '<i class="fas fa-spinner fa-spin"></i> Indexing… ' + esc(P.indexing) : P.index.at ? '<i class="fas fa-rotate"></i> Re-index (' + P.index.reports + ' reports, ' + esc(P.index.at) + (P.index.src === 'apex' ? ' · shared by ' + esc(P.index.by || 'another user') : '') + ')' : '<i class="fas fa-magnifying-glass-plus"></i> Index the catalog for search') + '</button>' + (P.indexing ? '<button class="btn sm" data-act="indexCancel">Stop</button>' : '') + '<a data-act="indexHelp" class="muted small" style="cursor:pointer" title="How the index works"><i class="fas fa-circle-question"></i></a>' +
+        h += '<div class="card"><div class="row"><input type="search" id="cat-q" placeholder="Filter this folder — the search box in the header finds any report in the whole catalog (Ctrl+K)" value="' + esc(P.cat.q) + '" style="flex:1;min-width:260px">' +
+            indexButton() + (P.indexing ? '<button class="btn sm" data-act="indexCancel">Stop</button>' : '') + '<a data-act="indexHelp" class="muted small" style="cursor:pointer" title="How the index works"><i class="fas fa-circle-question"></i></a>' +
             '<button class="btn" data-act="refreshFolder" title="Read this folder again from Fusion"><i class="fas fa-rotate"></i></button></div></div>';
         if (q) {
-            var pool = P.index.items || [];
-            var hits = E.search(pool, q, 80);
             var local = P.cat.items.filter(function (it) { return q.toLowerCase().split(/\s+/).every(function (w) { return String(it.displayName || it.fileName || '').toLowerCase().indexOf(w) >= 0; }); });
-            h += '<div class="card"><h2>In ' + esc(P.cat.path) + ' <span class="pill">' + local.length + '</span></h2><div class="items">' + (local.length ? local.map(function (it) { return itemRow(it, false); }).join('') : '<div class="empty">Nothing here matches</div>') + '</div></div>';
-            h += '<div class="card"><h2>Whole catalog <span class="pill">' + (P.index.items ? hits.length : 'not indexed') + '</span></h2>' + (P.index.items ? '<div class="items">' + (hits.length ? hits.map(function (it) { return itemRow(it, true); }).join('') : '<div class="empty">No report of the ' + P.index.reports + ' indexed matches — <a data-act="index" style="color:var(--pri);cursor:pointer">index again</a> if the catalog changed</div>') + '</div>' : '<div class="muted small">Index the catalog once (button above) and this box finds any report by name, wherever it sits.</div>') + '</div>';
+            h += '<div class="card"><h2>In ' + esc(P.cat.path) + ' <span class="pill">' + local.length + '</span> <span class="muted small">— for the whole catalog use the search box in the header</span></h2><div class="items">' + (local.length ? local.map(function (it) { return itemRow(it, false); }).join('') : '<div class="empty">Nothing here matches</div>') + '</div></div>';
             return h;
         }
         // start here
@@ -141,22 +140,47 @@
         return '<span class="src ' + (duck ? 'duck' : apex ? 'apex' : 'live') + '" title="' + title + '"><i class="fas ' + (duck ? 'fa-database' : apex ? 'fa-people-group' : 'fa-cloud') + '"></i> ' + text + (act ? ' · <a data-act="' + act + '" title="Read it again from Fusion">Refresh</a>' : '') + '</span>';
     }
     function parentOf(p) { var i = String(p).replace(/\/$/, '').lastIndexOf('/'); return i <= 0 ? '/' : p.slice(0, i); }
-    function indexCatalog() {
-        if (P.indexing) return;
-        P.indexing = 'starting'; render();
-        S.bip('bipIndex', { instance: P.pod, root: P.set.indexRoot || '/', max: 1500 }, 0, function (pr) { P.indexing = pr.folders + ' folders · ' + esc(String(pr.path || '').slice(-40)); var b = document.querySelector('[data-act=index]'); if (b) b.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Indexing… ' + P.indexing; })
+    /** The index button: first time = Index the catalog; afterwards = Update (only what changed since the last index). */
+    function indexButton() {
+        if (P.indexing) return '<button class="btn" data-act="index" disabled><i class="fas fa-spinner fa-spin"></i> ' + (P.indexMode === 'update' ? 'Updating… ' : 'Indexing… ') + esc(P.indexing) + '</button>';
+        if (P.index.at) return '<button class="btn" data-act="indexUpdate" title="Walk the catalog again and add only what is new or changed since ' + esc(P.index.at) + ' — the index is never rebuilt from scratch unless you ask (Settings)"><i class="fas fa-rotate"></i> Update the index <span class="muted small">since ' + esc(P.index.at) + (P.index.src === 'apex' ? ' · shared by ' + esc(P.index.by || 'another user') : '') + '</span></button>';
+        return '<button class="btn pri" data-act="index" title="Walk the whole catalog once (every folder, breadth-first) so the search box finds any report by name; kept on this PC and shared through APEX"><i class="fas fa-magnifying-glass-plus"></i> Index the catalog for search</button>';
+    }
+    /** A full walk (update = false) or an update: the walk is the same, but only what is new / changed / gone since the last index is written to APEX and reported. */
+    function indexCatalog(update) {
+        if (P.indexing) return Promise.resolve();
+        update = !!update && !!P.index.at;
+        P.indexing = 'starting'; P.indexMode = update ? 'update' : 'full'; render(); hqFoot();
+        var pod = P.pod;
+        return S.bip('bipIndex', { instance: pod, root: P.set.indexRoot || '/', max: 1500, update: update }, 0, function (pr) { P.indexing = pr.folders + ' folders · ' + esc(String(pr.path || '').slice(-40)); var b = document.querySelector('[data-act=index],[data-act=indexUpdate]'); if (b) b.outerHTML = indexButton(); hqFoot(); })
             .then(function (d) {
-                P.index = { items: d.items || [], at: d.at, folders: d.folders, reports: d.reports, src: 'fusion' }; P.indexing = null; toast('Indexed ' + d.reports + ' reports in ' + d.folders + ' folders (' + E.fmtMs(d.ms) + ') — kept on this PC, sharing through APEX…', 'ok', 5000); render();
-                var pod = P.pod; S.catalog.saveIndex(pod, P.set.indexRoot || '/', d.items || [], d.folders, d.reports, d.ms).then(function () { if (P.pod === pod) { P.index.shared = true; toast('The catalog of ' + pod + ' is shared through APEX — other users get it at once', 'ok', 4000); } }).catch(function (e) { toast('Catalog kept on this PC, but not shared through APEX: ' + e.message, 'warn', 8000); });
+                if (P.pod !== pod) return;
+                var n = { added: (d.added || []).length, changed: (d.changed || []).length, removed: (d.removed || []).length };
+                P.index = { items: d.items || [], at: d.at, folders: d.folders, reports: d.reports, src: 'fusion', last: { mode: d.mode, since: d.since, added: n.added, changed: n.changed, removed: n.removed } }; P.indexing = null; P.indexMode = null;
+                lsSet('index.last.' + pod, P.index.last);
+                if (d.mode === 'update') toast('Index updated since ' + (d.since || 'the last walk') + ': ' + n.added + ' new, ' + n.changed + ' changed, ' + n.removed + ' removed (' + d.reports + ' reports in ' + d.folders + ' folders, ' + E.fmtMs(d.ms) + ')', 'ok', 6000);
+                else toast('Indexed ' + d.reports + ' reports in ' + d.folders + ' folders (' + E.fmtMs(d.ms) + ') — kept on this PC, sharing through APEX…', 'ok', 5000);
+                render(); hqFoot();
+                var share = d.mode === 'update' ? S.catalog.saveDelta(pod, P.set.indexRoot || '/', (d.added || []).concat(d.changed || []), d.removed || [], { folders: d.folders, reports: d.reports, items: n.added + n.changed + n.removed, ms: d.ms }) : S.catalog.saveIndex(pod, P.set.indexRoot || '/', d.items || [], d.folders, d.reports, d.ms);
+                share.then(function () { if (P.pod === pod) { P.index.shared = true; hqFoot(); if (d.mode !== 'update') toast('The catalog of ' + pod + ' is shared through APEX — other users get it at once', 'ok', 4000); } }).catch(function (e) { toast('Catalog kept on this PC, but not shared through APEX: ' + e.message, 'warn', 8000); });
             })
-            .catch(function (e) { P.indexing = null; toast(e.message, 'bad'); render(); });
+            .catch(function (e) { P.indexing = null; P.indexMode = null; toast(e.message, 'bad'); render(); hqFoot(); });
+    }
+    /** Keeps the index current by itself: when the page opens and the index is older than Settings › indexAutoDays, an update runs in the background. */
+    function indexAuto() {
+        var days = +P.set.indexAutoDays; if (!(days > 0) || !P.index.at || P.indexing) return;
+        var at = new Date(String(P.index.at).replace(' ', 'T')); if (isNaN(at)) return;
+        if (Date.now() - at.getTime() < days * 86400000) return;
+        var key = 'index.auto.' + P.pod; var last = ls(key, 0); if (Date.now() - last < 3600000) return;   // not twice an hour
+        lsSet(key, Date.now());
+        indexCatalog(true);
     }
     /** The catalog index for the search box: this PC's DuckDB copy, else the copy another user shared through APEX (then kept here), else nothing until Index runs. */
     function ensureIndex() {
         if (P.index.items) return Promise.resolve();
         var pod = P.pod;
         return S.bip('bipIndexGet', { instance: pod }).then(function (d) {
-            if (d.at && d.items && d.items.length) { P.index = { items: d.items, at: d.at, folders: d.folders || 0, reports: d.reports || 0, src: d.src || 'duckdb' }; return; }
+            if (d.at && d.items && d.items.length) { P.index = { items: d.items, at: d.at, folders: d.folders || 0, reports: d.reports || 0, src: d.src || 'duckdb', last: ls('index.last.' + pod, null) }; return; }
             return S.catalog.index(pod).then(function (a) {
                 if (!a || !a.items.length || P.pod !== pod) return;
                 P.index = { items: a.items, at: a.at, folders: a.folders, reports: a.reports, src: 'apex', by: a.by };
@@ -548,11 +572,11 @@
         return '<div class="card"><h2>Pod</h2><div class="form"><div class="field"><label>Reports and runs on</label><select id="s-pod"><option ' + (P.pod === 'PROD' ? 'selected' : '') + '>PROD</option><option ' + (P.pod === 'TEST' ? 'selected' : '') + '>TEST</option></select></div><div class="field"><label>Fusion user</label><input type="text" value="' + esc(st.user || '') + '" disabled></div><div class="field"><label>Endpoint</label><input type="text" value="' + esc(st.origin || '') + '" disabled></div></div><div class="muted small" style="margin-top:6px">The host calls /xmlpserver/services/v2/CatalogService and ReportService of that pod with the application\'s Fusion credentials; the page never holds them.</div></div>' +
             '<div class="card"><h2>Runs</h2><div class="form"><div class="field"><label>Chunk size (MB)</label><input type="number" id="s-chunk" min="1" max="200" value="' + esc(P.set.chunkMb) + '"><span class="muted small">a report bigger than this is fetched with downloadReportDataChunk, piece by piece</span></div><div class="field"><label>Time limit per run (min)</label><input type="number" id="s-timeout" min="1" max="360" value="' + esc(P.set.timeoutMin) + '"></div><div class="field"><label>Rows loaded into the page at once</label><input type="number" id="s-rows" min="500" max="50000" step="500" value="' + esc(P.set.rowsAtOnce) + '"><span class="muted small">the whole file stays on disk; the grid loads more on demand</span></div><div class="field"><label>Default date window (days)</label><input type="number" id="s-days" min="1" max="3660" value="' + esc(P.set.dateDefaultDays) + '"><span class="muted small">when a report\'s date parameters are empty</span></div></div><div class="row" style="margin-top:10px"><button class="btn pri" data-act="settingsSave">Save</button><span class="muted small">Runs are kept in ' + esc(st.runsRoot || '%LOCALAPPDATA%\\GraysWMS\\Bip\\runs') + ' (' + esc(st.runs || 0) + ' so far) — delete old ones in History.</span></div></div>' +
             vDuckCard() +
-            '<div class="card"><h2>Catalog index</h2><div class="form"><div class="field"><label>Index from</label><input type="text" id="s-root" value="' + esc(P.set.indexRoot || '/') + '" placeholder="/ or /Custom"></div></div><div class="row" style="margin-top:10px"><button class="btn" data-act="index">' + (P.indexing ? 'Indexing… ' + esc(P.indexing) : P.index.at ? 'Re-index now' : 'Index now') + '</button>' + (P.indexing ? '<button class="btn" data-act="indexCancel">Stop</button>' : '') + '<span class="muted small">' + (P.index.at ? P.index.reports + ' reports in ' + P.index.folders + ' folders, indexed ' + esc(P.index.at) : 'Not indexed yet — the search box then finds reports by name anywhere in the catalog.') + '</span></div><div class="muted small" style="margin-top:8px">' + INDEX_HELP + '</div></div>' +
+            '<div class="card"><h2>Catalog index</h2><div class="form"><div class="field"><label>Index from</label><input type="text" id="s-root" value="' + esc(P.set.indexRoot || '/') + '" placeholder="/ or /Custom"></div></div><div class="field"><label>Keep it current</label><select id="s-auto">' + [[0, 'never by itself'], [1, 'update when older than 1 day'], [3, 'update when older than 3 days'], [7, 'update when older than a week']].map(function (x) { return '<option value="' + x[0] + '" ' + (+P.set.indexAutoDays === x[0] ? 'selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select><span class="muted small">an update runs in the background when the page opens</span></div></div><div class="row" style="margin-top:10px">' + indexButton() + (P.indexing ? '<button class="btn" data-act="indexCancel">Stop</button>' : '') + (P.index.at && !P.indexing ? '<button class="btn ghost" data-act="indexFull" title="Walk everything again from scratch — only needed after the root changed or when the index looks wrong">Re-index everything</button>' : '') + '<span class="muted small">' + (P.index.at ? P.index.reports + ' reports in ' + P.index.folders + ' folders, indexed ' + esc(P.index.at) + (P.index.last ? ' · last ' + (P.index.last.mode === 'update' ? 'update: ' + P.index.last.added + ' new, ' + P.index.last.changed + ' changed, ' + P.index.last.removed + ' removed' : 'walk: everything') : '') : 'Not indexed yet — the search box then finds reports by name anywhere in the catalog.') + '</span></div><div class="muted small" style="margin-top:8px">' + INDEX_HELP + '</div></div>' +
             '<div class="card"><h2>About</h2><div class="small muted">Browse the BI Publisher catalog, read a report\'s parameters and list of values, run it — streamed to disk, in chunks when big, in date or value buckets when long — and keep dashboards of reports in APEX. Big reports: the host never holds the output in memory (XmlReader + base64 streaming), the chunked download takes the rest, and buckets turn one impossible run into many small ones. Output formats come from the report\'s templates. Favourites, notes, dashboards and the run log are shared through APEX (apex_sql/98_bip_reporting.sql).</div></div>';
     }
 
-    var INDEX_HELP = 'How the index works: the host walks the catalog breadth-first from the root with CatalogService.getFolderContents — every folder once, at most 1,500 folders — and records each item (path, name, type, parent folder, modified, owner). The list is kept in this PC\'s DuckDB file (bip_catalog), shared through APEX (WMS_BIP_CATALOG) so every other user gets it at once, and loaded into the page: the search box then matches every word you type against the name and path of every item, reports first. Folders you open one at a time are kept the same way. It is a listing of the catalog, not of report contents; Re-index after reports were added or moved.';
+    var INDEX_HELP = 'How the index works: the host walks the catalog breadth-first from the root with CatalogService.getFolderContents — every folder once, four folders at a time, at most 1,500 folders — and records each item (path, name, type, parent folder, modified, owner). The list is kept in this PC\'s DuckDB file (bip_catalog), shared through APEX (WMS_BIP_CATALOG) so every other user gets it at once, and loaded into the page: the search box in the header then matches every word you type against the name and path of every item, reports first. Once indexed it is never rebuilt by itself: <b>Update the index</b> walks the folders again and keeps only what is new, changed or gone since the last index (compared with the kept copy, so a moved or renamed report shows as new) — APEX receives just that delta with a timestamp — and an update runs by itself in the background when the page opens and the index is older than the days set in Settings. Folders you open one at a time are kept the same way. It is a listing of the catalog, not of report contents.';
     // ── Explore (SQL over the DuckDB file) ────────────────────────
     var EX_SAMPLES = [
         ['Runs on this PC', "SELECT run_id, name, pod, format, buckets, rows_n, ms, status, started_at, tbl\nFROM bip_runs ORDER BY started_at DESC LIMIT 200"],
@@ -614,10 +638,12 @@
 
     // ── events ────────────────────────────────────────────────────
     var ACT = {
-        pod: function () { P.pod = P.pod === 'PROD' ? 'TEST' : 'PROD'; lsSet('pod', P.pod); P.cat.cache = {}; P.index = { items: null }; P.rep = null; P.result = null; P.dash = null; P.dashes = []; P.dashRes = {}; P.explore.res = null; paintWho(); S.bip('bipStatus', { instance: P.pod }).then(function (st) { P.status = st; if (st.index) { P.index.at = st.index.at; P.index.folders = st.index.folders; P.index.reports = st.index.reports; } paintWho(); render(); }).catch(function () { }); loadShared(); loadFolder(P.cat.path, true); toast('Now on ' + P.pod, 'ok'); },
+        pod: function () { P.pod = P.pod === 'PROD' ? 'TEST' : 'PROD'; lsSet('pod', P.pod); P.cat.cache = {}; P.index = { items: null }; P.rep = null; P.result = null; P.dash = null; P.dashes = []; P.dashRes = {}; P.explore.res = null; paintWho(); S.bip('bipStatus', { instance: P.pod }).then(function (st) { P.status = st; if (st.index) { P.index.at = st.index.at; P.index.folders = st.index.folders; P.index.reports = st.index.reports; } paintWho(); render(); }).catch(function () { }); loadShared(); loadFolder(P.cat.path, true); hqFoot(); toast('Now on ' + P.pod, 'ok'); },
         cd: function (d) { P.cat.q = ''; go('catalog'); loadFolder(d.path); },
         refreshFolder: function () { loadFolder(P.cat.path, true); },
-        index: function () { ensureIndex().then(indexCatalog, indexCatalog); },
+        index: function () { ensureIndex().then(function () { indexCatalog(false); }, function () { indexCatalog(false); }); },
+        indexUpdate: function () { ensureIndex().then(function () { indexCatalog(true); }, function () { indexCatalog(true); }); },
+        indexFull: function () { if (!confirm('Walk the whole catalog again from scratch? (An update is enough after reports were added or moved.)')) return; indexCatalog(false); },
         indexCancel: function () { S.bip('bipIndexCancel', { instance: P.pod }).catch(function () { }); },
         open: function (d) { openReport(d.path); },
         none: function () { },
@@ -675,7 +701,7 @@
         runAgain: function (d) { runAgain(d.id); },
         runSaveAs: function (d) { var r = P.runs.filter(function (x) { return x.runId === d.id; })[0]; S.bip('bipRunSaveAs', { runId: d.id, file: r && r.file, fileName: r ? r.name + '.' + String(r.file).split('.').pop() : null }, 0).then(function (x) { if (x.path) toast('Saved · ' + x.path, 'ok', 6000); }).catch(function (e) { toast(e.message, 'bad'); }); },
         runDelete: function (d) { if (!confirm('Delete this run and its files?')) return; S.bip('bipRunDelete', { runId: d.id }).then(loadRuns).catch(function (e) { toast(e.message, 'bad'); }); },
-        settingsSave: function () { P.set.chunkMb = +$('s-chunk').value || 8; P.set.timeoutMin = +$('s-timeout').value || 20; P.set.rowsAtOnce = +$('s-rows').value || 20000; P.set.dateDefaultDays = +$('s-days').value || 30; P.set.indexRoot = $('s-root').value.trim() || '/'; lsSet('set', P.set); var pod = $('s-pod').value; if (pod !== P.pod) ACT.pod(); else toast('Saved', 'ok'); },
+        settingsSave: function () { P.set.chunkMb = +$('s-chunk').value || 8; P.set.timeoutMin = +$('s-timeout').value || 20; P.set.rowsAtOnce = +$('s-rows').value || 20000; P.set.dateDefaultDays = +$('s-days').value || 30; P.set.indexRoot = $('s-root').value.trim() || '/'; if ($('s-auto')) P.set.indexAutoDays = +$('s-auto').value || 0; lsSet('set', P.set); var pod = $('s-pod').value; if (pod !== P.pod) ACT.pod(); else toast('Saved', 'ok'); },
         drawerClose: function () { closeDrawer(); }
     };
     function onClick(e) {
@@ -697,7 +723,74 @@
     }
     function onInput(e) {
         var t = e.target;
-        if (t.id === 'cat-q') { P.cat.q = t.value; clearTimeout(onInput.t); onInput.t = setTimeout(function () { ensureIndex().then(render, render); }, 250); }
+        if (t.id === 'cat-q') { P.cat.q = t.value; clearTimeout(onInput.t); onInput.t = setTimeout(render, 200); }
+        else if (t.id === 'bip-q') { P.q.text = t.value; clearTimeout(P.q.t); P.q.t = setTimeout(function () { ensureIndex().then(hqPaint, hqPaint); }, 180); }
+    }
+
+    // ── the header search (a popup over the whole catalog, like the WMS toolbar search) ──
+    function hqMount() {
+        if ($('hq')) return;
+        var box = document.createElement('div'); box.className = 'hq'; box.id = 'hq';
+        box.innerHTML = '<input type="text" id="bip-q" placeholder="Find a report… Ctrl+K" autocomplete="off" spellcheck="false"><i class="fas fa-magnifying-glass"></i><button class="hq-x" id="hq-x" title="Clear">✕</button><div class="hq-dd" id="hq-dd"></div>';
+        var busy = $('busy'); busy.parentNode.insertBefore(box, busy);
+        var inp = $('bip-q');
+        inp.addEventListener('focus', function () { hqOpen(true); hqPaint(); });
+        inp.addEventListener('keydown', hqKey);
+        $('hq-x').addEventListener('click', function () { inp.value = ''; P.q.text = ''; hqPaint(); inp.focus(); });
+        document.addEventListener('mousedown', function (e) { if (P.q.open && !e.target.closest('#hq')) hqOpen(false); });
+        document.addEventListener('keydown', function (e) { if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); inp.focus(); inp.select(); } });
+    }
+    function hqOpen(on) { P.q.open = !!on; var b = $('hq'); if (b) { b.classList.toggle('open', P.q.open); b.classList.toggle('has', !!P.q.text); } }
+    function hqMark(name, q) {
+        var words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean), out = esc(name);
+        words.forEach(function (w) { var re = new RegExp('(' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'); out = out.replace(re, '<mark>$1</mark>'); });
+        return out;
+    }
+    function hqRow(it, i) {
+        var t = String(it.type || ''), isRep = t === 'Report', isDm = /DataModel/i.test(t), isF = t === 'Folder';
+        return '<div class="it ' + (i === P.q.hl ? 'hl' : '') + '" data-i="' + i + '"><i class="fas ' + (isF ? 'fa-folder' : isRep ? 'fa-file-lines' : isDm ? 'fa-database' : 'fa-file') + '"></i><b>' + hqMark(it.displayName || it.fileName || nameOf(it.absolutePath), P.q.text) + '</b>' + (isRep && isFav(it.absolutePath) ? ' <i class="fas fa-star" style="color:var(--amber);width:auto"></i>' : '') + '<span class="sub" title="' + esc(it.absolutePath) + '">' + esc(parentOf(it.absolutePath)) + (it.lastModified ? ' · ' + esc(fmt(it.lastModified)) : '') + '</span></div>';
+    }
+    function hqPaint() {
+        var dd = $('hq-dd'); if (!dd) return;
+        var q = P.q.text.trim(), rows = [], h = '';
+        hqOpen(true);
+        function group(label, list, count) { if (!list.length) return; h += '<div class="g"><span>' + label + '</span><span>' + (count != null ? count : list.length) + '</span></div>'; list.forEach(function (it) { var i = rows.length; rows.push(it); h += hqRow(it, i); }); }
+        if (!q) {
+            group('<i class="fas fa-star"></i> Favourites', P.favs.slice(0, 6).map(function (f) { return { absolutePath: f.P, displayName: f.N || nameOf(f.P), type: 'Report' }; }));
+            group('<i class="fas fa-clock-rotate-left"></i> Recent runs', P.recent.slice(0, 6).map(function (r) { return { absolutePath: r.P, displayName: r.N || nameOf(r.P), type: 'Report', lastModified: null, owner: r.U }; }));
+            if (!rows.length) h += '<div class="note">Type part of a report\'s name — every word must match the name or the path.</div>';
+        } else {
+            var hits = P.index.items ? E.search(P.index.items, q, 80) : [];
+            var reps = hits.filter(function (i) { return i.type === 'Report'; }), dms = hits.filter(function (i) { return /DataModel/i.test(i.type || ''); }), folders = hits.filter(function (i) { return i.type === 'Folder'; });
+            group('Reports', reps.slice(0, 40), reps.length); group('Data models', dms.slice(0, 15), dms.length); group('Folders', folders.slice(0, 15), folders.length);
+            if (!P.index.items) {
+                var local = P.cat.items.filter(function (it) { return q.toLowerCase().split(/\s+/).every(function (w) { return String(it.displayName || it.fileName || '').toLowerCase().indexOf(w) >= 0; }); });
+                group('In ' + esc(P.cat.path), local.slice(0, 20), local.length);
+                h += '<div class="note">The catalog is not indexed yet, so only the open folder is searched — <a data-act="index">index it now</a> (one walk; every report is then found by name, and the index keeps itself current).</div>';
+            } else if (!rows.length) h += '<div class="note">No report, data model or folder of the ' + E.fmtNum(P.index.items.length) + ' indexed items matches "' + esc(q) + '" — added lately? <a data-act="indexUpdate">Update the index</a>.</div>';
+        }
+        P.q.rows = rows; if (P.q.hl >= rows.length) P.q.hl = 0;
+        dd.innerHTML = h + hqFootHtml();
+        dd.querySelectorAll('.it').forEach(function (el) { el.addEventListener('mousedown', function (e) { e.preventDefault(); hqGo(+el.dataset.i); }); el.addEventListener('mousemove', function () { var i = +el.dataset.i; if (i !== P.q.hl) { P.q.hl = i; dd.querySelectorAll('.it').forEach(function (x) { x.classList.toggle('hl', +x.dataset.i === i); }); } }); });
+    }
+    function hqFootHtml() {
+        var st = P.indexing ? '<i class="fas fa-spinner fa-spin"></i> ' + (P.indexMode === 'update' ? 'Updating the index… ' : 'Indexing… ') + esc(P.indexing)
+            : P.index.at ? '<i class="fas fa-database"></i> ' + E.fmtNum(P.index.reports || 0) + ' reports in ' + E.fmtNum(P.index.folders || 0) + ' folders · indexed ' + esc(P.index.at) + (P.index.src === 'apex' ? ' by ' + esc(P.index.by || 'another user') : '') + (P.index.last && P.index.last.mode === 'update' ? ' · last update: ' + P.index.last.added + ' new, ' + P.index.last.changed + ' changed, ' + P.index.last.removed + ' removed' : '') + ' · <a data-act="indexUpdate">Update</a>'
+            : 'Not indexed yet · <a data-act="index">Index the catalog</a>';
+        return '<div class="foot">' + st + '<span class="k"><kbd>↑</kbd><kbd>↓</kbd> move · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close</span></div>';
+    }
+    function hqFoot() { var f = document.querySelector('#hq-dd .foot'); if (f) f.outerHTML = hqFootHtml(); }
+    function hqGo(i) {
+        var it = P.q.rows[i]; if (!it) return;
+        hqOpen(false); $('bip-q').blur();
+        if (it.type === 'Folder') { P.cat.q = ''; go('catalog'); loadFolder(it.absolutePath); }
+        else if (/DataModel/i.test(it.type || '')) showSql(it.absolutePath);
+        else openReport(it.absolutePath);
+    }
+    function hqKey(e) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if (!P.q.open) { hqOpen(true); hqPaint(); return; } var n = P.q.rows.length; if (!n) return; P.q.hl = (P.q.hl + (e.key === 'ArrowDown' ? 1 : n - 1)) % n; var dd = $('hq-dd'); dd.querySelectorAll('.it').forEach(function (x) { x.classList.toggle('hl', +x.dataset.i === P.q.hl); }); var el = dd.querySelector('.it.hl'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' }); }
+        else if (e.key === 'Enter') { e.preventDefault(); if (!P.q.open) { hqOpen(true); hqPaint(); } else hqGo(P.q.hl); }
+        else if (e.key === 'Escape') { hqOpen(false); e.target.blur(); }
     }
     document.addEventListener('DOMContentLoaded', boot);
 })();

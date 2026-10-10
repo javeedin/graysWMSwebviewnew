@@ -44,17 +44,33 @@ Everything the module reads from Fusion is kept, so the second time is instant a
 
 The working indicator is a small chip in the header toolbar (spinner + what is going on), not a strip over the tabs.
 
-## Catalog and the index
+## Catalog, the search popup and the index
 
 The left column is the folder tree (`/Custom`, `/Shared Folders` …), the right the reports and data models of the
-folder. **Index the catalog** walks the whole tree once — breadth-first from the root (Settings › *Index from*),
-every folder once with `CatalogService.getFolderContents`, at most 1,500 folders, progress shown — and records each
-item: path, name, type, parent folder, modified, owner. The list goes to DuckDB, to APEX for everyone, and into the
-page: the search box then matches every word typed against the name and path of every item, reports first, so a
-report is found by name wherever it sits. It is a listing of the catalog, not of report contents; **Re-index**
-after reports were added or moved. Folders opened one at a time are kept the same way. Favourites (★), *Popular*
-(from the run log of every PC) and *Recent runs* sit on top; notes and tags on a report are shared through APEX;
-the catalog itself can be queried in Explore (`bip_catalog`).
+folder; the box above the listing only filters that folder. **The search lives in the header**: a box beside the
+pod chip (Ctrl+K) opens a popup like the WMS toolbar search — type part of a name and every word must match the
+name or the path; hits come grouped as Reports, Data models and Folders with the match marked and the folder on
+the right, ↑ ↓ move, Enter opens (a report in the Run tab, a data model's SQL, a folder in the Catalog), Esc
+closes; empty, it shows your favourites and recent runs; the footer says when the catalog was indexed, by whom,
+what the last update found, and offers *Update*.
+
+**The index** behind it: *Index the catalog* (the popup footer, the Catalog tab or Settings) walks the whole tree
+once — breadth-first from the root (Settings › *Index from*), every folder once with
+`CatalogService.getFolderContents`, four folders at a time, at most 1,500 folders, progress shown — and records
+each item: path, name, type, parent folder, modified, owner. The list goes to DuckDB, to APEX for everyone, and into
+the page. It is a listing of the catalog, not of report contents.
+
+**Once indexed it is never rebuilt by itself.** The button becomes *Update the index (since …)*: the host walks the
+folders again and compares every item with the kept copy — new paths, paths whose modified date (or name or type)
+changed, kept paths the walk no longer saw — and the page writes only that delta to APEX, with a log row
+(`index_mode` UPDATE, the counts, who, when); the toast and the popup footer say *n new, m changed, k removed since
+<timestamp>*. The comparison is with the kept copy rather than with a date alone, so a report moved, renamed or
+restored with an old date still shows up as new. The index also keeps itself current: Settings › *Keep it current*
+(default: update when older than 1 day) runs an update in the background when the page opens and the index is
+older than that — at most once an hour. *Re-index everything* (Settings) is for a changed root or an index that
+looks wrong. Folders opened one at a time are kept the same way. Favourites (★), *Popular* (from the run log of
+every PC) and *Recent runs* sit on top of the Catalog; notes and tags on a report are shared through APEX; the
+catalog itself can be queried in Explore (`bip_catalog`).
 
 ## Run
 
@@ -127,4 +143,5 @@ you press Run. Export / Import moves a dashboard as a JSON file.
 Pod (PROD / TEST — the host calls that pod's services with the application's Fusion credentials; the page never
 holds them), the DuckDB file (path, size, what it holds, encryption; *Clear the results / the catalog + definitions /
 everything* for AI admins), chunk size, time limit per run, rows loaded into the page at once, the default date
-window for reports whose dates are empty, the root the catalog index starts from, and how the index works.
+window for reports whose dates are empty, the root the catalog index starts from, *Keep it current* (when the index
+updates itself), *Re-index everything*, and how the index works.

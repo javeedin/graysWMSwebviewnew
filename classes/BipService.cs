@@ -255,31 +255,40 @@ $@"<?xml version=""1.0"" encoding=""utf-8""?>
         }
 
         /// <summary>Walks the catalog breadth-first from `root` (at most `maxFolders` folders) → every folder and report found, for the search box.</summary>
-        public async Task<List<BipCatalogItem>> IndexAsync(string root, int maxFolders, Action<int, int, string> progress, CancellationToken ct = default)
+        /// <summary>
+        /// Walks the catalog breadth-first from `root` — every folder once, `parallel` getFolderContents calls in flight, at most
+        /// `maxFolders` — and returns every item seen (folders, reports, data models; a folder that fails is an item of type Error).
+        /// progress(folders done, queued, path).
+        /// </summary>
+        public async Task<List<BipCatalogItem>> IndexAsync(string root, int maxFolders, Action<int, int, string> progress, CancellationToken ct = default, int parallel = 4)
         {
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var queue = new Queue<string>(); queue.Enqueue(string.IsNullOrWhiteSpace(root) ? "/" : root);
             var all = new List<BipCatalogItem>();
-            int folders = 0;
+            int folders = 0; parallel = Math.Clamp(parallel, 1, 8);
             while (queue.Count > 0 && folders < maxFolders)
             {
                 ct.ThrowIfCancellationRequested();
-                string p = queue.Dequeue();
-                if (!seen.Add(p)) continue;
-                folders++;
-                progress?.Invoke(folders, queue.Count, p);
-                List<BipCatalogItem> items;
-                try { items = await FolderContentsAsync(p, ct).ConfigureAwait(false); }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception ex) { all.Add(new BipCatalogItem { AbsolutePath = p, DisplayName = System.IO.Path.GetFileName(p.TrimEnd('/')), Type = "Error", Owner = ex.Message }); continue; }
-                foreach (var it in items)
+                var batch = new List<string>();
+                while (queue.Count > 0 && batch.Count < parallel && folders + batch.Count < maxFolders) { string q = queue.Dequeue(); if (seen.Add(q)) batch.Add(q); }
+                if (batch.Count == 0) continue;
+                var tasks = batch.Select(async p =>
                 {
-                    if (it.Type == "Folder")
+                    try { return (Path: p, Items: await FolderContentsAsync(p, ct).ConfigureAwait(false), Error: (Exception)null); }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex) { return (Path: p, Items: (List<BipCatalogItem>)null, Error: ex); }
+                }).ToList();
+                var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+                foreach (var r in results)
+                {
+                    folders++;
+                    progress?.Invoke(folders, queue.Count, r.Path);
+                    if (r.Error != null) { all.Add(new BipCatalogItem { AbsolutePath = r.Path, DisplayName = System.IO.Path.GetFileName(r.Path.TrimEnd('/')), Type = "Error", Owner = r.Error.Message, ParentAbsolutePath = r.Path.Length > 1 && r.Path.LastIndexOf('/') > 0 ? r.Path.Substring(0, r.Path.LastIndexOf('/')) : "/" }); continue; }
+                    foreach (var it in r.Items)
                     {
-                        if (!string.IsNullOrEmpty(it.AbsolutePath) && !seen.Contains(it.AbsolutePath)) queue.Enqueue(it.AbsolutePath);
-                        if (p == "/" || p.EndsWith("/")) continue;
+                        if (it.Type == "Folder" && !string.IsNullOrEmpty(it.AbsolutePath) && !seen.Contains(it.AbsolutePath)) queue.Enqueue(it.AbsolutePath);
+                        all.Add(it);
                     }
-                    all.Add(it);
                 }
             }
             return all;

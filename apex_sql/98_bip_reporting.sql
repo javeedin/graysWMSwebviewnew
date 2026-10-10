@@ -94,5 +94,6 @@ CREATE TABLE wms_bip_catalog_log (
     items     NUMBER,
     ms        NUMBER,
     read_by   VARCHAR2(100),
-    read_date DATE DEFAULT SYSDATE
+    read_date DATE DEFAULT SYSDATE,
+    index_mode VARCHAR2(10)              -- FULL = the whole walk, UPDATE = only what changed since the last index
 );

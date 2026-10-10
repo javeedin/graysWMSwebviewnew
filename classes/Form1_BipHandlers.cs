@@ -25,7 +25,9 @@ namespace WMSApp
     ///   bipCatalog     { path, refresh, local }     one folder — from DuckDB as last read, else CatalogService.getFolderContents (then kept);
     ///                                               `local` = DuckDB only (src "none" when not kept: the page then asks the APEX copy before Fusion)
     ///   bipCatalogKeep { path, items } | { index, root, items }   keeps a folder / a whole walk another user shared through APEX in DuckDB
-    ///   bipIndex       { root, max }                walks the catalog (progress bipProgress) → DuckDB bip_catalog + a json copy; bipIndexGet reads it; bipIndexCancel
+    ///   bipIndex       { root, max, update }        walks the catalog (4 folders at a time, progress bipProgress) → DuckDB bip_catalog + a json copy; with
+    ///                                               `update` the reply also carries the delta against the kept copy (added / changed / removed since its read_at)
+    ///                                               so the page writes only that to APEX; bipIndexGet reads the kept copy; bipIndexCancel
     ///   bipDefinition  { path, refresh }            ReportService.getReportDefinition (templates, formats, default format, data model) — kept in DuckDB
     ///   bipParameters  { path, refresh }            ReportService.getReportParameters (types, defaults, LOV labels) — kept in DuckDB
     ///   bipDataModel   { path }                     the SQL behind a report: CatalogService.downloadObject of its data model (.xdm)
@@ -144,12 +146,34 @@ namespace WMSApp
                         {
                             string rootPath = PStr(root, "root") ?? "/";
                             int max = root.TryGetProperty("max", out var mx) && mx.TryGetInt32(out int m) ? Math.Clamp(m, 10, 5000) : 1500;
+                            bool update = PBool(root, "update");
+                            // what this PC kept before the walk — an update reports only what changed since
+                            (List<BipCatalogItem> Items, Dictionary<string, object> Log) kept = (null, null);
+                            if (update) { try { kept = await Task.Run(() => BipStore.Index(svc.Pod)); } catch (Exception ex) { Debug.WriteLine("[BIP] duck index (before update): " + ex.Message); } }
+                            string since = kept.Log != null ? kept.Log["read_at"] as string : null;
                             var sw = Stopwatch.StartNew();
-                            var items = await Task.Run(() => svc.IndexAsync(rootPath, max, (done, left, p) => Progress(new { phase = "index", folders = done, queued = left, path = p, ms = sw.ElapsedMilliseconds }), cts.Token));
+                            var items = await Task.Run(() => svc.IndexAsync(rootPath, max, (done, left, p) => Progress(new { phase = "index", folders = done, queued = left, path = p, ms = sw.ElapsedMilliseconds, mode = update ? "update" : "full" }), cts.Token));
                             int folders = items.Count(i => i.Type == "Folder"), reports = items.Count(i => i.Type == "Report");
                             string at = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
-                            bool kept = false;
-                            try { await Task.Run(() => BipStore.SaveIndex(svc.Pod, rootPath, items, folders, reports, sw.ElapsedMilliseconds)); kept = true; } catch (Exception ex) { Debug.WriteLine("[BIP] duck index: " + ex.Message); }
+                            // the delta: new paths, paths whose modified date changed, kept paths under the root the walk no longer saw
+                            var added = new List<BipCatalogItem>(); var changed = new List<BipCatalogItem>(); var removed = new List<string>();
+                            if (kept.Items != null && kept.Items.Count > 0)
+                            {
+                                var keptBy = new Dictionary<string, BipCatalogItem>(StringComparer.OrdinalIgnoreCase);
+                                foreach (var k in kept.Items) if (!string.IsNullOrEmpty(k.AbsolutePath)) keptBy[k.AbsolutePath] = k;
+                                var walked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                                foreach (var it in items)
+                                {
+                                    if (string.IsNullOrEmpty(it.AbsolutePath) || it.Type == "Error") continue;
+                                    walked.Add(it.AbsolutePath);
+                                    if (!keptBy.TryGetValue(it.AbsolutePath, out var k)) added.Add(it);
+                                    else if ((k.LastModified ?? "") != (it.LastModified ?? "") || (k.Type ?? "") != (it.Type ?? "") || (k.DisplayName ?? "") != (it.DisplayName ?? "")) changed.Add(it);
+                                }
+                                string prefix = rootPath.TrimEnd('/');
+                                foreach (var k in keptBy.Keys) if ((prefix.Length == 0 || k.Equals(prefix, StringComparison.OrdinalIgnoreCase) || k.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase)) && !walked.Contains(k)) removed.Add(k);
+                            }
+                            bool wasKept = false;
+                            try { await Task.Run(() => BipStore.SaveIndex(svc.Pod, rootPath, items, folders, reports, sw.ElapsedMilliseconds)); wasKept = true; } catch (Exception ex) { Debug.WriteLine("[BIP] duck index: " + ex.Message); }
                             try
                             {
                                 var file = new JsonObject { ["pod"] = svc.Pod, ["root"] = rootPath, ["at"] = at, ["ms"] = sw.ElapsedMilliseconds, ["folders"] = folders, ["reports"] = reports, ["items"] = JsonSerializer.SerializeToNode(items, BipJsonCompact) };
@@ -157,7 +181,7 @@ namespace WMSApp
                                 File.WriteAllText(BipIndexFile(svc.Pod), file.ToJsonString());
                             }
                             catch (Exception ex) { Debug.WriteLine("[BIP] index file: " + ex.Message); }
-                            data = new { ok = true, at, folders, reports, items, ms = sw.ElapsedMilliseconds, kept };
+                            data = new { ok = true, at, folders, reports, items, ms = sw.ElapsedMilliseconds, kept = wasKept, mode = update && kept.Items != null && kept.Items.Count > 0 ? "update" : "full", since, added, changed, removed };
                         }
                         catch (OperationCanceledException) { data = new { ok = false, error = "Indexing stopped." }; }
                         finally { _bipRunning.TryRemove(key, out _); cts.Dispose(); }
