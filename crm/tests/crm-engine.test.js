@@ -129,5 +129,21 @@ eq(E.arRating({ invoiced: 1, collected: 1, balance: 100, overdue: 0, over90: 0, 
 // drill-downs: never the subledger accounting tables (they made a drill take minutes)
 ok(Object.keys(E.DRILLS).every(function (k) { return E.DRILLS[k].parts.every(function (p) { return !/xla_|gl_code_combinations/i.test(p.sql) && /^\s*SELECT\b/i.test(p.sql); }); }), 'no XLA / journal in a CRM drill');
 
+// items & categories: last 12 months vs the 12 before
+var ir = [
+    { MONTH: '2025-09', ITEM: 'RICE5', DESCRIPTION: 'Rice 5kg', CATEGORY: 'Grocery', QTY: 10, AMOUNT: 1000, ORDERS: 2 },
+    { MONTH: '2026-09', ITEM: 'RICE5', CATEGORY: 'Grocery', QTY: 5, AMOUNT: 500, ORDERS: 1 },
+    { MONTH: '2025-06', ITEM: 'OIL1', CATEGORY: 'Grocery', QTY: 8, AMOUNT: 800, ORDERS: 1 },
+    { MONTH: '2026-08', ITEM: 'JUICE', CATEGORY: 'Beverages', QTY: 20, AMOUNT: 2000, ORDERS: 3 },
+    { MONTH: '2025-01', ITEM: 'SOAP', CATEGORY: 'Household', QTY: 4, AMOUNT: 400, ORDERS: 1 },
+    { MONTH: '2026-02', ITEM: 'SOAP', CATEGORY: 'Household', QTY: 1, AMOUNT: 100, ORDERS: 1 }
+];
+var tr2 = E.itemTrends(ir, '2026-10-10');
+var byI = {}; tr2.items.forEach(function (x) { byI[x.item] = x; });
+eq([tr2.total.now, tr2.total.prev, byI.JUICE.trend, byI.OIL1.trend, byI.SOAP.trend, byI.RICE5.trend], [2600, 2200, 'NEW', 'STOPPED', 'SLOWING', 'DECLINING'], 'item trends');
+eq([tr2.items[0].item, tr2.categories[0].category, tr2.categories[0].shareNow], ['JUICE', 'Beverages', 76.9], 'top item + top category share');
+ok(tr2.insights.some(function (x) { return /Mix shift: Beverages up/.test(x.text); }) && tr2.insights.some(function (x) { return /Not bought lately/.test(x.text); }), 'insights: mix shift, not bought lately', tr2.insights);
+ok(E.sql.salesItems("A'1", 1).every(function (x) { return x.indexOf("'A''1'") > 0 && /GROUP BY TO_CHAR/.test(x); }), 'sales items SQL');
+
 console.log((n - bad) + ' / ' + n + ' passed');
 if (bad) process.exit(1);

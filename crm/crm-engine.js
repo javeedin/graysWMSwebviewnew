@@ -729,6 +729,105 @@
         return { score: score, grade: g.g, cls: g.cls, text: g.text, action: g.action, factors: f };
     };
 
+    /** what the customer bought, per month × item, 24 months (sales order lines, not cancelled) with the item's category.
+     *  Alternatives: category from the item's catalog assignment + description; category code; no category. */
+    E.sql.salesItems = function (acct, bu, months) {
+        var m = Math.max(3, Math.min(60, +months || 24));
+        var desc = "(SELECT MAX(tl.description) FROM egp_system_items_tl tl WHERE tl.inventory_item_id = fl.inventory_item_id AND tl.organization_id = fl.fulfill_org_id AND tl.language = USERENV('LANG'))";
+        var catTl = "(SELECT MIN(ct.category_name) FROM egp_item_categories ic JOIN egp_categories_tl ct ON ct.category_id = ic.category_id AND ct.language = USERENV('LANG')\n" +
+            "          WHERE ic.inventory_item_id = fl.inventory_item_id AND ic.organization_id = fl.fulfill_org_id)";
+        var catB = "(SELECT MIN(cb.category_code) FROM egp_item_categories ic JOIN egp_categories_b cb ON cb.category_id = ic.category_id\n" +
+            "          WHERE ic.inventory_item_id = fl.inventory_item_id AND ic.organization_id = fl.fulfill_org_id)";
+        function one(d, c) {
+            return "SELECT TO_CHAR(h.ordered_date, 'YYYY-MM') AS month, i.item_number AS item, MAX(" + d + ") AS description, MAX(" + c + ") AS category,\n" +
+                "       SUM(fl.ordered_qty) AS qty, MAX(fl.ordered_uom) AS uom, SUM(fl.extended_amount) AS amount, COUNT(DISTINCT h.header_id) AS orders, MAX(fl.inventory_item_id) AS inventory_item_id\n" +
+                "  FROM doo_fulfill_lines_all fl\n  JOIN doo_headers_all h ON h.header_id = fl.header_id\n  JOIN hz_cust_accounts ca ON ca.party_id = h.sold_to_party_id\n" +
+                "  LEFT JOIN egp_system_items_b i ON i.inventory_item_id = fl.inventory_item_id AND i.organization_id = fl.fulfill_org_id\n" +
+                " WHERE ca.account_number = " + q(acct) + " AND h.ordered_date >= ADD_MONTHS(TRUNC(SYSDATE, 'MM'), -" + (m - 1) + ")\n" +
+                "   AND NVL(fl.status_code, 'X') NOT IN ('CANCELED', 'CANCELLED') AND " + LATEST_ORDER + "\n" +
+                " GROUP BY TO_CHAR(h.ordered_date, 'YYYY-MM'), i.item_number\n ORDER BY 1, 2\n FETCH FIRST 8000 ROWS ONLY";
+        }
+        return [one(desc, catTl), one('i.item_number', catTl), one('i.item_number', catB), one('i.item_number', "''")];
+    };
+    function trendOf(now, prev, monthsNow, last3) {
+        if (!prev && now) return 'NEW';
+        if (prev && !now) return 'STOPPED';
+        if (prev && now && !last3) return 'SLOWING';
+        if (!prev) return 'NONE';
+        var ch = (now - prev) / Math.abs(prev);
+        return ch >= 0.2 ? 'GROWING' : ch <= -0.2 ? 'DECLINING' : 'STEADY';
+    }
+    E.TRENDS = { NEW: ['new', 'info'], STOPPED: ['stopped', 'bad'], SLOWING: ['not in 3 months', 'warn'], GROWING: ['growing', 'ok'], DECLINING: ['declining', 'warn'], STEADY: ['steady', 'muted'], NONE: ['—', 'muted'] };
+    /** month × item rows → {months[24], items, categories (with series), totals, insights} — the last 12 months vs the 12 before */
+    E.itemTrends = function (rows, now) {
+        var n = E.parse(now) || new Date(), months = [];
+        for (var i = 23; i >= 0; i--) { var d = new Date(n.getFullYear(), n.getMonth() - i, 1); months.push(d.getFullYear() + '-' + pad(d.getMonth() + 1)); }
+        var idx = {}; months.forEach(function (m, i2) { idx[m] = i2; });
+        var items = {}, cats = {};
+        function bucket(map, key, extra) {
+            var x = map[key]; if (!x) { x = map[key] = Object.assign({ key: key, series: months.map(function () { return 0; }), qtyS: months.map(function () { return 0; }), now: 0, prev: 0, qtyNow: 0, qtyPrev: 0, orders: 0, first: '', last: '' }, extra || {}); }
+            return x;
+        }
+        (rows || []).forEach(function (r) {
+            var mi = idx[r.MONTH]; if (mi == null) return;
+            var amt = +r.AMOUNT || 0, qty = +r.QTY || 0, cat = r.CATEGORY || '(no category)', key = r.ITEM || '(no item)';
+            var it = bucket(items, key, { item: key, description: r.DESCRIPTION || '', category: cat, uom: r.UOM || '', id: r.INVENTORY_ITEM_ID });
+            if (r.DESCRIPTION && !it.description) it.description = r.DESCRIPTION;
+            var c = bucket(cats, cat, { category: cat, items: {} });
+            [it, c].forEach(function (x) {
+                x.series[mi] += amt; x.qtyS[mi] += qty;
+                if (mi >= 12) { x.now += amt; x.qtyNow += qty; } else { x.prev += amt; x.qtyPrev += qty; }
+                x.orders += +r.ORDERS || 0;
+                if (!x.first || r.MONTH < x.first) x.first = r.MONTH; if (!x.last || r.MONTH > x.last) x.last = r.MONTH;
+            });
+            c.items[key] = 1;
+        });
+        var tot = { now: 0, prev: 0 }, totS = months.map(function () { return 0; });
+        Object.keys(cats).forEach(function (k) { tot.now += cats[k].now; tot.prev += cats[k].prev; cats[k].series.forEach(function (v, i3) { totS[i3] += v; }); });
+        function finish(x) {
+            x.change = x.prev ? Math.round((x.now - x.prev) / Math.abs(x.prev) * 1000) / 10 : null;
+            x.shareNow = tot.now ? Math.round(x.now / tot.now * 1000) / 10 : 0;
+            x.sharePrev = tot.prev ? Math.round(x.prev / tot.prev * 1000) / 10 : 0;
+            x.shareDelta = Math.round((x.shareNow - x.sharePrev) * 10) / 10;
+            x.monthsBought = x.series.slice(12).filter(function (v) { return v; }).length;
+            x.trend = trendOf(Math.round(x.now * 100), Math.round(x.prev * 100), x.monthsBought, x.series.slice(21).some(function (v) { return v; }));
+            return x;
+        }
+        var itemList = Object.keys(items).map(function (k) { return finish(items[k]); }).sort(function (a, b) { return b.now - a.now || b.prev - a.prev; });
+        var catList = Object.keys(cats).map(function (k) { var c = finish(cats[k]); c.itemCount = Object.keys(c.items).length; delete c.items; return c; }).sort(function (a, b) { return b.now - a.now || b.prev - a.prev; });
+        itemList.forEach(function (x, i4) { x.rank = i4 + 1; });
+        var o = { months: months, items: itemList, categories: catList, total: { now: Math.round(tot.now * 100) / 100, prev: Math.round(tot.prev * 100) / 100, change: tot.prev ? Math.round((tot.now - tot.prev) / Math.abs(tot.prev) * 1000) / 10 : null, series: totS } };
+        o.counts = { items: itemList.filter(function (x) { return x.now; }).length, itemsPrev: itemList.filter(function (x) { return x.prev; }).length, categories: catList.filter(function (x) { return x.now; }).length,
+            NEW: itemList.filter(function (x) { return x.trend === 'NEW'; }).length, STOPPED: itemList.filter(function (x) { return x.trend === 'STOPPED'; }).length,
+            GROWING: itemList.filter(function (x) { return x.trend === 'GROWING'; }).length, DECLINING: itemList.filter(function (x) { return x.trend === 'DECLINING'; }).length, SLOWING: itemList.filter(function (x) { return x.trend === 'SLOWING'; }).length };
+        o.insights = E.itemInsights(o);
+        return o;
+    };
+    function fmt0(v) { return Math.round(v || 0).toLocaleString('en-US'); }
+    /** plain-words findings about the customer's buying */
+    E.itemInsights = function (o) {
+        var out = [], t = o.total, c = o.categories, it = o.items;
+        if (!t.now && !t.prev) return out;
+        if (t.change != null) out.push({ cls: t.change >= 0 ? 'ok' : t.change <= -15 ? 'bad' : 'warn', text: 'Buying ' + (t.change >= 0 ? 'up ' : 'down ') + Math.abs(t.change) + ' % on the year before (' + fmt0(t.now) + ' vs ' + fmt0(t.prev) + ').' });
+        else if (t.now) out.push({ cls: 'info', text: 'A new customer in the last 12 months: ' + fmt0(t.now) + ' bought.' });
+        if (c[0] && c[0].now) out.push({ cls: 'info', text: c[0].category + ' is ' + c[0].shareNow + ' % of what they buy' + (c.length > 1 && c[1].now ? ', then ' + c[1].category + ' (' + c[1].shareNow + ' %)' : '') + '.' });
+        var shifts = c.filter(function (x) { return Math.abs(x.shareDelta) >= 5 && (x.now || x.prev); }).sort(function (a, b) { return Math.abs(b.shareDelta) - Math.abs(a.shareDelta); }).slice(0, 3);
+        shifts.forEach(function (x) { out.push({ cls: x.shareDelta > 0 ? 'ok' : 'warn', text: 'Mix shift: ' + x.category + ' ' + (x.shareDelta > 0 ? 'up ' : 'down ') + Math.abs(x.shareDelta) + ' points of their buying (' + x.sharePrev + ' % → ' + x.shareNow + ' %).' }); });
+        c.filter(function (x) { return x.trend === 'STOPPED' && x.prev > t.prev * 0.03; }).slice(0, 2).forEach(function (x) { out.push({ cls: 'bad', text: 'Stopped buying ' + x.category + ' (' + fmt0(x.prev) + ' the year before, last in ' + x.last + ').' }); });
+        c.filter(function (x) { return x.trend === 'NEW' && x.now > t.now * 0.03; }).slice(0, 2).forEach(function (x) { out.push({ cls: 'ok', text: 'Started buying ' + x.category + ' (' + fmt0(x.now) + ' since ' + x.first + ').' }); });
+        var lost = it.filter(function (x) { return (x.trend === 'STOPPED' || x.trend === 'SLOWING') && x.prev; }).sort(function (a, b) { return b.prev - a.prev; }).slice(0, 3);
+        if (lost.length) out.push({ cls: 'warn', text: 'Not bought lately: ' + lost.map(function (x) { return x.item + (x.description ? ' (' + x.description + ')' : '') + ' — last ' + x.last; }).join('; ') + '.' });
+        var down = it.filter(function (x) { return x.trend === 'DECLINING'; }).sort(function (a, b) { return (a.now - a.prev) - (b.now - b.prev); }).slice(0, 3);
+        if (down.length) out.push({ cls: 'warn', text: 'Biggest drops: ' + down.map(function (x) { return x.item + ' ' + x.change + ' %'; }).join(', ') + '.' });
+        var up = it.filter(function (x) { return x.trend === 'GROWING' || x.trend === 'NEW'; }).sort(function (a, b) { return (b.now - b.prev) - (a.now - a.prev); }).slice(0, 3);
+        if (up.length) out.push({ cls: 'ok', text: 'Biggest gains: ' + up.map(function (x) { return x.item + (x.change == null ? ' (new)' : ' +' + x.change + ' %'); }).join(', ') + '.' });
+        var top = it.slice(0, 5).reduce(function (s, x) { return s + x.now; }, 0);
+        if (t.now && it.length > 5) out.push({ cls: 'info', text: 'Top 5 items = ' + Math.round(top / t.now * 100) + ' % of the last 12 months, from ' + o.counts.items + ' items bought.' });
+        var gap = o.total.series.slice(21).every(function (v) { return !v; });
+        if (gap && t.now) out.push({ cls: 'bad', text: 'Nothing ordered in the last 3 months.' });
+        return out;
+    };
+
     /** the CRM's drill-downs: what a customer-service person needs, NO subledger accounting tables (XLA events / journals are
      *  huge — they made each drill take minutes). Parts run at the same time; placeholders are filled by DCE.drillSql. */
     E.DRILLS = {

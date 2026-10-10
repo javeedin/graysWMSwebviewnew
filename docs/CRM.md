@@ -47,8 +47,16 @@ The **Customer 360** sub-tabs:
   | Credit limit use, when the customer has a limit | added |
 
   The rating also shows on the Overview.
-- **Sales orders**: drill to the lines, or open the order in Fusion.
-- **Items & stock**: what the customer buys, plus **Stock now** (on hand per org and subinventory).
+- **Sales orders**: the orders of 24 months; drill to the lines and invoices, or open the order in Fusion.
+- **Items**: two views.
+  - **Categories & trends** (default; one query, month × item for 24 months with the item's category):
+    - KPI tiles: bought in the last 12 months vs the 12 before, items, categories, new items, stopped or quiet items, growing / declining.
+    - *Buying by category*: stacked monthly columns for the top 6 categories plus Others.
+    - **Trend shifting**: each category's share of the customer's buying for 8 quarters, as a heat table, with the points won or lost against the year before.
+    - A categories table: last 12 months, 12 before, change, share, share change, items, trend.
+    - *What stands out*: mix shifts of 5+ points, categories stopped or started, items not bought in 3 months, biggest drops and gains, concentration of the top 5, no order in 3 months.
+    - Top items with their trend: growing, declining, new, stopped, not in 3 months, steady. They can be filtered by trend or a category, and searched. A click shows the item month by month. CSV export is available.
+  - **Items bought**: the plain 12-month list. Stock is not shown here.
 - **Statements**: the journey of the last statement (recorded, PDF, sent, delivered, opened, read, agreed or queried) and every statement sent. Actions: **Send again**, **Open the PDF**, **Check the file** (SHA-256).
 - **Tickets**, **Calls**, **E-mails**.
 - **Contacts**: CRM contacts you can edit, plus the Fusion contacts.
@@ -228,7 +236,7 @@ It also has the Debtors tools (balances, open items, statements, follow-ups) and
 
 - `node crm/tests/crm-engine.test.js` (CI) covers business hours and the SLA (with pause), routing, phone numbers, the health score, the timeline, KPIs, naive Bayes, similar tickets, the ask parser, the read-only 360 SQL (incl. the order currency column and its fallbacks), the customer-master pages, rows and search, and the AR 360 totals and rating.
 - AI Hub: `test_crm_customer_desk_routing_tools_and_module_threads`, plus the evals `crm_sla` and `crm_missed`.
-- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 92 checks. They include:
+- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 96 checks. They include:
   - every AR view, filter and drill (invoice → receipt that paid it → Back)
   - the Statements button
   - sections kept in APEX and on this PC

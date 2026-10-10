@@ -299,3 +299,19 @@ pre.code.sm { max-height: 160px; font-size: 11px; }
 .pagerbar .sp { flex: 1; }
 .pagerbar select, .pagerbar input { height: 28px; }
 .recent { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+/* Items & stock › Categories & trends */
+.mspark { display: inline-flex; align-items: flex-end; gap: 1px; height: 22px; width: 84px; vertical-align: middle; }
+.mspark i { flex: 1; background: #6366f1; border-radius: 1px; min-height: 0; }
+.arch.stk .mo { align-items: flex-end; }
+.arch.stk .col { width: 100%; display: flex; flex-direction: column-reverse; border-radius: 3px 3px 0 0; overflow: hidden; min-height: 1px; }
+.arch.stk .col span { display: block; min-height: 1px; }
+i.dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: -1px; }
+.tbl.shift td { white-space: nowrap; }
+.divbar { display: inline-flex; width: 140px; height: 10px; vertical-align: middle; margin-right: 6px; background: linear-gradient(90deg, transparent 49.5%, #cbd5e1 49.5%, #cbd5e1 50.5%, transparent 50.5%); }
+.divbar span { display: block; height: 100%; }
+.divbar .neg { margin-left: auto; background: #dc2626; border-radius: 3px 0 0 3px; max-width: 50%; }
+.divbar .pos { background: #16a34a; border-radius: 0 3px 3px 0; max-width: 50%; }
+.divbar { position: relative; }
+.divbar .neg { position: absolute; right: 50%; }
+.divbar .pos { position: absolute; left: 50%; }
