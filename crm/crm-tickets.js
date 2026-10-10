@@ -25,7 +25,7 @@
             return true;
         });
     }
-    C.ticketTable = function (list) {
+    C.ticketTable = function (list, rowAct) {
         var now = new Date();
         return C.table([
             [function (t) { var p = E.priority(t.PRIORITY); return C.pill(p.key, p.cls); }, ''],
@@ -37,7 +37,7 @@
             [function (t) { var s = E.sla(t, now); return C.pill(esc(s.label), s.cls); }, 'SLA'],
             [function (t) { return C.when(t.CREATED_AT); }, 'Opened'],
             [function (t) { return esc(E.CHANNELS[t.CHANNEL] || t.CHANNEL || ''); }, 'Channel']
-        ], list.slice().sort(C.bySla), { empty: 'No tickets.', rowAct: 'openTicket', rowData: function (t) { return 'data-id="' + esc(t.TICKET_ID) + '"'; } });
+        ], list.slice().sort(C.bySla), { empty: 'No tickets.', rowAct: rowAct || 'openTicket', rowData: function (t) { return 'data-id="' + esc(t.TICKET_ID) + '"'; } });
     };
     C.views.tickets = function () {
         var f = C.tk.f, list = scoped(), s = C.setup;

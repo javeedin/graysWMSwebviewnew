@@ -369,6 +369,58 @@
         });
         return k;
     };
+    /**
+     * What each customer needs now, by account: open tickets (breached / at risk / waiting), callbacks not done (late / today /
+     * planned), missed calls of the last `missedDays` days that nobody returned (no later answered call or outgoing call to that
+     * account), Debtors follow-ups (open promises — late when past the pay-by date —, open disputes, other open tasks / calls).
+     * → {account: {tickets, callbacks, missed, promises, disputes, followups, score, flags: [{k, n, cls, label}]}}
+     */
+    E.custFlags = function (src, now, missedDays) {
+        src = src || {};
+        var n = E.parse(now) || new Date(), today = E.iso(n), since = E.iso(new Date(n.getTime() - (missedDays || 7) * 864e5)), out = {};
+        function of(a) { a = String(a || '').trim(); if (!a) return null; return out[a] || (out[a] = { tickets: { n: 0, breached: 0, risk: 0, waiting: 0, ids: [] }, callbacks: { n: 0, late: 0, today: 0, next: '', ids: [] }, missed: { n: 0, last: '', ids: [] }, promises: { n: 0, late: 0, amount: 0, ids: [] }, disputes: { n: 0, ids: [] }, followups: { n: 0, late: 0, ids: [] } }); }
+        (src.tickets || []).forEach(function (t) {
+            if (!E.isOpen(t)) return; var x = of(t.ACCOUNT_NUMBER); if (!x) return;
+            var s = E.sla(t, n).state;
+            x.tickets.n++; x.tickets.ids.push(t.TICKET_ID);
+            if (s === 'breached') x.tickets.breached++; else if (s === 'risk') x.tickets.risk++;
+            if (/^PENDING/.test(t.STATUS || '')) x.tickets.waiting++;
+        });
+        var calls = (src.calls || []).slice().sort(function (a, b) { return String(a.STARTED_AT || '').localeCompare(String(b.STARTED_AT || '')); }), lastReach = {};
+        calls.forEach(function (c) { if (c.ACCOUNT_NUMBER && (c.DIRECTION === 'OUT' || c.OUTCOME === 'ANSWERED')) lastReach[c.ACCOUNT_NUMBER] = String(c.STARTED_AT || ''); });
+        calls.forEach(function (c) {
+            var x = of(c.ACCOUNT_NUMBER); if (!x) return;
+            if (c.CALLBACK_AT && c.CALLBACK_DONE !== 'Y') {
+                var d = String(c.CALLBACK_AT).slice(0, 10);
+                x.callbacks.n++; x.callbacks.ids.push(c.CALL_ID);
+                if (d < today) x.callbacks.late++; else if (d === today) x.callbacks.today++;
+                if (!x.callbacks.next || String(c.CALLBACK_AT) < x.callbacks.next) x.callbacks.next = String(c.CALLBACK_AT);
+            }
+            var at = String(c.STARTED_AT || '');
+            if (c.OUTCOME === 'MISSED' && c.DIRECTION !== 'OUT' && at.slice(0, 10) >= since && !(lastReach[c.ACCOUNT_NUMBER] > at)) {
+                x.missed.n++; x.missed.ids.push(c.CALL_ID); if (at > x.missed.last) x.missed.last = at;
+            }
+        });
+        (src.acts || []).forEach(function (a) {
+            if (a.STATUS && a.STATUS !== 'OPEN') return; var x = of(a.ACCOUNT_NUMBER); if (!x) return;
+            var late = a.DUE_DATE && String(a.DUE_DATE).slice(0, 10) < today;
+            if (a.KIND === 'PROMISE') { x.promises.n++; x.promises.ids.push(a.ACT_ID); x.promises.amount += +a.AMOUNT || 0; if (late) x.promises.late++; }
+            else if (a.KIND === 'DISPUTE') { x.disputes.n++; x.disputes.ids.push(a.ACT_ID); }
+            else if (a.KIND === 'TASK' || a.KIND === 'CALL' || a.KIND === 'EMAIL' || a.KIND === 'VISIT') { x.followups.n++; x.followups.ids.push(a.ACT_ID); if (late) x.followups.late++; }
+        });
+        Object.keys(out).forEach(function (k) {
+            var x = out[k], f = [], tk = x.tickets, cb = x.callbacks;
+            if (tk.n) f.push({ k: 'tickets', n: tk.n, cls: tk.breached ? 'bad' : tk.risk ? 'warn' : 'info', label: tk.n + ' open ticket' + (tk.n > 1 ? 's' : '') + (tk.breached ? ' · ' + tk.breached + ' past the SLA' : '') + (tk.risk ? ' · ' + tk.risk + ' at risk' : '') + (tk.waiting ? ' · ' + tk.waiting + ' waiting for the customer' : '') });
+            if (cb.n) f.push({ k: 'callbacks', n: cb.n, cls: cb.late ? 'bad' : cb.today ? 'warn' : 'info', label: cb.n + ' callback' + (cb.n > 1 ? 's' : '') + ' to make' + (cb.late ? ' · ' + cb.late + ' late' : '') + (cb.today ? ' · ' + cb.today + ' today' : '') + (!cb.late && !cb.today ? ' · next ' + cb.next.slice(0, 16) : '') });
+            if (x.missed.n) f.push({ k: 'missed', n: x.missed.n, cls: 'bad', label: x.missed.n + ' missed call' + (x.missed.n > 1 ? 's' : '') + ' not returned · last ' + x.missed.last.slice(0, 16) });
+            if (x.promises.n) f.push({ k: 'promises', n: x.promises.n, cls: x.promises.late ? 'bad' : 'vio', label: x.promises.n + ' promise' + (x.promises.n > 1 ? 's' : '') + ' to pay' + (x.promises.late ? ' · ' + x.promises.late + ' past the date' : '') });
+            if (x.disputes.n) f.push({ k: 'disputes', n: x.disputes.n, cls: 'warn', label: x.disputes.n + ' open dispute' + (x.disputes.n > 1 ? 's' : '') });
+            if (x.followups.n) f.push({ k: 'followups', n: x.followups.n, cls: x.followups.late ? 'bad' : 'info', label: x.followups.n + ' follow-up' + (x.followups.n > 1 ? 's' : '') + (x.followups.late ? ' · ' + x.followups.late + ' overdue' : '') });
+            x.flags = f;
+            x.score = tk.breached * 5 + cb.late * 4 + x.missed.n * 3 + x.promises.late * 3 + cb.today * 2 + tk.risk * 2 + x.disputes.n * 2 + x.followups.late * 2 + tk.n + cb.n;
+        });
+        return out;
+    };
     /** SLA compliance, first reply and resolution times of the tickets closed in a period */
     E.slaStats = function (tickets, hours) {
         var r = { n: 0, met: 0, firstN: 0, firstMins: 0, resN: 0, resMins: 0, byCat: {}, byAgent: {}, csatN: 0, csatSum: 0 };

@@ -170,5 +170,27 @@ eq(E.phoneList('5712 3456; 4520202 4525743'), ['57123456', '4520202', '4525743']
 var big = E.dffPack({ m: {}, f: Array.from({ length: 60 }, function (x, i) { return { t: 'A', col: 'ATTRIBUTE' + i, label: 'L' + i, value: 'é'.repeat(120) }; }) }, 3900);
 ok(unescape(encodeURIComponent(big)).length <= 3900 && E.dffUnpack(big).cut > 0, 'DFF pack fits the bytes, valid JSON');
 
+// what each customer needs now (Customers grid icons)
+var cf = E.custFlags({
+    tickets: [{ TICKET_ID: 't1', ACCOUNT_NUMBER: 'A1', STATUS: 'OPEN', PRIORITY: 'P2', CREATED_AT: '2026-10-05 09:00', DUE_FIRST: '2026-10-05 10:00', DUE_RESOLVE: '2026-10-06 09:00' },
+        { TICKET_ID: 't2', ACCOUNT_NUMBER: 'A1', STATUS: 'PENDING_CUSTOMER', PRIORITY: 'P3', CREATED_AT: '2026-10-08 09:00', DUE_RESOLVE: '2026-10-20 09:00' },
+        { TICKET_ID: 't3', ACCOUNT_NUMBER: 'A1', STATUS: 'RESOLVED', CREATED_AT: '2026-10-01 09:00' }],
+    calls: [{ CALL_ID: 'c1', ACCOUNT_NUMBER: 'A1', STARTED_AT: '2026-10-07 10:00', DIRECTION: 'IN', OUTCOME: 'ANSWERED', CALLBACK_AT: '2026-10-08 09:00' },
+        { CALL_ID: 'c2', ACCOUNT_NUMBER: 'A2', STARTED_AT: '2026-10-09 10:00', DIRECTION: 'IN', OUTCOME: 'MISSED' },
+        { CALL_ID: 'c3', ACCOUNT_NUMBER: 'A3', STARTED_AT: '2026-10-09 10:00', DIRECTION: 'IN', OUTCOME: 'MISSED' },
+        { CALL_ID: 'c4', ACCOUNT_NUMBER: 'A3', STARTED_AT: '2026-10-09 11:00', DIRECTION: 'OUT', OUTCOME: 'NO_ANSWER' },
+        { CALL_ID: 'c5', ACCOUNT_NUMBER: 'A2', STARTED_AT: '2026-10-09 12:00', DIRECTION: 'IN', OUTCOME: 'ANSWERED', CALLBACK_AT: '2026-10-10 15:00' },
+        { CALL_ID: 'c6', ACCOUNT_NUMBER: 'A4', STARTED_AT: '2026-09-20 10:00', DIRECTION: 'IN', OUTCOME: 'MISSED', CALLBACK_AT: '2026-10-12 09:00', CALLBACK_DONE: 'Y' }],
+    acts: [{ ACT_ID: 'p1', ACCOUNT_NUMBER: 'A1', KIND: 'PROMISE', STATUS: 'OPEN', AMOUNT: 500, DUE_DATE: '2026-10-08' }, { ACT_ID: 'd1', ACCOUNT_NUMBER: 'A2', KIND: 'DISPUTE', STATUS: 'OPEN' }, { ACT_ID: 'x', ACCOUNT_NUMBER: 'A2', KIND: 'PROMISE', STATUS: 'KEPT' }]
+}, '2026-10-10 11:00', 7);
+eq([cf.A1.tickets.n, cf.A1.tickets.breached, cf.A1.tickets.waiting], [2, 1, 1], 'two open tickets, one past the SLA, one waiting');
+eq([cf.A1.callbacks.n, cf.A1.callbacks.late], [1, 1], 'a callback of yesterday is late');
+eq(cf.A1.flags.map(function (f) { return f.k + ':' + f.cls; }), ['tickets:bad', 'callbacks:bad', 'promises:bad'], 'A1 flags in order with colours');
+eq([cf.A2.missed.n, cf.A2.callbacks.today], [0, 1], 'a missed call answered later is not flagged; a callback due today');
+eq(cf.A2.flags.map(function (f) { return f.k; }), ['callbacks', 'disputes'], 'A2 callback + dispute, kept promise ignored');
+eq(cf.A3.missed.n, 0, 'an outgoing call after the missed one returns it');
+ok(!cf.A4 || !cf.A4.flags.length, 'an old missed call and a done callback raise nothing');
+ok(cf.A1.score > cf.A2.score, 'A1 needs more than A2');
+
 console.log((n - bad) + ' / ' + n + ' passed');
 if (bad) process.exit(1);

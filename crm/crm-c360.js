@@ -212,7 +212,7 @@
         var h = a ? C.c360Health() : null;
         var phones = phonesOf(m.PHONE || card.PHONE || '');
         var email = card.STMT_TO || m.EMAIL || '', dm = E.dffUnpack(m.DFF_JSON).m;
-        var head = '<div class="card"><div class="c3head">' + C.avatar(c.name || c.account, true) + '<div style="flex:1;min-width:280px"><div class="nm">' + esc(c.name || '—') + ' ' + (m.STATUS && m.STATUS !== 'A' ? C.pill('inactive', 'bad') : '') + (card.ON_HOLD === 'Y' || m.CREDIT_HOLD === 'Y' ? C.pill('<i class="fas fa-lock"></i> credit hold', 'bad') : '') + (card.TAGS ? ' ' + card.TAGS.split(/[,;]/).map(function (t) { return C.pill(esc(t.trim()), 'vio'); }).join(' ') : '') + '</div>' +
+        var head = '<div class="card"><div class="c3head">' + C.avatar(c.name || c.account, true) + '<div style="flex:1;min-width:280px"><div class="nm">' + esc(c.name || '—') + ' ' + (m.STATUS && m.STATUS !== 'A' ? C.pill('inactive', 'bad') : '') + (card.ON_HOLD === 'Y' || m.CREDIT_HOLD === 'Y' ? C.pill('<i class="fas fa-lock"></i> credit hold', 'bad') : '') + (card.TAGS ? ' ' + card.TAGS.split(/[,;]/).map(function (t) { return C.pill(esc(t.trim()), 'vio'); }).join(' ') : '') + (function () { var fx = C.custFlags()[c.account]; return fx && fx.flags.length ? ' ' + C.flagIcons(fx, { account: c.account, bu: c.bu, name: c.name }) : ''; })() + '</div>' +
             '<div class="facts"><span><i class="fas fa-hashtag"></i>' + esc(c.account) + '</span><span><i class="fas fa-building"></i><select data-ch="c360Bu" style="min-height:26px;padding:2px 6px">' + C.bus.map(function (b) { return '<option value="' + esc(b.id) + '"' + (b.id === c.bu ? ' selected' : '') + '>' + esc(b.name || b.id) + '</option>'; }).join('') + '</select></span>' +
             phones.map(function (p) { return '<span><i class="fas fa-phone"></i><a data-act="dialNum" data-num="' + esc(p) + '" data-acct="' + esc(c.account) + '">' + esc(p) + '</a></span>'; }).join('') +
             (email ? '<span><i class="fas fa-envelope"></i><a data-act="compose" data-to="' + esc(email) + '">' + esc(email) + '</a>' + (dm.e && !card.STMT_TO ? ' <span class="dfftag" title="From the DFF segment ' + esc(dm.e) + '">DFF</span>' : '') + '</span>' : '') +
@@ -707,7 +707,7 @@
         C.ACT.actSave = function () {
             var amt = $('ac-amt') ? +$('ac-amt').value || null : null;
             D.act.add({ id: DE.uid('ac'), buId: c.bu, account: c.account, name: c.name, kind: kind, subject: $('ac-subj').value || (k.label || kind), body: $('ac-body').value, amount: amt, due: $('ac-due') ? $('ac-due').value : null, status: kind === 'PROMISE' ? 'OPEN' : 'DONE' })
-                .then(function () { C.mclose(); C.toast('Saved', 'ok'); return D.act.list({ account: c.account }); }).then(function (l) { c.a.acts = l; C.render(); }, function (e) { C.toast(C.errText(e), 'bad', 7000); });
+                .then(function () { C.mclose(); C.toast('Saved', 'ok'); return D.act.list({ account: c.account }); }).then(function (l) { c.a.acts = l; C.dcOpen = (C.dcOpen || []).filter(function (x) { return x.ACCOUNT_NUMBER !== c.account; }).concat(l.filter(function (x) { return x.STATUS === 'OPEN'; })); C.render(); }, function (e) { C.toast(C.errText(e), 'bad', 7000); });
         };
     }
     C.ACT.logNote = function () { actDialog('NOTE'); };
