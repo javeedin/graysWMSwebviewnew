@@ -122,6 +122,13 @@ the balance with its aging bar, why the priority is what it is, and one **timeli
 answers, calls, notes, promises to pay, disputes and follow-ups. From there: *Log a call*, *Note*, *Promise to pay*
 (amount + date), *Follow-up*, *Dispute*, *Card*, *Send a statement*.
 
+**Customer 360 opens as a dialog** over the page you are on (a cycle's balances, statements, follow-ups, the
+customer list, a check) — Esc closes it, and an invoice opened from it comes back to it with *Back*. Its tabs:
+Open invoices, Timeline, Statements, Follow-ups and Customer details. The **Customers page** is the customer master
+from Oracle Fusion — account, party, status, type / class, bill-to address, e-mail, phone, collector, payment terms,
+credit limit, credit hold, since when — read once and kept on this PC (*Read n missing from Fusion*, *Find in Fusion*
+by number or name). A cycle's trail is behind the *Trail* button and under the Close step.
+
 Opened from a statement cycle, the balance is the cycle's (the balances read for it, else the archive). The
 **Open invoices** tab reads the customer's open items live from Fusion (AR payment schedules still open in that
 business unit: invoices, credit memos, unapplied receipts) with totals, overdue, days late, CSV and the SQL; a line

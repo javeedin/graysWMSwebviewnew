@@ -439,7 +439,8 @@
         w2_dc_checks: ['cycle_id', 'check_id', 'status', 'rows_n', 'amount', 'ms', 'error_text', 'ran_at', 'ran_by', 'bypass_note', 'bypass_by', 'bypass_at', 'sql_text', 'truncated', 'saved_at'],
         w2_dc_check_rows: ['cycle_id', 'check_id', 'variant', 'seq', 'row_json'],
         w2_dc_cust: ['cycle_id', 'seq', 'account', 'json', 'read_at'],
-        w2_dc_drill: ['cycle_id', 'dkey', 'part', 'seq', 'row_json', 'sql_text', 'read_at']
+        w2_dc_drill: ['cycle_id', 'dkey', 'part', 'seq', 'row_json', 'sql_text', 'read_at'],
+        w2_dc_master: ['pod', 'account', 'json', 'read_at']
     };
     S.duck = {
         on: null, io: Promise.resolve(),

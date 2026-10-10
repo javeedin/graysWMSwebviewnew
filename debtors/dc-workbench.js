@@ -76,15 +76,28 @@
         el.classList.add('on');
         return el;
     }
-    W.close = function () { var el = $('cy-wb'); if (el) el.classList.remove('on'); W.stack = []; };
-    W.back = function () { W.stack.pop(); if (!W.stack.length) W.close(); else paint(); };
+    function gone(f) { if (f && f.onClose) try { f.onClose(); } catch (e) { } }
+    W.close = function () { var el = $('cy-wb'); if (el) el.classList.remove('on'); var st = W.stack; W.stack = []; st.forEach(gone); };
+    W.back = function () { gone(W.stack.pop()); if (!W.stack.length) W.close(); else paint(); };
+    W.isOpen = function () { var el = $('cy-wb'); return !!(el && el.classList.contains('on') && W.stack.length); };
+    /** a frame drawn by its owner: {type:'html', key, title, render(), after?(), onClose?()} — pushed on top of what is open (Back returns), else a new stack */
+    W.openHtml = function (frame, push) {
+        frame.type = 'html';
+        if (!push || !W.isOpen()) { W.close(); W.stack = []; }
+        else { var i = W.stack.map(function (x) { return x.key; }).indexOf(frame.key); if (i >= 0) W.stack.splice(i).forEach(gone); }
+        W.loadLinks(); W.stack.push(frame); shell(); paint();
+    };
+    /** repaint the frame on top when it is the given key (an owner's data arrived) */
+    W.repaint = function (key) { var f = top(); if (W.isOpen() && f && (!key || f.key === key)) { var b = $('wb-body'), y = b ? b.scrollTop : 0; paint(); if (b) b.scrollTop = y; } };
+    W.topKey = function () { var f = top(); return W.isOpen() && f ? f.key || f.type : null; };
     function top() { return W.stack[W.stack.length - 1]; }
     function paint() {
         var f = top(); if (!f) return;
         $('wb-top').innerHTML = '<div class="crumbs">' + W.stack.map(function (x, i) { return (i ? '<i class="fas fa-chevron-right"></i>' : '') + '<a data-act="wbTo" data-i="' + i + '"' + (i === W.stack.length - 1 ? ' class="cur"' : '') + '>' + esc(x.title) + '</a>'; }).join('') + '</div><span class="sp"></span>' +
             (W.stack.length > 1 ? '<button class="btn sm" data-act="wbBack"><i class="fas fa-arrow-left"></i> Back</button>' : '') + '<button class="btn sm" data-act="wbClose" title="Esc"><i class="fas fa-xmark"></i> Close</button>';
-        $('wb-body').innerHTML = f.type === 'check' ? checkHtml(f) : drillHtml(f);
+        $('wb-body').innerHTML = f.type === 'html' ? f.render(f) : f.type === 'check' ? checkHtml(f) : drillHtml(f);
         if (f.type === 'check') paintGrid();
+        if (f.type === 'html' && f.after) f.after(f);
     }
 
     // ── a check's rows ──
@@ -260,7 +273,7 @@
     function dRowAt(d) { var f = W.stack[+d.f]; return f && f.parts[d.p] && f.parts[d.p].rows ? f.parts[d.p].rows[+d.r] : null; }
     ACT.wbClose = W.close;
     ACT.wbBack = W.back;
-    ACT.wbTo = function (d) { W.stack = W.stack.slice(0, +d.i + 1); paint(); };
+    ACT.wbTo = function (d) { W.stack.splice(+d.i + 1).forEach(gone); paint(); };
     ACT.wbRow = function (d) { var r = top().view[+d.r]; var dr = r && E.rowDrill(r); if (dr) W.drill(dr, r); };
     ACT.wbOpen = function (d) { var r = rowAt(d), lk = r && E.cellLink(d.c, r); if (lk && lk.open) W.drill(lk.open, r); };
     ACT.wbFusion = function (d) { var r = rowAt(d), lk = r && E.cellLink(d.c, r); if (lk) W.openFusion(lk.fusion, { id: lk.id, number: lk.number }); };
@@ -268,7 +281,7 @@
     ACT.wbDFusion = function (d) { var r = dRowAt(d), lk = r && E.cellLink(d.c, r); if (lk) W.openFusion(lk.fusion, { id: lk.id, number: lk.number }); };
     ACT.wbFusionDr = function () { var f = top(), v = f.dr.vars, k = f.dr.kind; W.openFusion(k, k === 'ORDER' ? { id: v.HEADER_ID, number: v.ORDER_NUMBER } : k === 'TRX' ? { id: v.TRX_ID, number: v.NUMBER } : { id: v.RECEIPT_ID, number: v.NUMBER }); };
     ACT.wbDrillFresh = function () { var f = top(); f.parts = {}; paint(); loadDrill(f, true); };
-    ACT.wbCust = function (d) { var b = C.cy ? C.cy.BU_ID : P.buId; W.close(); A.open360(b, d.acct); };
+    ACT.wbCust = function (d) { var b = C.cy ? C.cy.BU_ID : P.buId; A.open360(b, d.acct, true); };
     ACT.wbSort = function (d) { var f = top(); f.sort = f.sort && f.sort.c === d.c ? { c: d.c, dir: -f.sort.dir } : { c: d.c, dir: isAmt(d.c) ? -1 : 1 }; paint(); };
     ACT.wbChip = function (d) { var f = top(); f.chip = f.chip && f.chip.col === d.c && f.chip.val === d.v ? null : { col: d.c, val: d.v }; paintGrid(); document.querySelectorAll('#wb-sum .chip').forEach(function (b) { b.classList.toggle('on', !!f.chip && b.dataset.c === f.chip.col && b.dataset.v === f.chip.val); }); };
     ACT.wbClear = function () { var f = top(); f.filters = {}; f.chip = null; paint(); };

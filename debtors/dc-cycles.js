@@ -176,12 +176,12 @@
         var st = E.CYCLE_STATUS[c.STATUS] || { label: c.STATUS, cls: '' }, steps = E.cycleSteps(c), show = C.step || steps.active;
         var h = '<div class="card"><div class="row"><button class="btn sm" data-act="cyBack"><i class="fas fa-arrow-left"></i> Cycles</button><b style="font-size:17px">' + esc(c.TITLE || E.periodLabel(c.PERIOD)) + '</b>' + pill(st.label, st.cls) +
             '<span class="sp"></span><span class="small muted">' + esc(c.BU_NAME) + ' · ' + esc(c.POD) + ' · statements as at <b>' + esc(c.STMT_DATE) + '</b>' + (c.OWNER_USER ? ' · owner ' + esc(c.OWNER_USER) : '') + (c.DUE_DATE ? ' · due ' + esc(c.DUE_DATE) : '') + '</span>' +
-            '<button class="btn sm" data-act="cyPack" title="One HTML file with everything about this cycle — for the auditors"><i class="fas fa-file-shield"></i> Audit pack</button><button class="btn sm" data-act="cyReload"><i class="fas fa-rotate"></i></button></div>' +
+            '<button class="btn sm" data-act="cyTrail" title="Every step, bypass and send of this cycle"><i class="fas fa-clock-rotate-left"></i> Trail <span class="pill">' + (C.events || []).length + '</span></button>' + '<button class="btn sm" data-act="cyPack" title="One HTML file with everything about this cycle — for the auditors"><i class="fas fa-file-shield"></i> Audit pack</button><button class="btn sm" data-act="cyReload"><i class="fas fa-rotate"></i></button></div>' +
             '<div class="stepper">' + steps.steps.map(function (s, i) {
                 var d = E.CYCLE_STEPS[i];
                 return '<button class="stp ' + s.state + (show === s.key ? ' cur' : '') + '" data-act="cyStep" data-k="' + s.key + '"><span class="n">' + (s.state === 'done' ? '<i class="fas fa-check"></i>' : i + 1) + '</span><span><b>' + d.label + '</b><span class="small">' + stepNote(s.key) + '</span></span></button>';
             }).join('') + '</div></div>';
-        h += '<div class="cols"><div>' + (show === 'checks' ? vChecks() : show === 'archive' ? vArchive() : show === 'review' ? vReview() : show === 'send' ? vSend() : vClose()) + '</div><div>' + vTrail() + '</div></div>';
+        h += show === 'checks' ? vChecks() : show === 'archive' ? vArchive() : show === 'review' ? vReview() : show === 'send' ? vSend() : vClose() + vTrail();
         return h;
     }
     function stepNote(k) {
@@ -596,6 +596,7 @@
     ACT.cyReload = function () { C.cust = null; loadCycle(C.open); };
     ACT.cyStep = function (d) { C.step = d.k; if (d.k === 'send' && !C.stmts && C.cy.SNAP_AT) S.stmt.search({ cycleId: C.cy.CYCLE_ID, limit: 50000 }).then(function (s) { C.stmts = s; A.render(); }); A.render(); };
     ACT.cyPack = auditPack;
+    ACT.cyTrail = function () { A.modal('<i class="fas fa-clock-rotate-left"></i> Trail · ' + esc(C.cy.TITLE || E.periodLabel(C.cy.PERIOD)), vTrail().replace(/^<div class="card">/, '<div>'), '<span class="sp"></span><button class="btn" data-act="mclose">Close</button>', true); };
     ACT.ckRunAll = function () { runMany(C.defs().filter(function (d) { return d.enabled !== false; })); };
     ACT.ckRunFailed = function () { runMany(C.defs().filter(function (d) { var r = C.results[d.id]; return d.enabled !== false && r && r.status !== 'PASS' && !r.bypassNote; })); };
     ACT.ckRun = function (d) { var x = C.defs().filter(function (c) { return c.id === d.id; })[0]; if (x) runMany([x]); };

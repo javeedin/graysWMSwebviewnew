@@ -125,5 +125,12 @@ check('openItemsSql: account quoted, BU id, open schedules only', /account_numbe
 const ois = E.openItemsSummary([{ REMAINING: 100, DAYS_LATE: 0, CUSTOMER: 'Grays' }, { REMAINING: 50, DAYS_LATE: 45 }, { REMAINING: 20, DAYS_LATE: 120 }, { REMAINING: -30, DAYS_LATE: 5 }]);
 check('openItemsSummary: total, overdue, credits, aging buckets, oldest, name', ois.total === 140 && ois.overdue === 40 && ois.credits === -30 && ois.aging.d60 === 50 && ois.aging.d90p === 20 && ois.aging.d30 === -30 && ois.oldest === 120 && ois.name === 'Grays', JSON.stringify(ois));
 
+// customer master
+const ms = E.masterSql(['GR1', "O'K"]);
+check('masterSql: three alternatives, accounts quoted, richest first', ms.length === 3 && /IN \('GR1', 'O''K'\)/.test(ms[0]) && /credit_limit/.test(ms[0]) && !/credit_limit/.test(ms[1]) && /collector/.test(ms[1]) && !/collector/.test(ms[2]));
+const mq = E.masterSearchSql("pick o'neil");
+check('masterSearchSql: every word, quotes doubled, capped', /LIKE '%PICK%'/.test(mq) && /O''NEIL/.test(mq) && /ROWNUM <= 200/.test(mq) && E.masterSearchSql('  ') === null);
+check('chunks', JSON.stringify(E.chunks([1, 2, 3, 4, 5], 2)) === '[[1,2],[3,4],[5]]');
+
 console.log(bad ? 'FAILED ' + bad + ' of ' + n + ' statement cycle checks' : 'ok ' + n + ' statement cycle checks');
 process.exit(bad ? 1 : 0);

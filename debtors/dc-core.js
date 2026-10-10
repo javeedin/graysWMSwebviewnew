@@ -22,7 +22,8 @@
         stmtDate: E.lastMonthEnd(), cards: {}, latest: {}, contact: {}, acts: [], recent: [], runs: [],
         run: { customers: null, loadedFor: null, sel: {}, f: ls('run.f', { q: '', delivery: '', positive: true, unsent: true }), sort: { k: 'balance', d: -1 }, live: null, opts: null },
         stmts: { rows: null, f: ls('stmts.f', { days: 45, buId: '', status: '', resp: '', q: '' }), sort: { k: 'CREATED_AT', d: -1 } },
-        cust: { q: '', filter: '', open: null, sub: 'timeline', data: null },
+        cust: { q: '', filter: '', open: null, sub: 'balance', data: null },
+        master: { rows: {}, local: null, reading: null, found: [], sql: '' },
         tasks: { mine: ls('tasks.mine', false) },
         mail: null, info: null, linksOk: null, ready: false
     };
@@ -122,8 +123,10 @@
         var ext = window.DC.views && window.DC.views[P.tab];
         m.innerHTML = ext ? ext() : P.tab === 'run' ? vRun() : P.tab === 'stmts' ? vStmts() : P.tab === 'cust' ? vCust() : P.tab === 'tasks' ? vTasks() : P.tab === 'setup' ? vSetup() : vHome();
         if (ext && window.DC.after && window.DC.after[P.tab]) window.DC.after[P.tab]();
-        if (P.tab === 'cust' && P.cust.open && !P.cust.data) load360();
+        refresh360();
     }
+    /** the customer dialog is open on top of the workbench overlay → draw it again */
+    function refresh360() { if (P.cust.open && window.DC.wb && window.DC.wb.topKey() === 'c360') window.DC.wb.repaint('c360'); }
 
     // ══ Overview ═══════════════════════════════════════════════════
     var WL_ICON = { FAILED: 'fa-circle-xmark', BOUNCED: 'fa-envelope-circle-check', DISPUTED: 'fa-triangle-exclamation', PROMISE_LATE: 'fa-handshake-slash', PROMISE_DUE: 'fa-handshake', FOLLOWUP: 'fa-list-check', UNOPENED: 'fa-envelope' };
@@ -485,40 +488,110 @@
     }
     var _max = null; function maxBal() { if (_max != null) return _max; _max = 1; Object.keys(P.latest).forEach(function (k) { _max = Math.max(_max, +P.latest[k].BALANCE || 0); }); setTimeout(function () { _max = null; }, 2000); return _max; }
     function safeJson(s) { try { return JSON.parse(s); } catch (e) { return null; } }
+    // ── customer master: read from Fusion, kept on this PC (DuckDB w2_dc_master) ──
+    var MASTER_COLS = [['ACCOUNT_NUMBER', 'Account'], ['CUSTOMER', 'Customer'], ['PARTY_NUMBER', 'Party no.'], ['ACCOUNT_NAME', 'Account name'], ['STATUS', 'Status'], ['CUSTOMER_TYPE', 'Type'], ['CUSTOMER_CLASS', 'Class'],
+        ['BILL_TO_ADDRESS', 'Bill-to address'], ['SITES', 'Active sites'], ['EMAIL', 'E-mail'], ['PHONE', 'Phone'], ['COLLECTOR', 'Collector'], ['PAYMENT_TERMS', 'Payment terms'], ['CREDIT_LIMIT', 'Credit limit'], ['CREDIT_HOLD', 'Credit hold'],
+        ['TAX_REFERENCE', 'Tax reference'], ['ESTABLISHED', 'Established'], ['CREATED', 'Created in Fusion']];
+    /** the master rows kept on this PC for the pod (once per page) */
+    function masterLocal() {
+        var M = P.master;
+        if (M.local) return M.local;
+        M.local = S.duck.qs(['SELECT account, json, read_at FROM w2_dc_master WHERE pod = ' + S.duck.lit(P.pod)]).then(function (r) {
+            r[0].forEach(function (x) { try { var o = JSON.parse(x.json); o._at = x.read_at; if (!M.rows[x.account]) M.rows[x.account] = o; } catch (e) { } });
+            return M.rows;
+        });
+        return M.local;
+    }
+    /** the first of the alternatives that Fusion accepts */
+    function fusionFirst(list, limit) {
+        var i = 0, last = null;
+        function next() { if (i >= list.length) return Promise.reject(last || new Error('No query worked')); var q = list[i++]; return S.fusionSql(q, limit, 300000).then(function (rows) { return { rows: rows, sql: q, alt: i }; }, function (e) { last = e; if (/ORA-00942|ORA-00904|ORA-01031|invalid identifier|does not exist/i.test(errText(e))) return next(); throw e; }); }
+        return next();
+    }
+    function keepMaster(rows) {
+        var at = new Date().toISOString(), got = [];
+        rows.forEach(function (r) { if (!r.ACCOUNT_NUMBER) return; r._at = at; P.master.rows[r.ACCOUNT_NUMBER] = r; got.push(r.ACCOUNT_NUMBER); });
+        if (got.length) S.duck.put('w2_dc_master', { pod: [P.pod], account: got }, got.map(function (a) { var o = Object.assign({}, P.master.rows[a]); delete o._at; return { pod: P.pod, account: a, json: JSON.stringify(o), read_at: at }; }));
+        return got;
+    }
+    /** read the master of these accounts from Fusion (those not on this PC, or all with force), 300 per query, 2 at a time */
+    function loadMaster(accounts, force, onStep) {
+        return masterLocal().then(function () {
+            var want = (accounts || []).filter(function (a, i, arr) { return a && arr.indexOf(a) === i && (force || !P.master.rows[a]); });
+            if (!want.length) return { read: 0 };
+            var chunks = E.chunks(want, 300), done = 0, read = 0, err = null;
+            function worker() { var c = chunks.shift(); if (!c) return Promise.resolve(); return fusionFirst(E.masterSql(c), 1000).then(function (r) { P.master.sql = r.sql; read += keepMaster(r.rows).length; }, function (e) { err = e; }).then(function () { done++; if (onStep) onStep(done, done + chunks.length); return worker(); }); }
+            return Promise.all([worker(), worker()]).then(function () { refresh360(); if (P.tab === 'cust') render(); if (err && !read) throw err; return { read: read, asked: want.length }; });
+        });
+    }
+    function masterHtml(acct) {
+        var m = P.master.rows[acct];
+        if (!m) return '<div class="empty">' + (P.master.reading ? '<i class="fas fa-spinner fa-spin"></i> Reading from Fusion…' : 'Not read from Fusion yet. <a data-act="masterOne" data-acct="' + esc(acct) + '">Read it now</a>') + '</div>';
+        return '<div class="row" style="margin:6px 0 10px"><span class="small muted">From Oracle Fusion · read ' + esc(when(m._at) || '') + '</span><span class="sp"></span><button class="btn sm" data-act="masterOne" data-acct="' + esc(acct) + '"><i class="fas fa-rotate"></i> Read again</button></div>' +
+            '<div class="kv">' + MASTER_COLS.map(function (c) { var v = m[c[0]]; if (v == null || v === '') return ''; return '<div class="k">' + c[1] + '</div><div class="v">' + (c[0] === 'CREDIT_LIMIT' ? money(+v) : c[0] === 'STATUS' ? pill(v === 'A' ? 'Active' : v === 'I' ? 'Inactive' : v, v === 'A' ? 'ok' : 'muted') : c[0] === 'CREDIT_HOLD' ? pill(v === 'Y' ? 'On hold' : 'No', v === 'Y' ? 'bad' : 'ok') : esc(v)) + '</div>'; }).join('') + '</div>';
+    }
+    /** every customer the module knows for the BU (statements, cards, activities, the run, the open cycle, Fusion search) */
+    function masterList(b) {
+        var keys = {}, out = [];
+        function add(acct, name) { if (!acct || keys[acct]) return; keys[acct] = 1; out.push({ account: acct, name: name || '' }); }
+        custList().forEach(function (x) { add(x.account, x.name); });
+        var cy = window.DC.cycles; if (cy && cy.cy && String(cy.cy.BU_ID) === String(b.id)) (cy.cust || (cy.bal ? E.fromArchive(cy.bal) : [])).forEach(function (c) { add(c.account, c.name); });
+        P.master.found.forEach(function (r) { add(r.ACCOUNT_NUMBER, r.CUSTOMER); });
+        return out;
+    }
     function vCust() {
-        if (P.cust.open) return v360();
         var b = curBu(); if (!b) return '<div class="card note warn">Set up a business unit first.</div>';
-        var q = P.cust.q.toLowerCase(), fl = P.cust.filter;
-        var all = custList(), rows = all.filter(function (x) {
-            if (q && (x.account + ' ' + x.name + ' ' + (x.card.TAGS || '') + ' ' + (x.card.OWNER_USER || '')).toLowerCase().indexOf(q) < 0) return false;
-            if (fl === 'high' && x.score.score < 70) return false;
+        if (!P.master.local) masterLocal().then(function () { if (P.tab === 'cust') render(); });
+        var q = P.cust.q.toLowerCase(), fl = P.cust.filter, M = P.master.rows;
+        var list = masterList(b), have = list.filter(function (x) { return M[x.account]; }).length;
+        var rows = list.map(function (x) {
+            var m = M[x.account] || {}, cd = card(b.id, x.account) || {}, acts = actsOf(b.id, x.account), last = P.latest[key(b.id, x.account)];
+            return { account: x.account, m: m, cd: cd, last: last, name: m.CUSTOMER || x.name, disputes: acts.filter(function (a) { return a.KIND === 'DISPUTE' && a.STATUS === 'OPEN'; }).length, promises: acts.filter(function (a) { return a.KIND === 'PROMISE' && a.STATUS === 'OPEN'; }).length };
+        }).filter(function (x) {
+            if (q && [x.account, x.name, x.m.ACCOUNT_NAME, x.m.PARTY_NUMBER, x.m.EMAIL, x.m.PHONE, x.m.BILL_TO_ADDRESS, x.m.COLLECTOR, x.cd.TAGS, x.cd.OWNER_USER].join(' ').toLowerCase().indexOf(q) < 0) return false;
+            if (fl === 'nodet' && x.m.ACCOUNT_NUMBER) return false;
+            if (fl === 'noemail' && (x.m.EMAIL || x.cd.STMT_TO)) return false;
+            if (fl === 'hold' && x.m.CREDIT_HOLD !== 'Y' && x.cd.ON_HOLD !== 'Y') return false;
+            if (fl === 'inactive' && x.m.STATUS !== 'I') return false;
             if (fl === 'disp' && !x.disputes) return false;
-            if (fl === 'prom' && !x.promises.length) return false;
-            if (fl === 'hold' && x.card.ON_HOLD !== 'Y') return false;
-            if (fl === 'mine' && (x.card.OWNER_USER || '').toLowerCase() !== S.user().toLowerCase()) return false;
-            if (fl === 'noemail' && E.recipients(x.c || { email: x.last ? x.last.EMAIL_TO : '' }, profileOf(x.buId, x.account), b).delivery !== 'POST') return false;
+            if (fl === 'mine' && (x.cd.OWNER_USER || '').toLowerCase() !== S.user().toLowerCase()) return false;
             return true;
-        }).sort(function (a, b2) { return b2.score.score - a.score.score || (b2.balance || 0) - (a.balance || 0); });
+        }).sort(function (a, c) { return String(a.name).localeCompare(String(c.name)); });
+        var R = P.master.reading;
         var h = '<div class="card"><div class="row"><select id="c-bu">' + P.bus.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === b.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select>' +
-            '<input type="search" id="c-q" placeholder="Search account, name, tag, collector…" value="' + esc(P.cust.q) + '" style="min-width:260px"><div class="seg" id="c-f">' +
-            [['', 'All'], ['high', 'High priority'], ['disp', 'Disputes'], ['prom', 'Promises'], ['noemail', 'By post'], ['hold', 'On hold'], ['mine', 'Mine']].map(function (x) { return '<button data-f="' + x[0] + '"' + (fl === x[0] ? ' class="on"' : '') + '>' + x[1] + '</button>'; }).join('') + '</div><span class="sp"></span>' +
-            (P.run.customers && P.run.loadedFor && P.run.loadedFor.split('|')[0] === b.id ? '<span class="small muted">balances as at ' + esc(P.stmtDate) + '</span>' : '<span class="small muted">balances from the last statement — <a data-act="go" data-tab="run">read today\'s</a></span>') + '</div></div>';
-        h += '<div class="card"><div class="tblw"><table class="tbl"><thead><tr><th>Account</th><th>Customer</th><th class="r">Balance</th><th>Priority</th><th>Last statement</th><th>Last contact</th><th>Promises</th><th>Collector</th></tr></thead><tbody>' +
+            '<input type="search" id="c-q" placeholder="Search number, name, e-mail, phone, address, collector… (Enter = find in Fusion)" value="' + esc(P.cust.q) + '" style="min-width:340px"><div class="seg" id="c-f">' +
+            [['', 'All'], ['nodet', 'Details not read'], ['noemail', 'No e-mail'], ['hold', 'Credit hold'], ['inactive', 'Inactive'], ['disp', 'Disputes'], ['mine', 'Mine']].map(function (x) { return '<button data-f="' + x[0] + '"' + (fl === x[0] ? ' class="on"' : '') + '>' + x[1] + '</button>'; }).join('') + '</div><span class="sp"></span>' +
+            '<button class="btn sm" data-act="masterFind"' + (R ? ' disabled' : '') + ' title="Search Oracle Fusion for customers by number or name"><i class="fas fa-magnifying-glass"></i> Find in Fusion</button>' +
+            '<button class="btn sm pri" data-act="masterRead"' + (R ? ' disabled' : '') + '><i class="fas fa-cloud-arrow-down"></i> ' + (R ? esc(R) : have < list.length ? 'Read ' + (list.length - have) + ' missing from Fusion' : 'Read again from Fusion') + '</button></div>' +
+            '<div class="small muted" style="margin-top:6px">Customer master data from Oracle Fusion (account, party, bill-to, contacts, collector, terms, credit limit) — ' + have + ' of ' + list.length + ' read, kept on this PC. Click a customer for its balance, open invoices, statements and conversations.</div></div>';
+        h += '<div class="card"><div class="tblw"><table class="tbl"><thead><tr><th>Account</th><th>Customer</th><th>Status</th><th>Type / class</th><th>Bill-to address</th><th>E-mail</th><th>Phone</th><th>Collector</th><th>Terms</th><th class="r">Credit limit</th><th>Since</th><th>Last statement</th></tr></thead><tbody>' +
             (rows.length ? rows.slice(0, 1000).map(function (x) {
-                var band = E.band(x.score.score), pAmt = x.promises.reduce(function (s, a) { return s + (+a.AMOUNT || 0); }, 0);
-                return '<tr class="click" data-act="open360" data-bu="' + esc(x.buId) + '" data-acct="' + esc(x.account) + '"><td class="mono">' + esc(x.account) + '</td><td><b>' + esc(x.name) + '</b>' + (x.card.ON_HOLD === 'Y' ? ' ' + pill('hold', 'bad') : '') + (x.disputes ? ' ' + pill('dispute', 'bad') : '') + (x.card.TAGS ? '<div class="small muted">' + esc(x.card.TAGS) + '</div>' : '') + '</td>' +
-                    '<td class="r num">' + (x.balance != null ? money(x.balance) + '<div class="small muted">' + esc(x.balAt || '') + '</div>' : '<span class="muted">—</span>') + '</td><td>' + pill(band.label + ' · ' + x.score.score, band.key, x.score.why.join(' · ')) + '</td>' +
-                    '<td>' + (x.last ? statePill(x.last) + '<div class="small muted">' + esc(x.last.STMT_DATE) + '</div>' : '<span class="muted small">never</span>') + '</td><td class="small">' + esc(x.contact || '') + '</td><td>' + (x.promises.length ? money(pAmt) + ' <span class="muted small">(' + x.promises.length + ')</span>' : '') + '</td><td class="small">' + esc(x.card.OWNER_USER || '') + '</td></tr>';
-            }).join('') : '<tr><td colspan="8" class="empty">No customer yet — read the balances in <a data-act="go" data-tab="run">Send statements</a>, or search.</td></tr>') + '</tbody></table></div></div>';
+                var m = x.m, st = m.STATUS;
+                return '<tr class="click" data-act="open360" data-bu="' + esc(b.id) + '" data-acct="' + esc(x.account) + '"><td class="mono">' + esc(x.account) + '</td><td><b>' + esc(x.name) + '</b>' + (m.ACCOUNT_NAME && m.ACCOUNT_NAME !== x.name ? '<div class="small muted">' + esc(m.ACCOUNT_NAME) + '</div>' : '') +
+                    ((m.CREDIT_HOLD === 'Y' || x.cd.ON_HOLD === 'Y') ? ' ' + pill('hold', 'bad') : '') + (x.disputes ? ' ' + pill('dispute', 'bad') : '') + (x.promises ? ' ' + pill('promise', 'warn') : '') + (x.cd.TAGS ? '<div class="small muted">' + esc(x.cd.TAGS) + '</div>' : '') + '</td>' +
+                    '<td>' + (st ? pill(st === 'A' ? 'Active' : st === 'I' ? 'Inactive' : st, st === 'A' ? 'ok' : 'muted') : '<span class="muted small">not read</span>') + '</td><td class="small">' + esc([m.CUSTOMER_TYPE, m.CUSTOMER_CLASS].filter(Boolean).join(' · ')) + '</td>' +
+                    '<td class="small cut" title="' + esc(m.BILL_TO_ADDRESS || '') + '">' + esc(m.BILL_TO_ADDRESS || '') + '</td><td class="small cut">' + esc(x.cd.STMT_TO || m.EMAIL || '') + '</td><td class="small">' + esc(x.cd.PHONE || m.PHONE || '') + '</td>' +
+                    '<td class="small">' + esc(x.cd.OWNER_USER || m.COLLECTOR || '') + '</td><td class="small">' + esc(m.PAYMENT_TERMS || '') + '</td><td class="r num">' + (m.CREDIT_LIMIT != null && m.CREDIT_LIMIT !== '' ? money(+m.CREDIT_LIMIT) : '') + '</td><td class="small">' + esc(m.ESTABLISHED || m.CREATED || '') + '</td>' +
+                    '<td>' + (x.last ? statePill(x.last) + '<div class="small muted">' + esc(x.last.STMT_DATE) + '</div>' : '<span class="muted small">never</span>') + '</td></tr>';
+            }).join('') : '<tr><td colspan="12" class="empty">No customer yet — type a name and press <b>Find in Fusion</b>, or read the balances in <a data-act="go" data-tab="run">Send statements</a>.</td></tr>') + '</tbody></table></div>' +
+            (rows.length > 1000 ? '<div class="small muted">First 1,000 of ' + rows.length + ' — narrow the search.</div>' : '') + '</div>';
         return h;
     }
-    function open360(buId, acct) { P.cust.open = { buId: buId, account: acct }; P.cust.data = null; P.cust.items = null; P.cust.sub = P.cust.sub || 'timeline'; mclose(); if (P.tab !== 'cust') go('cust'); else render(); }
+    /** the customer's balance dialog (over any page; Back returns to a check / drill-down it was opened from) */
+    function open360(buId, acct, push) {
+        var o = { buId: buId, account: acct };
+        P.cust.open = o; P.cust.data = null; P.cust.items = null; P.cust.loading = null; P.cust.sub = P.cust.sub && P.cust.sub !== 'timeline' ? P.cust.sub : 'balance'; mclose();
+        loadMaster([acct]).catch(function () { });
+        window.DC.wb.openHtml({ key: 'c360', title: nameOf(buId, acct) + ' · ' + acct, render: v360, after: function () { if (P.cust.open === o && !P.cust.data) load360(); },
+            onClose: function () { if (P.cust.open === o) { P.cust.open = null; P.cust.data = null; P.cust.items = null; } } }, push || window.DC.wb.isOpen());
+    }
     function load360() {
-        var o = P.cust.open, end = busy('Reading the customer…');
+        var o = P.cust.open; if (!o || P.cust.loading === o) return;
+        P.cust.loading = o;
         Promise.all([S.stmt.search({ buId: o.buId, account: o.account, limit: 500 }), S.act.list({ buId: o.buId, account: o.account, limit: 2000 })]).then(function (r) {
-            end(); if (!P.cust.open || P.cust.open.account !== o.account) return;
-            P.cust.data = { stmts: r[0], acts: r[1] }; render();
-        }, function (e) { end(); toast(errText(e), 'bad', 7000); P.cust.data = { stmts: [], acts: [] }; render(); });
+            if (P.cust.loading === o) P.cust.loading = null; if (P.cust.open !== o) return;
+            P.cust.data = { stmts: r[0], acts: r[1] }; refresh360();
+        }, function (e) { if (P.cust.loading === o) P.cust.loading = null; toast(errText(e), 'bad', 7000); if (P.cust.open !== o) return; P.cust.data = { stmts: [], acts: [] }; refresh360(); });
     }
     /** the customer's open invoices / receipts / credits, live from Fusion (AR payment schedules still open) */
     function loadItems(o) {
@@ -526,8 +599,8 @@
         P.cust.items = { account: o.account, buId: o.buId, rows: null, sql: sql };
         return S.fusionSql(sql, 5000, 300000).then(function (rows) {
             if (!P.cust.items || P.cust.items.account !== o.account) return;
-            P.cust.items = { account: o.account, buId: o.buId, rows: rows, sql: sql, sum: E.openItemsSummary(rows), at: new Date(), ms: Date.now() - t0 }; if (P.tab === 'cust') render();
-        }, function (e) { if (!P.cust.items || P.cust.items.account !== o.account) return; P.cust.items = { account: o.account, buId: o.buId, rows: [], sql: sql, err: errText(e) }; if (P.tab === 'cust') render(); });
+            P.cust.items = { account: o.account, buId: o.buId, rows: rows, sql: sql, sum: E.openItemsSummary(rows), at: new Date(), ms: Date.now() - t0 }; refresh360();
+        }, function (e) { if (!P.cust.items || P.cust.items.account !== o.account) return; P.cust.items = { account: o.account, buId: o.buId, rows: [], sql: sql, err: errText(e) }; refresh360(); });
     }
     function itemsHtml(it) {
         if (!it || !it.rows) return '<div class="empty"><i class="fas fa-spinner fa-spin"></i> Reading the open items from Fusion…</div>';
@@ -553,11 +626,11 @@
         if (!P.cust.items || P.cust.items.account !== o.account) loadItems(o);
         var it = P.cust.items, live = it && it.rows && it.rows.length && !it.err ? (it.sum || E.openItemsSummary(it.rows)) : null;
         if (!c && live && !P.latest[key(o.buId, o.account)]) { c = { account: o.account, name: live.name, balance: live.total, overdue: live.overdue, aging: live.aging }; cycLabel = ' open in Fusion now'; }
-        var last = P.latest[key(o.buId, o.account)], name = (c && c.name) || cd.ACCOUNT_NAME || (last && last.ACCOUNT_NAME) || (live && live.name) || o.account;
+        var last = P.latest[key(o.buId, o.account)], ms = P.master.rows[o.account], name = (c && c.name) || cd.ACCOUNT_NAME || (last && last.ACCOUNT_NAME) || (ms && ms.CUSTOMER) || (live && live.name) || o.account;
         var bal = c ? c.balance : last ? +last.BALANCE : null, aging = c && c.aging ? c.aging : last && last.AGING_JSON ? safeJson(last.AGING_JSON) : null;
         var acts = d ? d.acts : actsOf(o.buId, o.account), sc = E.score({ balance: bal || 0, aging: aging, overdue: c ? c.overdue : last && last.OVERDUE != null ? +last.OVERDUE : null }, { maxBalance: maxBal(), activities: acts, lastContact: P.contact[key(o.buId, o.account)], lastStatement: last }), band = E.band(sc.score);
         var rc = E.recipients(c || { email: last ? last.EMAIL_TO : '' }, profileOf(o.buId, o.account), b);
-        var h = '<div class="card"><div class="row" style="margin-bottom:10px"><button class="btn sm" data-act="back360"><i class="fas fa-arrow-left"></i> Customers</button><span class="sp"></span>' +
+        var h = '<div class="card"><div class="row" style="margin-bottom:10px"><span class="small muted"><i class="fas fa-user"></i> ' + esc(b.name) + '</span><span class="sp"></span>' +
             '<button class="btn sm" data-act="newAct" data-kind="CALL" data-bu="' + esc(o.buId) + '" data-acct="' + esc(o.account) + '"><i class="fas fa-phone"></i> Log a call</button>' +
             '<button class="btn sm" data-act="newAct" data-kind="NOTE" data-bu="' + esc(o.buId) + '" data-acct="' + esc(o.account) + '"><i class="fas fa-note-sticky"></i> Note</button>' +
             '<button class="btn sm" data-act="newAct" data-kind="PROMISE" data-bu="' + esc(o.buId) + '" data-acct="' + esc(o.account) + '"><i class="fas fa-handshake"></i> Promise to pay</button>' +
@@ -573,9 +646,10 @@
             (cd.NOTES ? '<div class="note" style="margin-top:10px;white-space:pre-wrap">' + esc(cd.NOTES) + '</div>' : '') + '</div>';
         if (!d) return h + '<div class="card empty"><i class="fas fa-spinner fa-spin"></i></div>';
         var sub = P.cust.sub, open = d.acts.filter(function (a) { return a.STATUS === 'OPEN' && a.KIND !== 'CONFIRM'; });
-        h += '<div class="card"><div class="subtabs">' + [['timeline', 'Timeline'], ['items', 'Open invoices' + (it && it.rows ? ' (' + it.rows.length + ')' : '')], ['stmts', 'Statements (' + d.stmts.length + ')'], ['open', 'Follow-ups (' + open.length + ')']].map(function (x) { return '<button data-act="sub360" data-s="' + x[0] + '"' + (sub === x[0] ? ' class="on"' : '') + '>' + x[1] + '</button>'; }).join('') + '</div>';
+        h += '<div class="card"><div class="subtabs">' + [['balance', 'Open invoices' + (it && it.rows ? ' (' + it.rows.length + ')' : '')], ['timeline', 'Timeline'], ['stmts', 'Statements (' + d.stmts.length + ')'], ['open', 'Follow-ups (' + open.length + ')'], ['master', 'Customer details']].map(function (x) { return '<button data-act="sub360" data-s="' + x[0] + '"' + (sub === x[0] ? ' class="on"' : '') + '>' + x[1] + '</button>'; }).join('') + '</div>';
         if (sub === 'stmts') h += '<div class="tblw"><table class="tbl"><thead><tr><th>When</th><th>As at</th><th class="r">Balance</th><th>To</th><th>Status</th><th>Answer</th><th>By</th></tr></thead><tbody>' + (d.stmts.length ? d.stmts.map(function (s) { return '<tr class="click" data-act="stmt" data-id="' + esc(s.STMT_ID) + '"><td class="small">' + when(s.SENT_AT || s.CREATED_AT) + '</td><td>' + esc(s.STMT_DATE) + '</td><td class="r num">' + money(+s.BALANCE) + '</td><td class="cut small">' + esc(s.EMAIL_TO || s.DELIVERY) + '</td><td>' + statePill(s) + '</td><td>' + (s.RESP_STATUS ? pill(s.RESP_STATUS === 'AGREED' ? 'Agreed' : 'Queried', s.RESP_STATUS === 'AGREED' ? 'ok' : 'bad') : '') + '</td><td class="small">' + esc(s.APP_USER) + '</td></tr>'; }).join('') : '<tr><td colspan="7" class="empty">No statement sent yet.</td></tr>') + '</tbody></table></div>';
-        else if (sub === 'items') h += itemsHtml(it);
+        else if (sub === 'balance' || sub === 'items') h += itemsHtml(it);
+        else if (sub === 'master') h += masterHtml(o.account);
         else if (sub === 'open') h += open.length ? '<div class="wl">' + open.map(actItem).join('') + '</div>' : '<div class="empty">No open follow-ups, promises or disputes for this customer.</div>';
         else {
             var tl = E.timeline(d.stmts, d.acts);
@@ -605,7 +679,8 @@
     // ── dialogs: activity, card, one statement ─────────────────────
     function nameOf(buId, acct) {
         var c = P.run.customers && P.run.customers.filter(function (x) { return x.account === acct; })[0];
-        return (c && c.name) || (card(buId, acct) || {}).ACCOUNT_NAME || (P.latest[key(buId, acct)] || {}).ACCOUNT_NAME || acct;
+        var cy = window.DC.cycleCustomer ? window.DC.cycleCustomer(buId, acct) : null, m = P.master.rows[acct];
+        return (c && c.name) || (cy && cy.c.name) || (card(buId, acct) || {}).ACCOUNT_NAME || (P.latest[key(buId, acct)] || {}).ACCOUNT_NAME || (m && m.CUSTOMER) || acct;
     }
     function actDialog(kind, buId, acct, ref) {
         var k = E.KINDS[kind] || E.KINDS.NOTE, nm = nameOf(buId, acct), needsDate = kind === 'PROMISE' || kind === 'TASK', canDate = kind !== 'NOTE' && kind !== 'DISPUTE';
@@ -807,7 +882,21 @@
         },
         open360: function (d) { open360(d.bu, d.acct); },
         back360: function () { P.cust.open = null; P.cust.data = null; render(); },
-        sub360: function (d) { P.cust.sub = d.s; render(); },
+        sub360: function (d) { P.cust.sub = d.s; refresh360(); },
+        masterOne: function (d) { P.master.reading = 'Reading…'; refresh360(); loadMaster([d.acct], true).then(function () { P.master.reading = null; refresh360(); }, function (e) { P.master.reading = null; refresh360(); toast(errText(e), 'bad', 8000); }); },
+        masterRead: function () {
+            var b = curBu(), list = masterList(b).map(function (x) { return x.account; }), missing = list.filter(function (a) { return !P.master.rows[a]; }), force = !missing.length;
+            if (!list.length) { toast('No customer to read yet — Find in Fusion first', 'warn'); return; }
+            P.master.reading = 'Reading…'; render();
+            loadMaster(force ? list : missing, force, function (i, n) { P.master.reading = 'Reading ' + i + ' / ' + n + '…'; render(); }).then(function (r) { P.master.reading = null; render(); toast(r.read + ' customer(s) read from Fusion', 'ok'); }, function (e) { P.master.reading = null; render(); toast(errText(e), 'bad', 8000); });
+        },
+        masterFind: function () {
+            var q = ($('c-q') || {}).value || P.cust.q, sql = E.masterSearchSql(q);
+            if (!sql || q.trim().length < 2) { toast('Type at least 2 letters of a number or name', 'warn'); return; }
+            P.master.reading = 'Searching Fusion…'; render();
+            S.fusionSql(sql, 200, 300000).then(function (rows) { keepMaster(rows); P.master.found = rows.concat(P.master.found).slice(0, 2000); P.master.reading = null; render(); toast(rows.length + ' customer(s) found in Fusion' + (rows.length ? ' — kept on this PC' : ''), rows.length ? 'ok' : 'warn'); },
+                function (e) { P.master.reading = null; render(); toast(errText(e), 'bad', 8000); });
+        },
         items360: function () { var o = P.cust.open; if (o) { loadItems(o); render(); } },
         itemsSql: function () { P.cust.itemsSql = !P.cust.itemsSql; render(); },
         itemsCsv: function () { var it = P.cust.items; if (it && it.rows && it.rows.length) csv('open-items-' + it.account + '.csv', Object.keys(it.rows[0]).map(function (k) { return [k, k]; }), it.rows); },
@@ -919,12 +1008,13 @@
         sendOne: sendOneDialog
     };
     function boot() {
-        document.querySelectorAll('#tabs button').forEach(function (b) { b.addEventListener('click', function () { if (b.dataset.tab === 'cust' && P.tab === 'cust') { P.cust.open = null; P.cust.data = null; } go(b.dataset.tab); }); });
+        document.querySelectorAll('#tabs button').forEach(function (b) { b.addEventListener('click', function () { go(b.dataset.tab); }); });
         document.addEventListener('click', onClick);
         document.addEventListener('click', onSeg);
         document.addEventListener('input', onInput);
         document.addEventListener('change', onChange);
         document.addEventListener('keydown', function (e) { if (e.key === 'Escape') mclose(); });
+        document.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target && e.target.id === 'c-q') { P.cust.q = e.target.value; ACT.masterFind(); } });
         document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === P.tab); });
         paintWho(); render();
         if (!S.hasHost()) return;

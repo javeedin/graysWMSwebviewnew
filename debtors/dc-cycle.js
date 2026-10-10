@@ -365,6 +365,44 @@
         return t;
     };
 
+    // ── customer master (Customers page), live from Fusion — richest query first, simpler ones when a pod lacks a table ──
+    var MASTER_BASE = "SELECT ca.account_number, p.party_name AS customer, p.party_number, ca.account_name, ca.status, ca.customer_type, ca.customer_class_code AS customer_class,\n" +
+        "       TO_CHAR(ca.account_established_date, 'YYYY-MM-DD') AS established, TO_CHAR(ca.creation_date, 'YYYY-MM-DD') AS created, p.jgzz_fiscal_code AS tax_reference,\n" +
+        "       (SELECT l.address1 || NVL2(l.address2, ', ' || l.address2, '') || NVL2(l.city, ', ' || l.city, '') || NVL2(l.country, ', ' || l.country, '')\n" +
+        "          FROM hz_cust_acct_sites_all s JOIN hz_party_sites ps ON ps.party_site_id = s.party_site_id JOIN hz_locations l ON l.location_id = ps.location_id\n" +
+        "          JOIN hz_cust_site_uses_all su ON su.cust_acct_site_id = s.cust_acct_site_id AND su.site_use_code = 'BILL_TO' AND su.status = 'A'\n" +
+        "         WHERE s.cust_account_id = ca.cust_account_id AND s.status = 'A' AND ROWNUM = 1) AS bill_to_address,\n" +
+        "       (SELECT COUNT(*) FROM hz_cust_acct_sites_all s WHERE s.cust_account_id = ca.cust_account_id AND s.status = 'A') AS sites,\n" +
+        "       (SELECT MAX(cp.email_address) KEEP (DENSE_RANK FIRST ORDER BY DECODE(cp.primary_flag, 'Y', 0, 1)) FROM hz_contact_points cp\n" +
+        "         WHERE cp.owner_table_name = 'HZ_PARTIES' AND cp.owner_table_id = p.party_id AND cp.contact_point_type = 'EMAIL' AND cp.status = 'A') AS email,\n" +
+        "       (SELECT MAX(NVL2(cp.phone_area_code, cp.phone_area_code || ' ', '') || cp.phone_number) KEEP (DENSE_RANK FIRST ORDER BY DECODE(cp.primary_flag, 'Y', 0, 1)) FROM hz_contact_points cp\n" +
+        "         WHERE cp.owner_table_name = 'HZ_PARTIES' AND cp.owner_table_id = p.party_id AND cp.contact_point_type = 'PHONE' AND cp.status = 'A') AS phone";
+    var MASTER_PROFILE = ",\n       (SELECT MAX(c.name) FROM hz_customer_profiles_f cpf JOIN ar_collectors c ON c.collector_id = cpf.collector_id\n" +
+        "         WHERE cpf.cust_account_id = ca.cust_account_id AND cpf.site_use_id IS NULL AND TRUNC(SYSDATE) BETWEEN cpf.effective_start_date AND cpf.effective_end_date) AS collector,\n" +
+        "       (SELECT MAX(cpf.credit_hold) FROM hz_customer_profiles_f cpf\n" +
+        "         WHERE cpf.cust_account_id = ca.cust_account_id AND cpf.site_use_id IS NULL AND TRUNC(SYSDATE) BETWEEN cpf.effective_start_date AND cpf.effective_end_date) AS credit_hold,\n" +
+        "       (SELECT MAX(t.name) FROM hz_customer_profiles_f cpf JOIN ra_terms_tl t ON t.term_id = cpf.standard_terms AND t.language = USERENV('LANG')\n" +
+        "         WHERE cpf.cust_account_id = ca.cust_account_id AND cpf.site_use_id IS NULL AND TRUNC(SYSDATE) BETWEEN cpf.effective_start_date AND cpf.effective_end_date) AS payment_terms";
+    var MASTER_LIMIT = ",\n       (SELECT MAX(pa.overall_credit_limit) FROM hz_customer_profiles_f cpf JOIN hz_cust_profile_amts_f pa ON pa.cust_account_profile_id = cpf.cust_account_profile_id\n" +
+        "         WHERE cpf.cust_account_id = ca.cust_account_id AND cpf.site_use_id IS NULL AND TRUNC(SYSDATE) BETWEEN cpf.effective_start_date AND cpf.effective_end_date\n" +
+        "           AND TRUNC(SYSDATE) BETWEEN pa.effective_start_date AND pa.effective_end_date) AS credit_limit";
+    var MASTER_FROM = "\n  FROM hz_cust_accounts ca JOIN hz_parties p ON p.party_id = ca.party_id\n WHERE ";
+    function sqlList(vals) { return (vals || []).map(function (v) { return "'" + String(v).replace(/'/g, "''") + "'"; }).join(', '); }
+    /** the master query for these account numbers → three alternatives (with credit limit, with profile, plain) */
+    E.masterSql = function (accounts) {
+        var w = 'ca.account_number IN (' + (sqlList(accounts) || "''") + ')';
+        return [MASTER_BASE + MASTER_PROFILE + MASTER_LIMIT + MASTER_FROM + w, MASTER_BASE + MASTER_PROFILE + MASTER_FROM + w, MASTER_BASE + MASTER_FROM + w];
+    };
+    /** find customers in Fusion by number or name (every word must match), ≤ 200 → the plain master columns */
+    E.masterSearchSql = function (q) {
+        var words = String(q || '').toUpperCase().split(/\s+/).filter(function (x) { return x.length > 0; }).slice(0, 5);
+        if (!words.length) return null;
+        var w = words.map(function (x) { var l = "'%" + x.replace(/'/g, "''").replace(/[%_]/g, '') + "%'"; return '(UPPER(ca.account_number) LIKE ' + l + ' OR UPPER(p.party_name) LIKE ' + l + ' OR UPPER(ca.account_name) LIKE ' + l + ')'; }).join(' AND ');
+        return MASTER_BASE + MASTER_FROM + w + ' AND ROWNUM <= 200';
+    };
+    /** chunks of account numbers for the master read */
+    E.chunks = function (list, n) { var out = []; for (var i = 0; i < (list || []).length; i += n) out.push(list.slice(i, i + n)); return out; };
+
     E.DRILLS = {
         ORDER: { title: 'Sales order', parts: [
             { id: 'om', title: 'Order lines (Order Management)', sql: "SELECT fl.fulfill_line_number AS line, i.item_number AS item, fl.ordered_qty, fl.shipped_qty, fl.ordered_uom AS uom, fl.status_code AS status,\n" +
