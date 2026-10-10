@@ -1,0 +1,166 @@
+# Customer CRM
+
+Home › Warehouse & Orders › **Customer CRM** (`crm/index.html`). This is one place for everything about a customer: Fusion sales, AR and stock, the statements sent and how the customer answered them, support tickets with an SLA, phone calls and e-mails.
+
+## What it does
+
+| Tab | What you get |
+|-----|--------------|
+| **Today** | Your queue, tickets past or close to their SLA, callbacks due, today's activity and recent customers. The KPI tiles open the matching ticket list. |
+| **Customers** | Searches every customer this PC knows (Debtors cards, tickets, calls, contacts, Fusion master kept in DuckDB). **Find in Fusion** searches the Fusion customer master. |
+| **Customer 360** | Header with phone (click to call), e-mail, address, collector, terms, credit limit, credit hold and a **health score** (0–100 with reasons). The sub-tabs are listed below. |
+| **Tickets** | List or board, filtered by scope (open, mine, unassigned, past the SLA, waiting, resolved), queue and priority. The ticket drawer has the conversation, internal notes, canned replies, e-mail replies, SLA bars, details, the customer, *solved before* (similar resolved tickets) and the customer's link. |
+| **Calls** | Call log with KPIs (answered, missed, talk time), callbacks, recordings with a fingerprint check, and CSV export. |
+| **E-mails** | Every e-mail sent from the CRM, with its attachments and their fingerprints. |
+| **Insights** | SLA met %, average first reply and resolution time, satisfaction, tickets by category, channel and agent, customers with the most tickets, and calls per day. |
+| **Setup** | Categories and queues, agents, SLA per priority, business hours and holidays, routing rules, canned replies, the phone, learning (ML.NET), the customer page and database objects. |
+| **Autopilot** | The AI Agent with the **Customer Desk** specialist, embedded the same way as in Debtors Control. |
+
+The **Customer 360** sub-tabs:
+
+- **Overview**: balance, overdue, 24-month sales trend, aging, the latest activity, the last statement and open tickets.
+- **Timeline**: tickets, replies, calls, e-mails, statements, Debtors activities, orders and payments, merged.
+- **Invoices & AR**: open items (drill to the transaction), 12 months of invoices and payments.
+- **Sales orders**: drill to the lines, or open the order in Fusion.
+- **Items & stock**: what the customer buys, plus **Stock now** (on hand per org and subinventory).
+- **Statements**: the journey of the last statement (recorded, PDF, sent, delivered, opened, read, agreed or queried) and every statement sent. Actions: **Send again**, **Open the PDF**, **Check the file** (SHA-256).
+- **Tickets**, **Calls**, **E-mails**.
+- **Contacts**: CRM contacts you can edit, plus the Fusion contacts.
+- **Details**: the Fusion master and the Debtors card.
+
+### The ask bar (Ctrl+K)
+
+The ask bar answers without an AI model. Type any of these:
+
+- a customer name, an account or a phone number
+- a ticket number (`CS-000123`, `ticket 45`)
+- plain words such as *last statement of Alpha*, *send statement to 1002*, *how much does Winners owe*, *my tickets*, *tickets past the SLA*, *callbacks*, *missed calls*, *new ticket*
+
+The rules live in `CRME.ask`. Anything the rules do not cover is offered to the Autopilot.
+
+### Statements
+
+**Send statement** (from Customer 360 or the ask bar) follows exactly the Debtors Control path:
+
+1. The PDF comes from the business unit's statement report (`dcStatementPdf`).
+2. It is recorded in `WMS_DC_STMTS` **before** the e-mail goes.
+3. It is sent with the business unit's statement text, with an optional opens counter and an *agree / query* button.
+4. The result is written back to the statement record, the CRM message and the Debtors timeline.
+
+**New e-mail** can also attach:
+
+- files from the PC
+- the last statement PDF, after checking it is the recorded file
+- a fresh statement, which is recorded too
+
+### Tickets and the SLA
+
+- **Numbers** come from `WMS_CRM_TICKET_SEQ` (`CS-000001`; the prefix is set in Setup).
+- **Due dates.** First reply and resolution are due after the SLA hours of the priority. Only **working hours** count (days, open / close times, Saturday close, holidays).
+- **Pause.** While a ticket waits for the customer the SLA is paused. When it moves on, the resolution due date moves by the working minutes it was paused.
+- **Routing.** The rules run first (words, category or channel → queue, priority or owner). Then the category's queue applies. Then the least busy agent of the queue gets the ticket.
+- **Replies** can be e-mailed. The subject is `[CS-000123] …` and the e-mail has a button to the customer's page.
+- **Resolve** keeps the resolution. Later tickets show it under *solved before*.
+- **Reopen** counts reopenings, which lower the health score.
+
+### The customer page
+
+The customer page lives in your APEX:
+
+- **Raise a request:** `…/WAREHOUSEMANAGEMENT/crm/new/<key>`. No login is needed; the key comes from Setup › Customer page, and a new key stops old links.
+- **Follow a ticket:** `…/WAREHOUSEMANAGEMENT/crm/t/<token>`. The customer can reply (a resolved ticket reopens) and rate it from 1 to 5.
+
+These pages are the procedures `WMS_CRM_PORTAL` and `WMS_CRM_TK`. Create them in Setup › Database, or with `apex_sql/100_crm.sql`.
+
+Portal tickets arrive as *New*. The next time any CRM page loads it **triages** them:
+
+- works out the SLA due dates
+- picks the queue and the owner
+- finds the customer account from the phone number or e-mail
+
+### Phone and call centre
+
+The CRM keeps the call record; the telephone line stays with your phone or softphone.
+
+Choose how calls are placed in Setup › Phone:
+
+- **Desk phone.** You dial; the CRM times and logs the call.
+- **Softphone on this PC.** The host hands a `tel:`, `sip:` or `callto:` link to Teams, Zoiper, MicroSIP, 3CX and similar (`crmDial`).
+- **Call listener.** For incoming calls, the host listens on `127.0.0.1:<port>` (only this PC, with a key). Configure the softphone to open this address on a call event:
+
+  ```
+  http://127.0.0.1:8765/call?event=ring&from=%NUMBER%&key=<key>
+  ```
+
+  `event` = `ring` · `answer` · `hangup` · `missed` · `dial` (an outgoing call from the softphone, with the number in `to`). Typical settings:
+
+  - MicroSIP: *cmdCallRing* calls this URL with curl.
+  - Zoiper: *Run on incoming call*.
+  - 3CX and other CTI connectors: a call-event URL.
+
+  The CRM pops the caller, shows the customer, open tickets and an **Answer** button, and logs missed calls.
+
+**Calls** in the panel:
+
+- **Screen pop.** The caller is matched by the last 7 digits against the CRM contacts, Debtors cards, the Fusion master kept on this PC (`w2_crm_phone`), and then live against Fusion `HZ_CONTACT_POINTS`.
+- **During and after the call:** a timer, notes, outcome, what the call was about, a callback time, a link to a ticket, *make a ticket from it*, and **Record**.
+- **Recording.** Record captures this PC's microphone and saves it as `C:\fusion\crm\recordings\yyyy-MM\<call>.webm` with its SHA-256. Use the softphone's own recording when both sides must be heard. The consent sentence is shown to the agent.
+
+Other telephony, for example a WebRTC SIP client, can be added later with `CRM.phone.register(name, {label, dial})`.
+
+### Learning
+
+The CRM suggests a **category and priority** for every new ticket and lists similar resolved tickets:
+
+- **ML.NET** (`Microsoft.ML` 5.0, SDCA maximum entropy on featurised ticket text) is trained in Setup › Learning from the categorised tickets. The models are kept in `%APPDATA%\GraysWMS\Crm\ml-{category|priority}.zip`, and accuracy is measured on a held-out 20 % once there are 40+ tickets.
+- Until a model is trained, a **naive-Bayes** model built in the page (`CRME.nbTrain` / `nbPredict`) is used.
+- *Similar tickets* use TF-IDF cosine similarity (`CRME.similar`).
+
+## Where things live
+
+**APEX** (created by the page; the same DDL is in `apex_sql/100_crm.sql`):
+
+| Table | Holds |
+|-------|-------|
+| `WMS_CRM_SETTINGS` | JSON per key: `SETUP`, `PORTAL_KEY`, `PORTAL_CATEGORIES`, `PREFIX` |
+| `WMS_CRM_TICKETS` | Tickets; numbers come from `WMS_CRM_TICKET_SEQ` |
+| `WMS_CRM_TICKET_EVENTS` | Conversation and history: `COMMENT`, `NOTE`, `EMAIL_OUT`, `CUSTOMER`, `STATUS`, `ASSIGN`, `CALL`, `SLA`, `CSAT`, `CREATED` |
+| `WMS_CRM_CALLS` | Calls, with the recording path and SHA-256 |
+| `WMS_CRM_MESSAGES` | E-mails, with attachments and their fingerprints, ticket and statement |
+| `WMS_CRM_CONTACTS` | Contacts kept in the CRM |
+
+Statements, Debtors cards and the Debtors timeline are the **Debtors Control** tables. The CRM loads `../debtors/dc-*.js`, so a release with `crm` always carries `debtors`.
+
+**This PC.** Customer 360 sections (master, open items, sales, orders, invoices, receipts, items, stock, contacts) are kept in the WMS 2.0 DuckDB file (`w2_crm_c360`) and shown at once on the next open. Master, open items and sales are then read live again in the background; the other sections are read on demand. The phone index is `w2_crm_phone`.
+
+**Host** (`classes/Form1_CrmHandlers.cs`, `crm*` actions):
+
+| Action | Does |
+|--------|------|
+| `crmInfo` | This PC's name and the CRM folder |
+| `crmSaveRecording` / `crmRecording` | Save a call recording / read it back to play |
+| `crmOpenFolder` | Open a CRM file or folder in Explorer |
+| `crmDial` | Hand a number to the softphone |
+| `crmSend` | E-mail through the Finance Lens mail setup (Outlook, Microsoft 365 or SMTP), with page attachments plus files under `C:\fusion\crm`, `C:\fusion\debtors` or `C:\fusion\OM`; audited as source CRM |
+| `crmCtiStart` / `crmCtiStop` / `crmCtiPoll` | The call listener |
+| `crmMlTrain` / `crmMlPredict` / `crmMlStatus` | The ML.NET models |
+
+## Autopilot (Customer Desk)
+
+The AI Agent page is embedded as `../aiagent/index.html?embed=1&module=crm` (AI Hub 1.6.0). The **Customer Desk** specialist (`crm`; pins `@crm`, `@customer`, `@tickets`) has these page tools (`aiagent/tools-crm.js`, built on the CRM store and engine):
+
+| Tool | Does |
+|------|------|
+| `crm_tickets` | Tickets by scope, priority, category, account or words |
+| `crm_ticket` | One ticket with its conversation and *solved before* |
+| `crm_customer` | 360 from the CRM records |
+| `crm_calls` | The call log and callbacks |
+| `crm_open` | Opens a customer, ticket or tab in the CRM page |
+
+It also has the Debtors tools (balances, open items, statements, follow-ups) and the Fusion SQL tools. It is read-only: replies, ticket changes, calls and e-mails stay with the user.
+
+## Tests
+
+- `node crm/tests/crm-engine.test.js` (CI) covers business hours and the SLA (with pause), routing, phone numbers, the health score, the timeline, KPIs, naive Bayes, similar tickets, the ask parser and the read-only 360 SQL.
+- AI Hub: `test_crm_customer_desk_routing_tools_and_module_threads`, plus the evals `crm_sla` and `crm_missed`.
+- A browser run with a fake host and a SQLite stand-in for the APEX gateway covers 47 checks: Customer 360 from Fusion, a ticket with an acknowledgement, a reply that waits and a resolution, a statement recorded before it is sent, an e-mail with a file and the last statement, an incoming call through the listener (screen pop, answer, notes, callback), an outbound call through `tel:`, a logged missed call, the ask bar, the database objects, the portal key, ML.NET training, the suggestion, portal ticket triage, Insights and the Autopilot frame.

@@ -456,3 +456,20 @@ def test_debtors_specialist_routing_tools_and_module_threads(tmp_path):
     s.start("hello", caps=[])
     assert [t["id"] for t in s.list(module="debtors")] == [r["thread_id"]] and len(s.list()) == 2
     assert "debtors module" in s.system_prompt(C.SPECIALISTS[C.DB], {"module": "debtors", "app_user": ""})
+
+
+def test_crm_customer_desk_routing_tools_and_module_threads(tmp_path):
+    assert "crm" in C.SPECIALISTS and C.route("Which tickets are past the SLA?")[0] == C.CD
+    assert C.route("Which calls were missed today?")[0] == C.CD and C.route("@crm who owes the most")[0] == C.CD
+    assert C.route("Who owes us the most over 90 days?")[0] == C.DB          # collections stay with the Debtors desk
+    names = {t.name for t in C.tools_for(C.CD, ALL_CAPS)}
+    assert {"crm_tickets", "crm_ticket", "crm_customer", "crm_calls", "crm_open", "dc_open_items", "dc_statements", "fusion_sql_run"} <= names
+    assert "crm_tickets" not in {t.name for t in C.tools_for(C.FA, ALL_CAPS)}
+    assert all(C.BY_NAME[n].risk in ("read", "auto") for n in names if n.startswith("crm_"))
+    s = svc(tmp_path)
+    r = s.start("Which tickets are past the SLA?", caps=ALL_CAPS, specialist="crm", module="crm")
+    assert r["status"] == "waiting" and r["waiting"]["calls"][0]["name"] == "crm_tickets"
+    assert r["waiting"]["calls"][0]["input"]["scope"] == "breached"
+    r = s.resume(r["thread_id"], answer(r, lambda c: {"ok": True, "content": "2 tickets past the SLA"}))
+    assert r["status"] == "done"
+    assert [t["id"] for t in s.list(module="crm")] == [r["thread_id"]]

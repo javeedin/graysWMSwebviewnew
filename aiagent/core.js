@@ -81,13 +81,16 @@ function dbWrite(sql) { return apex('/executewrite', { sql: sql }); }
 function md(text) { return window.AGF ? AGF.md(text) : '<p>' + esc(text).replace(/\n/g, '<br>') + '</p>'; }
 
 // ── catalog / labels ───────────────────────────────────────────
-AG.SPEC_COLOR = { fusion_analyst: 'var(--fa)', wms_operator: 'var(--wo)', order_desk: 'var(--od)', data_loader: 'var(--dl)', reporter: 'var(--rp)', debtors: '#0f766e' };
+AG.SPEC_COLOR = { fusion_analyst: 'var(--fa)', wms_operator: 'var(--wo)', order_desk: 'var(--od)', data_loader: 'var(--dl)', reporter: 'var(--rp)', debtors: '#0f766e', crm: '#4338ca' };
 /** what each module that embeds the agent starts with: its specialist and its welcome questions */
 AG.MODULES = {
     debtors: { spec: 'debtors', title: 'Debtors Autopilot', placeholder: 'Ask about balances, overdue customers, statements, promises, disputes or the statement cycle…  (Enter to send)', lead: 'Ask about customer balances, overdue debt, statements, promises, disputes and the statement cycles. It reads the same records as this page, shows the rows on the right and opens customers for you. It never sends a statement or changes a record — you do that here.',
         groups: [['Balances', ['Who owes us the most?', 'Which customers are over 90 days?', 'Which customers are in credit?']], ['Statements', ['Which statements bounced this week?', 'Who has not opened the last statement?', 'Which customers disputed their balance?']],
             ['Collections', ['Which promises to pay are late?', 'What should I follow up today?', 'Show the open invoices of the biggest debtor']], ['Statement cycle', ['Is this month\'s statement cycle ready to send?', 'Which checks failed and who bypassed them?', 'How many statements were sent, posted or failed?']]] }
 };
+AG.MODULES.crm = { spec: 'crm', title: 'CRM Autopilot', placeholder: 'Ask about a customer, tickets, calls, the SLA, balances or statements…  (Enter to send)', lead: 'Ask about any customer (orders, invoices, balance, last statement, tickets, calls), the ticket queue and the SLA, callbacks and missed calls. It reads the same records as this page and opens customers and tickets for you. It never replies to a customer, changes a ticket or sends a statement — you do that here.',
+    groups: [['Customers', ['Give me a 360 of our biggest debtor', 'What did we last send Alpha Traders and did they open it?', 'Which customers called more than twice this week?']], ['Tickets', ['Which tickets are past the SLA?', 'What is waiting for the customer for more than 3 days?', 'Summarise the open delivery complaints']],
+        ['Calls', ['Which calls were missed today?', 'Which callbacks are due?', 'How much talk time per agent this week?']], ['Collections', ['Who owes us the most over 90 days?', 'Which statements bounced this week?', 'Which promises to pay are late?']]] };
 AG.mod = function () { var e = window.AG_EMBED; return e && AG.MODULES[e.module] ? AG.MODULES[e.module] : null; };
 AG.LABELS = {
     ask_user: 'Question for you', remember: 'Remember', handoff: 'Hand over', open_page: 'Open a page',
@@ -414,7 +417,8 @@ AG.SPEC_LIST = [
     { id: 'auto', title: 'Auto (supervisor)', icon: 'fa-wand-magic-sparkles', color: '#64748b' },
     { id: 'fusion_analyst', title: 'Fusion Analyst', icon: 'fa-database' }, { id: 'wms_operator', title: 'WMS Operator', icon: 'fa-truck-fast' },
     { id: 'order_desk', title: 'Order Desk', icon: 'fa-cart-shopping' }, { id: 'data_loader', title: 'Data Loader', icon: 'fa-file-import' },
-    { id: 'reporter', title: 'Reporter', icon: 'fa-chart-line' }, { id: 'debtors', title: 'Debtors Desk', icon: 'fa-file-invoice-dollar' }
+    { id: 'reporter', title: 'Reporter', icon: 'fa-chart-line' }, { id: 'debtors', title: 'Debtors Desk', icon: 'fa-file-invoice-dollar' },
+    { id: 'crm', title: 'Customer Desk', icon: 'fa-headset' }
 ];
 AG.specOf = function (id) { return AG.SPEC_LIST.filter(function (s) { return s.id === id; })[0] || AG.SPEC_LIST[1]; };
 AG.renderSpecs = function () {

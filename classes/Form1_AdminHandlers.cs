@@ -171,7 +171,7 @@ namespace WMSApp
         private static string[] AdminModuleKeys() => new[]
         {
             "Inventory", "om", "fscm", "fusionsql", "dataload", "dllexplorer", "fusionmodel", "powerbi",
-            "aihub", "aiagent", "finance", "wms2", "teachme", "fieldapps", "bip", "debtors", "aianalysis", "formsdesigner", "agentflow", "internetsearch"
+            "aihub", "aiagent", "finance", "wms2", "teachme", "fieldapps", "bip", "debtors", "crm", "aianalysis", "formsdesigner", "agentflow", "internetsearch"
         };
 
         /// <summary>The Home page's tiles grouped by the folder they open: every module-card link "../folder/page.html".

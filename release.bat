@@ -25,9 +25,11 @@ if errorlevel 2 (
 :rag_chosen
 if /i "%INCLUDE_RAG%"=="Y" (echo   RAG service: INCLUDED) else (echo   RAG service: EXCLUDED)
 REM Modules packaged besides wms (package-release.bat always adds fusionsql if it is missing)
-if not defined MODULES set "MODULES=Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel aihub aiagent finance wms2 teachme fieldapps bip debtors"
+if not defined MODULES set "MODULES=Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel aihub aiagent finance wms2 teachme fieldapps bip debtors crm"
 REM Admin > Create ZIP passes the modules ticked on the page in MODULES; Fusion SQL is always added
 echo " %MODULES% " | findstr /i /c:" fusionsql " >nul || set "MODULES=%MODULES% fusionsql"
+REM the CRM loads the Debtors Control scripts (statements, balances): crm brings debtors
+echo " %MODULES% " | findstr /i /c:" crm " >nul && (echo " %MODULES% " | findstr /i /c:" debtors " >nul || set "MODULES=%MODULES% debtors")
 set "APP_VER=?"
 for /f "delims=" %%V in ('powershell -NoProfile -Command "(Get-Content -Raw '%~dp0version.json' | ConvertFrom-Json).version"') do set "APP_VER=%%V"
 echo   Version: %APP_VER%

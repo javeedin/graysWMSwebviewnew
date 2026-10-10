@@ -58,6 +58,7 @@ class Tool:
 
 FA, WO, OD, DL, RP = "fusion_analyst", "wms_operator", "order_desk", "data_loader", "reporter"
 DB = "debtors"           # Fusion Debtors Control (statements, balances, collections) - the Debtors page embeds the agent
+CD = "crm"               # Customer CRM (tickets, calls, e-mails, Customer 360) - the CRM page embeds the agent
 
 TOOLS: list[Tool] = [
     # ── everyone ──
@@ -70,8 +71,9 @@ TOOLS: list[Tool] = [
          _obj({"fact": s("One short sentence")}, ["fact"]), runs="hub", risk="auto"),
     Tool("handoff", "Hand the conversation to another specialist when the request is clearly theirs: fusion_analyst (Fusion data "
          "and SQL), wms_operator (trips, printing, MRA), order_desk (sales orders), data_loader (FBDI / REST loads), reporter "
-         "(reports, dashboards, scheduled digests), debtors (customer balances, statements, collections, statement cycles).",
-         _obj({"to": {"type": "string", "enum": [FA, WO, OD, DL, RP, DB]}, "reason": s("Why")}, ["to", "reason"]), runs="hub"),
+         "(reports, dashboards, scheduled digests), debtors (customer balances, statements, collections, statement cycles), "
+         "crm (customer service: tickets, calls, e-mails, Customer 360).",
+         _obj({"to": {"type": "string", "enum": [FA, WO, OD, DL, RP, DB, CD]}, "reason": s("Why")}, ["to", "reason"]), runs="hub"),
     Tool("open_page", "Open a page of the WMS app for the user (and optionally pass it what to show). Pages: fusionsql, wms, om, "
          "dataload, fusionmodel, powerbi, aihub, aianalysis.",
          _obj({"page": s("Page key"), "params": {"type": "object", "description": "Optional, e.g. {\"sql\": \"…\"} for fusionsql"}}, ["page"])),
@@ -264,7 +266,7 @@ TOOLS: list[Tool] = [
 
 
 # ── AI Digital Employee parity: its chat actions as tools, same fields (see its knowledge in the system prompt) ──
-ALL = [FA, WO, OD, DL, RP, DB]
+ALL = [FA, WO, OD, DL, RP, DB, CD]
 OBJ = {"type": "object"}
 TOOLS += [
     Tool("wms_sql", "Read SQL (Oracle SELECT / WITH) on the WMS / APEX schema described in the knowledge (schema catalog) through the guarded "
@@ -393,10 +395,37 @@ TOOLS += [
          _obj({"what": {"type": "string", "enum": ["customer", "cycle", "tab"]}, "account": S, "bu": S, "cycle_id": S, "tab": S}, ["what"]),
          risk="auto", specialists=[DB]),
 ]
+# ── Customer Desk: the Customer CRM module (page tools, run by the AI Agent page with ../crm/ store + engine) ──
+TOOLS += [
+    Tool("crm_tickets", "Support tickets of the CRM: scope open / mine / unassigned / breached (past the SLA) / waiting (for the customer) / "
+         "resolved / all, filter by priority (P1-P4), category, account or words; the last N days (default 90). Gives the SLA state of each. "
+         "Results go to the results panel.",
+         _obj({"scope": {"type": "string", "enum": ["open", "mine", "unassigned", "breached", "waiting", "resolved", "all"]}, "priority": S, "category": S,
+               "account": S, "words": S, "days": i("Default 90"), "top": i("Default 50")}), specialists=[CD]),
+    Tool("crm_ticket", "One ticket by number (CS-000123 or 123): status, SLA (first reply / resolution due), the customer and contact, the "
+         "conversation (replies, internal notes, the customer's messages, calls), the resolution and similar tickets solved before.",
+         _obj({"ticket": S}, ["ticket"]), specialists=[CD]),
+    Tool("crm_customer", "Customer 360 from the CRM records: Fusion master (phone, e-mail, address), open tickets, calls and callbacks, the last "
+         "statement (state, opened, agreed / queried), contacts, a health score and the latest activity. Give the account number or name words. "
+         "For the live balance use dc_open_items.",
+         _obj({"account": S, "words": S}), specialists=[CD]),
+    Tool("crm_calls", "The call log: the last N days (default 7), outcome (ANSWERED, MISSED, NO_ANSWER, BUSY, VOICEMAIL), direction IN / OUT, "
+         "one account, or only the callbacks still to make. Results go to the results panel.",
+         _obj({"days": i("Default 7"), "outcome": S, "direction": S, "account": S, "callbacks": {"type": "boolean"}}), specialists=[CD]),
+    Tool("crm_open", "Open something in the CRM page the user is on: a customer's 360 (account, optional section overview / ar / orders / items / "
+         "stmts / tickets / calls / mail / contacts), a ticket (ticket number) or a tab (today, customers, tickets, calls, mail, insights).",
+         _obj({"what": {"type": "string", "enum": ["customer", "ticket", "tab"]}, "account": S, "section": S, "ticket": S, "tab": S}, ["what"]),
+         risk="auto", specialists=[CD]),
+]
+for _t in TOOLS:   # the CRM desk reads balances, statements and follow-ups with the Debtors tools too
+    if _t.name in ("dc_customer", "dc_open_items", "dc_statements", "dc_followups", "dc_debtors") and CD not in _t.specialists:
+        _t.specialists.append(CD)
 for _t in TOOLS:   # the Fusion data tools are the Debtors specialist's too
     if _t.name in ("fusion_search_objects", "fusion_search_columns", "fusion_describe", "fusion_sql_dry_run", "fusion_sql_run",
-                   "result_analyze", "show_chart", "knowledge_lookup", "make_report", "schedule_job", "jobs_list") and _t.specialists and DB not in _t.specialists:
-        _t.specialists.append(DB)
+                   "result_analyze", "show_chart", "knowledge_lookup", "make_report", "schedule_job", "jobs_list") and _t.specialists:
+        for _sp in (DB, CD):
+            if _sp not in _t.specialists:
+                _t.specialists.append(_sp)
 
 BY_NAME = {t.name: t for t in TOOLS}
 
@@ -506,6 +535,16 @@ Read with the dc_ tools first (dc_debtors, dc_customer, dc_open_items, dc_statem
 offer to open it: dc_open what=customer (the user sees its balance dialog). Suggest the next collection step per customer
 (call, statement again, promise follow-up, credit hold) but never send statements or change records yourself - the user does
 that in the page (Send statements, Customer dialog). Keep answers short: a table of the top customers, then 2-3 lines."""),
+    Specialist(CD, "Customer Desk", "fa-headset", "default",
+               ["!ticket", "!tickets", "!sla", "complaint", "complaints", "!callback", "callbacks", "!missed call", "missed calls", "calls", "call log",
+                "!crm", "support", "customer service", "case", "cases", "escalation", "resolved", "unassigned", "!360", "csat", "rating"],
+               """SPECIALIST: crm
+You are the customer-service assistant of the Customer CRM: tickets and their SLA (first reply / resolution, paused while waiting
+for the customer), the call log and callbacks, e-mails, and the 360 of a customer (orders, AR, statements, contacts, health).
+Read with crm_tickets, crm_ticket, crm_customer, crm_calls; balances and statements with dc_open_items / dc_statements; Fusion
+SQL (dry run, then run) only for what they do not cover. When you name a ticket or customer, offer crm_open so the user sees it.
+Suggest the next step (reply, call back, escalate, send the statement, link an order) but never reply to a customer, change a
+ticket, place a call or send anything yourself - the user does that in the CRM. Keep answers short: a table, then 2-3 lines."""),
 ]}
 
 MAX_TURNS = 20
@@ -533,7 +572,8 @@ def route(text: str, current: str | None = None) -> tuple[str, dict]:
     """Rules first (free, instant): score routing words; ties keep the current specialist, else the Fusion Analyst.
     '@wms' / '@orders' … pins a specialist."""
     t = " " + (text or "").lower() + " "
-    pins = {"@debtors": DB, "@debtor": DB, "@fusion": FA, "@sql": FA, "@wms": WO, "@trip": WO, "@orders": OD, "@order": OD, "@load": DL, "@fbdi": DL, "@report": RP}
+    pins = {"@debtors": DB, "@debtor": DB, "@crm": CD, "@customer": CD, "@tickets": CD,
+            "@fusion": FA, "@sql": FA, "@wms": WO, "@trip": WO, "@orders": OD, "@order": OD, "@load": DL, "@fbdi": DL, "@report": RP}
     for k, v in pins.items():
         if k in t:
             return v, {v: 99}

@@ -22,7 +22,7 @@ REM  row in APEX table WMS_AI_TRIAL (apex_sql\67_trial_period.sql).
 REM
 REM  Options (set before calling, e.g. from release.bat):
 REM    MODULES      module folders besides wms
-REM                 default: Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel aihub aiagent finance wms2 teachme fieldapps bip debtors
+REM                 default: Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel aihub aiagent finance wms2 teachme fieldapps bip debtors crm
 REM    INCLUDE_RAG  Y to add the compiled RAG service (default N)
 REM ============================================================
 
@@ -128,9 +128,11 @@ if errorlevel 1 (
 )
 
 REM --- Copy module folders ---
-if not defined MODULES set "MODULES=Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel aihub aiagent finance wms2 teachme fieldapps bip debtors"
+if not defined MODULES set "MODULES=Inventory aianalysis fusionsql dataload dllexplorer powerbi fusionmodel aihub aiagent finance wms2 teachme fieldapps bip debtors crm"
 REM Fusion SQL is part of every release (the Fusion Model and Data Loading use its runner too)
 echo " %MODULES% " | findstr /i /c:" fusionsql " >nul || set "MODULES=%MODULES% fusionsql"
+REM the CRM loads the Debtors Control scripts (statements, balances): crm brings debtors
+echo " %MODULES% " | findstr /i /c:" crm " >nul && (echo " %MODULES% " | findstr /i /c:" debtors " >nul || set "MODULES=%MODULES% debtors")
 echo Modules in this release: wms %MODULES%
 for %%F in (%MODULES%) do (
     if exist "%SCRIPT_DIR%%%F" (

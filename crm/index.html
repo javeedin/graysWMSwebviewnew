@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Customer CRM</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="crm.css">
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <a class="home" href="../Home/index.html" title="Home"><i class="fas fa-house"></i></a>
+    <div class="brand"><div class="ttl">Customer CRM</div><div class="sub">Every customer in one place — sales, AR, stock, tickets, calls, e-mails and statements</div></div>
+    <div class="ask"><i class="fas fa-magnifying-glass"></i><input id="ask" type="search" autocomplete="off" placeholder="Find a customer, ticket CS-…, phone, or ask: last statement of …   (Ctrl+K)"><div class="askpop" id="askpop"></div></div>
+    <span class="sp"></span>
+    <span class="hb" id="busy"></span>
+    <button class="phonebtn" id="phonebtn" data-act="phoneToggle" title="Softphone (Ctrl+Shift+P)"><i class="fas fa-phone"></i><span class="dot" id="phonedot"></span></button>
+    <div class="who" id="who"></div>
+  </header>
+  <nav class="tabs" id="tabs">
+    <button data-tab="today" class="on"><i class="fas fa-sun"></i> Today <span class="n" id="n-today"></span></button>
+    <button data-tab="customers"><i class="fas fa-users"></i> Customers</button>
+    <button data-tab="c360" id="tab-c360" hidden><i class="fas fa-id-card"></i> <span id="c360-name">Customer</span></button>
+    <button data-tab="tickets"><i class="fas fa-ticket"></i> Tickets <span class="n" id="n-tickets"></span></button>
+    <button data-tab="calls"><i class="fas fa-phone-volume"></i> Calls <span class="n" id="n-calls"></span></button>
+    <button data-tab="mail"><i class="fas fa-envelope"></i> E-mails</button>
+    <button data-tab="insights"><i class="fas fa-chart-column"></i> Insights</button>
+    <button data-tab="setup"><i class="fas fa-gear"></i> Setup</button>
+    <span class="sp"></span>
+    <button data-tab="auto" class="ap-tab" title="The AI Agent with the Customer Desk: ask anything about a customer, tickets or calls"><i class="fas fa-robot"></i> Autopilot</button>
+  </nav>
+  <main class="main" id="main"></main>
+  <div class="ap-host" id="ap-host" hidden></div>
+</div>
+<div class="drawer" id="drawer"><div class="dbox" id="dbox"></div></div>
+<div class="phone" id="phone" hidden></div>
+<div class="ring" id="ringbox" hidden></div>
+<div class="modal" id="modal"><div class="mbox" id="mbox"></div></div>
+<script src="../debtors/dc-engine.js"></script>
+<script src="../debtors/dc-cycle.js"></script>
+<script src="../debtors/dc-store.js"></script>
+<script src="crm-engine.js"></script>
+<script src="crm-store.js"></script>
+<script src="crm-core.js"></script>
+<script src="crm-c360.js"></script>
+<script src="crm-tickets.js"></script>
+<script src="crm-phone.js"></script>
+<script src="crm-mail.js"></script>
+<script src="crm-setup.js"></script>
+<script src="crm-autopilot.js"></script>
+</body>
+</html>

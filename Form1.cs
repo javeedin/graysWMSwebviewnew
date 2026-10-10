@@ -2366,6 +2366,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleDebtorsAction(wv, action, root, requestId);
                                     break;
 
+                                // Customer CRM (crm/index.html): call recordings, dialling, e-mail with files, the softphone listener, ML.NET ticket classifiers
+                                case var crmAction when IsCrmAction(crmAction):
+                                    await HandleCrmAction(wv, action, root, requestId);
+                                    break;
+
                                 // Oracle BIP Reporting (bip/index.html): catalog, parameters, runs streamed to disk, the SQL of a data model
                                 case var bipAction when IsBipAction(bipAction):
                                     await HandleBipAction(wv, action, root, requestId);

@@ -97,6 +97,7 @@ Source: "teachme\*";      DestDir: "{app}\teachme";      Flags: ignoreversion re
 Source: "fieldapps\*";    DestDir: "{app}\fieldapps";    Excludes: "tests"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "bip\*";          DestDir: "{app}\bip";          Excludes: "tests"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 Source: "debtors\*";      DestDir: "{app}\debtors";      Excludes: "tests"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "crm\*";          DestDir: "{app}\crm";          Excludes: "tests"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 Source: "wms2\*";         DestDir: "{app}\wms2";         Excludes: "tests"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "finance\*";      DestDir: "{app}\finance";      Excludes: "tests"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; AI Hub service sources only - the AI Hub page installs Python and the packages on the PC
