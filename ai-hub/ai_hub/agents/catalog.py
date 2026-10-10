@@ -57,6 +57,7 @@ class Tool:
 
 
 FA, WO, OD, DL, RP = "fusion_analyst", "wms_operator", "order_desk", "data_loader", "reporter"
+DB = "debtors"           # Fusion Debtors Control (statements, balances, collections) - the Debtors page embeds the agent
 
 TOOLS: list[Tool] = [
     # ── everyone ──
@@ -69,8 +70,8 @@ TOOLS: list[Tool] = [
          _obj({"fact": s("One short sentence")}, ["fact"]), runs="hub", risk="auto"),
     Tool("handoff", "Hand the conversation to another specialist when the request is clearly theirs: fusion_analyst (Fusion data "
          "and SQL), wms_operator (trips, printing, MRA), order_desk (sales orders), data_loader (FBDI / REST loads), reporter "
-         "(reports, dashboards, scheduled digests).",
-         _obj({"to": {"type": "string", "enum": [FA, WO, OD, DL, RP]}, "reason": s("Why")}, ["to", "reason"]), runs="hub"),
+         "(reports, dashboards, scheduled digests), debtors (customer balances, statements, collections, statement cycles).",
+         _obj({"to": {"type": "string", "enum": [FA, WO, OD, DL, RP, DB]}, "reason": s("Why")}, ["to", "reason"]), runs="hub"),
     Tool("open_page", "Open a page of the WMS app for the user (and optionally pass it what to show). Pages: fusionsql, wms, om, "
          "dataload, fusionmodel, powerbi, aihub, aianalysis.",
          _obj({"page": s("Page key"), "params": {"type": "object", "description": "Optional, e.g. {\"sql\": \"…\"} for fusionsql"}}, ["page"])),
@@ -263,7 +264,7 @@ TOOLS: list[Tool] = [
 
 
 # ── AI Digital Employee parity: its chat actions as tools, same fields (see its knowledge in the system prompt) ──
-ALL = [FA, WO, OD, DL, RP]
+ALL = [FA, WO, OD, DL, RP, DB]
 OBJ = {"type": "object"}
 TOOLS += [
     Tool("wms_sql", "Read SQL (Oracle SELECT / WITH) on the WMS / APEX schema described in the knowledge (schema catalog) through the guarded "
@@ -362,6 +363,41 @@ TOOLS += [
                "status": {"type": "string", "enum": ["IN_PROGRESS", "DONE", "BLOCKED"]}}, ["task_id", "kind", "message"]), risk="auto", specialists=ALL),
 ]
 
+# ── Debtors: the Fusion Debtors Control module (page tools, run by the AI Agent page with ../debtors/ engine) ──
+TOOLS += [
+    Tool("dc_debtors", "Customers of a business unit with their balance and aging, from the latest archived statement cycle (else the "
+         "latest statements sent): filter by minimum balance, overdue days (30 / 60 / 90) or words, sort by balance / overdue / over_90, top N. "
+         "Use it for 'who owes the most', 'over 90 days', 'customers in credit'. Results go to the results panel.",
+         _obj({"bu": s("Business unit name or id (default: the first)"), "min_balance": {"type": "number"}, "overdue_days": i("30, 60 or 90"),
+               "credit": {"type": "boolean", "description": "Only customers in credit (negative balance)"}, "words": s("Account or name words"),
+               "sort": {"type": "string", "enum": ["balance", "overdue", "over_90"]}, "top": i("Default 20")}), specialists=[DB]),
+    Tool("dc_customer", "One customer: the card (statement e-mail, delivery, collector, hold, notes), the latest balance + aging, the "
+         "last statements with their status (sent / opened / read / bounced / agreed / disputed) and the open promises, disputes and "
+         "follow-ups. Give the account number, or words of the name.",
+         _obj({"account": S, "words": S, "bu": S}), specialists=[DB]),
+    Tool("dc_open_items", "A customer's open invoices, credit notes and unapplied receipts live from Oracle Fusion (AR payment schedules "
+         "still open): totals, overdue, days late. Results go to the results panel.",
+         _obj({"account": S, "bu": S}, ["account"]), specialists=[DB]),
+    Tool("dc_statements", "Statements recorded by the module: filter by account, status (SENT, FAILED, BOUNCED, DISPUTED, AGREED, "
+         "NOT_OPENED, POSTED), the last N days, a statement date or a cycle.",
+         _obj({"account": S, "status": S, "days": i("Default 30"), "stmt_date": s("YYYY-MM-DD"), "bu": S}), specialists=[DB]),
+    Tool("dc_followups", "Open collection work: promises to pay (due, late, broken), disputes, follow-up tasks, calls - for everyone "
+         "or one collector.",
+         _obj({"kind": {"type": "string", "enum": ["PROMISE", "DISPUTE", "TASK", "CALL", "NOTE", "ALL"]},
+               "due": {"type": "string", "enum": ["late", "today", "week", "all"]}, "mine": {"type": "boolean"}, "account": S}), specialists=[DB]),
+    Tool("dc_cycle", "Statement cycles: status of a cycle (checklist, archive, statement check, sent / posted / failed, coverage) and its "
+         "checks with how many rows each found, who bypassed what and why. Default the latest cycle of the business unit.",
+         _obj({"bu": S, "period": s("YYYY-MM"), "cycle_id": S}), specialists=[DB]),
+    Tool("dc_open", "Open something in the Debtors page the user is on: a customer's balance dialog (account), a statement cycle "
+         "(cycle_id) or a tab (overview, cycles, run, stmts, cust, tasks).",
+         _obj({"what": {"type": "string", "enum": ["customer", "cycle", "tab"]}, "account": S, "bu": S, "cycle_id": S, "tab": S}, ["what"]),
+         risk="auto", specialists=[DB]),
+]
+for _t in TOOLS:   # the Fusion data tools are the Debtors specialist's too
+    if _t.name in ("fusion_search_objects", "fusion_search_columns", "fusion_describe", "fusion_sql_dry_run", "fusion_sql_run",
+                   "result_analyze", "show_chart", "knowledge_lookup", "make_report", "schedule_job", "jobs_list") and _t.specialists and DB not in _t.specialists:
+        _t.specialists.append(DB)
+
 BY_NAME = {t.name: t for t in TOOLS}
 
 
@@ -458,6 +494,18 @@ fusion_rest_get). Loading itself happens in the Data Loading page (open_page dat
 You turn data into reports: prefer Fusion Model measures (model_search / model_evaluate), else checked Fusion SQL.
 Build with make_report (title, 2-5 sentence summary, KPIs, chart, table). For "every morning / weekly" requests offer
 schedule_job (the user confirms)."""),
+    Specialist(DB, "Debtors Desk", "fa-file-invoice-dollar", "fusion_sql",
+               ["!debtor", "!debtors", "!statement", "statements", "overdue", "owe", "owes", "owing", "!dispute", "disputes", "promise to pay",
+                "promises", "collector", "collection", "collections", "dunning", "!statement cycle", "cycle", "follow-up", "follow-ups", "bounced",
+                "in credit", "credit balance", "open invoices"],
+               """SPECIALIST: debtors
+You are the collections assistant of Fusion Debtors Control: customer balances and aging, statements (who got them, opened,
+agreed, disputed), promises to pay, disputes and follow-ups, and the monthly statement cycles (checklist, archive, send).
+Read with the dc_ tools first (dc_debtors, dc_customer, dc_open_items, dc_statements, dc_followups, dc_cycle); use Fusion SQL
+(dry run, then run) only for what they do not cover. Amounts are in the business unit's currency. When you name a customer,
+offer to open it: dc_open what=customer (the user sees its balance dialog). Suggest the next collection step per customer
+(call, statement again, promise follow-up, credit hold) but never send statements or change records yourself - the user does
+that in the page (Send statements, Customer dialog). Keep answers short: a table of the top customers, then 2-3 lines."""),
 ]}
 
 MAX_TURNS = 20
@@ -485,7 +533,7 @@ def route(text: str, current: str | None = None) -> tuple[str, dict]:
     """Rules first (free, instant): score routing words; ties keep the current specialist, else the Fusion Analyst.
     '@wms' / '@orders' … pins a specialist."""
     t = " " + (text or "").lower() + " "
-    pins = {"@fusion": FA, "@sql": FA, "@wms": WO, "@trip": WO, "@orders": OD, "@order": OD, "@load": DL, "@fbdi": DL, "@report": RP}
+    pins = {"@debtors": DB, "@debtor": DB, "@fusion": FA, "@sql": FA, "@wms": WO, "@trip": WO, "@orders": OD, "@order": OD, "@load": DL, "@fbdi": DL, "@report": RP}
     for k, v in pins.items():
         if k in t:
             return v, {v: 99}

@@ -41,6 +41,10 @@ MIGRATIONS: list[tuple[int, str, str]] = [
             ended REAL, transcript TEXT DEFAULT '[]', summary TEXT, message TEXT, error TEXT, origin_thread TEXT);
         CREATE INDEX calls_started ON calls(started);
     """),
+    (7, "conversations per app module (an embedded AI Agent, e.g. Debtors › Autopilot)", """
+        ALTER TABLE threads ADD COLUMN module TEXT;
+        CREATE INDEX threads_module ON threads(app_user, module, updated);
+    """),
 ]
 
 

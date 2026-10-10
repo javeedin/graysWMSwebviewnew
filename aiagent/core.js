@@ -14,8 +14,10 @@ function $(id) { return document.getElementById(id); }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function hasHost() { return !!(window.chrome && window.chrome.webview); }
 function appUser() { try { return sessionStorage.getItem('loggedInUser') || localStorage.getItem('loggedInUser') || ''; } catch (e) { return ''; } }
-function ls(k, d) { try { var v = localStorage.getItem('aiagent.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
-function lsSet(k, v) { try { localStorage.setItem('aiagent.' + k, JSON.stringify(v)); } catch (e) { } }
+/** embedded in a module (embed.js): the remembered conversation / specialist are kept per module */
+function lsKey(k) { var e = window.AG_EMBED; return e && e.module && (k === 'tid' || k === 'spec') ? k + '.' + e.module : k; }
+function ls(k, d) { try { var v = localStorage.getItem('aiagent.' + lsKey(k)); return v == null ? d : JSON.parse(v); } catch (e) { return d; } }
+function lsSet(k, v) { try { localStorage.setItem('aiagent.' + lsKey(k), JSON.stringify(v)); } catch (e) { } }
 function lit(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
 function vlit(s, max) { s = String(s == null ? '' : s).slice(0, max || 4000); return s ? lit(s) : 'NULL'; }
 function clob(s) { s = String(s || ''); if (!s) return 'EMPTY_CLOB()'; var p = []; for (var i = 0; i < s.length; i += 1000) p.push('TO_CLOB(' + lit(s.slice(i, i + 1000)) + ')'); return p.join(' || '); }
@@ -79,7 +81,14 @@ function dbWrite(sql) { return apex('/executewrite', { sql: sql }); }
 function md(text) { return window.AGF ? AGF.md(text) : '<p>' + esc(text).replace(/\n/g, '<br>') + '</p>'; }
 
 // ── catalog / labels ───────────────────────────────────────────
-AG.SPEC_COLOR = { fusion_analyst: 'var(--fa)', wms_operator: 'var(--wo)', order_desk: 'var(--od)', data_loader: 'var(--dl)', reporter: 'var(--rp)' };
+AG.SPEC_COLOR = { fusion_analyst: 'var(--fa)', wms_operator: 'var(--wo)', order_desk: 'var(--od)', data_loader: 'var(--dl)', reporter: 'var(--rp)', debtors: '#0f766e' };
+/** what each module that embeds the agent starts with: its specialist and its welcome questions */
+AG.MODULES = {
+    debtors: { spec: 'debtors', title: 'Debtors Autopilot', placeholder: 'Ask about balances, overdue customers, statements, promises, disputes or the statement cycle…  (Enter to send)', lead: 'Ask about customer balances, overdue debt, statements, promises, disputes and the statement cycles. It reads the same records as this page, shows the rows on the right and opens customers for you. It never sends a statement or changes a record — you do that here.',
+        groups: [['Balances', ['Who owes us the most?', 'Which customers are over 90 days?', 'Which customers are in credit?']], ['Statements', ['Which statements bounced this week?', 'Who has not opened the last statement?', 'Which customers disputed their balance?']],
+            ['Collections', ['Which promises to pay are late?', 'What should I follow up today?', 'Show the open invoices of the biggest debtor']], ['Statement cycle', ['Is this month\'s statement cycle ready to send?', 'Which checks failed and who bypassed them?', 'How many statements were sent, posted or failed?']]] }
+};
+AG.mod = function () { var e = window.AG_EMBED; return e && AG.MODULES[e.module] ? AG.MODULES[e.module] : null; };
 AG.LABELS = {
     ask_user: 'Question for you', remember: 'Remember', handoff: 'Hand over', open_page: 'Open a page',
     fusion_search_objects: 'Search Fusion objects', fusion_search_columns: 'Search Fusion columns', fusion_describe: 'Describe', fusion_source: 'Read source',
@@ -113,7 +122,8 @@ AG.caps = function () {
 
 // ── init ───────────────────────────────────────────────────────
 AG.init = function () {
-    AG.pod = ls('pod', 'PROD'); AG.model = ls('model', ''); AG.spec = ls('spec', 'auto');
+    AG.pod = ls('pod', 'PROD'); AG.model = ls('model', ''); AG.spec = ls('spec', AG.mod() ? AG.mod().spec : 'auto');
+    if (AG.mod() && AG.mod().placeholder) $('input').placeholder = AG.mod().placeholder;
     document.querySelectorAll('#pod-seg button').forEach(function (b) { b.onclick = function () { AG.setPod(b.dataset.pod); }; });
     AG.setPod(AG.pod);
     $('model-sel').onchange = function () { AG.model = this.value; lsSet('model', AG.model); };
@@ -168,6 +178,7 @@ AG.init = function () {
         AG.hubVersionCheck();
         AG.syncKnowledge();
         if (AG.loadTasks) { AG.loadTasks(); setInterval(AG.loadTasks, 120000); }
+        if (window.AG_EMBED) return;                                           // scheduled / LOCAL jobs run on the AI Agent page, not in every module
         try { if (window.LocalJobs) LocalJobs.init(); } catch (e) { }          // the AI Digital Employee's LOCAL-lane jobs run here too
         AG.jobTick();
         setInterval(AG.jobTick, 60000);
@@ -403,7 +414,7 @@ AG.SPEC_LIST = [
     { id: 'auto', title: 'Auto (supervisor)', icon: 'fa-wand-magic-sparkles', color: '#64748b' },
     { id: 'fusion_analyst', title: 'Fusion Analyst', icon: 'fa-database' }, { id: 'wms_operator', title: 'WMS Operator', icon: 'fa-truck-fast' },
     { id: 'order_desk', title: 'Order Desk', icon: 'fa-cart-shopping' }, { id: 'data_loader', title: 'Data Loader', icon: 'fa-file-import' },
-    { id: 'reporter', title: 'Reporter', icon: 'fa-chart-line' }
+    { id: 'reporter', title: 'Reporter', icon: 'fa-chart-line' }, { id: 'debtors', title: 'Debtors Desk', icon: 'fa-file-invoice-dollar' }
 ];
 AG.specOf = function (id) { return AG.SPEC_LIST.filter(function (s) { return s.id === id; })[0] || AG.SPEC_LIST[1]; };
 AG.renderSpecs = function () {
@@ -424,7 +435,7 @@ AG.meta = function () {
 
 // ── conversations ──────────────────────────────────────────────
 AG.loadThreads = function () {
-    return hub('GET', '/agent/threads?limit=80').then(function (t) { AG.threads = t || []; AG.renderThreads(); }).catch(function () { });
+    return hub('GET', '/agent/threads?limit=80' + (window.AG_EMBED && AG_EMBED.module ? '&module=' + encodeURIComponent(AG_EMBED.module) : '')).then(function (t) { AG.threads = t || []; AG.renderThreads(); }).catch(function () { });
 };
 AG.renderThreads = function () {
     var f = ($('th-filter').value || '').toLowerCase(), col = { waiting: '#f59e0b', running: '#4f46e5', error: '#dc2626', cancelled: '#94a3b8', done: '#cbd5e1' };
@@ -451,6 +462,14 @@ AG.welcome = function () {
         ['data_loader', ['Which FBDI template loads supplier sites?', 'What fields does the Fusion invoices REST resource need?', 'Show my FBDI loads']],
         ['reporter', ['Make a report of AP invoices this month by supplier', 'Every morning at 7:30 give me trips not printed', 'Which Fusion Model reports exist?']]
     ];
+    var M = AG.mod();
+    if (M) {
+        $('timeline').innerHTML = '<div class="welcome"><h2>' + esc(M.title) + '</h2><p class="lead">' + esc(M.lead) + '</p><div class="sugg">' +
+            M.groups.map(function (g) { return '<div class="sg"><h5><i class="fa-solid fa-' + 'circle-dot" style="background:' + AG.SPEC_COLOR[M.spec] + '"></i>' + esc(g[0]) + '</h5>' + g[1].map(function (q) { return '<button data-q="' + esc(q) + '">' + esc(q) + '</button>'; }).join('') + '</div>'; }).join('') + '</div></div>';
+        document.querySelectorAll('.sg button').forEach(function (b) { b.onclick = function () { $('input').value = b.dataset.q; AG.send(); }; });
+        AG.meta();
+        return;
+    }
     $('timeline').innerHTML = '<div class="welcome"><h2>What do you need?</h2><p class="lead">The supervisor picks the right specialist (or choose one on the left). They look things up, check SQL with a dry run, ' +
         'and ask you before anything runs on Fusion or changes data. Everything they do appears below, step by step.</p><div class="sugg">' +
         groups.map(function (g) {
@@ -519,10 +538,13 @@ AG.send = function () {
         AG.tid = 'ag_' + hex16(); AG.seq = 0; AG.stepEls = {}; lsSet('tid', AG.tid);
         $('timeline').innerHTML = '';
         body.thread_id = AG.tid;
+        if (window.AG_EMBED && AG_EMBED.module) body.module = AG_EMBED.module;   // listed under this module
         call = hub('POST', '/agent/threads', body);
     } else call = hub('POST', '/agent/threads/' + AG.tid + '/send', body);
     AG.run(call);
 };
+/** a question from the page that embeds the agent (or a link): into the box, and sent unless the user is busy */
+AG.ask = function (text, send) { if (!text) return; $('input').value = text; $('input').focus(); if (send && !AG.busy && !AG.pendingCards) AG.send(); };
 /** One hub call that runs the graph: follow its events live, then handle what it needs. */
 AG.run = function (call) {
     AG.setBusy(true);

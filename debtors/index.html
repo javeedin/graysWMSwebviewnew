@@ -24,8 +24,11 @@
     <button data-tab="cust"><i class="fas fa-users"></i> Customers</button>
     <button data-tab="tasks"><i class="fas fa-list-check"></i> Follow-ups <span class="n" id="n-tasks"></span></button>
     <button data-tab="setup"><i class="fas fa-gear"></i> Setup</button>
+    <span class="sp"></span>
+    <button data-tab="auto" class="ap-tab" title="The AI Agent with the Debtors Desk: ask about balances, statements, collections and cycles"><i class="fas fa-robot"></i> Autopilot</button>
   </nav>
   <main class="main" id="main"></main>
+  <div class="ap-host" id="ap-host" hidden></div>
 </div>
 <div class="modal" id="modal"><div class="mbox" id="mbox"></div></div>
 <script src="dc-engine.js"></script>
@@ -34,5 +37,6 @@
 <script src="dc-core.js"></script>
 <script src="dc-cycles.js"></script>
 <script src="dc-workbench.js"></script>
+<script src="dc-autopilot.js"></script>
 </body>
 </html>

@@ -144,3 +144,14 @@ cd ai-hub
 python -m ai_hub eval-agent                                   # offline demo planner (CI does this)
 python -m ai_hub eval-agent --provider bedrock --model anthropic.claude-sonnet-5-5 --all
 ```
+
+
+## Embedding the agent in a module
+
+Any module can show the agent in a tab: an iframe on `../aiagent/index.html?embed=1&module=<name>`. `embed.js` hides the
+header, relays the host bridge through the parent page (the parent posts the messages to the app and passes the answers
+back — see `debtors/dc-autopilot.js`), keeps the conversation and specialist per module and tags new conversations with
+the module (`GET /agent/threads?module=`). Add the module to `AG.MODULES` in `core.js` (starting specialist, welcome
+questions, placeholder) and, if it needs its own tools, a specialist in `catalog.py` + page tools (`tools-debtors.js` is
+the example: the Debtors Desk). The parent can send `{__agAsk: 1, text}`; the agent can ask the parent to open
+something (`{__agModule: 1, op: 'open', …}`).

@@ -65,6 +65,7 @@ class AgentState(TypedDict, total=False):
     trace: bool         # the page's "Track tech": emit `trace` events (what ran, where, how long)
     voice: str          # "app" (spoken in the app) | "phone" (a live call) | ""
     call: dict          # phone: {id, verified, user, goal, company}
+    module: str         # the app module embedding the agent ("debtors" …) - said in the system prompt
 
 
 SDK_OF = {
@@ -319,6 +320,9 @@ class AgentService:
         parts = [C.COMMON, sp.prompt,
                  f"Context: today is {datetime.now():%A %d %B %Y %H:%M}; Fusion pod {s.get('pod') or 'PROD'}; app user {user or 'unknown'}.",
                  f"Other specialists you can hand off to: {others}."]
+        if s.get("module"):
+            parts.append(f"The user is talking to you from the {s.get('module')} module of the app (the agent is embedded in that page): "
+                         "answer in its terms and prefer its tools.")
         if facts:
             parts.append("What you know about this user (from `remember`):\n" + "\n".join("- " + f["fact"] for f in reversed(facts)))
         if s.get("voice") in ("app", "phone"):
@@ -402,17 +406,20 @@ class AgentService:
 
     def start(self, text: str, app_user: str | None = None, specialist: str | None = None, pod: str = "PROD",
               caps: list | None = None, model: dict | None = None, job_id: str | None = None, thread_id: str | None = None,
-              attachments: list | None = None, voice: str | None = None, call: dict | None = None, trace: bool = False) -> dict:
+              attachments: list | None = None, voice: str | None = None, call: dict | None = None, trace: bool = False,
+              module: str | None = None) -> dict:
         # the page may choose the id (ag_ + 16 hex) so it can follow the live events of the very first turn
         tid = thread_id if thread_id and re.fullmatch(r"ag_[0-9a-f]{16}", thread_id) else "ag_" + uuid.uuid4().hex[:16]
         if self.store.one("SELECT 1 AS x FROM threads WHERE id = ?", (tid,)):
             raise ValueError("A conversation with this id exists already.")
         now = time.time()
         title = re.sub(r"\s+", " ", text or "").strip()[:90] or "New conversation"
-        self.store.run("INSERT INTO threads (id, app_user, title, specialist, status, pod, created, updated, job_id) VALUES (?,?,?,?,?,?,?,?,?)",
-                       (tid, app_user, title, specialist, "running", pod, now, now, job_id))
+        module = re.sub(r"[^a-z0-9_]", "", (module or "").lower())[:30] or None
+        self.store.run("INSERT INTO threads (id, app_user, title, specialist, status, pod, created, updated, job_id, module) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                       (tid, app_user, title, specialist, "running", pod, now, now, job_id, module))
         state = {"messages": [human(text, attachments)], "app_user": app_user or "", "pod": (pod or "PROD").upper(),
-                 "caps": caps, "dry_ok": [], "results": [], "model": model or {}, "voice": voice or "", "call": call or {}, "trace": bool(trace)}
+                 "caps": caps, "dry_ok": [], "results": [], "model": model or {}, "voice": voice or "", "call": call or {}, "trace": bool(trace),
+                 "module": module or ""}
         if specialist in C.SPECIALISTS:
             state.update(specialist=specialist, pinned=True)
         else:
@@ -500,11 +507,17 @@ class AgentService:
                 "results": v.get("results") or [], "cost": t["cost"], "tokens_in": t["tokens_in"], "tokens_out": t["tokens_out"],
                 "turns": t["turns"], "error": t.get("error"), "busy": tid in self._busy, "created": t["created"], "updated": t["updated"]}
 
-    def list(self, app_user: str | None = None, limit: int = 50) -> list[dict]:
+    def list(self, app_user: str | None = None, limit: int = 50, module: str | None = None) -> list[dict]:
+        """The conversations of a user; module = only those started in that module's embedded agent."""
+        cols = "SELECT id, title, specialist, status, pod, created, updated, cost, job_id, module FROM threads"
+        where, args = [], []
         if app_user:
-            return self.store.all("SELECT id, title, specialist, status, pod, created, updated, cost, job_id FROM threads WHERE app_user = ? "
-                                  "ORDER BY updated DESC LIMIT ?", (app_user, limit))
-        return self.store.all("SELECT id, title, specialist, status, pod, created, updated, cost, job_id FROM threads ORDER BY updated DESC LIMIT ?", (limit,))
+            where.append("app_user = ?")
+            args.append(app_user)
+        if module:
+            where.append("module = ?")
+            args.append(module)
+        return self.store.all(cols + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY updated DESC LIMIT ?", (*args, limit))
 
     def events(self, tid: str, after: int = 0, app_user: str | None = None) -> dict:
         t = self._own(tid, app_user)

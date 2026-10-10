@@ -51,6 +51,7 @@ class AgentIn(BaseModel):
     attachments: list[dict] | None = None
     voice: str | None = None            # "app" = the answer is spoken (voice mode)
     trace: bool | None = None           # "Track tech": the hub reports what ran where
+    module: str | None = None           # the app module that embeds the agent (debtors …): its own conversation list
 
 
 def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None = None, agent_home: str | None = None,
@@ -243,11 +244,11 @@ def create_api(cfg: HubConfig, usage: Usage | None = None, doctor_db: str | None
         return guard(lambda: agent.start(body.text, app_user=who(request, body.app_user), specialist=body.specialist,
                                          pod=body.pod or "PROD", caps=body.caps, model=body.model, thread_id=body.thread_id,
                                          attachments=body.attachments, voice="app" if body.voice == "app" else None,
-                                         trace=bool(body.trace)))
+                                         trace=bool(body.trace), module=body.module))
 
     @app.get("/agent/threads", dependencies=A)
-    def agent_list(request: Request, limit: int = 50):
-        return agent.list(who(request), limit)
+    def agent_list(request: Request, limit: int = 50, module: str | None = None):
+        return agent.list(who(request), limit, module)
 
     @app.get("/agent/threads/{tid}", dependencies=A)
     def agent_get(tid: str, request: Request):

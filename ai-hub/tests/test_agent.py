@@ -254,8 +254,8 @@ def test_gateway_error_keeps_thread(tmp_path):
 
 def test_migrations(tmp_path):
     s = svc(tmp_path)
-    assert s.store.version() == 6
-    assert s.store.migrate() == 6
+    assert s.store.version() == 7
+    assert s.store.migrate() == 7
 
 
 def test_agent_api(tmp_path):
@@ -437,3 +437,22 @@ def test_vision_tool_is_offered_with_the_page_cap():
     w = next(t for t in catalog.TOOLS if t.name == "vision_watch")
     assert w.runs == "page" and w.risk == "read"
     assert "vision_watch" in [t.name for t in catalog.tools_for("wms_operator", ["vision_watch"])]
+
+
+def test_debtors_specialist_routing_tools_and_module_threads(tmp_path):
+    assert "debtors" in C.SPECIALISTS and C.route("Who owes us the most over 90 days?")[0] == C.DB
+    assert C.route("Which statements bounced last week?")[0] == C.DB and C.route("@debtors show AP invoices")[0] == C.DB
+    assert C.route("Show me AP invoices of the last 30 days")[0] == C.FA        # Fusion questions stay with the analyst
+    names = {t.name for t in C.tools_for(C.DB, ALL_CAPS)}
+    assert {"dc_debtors", "dc_customer", "dc_open_items", "dc_statements", "dc_followups", "dc_cycle", "dc_open"} <= names
+    assert {"fusion_sql_dry_run", "fusion_sql_run", "knowledge_lookup", "wms_sql"} <= names
+    assert "dc_debtors" not in {t.name for t in C.tools_for(C.FA, ALL_CAPS)}
+    assert all(C.BY_NAME[n].risk in ("read", "auto") for n in names if n.startswith("dc_"))
+    s = svc(tmp_path)
+    r = s.start("Who owes the most over 90 days?", caps=ALL_CAPS, specialist="debtors", module="Debtors")
+    assert r["status"] == "waiting" and r["waiting"]["calls"][0]["name"] == "dc_debtors"
+    r = s.resume(r["thread_id"], answer(r, lambda c: {"ok": True, "content": "GR1 owes 500 over 90 days"}))
+    assert r["status"] == "done"
+    s.start("hello", caps=[])
+    assert [t["id"] for t in s.list(module="debtors")] == [r["thread_id"]] and len(s.list()) == 2
+    assert "debtors module" in s.system_prompt(C.SPECIALISTS[C.DB], {"module": "debtors", "app_user": ""})

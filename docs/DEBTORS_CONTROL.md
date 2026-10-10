@@ -173,3 +173,20 @@ or *Not paid* (a follow-up in 2 days is added); a dispute is resolved with how i
 
 The PDFs stay on the PC that made them (the record names the PC and the file); the fingerprint lets anyone check that
 a PDF is exactly the one that was sent.
+
+
+## Autopilot (the AI Agent inside Debtors)
+
+The **Autopilot** tab (right of the tabs) is the AI Agent page itself, embedded — not a copy, so every improvement to the
+AI Agent shows here too. It starts on the **Debtors Desk** specialist and lists only the conversations started here (the
+AI Agent page still shows all of them). Ask in plain words:
+
+- *Who owes us the most? · Which customers are over 90 days? · Which customers are in credit?*
+- *Which statements bounced this week? · Who has not opened the last statement? · Which customers disputed their balance?*
+- *Which promises to pay are late? · What should I follow up today? · Show the open invoices of the biggest debtor*
+- *Is this month's statement cycle ready to send? · Which checks failed and who bypassed them?*
+
+It reads the same records as the other tabs (the latest archived cycle, statements, follow-ups, cycles) and Fusion's open
+items, shows the rows on the right, and can open a customer's dialog or a cycle for you. It never sends a statement or
+changes a record — you do that on the other tabs. It needs the AI Hub on the PC (like the AI Agent page) and a connected
+model (Claude); without one it runs the offline demo planner.

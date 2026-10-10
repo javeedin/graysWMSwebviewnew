@@ -27,6 +27,9 @@ GENERIC = {
     "order_desk": [(r"", "om_orders_find", lambda q: {"words": _words(q)})],
     "data_loader": [(r"", "fbdi_templates_find", lambda q: {"words": _words(q)})],
     "reporter": [(r"schedule|every|daily|morning", "jobs_list", lambda q: {}), (r"", "model_reports", lambda q: {})],
+    "debtors": [(r"statement|bounced|opened", "dc_statements", lambda q: {}), (r"promise|dispute|follow", "dc_followups", lambda q: {"due": "all"}),
+                (r"cycle|checklist", "dc_cycle", lambda q: {}),
+                (r"", "dc_debtors", lambda q: {"overdue_days": 90 if re.search(r"90", q) else None, "sort": "overdue" if re.search(r"overdue|late", q, re.I) else "balance"})],
 }
 
 

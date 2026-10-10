@@ -120,6 +120,7 @@
         var m = $('main'); if (!m) return;
         if (!S.hasHost()) { m.innerHTML = '<div class="card note warn">Open this page inside the Gray\'s WMS app — the reports and e-mails run in the desktop host with the application\'s Fusion credentials.</div>'; return; }
         if (!P.ready) { m.innerHTML = '<div class="card empty"><i class="fas fa-spinner fa-spin"></i> Loading…</div>'; return; }
+        var ap = $('ap-host'); if (ap) { ap.hidden = P.tab !== 'auto'; m.hidden = P.tab === 'auto'; }   // Autopilot: the embedded AI Agent stays loaded across tabs
         var ext = window.DC.views && window.DC.views[P.tab];
         m.innerHTML = ext ? ext() : P.tab === 'run' ? vRun() : P.tab === 'stmts' ? vStmts() : P.tab === 'cust' ? vCust() : P.tab === 'tasks' ? vTasks() : P.tab === 'setup' ? vSetup() : vHome();
         if (ext && window.DC.after && window.DC.after[P.tab]) window.DC.after[P.tab]();

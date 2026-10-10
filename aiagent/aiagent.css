@@ -529,3 +529,7 @@ body.tech-on .tech-toggle { color: #7c3aed; font-weight: 700; }
 .vz-stage.bg-black { background: #000; }
 .vz-stage.bg-black video { visibility: hidden; }
 .vz-stage.bg-dim video { opacity: .28; }
+
+/* embedded in a module page (embed.js: ?embed=1&module=…): chat only, no header — the module's own header is above it */
+html.embed header.top, html.embed .ag-tabs, html.embed #btn-rollout { display: none !important; }
+html.embed body { background: transparent; }
