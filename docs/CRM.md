@@ -49,13 +49,15 @@ The **Customer 360** sub-tabs:
   The rating also shows on the Overview.
 - **Sales orders**: the orders of 24 months; drill to the lines and invoices, or open the order in Fusion.
 - **Items**: two views.
-  - **Categories & trends** (default; one query, month × item for 24 months with the item's category):
-    - KPI tiles: bought in the last 12 months vs the 12 before, items, categories, new items, stopped or quiet items, growing / declining.
+  - **Buying & trends** (default; one query, month × item for 24 months):
+    - **Group by** Profit centre (default), Supplier or Catalog category. Profit centre and supplier come from the item DFF of EGP_SYSTEM_ITEMS_B: **ATTRIBUTE1 = profit centre, ATTRIBUTE2 = supplier**. Other columns can be set in Setup › General (ATTRIBUTE1 … ATTRIBUTE30); press **Refresh** on the Items tab after a change. The catalog category comes from EGP_ITEM_CATEGORIES.
+    - Everything below follows the chosen grouping (the word "category" means the group you picked).
+    - KPI tiles: bought in the last 12 months vs the 12 before, items, profit centres / suppliers / categories, new items, stopped or quiet items, growing / declining.
     - *Buying by category*: stacked monthly columns for the top 6 categories plus Others.
     - **Trend shifting**: each category's share of the customer's buying for 8 quarters, as a heat table, with the points won or lost against the year before.
     - A categories table: last 12 months, 12 before, change, share, share change, items, trend.
     - *What stands out*: mix shifts of 5+ points, categories stopped or started, items not bought in 3 months, biggest drops and gains, concentration of the top 5, no order in 3 months.
-    - Top items with their trend: growing, declining, new, stopped, not in 3 months, steady. They can be filtered by trend or a category, and searched. A click shows the item month by month. CSV export is available.
+    - Top items with their trend: growing, declining, new, stopped, not in 3 months, steady. The table shows each item's profit centre, supplier and category. They can be filtered by trend or a group, and searched on any of these. A click shows the item month by month. CSV export is available.
   - **Items bought**: the plain 12-month list. Stock is not shown here.
 - **Statements**: the journey of the last statement (recorded, PDF, sent, delivered, opened, read, agreed or queried) and every statement sent. Actions: **Send again**, **Open the PDF**, **Check the file** (SHA-256).
 - **Tickets**, **Calls**, **E-mails**.
@@ -236,7 +238,7 @@ It also has the Debtors tools (balances, open items, statements, follow-ups) and
 
 - `node crm/tests/crm-engine.test.js` (CI) covers business hours and the SLA (with pause), routing, phone numbers, the health score, the timeline, KPIs, naive Bayes, similar tickets, the ask parser, the read-only 360 SQL (incl. the order currency column and its fallbacks), the customer-master pages, rows and search, and the AR 360 totals and rating.
 - AI Hub: `test_crm_customer_desk_routing_tools_and_module_threads`, plus the evals `crm_sla` and `crm_missed`.
-- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 96 checks. They include:
+- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 98 checks. They include:
   - every AR view, filter and drill (invoice → receipt that paid it → Back)
   - the Statements button
   - sections kept in APEX and on this PC

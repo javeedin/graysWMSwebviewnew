@@ -138,11 +138,21 @@ var ir = [
     { MONTH: '2025-01', ITEM: 'SOAP', CATEGORY: 'Household', QTY: 4, AMOUNT: 400, ORDERS: 1 },
     { MONTH: '2026-02', ITEM: 'SOAP', CATEGORY: 'Household', QTY: 1, AMOUNT: 100, ORDERS: 1 }
 ];
-var tr2 = E.itemTrends(ir, '2026-10-10');
+var tr2 = E.itemTrends(ir, '2026-10-10', 'CATEGORY');
 var byI = {}; tr2.items.forEach(function (x) { byI[x.item] = x; });
 eq([tr2.total.now, tr2.total.prev, byI.JUICE.trend, byI.OIL1.trend, byI.SOAP.trend, byI.RICE5.trend], [2600, 2200, 'NEW', 'STOPPED', 'SLOWING', 'DECLINING'], 'item trends');
 eq([tr2.items[0].item, tr2.categories[0].category, tr2.categories[0].shareNow], ['JUICE', 'Beverages', 76.9], 'top item + top category share');
 ok(tr2.insights.some(function (x) { return /Mix shift: Beverages up/.test(x.text); }) && tr2.insights.some(function (x) { return /Not bought lately/.test(x.text); }), 'insights: mix shift, not bought lately', tr2.insights);
+// group by the item DFF: ATTRIBUTE1 = profit centre, ATTRIBUTE2 = supplier
+ir.forEach(function (r) { r.PROFIT_CENTER = r.ITEM === 'JUICE' ? 'PC-DRINKS' : 'PC-FOOD'; r.SUPPLIER = r.ITEM === 'SOAP' ? '' : 'Unilever'; });
+var tp = E.itemTrends(ir, '2026-10-10'), ts = E.itemTrends(ir, '2026-10-10', 'SUPPLIER');
+eq([tp.dim.label, tp.categories[0].category, tp.categories.length, ts.categories.map(function (x) { return x.category; }).sort().join(','), ts.filled], ['Profit centre', 'PC-DRINKS', 2, '(no supplier),Unilever', 1], 'profit centre (default) + supplier groups');
+var tpi = {}; tp.items.forEach(function (x) { tpi[x.item] = x; });
+eq([tpi.JUICE.group, tpi.JUICE.supplier, tpi.JUICE.category], ['PC-DRINKS', 'Unilever', 'Beverages'], 'items carry every dimension');
+var si = E.sql.salesItems('A1', 1, 24);
+ok(/MAX\(i\.attribute1\) AS profit_center, MAX\(i\.attribute2\) AS supplier/.test(si[0]) && /egp_item_categories/.test(si[0]) && !/attribute/.test(si[si.length - 1]), 'sales items SQL: DFF first, plain last');
+ok(/i\.attribute7\) AS profit_center/.test(E.sql.salesItems('A1', 1, 24, { profitCenter: 'attribute7', supplier: 'x; drop' })[0]) && /MAX\(''\) AS supplier/.test(E.sql.salesItems('A1', 1, 24, { profitCenter: 'attribute7', supplier: 'x; drop' })[0]), 'DFF columns from setup, unsafe ones dropped');
+eq([E.dffCol('attribute_char3'), E.dffCol('SEGMENT1'), E.setup({ itemDff: { supplier: 'ATTRIBUTE5' } }).itemDff.profitCenter], ['ATTRIBUTE_CHAR3', '', 'ATTRIBUTE1'], 'dffCol + setup merge');
 ok(E.sql.salesItems("A'1", 1).every(function (x) { return x.indexOf("'A''1'") > 0 && /GROUP BY TO_CHAR/.test(x); }), 'sales items SQL');
 
 console.log((n - bad) + ' / ' + n + ' passed');

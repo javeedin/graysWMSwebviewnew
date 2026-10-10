@@ -22,6 +22,8 @@
         return '<h2>General</h2><div class="form"><div class="field"><label>Ticket number prefix</label><input type="text" id="su-prefix" value="' + esc(s.prefix) + '" maxlength="8"></div>' +
             '<div class="field wide"><label>E-mail signature (added under every reply)</label><textarea id="su-sig" rows="4">' + esc(s.signature || '') + '</textarea></div></div>' +
             '<h3>E-mail</h3><div class="small muted">E-mails go out with the mail setup of this PC — the same as Finance Lens and Debtors Control (Outlook, Microsoft 365 or SMTP). ' + esc(C.mail.info().label) + ' from ' + esc(C.mail.info().mailbox || '…') + (C.mail.info().ready ? ' ✓' : ' — not ready') + '. Change it in Finance Lens › E-mail setup or Debtors Control › Setup.</div>' +
+            '<h3>Items (Customer 360 › Items)</h3><div class="form"><div class="field"><label>Profit centre — item DFF column</label><input type="text" id="su-dffpc" value="' + esc((s.itemDff || {}).profitCenter || '') + '" placeholder="ATTRIBUTE1"></div>' +
+            '<div class="field"><label>Supplier — item DFF column</label><input type="text" id="su-dffsu" value="' + esc((s.itemDff || {}).supplier || '') + '" placeholder="ATTRIBUTE2"></div></div><div class="small muted">Columns of EGP_SYSTEM_ITEMS_B (ATTRIBUTE1 … ATTRIBUTE30). Open a customer\'s Items tab and press Refresh after a change.</div>' +
             '<h3>Statements</h3><div class="small muted">Business units, the statement report and the statement e-mail come from Debtors Control › Setup (' + C.bus.length + ' business units).</div>';
     };
     V.cats = function (s) {
@@ -95,7 +97,7 @@
     // ── reading the form back ──
     function read() {
         var s = C.setup, v = function (id) { var x = $(id); return x ? x.value : null; }, c = function (id) { var x = $(id); return x ? x.checked : null; };
-        if (U.sec === 'general') { s.prefix = (v('su-prefix') || 'CS-').replace(/[^A-Za-z0-9-]/g, '').slice(0, 8) || 'CS-'; s.signature = v('su-sig') || ''; }
+        if (U.sec === 'general') { s.prefix = (v('su-prefix') || 'CS-').replace(/[^A-Za-z0-9-]/g, '').slice(0, 8) || 'CS-'; s.signature = v('su-sig') || ''; s.itemDff = { profitCenter: E.dffCol(v('su-dffpc')), supplier: E.dffCol(v('su-dffsu')) }; }
         if (U.sec === 'cats') {
             s.categories = String(v('su-cats') || '').split(/\n/).map(function (l) { var p = l.split('|'); return { name: (p[0] || '').trim(), subs: String(p[1] || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), queue: (p[2] || '').trim() }; }).filter(function (x) { return x.name; });
             s.queues = String(v('su-queues') || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);

@@ -77,7 +77,7 @@
             case 'open': return [DE.openItemsSql(b, c.account)];
             case 'sales': return E.sql.salesByMonth(c.account, c.bu);
             case 'orders': return E.sql.orders(c.account, c.bu, m);
-            case 'salesItems': return E.sql.salesItems(c.account, c.bu, 24);
+            case 'salesItems': return E.sql.salesItems(c.account, c.bu, 24, (C.setup || {}).itemDff);
             case 'invoices': return E.sql.invoices(c.account, c.bu, 24);
             case 'receipts': return E.sql.receipts(c.account, c.bu, 24);
             case 'apps': return E.sql.applications(c.account, c.bu, 24);
@@ -514,39 +514,43 @@
     function itemsView(c) {
         var sec = c.f.salesItems || {};
         if (!sec.rows) return '<div class="card"><h2><i class="fas fa-boxes-stacked"></i> What this customer buys</h2>' + src('salesItems') + '<div class="empty">' + esc(emp('salesItems', '')) + '</div></div>';
-        var o = c.itx && c.itx.src === sec.rows ? c.itx.o : (c.itx = { src: sec.rows, o: E.itemTrends(sec.rows) }).o;
-        var t = o.total, cn = o.counts, top = o.categories[0];
+        var dim = c.itDim || 'PROFIT_CENTER';
+        var o = c.itx && c.itx.src === sec.rows && c.itx.dim === dim ? c.itx.o : (c.itx = { src: sec.rows, dim: dim, o: E.itemTrends(sec.rows, null, dim) }).o;
+        var t = o.total, cn = o.counts, top = o.categories[0], DL = o.dim, dff = (C.setup || {}).itemDff || {};
+        var dimBar = '<div class="card arbar"><div class="filters"><span class="small muted">Group by</span><div class="seg">' + Object.keys(E.ITEM_DIMS).map(function (k) { var x = E.ITEM_DIMS[k]; return '<button class="' + (dim === k ? 'on' : '') + '" data-act="itDim" data-d="' + k + '"><i class="fas ' + x.icon + '"></i> ' + x.label + '</button>'; }).join('') + '</div>' +
+            '<span class="small muted">' + (dim === 'CATEGORY' ? 'from the item catalog (EGP_ITEM_CATEGORIES)' : 'from the item DFF · EGP_SYSTEM_ITEMS_B.' + esc(dim === 'SUPPLIER' ? (dff.supplier || '—') : (dff.profitCenter || '—')) + ' (Setup › General)') + '</span></div>' +
+            (o.categories.length && !o.filled ? '<div class="small" style="color:#b45309;margin-top:6px"><i class="fas fa-triangle-exclamation"></i> No item has a ' + esc(DL.label.toLowerCase()) + ' — check the DFF column in Setup › General, or <b>Refresh</b> if it was read before.</div>' : '') + '</div>';
         var k = '<div class="kpis">' + C.kpi('Bought · 12 months', money(t.now, 0), t.change == null ? 'no buying the year before' : (t.change >= 0 ? '▲ ' : '▼ ') + Math.abs(t.change) + ' % on ' + money(t.prev, 0), t.change == null ? 'pri' : t.change >= 0 ? 'ok' : t.change <= -15 ? 'bad' : 'warn') +
-            C.kpi('Items bought', cn.items, cn.itemsPrev + ' the year before', 'info') + C.kpi('Categories', cn.categories, top ? 'top: ' + top.category + ' ' + top.shareNow + ' %' : '', 'info') +
+            C.kpi('Items bought', cn.items, cn.itemsPrev + ' the year before', 'info') + C.kpi(DL.plural, cn.categories, top ? 'top: ' + top.category + ' ' + top.shareNow + ' %' : '', 'info') +
             C.kpi('New items', cn.NEW, 'bought only in the last 12 months', cn.NEW ? 'ok' : '', 'itTrend', ' data-t="NEW"') +
             C.kpi('Stopped / quiet', cn.STOPPED + cn.SLOWING, cn.STOPPED + ' stopped · ' + cn.SLOWING + ' not in 3 months', cn.STOPPED + cn.SLOWING ? 'warn' : 'ok', 'itTrend', ' data-t="LOST"') +
             C.kpi('Growing / declining', cn.GROWING + ' / ' + cn.DECLINING, 'items ±20 % on the year before', cn.DECLINING > cn.GROWING ? 'warn' : 'ok', 'itTrend', ' data-t="DECLINING"') + '</div>';
         var ins = '<div class="card"><h2><i class="fas fa-lightbulb"></i> What stands out</h2>' + (o.insights.length ? '<div class="feed">' + o.insights.map(function (x) { return '<div class="fi ' + x.cls + '"><div class="ic"><i class="fas ' + (x.cls === 'ok' ? 'fa-arrow-trend-up' : x.cls === 'bad' || x.cls === 'warn' ? 'fa-arrow-trend-down' : 'fa-circle-info') + '"></i></div><div class="tx"><div class="t">' + esc(x.text) + '</div></div></div>'; }).join('') + '</div>' : '<div class="muted small">Nothing bought in 24 months.</div>') + '</div>';
         // stacked columns by the top 6 categories + others
         var cats = o.categories.slice(0, 6), rest = o.categories.slice(6), mx = Math.max.apply(null, t.series.concat([1]));
-        var chart = '<div class="card"><h2><i class="fas fa-chart-column"></i> Buying by category · 24 months</h2>' + src('salesItems') + '<div class="arch stk">' + o.months.map(function (m, i) {
+        var chart = '<div class="card"><h2><i class="fas fa-chart-column"></i> Buying by ' + esc(DL.label.toLowerCase()) + ' · 24 months</h2>' + src('salesItems') + '<div class="arch stk">' + o.months.map(function (m, i) {
             var segs = cats.map(function (x, j) { return [x.series[i], PALETTE[j], x.category]; });
             var other = rest.reduce(function (s, x) { return s + x.series[i]; }, 0); if (other) segs.push([other, PALETTE[6], 'Others']);
             return '<div class="mo" title="' + m + '\n' + segs.filter(function (z) { return z[0]; }).map(function (z) { return z[2] + ': ' + money(z[0], 0); }).join('\n') + '\nTotal ' + money(t.series[i], 0) + '"><div class="col" style="height:' + Math.round(t.series[i] / mx * 100) + '%">' +
                 segs.map(function (z) { return z[0] > 0 ? '<span style="flex:' + z[0] + ';background:' + z[1] + '"></span>' : ''; }).join('') + '</div></div>';
         }).join('') + '</div><div class="legend">' + cats.map(function (x, j) { return '<span><i style="background:' + PALETTE[j] + '"></i>' + esc(x.category) + '</span>'; }).join('') + (rest.length ? '<span><i style="background:' + PALETTE[6] + '"></i>Others (' + rest.length + ')</span>' : '') + '<span class="sp"></span><span>' + o.months[0] + ' → ' + o.months[23] + '</span></div></div>';
-        var catT = '<div class="card"><h2><i class="fas fa-layer-group"></i> Categories <span class="sp"></span><button class="btn sm" data-act="itCsv" data-w="cat"><i class="fas fa-download"></i> CSV</button></h2>' + C.table([
-            [function (x, i) { return '<i class="dot" style="background:' + (PALETTE[i] || PALETTE[6]) + '"></i> <b>' + esc(x.category) + '</b>'; }, 'Category'],
+        var catT = '<div class="card"><h2><i class="fas ' + DL.icon + '"></i> ' + esc(DL.plural) + ' <span class="sp"></span><button class="btn sm" data-act="itCsv" data-w="cat"><i class="fas fa-download"></i> CSV</button></h2>' + C.table([
+            [function (x, i) { return '<i class="dot" style="background:' + (PALETTE[i] || PALETTE[6]) + '"></i> <b>' + esc(x.category) + '</b>'; }, DL.label],
             [function (x) { return money(x.now, 0); }, 'Last 12 months', 'r num'], [function (x) { return money(x.prev, 0); }, '12 before', 'r num'], [function (x) { return delta(x.change); }, 'Change', 'r'],
             [function (x) { return x.shareNow + ' %'; }, 'Share', 'r'], [function (x) { return x.shareDelta ? '<span class="' + (x.shareDelta > 0 ? 'okc' : 'badc') + '">' + (x.shareDelta > 0 ? '+' : '') + x.shareDelta + ' pts</span>' : ''; }, 'Share change', 'r'],
             [function (x) { return x.itemCount; }, 'Items', 'r'], [function (x) { return trendPill(x.trend); }, 'Trend'], [function (x) { return spark(x.series); }, 'Last 12 months']
-        ], o.categories, { empty: 'No categories.', rowAct: 'itCat', max: '360px' }) + '</div>';
+        ], o.categories, { empty: 'Nothing bought.', rowAct: 'itCat', max: '360px' }) + '</div>';
         var f = c.itf || 'ALL', q = String(c.itq || '').toLowerCase();
         var list = o.items.filter(function (x) {
             if (f === 'LOST' && x.trend !== 'STOPPED' && x.trend !== 'SLOWING') return false;
             if (f !== 'ALL' && f !== 'LOST' && x.trend !== f) return false;
-            if (c.itCat && x.category !== c.itCat) return false;
-            return !q || (x.item + ' ' + x.description + ' ' + x.category).toLowerCase().indexOf(q) >= 0;
+            if (c.itCat && x.group !== c.itCat) return false;
+            return !q || hay(x).indexOf(q) >= 0;
         });
         var chips = [['ALL', 'All'], ['GROWING', 'Growing'], ['DECLINING', 'Declining'], ['NEW', 'New'], ['LOST', 'Stopped / quiet'], ['STEADY', 'Steady']];
         var itT = '<div class="card"><h2><i class="fas fa-ranking-star"></i> Top items ' + C.pill(list.length) + (c.itCat ? ' ' + C.pill(esc(c.itCat) + ' ✕', 'info') .replace('<span', '<span data-act="itCat" data-clear="1" style="cursor:pointer"') : '') + '<span class="sp"></span><button class="btn sm" data-act="itCsv" data-w="items"><i class="fas fa-download"></i> CSV</button></h2>' +
-            '<div class="filters"><div class="seg">' + chips.map(function (x) { return '<button class="' + (f === x[0] ? 'on' : '') + '" data-act="itTrend" data-t="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div><input type="search" id="it-q" data-in="itQ" placeholder="Item, description or category" value="' + esc(c.itq || '') + '" style="flex:1;min-width:180px"></div>' +
-            C.table([[function (x) { return '<span class="muted">' + x.rank + '</span>'; }, '#', 'r'], [function (x) { return '<b>' + esc(x.item) + '</b><div class="small muted">' + esc(x.description) + '</div>'; }, 'Item'], ['category', 'Category'],
+            '<div class="filters"><div class="seg">' + chips.map(function (x) { return '<button class="' + (f === x[0] ? 'on' : '') + '" data-act="itTrend" data-t="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div><input type="search" id="it-q" data-in="itQ" placeholder="Item, description, profit centre, supplier or category" value="' + esc(c.itq || '') + '" style="flex:1;min-width:180px"></div>' +
+            C.table([[function (x) { return '<span class="muted">' + x.rank + '</span>'; }, '#', 'r'], [function (x) { return '<b>' + esc(x.item) + '</b><div class="small muted">' + esc(x.description) + '</div>'; }, 'Item'], ['profitCenter', 'Profit centre'], ['supplier', 'Supplier'], ['category', 'Category'],
                 [function (x) { return money(x.now, 0); }, 'Last 12 months', 'r num'], [function (x) { return money(x.qtyNow, 0) + ' ' + esc(x.uom); }, 'Qty', 'r'], [function (x) { return money(x.prev, 0); }, '12 before', 'r num'], [function (x) { return delta(x.change); }, 'Change', 'r'],
                 [function (x) { return x.monthsBought + ' / 12'; }, 'Months bought', 'r'], ['last', 'Last bought'], [function (x) { return trendPill(x.trend); }, 'Trend'], [function (x) { return spark(x.series); }, 'Last 12 months']
             ], list, { empty: 'No item matches.', rowAct: 'itItem', max: '560px', limit: 500 }) + '</div>';
@@ -555,14 +559,16 @@
         var shiftCats = o.categories.filter(function (x) { return x.now || x.prev; }).slice(0, 10);
         var maxPts = Math.max.apply(null, shiftCats.map(function (x) { return Math.abs(x.shareDelta); }).concat([1]));
         var shift = '<div class="card"><h2><i class="fas fa-shuffle"></i> Trend shifting — share of their buying by quarter</h2>' +
-            '<div class="tblw" style="max-height:none"><table class="tbl shift"><thead><tr><th>Category</th>' + qs.map(function (q) { return '<th class="r">' + q.label + '</th>'; }).join('') + '<th>Points won / lost (12 months vs 12 before)</th></tr></thead><tbody>' +
+            '<div class="tblw" style="max-height:none"><table class="tbl shift"><thead><tr><th>' + esc(DL.label) + '</th>' + qs.map(function (q) { return '<th class="r">' + q.label + '</th>'; }).join('') + '<th>Points won / lost (12 months vs 12 before)</th></tr></thead><tbody>' +
             shiftCats.map(function (x) {
                 var cells = qs.map(function (q, i) { var v = x.series.slice(i * 3, i * 3 + 3).reduce(function (a, b) { return a + b; }, 0), sh = q.tot ? v / q.tot * 100 : 0; return '<td class="r" style="background:rgba(67,56,202,' + (Math.min(1, sh / 60) * 0.55).toFixed(2) + ')" title="' + money(v, 0) + ' of ' + money(q.tot, 0) + '">' + (sh ? Math.round(sh) + '%' : '<span class="muted">·</span>') + '</td>'; }).join('');
                 var w = Math.round(Math.abs(x.shareDelta) / maxPts * 50);
                 return '<tr><td><b>' + esc(x.category) + '</b></td>' + cells + '<td><div class="divbar"><span class="neg" style="width:' + (x.shareDelta < 0 ? w : 0) + '%"></span><span class="pos" style="width:' + (x.shareDelta > 0 ? w : 0) + '%"></span></div><span class="small ' + (x.shareDelta > 0 ? 'okc' : x.shareDelta < 0 ? 'badc' : 'muted') + '">' + (x.shareDelta > 0 ? '+' : '') + x.shareDelta + ' pts · ' + x.sharePrev + ' % → ' + x.shareNow + ' %</span></td></tr>';
             }).join('') + '</tbody></table></div><div class="small muted" style="margin-top:6px">Darker = a bigger share of that quarter. A category moving from one side to the other shows where their buying is shifting.</div></div>';
-        return k + '<div class="c3"><div>' + chart + shift + catT + '</div><div>' + ins + '</div></div>' + itT;
+        return dimBar + k + '<div class="c3"><div>' + chart + shift + catT + '</div><div>' + ins + '</div></div>' + itT;
     }
+    function hay(x) { return (x.item + ' ' + x.description + ' ' + x.profitCenter + ' ' + x.supplier + ' ' + x.category).toLowerCase(); }
+    C.ACT.itDim = function (el) { C.cust.itDim = el.dataset.d; C.cust.itCat = ''; C.render(); };
     function qLabel(m) { var y = m.slice(2, 4), mo = +m.slice(5, 7); return 'Q' + (Math.floor((mo - 1) / 3) + 1) + ' ' + y; }
     function itO() { return C.cust.itx && C.cust.itx.o; }
     C.ACT.itTrend = function (el) { C.cust.itf = el.dataset.t; C.render(); };
@@ -571,11 +577,11 @@
     C.ACT.itItem = function (el) {
         var o = itO(); if (!o) return;
         var list = o.items.filter(function (x) { return x.rank; }), x = null, f = C.cust.itf || 'ALL', q = String(C.cust.itq || '').toLowerCase();
-        list = list.filter(function (y) { if (f === 'LOST' && y.trend !== 'STOPPED' && y.trend !== 'SLOWING') return false; if (f !== 'ALL' && f !== 'LOST' && y.trend !== f) return false; if (C.cust.itCat && y.category !== C.cust.itCat) return false; return !q || (y.item + ' ' + y.description + ' ' + y.category).toLowerCase().indexOf(q) >= 0; });
+        list = list.filter(function (y) { if (f === 'LOST' && y.trend !== 'STOPPED' && y.trend !== 'SLOWING') return false; if (f !== 'ALL' && f !== 'LOST' && y.trend !== f) return false; if (C.cust.itCat && y.group !== C.cust.itCat) return false; return !q || hay(y).indexOf(q) >= 0; });
         x = list[+el.dataset.i]; if (!x) return;
         var mx = Math.max.apply(null, x.series.concat([1]));
         C.modal('<i class="fas fa-box"></i> ' + esc(x.item) + (x.description ? ' · ' + esc(x.description) : ''), '<div class="kpis">' + C.kpi('Last 12 months', money(x.now, 0), money(x.qtyNow, 0) + ' ' + x.uom, 'pri') + C.kpi('12 before', money(x.prev, 0), money(x.qtyPrev, 0) + ' ' + x.uom, '') +
-            C.kpi('Change', x.change == null ? 'new' : x.change + ' %', E.TRENDS[x.trend][0], E.TRENDS[x.trend][1]) + C.kpi('Category', x.category, x.shareNow + ' % of their buying', 'info') + '</div>' +
+            C.kpi('Change', x.change == null ? 'new' : x.change + ' %', E.TRENDS[x.trend][0], E.TRENDS[x.trend][1]) + C.kpi('Profit centre · supplier', (x.profitCenter || '—') + ' · ' + (x.supplier || '—'), (x.category ? x.category + ' · ' : '') + x.shareNow + ' % of their buying', 'info') + '</div>' +
             '<div class="arch">' + o.months.map(function (m, i) { return '<div class="mo" title="' + m + ': ' + money(x.series[i], 0) + ' · qty ' + money(x.qtyS[i], 0) + '"><span class="' + (i >= 12 ? 'i' : 'c') + '" style="height:' + Math.round(x.series[i] / mx * 100) + '%"></span></div>'; }).join('') + '</div>' +
             C.table([[function (r) { return r.m; }, 'Month'], [function (r) { return money(r.q, 0); }, 'Qty', 'r'], [function (r) { return money(r.a); }, 'Amount', 'r num']], o.months.map(function (m, i) { return { m: m, q: x.qtyS[i], a: x.series[i] }; }).filter(function (r) { return r.a || r.q; }).reverse(), { empty: 'Nothing bought.', max: '260px' }),
             '<button class="btn" data-act="mclose">Close</button>', true);
@@ -583,8 +589,8 @@
     C.ACT.itCsv = function (el) {
         var o = itO(); if (!o) return;
         var months = o.months;
-        if (el.dataset.w === 'cat') C.csv('categories-' + C.cust.account + '.csv', [['category', 'Category'], ['now', 'Last 12 months'], ['prev', '12 before'], ['change', 'Change %'], ['shareNow', 'Share %'], ['shareDelta', 'Share change pts'], ['itemCount', 'Items'], ['trend', 'Trend']].concat(months.map(function (m, i) { return [function (x) { return x.series[i]; }, m]; })), o.categories);
-        else C.csv('items-' + C.cust.account + '.csv', [['rank', '#'], ['item', 'Item'], ['description', 'Description'], ['category', 'Category'], ['now', 'Last 12 months'], ['qtyNow', 'Qty 12 months'], ['prev', '12 before'], ['change', 'Change %'], ['monthsBought', 'Months bought'], ['last', 'Last bought'], ['trend', 'Trend']].concat(months.map(function (m, i) { return [function (x) { return x.series[i]; }, m]; })), o.items);
+        if (el.dataset.w === 'cat') C.csv(o.dim.field + '-' + C.cust.account + '.csv', [['category', o.dim.label], ['now', 'Last 12 months'], ['prev', '12 before'], ['change', 'Change %'], ['shareNow', 'Share %'], ['shareDelta', 'Share change pts'], ['itemCount', 'Items'], ['trend', 'Trend']].concat(months.map(function (m, i) { return [function (x) { return x.series[i]; }, m]; })), o.categories);
+        else C.csv('items-' + C.cust.account + '.csv', [['rank', '#'], ['item', 'Item'], ['description', 'Description'], ['profitCenter', 'Profit centre'], ['supplier', 'Supplier'], ['category', 'Category'], ['now', 'Last 12 months'], ['qtyNow', 'Qty 12 months'], ['prev', '12 before'], ['change', 'Change %'], ['monthsBought', 'Months bought'], ['last', 'Last bought'], ['trend', 'Trend']].concat(months.map(function (m, i) { return [function (x) { return x.series[i]; }, m]; })), o.items);
     };
     C.ACT.orderRow = function (el, e) { if (e.target.closest('button')) return; var r = rowsOf('orders')[+el.dataset.i]; if (r) drill(DE.drillOf('ORDER', { ORDER_NUMBER: r.ORDER_NUMBER, HEADER_ID: r.HEADER_ID })); };
     C.ACT.orderLines = function (el) { drill(DE.drillOf('ORDER', { ORDER_NUMBER: el.dataset.no })); };
@@ -597,7 +603,7 @@
     // ── Items: Categories & trends (what they buy, the mix and how it shifts) | Items bought (12 months) ──
     SV.items = function (c) {
         var v = c.iv || 'trends';
-        var bar = '<div class="card arbar"><div class="filters"><div class="seg"><button class="' + (v === 'trends' ? 'on' : '') + '" data-act="itView" data-v="trends"><i class="fas fa-chart-pie"></i> Categories &amp; trends</button>' +
+        var bar = '<div class="card arbar"><div class="filters"><div class="seg"><button class="' + (v === 'trends' ? 'on' : '') + '" data-act="itView" data-v="trends"><i class="fas fa-chart-pie"></i> Buying &amp; trends</button>' +
             '<button class="' + (v === 'list' ? 'on' : '') + '" data-act="itView" data-v="list"><i class="fas fa-list"></i> Items bought</button></div></div></div>';
         return bar + (v === 'list' ? itemsList(c) : itemsView(c));
     };

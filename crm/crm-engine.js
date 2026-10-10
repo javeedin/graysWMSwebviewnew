@@ -122,14 +122,16 @@
         ],
         phone: { country: '230', adapter: 'manual', ctiPort: 8765, record: false, consent: 'This call may be recorded for quality and training.', wrapUpSecs: 30 },
         signature: '',
-        prefix: 'CS-'
+        prefix: 'CS-',
+        /** the item DFF columns of EGP_SYSTEM_ITEMS_B used by Customer 360 › Items (blank = not used) */
+        itemDff: { profitCenter: 'ATTRIBUTE1', supplier: 'ATTRIBUTE2' }
     };
     E.setup = function (saved) {
         var d = JSON.parse(JSON.stringify(E.DEFAULTS));
         if (!saved) return d;
         Object.keys(saved).forEach(function (k) {
             if (saved[k] == null) return;
-            if (k === 'phone' || k === 'hours' || k === 'sla') d[k] = Object.assign(d[k], saved[k]);
+            if (k === 'phone' || k === 'hours' || k === 'sla' || k === 'itemDff') d[k] = Object.assign(d[k], saved[k]);
             else d[k] = saved[k];
         });
         return d;
@@ -729,17 +731,26 @@
         return { score: score, grade: g.g, cls: g.cls, text: g.text, action: g.action, factors: f };
     };
 
-    /** what the customer bought, per month × item, 24 months (sales order lines, not cancelled) with the item's category.
-     *  Alternatives: category from the item's catalog assignment + description; category code; no category. */
-    E.sql.salesItems = function (acct, bu, months) {
-        var m = Math.max(3, Math.min(60, +months || 24));
+    /** a safe item DFF column name (ATTRIBUTE1 … ATTRIBUTE30, ATTRIBUTE_CHAR1 …) or '' */
+    E.dffCol = function (v) { v = String(v || '').trim().toUpperCase(); return /^ATTRIBUTE(_CHAR)?\d{1,2}$/.test(v) ? v : ''; };
+    /** how the Items tab can group what the customer buys */
+    E.ITEM_DIMS = {
+        PROFIT_CENTER: { field: 'profitCenter', col: 'PROFIT_CENTER', label: 'Profit centre', plural: 'Profit centres', none: '(no profit centre)', icon: 'fa-building' },
+        SUPPLIER: { field: 'supplier', col: 'SUPPLIER', label: 'Supplier', plural: 'Suppliers', none: '(no supplier)', icon: 'fa-truck-field' },
+        CATEGORY: { field: 'category', col: 'CATEGORY', label: 'Catalog category', plural: 'Catalog categories', none: '(no category)', icon: 'fa-layer-group' }
+    };
+    /** what the customer bought, per month × item, 24 months (sales order lines, not cancelled) with the item's profit centre and
+     *  supplier from the item DFF (EGP_SYSTEM_ITEMS_B ATTRIBUTE1 / ATTRIBUTE2 by default — `dff` = setup.itemDff) and the catalog category.
+     *  Alternatives: everything; without the catalog; without the description; without the DFF; plain. */
+    E.sql.salesItems = function (acct, bu, months, dff) {
+        var m = Math.max(3, Math.min(60, +months || 24)); dff = dff || E.DEFAULTS.itemDff;
+        var pc = E.dffCol(dff.profitCenter), su = E.dffCol(dff.supplier);
         var desc = "(SELECT MAX(tl.description) FROM egp_system_items_tl tl WHERE tl.inventory_item_id = fl.inventory_item_id AND tl.organization_id = fl.fulfill_org_id AND tl.language = USERENV('LANG'))";
         var catTl = "(SELECT MIN(ct.category_name) FROM egp_item_categories ic JOIN egp_categories_tl ct ON ct.category_id = ic.category_id AND ct.language = USERENV('LANG')\n" +
             "          WHERE ic.inventory_item_id = fl.inventory_item_id AND ic.organization_id = fl.fulfill_org_id)";
-        var catB = "(SELECT MIN(cb.category_code) FROM egp_item_categories ic JOIN egp_categories_b cb ON cb.category_id = ic.category_id\n" +
-            "          WHERE ic.inventory_item_id = fl.inventory_item_id AND ic.organization_id = fl.fulfill_org_id)";
-        function one(d, c) {
-            return "SELECT TO_CHAR(h.ordered_date, 'YYYY-MM') AS month, i.item_number AS item, MAX(" + d + ") AS description, MAX(" + c + ") AS category,\n" +
+        var dffCols = function (on) { return "MAX(" + (on && pc ? 'i.' + pc.toLowerCase() : "''") + ") AS profit_center, MAX(" + (on && su ? 'i.' + su.toLowerCase() : "''") + ") AS supplier"; };
+        function one(d, c, useDff) {
+            return "SELECT TO_CHAR(h.ordered_date, 'YYYY-MM') AS month, i.item_number AS item, MAX(" + d + ") AS description, " + dffCols(useDff) + ", MAX(" + c + ") AS category,\n" +
                 "       SUM(fl.ordered_qty) AS qty, MAX(fl.ordered_uom) AS uom, SUM(fl.extended_amount) AS amount, COUNT(DISTINCT h.header_id) AS orders, MAX(fl.inventory_item_id) AS inventory_item_id\n" +
                 "  FROM doo_fulfill_lines_all fl\n  JOIN doo_headers_all h ON h.header_id = fl.header_id\n  JOIN hz_cust_accounts ca ON ca.party_id = h.sold_to_party_id\n" +
                 "  LEFT JOIN egp_system_items_b i ON i.inventory_item_id = fl.inventory_item_id AND i.organization_id = fl.fulfill_org_id\n" +
@@ -747,7 +758,8 @@
                 "   AND NVL(fl.status_code, 'X') NOT IN ('CANCELED', 'CANCELLED') AND " + LATEST_ORDER + "\n" +
                 " GROUP BY TO_CHAR(h.ordered_date, 'YYYY-MM'), i.item_number\n ORDER BY 1, 2\n FETCH FIRST 8000 ROWS ONLY";
         }
-        return [one(desc, catTl), one('i.item_number', catTl), one('i.item_number', catB), one('i.item_number', "''")];
+        var list = [one(desc, catTl, true), one(desc, "''", true), one('i.item_number', "''", true), one(desc, catTl, false), one('i.item_number', "''", false)];
+        return list.filter(function (x, i) { return list.indexOf(x) === i; });
     };
     function trendOf(now, prev, monthsNow, last3) {
         if (!prev && now) return 'NEW';
@@ -759,7 +771,8 @@
     }
     E.TRENDS = { NEW: ['new', 'info'], STOPPED: ['stopped', 'bad'], SLOWING: ['not in 3 months', 'warn'], GROWING: ['growing', 'ok'], DECLINING: ['declining', 'warn'], STEADY: ['steady', 'muted'], NONE: ['—', 'muted'] };
     /** month × item rows → {months[24], items, categories (with series), totals, insights} — the last 12 months vs the 12 before */
-    E.itemTrends = function (rows, now) {
+    E.itemTrends = function (rows, now, dim) {
+        var D = E.ITEM_DIMS[dim] || E.ITEM_DIMS.PROFIT_CENTER;
         var n = E.parse(now) || new Date(), months = [];
         for (var i = 23; i >= 0; i--) { var d = new Date(n.getFullYear(), n.getMonth() - i, 1); months.push(d.getFullYear() + '-' + pad(d.getMonth() + 1)); }
         var idx = {}; months.forEach(function (m, i2) { idx[m] = i2; });
@@ -770,9 +783,10 @@
         }
         (rows || []).forEach(function (r) {
             var mi = idx[r.MONTH]; if (mi == null) return;
-            var amt = +r.AMOUNT || 0, qty = +r.QTY || 0, cat = r.CATEGORY || '(no category)', key = r.ITEM || '(no item)';
-            var it = bucket(items, key, { item: key, description: r.DESCRIPTION || '', category: cat, uom: r.UOM || '', id: r.INVENTORY_ITEM_ID });
+            var amt = +r.AMOUNT || 0, qty = +r.QTY || 0, key = r.ITEM || '(no item)', cat = String(r[D.col] || '').trim() || D.none;
+            var it = bucket(items, key, { item: key, description: r.DESCRIPTION || '', group: cat, profitCenter: r.PROFIT_CENTER || '', supplier: r.SUPPLIER || '', category: r.CATEGORY || '', uom: r.UOM || '', id: r.INVENTORY_ITEM_ID });
             if (r.DESCRIPTION && !it.description) it.description = r.DESCRIPTION;
+            ['profitCenter', 'supplier', 'category'].forEach(function (f) { var v = r[{ profitCenter: 'PROFIT_CENTER', supplier: 'SUPPLIER', category: 'CATEGORY' }[f]]; if (v && !it[f]) it[f] = v; });
             var c = bucket(cats, cat, { category: cat, items: {} });
             [it, c].forEach(function (x) {
                 x.series[mi] += amt; x.qtyS[mi] += qty;
@@ -796,7 +810,7 @@
         var itemList = Object.keys(items).map(function (k) { return finish(items[k]); }).sort(function (a, b) { return b.now - a.now || b.prev - a.prev; });
         var catList = Object.keys(cats).map(function (k) { var c = finish(cats[k]); c.itemCount = Object.keys(c.items).length; delete c.items; return c; }).sort(function (a, b) { return b.now - a.now || b.prev - a.prev; });
         itemList.forEach(function (x, i4) { x.rank = i4 + 1; });
-        var o = { months: months, items: itemList, categories: catList, total: { now: Math.round(tot.now * 100) / 100, prev: Math.round(tot.prev * 100) / 100, change: tot.prev ? Math.round((tot.now - tot.prev) / Math.abs(tot.prev) * 1000) / 10 : null, series: totS } };
+        var o = { dim: D, filled: catList.filter(function (x) { return x.category !== D.none; }).length, months: months, items: itemList, categories: catList, total: { now: Math.round(tot.now * 100) / 100, prev: Math.round(tot.prev * 100) / 100, change: tot.prev ? Math.round((tot.now - tot.prev) / Math.abs(tot.prev) * 1000) / 10 : null, series: totS } };
         o.counts = { items: itemList.filter(function (x) { return x.now; }).length, itemsPrev: itemList.filter(function (x) { return x.prev; }).length, categories: catList.filter(function (x) { return x.now; }).length,
             NEW: itemList.filter(function (x) { return x.trend === 'NEW'; }).length, STOPPED: itemList.filter(function (x) { return x.trend === 'STOPPED'; }).length,
             GROWING: itemList.filter(function (x) { return x.trend === 'GROWING'; }).length, DECLINING: itemList.filter(function (x) { return x.trend === 'DECLINING'; }).length, SLOWING: itemList.filter(function (x) { return x.trend === 'SLOWING'; }).length };
