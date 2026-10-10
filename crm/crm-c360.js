@@ -1,8 +1,10 @@
 /* Customer CRM · Customer 360 (tab c360): one customer — Fusion master, AR (open items, invoices, receipts), sales orders,
  * items bought + stock now, statements (Debtors Control records) with the last statement's journey, tickets, calls, e-mails,
  * contacts (Fusion + CRM), the health score and the merged timeline.
- * What it reads: APEX (CRM + Debtors tables) every time; Fusion sections are shown from this PC's DuckDB copy at once
- * (w2_crm_c360) and read live in the background (master, open items, sales) or on demand (the other sections, Refresh). */
+ * What it reads: APEX (CRM + Debtors tables) every time; Fusion sections in the order DuckDB → APEX → Fusion: this PC's copy
+ * (w2_crm_c360) at once, then the shared APEX copy (WMS_CRM_C360, what another PC read), then Fusion — master, open items and
+ * sales live in the background, the other sections on demand (Refresh). Every Fusion read is kept in both copies; a section that
+ * fails shows its error with the SQL tried (Copy, Open in Fusion SQL). */
 (function () {
     'use strict';
     var C = window.CRM, E = C.E, S = C.S, D = C.D, DE = C.DE, esc = C.esc, money = C.money;
@@ -46,14 +48,27 @@
             $('c360-name').textContent = c.name || acct;
             C.render();
             AUTO.forEach(function (k) { if (force || !c.f[k] || !c.f[k].fresh) fetchSection(k, true); });
+            // then the shared APEX copy: sections this PC does not have, or has older; kept on this PC too
+            c.apexP = S.c360.get(C.pod, c.bu, acct, Object.keys(c.f).filter(function (k) { return c.f[k] && (c.f[k].loading || c.f[k].fresh); })).then(function (ax) {
+                if (C.cust !== c) return;
+                var got = 0;
+                Object.keys(ax).forEach(function (k) {
+                    var cur = c.f[k], x = ax[k];
+                    if (cur && (cur.fresh || cur.loading)) return;
+                    if (cur && cur.rows && String(cur.at || '') >= String(x.at || '')) return;
+                    c.f[k] = x; got++;
+                    S.duck.keep360(C.pod, c.bu, acct, k, x.rows, x.sql);
+                });
+                if (got && C.tab === 'c360') C.render();
+            }, function (e) { console.warn('[CRM] APEX 360 copy:', C.errText(e)); });
             need();
         }, function (e) { c.loading = false; c.err = C.errText(e); C.render(); });
     }
     /** the sections the open sub-tab needs */
     function need() {
         var c = C.cust; if (!c) return;
-        var want = { ar: ['open', 'invoices', 'receipts'], orders: ['orders'], items: ['items'], contacts: ['fcontacts'], timeline: ['orders', 'receipts'] }[c.sub] || [];
-        want.forEach(function (k) { if (!c.f[k]) fetchSection(k, false); });
+        var want = { ar: ['open', 'invoices', 'receipts', 'apps', 'adjust', 'returns'], orders: ['orders'], items: ['items'], contacts: ['fcontacts'], timeline: ['orders', 'receipts'] }[c.sub] || [];
+        (c.apexP || Promise.resolve()).then(function () { if (C.cust === c) want.forEach(function (k) { if (!c.f[k]) fetchSection(k, false); }); });
     }
     function sqlOf(k) {
         var c = C.cust, b = C.bu(c.bu) || { id: c.bu }, m = 24;
@@ -62,8 +77,11 @@
             case 'open': return [DE.openItemsSql(b, c.account)];
             case 'sales': return E.sql.salesByMonth(c.account, c.bu);
             case 'orders': return E.sql.orders(c.account, c.bu, m);
-            case 'invoices': return E.sql.invoices(c.account, c.bu, 12);
-            case 'receipts': return E.sql.receipts(c.account, c.bu, 12);
+            case 'invoices': return E.sql.invoices(c.account, c.bu, 24);
+            case 'receipts': return E.sql.receipts(c.account, c.bu, 24);
+            case 'apps': return E.sql.applications(c.account, c.bu, 24);
+            case 'adjust': return E.sql.adjustments(c.account, c.bu, 24);
+            case 'returns': return E.sql.returns(c.account, c.bu, 24);
             case 'items': return E.sql.items(c.account, c.bu, 12);
             case 'fcontacts': return E.sql.contacts(c.account);
             case 'stock': return E.sql.stock(((c.f.items || {}).rows || []).slice(0, 80).map(function (r) { return r.INVENTORY_ITEM_ID; }));
@@ -79,11 +97,18 @@
         c.f[k] = Object.assign({}, cur || {}, { loading: true, err: null });
         if (C.tab === 'c360') C.render();
         C.fusionFirst(list, 5000).then(function (r) {
-            c.f[k] = { rows: r.rows, sql: r.sql, at: S.now(), fresh: true };
+            c.f[k] = { rows: r.rows, sql: r.sql, at: S.now(), fresh: true, apex: 'saving' };
             S.duck.keep360(C.pod, c.bu, c.account, k, r.rows, r.sql);
+            S.c360.put(C.pod, c.bu, c.account, k, r.rows, r.sql).then(function (x) { if (c.f[k] && c.f[k].sql === r.sql) { c.f[k].apex = 'ok'; c.f[k].cut = x.cut; } }, function (e) { if (c.f[k] && c.f[k].sql === r.sql) { c.f[k].apex = 'failed'; c.f[k].apexErr = C.errText(e); } })
+                .then(function () { if (C.cust === c && C.tab === 'c360') softPaint(k); });
             if (k === 'master' && r.rows[0]) { C.master[c.account] = r.rows[0]; if (!c.name) { c.name = r.rows[0].CUSTOMER; $('c360-name').textContent = c.name; } keepPhones(c, r.rows[0]); }
-        }, function (e) { c.f[k] = Object.assign({}, cur || {}, { loading: false, err: C.errText(e) }); }).then(function () { if (C.cust === c && C.tab === 'c360') C.render(); });
+        }, function (e) {
+            // keep what was shown before (this PC / APEX copy), add the error and every SQL tried
+            c.f[k] = Object.assign({}, cur || {}, { loading: false, err: C.errText(e), errSql: e && e.sql || list[list.length - 1], tried: e && e.tried || [] });
+        }).then(function () { if (C.cust === c && C.tab === 'c360') C.render(); });
     }
+    /** repaint only the source notes (saving to APEX finished) so the page does not jump */
+    function softPaint(k) { document.querySelectorAll('.srcnote[data-sec="' + k + '"]').forEach(function (el) { el.outerHTML = src(k, el.dataset.label || null); }); }
     /** the customer's numbers into the PC's phone index (screen pop next time) */
     function keepPhones(c, m) {
         var rows = [];
@@ -96,10 +121,41 @@
     function rowsOf(k) { var x = C.cust.f[k]; return x && x.rows ? x.rows : []; }
     function src(k, label) {
         var x = C.cust.f[k] || {};
-        return '<div class="srcnote">' + (x.loading ? '<span class="spin"></span> reading Fusion…' : x.err ? '<span class="badc"><i class="fas fa-triangle-exclamation"></i> ' + esc(x.err) + '</span>' : x.at ? (x.fresh ? 'read from Fusion ' : '<i class="fas fa-database"></i> kept on this PC · read ') + C.when(x.at) : 'not read yet') +
-            ' <a data-act="c360Section" data-sec="' + k + '"><i class="fas fa-rotate"></i> ' + (label || 'Read from Fusion') + '</a>' + (x.sql ? ' · <a data-act="showSql" data-sec="' + k + '">SQL</a>' : '') + '</div>';
+        var where = x.fresh ? 'read from Fusion ' + C.when(x.at) + (x.apex === 'ok' ? ' · kept on this PC and in APEX' + (x.cut ? ' (APEX keeps the first rows — ' + x.cut + ' cut)' : '') : x.apex === 'saving' ? ' · <span class="spin"></span> saving to APEX…' : x.apex === 'failed' ? ' · <span class="warnc" title="' + esc(x.apexErr || '') + '">not saved to APEX</span>' : '')
+            : x.apex === true ? '<i class="fas fa-database"></i> from APEX · read ' + C.when(x.at) + (x.by ? ' by ' + esc(x.by) : '') + (x.cut ? ' · first rows only (' + x.cut + ' cut)' : '')
+            : x.at ? '<i class="fas fa-database"></i> kept on this PC · read ' + C.when(x.at) : 'not read yet';
+        var h = '<div class="srcnote" data-sec="' + k + '"' + (label ? ' data-label="' + esc(label) + '"' : '') + '>' + (x.loading ? '<span class="spin"></span> reading Fusion…' : x.err ? '<span class="badc"><i class="fas fa-triangle-exclamation"></i> Fusion: ' + esc(x.err) + '</span>' + (x.rows ? ' · showing ' + (x.apex === true ? 'the APEX copy' : 'this PC\'s copy') + ' read ' + C.when(x.at) : '') : where) +
+            ' <a data-act="c360Section" data-sec="' + k + '"><i class="fas fa-rotate"></i> ' + (label || 'Read from Fusion') + '</a>' + (x.sql && !x.err ? ' · <a data-act="showSql" data-sec="' + k + '">SQL</a>' : '') + '</div>';
+        if (x.err && !x.loading) h += sqlBox(k, x);
+        return h;
     }
-    C.ACT.showSql = function (el) { var x = C.cust.f[el.dataset.sec] || {}; C.modal('<i class="fas fa-code"></i> SQL · ' + esc(el.dataset.sec), '<textarea class="code" rows="18" readonly>' + esc(x.sql || '') + '</textarea>', '<button class="btn" data-act="mclose">Close</button>', true); };
+    /** the failed SQL inline: the last statement tried, Copy, Open in Fusion SQL and every alternative with its error */
+    function sqlBox(k, x) {
+        var tried = x.tried || [];
+        return '<div class="sqlerr"><div class="row"><b><i class="fas fa-code"></i> The SQL that failed</b><span class="sp"></span>' +
+            '<button class="btn sm" data-act="sqlCopy" data-sec="' + k + '"><i class="fas fa-copy"></i> Copy</button> <button class="btn sm" data-act="sqlFusion" data-sec="' + k + '"><i class="fas fa-database"></i> Open in Fusion SQL</button> ' +
+            '<button class="btn sm pri" data-act="c360Section" data-sec="' + k + '"><i class="fas fa-rotate"></i> Try again</button></div>' +
+            '<pre class="code">' + esc(x.errSql || '') + '</pre>' +
+            (tried.length > 1 ? '<details><summary>' + tried.length + ' versions tried — each failed</summary>' + tried.map(function (t, i) { return '<div class="small"><b>' + (i + 1) + '.</b> <span class="badc">' + esc(t.error) + '</span></div><pre class="code sm">' + esc(t.sql) + '</pre>'; }).join('') + '</details>' : '') + '</div>';
+    }
+    /** the text of an empty table: never "No …" while the section is being read, failed or was never read */
+    function emp(k, text) { var x = C.cust.f[k] || {}; return x.loading ? 'Reading Fusion…' : x.err && !x.rows ? 'Not read — Fusion answered with an error (above).' : !x.rows ? 'Not read yet.' : text; }
+    function sqlText(k) { var x = C.cust.f[k] || {}; return x.err ? x.errSql || '' : x.sql || ''; }
+    function copyText(t, msg) { try { var p = navigator.clipboard.writeText(t); if (p && p.then) p.then(function () { if (msg) C.toast(msg, 'ok'); }, function () { if (msg) C.toast('Copy failed — select the SQL and copy it', 'warn'); }); } catch (e) { } }
+    C.ACT.sqlCopy = function (el) { copyText(sqlText(el.dataset.sec), 'SQL copied'); };
+    C.ACT.sqlFusion = function (el) {
+        var sql = sqlText(el.dataset.sec); if (!sql) return;
+        // Fusion SQL restores its editor from fusionSql.editor (JSON) on start; opened in its own tab
+        try { localStorage.setItem('fusionSql.editor', JSON.stringify(sql)); localStorage.setItem('fusionSql.tab', JSON.stringify('builder')); } catch (e) { }
+        copyText(sql);
+        C.toast('Opening Fusion SQL with this query (also copied)', 'ok');
+        try { window.open('../fusionsql/index.html', '_blank'); } catch (e) { }
+    };
+    C.ACT.showSql = function (el) {
+        var x = C.cust.f[el.dataset.sec] || {};
+        C.modal('<i class="fas fa-code"></i> SQL · ' + esc(el.dataset.sec), '<textarea class="code" rows="18" readonly>' + esc(x.sql || '') + '</textarea>',
+            '<button class="btn" data-act="sqlCopy" data-sec="' + esc(el.dataset.sec) + '"><i class="fas fa-copy"></i> Copy</button><button class="btn" data-act="sqlFusion" data-sec="' + esc(el.dataset.sec) + '"><i class="fas fa-database"></i> Open in Fusion SQL</button><button class="btn" data-act="mclose">Close</button>', true);
+    };
     function master() { var m = rowsOf('master')[0]; return m || C.master[C.cust.account] || {}; }
     function arSum() { var o = C.cust.f.open; return o && o.rows ? DE.openItemsSummary(o.rows) : null; }
     function lastContact(a) {
@@ -159,6 +215,7 @@
         var max = Math.max.apply(null, tr.series.map(function (x) { return x.amount; }).concat([1]));
         var k = '<div class="kpis">' + C.kpi('Balance', ar ? money(ar.total) : '…', ar ? ar.n + ' open items' : 'reading', ar && ar.total > 0 ? 'info' : 'ok', 'c360Sub', ' data-sub="ar"') +
             C.kpi('Overdue', ar ? money(ar.overdue) : '…', ar ? (ar.oldest ? 'oldest ' + ar.oldest + ' days' : 'nothing late') : '', ar && ar.overdue > 0 ? 'bad' : 'ok', 'c360Sub', ' data-sub="ar"') +
+            (function () { var have = (c.f.apps || {}).rows && (c.f.invoices || {}).rows, rt = have ? arData().rating : null; return C.kpi('Rating', rt ? rt.grade + ' · ' + rt.score : '—', rt ? rt.text : 'open Invoices & AR to rate', rt ? rt.cls : '', 'c360Sub', ' data-sub="ar"'); })() +
             C.kpi('Sales 12 months', rowsOf('sales').length ? money(tr.m12, 0) : '…', chg == null ? '' : (chg >= 0 ? '▲ ' : '▼ ') + Math.abs(chg) + '% on the year before', chg != null && chg < -10 ? 'warn' : 'pri', 'c360Sub', ' data-sub="orders"') +
             C.kpi('Open tickets', openT.length, a.tickets.length + ' in total', openT.length ? 'warn' : 'ok', 'c360Sub', ' data-sub="tickets"') +
             C.kpi('Last contact', lc ? E.ago(lc) : 'never', lc || '', lc ? '' : 'warn', 'c360Sub', ' data-sub="timeline"') +
@@ -212,33 +269,196 @@
     };
     C.ACT.tlf = function (el) { C.cust.tlf = el.dataset.k; C.render(); };
 
+    // ── Invoices & AR: the whole receivables picture of the customer ──
+    var ARV = [['summary', 'fa-gauge', 'Summary'], ['open', 'fa-hourglass-half', 'Open items'], ['trx', 'fa-file-invoice-dollar', 'All transactions'], ['pay', 'fa-money-bill-wave', 'Payments'],
+        ['apps', 'fa-link', 'Applications'], ['bounced', 'fa-rotate-left', 'Bounced cheques'], ['returns', 'fa-box-open', 'Returns & credit notes'], ['adjust', 'fa-sliders', 'Adjustments']];
+    var AR_SECS = ['open', 'invoices', 'receipts', 'apps', 'adjust', 'returns'];
+    function arData() { return E.ar360({ trx: rowsOf('invoices'), receipts: rowsOf('receipts'), apps: rowsOf('apps'), adjustments: rowsOf('adjust'), returns: rowsOf('returns'), open: rowsOf('open'), creditLimit: master().CREDIT_LIMIT }); }
+    C.c360Ar = arData;
+    function dig(v) { return /^\d+$/.test(String(v == null ? '' : v).trim()) ? String(v).trim() : ''; }
+    function lTrx(id, no) { return no ? (dig(id) ? '<a data-act="dTrx" data-id="' + esc(dig(id)) + '" data-no="' + esc(no) + '">' + esc(no) + '</a>' : esc(no)) : ''; }
+    function lRc(id, no) { return no ? (dig(id) ? '<a data-act="dRc" data-id="' + esc(dig(id)) + '" data-no="' + esc(no) + '">' + esc(no) + '</a>' : esc(no)) : ''; }
+    function lSo(no, hid) { return no ? '<a data-act="dSo" data-no="' + esc(no) + '" data-id="' + esc(dig(hid)) + '">' + esc(no) + '</a>' : ''; }
+    C.ACT.dTrx = function (el) { drill(DE.drillOf('TRX', { TRX_ID: el.dataset.id, NUMBER: el.dataset.no })); };
+    C.ACT.dRc = function (el) { drill(DE.drillOf('RECEIPT', { RECEIPT_ID: el.dataset.id, NUMBER: el.dataset.no })); };
+    C.ACT.dSo = function (el) { drill(DE.drillOf('ORDER', { ORDER_NUMBER: el.dataset.no, HEADER_ID: el.dataset.id })); };
+    function clsPill(r) { var c = String(r.CLASS || '').toUpperCase(); var m = { INV: ['invoice', 'info'], CM: ['credit memo', 'warn'], DM: ['debit memo', 'info'], CB: ['chargeback', 'bad'], DEP: ['deposit', 'muted'], GUAR: ['guarantee', 'muted'] }[c] || [c.toLowerCase() || 'invoice', 'info']; return C.pill(m[0], m[1]); }
+    function filt(rows) {
+        var w = String(C.cust.arq || '').toLowerCase().split(/\s+/).filter(Boolean); if (!w.length) return rows;
+        return rows.filter(function (r) { var h = Object.keys(r).map(function (k) { return r[k]; }).join(' ').toLowerCase(); return w.every(function (x) { return h.indexOf(x) >= 0; }); });
+    }
+    function sum(rows, k) { return rows.reduce(function (s, r) { return s + (+r[k] || 0); }, 0); }
+    function foot(n, cells) { return '<tr><td colspan="' + n + '"><b>Total</b></td>' + cells.map(function (x) { return '<td class="r num"><b>' + x + '</b></td>'; }).join('') + '</tr>'; }
+    function arRows(v) {
+        var x = C.cust.arx;
+        return v === 'open' ? rowsOf('open') : v === 'trx' ? rowsOf('invoices') : v === 'pay' ? rowsOf('receipts') : v === 'apps' ? rowsOf('apps') : v === 'bounced' ? (x ? x.bounced : []) :
+            v === 'returns' ? rowsOf('returns') : v === 'adjust' ? rowsOf('adjust') : [];
+    }
     SV.ar = function (c) {
-        var ar = arSum(), open = rowsOf('open');
-        return '<div class="card"><h2><i class="fas fa-file-invoice-dollar"></i> Open items ' + (ar ? C.pill(money(ar.total), 'info') + (ar.overdue > 0 ? C.pill(money(ar.overdue) + ' overdue', 'bad') : '') : '') + '<span class="sp"></span><button class="btn sm" data-act="arCsv"><i class="fas fa-download"></i> CSV</button></h2>' + src('open') + (ar ? aging(ar) : '') +
-            C.table([['TRX_NUMBER', 'Number'], ['TRX_TYPE', 'Type'], ['TRX_DATE', 'Date'], ['DUE_DATE', 'Due'], [function (r) { return +r.DAYS_LATE > 0 ? '<span class="' + (+r.DAYS_LATE > 90 ? 'badc' : 'warnc') + '">' + r.DAYS_LATE + '</span>' : ''; }, 'Days late', 'r'],
-                [function (r) { return money(r.ORIGINAL); }, 'Original', 'r num'], [function (r) { return '<b>' + money(r.REMAINING) + '</b>'; }, 'Remaining', 'r num'], ['CUSTOMER_PO', 'Customer PO'], ['REFERENCE', 'Reference']], open, { empty: 'No open items.', rowAct: 'drillItem', max: '360px' }) + '</div>' +
-            '<div class="cols"><div class="card"><h2>Invoices & credit notes (12 months)</h2>' + src('invoices') + C.table([['TRX_NUMBER', 'Number'], ['TRX_DATE', 'Date'], ['TRX_TYPE', 'Type'], [function (r) { return money(r.AMOUNT); }, 'Amount', 'r num'], [function (r) { return +r.REMAINING ? money(r.REMAINING) : '<span class="okc">paid</span>'; }, 'Open', 'r num'], ['ORDER_NUMBER', 'Order']], rowsOf('invoices'), { empty: 'No invoices in 12 months.', rowAct: 'drillInv', max: '420px' }) + '</div>' +
-            '<div class="card"><h2>Payments (12 months)</h2>' + src('receipts') + C.table([['RECEIPT_NUMBER', 'Receipt'], ['RECEIPT_DATE', 'Date'], [function (r) { return money(r.AMOUNT); }, 'Amount', 'r num'], ['METHOD', 'Method'], ['STATUS', 'Status']], rowsOf('receipts'), { empty: 'No payments in 12 months.', rowAct: 'drillRcpt', max: '420px' }) + '</div></div>';
+        var v = c.arv || 'summary', x = c.arx = arData(), ar = arSum();
+        var cnt = { open: rowsOf('open').length, trx: rowsOf('invoices').length, pay: rowsOf('receipts').length, apps: rowsOf('apps').length, bounced: x.bounced.length, returns: rowsOf('returns').length + rowsOf('invoices').filter(function (r) { return String(r.CLASS).toUpperCase() === 'CM'; }).length, adjust: rowsOf('adjust').length };
+        var busy = AR_SECS.some(function (k) { return (c.f[k] || {}).loading; });
+        var bar = '<div class="card arbar"><div class="filters"><div class="seg wrap">' + ARV.map(function (t) {
+            return '<button class="' + (v === t[0] ? 'on' : '') + '" data-act="arView" data-v="' + t[0] + '"><i class="fas ' + t[1] + '"></i> ' + t[2] + (t[0] !== 'summary' && cnt[t[0]] ? ' <span class="n' + (t[0] === 'bounced' ? ' bad' : '') + '">' + cnt[t[0]] + '</span>' : '') + '</button>';
+        }).join('') + '</div><span class="sp"></span>' +
+            (v !== 'summary' ? '<input type="search" id="ar-q" data-in="arQ" placeholder="Filter…" value="' + esc(c.arq || '') + '" style="width:170px">' : '') +
+            '<button class="btn sm" data-act="c360Sub" data-sub="stmts"><i class="fas fa-file-invoice"></i> Statements' + (C.cust.a && C.cust.a.stmts.length ? ' (' + C.cust.a.stmts.length + ')' : '') + '</button>' +
+            '<button class="btn sm" data-act="sendStmt"><i class="fas fa-paper-plane"></i> Send statement</button>' +
+            (v !== 'summary' ? '<button class="btn sm" data-act="arCsv"><i class="fas fa-download"></i> CSV</button>' : '') +
+            '<button class="btn sm" data-act="arReload"' + (busy ? ' disabled' : '') + '><i class="fas fa-rotate"></i> ' + (busy ? 'Reading…' : 'Read again') + '</button></div></div>';
+        return bar + (AV[v] || AV.summary)(c, x, ar);
     };
-    C.ACT.arCsv = function () { var r = rowsOf('open'); C.csv('open-items-' + C.cust.account + '.csv', Object.keys(r[0] || {}).map(function (k) { return [k, k]; }), r); };
+    C.ACT.arView = function (el) { C.cust.arv = el.dataset.v; C.render(); };
+    C.IN.arQ = function (el) { C.cust.arq = el.value; C.keepFocus('ar-q', C.render); };
+    C.ACT.arReload = function () { AR_SECS.forEach(function (k) { fetchSection(k, true); }); };
+    C.ACT.arCsv = function () {
+        var v = C.cust.arv || 'summary', r = filt(v === 'returns' ? rowsOf('returns').concat(rowsOf('invoices').filter(function (y) { return String(y.CLASS).toUpperCase() === 'CM'; })) : arRows(v));
+        var keys = []; r.forEach(function (y) { Object.keys(y).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); }); });
+        C.csv(v + '-' + C.cust.account + '.csv', keys.map(function (k) { return [k, k]; }), r);
+    };
+    var AV = {};
+    AV.summary = function (c, x, ar) {
+        var rt = x.rating, kn = function (v) { return money(v, 0); };
+        var k = '<div class="kpis">' +
+            C.kpi('Balance', ar ? money(ar.total) : '…', ar ? ar.n + ' open items' : 'reading', ar && ar.total > 0 ? 'info' : 'ok', 'arView', ' data-v="open"') +
+            C.kpi('Overdue', ar ? money(ar.overdue) : '…', x.over90 ? kn(x.over90) + ' over 90 days' : 'nothing over 90 days', ar && ar.overdue > 0 ? 'bad' : 'ok', 'arView', ' data-v="open"') +
+            C.kpi('Invoiced 12 months', kn(x.invoiced12), x.debit12 ? kn(x.debit12) + ' debit memos' : '', 'pri', 'arView', ' data-v="trx"') +
+            C.kpi('Collected 12 months', kn(x.collected12), x.invoiced12 ? Math.round(x.collected12 / x.invoiced12 * 100) + ' % of invoiced' : '', 'ok', 'arView', ' data-v="apps"') +
+            C.kpi('Credit notes 12 months', kn(x.credits12), x.invoiced12 ? Math.round(x.credits12 / x.invoiced12 * 1000) / 10 + ' % of invoiced' : '', x.credits12 > x.invoiced12 * 0.05 ? 'warn' : '', 'arView', ' data-v="returns"') +
+            C.kpi('Bounced cheques', x.bounced.length, x.bounced.length ? kn(x.bouncedAmt) + ' · ' + x.bounced12 + ' in 12 months' : 'none in 24 months', x.bounced.length ? 'bad' : 'ok', 'arView', ' data-v="bounced"') +
+            C.kpi('Days to pay', x.daysToPay == null ? '—' : x.daysToPay, x.daysLate == null ? '' : x.daysLate + ' days after due on average', x.daysLate > 15 ? 'warn' : 'ok', 'arView', ' data-v="apps"') +
+            C.kpi('Returns', x.returns, x.returns ? kn(x.returnsAmt) + ' returned' : 'no return lines', x.returns ? 'warn' : '', 'arView', ' data-v="returns"') + '</div>';
+        var rating = '<div class="card"><h2><i class="fas fa-star-half-stroke"></i> Customer rating</h2><div class="rating"><div class="grade ' + rt.cls + '">' + rt.grade + '</div><div><b>' + rt.score + ' / 100 · ' + esc(rt.text) + '</b><div class="small muted">' + esc(rt.action) + '</div></div></div>' +
+            rt.factors.map(function (f) { return '<div class="fbar"><span class="cut" title="' + esc(f.text) + '">' + esc(f.name) + ' <span class="muted">' + f.weight + '%</span></span><div class="bg"><div class="' + (f.score >= 70 ? 'ok' : f.score >= 45 ? 'warn' : 'bad') + '" style="width:' + f.score + '%"></div></div><b class="r">' + f.score + '</b><div class="small muted why">' + esc(f.text) + '</div></div>'; }).join('') +
+            '<div class="small muted" style="margin-top:6px">From the payments, open items, credit notes, adjustments and bounced cheques read from Fusion (12–24 months).</div></div>';
+        var mx = Math.max.apply(null, x.months.map(function (m) { return Math.max(m.invoiced, m.collected); }).concat([1]));
+        var chart = '<div class="card"><h2><i class="fas fa-chart-column"></i> Invoiced vs collected (24 months)</h2>' +
+            '<div class="arch">' + x.months.map(function (m) { return '<div class="mo" title="' + m.month + '\nInvoiced ' + money(m.invoiced, 0) + '\nCollected ' + money(m.collected, 0) + '\nCredit notes ' + money(m.credits, 0) + (m.bounced ? '\nBounced cheques ' + m.bounced : '') + '"><span class="i" style="height:' + Math.round(m.invoiced / mx * 100) + '%"></span><span class="c" style="height:' + Math.round(m.collected / mx * 100) + '%"></span>' + (m.bounced ? '<i class="bn">!</i>' : '') + '</div>'; }).join('') + '</div>' +
+            '<div class="legend"><span><i style="background:#6366f1"></i>Invoiced</span><span><i style="background:#22c55e"></i>Collected</span><span><i style="background:#dc2626"></i>! bounced cheque</span><span class="sp"></span><span>' + x.months[0].month + ' → ' + x.months[23].month + '</span></div>' +
+            C.table([['month', 'Month'], [function (m) { return money(m.invoiced, 0); }, 'Invoiced', 'r num'], [function (m) { return m.credits ? money(m.credits, 0) : ''; }, 'Credit notes', 'r num'], [function (m) { return money(m.collected, 0); }, 'Collected', 'r num'],
+                [function (m) { var d = m.invoiced - m.credits - m.collected; return '<span class="' + (d > 0 ? 'warnc' : 'okc') + '">' + money(d, 0) + '</span>'; }, 'Net movement', 'r num'], [function (m) { return m.bounced ? '<span class="badc">' + m.bounced + '</span>' : ''; }, 'Bounced', 'r']], x.months.slice(12).reverse(), { max: '300px' }) + '</div>';
+        // latest movements: transactions + receipts by date
+        var mv = [];
+        rowsOf('invoices').slice(0, 30).forEach(function (r) { mv.push({ at: r.TRX_DATE, h: clsPill(r) + ' ' + lTrx(r.CUSTOMER_TRX_ID, r.TRX_NUMBER), amt: +r.AMOUNT, s: r.ORDER_NUMBER ? 'order ' + lSo(r.ORDER_NUMBER) : esc(r.TRX_TYPE || '') }); });
+        rowsOf('receipts').slice(0, 30).forEach(function (r) { mv.push({ at: r.RECEIPT_DATE, h: (E.isBounced(r) ? C.pill('bounced', 'bad') : C.pill('payment', 'ok')) + ' ' + lRc(r.CASH_RECEIPT_ID, r.RECEIPT_NUMBER), amt: -(+r.AMOUNT || 0), s: esc(r.METHOD || r.STATUS || '') }); });
+        mv.sort(function (p, q) { return String(q.at).localeCompare(String(p.at)); });
+        var latest = '<div class="card"><h2><i class="fas fa-list"></i> Latest movements</h2>' + (mv.length ? C.table([['at', 'Date'], [function (m) { return m.h; }, 'What'], [function (m) { return m.s; }, ''], [function (m) { return '<span class="' + (m.amt < 0 ? 'okc' : '') + '">' + money(m.amt) + '</span>'; }, 'Amount', 'r num']], mv.slice(0, 12)) : '<div class="empty">' + esc(emp('invoices', 'No movements in 24 months.')) + '</div>') + '</div>';
+        var srcs = '<div class="card"><h2><i class="fas fa-database"></i> Where it comes from</h2>' + [['open', 'Open items'], ['invoices', 'Transactions (24 months)'], ['receipts', 'Payments (24 months)'], ['apps', 'Applications (24 months)'], ['adjust', 'Adjustments'], ['returns', 'Return lines']].map(function (y) { return '<div class="small"><b>' + y[1] + '</b></div>' + src(y[0]); }).join('') + '</div>';
+        return k + '<div class="c3"><div>' + chart + (ar ? '<div class="card"><h2><i class="fas fa-layer-group"></i> Aging</h2>' + aging(ar) + '</div>' : '') + latest + '</div><div>' + rating + srcs + '</div></div>';
+    };
+    AV.open = function (c, x, ar) {
+        var rows = filt(rowsOf('open'));
+        return '<div class="card"><h2><i class="fas fa-hourglass-half"></i> Open items ' + (ar ? C.pill(money(ar.total), 'info') + (ar.overdue > 0 ? C.pill(money(ar.overdue) + ' overdue', 'bad') : '') : '') + '</h2>' + src('open') + (ar ? aging(ar) : '') +
+            C.table([[function (r) { return lTrx(r.CUSTOMER_TRX_ID, r.TRX_NUMBER) || lRc(r.CASH_RECEIPT_ID, r.TRX_NUMBER) || esc(r.TRX_NUMBER); }, 'Number'], ['TRX_TYPE', 'Type'], ['TRX_DATE', 'Date'], ['DUE_DATE', 'Due'], [function (r) { return +r.DAYS_LATE > 0 ? '<span class="' + (+r.DAYS_LATE > 90 ? 'badc' : 'warnc') + '">' + r.DAYS_LATE + '</span>' : ''; }, 'Days late', 'r'],
+                [function (r) { return money(r.ORIGINAL); }, 'Original', 'r num'], [function (r) { return '<b>' + money(r.REMAINING) + '</b>'; }, 'Remaining', 'r num'], ['CUSTOMER_PO', 'Customer PO'], ['REFERENCE', 'Reference']], rows,
+            { empty: emp('open', 'No open items.'), rowAct: 'drillItem', max: '560px', foot: rows.length ? foot(5, [money(sum(rows, 'ORIGINAL')), money(sum(rows, 'REMAINING'))]) + '' : '' }) + '</div>';
+    };
+    AV.trx = function () {
+        var rows = filt(rowsOf('invoices'));
+        return '<div class="card"><h2><i class="fas fa-file-invoice-dollar"></i> Every AR transaction (24 months) ' + C.pill(rows.length) + '</h2>' + src('invoices') +
+            C.table([[function (r) { return lTrx(r.CUSTOMER_TRX_ID, r.TRX_NUMBER); }, 'Number'], ['TRX_DATE', 'Date'], [clsPill, 'Class'], ['TRX_TYPE', 'Type'], [function (r) { return money(r.AMOUNT); }, 'Amount', 'r num'],
+                [function (r) { return +r.REMAINING ? '<b>' + money(r.REMAINING) + '</b>' : '<span class="okc">paid</span>'; }, 'Open', 'r num'], ['DUE_DATE', 'Due'], ['CLOSED_DATE', 'Closed'],
+                [function (r) { return lSo(r.ORDER_NUMBER); }, 'Order'], [function (r) { return lTrx(r.AGAINST_TRX_ID, r.AGAINST_TRX); }, 'Against'], ['REASON', 'Reason'], ['CUSTOMER_PO', 'Customer PO']], rows,
+            { empty: emp('invoices', 'No transactions in 24 months.'), max: '620px', foot: rows.length ? foot(4, [money(sum(rows, 'AMOUNT')), money(sum(rows, 'REMAINING'))]) : '' }) + '</div>';
+    };
+    AV.pay = function () {
+        var rows = filt(rowsOf('receipts'));
+        return '<div class="card"><h2><i class="fas fa-money-bill-wave"></i> Payments (24 months) ' + C.pill(rows.length) + '</h2>' + src('receipts') +
+            C.table([[function (r) { return lRc(r.CASH_RECEIPT_ID, r.RECEIPT_NUMBER); }, 'Receipt'], ['RECEIPT_DATE', 'Date'], [function (r) { return money(r.AMOUNT); }, 'Amount', 'r num'], ['METHOD', 'Method'],
+                [function (r) { return E.isBounced(r) ? C.pill(E.reversalLabel(r), 'bad') : C.pill(esc(r.STATUS || ''), /APP/i.test(r.STATUS) ? 'ok' : 'warn'); }, 'Status'],
+                [function (r) { return r.APPLIED != null ? money(r.APPLIED) : ''; }, 'Applied', 'r num'], [function (r) { return +r.UNAPPLIED ? '<span class="warnc">' + money(r.UNAPPLIED) + '</span>' : ''; }, 'Unapplied', 'r num'],
+                [function (r) { return r.REVERSAL_DATE ? esc(r.REVERSAL_DATE) : ''; }, 'Reversed on'], ['COMMENTS', 'Comments']], rows,
+            { empty: emp('receipts', 'No payments in 24 months.'), max: '620px', foot: rows.length ? foot(2, [money(sum(rows, 'AMOUNT'))]) : '' }) + '</div>';
+    };
+    AV.apps = function () {
+        var rows = filt(rowsOf('apps')), acct = C.cust.account;
+        return '<div class="card"><h2><i class="fas fa-link"></i> Applications — what paid which invoice (24 months) ' + C.pill(rows.length) + '</h2>' + src('apps') +
+            C.table([['APPLY_DATE', 'Applied on'], [function (r) { return String(r.APP_TYPE).toUpperCase() === 'CM' ? C.pill('credit memo', 'warn') : C.pill('cash', 'ok'); }, 'Type'],
+                [function (r) { return String(r.APP_TYPE).toUpperCase() === 'CM' ? lTrx(r.CM_TRX_ID, r.PAID_WITH) : lRc(r.CASH_RECEIPT_ID, r.PAID_WITH); }, 'Paid with'],
+                [function (r) { return lTrx(r.CUSTOMER_TRX_ID, r.TRX_NUMBER); }, 'Invoice'], ['TRX_DATE', 'Invoice date'], ['DUE_DATE', 'Due'], [function (r) { return money(r.AMOUNT_APPLIED); }, 'Amount', 'r num'],
+                [function (r) { return r.DAYS_TO_PAY != null && r.DAYS_TO_PAY !== '' ? r.DAYS_TO_PAY : ''; }, 'Days to pay', 'r'], [function (r) { return +r.DAYS_LATE > 0 ? '<span class="' + (+r.DAYS_LATE > 30 ? 'badc' : 'warnc') + '">' + r.DAYS_LATE + '</span>' : r.DAYS_LATE !== '' && r.DAYS_LATE != null ? '<span class="okc">on time</span>' : ''; }, 'Days late', 'r'],
+                [function (r) { return r.PAID_BY && r.PAID_BY !== acct ? C.pill('by ' + esc(r.PAID_BY), 'info') : esc(r.PAID_BY || ''); }, 'Paid by']], rows,
+            { empty: emp('apps', 'No applications in 24 months.'), max: '620px', foot: rows.length ? foot(6, [money(sum(rows, 'AMOUNT_APPLIED'))]) : '' }) + '</div>';
+    };
+    AV.bounced = function (c, x) {
+        var rows = filt(x.bounced);
+        return '<div class="card"><h2><i class="fas fa-rotate-left"></i> Bounced and reversed payments ' + C.pill(rows.length, rows.length ? 'bad' : 'ok') + '</h2>' + src('receipts') +
+            '<div class="small muted" style="margin-bottom:8px">Receipts Fusion reversed: NSF = the cheque bounced (insufficient funds), STOP = stop payment, REV = reversed for another reason.</div>' +
+            C.table([[function (r) { return lRc(r.CASH_RECEIPT_ID, r.RECEIPT_NUMBER); }, 'Receipt'], ['RECEIPT_DATE', 'Received'], [function (r) { return money(r.AMOUNT); }, 'Amount', 'r num'], ['METHOD', 'Method'], ['REVERSAL_DATE', 'Reversed on'],
+                [function (r) { return C.pill(E.reversalLabel(r), 'bad'); }, 'Why'], ['REVERSAL_REASON', 'Reason code'], [function (r) { return esc(r.REVERSAL_COMMENTS || r.COMMENTS || ''); }, 'Comments']], rows,
+            { empty: (c.f.receipts || {}).rows ? 'No bounced or reversed payment in 24 months.' : emp('receipts', ''), max: '560px', foot: rows.length ? foot(2, [money(sum(rows, 'AMOUNT'))]) : '' }) + '</div>';
+    };
+    AV.returns = function () {
+        var rl = filt(rowsOf('returns')), cm = filt(rowsOf('invoices').filter(function (r) { return String(r.CLASS).toUpperCase() === 'CM'; }));
+        return '<div class="cols"><div class="card"><h2><i class="fas fa-box-open"></i> Product returns (sales order return lines) ' + C.pill(rl.length) + '</h2>' + src('returns') +
+            C.table([[function (r) { return lSo(r.ORDER_NUMBER, r.HEADER_ID); }, 'Order'], ['ORDERED', 'Date'], ['ITEM', 'Item'], [function (r) { return money(r.QTY, 0) + ' ' + esc(r.UOM || ''); }, 'Qty', 'r'], [function (r) { return money(r.AMOUNT); }, 'Amount', 'r num'], ['REASON', 'Reason'], ['STATUS', 'Status']], rl,
+                { empty: emp('returns', 'No return lines in 24 months.'), max: '560px', foot: rl.length ? foot(4, [money(sum(rl, 'AMOUNT'))]) : '' }) + '</div>' +
+            '<div class="card"><h2><i class="fas fa-file-circle-minus"></i> Credit notes ' + C.pill(cm.length) + '</h2>' + src('invoices') +
+            C.table([[function (r) { return lTrx(r.CUSTOMER_TRX_ID, r.TRX_NUMBER); }, 'Credit memo'], ['TRX_DATE', 'Date'], ['TRX_TYPE', 'Type'], [function (r) { return money(r.AMOUNT); }, 'Amount', 'r num'], [function (r) { return lTrx(r.AGAINST_TRX_ID, r.AGAINST_TRX); }, 'Against'], ['REASON', 'Reason'], [function (r) { return lSo(r.ORDER_NUMBER); }, 'Order'], ['REFERENCE', 'Reference']], cm,
+                { empty: emp('invoices', 'No credit notes in 24 months.'), max: '560px', foot: cm.length ? foot(3, [money(sum(cm, 'AMOUNT'))]) : '' }) + '</div></div>';
+    };
+    AV.adjust = function () {
+        var rows = filt(rowsOf('adjust'));
+        return '<div class="card"><h2><i class="fas fa-sliders"></i> Adjustments (24 months) ' + C.pill(rows.length) + '</h2>' + src('adjust') +
+            C.table([['ADJUSTMENT_NUMBER', 'Adjustment'], ['APPLY_DATE', 'Date'], [function (r) { return lTrx(r.CUSTOMER_TRX_ID, r.TRX_NUMBER); }, 'Transaction'], [function (r) { return money(r.AMOUNT); }, 'Amount', 'r num'], ['ADJ_TYPE', 'Type'], ['REASON', 'Reason'], ['STATUS', 'Status'], ['COMMENTS', 'Comments']], rows,
+                { empty: emp('adjust', 'No adjustments in 24 months.'), max: '560px', foot: rows.length ? foot(3, [money(sum(rows, 'AMOUNT'))]) : '' }) + '</div>';
+    };
     C.ACT.drillItem = function (el) { var r = rowsOf('open')[+el.dataset.i]; if (r) drill(DE.rowDrill(r)); };
-    C.ACT.drillInv = function (el) { var r = rowsOf('invoices')[+el.dataset.i]; if (r) drill(DE.drillOf('TRX', { TRX_ID: r.CUSTOMER_TRX_ID, NUMBER: r.TRX_NUMBER })); };
-    C.ACT.drillRcpt = function (el) { var r = rowsOf('receipts')[+el.dataset.i]; if (r) drill(DE.drillOf('RECEIPT', { RECEIPT_ID: r.CASH_RECEIPT_ID, NUMBER: r.RECEIPT_NUMBER })); };
-    /** a transaction / receipt / order: every part of the Debtors drill-down, read live, in a dialog */
-    function drill(dr) {
+
+    // ── the drill-down dialog: every part read live; numbers in it open the next transaction / receipt / order (Back returns) ──
+    var EXTRA = {
+        TRX: [{ id: 'pay', title: 'Receipts & credit notes applied to it', sql: "SELECT ra.application_type AS app_type, TO_CHAR(ra.apply_date, 'YYYY-MM-DD') AS apply_date, cr.receipt_number, cm.trx_number AS credit_memo, ra.amount_applied, ra.status, ra.cash_receipt_id, ra.customer_trx_id AS cm_trx_id\n" +
+            "  FROM ar_receivable_applications_all ra\n  LEFT JOIN ar_cash_receipts_all cr ON cr.cash_receipt_id = ra.cash_receipt_id\n  LEFT JOIN ra_customer_trx_all cm ON cm.customer_trx_id = ra.customer_trx_id\n" +
+            " WHERE ra.applied_customer_trx_id = {TRX_ID} AND NVL(ra.display, 'Y') = 'Y'\n ORDER BY ra.apply_date" },
+            { id: 'adj', title: 'Adjustments', sql: "SELECT adj.adjustment_number, TO_CHAR(adj.apply_date, 'YYYY-MM-DD') AS apply_date, adj.amount, adj.type AS adj_type, adj.reason_code AS reason, adj.status FROM ar_adjustments_all adj WHERE adj.customer_trx_id = {TRX_ID} ORDER BY adj.apply_date" }],
+        RECEIPT: [{ id: 'rv', title: 'History (cleared, reversed, bounced)', sql: "SELECT h.status, TO_CHAR(h.trx_date, 'YYYY-MM-DD') AS trx_date, TO_CHAR(h.gl_date, 'YYYY-MM-DD') AS gl_date, h.amount, h.current_record_flag, h.reversal_gl_date FROM ar_cash_receipt_history_all h WHERE h.cash_receipt_id = {RECEIPT_ID} ORDER BY h.cash_receipt_history_id" }]
+    };
+    var dstack = [], dcache = {};
+    function partsOf(dr) { var def = DE.DRILLS[dr.kind]; var p = def.parts.slice(); (EXTRA[dr.kind] || []).forEach(function (x) { p.splice(dr.kind === 'TRX' ? 2 : p.length - 2, 0, x); }); return p; }
+    function cellOf(col, row) {
+        var r = row, c = String(col).toUpperCase();
+        if (c === 'CREDIT_MEMO' && dig(r.CM_TRX_ID)) return { open: DE.drillOf('TRX', { TRX_ID: dig(r.CM_TRX_ID), NUMBER: r.CREDIT_MEMO }) };
+        if (c === 'TRX_NUMBER' && !dig(r.CUSTOMER_TRX_ID) && dig(r.CM_TRX_ID)) return { open: DE.drillOf('TRX', { TRX_ID: dig(r.CM_TRX_ID), NUMBER: r.TRX_NUMBER }) };
+        return DE.cellLink(col, row);
+    }
+    function drill(dr, keep) {
         if (!dr) return;
-        var def = DE.DRILLS[dr.kind], b = C.bu(C.cust.bu) || { id: C.cust.bu }, out = {};
-        function paint() {
-            C.modal('<i class="fas fa-magnifying-glass"></i> ' + esc(dr.label), def.parts.map(function (p) {
-                var x = out[p.id];
-                return '<h3>' + esc(p.title) + '</h3>' + (!x ? '<div class="muted small"><span class="spin"></span> reading…</div>' : x.err ? '<div class="note bad">' + esc(x.err) + '</div>' : C.table(Object.keys(x.rows[0] || {}).map(function (k) { return [k, k]; }), x.rows, { empty: 'Nothing.', max: '260px' }));
-            }).join(''), (dr.kind === 'ORDER' ? '<button class="btn" data-act="fusionOrder" data-no="' + esc(dr.vars.ORDER_NUMBER) + '" data-id="' + esc(dr.vars.HEADER_ID || '') + '"><i class="fas fa-up-right-from-square"></i> Open in Fusion</button>' : '') + '<button class="btn" data-act="mclose">Close</button>', true);
-        }
-        paint();
-        def.parts.reduce(function (p, part) {
-            return p.then(function () { return D.fusionSql(DE.drillSql(part, dr.vars, b), 2000).then(function (rows) { out[part.id] = { rows: rows }; }, function (e) { out[part.id] = { err: C.errText(e) }; }).then(function () { if ($('modal').classList.contains('on')) paint(); }); });
+        if (!keep) dstack = [];
+        dstack.push(dr);
+        paintDrill();
+    }
+    function paintDrill() {
+        var dr = dstack[dstack.length - 1]; if (!dr) return;
+        var b = C.bu(C.cust.bu) || { id: C.cust.bu }, parts = partsOf(dr), out = dcache[dr.key] = dcache[dr.key] || {};
+        var crumbs = dstack.length > 1 ? '<div class="crumbs">' + dstack.map(function (d, i) { return i < dstack.length - 1 ? '<a data-act="drillTo" data-i="' + i + '">' + esc(d.label) + '</a> › ' : '<b>' + esc(d.label) + '</b>'; }).join('') + '</div>' : '';
+        C.modal('<i class="fas fa-magnifying-glass"></i> ' + esc(dr.label), crumbs + parts.map(function (p) {
+            var x = out[p.id];
+            if (!x) return '<h3>' + esc(p.title) + '</h3><div class="muted small"><span class="spin"></span> reading…</div>';
+            if (x.err) return '<h3>' + esc(p.title) + '</h3><div class="note bad">' + esc(x.err) + '</div><details><summary class="small muted">SQL</summary><pre class="code sm">' + esc(x.sql) + '</pre></details>';
+            var cols = Object.keys(x.rows[0] || {}).filter(function (k) { return !/(_ID|^ID)$/.test(k) || k === 'ORDER_NUMBER'; });
+            return '<h3>' + esc(p.title) + ' <span class="muted small">' + x.rows.length + '</span></h3>' + C.table(cols.map(function (k) {
+                return [function (r, i) { var l = cellOf(k, r); var v = esc(r[k]); return l && l.open && l.open.key !== dr.key ? '<a data-act="drillCell" data-p="' + p.id + '" data-r="' + i + '" data-c="' + esc(k) + '">' + v + '</a>' : v; }, k];
+            }), x.rows, { empty: 'Nothing.', max: '260px' });
+        }).join(''), (dstack.length > 1 ? '<button class="btn" data-act="drillBack"><i class="fas fa-arrow-left"></i> Back</button>' : '') +
+            (dr.kind === 'ORDER' ? '<button class="btn" data-act="fusionOrder" data-no="' + esc(dr.vars.ORDER_NUMBER) + '" data-id="' + esc(dr.vars.HEADER_ID || '') + '"><i class="fas fa-up-right-from-square"></i> Open in Fusion</button>' : '') + '<button class="btn" data-act="mclose">Close</button>', true);
+        if (out._started) return;
+        out._started = true;
+        parts.reduce(function (pr, part) {
+            return pr.then(function () {
+                var sql = DE.drillSql(part, dr.vars, b);
+                return D.fusionSql(sql, 2000).then(function (rows) { out[part.id] = { rows: rows, sql: sql }; }, function (e) { out[part.id] = { err: C.errText(e), sql: sql }; })
+                    .then(function () { if ($('modal').classList.contains('on') && dstack[dstack.length - 1] === dr) paintDrill(); });
+            });
         }, Promise.resolve());
     }
+    C.ACT.drillCell = function (el) {
+        var dr = dstack[dstack.length - 1], x = (dcache[dr.key] || {})[el.dataset.p]; if (!x) return;
+        var l = cellOf(el.dataset.c, x.rows[+el.dataset.r]); if (!l) return;
+        if (l.customer) { C.mclose(); C.open360('', l.customer); return; }
+        drill(l.open, true);
+    };
+    C.ACT.drillBack = function () { if (dstack.length > 1) { dstack.pop(); paintDrill(); } };
+    C.ACT.drillTo = function (el) { dstack = dstack.slice(0, +el.dataset.i + 1); paintDrill(); };
     C.drill = drill;
 
     SV.orders = function (c) {
@@ -247,7 +467,7 @@
         return '<div class="card"><h2><i class="fas fa-cart-shopping"></i> Sales orders (24 months) ' + C.pill(rows.length + ' orders') + C.pill(money(tot, 0), 'info') + (open ? C.pill(open + ' not closed', 'warn') : '') + '</h2>' + src('orders') +
             C.table([['ORDER_NUMBER', 'Order'], ['ORDERED', 'Ordered'], [function (r) { return C.pill(esc(r.STATUS || ''), /CLOSED/i.test(r.STATUS) ? 'ok' : /CANCEL/i.test(r.STATUS) ? 'muted' : 'info'); }, 'Status'], ['CUSTOMER_PO', 'Customer PO'],
                 [function (r) { return (r.SHIPPED_N || 0) + ' / ' + (r.LINES_N || 0); }, 'Lines shipped', 'r'], [function (r) { return money(r.AMOUNT); }, 'Amount', 'r num'], ['CURRENCY', ''],
-                [function (r) { return '<button class="btn sm ghost" data-act="fusionOrder" data-no="' + esc(r.ORDER_NUMBER) + '" data-id="' + esc(r.HEADER_ID) + '" title="Open in Fusion"><i class="fas fa-up-right-from-square"></i></button>'; }, '', 'r']], rows, { empty: 'No sales orders in 24 months.', rowAct: 'orderRow' }) + '</div>';
+                [function (r) { return '<button class="btn sm ghost" data-act="fusionOrder" data-no="' + esc(r.ORDER_NUMBER) + '" data-id="' + esc(r.HEADER_ID) + '" title="Open in Fusion"><i class="fas fa-up-right-from-square"></i></button>'; }, '', 'r']], rows, { empty: emp('orders', 'No sales orders in 24 months.'), rowAct: 'orderRow' }) + '</div>';
     };
     C.ACT.orderRow = function (el, e) { if (e.target.closest('button')) return; var r = rowsOf('orders')[+el.dataset.i]; if (r) drill(DE.drillOf('ORDER', { ORDER_NUMBER: r.ORDER_NUMBER, HEADER_ID: r.HEADER_ID })); };
     C.ACT.orderLines = function (el) { drill(DE.drillOf('ORDER', { ORDER_NUMBER: el.dataset.no })); };
@@ -264,7 +484,7 @@
         return '<div class="card"><h2><i class="fas fa-boxes-stacked"></i> What this customer buys (12 months) <span class="sp"></span><button class="btn sm" data-act="c360Section" data-sec="stock"' + (rows.length ? '' : ' disabled') + '><i class="fas fa-warehouse"></i> ' + (st.loading ? 'Reading stock…' : 'Stock now') + '</button></h2>' + src('items') +
             (st.err ? '<div class="note bad">Stock: ' + esc(st.err) + '</div>' : '') +
             C.table([['ITEM', 'Item'], ['DESCRIPTION', 'Description'], [function (r) { return r.ORDERS; }, 'Orders', 'r'], [function (r) { return money(r.QTY, 0) + ' ' + esc(r.UOM || ''); }, 'Quantity', 'r'], [function (r) { return money(r.AMOUNT); }, 'Amount', 'r num'], ['LAST_ORDERED', 'Last ordered'],
-                [function (r) { var s = byItem[r.ITEM]; if (!stock.length) return '<span class="muted small">—</span>'; return s ? '<span title="' + esc(s.where.join('\n')) + '" class="' + (s.qty > 0 ? 'okc' : 'badc') + '">' + money(s.qty, 0) + '</span>' : '<span class="badc">none</span>'; }, 'On hand', 'r']], rows, { empty: 'Nothing ordered in 12 months.' }) + '</div>';
+                [function (r) { var s = byItem[r.ITEM]; if (!stock.length) return '<span class="muted small">—</span>'; return s ? '<span title="' + esc(s.where.join('\n')) + '" class="' + (s.qty > 0 ? 'okc' : 'badc') + '">' + money(s.qty, 0) + '</span>' : '<span class="badc">none</span>'; }, 'On hand', 'r']], rows, { empty: emp('items', 'Nothing ordered in 12 months.') }) + '</div>';
     };
 
     SV.stmts = function (c, a) {
@@ -290,7 +510,7 @@
         return '<div class="card"><h2><i class="fas fa-address-book"></i> People we deal with <span class="sp"></span><button class="btn sm pri" data-act="contactEdit"><i class="fas fa-plus"></i> Add a contact</button></h2>' +
             C.table([[function (r) { return C.avatar(r.NAME) + ' <b>' + esc(r.NAME) + '</b>' + (r.IS_PRIMARY === 'Y' ? ' ' + C.pill('primary', 'ok') : ''); }, 'Name'], ['ROLE', 'Role'], ['EMAIL', 'E-mail'], [function (r) { return esc([r.PHONE, r.MOBILE].filter(Boolean).join(' / ')); }, 'Phone'], ['NOTES', 'Notes'],
                 [function (r) { return acts(r.MOBILE || r.PHONE, r.EMAIL, r.NAME) + ' <button class="btn sm ghost" data-act="contactEdit" data-id="' + esc(r.CONTACT_ID) + '"><i class="fas fa-pen"></i></button>'; }, '', 'r']], a.contacts, { empty: 'No contacts kept in the CRM yet.' }) + '</div>' +
-            '<div class="card"><h2>Contacts in Fusion</h2>' + src('fcontacts') + C.table([['CONTACT', 'Name'], ['ROLE', 'Role'], ['EMAIL', 'E-mail'], ['PHONE', 'Phone'], [function (r) { return acts(r.PHONE, r.EMAIL, r.CONTACT); }, '', 'r']], f, { empty: 'No contacts in Fusion.' }) + '</div>';
+            '<div class="card"><h2>Contacts in Fusion</h2>' + src('fcontacts') + C.table([['CONTACT', 'Name'], ['ROLE', 'Role'], ['EMAIL', 'E-mail'], ['PHONE', 'Phone'], [function (r) { return acts(r.PHONE, r.EMAIL, r.CONTACT); }, '', 'r']], f, { empty: emp('fcontacts', 'No contacts in Fusion.') }) + '</div>';
     };
     C.ACT.contactEdit = function (el) {
         var c = C.cust, x = (c.a.contacts.filter(function (k) { return k.CONTACT_ID === el.dataset.id; })[0]) || { BU_ID: c.bu, ACCOUNT_NUMBER: c.account };

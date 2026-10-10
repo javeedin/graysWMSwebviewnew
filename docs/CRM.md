@@ -7,7 +7,7 @@ Home › Warehouse & Orders › **Customer CRM** (`crm/index.html`). This is one
 | Tab | What you get |
 |-----|--------------|
 | **Today** | Your queue, tickets past or close to their SLA, callbacks due, today's activity and recent customers. The KPI tiles open the matching ticket list. |
-| **Customers** | Searches every customer this PC knows (Debtors cards, tickets, calls, contacts, Fusion master kept in DuckDB). **Find in Fusion** searches the Fusion customer master. |
+| **Customers** | Searches the whole Fusion customer master kept on this PC (name, account, party number, phone, e-mail, address, tax reference), plus Debtors cards, tickets, calls and contacts. The bar on top loads the master (see *The customer master* below). **Find in Fusion** searches Fusion live; what it finds is kept too. |
 | **Customer 360** | Header with phone (click to call), e-mail, address, collector, terms, credit limit, credit hold and a **health score** (0–100 with reasons). The sub-tabs are listed below. |
 | **Tickets** | List or board, filtered by scope (open, mine, unassigned, past the SLA, waiting, resolved), queue and priority. The ticket drawer has the conversation, internal notes, canned replies, e-mail replies, SLA bars, details, the customer, *solved before* (similar resolved tickets) and the customer's link. |
 | **Calls** | Call log with KPIs (answered, missed, talk time), callbacks, recordings with a fingerprint check, and CSV export. |
@@ -20,7 +20,31 @@ The **Customer 360** sub-tabs:
 
 - **Overview**: balance, overdue, 24-month sales trend, aging, the latest activity, the last statement and open tickets.
 - **Timeline**: tickets, replies, calls, e-mails, statements, Debtors activities, orders and payments, merged.
-- **Invoices & AR**: open items (drill to the transaction), 12 months of invoices and payments.
+- **Invoices & AR**: the customer's whole receivables picture, with these views:
+  - **Summary**: KPI tiles (balance, overdue, invoiced and collected in 12 months, credit notes, bounced cheques, days to pay, returns), invoiced vs collected by month for 24 months, aging, latest movements, and the **customer rating**.
+  - **Open items**.
+  - **All transactions**: invoices, credit memos, debit memos, chargebacks and deposits for 24 months, each with paid / open, due and closed dates, the order, the invoice a credit memo was made against, and its reason.
+  - **Payments**: applied and unapplied amounts, and reversals.
+  - **Applications**: which receipt or credit memo paid which invoice, with days to pay, days late, and *paid by* when another account (e.g. a head office) paid.
+  - **Bounced cheques**: reversed receipts with the reason (NSF = bounced, STOP = stop payment, REV = reversed).
+  - **Returns & credit notes**: sales-order return lines with the reason, and credit memos.
+  - **Adjustments**.
+
+  Every number drills down; a number inside a drill opens the next transaction, receipt or order, and **Back** returns. An invoice shows its lines, the receipts and credit notes applied to it, adjustments, accounting and journal lines. A receipt shows its applications and its history (cleared, reversed). Each view has a filter and CSV. **Statements** and **Send statement** sit in the bar.
+
+  The **customer rating** (A–E, 0–100) is built from weighted factors:
+
+  | Factor | Weight |
+  |--------|--------|
+  | Paying on time (amount-weighted days late) | 30 % |
+  | Overdue now (90+ counts twice) | 20 % |
+  | Collected vs invoiced | 15 % |
+  | Credit notes and adjustments vs invoiced | 15 % |
+  | Bounced cheques | 10 % |
+  | Trend of days late | 10 % |
+  | Credit limit use, when the customer has a limit | added |
+
+  The rating also shows on the Overview.
 - **Sales orders**: drill to the lines, or open the order in Fusion.
 - **Items & stock**: what the customer buys, plus **Stock now** (on hand per org and subinventory).
 - **Statements**: the journey of the last statement (recorded, PDF, sent, delivered, opened, read, agreed or queried) and every statement sent. Actions: **Send again**, **Open the PDF**, **Check the file** (SHA-256).
@@ -128,10 +152,39 @@ The CRM suggests a **category and priority** for every new ticket and lists simi
 | `WMS_CRM_CALLS` | Calls, with the recording path and SHA-256 |
 | `WMS_CRM_MESSAGES` | E-mails, with attachments and their fingerprints, ticket and statement |
 | `WMS_CRM_CONTACTS` | Contacts kept in the CRM |
+| `WMS_CRM_C360` | The Customer 360 Fusion sections as last read (rows JSON up to 250,000 characters, plus the SQL) |
+| `WMS_CRM_CUSTOMERS` | The whole Fusion customer master per pod |
 
 Statements, Debtors cards and the Debtors timeline are the **Debtors Control** tables. The CRM loads `../debtors/dc-*.js`, so a release with `crm` always carries `debtors`.
 
-**This PC.** Customer 360 sections (master, open items, sales, orders, invoices, receipts, items, stock, contacts) are kept in the WMS 2.0 DuckDB file (`w2_crm_c360`) and shown at once on the next open. Master, open items and sales are then read live again in the background; the other sections are read on demand. The phone index is `w2_crm_phone`.
+**Order of reading a Customer 360 section: DuckDB → APEX → Fusion.**
+
+1. This PC's copy (`w2_crm_c360` in the WMS 2.0 DuckDB file) is shown at once.
+2. The shared APEX copy (`WMS_CRM_C360`) fills in what this PC does not have, or has older, and is copied to this PC. It is what another PC read.
+3. Fusion is read last. Master, open items and sales are always read live in the background; the other sections are read when their tab is opened, or with Refresh.
+
+Every Fusion read is written to both copies. The source note says where the rows came from (*read from Fusion · kept on this PC and in APEX*, *from APEX · read … by …*, *kept on this PC*).
+
+**When a section fails**, its error is shown with **the SQL that failed** inline, with:
+
+- **Copy**
+- **Open in Fusion SQL**, which opens Fusion SQL with the query in its editor
+- **Try again**
+- every alternative tried, with its own error
+
+The table then says *Not read*, never *No …*. Each section tries alternatives that drop columns a pod may not have. For example, the sales-order currency is `TRANSACTIONAL_CURRENCY_CODE`; the last alternative has no currency column at all.
+
+### The customer master
+
+Customers › the bar on top keeps the whole Fusion customer master on this PC (DuckDB `w2_crm_customers`) and in APEX (`WMS_CRM_CUSTOMERS`):
+
+- **Load all Fusion customers** / **Reload all** reads `HZ_CUST_ACCOUNTS` × `HZ_PARTIES` with the bill-to address, primary e-mail and phone (`CRME.sql.customersPage`). It reads in keyset pages of 1,000 by `CUST_ACCOUNT_ID`, so every page costs the same at any depth, with alternatives that drop the address or contact columns. Each page goes to DuckDB at once and to APEX (MERGE, 40 rows a statement) while the next page is read. **Stop** keeps what was read, and **Continue the load** goes on from the last id.
+- **Sync changes** reads only accounts or parties changed since the newest change kept.
+- **Copy from APEX**: a PC whose copy is empty fills it from APEX without asking Fusion. This happens on its own when the page opens.
+
+The last load is recorded in `WMS_CRM_SETTINGS` `CUST_SYNC_<pod>` (when, who, rows, mode).
+
+Searches use this copy: the Customers box and the ask bar, every word against one search text, and 7+ digits against the phone digits. The screen pop looks up a caller's number here before asking Fusion. Without DuckDB, the APEX copy is searched. The phone index is `w2_crm_phone`.
 
 **Host** (`classes/Form1_CrmHandlers.cs`, `crm*` actions):
 
@@ -161,6 +214,16 @@ It also has the Debtors tools (balances, open items, statements, follow-ups) and
 
 ## Tests
 
-- `node crm/tests/crm-engine.test.js` (CI) covers business hours and the SLA (with pause), routing, phone numbers, the health score, the timeline, KPIs, naive Bayes, similar tickets, the ask parser and the read-only 360 SQL.
+- `node crm/tests/crm-engine.test.js` (CI) covers business hours and the SLA (with pause), routing, phone numbers, the health score, the timeline, KPIs, naive Bayes, similar tickets, the ask parser, the read-only 360 SQL (incl. the order currency column and its fallbacks), the customer-master pages, rows and search, and the AR 360 totals and rating.
 - AI Hub: `test_crm_customer_desk_routing_tools_and_module_threads`, plus the evals `crm_sla` and `crm_missed`.
-- A browser run with a fake host and a SQLite stand-in for the APEX gateway covers 47 checks: Customer 360 from Fusion, a ticket with an acknowledgement, a reply that waits and a resolution, a statement recorded before it is sent, an e-mail with a file and the last statement, an incoming call through the listener (screen pop, answer, notes, callback), an outbound call through `tel:`, a logged missed call, the ask bar, the database objects, the portal key, ML.NET training, the suggestion, portal ticket triage, Insights and the Autopilot frame.
+- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 76 checks. They include:
+  - every AR view, filter and drill (invoice → receipt that paid it → Back)
+  - the Statements button
+  - sections kept in APEX and on this PC
+  - a failing section with its SQL inline and Open in Fusion SQL
+  - another PC opening from the APEX copy without a Fusion read
+  - 1,500 customers loaded into DuckDB and APEX
+  - search and screen pop without Fusion
+  - Sync changes and the copy from APEX
+
+  It also covers Customer 360 from Fusion, a ticket with an acknowledgement, a reply that waits and a resolution, a statement recorded before it is sent, an e-mail with a file and the last statement, an incoming call through the listener (screen pop, answer, notes, callback), an outbound call through `tel:`, a logged missed call, the ask bar, the database objects, the portal key, ML.NET training, the suggestion, portal ticket triage, Insights and the Autopilot frame.

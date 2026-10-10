@@ -89,6 +89,9 @@ eq(E.ask('Jumbo').intent, 'search', 'anything else = search');
 var all = [].concat(E.sql.orders("A'1", '300000003234003'), E.sql.invoices('A1', 'x'), E.sql.receipts('A1', 1), E.sql.items('A1'), E.sql.stock(['1', 'x', '22']), E.sql.contacts('A1'), E.sql.phone('57123456'), E.sql.salesByMonth('A1', 2));
 ok(all.every(function (s) { return /^\s*SELECT\b/i.test(s) && !/\b(UPDATE|DELETE|INSERT|MERGE|DROP)\b/i.test(s); }), 'every 360 query is a SELECT');
 ok(E.sql.orders("A'1", 1)[0].indexOf("'A''1'") > 0, 'account numbers are quoted');
+var oa = E.sql.orders('A1', 1);
+ok(oa[0].indexOf('transactional_currency_code') > 0 && oa.join('').indexOf('transactional_curr_code ') < 0, 'orders: the currency column is TRANSACTIONAL_CURRENCY_CODE');
+ok(oa[oa.length - 1].indexOf('currency') < 0 && oa[oa.length - 1].indexOf('submitted_flag') < 0, 'orders: the last alternative has no fragile column');
 ok(E.sql.invoices('A1', "1 OR 1=1")[0].indexOf('t.org_id = 0') > 0, 'a business unit id that is not digits becomes 0');
 ok(E.sql.stock(['1', 'x', '22'])[0].indexOf('IN (1, 22)') > 0, 'only digit item ids');
 var tr = E.salesTrend([{ MONTH: '2026-10', AMOUNT: 100 }, { MONTH: '2025-10', AMOUNT: 50 }, { MONTH: '2025-09', AMOUNT: 70 }], '2026-10-05');
@@ -96,6 +99,32 @@ eq([tr.m12, tr.prev12, tr.series.length], [100, 120, 24], 'sales trend: last 12 
 eq(E.fill('Hi {CONTACT}, {TICKET_NO}', E.vars({ ticket: { TICKET_NO: 'CS-000007', CONTACT_NAME: 'Ravi' } })), 'Hi Ravi, CS-000007', 'canned reply variables');
 ok(E.emailHtml('a <b>\n\nx', { ticketLink: 'https://x/y', ticketNo: 'CS-1' }).indexOf('&lt;b&gt;') > 0, 'e-mail body escapes');
 eq(E.ticketNo('CS-', 42), 'CS-000042', 'ticket number');
+
+// customer master pages: keyset, changes since, quoting
+var cp = E.sql.customersPage(123, '2026-10-01 08:00:00', 500);
+ok(cp.length === 3 && cp.every(function (x) { return x.indexOf('ca.cust_account_id > 123') > 0 && x.indexOf('FETCH FIRST 500 ROWS ONLY') > 0 && x.indexOf("TO_DATE('2026-10-01 08:00:00'") > 0; }), 'customer pages: keyset + changed since');
+ok(E.sql.customersPage("1 OR 1=1", "x'; DROP")[0].indexOf('> 0') > 0 && E.sql.customersPage(0, "x'; DROP")[0].indexOf('DROP') < 0, 'customer pages: id digits only, a bad date is left out');
+var cr = E.custRow({ ACCOUNT_NUMBER: 'A1', CUSTOMER: 'Pick & Buy', PHONE: '+230 5712-3456', EMAIL: 'X@y.mu' }, 'PROD');
+eq([cr.pod, cr.phone_digits, cr.hay.indexOf('pick & buy') >= 0], ['PROD', '23057123456', true], 'customer row: phone digits + search text');
+var cw = E.custWhere("pick o'neil", function (v) { return "'" + v.replace(/'/g, "''") + "'"; });
+ok(cw === "hay LIKE '%pick%' AND hay LIKE '%o''neil%'", 'customer search WHERE', cw);
+ok(E.custWhere('5712 3456', function (v) { return "'" + v + "'"; }).indexOf('phone_digits') < 0 && E.custWhere('57123456', function (v) { return "'" + v + "'"; }).indexOf("phone_digits LIKE '%7123456%'") > 0, 'a phone number also matches the digits');
+
+// AR 360 + rating
+var ar = E.ar360({
+    trx: [{ TRX_DATE: '2026-09-01', CLASS: 'INV', AMOUNT: 1000 }, { TRX_DATE: '2026-09-05', CLASS: 'CM', AMOUNT: -100 }, { TRX_DATE: '2024-01-01', CLASS: 'INV', AMOUNT: 999 }],
+    apps: [{ APP_TYPE: 'CASH', APPLY_DATE: '2026-09-20', AMOUNT_APPLIED: 600, DAYS_LATE: 10, DAYS_TO_PAY: 40 }, { APP_TYPE: 'CASH', APPLY_DATE: '2026-03-01', AMOUNT_APPLIED: 200, DAYS_LATE: 0, DAYS_TO_PAY: 30 }, { APP_TYPE: 'CM', APPLY_DATE: '2026-09-06', AMOUNT_APPLIED: 100 }],
+    receipts: [{ RECEIPT_DATE: '2026-08-01', AMOUNT: 50, REVERSAL_DATE: '2026-08-03', REVERSAL_CATEGORY: 'NSF' }, { RECEIPT_DATE: '2026-08-02', AMOUNT: 600, STATUS: 'APP' }],
+    open: [{ REMAINING: 300, DAYS_LATE: 20 }, { REMAINING: 100, DAYS_LATE: 120 }, { REMAINING: 100, DAYS_LATE: 0 }]
+}, '2026-10-10');
+eq([ar.invoiced12, ar.credits12, ar.collected12, ar.bounced.length, ar.daysLate, ar.daysToPay, ar.balance, ar.overdue, ar.over90], [1000, 100, 800, 1, 8, 38, 500, 400, 100], 'AR 360 totals');
+eq(E.reversalLabel(ar.bounced[0]), 'Bounced (insufficient funds)', 'a bounced cheque');
+eq(ar.months.length, 24, '24 months');
+ok(ar.rating.score >= 0 && ar.rating.score <= 100 && 'ABCDE'.indexOf(ar.rating.grade) >= 0 && ar.rating.factors.length === 6, 'rating with 6 factors', ar.rating);
+var good = E.arRating({ invoiced: 1000, collected: 1000, credits: 0, daysLate: 0, trend: -3, balance: 100, overdue: 0, over90: 0, bounced: 0 });
+var poor = E.arRating({ invoiced: 1000, collected: 300, credits: 300, daysLate: 60, trend: 20, balance: 900, overdue: 800, over90: 600, bounced: 3 });
+eq([good.grade, poor.grade], ['A', 'E'], 'grades A and E');
+eq(E.arRating({ invoiced: 1, collected: 1, balance: 100, overdue: 0, over90: 0, creditLimit: 50 }).factors.length, 7, 'credit limit adds a factor');
 
 console.log((n - bad) + ' / ' + n + ' passed');
 if (bad) process.exit(1);

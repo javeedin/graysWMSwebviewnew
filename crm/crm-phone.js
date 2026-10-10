@@ -40,11 +40,19 @@
         paint();
         if (P.match.length || !D.hasHost()) return Promise.resolve(P.match);
         P.looking = true; paint();
-        return C.fusionFirst(E.sql.phone(p.last7), 20).then(function (r) {
+        // the customer master kept on this PC (Customers › Load all Fusion customers) before asking Fusion
+        return S.duck.custByPhone(C.pod, p.last7).then(function (rows) {
+            if (!rows.length) return null;
+            P.match = rows.map(function (x) { C.master[x.account_number] = C.master[x.account_number] || E.custMaster(x); return { account: x.account_number, bu: C.buOf(x.account_number), name: x.customer, phone: x.phone, source: 'Fusion master' }; });
+            return P.match;
+        }, function () { return null; }).then(function (kept) {
+            if (kept) return kept;
+            return C.fusionFirst(E.sql.phone(p.last7), 20).then(function (r) {
             P.match = r.rows.map(function (x) { return { account: x.ACCOUNT_NUMBER, bu: C.buOf(x.ACCOUNT_NUMBER), name: x.CUSTOMER, phone: x.PHONE, source: 'Fusion' }; });
             if (P.match.length) S.duck.put('w2_crm_phone', { last7: p.last7, source: 'Fusion' }, P.match.map(function (m) { return { phone: m.phone, last7: p.last7, bu: m.bu, account: m.account, name: m.name, contact: '', source: 'Fusion', read_at: S.now() }; }));
             return P.match;
-        }, function () { return []; }).then(function (m) { P.looking = false; if (P.call && !P.call.cust && m.length) P.call.cust = m[0]; paint(); return m; });
+            }, function () { return []; });
+        }).then(function (m) { P.looking = false; if (P.call && !P.call.cust && m.length) P.call.cust = m[0]; paint(); return m; });
     }
     function timer() { var c = P.call; if (!c || !c.answeredAt) return '0:00'; return E.secs(((c.endedAt ? c.endedAt : new Date()) - c.answeredAt) / 1000); }
     function paint() {

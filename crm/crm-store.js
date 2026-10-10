@@ -7,6 +7,8 @@
  *   WMS_CRM_CALLS          every call in / out: number, customer, agent, times, outcome, notes, recording file + SHA-256, callback
  *   WMS_CRM_MESSAGES       every e-mail sent from the CRM (to, subject, attachments with their fingerprints, ticket, statement)
  *   WMS_CRM_CONTACTS       people at the customer kept by the CRM (beside the Fusion contacts)
+ *   WMS_CRM_C360           the Customer 360 Fusion sections as last read (rows JSON + the SQL) — every PC opens a customer at once
+ *   WMS_CRM_CUSTOMERS      the whole Fusion customer master (Customers › Load all Fusion customers / Sync changes), shared by every PC
  * Times are written with SYSDATE (the database clock) and shown in this PC's wall time (DCS.local); due dates are worked
  * out on this PC in its wall time and written back in database time (CRMS.dbTime). Reads never contain the gateway's
  * refused words (UPDATE / DELETE / DBMS_ / UTL_). Customer-facing pages: crm/new/:key (raise a ticket) and crm/t/:tok
@@ -59,13 +61,19 @@
             'to_addr VARCHAR2(1000), cc_addr VARCHAR2(1000), subject VARCHAR2(400), body VARCHAR2(4000), attachments VARCHAR2(2000), ticket_id VARCHAR2(40), stmt_id VARCHAR2(40), status VARCHAR2(20), error_text VARCHAR2(2000), ' +
             'method VARCHAR2(20), mailbox VARCHAR2(320), by_user VARCHAR2(100), machine VARCHAR2(100), created_at DATE DEFAULT SYSDATE, sent_at DATE)',
         WMS_CRM_CONTACTS: "CREATE TABLE wms_crm_contacts (contact_id VARCHAR2(40) PRIMARY KEY, bu_id VARCHAR2(30), account_number VARCHAR2(60), name VARCHAR2(200), role VARCHAR2(100), email VARCHAR2(320), phone VARCHAR2(60), mobile VARCHAR2(60), " +
-            "is_primary VARCHAR2(1) DEFAULT 'N', notes VARCHAR2(1000), removed VARCHAR2(1) DEFAULT 'N', created_by VARCHAR2(100), created_at DATE DEFAULT SYSDATE, changed_by VARCHAR2(100), changed_date DATE DEFAULT SYSDATE)"
+            "is_primary VARCHAR2(1) DEFAULT 'N', notes VARCHAR2(1000), removed VARCHAR2(1) DEFAULT 'N', created_by VARCHAR2(100), created_at DATE DEFAULT SYSDATE, changed_by VARCHAR2(100), changed_date DATE DEFAULT SYSDATE)",
+        WMS_CRM_C360: 'CREATE TABLE wms_crm_c360 (c360_id VARCHAR2(300) PRIMARY KEY, pod VARCHAR2(20), bu_id VARCHAR2(30), account_number VARCHAR2(60), section VARCHAR2(30), rows_n NUMBER, cut_n NUMBER, ' +
+            'rows_json CLOB, sql_text CLOB, read_by VARCHAR2(100), read_at DATE DEFAULT SYSDATE)',
+        WMS_CRM_CUSTOMERS: 'CREATE TABLE wms_crm_customers (pod VARCHAR2(20) NOT NULL, account_number VARCHAR2(60) NOT NULL, cust_account_id NUMBER, customer VARCHAR2(360), party_number VARCHAR2(60), account_name VARCHAR2(360), ' +
+            'status VARCHAR2(10), customer_type VARCHAR2(30), customer_class VARCHAR2(60), tax_reference VARCHAR2(100), bill_to_address VARCHAR2(1000), email VARCHAR2(320), phone VARCHAR2(100), phone_digits VARCHAR2(40), ' +
+            'changed VARCHAR2(20), hay VARCHAR2(2000), read_at DATE DEFAULT SYSDATE, CONSTRAINT wms_crm_customers_pk PRIMARY KEY (pod, account_number))'
     };
     C.SEQ = 'CREATE SEQUENCE wms_crm_ticket_seq START WITH 1 INCREMENT BY 1 NOCACHE';
     C.INDEXES = [
         'CREATE INDEX wms_crm_tk_acct ON wms_crm_tickets (account_number)', 'CREATE INDEX wms_crm_tk_status ON wms_crm_tickets (status)', 'CREATE INDEX wms_crm_tk_tok ON wms_crm_tickets (token)',
         'CREATE INDEX wms_crm_ev_tk ON wms_crm_ticket_events (ticket_id)', 'CREATE INDEX wms_crm_call_acct ON wms_crm_calls (account_number)', 'CREATE INDEX wms_crm_call_e164 ON wms_crm_calls (number_e164)',
-        'CREATE INDEX wms_crm_msg_acct ON wms_crm_messages (account_number)', 'CREATE INDEX wms_crm_ct_acct ON wms_crm_contacts (account_number)'
+        'CREATE INDEX wms_crm_msg_acct ON wms_crm_messages (account_number)', 'CREATE INDEX wms_crm_ct_acct ON wms_crm_contacts (account_number)',
+        'CREATE INDEX wms_crm_c360_acct ON wms_crm_c360 (pod, account_number)', 'CREATE INDEX wms_crm_cust_ph ON wms_crm_customers (pod, phone_digits)', 'CREATE INDEX wms_crm_cust_id ON wms_crm_customers (pod, cust_account_id)'
     ];
     var ensured = null;
     C.ensure = function () {
@@ -232,6 +240,82 @@
         remove: function (id) { return D.write("UPDATE wms_crm_contacts SET removed = 'Y', changed_by = " + lit(D.user()) + ', changed_date = SYSDATE WHERE contact_id = ' + lit(id)); }
     };
 
+    // ── Customer 360 sections in APEX: what one PC read from Fusion, every PC opens at once ──
+    C.C360_CAP = 250000;                                            // characters of rows JSON kept per section (the rest is cut, cut_n says how many rows)
+    var c360q = Promise.resolve();
+    C.c360 = {
+        id: function (pod, bu, account, section) { return [pod, bu || '', account, section].join('|'); },
+        /** {section: {rows, sql, at, by, cut, apex: true}} of one customer */
+        get: function (pod, bu, account, skip) {
+            var where = ' WHERE pod = ' + lit(pod) + ' AND bu_id ' + (bu ? '= ' + lit(bu) : 'IS NULL') + ' AND account_number = ' + lit(account);
+            return C.ensure().then(function () {
+                return D.rows('SELECT c360_id AS ID, section AS SECTION, rows_n AS N, cut_n AS CUT, read_by AS READ_BY, TO_CHAR(read_at, ' + TS + ') AS READ_AT FROM wms_crm_c360' + where, 100);
+            }).then(function (meta) {
+                meta = meta.filter(function (m) { return !skip || skip.indexOf(m.SECTION) < 0; });
+                if (!meta.length) return {};
+                // one section at a time: a section being rewritten by another read (or another PC) at this moment is skipped, not the whole customer
+                var out = {};
+                return meta.reduce(function (p, m) {
+                    return p.then(function () {
+                        return Promise.all([D.readClob('wms_crm_c360', 'rows_json', 'c360_id', [m.ID]), D.readClob('wms_crm_c360', 'sql_text', 'c360_id', [m.ID])]).then(function (r) {
+                            var rows; try { rows = JSON.parse(r[0][m.ID] || '[]'); } catch (e) { return; }
+                            out[m.SECTION] = { rows: rows, sql: r[1][m.ID] || '', at: D.local(m.READ_AT), by: m.READ_BY, cut: +m.CUT || 0, apex: true };
+                        }, function (e) { console.warn('[CRM] APEX 360 ' + m.SECTION + ' skipped:', e && e.message || e); });
+                    });
+                }, Promise.resolve()).then(function () { return out; });
+            });
+        },
+        /** keep one section (queued: one write at a time, never in the user's way) */
+        put: function (pod, bu, account, section, rows, sql) {
+            var id = C.c360.id(pod, bu, account, section), all = rows || [], fit = D.fitRows(all, 20000, C.C360_CAP), me = lit(D.user());
+            var p = c360q.then(function () { return C.ensure(); }).then(function () {
+                return D.write('MERGE INTO wms_crm_c360 t USING (SELECT ' + lit(id) + ' AS c360_id FROM dual) s ON (t.c360_id = s.c360_id) WHEN MATCHED THEN UPDATE SET rows_n = ' + all.length + ', cut_n = ' + (all.length - fit.length) +
+                    ', read_by = ' + me + ', read_at = SYSDATE WHEN NOT MATCHED THEN INSERT (c360_id, pod, bu_id, account_number, section, rows_n, cut_n, rows_json, sql_text, read_by, read_at) VALUES (' +
+                    [lit(id), lit(pod), lit(bu), lit(account, 60), lit(section), all.length, all.length - fit.length, 'EMPTY_CLOB()', 'EMPTY_CLOB()', me, 'SYSDATE'].join(', ') + ')');
+            }).then(function () { return D.writeClob('wms_crm_c360', 'rows_json', 'c360_id = ' + lit(id), JSON.stringify(fit)); })
+                .then(function () { return D.writeClob('wms_crm_c360', 'sql_text', 'c360_id = ' + lit(id), sql || ''); })
+                .then(function () { return { ok: true, rows: fit.length, cut: all.length - fit.length }; });
+            c360q = p.catch(function (e) { console.warn('[CRM] APEX 360:', e && e.message || e); });
+            return p;
+        }
+    };
+
+    // ── the whole Fusion customer master in APEX (shared by every PC) ──
+    C.CUST_COLS = ['pod', 'account_number', 'cust_account_id', 'customer', 'party_number', 'account_name', 'status', 'customer_type', 'customer_class', 'tax_reference', 'bill_to_address', 'email', 'phone', 'phone_digits', 'changed', 'hay'];
+    var CUST_LEN = { pod: 20, account_number: 60, customer: 360, party_number: 60, account_name: 360, status: 10, customer_type: 30, customer_class: 60, tax_reference: 100, bill_to_address: 1000, email: 320, phone: 100, phone_digits: 40, changed: 20, hay: 2000 };
+    function custSel(r) { return 'SELECT ' + C.CUST_COLS.map(function (k) { return (k === 'cust_account_id' ? num(r[k]) : lit(r[k], CUST_LEN[k])) + ' AS ' + k; }).join(', ') + ' FROM dual'; }
+    var CUST_READ = C.CUST_COLS.filter(function (k) { return k !== 'pod'; }).map(function (k) { return k + ' AS ' + k.toUpperCase(); }).join(', ');
+    function lower(rows) { return rows.map(function (r) { var o = {}; Object.keys(r).forEach(function (k) { o[k.toLowerCase()] = r[k] == null ? '' : String(r[k]); }); return o; }); }
+    C.customers = {
+        /** how many are kept for the pod, the newest change, when the last row was written */
+        status: function (pod) {
+            return C.ensure().then(function () { return D.rows('SELECT COUNT(*) AS N, MAX(changed) AS MC, MAX(cust_account_id) AS MAXID, TO_CHAR(MAX(read_at), ' + TS + ') AS RA FROM wms_crm_customers WHERE pod = ' + lit(pod), 2); })
+                .then(function (r) { var x = r[0] || {}; return { n: +x.N || 0, maxChanged: x.MC || '', maxId: x.MAXID || '', at: x.RA ? D.local(x.RA) : '' }; });
+        },
+        /** upsert rows (E.custRow shape), 40 per MERGE; onStep(done) */
+        merge: function (pod, rows, onStep) {
+            var sets = C.CUST_COLS.filter(function (k) { return k !== 'pod' && k !== 'account_number'; });
+            var groups = []; for (var i = 0; i < rows.length; i += 40) groups.push(rows.slice(i, i + 40));
+            var done = 0;
+            return C.ensure().then(function () {
+                return groups.reduce(function (p, g) {
+                    return p.then(function () {
+                        return D.write('MERGE INTO wms_crm_customers t USING (' + g.map(function (r) { return custSel(Object.assign({}, r, { pod: pod })); }).join(' UNION ALL ') + ') s ON (t.pod = s.pod AND t.account_number = s.account_number)' +
+                            ' WHEN MATCHED THEN UPDATE SET ' + sets.map(function (k) { return 't.' + k + ' = s.' + k; }).join(', ') + ', t.read_at = SYSDATE' +
+                            ' WHEN NOT MATCHED THEN INSERT (' + C.CUST_COLS.join(', ') + ', read_at) VALUES (' + C.CUST_COLS.map(function (k) { return 's.' + k; }).join(', ') + ', SYSDATE)').then(function () { done += g.length; if (onStep) onStep(done); });
+                    });
+                }, Promise.resolve());
+            }).then(function () { return done; });
+        },
+        /** every kept customer of the pod (to fill this PC's DuckDB copy) */
+        all: function (pod, max) { return C.ensure().then(function () { return D.rowsAll('SELECT ' + CUST_READ + ' FROM wms_crm_customers WHERE pod = ' + lit(pod) + ' ORDER BY account_number', max || 300000); }).then(lower); },
+        /** search the APEX copy (when this PC has no DuckDB) */
+        search: function (pod, q, max) {
+            var w = root.CRME.custWhere(q, function (v) { return lit(v); }); if (!w) return Promise.resolve([]);
+            return C.ensure().then(function () { return D.rows('SELECT ' + CUST_READ + ' FROM wms_crm_customers WHERE pod = ' + lit(pod) + ' AND ' + w + ' ORDER BY customer FETCH FIRST ' + (max || 100) + ' ROWS ONLY', max || 100); }).then(lower);
+        }
+    };
+
     // ── the customer-facing pages (PL/SQL + ORDS) ─────────────────
     var STYLE = "body{margin:0;font:15px/1.5 \"Segoe UI\",Arial,sans-serif;background:#eef0fb;color:#0f172a}.c{max-width:640px;margin:6vh auto;background:#fff;border-radius:14px;padding:28px 32px;box-shadow:0 10px 30px rgba(15,23,42,.1)}" +
         "h1{font-size:21px;margin:0 0 6px}.m{color:#64748b;font-size:13px}label{display:block;font-size:13px;font-weight:600;color:#334155;margin:12px 0 4px}input,textarea,select{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:9px;padding:9px 11px;font:inherit}" +
@@ -358,7 +442,8 @@
     // ── this PC's copy (DuckDB, the WMS 2.0 file): Customer 360 sections + the phone index ──
     var DCOLS = {
         w2_crm_c360: ['pod', 'bu', 'account', 'section', 'json', 'sql_text', 'read_at'],
-        w2_crm_phone: ['phone', 'last7', 'bu', 'account', 'name', 'contact', 'source', 'read_at']
+        w2_crm_phone: ['phone', 'last7', 'bu', 'account', 'name', 'contact', 'source', 'read_at'],
+        w2_crm_customers: ['pod', 'account_number', 'cust_account_id', 'customer', 'party_number', 'account_name', 'status', 'customer_type', 'customer_class', 'tax_reference', 'bill_to_address', 'email', 'phone', 'phone_digits', 'changed', 'hay', 'read_at']
     };
     C.duck = {
         put: function (table, scope, rows) {
@@ -384,6 +469,22 @@
         keep360: function (pod, bu, account, section, rows, sql) {
             return C.duck.put('w2_crm_c360', { pod: pod, bu: bu, account: account, section: section }, [{ pod: pod, bu: bu, account: account, section: section, json: JSON.stringify(rows || []), sql_text: sql || '', read_at: C.now() }]);
         },
-        phones: function () { return C.duck.qs(['SELECT phone, last7, bu, account, name, contact, source FROM w2_crm_phone']).then(function (r) { return r[0] || []; }); }
+        phones: function () { return C.duck.qs(['SELECT phone, last7, bu, account, name, contact, source FROM w2_crm_phone']).then(function (r) { return r[0] || []; }); },
+        /** the customer master kept on this PC */
+        custStatus: function (pod) {
+            return C.duck.qs(['SELECT COUNT(*) AS n, MAX(changed) AS mc, MAX(read_at) AS ra FROM w2_crm_customers WHERE pod = ' + C.duck.lit(pod)]).then(function (r) { var x = (r[0] || [])[0] || {}; return { n: +x.n || 0, maxChanged: x.mc || '', at: x.ra || '' }; });
+        },
+        custPut: function (pod, rows) {
+            var now = C.now();
+            return C.duck.put('w2_crm_customers', { pod: pod, account_number: rows.map(function (r) { return r.account_number; }) }, rows.map(function (r) { return Object.assign({}, r, { pod: pod, read_at: now }); }));
+        },
+        custSearch: function (pod, q, max) {
+            var w = root.CRME.custWhere(q, C.duck.lit); if (!w) return Promise.resolve([]);
+            return C.duck.qs(['SELECT * FROM w2_crm_customers WHERE pod = ' + C.duck.lit(pod) + ' AND ' + w + ' ORDER BY customer LIMIT ' + (max || 100)]).then(function (r) { return r[0] || []; });
+        },
+        custByPhone: function (pod, last7) {
+            if (!/^\d{7}$/.test(last7 || '')) return Promise.resolve([]);
+            return C.duck.qs(["SELECT * FROM w2_crm_customers WHERE pod = " + C.duck.lit(pod) + " AND phone_digits LIKE '%" + last7 + "' LIMIT 20"]).then(function (r) { return r[0] || []; });
+        }
     };
 })(window);

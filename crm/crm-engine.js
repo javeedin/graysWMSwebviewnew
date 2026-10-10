@@ -484,15 +484,22 @@
     /** each section: a list of alternatives — the page runs the first the pod accepts */
     E.sql = {
         orders: function (acct, bu, months) {
-            var m = Math.max(1, Math.min(60, +months || 12)), base = "SELECT h.order_number, TO_CHAR(h.ordered_date, 'YYYY-MM-DD') AS ordered, h.status_code AS status, h.customer_po_number AS customer_po,\n" +
-                "       h.transactional_curr_code AS currency,\n       (SELECT SUM(fl.extended_amount) FROM doo_fulfill_lines_all fl WHERE fl.header_id = h.header_id) AS amount,\n" +
-                "       (SELECT COUNT(*) FROM doo_fulfill_lines_all fl WHERE fl.header_id = h.header_id) AS lines_n,\n" +
-                "       (SELECT COUNT(*) FROM doo_fulfill_lines_all fl WHERE fl.header_id = h.header_id AND fl.status_code IN ('SHIPPED', 'BILLED', 'CLOSED', 'PARTIALLY_SHIPPED', 'AWAIT_BILLING')) AS shipped_n,\n" +
-                "       h.header_id\n  FROM doo_headers_all h\n  JOIN hz_cust_accounts ca ON ca.party_id = h.sold_to_party_id\n WHERE ca.account_number = " + q(acct) +
-                " AND h.ordered_date >= ADD_MONTHS(TRUNC(SYSDATE), -" + m + ") AND NVL(h.submitted_flag, 'Y') = 'Y'";
-            return [base + ' AND h.org_id = ' + digits(bu) + ' AND ' + LATEST_ORDER + '\n ORDER BY h.ordered_date DESC, h.order_number DESC FETCH FIRST 400 ROWS ONLY',
-                base + ' AND ' + LATEST_ORDER + '\n ORDER BY h.ordered_date DESC FETCH FIRST 400 ROWS ONLY',
-                base + '\n ORDER BY h.ordered_date DESC FETCH FIRST 400 ROWS ONLY'];
+            var m = Math.max(1, Math.min(60, +months || 12));
+            // DOO_HEADERS_ALL differs between releases: the currency is TRANSACTIONAL_CURRENCY_CODE (not _CURR_CODE), SUBMITTED_FLAG may be missing —
+            // so the alternatives drop the fragile columns one by one before giving up
+            function one(cur, sub, where) {
+                return "SELECT h.order_number, TO_CHAR(h.ordered_date, 'YYYY-MM-DD') AS ordered, h.status_code AS status, h.customer_po_number AS customer_po,\n" +
+                    (cur ? '       ' + cur + ' AS currency,\n' : '') +
+                    "       (SELECT SUM(fl.extended_amount) FROM doo_fulfill_lines_all fl WHERE fl.header_id = h.header_id) AS amount,\n" +
+                    "       (SELECT COUNT(*) FROM doo_fulfill_lines_all fl WHERE fl.header_id = h.header_id) AS lines_n,\n" +
+                    "       (SELECT COUNT(*) FROM doo_fulfill_lines_all fl WHERE fl.header_id = h.header_id AND fl.status_code IN ('SHIPPED', 'BILLED', 'CLOSED', 'PARTIALLY_SHIPPED', 'AWAIT_BILLING')) AS shipped_n,\n" +
+                    "       h.header_id\n  FROM doo_headers_all h\n  JOIN hz_cust_accounts ca ON ca.party_id = h.sold_to_party_id\n WHERE ca.account_number = " + q(acct) +
+                    " AND h.ordered_date >= ADD_MONTHS(TRUNC(SYSDATE), -" + m + ")" + (sub ? " AND NVL(h.submitted_flag, 'Y') = 'Y'" : '') + where +
+                    '\n ORDER BY h.ordered_date DESC, h.order_number DESC FETCH FIRST 400 ROWS ONLY';
+            }
+            var buLatest = ' AND h.org_id = ' + digits(bu) + ' AND ' + LATEST_ORDER, latest = ' AND ' + LATEST_ORDER;
+            return [one('h.transactional_currency_code', true, buLatest), one('h.transactional_currency_code', true, latest),
+                one(null, true, buLatest), one(null, false, buLatest), one(null, false, latest), one(null, false, '')];
         },
         orderLines: function (headerId) {
             return ["SELECT fl.fulfill_line_number AS line, i.item_number AS item, fl.ordered_qty, fl.shipped_qty, fl.ordered_uom AS uom, fl.status_code AS status,\n" +
@@ -500,26 +507,75 @@
                 "  FROM doo_fulfill_lines_all fl\n  LEFT JOIN egp_system_items_b i ON i.inventory_item_id = fl.inventory_item_id AND i.organization_id = fl.fulfill_org_id\n" +
                 " WHERE fl.header_id = " + digits(headerId) + "\n ORDER BY fl.fulfill_line_number"];
         },
+        /** every AR transaction (invoices, credit memos, debit memos, chargebacks, deposits): amount, open, due, paid or not, the order,
+         *  the invoice a credit memo was made against and its reason. Alternatives drop the columns a pod may not have. */
         invoices: function (acct, bu, months) {
-            var m = Math.max(1, Math.min(60, +months || 12));
-            var base = "SELECT t.trx_number, TO_CHAR(t.trx_date, 'YYYY-MM-DD') AS trx_date, tt.name AS trx_type, tt.type AS class, t.invoice_currency_code AS currency,\n" +
-                "       (SELECT SUM(ps.amount_due_original) FROM ar_payment_schedules_all ps WHERE ps.customer_trx_id = t.customer_trx_id) AS amount,\n" +
-                "       (SELECT SUM(ps.amount_due_remaining) FROM ar_payment_schedules_all ps WHERE ps.customer_trx_id = t.customer_trx_id) AS remaining,\n" +
-                "       (SELECT TO_CHAR(MIN(ps.due_date), 'YYYY-MM-DD') FROM ar_payment_schedules_all ps WHERE ps.customer_trx_id = t.customer_trx_id) AS due_date,\n" +
-                "       (SELECT MAX(l.sales_order) FROM ra_customer_trx_lines_all l WHERE l.customer_trx_id = t.customer_trx_id AND l.line_type = 'LINE') AS order_number,\n" +
-                "       t.purchase_order AS customer_po, t.customer_trx_id\n  FROM ra_customer_trx_all t\n  JOIN hz_cust_accounts ca ON ca.cust_account_id = t.bill_to_customer_id\n" +
-                "  LEFT JOIN ra_cust_trx_types_all tt ON tt.cust_trx_type_seq_id = t.cust_trx_type_seq_id\n WHERE ca.account_number = " + q(acct) +
-                " AND t.trx_date >= ADD_MONTHS(TRUNC(SYSDATE), -" + m + ") AND NVL(t.complete_flag, 'Y') = 'Y'";
-            return [base + ' AND t.org_id = ' + digits(bu) + '\n ORDER BY t.trx_date DESC, t.trx_number DESC FETCH FIRST 500 ROWS ONLY', base + '\n ORDER BY t.trx_date DESC FETCH FIRST 500 ROWS ONLY'];
+            var m = Math.max(1, Math.min(60, +months || 24));
+            function one(extra, typeCol) {
+                return "SELECT t.trx_number, TO_CHAR(t.trx_date, 'YYYY-MM-DD') AS trx_date, tt.name AS trx_type, " + typeCol + " AS class, t.invoice_currency_code AS currency,\n" +
+                    "       (SELECT SUM(ps.amount_due_original) FROM ar_payment_schedules_all ps WHERE ps.customer_trx_id = t.customer_trx_id) AS amount,\n" +
+                    "       (SELECT SUM(ps.amount_due_remaining) FROM ar_payment_schedules_all ps WHERE ps.customer_trx_id = t.customer_trx_id) AS remaining,\n" +
+                    "       (SELECT TO_CHAR(MIN(ps.due_date), 'YYYY-MM-DD') FROM ar_payment_schedules_all ps WHERE ps.customer_trx_id = t.customer_trx_id) AS due_date,\n" +
+                    "       (SELECT TO_CHAR(MAX(ps.actual_date_closed), 'YYYY-MM-DD') FROM ar_payment_schedules_all ps WHERE ps.customer_trx_id = t.customer_trx_id AND ps.status = 'CL') AS closed_date,\n" +
+                    "       (SELECT MAX(l.sales_order) FROM ra_customer_trx_lines_all l WHERE l.customer_trx_id = t.customer_trx_id AND l.line_type = 'LINE') AS order_number,\n" +
+                    "       t.purchase_order AS customer_po, t.ct_reference AS reference" + extra + ", t.customer_trx_id\n  FROM ra_customer_trx_all t\n  JOIN hz_cust_accounts ca ON ca.cust_account_id = t.bill_to_customer_id\n" +
+                    "  LEFT JOIN ra_cust_trx_types_all tt ON tt.cust_trx_type_seq_id = t.cust_trx_type_seq_id\n WHERE ca.account_number = " + q(acct) +
+                    " AND t.trx_date >= ADD_MONTHS(TRUNC(SYSDATE), -" + m + ") AND NVL(t.complete_flag, 'Y') = 'Y'";
+            }
+            var prev = ",\n       (SELECT p.trx_number FROM ra_customer_trx_all p WHERE p.customer_trx_id = t.previous_customer_trx_id) AS against_trx, t.previous_customer_trx_id AS against_trx_id, t.reason_code AS reason";
+            var tail = function (sql, withBu) { return sql + (withBu ? ' AND t.org_id = ' + digits(bu) : '') + '\n ORDER BY t.trx_date DESC, t.trx_number DESC FETCH FIRST 2000 ROWS ONLY'; };
+            return [tail(one(prev, 'tt.type'), true), tail(one(prev, 'tt.type'), false), tail(one('', 'tt.type'), true), tail(one('', 'tt.type'), false), tail(one('', "'INV'"), false)];
         },
+        /** receipts with what was applied / left unapplied and, when reversed, why (NSF = bounced cheque, STOP = stop payment, REV = reversed) */
         receipts: function (acct, bu, months) {
-            var m = Math.max(1, Math.min(60, +months || 12));
-            var base = "SELECT cr.receipt_number, TO_CHAR(cr.receipt_date, 'YYYY-MM-DD') AS receipt_date, cr.amount, cr.currency_code AS currency, cr.status,\n" +
-                "       (SELECT rm.name FROM ar_receipt_methods rm WHERE rm.receipt_method_id = cr.receipt_method_id) AS method, cr.comments, cr.cash_receipt_id\n" +
-                "  FROM ar_cash_receipts_all cr\n  JOIN hz_cust_accounts ca ON ca.cust_account_id = cr.pay_from_customer\n WHERE ca.account_number = " + q(acct) +
-                " AND cr.receipt_date >= ADD_MONTHS(TRUNC(SYSDATE), -" + m + ")";
-            var plain = base.replace(",\n       (SELECT rm.name FROM ar_receipt_methods rm WHERE rm.receipt_method_id = cr.receipt_method_id) AS method", '');
-            return [base + ' AND cr.org_id = ' + digits(bu) + '\n ORDER BY cr.receipt_date DESC FETCH FIRST 300 ROWS ONLY', plain + '\n ORDER BY cr.receipt_date DESC FETCH FIRST 300 ROWS ONLY'];
+            var m = Math.max(1, Math.min(60, +months || 24));
+            var method = ",\n       (SELECT rm.name FROM ar_receipt_methods rm WHERE rm.receipt_method_id = cr.receipt_method_id) AS method";
+            var applied = ",\n       (SELECT SUM(ra.amount_applied) FROM ar_receivable_applications_all ra WHERE ra.cash_receipt_id = cr.cash_receipt_id AND ra.status = 'APP' AND NVL(ra.display, 'Y') = 'Y') AS applied,\n" +
+                "       (SELECT SUM(ra.amount_applied) FROM ar_receivable_applications_all ra WHERE ra.cash_receipt_id = cr.cash_receipt_id AND ra.status IN ('UNAPP', 'UNID', 'ACC') AND NVL(ra.display, 'Y') = 'Y') AS unapplied";
+            var rev = ",\n       TO_CHAR(cr.reversal_date, 'YYYY-MM-DD') AS reversal_date, cr.reversal_category, cr.reversal_reason_code AS reversal_reason, cr.reversal_comments";
+            function one(extra) {
+                return "SELECT cr.receipt_number, TO_CHAR(cr.receipt_date, 'YYYY-MM-DD') AS receipt_date, cr.amount, cr.currency_code AS currency, cr.status, cr.type AS receipt_type" + extra + ",\n" +
+                    "       cr.comments, cr.cash_receipt_id\n  FROM ar_cash_receipts_all cr\n  JOIN hz_cust_accounts ca ON ca.cust_account_id = cr.pay_from_customer\n WHERE ca.account_number = " + q(acct) +
+                    " AND cr.receipt_date >= ADD_MONTHS(TRUNC(SYSDATE), -" + m + ")";
+            }
+            var tail = function (sql, withBu) { return sql + (withBu ? ' AND cr.org_id = ' + digits(bu) : '') + '\n ORDER BY cr.receipt_date DESC FETCH FIRST 1000 ROWS ONLY'; };
+            return [tail(one(method + applied + rev), true), tail(one(method + applied + rev), false), tail(one(method + rev), false), tail(one(method), false), tail(one(''), false)];
+        },
+        /** applications to this customer's transactions: cash (receipts — also from another account, e.g. a head office) and credit memos,
+         *  with days to pay from the invoice date and days late against the due date */
+        applications: function (acct, bu, months) {
+            var m = Math.max(1, Math.min(60, +months || 24));
+            function one(full) {
+                return "SELECT ra.application_type AS app_type, TO_CHAR(ra.apply_date, 'YYYY-MM-DD') AS apply_date, " + (full ? 'NVL(cr.receipt_number, cm.trx_number)' : 'cr.receipt_number') + " AS paid_with,\n" +
+                    "       t.trx_number, TO_CHAR(t.trx_date, 'YYYY-MM-DD') AS trx_date, TO_CHAR(ps.due_date, 'YYYY-MM-DD') AS due_date, ra.amount_applied,\n" +
+                    "       ROUND(ra.apply_date - t.trx_date) AS days_to_pay, ROUND(ra.apply_date - ps.due_date) AS days_late" + (full ? ", pca.account_number AS paid_by" : '') + ",\n" +
+                    "       ra.cash_receipt_id, ra.applied_customer_trx_id AS customer_trx_id" + (full ? ', ra.customer_trx_id AS cm_trx_id' : '') + "\n" +
+                    "  FROM ar_receivable_applications_all ra\n  JOIN ra_customer_trx_all t ON t.customer_trx_id = ra.applied_customer_trx_id\n  JOIN hz_cust_accounts ca ON ca.cust_account_id = t.bill_to_customer_id\n" +
+                    "  LEFT JOIN ar_payment_schedules_all ps ON ps.payment_schedule_id = ra.applied_payment_schedule_id\n  LEFT JOIN ar_cash_receipts_all cr ON cr.cash_receipt_id = ra.cash_receipt_id\n" +
+                    (full ? "  LEFT JOIN hz_cust_accounts pca ON pca.cust_account_id = cr.pay_from_customer\n  LEFT JOIN ra_customer_trx_all cm ON cm.customer_trx_id = ra.customer_trx_id\n" : '') +
+                    " WHERE ca.account_number = " + q(acct) + " AND ra.status = 'APP' AND NVL(ra.display, 'Y') = 'Y' AND ra.apply_date >= ADD_MONTHS(TRUNC(SYSDATE), -" + m + ")\n ORDER BY ra.apply_date DESC FETCH FIRST 2000 ROWS ONLY";
+            }
+            return [one(true), one(false)];
+        },
+        /** adjustments on the customer's transactions (write-offs, small balances, charges) */
+        adjustments: function (acct, bu, months) {
+            var m = Math.max(1, Math.min(60, +months || 24));
+            var base = "SELECT adj.adjustment_number, TO_CHAR(adj.apply_date, 'YYYY-MM-DD') AS apply_date, t.trx_number, adj.amount, adj.type AS adj_type, adj.reason_code AS reason, adj.status";
+            var tail = ", t.customer_trx_id\n  FROM ar_adjustments_all adj\n  JOIN ra_customer_trx_all t ON t.customer_trx_id = adj.customer_trx_id\n  JOIN hz_cust_accounts ca ON ca.cust_account_id = t.bill_to_customer_id\n" +
+                " WHERE ca.account_number = " + q(acct) + " AND adj.apply_date >= ADD_MONTHS(TRUNC(SYSDATE), -" + m + ")\n ORDER BY adj.apply_date DESC FETCH FIRST 500 ROWS ONLY";
+            return [base + ', adj.comments' + tail, base + tail];
+        },
+        /** product returns: return lines of sales orders (Order Management), with the return reason */
+        returns: function (acct, bu, months) {
+            var m = Math.max(1, Math.min(60, +months || 24));
+            function one(reason, cat) {
+                return "SELECT h.order_number, TO_CHAR(h.ordered_date, 'YYYY-MM-DD') AS ordered, fl.fulfill_line_number AS line, i.item_number AS item, fl.ordered_qty AS qty, fl.ordered_uom AS uom,\n" +
+                    "       fl.extended_amount AS amount, fl.status_code AS status" + (reason ? ', fl.return_reason_code AS reason' : '') + ", h.header_id\n" +
+                    "  FROM doo_fulfill_lines_all fl\n  JOIN doo_headers_all h ON h.header_id = fl.header_id\n  JOIN hz_cust_accounts ca ON ca.party_id = h.sold_to_party_id\n" +
+                    "  LEFT JOIN egp_system_items_b i ON i.inventory_item_id = fl.inventory_item_id AND i.organization_id = fl.fulfill_org_id\n" +
+                    " WHERE ca.account_number = " + q(acct) + " AND h.ordered_date >= ADD_MONTHS(TRUNC(SYSDATE), -" + m + ") AND " + cat + "\n ORDER BY h.ordered_date DESC, h.order_number DESC FETCH FIRST 500 ROWS ONLY";
+            }
+            return [one(true, "fl.line_category_code = 'RETURN'"), one(false, "fl.line_category_code = 'RETURN'"), one(false, "fl.category_code = 'RETURN'"), one(false, 'fl.ordered_qty < 0')];
         },
         items: function (acct, bu, months) {
             var m = Math.max(1, Math.min(60, +months || 12));
@@ -567,6 +623,112 @@
             return [base + ' AND t.org_id = ' + digits(bu) + "\n GROUP BY TO_CHAR(t.trx_date, 'YYYY-MM')\n ORDER BY 1", base + "\n GROUP BY TO_CHAR(t.trx_date, 'YYYY-MM')\n ORDER BY 1"];
         }
     };
+    /** the whole Fusion customer master, one page at a time (keyset on CUST_ACCOUNT_ID — every page costs the same at any depth);
+     *  since = 'YYYY-MM-DD HH24:MI:SS' only reads accounts / parties changed from then (Sync changes). Alternatives: with address,
+     *  e-mail and phone; with e-mail and phone; plain. */
+    E.sql.customersPage = function (afterId, since, size) {
+        var n = Math.max(50, Math.min(5000, +size || 1000)), after = digits(afterId || 0);
+        var changed = "GREATEST(NVL(ca.last_update_date, DATE '2000-01-01'), NVL(p.last_update_date, DATE '2000-01-01'))";
+        var addr = ",\n       (SELECT l.address1 || NVL2(l.city, ', ' || l.city, '') || NVL2(l.country, ', ' || l.country, '')\n" +
+            "          FROM hz_cust_acct_sites_all s JOIN hz_party_sites ps ON ps.party_site_id = s.party_site_id JOIN hz_locations l ON l.location_id = ps.location_id\n" +
+            "         WHERE s.cust_account_id = ca.cust_account_id AND s.status = 'A' AND ROWNUM = 1) AS bill_to_address";
+        var cps = ",\n       (SELECT MAX(cp.email_address) KEEP (DENSE_RANK FIRST ORDER BY DECODE(cp.primary_flag, 'Y', 0, 1)) FROM hz_contact_points cp\n" +
+            "         WHERE cp.owner_table_name = 'HZ_PARTIES' AND cp.owner_table_id = p.party_id AND cp.contact_point_type = 'EMAIL' AND cp.status = 'A') AS email,\n" +
+            "       (SELECT MAX(NVL2(cp.phone_area_code, cp.phone_area_code || ' ', '') || cp.phone_number) KEEP (DENSE_RANK FIRST ORDER BY DECODE(cp.primary_flag, 'Y', 0, 1)) FROM hz_contact_points cp\n" +
+            "         WHERE cp.owner_table_name = 'HZ_PARTIES' AND cp.owner_table_id = p.party_id AND cp.contact_point_type = 'PHONE' AND cp.status = 'A') AS phone";
+        function one(extra) {
+            return "SELECT ca.cust_account_id, ca.account_number, p.party_name AS customer, p.party_number, ca.account_name, ca.status, ca.customer_type, ca.customer_class_code AS customer_class,\n" +
+                "       p.jgzz_fiscal_code AS tax_reference" + extra + ",\n       TO_CHAR(" + changed + ", 'YYYY-MM-DD HH24:MI:SS') AS changed\n" +
+                "  FROM hz_cust_accounts ca\n  JOIN hz_parties p ON p.party_id = ca.party_id\n WHERE ca.cust_account_id > " + after +
+                (since && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/.test(since) ? "\n   AND " + changed + " >= TO_DATE('" + since.slice(0, 19) + "', 'YYYY-MM-DD HH24:MI:SS')" : '') +
+                "\n ORDER BY ca.cust_account_id\n FETCH FIRST " + n + " ROWS ONLY";
+        }
+        return [one(addr + cps), one(cps), one('')];
+    };
+    /** a Fusion master row → the row kept on this PC / in APEX (lower-case columns, digits of the phone, one search text) */
+    E.custRow = function (r, pod) {
+        var g = function (k) { var v = r[k] != null ? r[k] : r[k.toLowerCase()]; return v == null ? '' : String(v); };
+        var o = { pod: pod || '', cust_account_id: g('CUST_ACCOUNT_ID'), account_number: g('ACCOUNT_NUMBER'), customer: g('CUSTOMER'), party_number: g('PARTY_NUMBER'), account_name: g('ACCOUNT_NAME'),
+            status: g('STATUS'), customer_type: g('CUSTOMER_TYPE'), customer_class: g('CUSTOMER_CLASS'), tax_reference: g('TAX_REFERENCE'), bill_to_address: g('BILL_TO_ADDRESS'), email: g('EMAIL'), phone: g('PHONE'), changed: g('CHANGED') };
+        o.phone_digits = o.phone.replace(/\D/g, '');
+        o.hay = [o.account_number, o.customer, o.account_name, o.party_number, o.email, o.phone, o.tax_reference, o.bill_to_address].join(' ').toLowerCase();
+        return o;
+    };
+    /** a kept row → the Fusion-style master row the 360 shows (upper-case keys) */
+    E.custMaster = function (o) {
+        return { ACCOUNT_NUMBER: o.account_number, CUSTOMER: o.customer, PARTY_NUMBER: o.party_number, ACCOUNT_NAME: o.account_name, STATUS: o.status, CUSTOMER_TYPE: o.customer_type, CUSTOMER_CLASS: o.customer_class,
+            TAX_REFERENCE: o.tax_reference, BILL_TO_ADDRESS: o.bill_to_address, EMAIL: o.email, PHONE: o.phone, CUST_ACCOUNT_ID: o.cust_account_id };
+    };
+    /** search words → a WHERE over the kept customers (every word in the search text; 7+ digits also match the phone digits) */
+    E.custWhere = function (q, quote) {
+        var words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean).slice(0, 6);
+        if (!words.length) return '';
+        return words.map(function (w) {
+            var d = w.replace(/\D/g, ''), like = "hay LIKE " + quote('%' + w.replace(/[%_]/g, '') + '%');
+            return d.length >= 7 && d.length === w.replace(/[\s+()-]/g, '').length ? '(' + like + ' OR phone_digits LIKE ' + quote('%' + d.slice(-7) + '%') + ')' : like;
+        }).join(' AND ');
+    };
+
+    // ── AR 360: one picture of a customer's receivables + a rating ──
+    function num0(v) { return v == null || v === '' || isNaN(+v) ? 0 : +v; }
+    function cls0(r) { var c = String(r.CLASS || '').toUpperCase(); if (c === 'CREDIT MEMO') return 'CM'; if (c === 'INVOICE') return 'INV'; return c || 'INV'; }
+    E.isBounced = function (r) { return !!(r.REVERSAL_DATE || /^(NSF|STOP|REV)$/i.test(r.STATUS || '') || /NSF|STOP/i.test(r.REVERSAL_CATEGORY || '')); };
+    E.reversalLabel = function (r) { var c = String(r.REVERSAL_CATEGORY || r.STATUS || '').toUpperCase(); return c === 'NSF' ? 'Bounced (insufficient funds)' : c === 'STOP' ? 'Stop payment' : c === 'REV' ? 'Reversed' : c ? c : 'Reversed'; };
+    /** {trx, receipts, apps, adjustments, returns, open, creditLimit} → totals, monthly series, rating */
+    E.ar360 = function (d, now) {
+        d = d || {}; var n = E.parse(now) || new Date(), y1 = new Date(n.getFullYear() - 1, n.getMonth(), n.getDate()), y1s = E.iso(y1);
+        var trx = d.trx || [], rc = d.receipts || [], apps = d.apps || [], adj = d.adjustments || [], open = d.open || [];
+        var o = { invoiced12: 0, credits12: 0, debit12: 0, collected12: 0, cmApplied12: 0, adjusted12: 0, bounced: [], bouncedAmt: 0, returns: (d.returns || []).length, returnsAmt: 0, months: [] };
+        trx.forEach(function (r) { if (String(r.TRX_DATE) < y1s) return; var c = cls0(r), a = num0(r.AMOUNT); if (c === 'CM') o.credits12 += Math.abs(a); else if (c === 'DM') o.debit12 += a; else if (c === 'INV') o.invoiced12 += a; });
+        apps.forEach(function (r) { if (String(r.APPLY_DATE) < y1s) return; if (String(r.APP_TYPE).toUpperCase() === 'CM') o.cmApplied12 += num0(r.AMOUNT_APPLIED); else o.collected12 += num0(r.AMOUNT_APPLIED); });
+        adj.forEach(function (r) { if (String(r.APPLY_DATE) >= y1s) o.adjusted12 += Math.abs(num0(r.AMOUNT)); });
+        rc.forEach(function (r) { if (E.isBounced(r)) { o.bounced.push(r); o.bouncedAmt += num0(r.AMOUNT); } });
+        (d.returns || []).forEach(function (r) { o.returnsAmt += Math.abs(num0(r.AMOUNT)); });
+        o.bounced12 = o.bounced.filter(function (r) { return String(r.REVERSAL_DATE || r.RECEIPT_DATE) >= y1s; }).length;
+        // paying on time: amount-weighted days late / days to pay of cash applications (12 months), and the trend (last 6 months vs the 6 before)
+        var w = 0, late = 0, pay = 0, h1 = { w: 0, l: 0 }, h2 = { w: 0, l: 0 }, m6 = E.iso(new Date(n.getFullYear(), n.getMonth() - 6, n.getDate()));
+        apps.forEach(function (r) {
+            if (String(r.APP_TYPE).toUpperCase() === 'CM' || String(r.APPLY_DATE) < y1s) return;
+            var a = Math.abs(num0(r.AMOUNT_APPLIED)), dl = Math.max(0, num0(r.DAYS_LATE)); if (!a) return;
+            w += a; late += a * dl; pay += a * Math.max(0, num0(r.DAYS_TO_PAY));
+            var hh = String(r.APPLY_DATE) >= m6 ? h1 : h2; hh.w += a; hh.l += a * dl;
+        });
+        o.daysLate = w ? Math.round(late / w) : null; o.daysToPay = w ? Math.round(pay / w) : null;
+        o.trend = h1.w && h2.w ? Math.round(h1.l / h1.w - h2.l / h2.w) : null;
+        var bal = 0, over = 0, o90 = 0; open.forEach(function (r) { var a = num0(r.REMAINING), dl = num0(r.DAYS_LATE); bal += a; if (dl > 0 && a > 0) over += a; if (dl > 90 && a > 0) o90 += a; });
+        o.balance = bal; o.overdue = over; o.over90 = o90;
+        // months: invoiced, credit notes, collected (24)
+        var by = {};
+        for (var i = 23; i >= 0; i--) { var dd = new Date(n.getFullYear(), n.getMonth() - i, 1), k = dd.getFullYear() + '-' + pad(dd.getMonth() + 1); by[k] = { month: k, invoiced: 0, credits: 0, collected: 0, bounced: 0 }; o.months.push(by[k]); }
+        trx.forEach(function (r) { var x = by[String(r.TRX_DATE).slice(0, 7)]; if (!x) return; var c = cls0(r); if (c === 'CM') x.credits += Math.abs(num0(r.AMOUNT)); else if (c !== 'DEP' && c !== 'GUAR') x.invoiced += num0(r.AMOUNT); });
+        apps.forEach(function (r) { var x = by[String(r.APPLY_DATE).slice(0, 7)]; if (x && String(r.APP_TYPE).toUpperCase() !== 'CM') x.collected += num0(r.AMOUNT_APPLIED); });
+        o.bounced.forEach(function (r) { var x = by[String(r.REVERSAL_DATE || r.RECEIPT_DATE).slice(0, 7)]; if (x) x.bounced++; });
+        o.rating = E.arRating({ invoiced: o.invoiced12, collected: o.collected12, credits: o.credits12 + o.adjusted12, daysLate: o.daysLate, trend: o.trend, balance: bal, overdue: over, over90: o90, bounced: o.bounced12, creditLimit: num0(d.creditLimit) });
+        return o;
+    };
+    E.GRADES = [{ g: 'A', min: 85, cls: 'ok', text: 'Excellent payer', action: 'Keep the terms; can be offered more credit.' }, { g: 'B', min: 70, cls: 'ok', text: 'Good payer', action: 'Normal follow-up.' },
+        { g: 'C', min: 55, cls: 'warn', text: 'Fair', action: 'Watch the overdue items; call before due dates.' }, { g: 'D', min: 40, cls: 'bad', text: 'Weak', action: 'Collect the overdue before new credit; consider a credit hold.' },
+        { g: 'E', min: 0, cls: 'bad', text: 'High risk', action: 'Cash / guaranteed payment only; escalate to credit control.' }];
+    /** 0–100 from weighted factors → {score, grade, factors [{name, weight, score, text}]} */
+    E.arRating = function (x) {
+        x = Object.assign({}, x || {}); var f = [];
+        ['invoiced', 'collected', 'credits', 'balance', 'overdue', 'over90', 'bounced', 'creditLimit'].forEach(function (k) { x[k] = num0(x[k]); });
+        function clamp(v) { return Math.max(0, Math.min(100, Math.round(v))); }
+        f.push({ name: 'Paying on time', weight: 30, score: x.daysLate == null ? 50 : clamp(100 - x.daysLate * 2.5), text: x.daysLate == null ? 'no payments in 12 months' : 'paid ' + x.daysLate + ' days after the due date on average (amount-weighted)' });
+        var ovs = x.balance > 0 ? x.overdue / x.balance : 0, o9 = x.balance > 0 ? x.over90 / x.balance : 0;
+        f.push({ name: 'Overdue now', weight: 20, score: clamp(100 - (ovs + 2 * o9) * 100), text: Math.round(ovs * 100) + ' % of the balance overdue, ' + Math.round(o9 * 100) + ' % over 90 days' });
+        var cr = x.invoiced > 0 ? x.collected / x.invoiced : null;
+        f.push({ name: 'Collected vs invoiced (12 months)', weight: 15, score: cr == null ? 50 : clamp(cr * 100), text: cr == null ? 'nothing invoiced' : Math.round(cr * 100) + ' % of what was invoiced was collected' });
+        var cp = x.invoiced > 0 ? x.credits / x.invoiced : 0;
+        f.push({ name: 'Credit notes & adjustments', weight: 15, score: clamp(100 - Math.max(0, cp - 0.02) / 0.18 * 100), text: Math.round(cp * 1000) / 10 + ' % of invoicing given back' });
+        f.push({ name: 'Bounced cheques (12 months)', weight: 10, score: [100, 60, 30][x.bounced] != null ? [100, 60, 30][x.bounced] : 0, text: (x.bounced || 0) + ' bounced / reversed' });
+        f.push({ name: 'Trend', weight: 10, score: x.trend == null ? 50 : clamp(100 - Math.max(0, x.trend) / 15 * 100), text: x.trend == null ? 'not enough payments' : x.trend > 0 ? 'paying ' + x.trend + ' days later than 6 months before' : x.trend < 0 ? 'paying ' + (-x.trend) + ' days sooner than 6 months before' : 'steady' });
+        if (x.creditLimit > 0) { var use = x.balance / x.creditLimit; f.forEach(function (y) { y.weight = Math.round(y.weight * 0.9); }); f.push({ name: 'Credit limit use', weight: 10, score: clamp(100 - Math.max(0, use - 0.7) / 0.5 * 100), text: Math.round(use * 100) + ' % of the credit limit used' }); }
+        var tw = f.reduce(function (s, y) { return s + y.weight; }, 0), score = Math.round(f.reduce(function (s, y) { return s + y.weight * y.score; }, 0) / tw);
+        var g = E.GRADES.filter(function (y) { return score >= y.min; })[0];
+        return { score: score, grade: g.g, cls: g.cls, text: g.text, action: g.action, factors: f };
+    };
+
     /** monthly sales rows → {m12, prev12, series [{month, amount}]} over the 24 months to `now` */
     E.salesTrend = function (rows, now) {
         var n = E.parse(now) || new Date(), by = {}, series = [];
