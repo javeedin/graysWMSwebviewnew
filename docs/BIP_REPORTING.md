@@ -47,7 +47,12 @@ The working indicator is a small chip in the header toolbar (spinner + what is g
 ## Catalog, the search popup and the index
 
 The left column is the folder tree (`/Custom`, `/Shared Folders` …), the right the reports and data models of the
-folder; the box above the listing only filters that folder. **The search lives in the header**: a box beside the
+folder. The Catalog box searches **this folder first, then the whole catalog** (*In <folder>* + *Elsewhere in the
+catalog* from the index) — only the results under it are repainted while you type, so the cursor never leaves the
+box. BI Publisher sends a blank parent path for the folders under `/`, so a folder's children are matched by their
+stored parent **or** the parent taken from their own path (DuckDB and APEX alike; a blank parent is derived from
+the path when kept). When Fusion lists a folder as empty — or the read fails — the page shows the children the
+index knows (*from the index · Fusion listed nothing here*); no re-index is needed for that. **The search also lives in the header**: a box beside the
 pod chip (Ctrl+K) opens a popup like the WMS toolbar search — type part of a name and every word must match the
 name or the path; hits come grouped as Reports, Data models and Folders with the match marked and the folder on
 the right, ↑ ↓ move, Enter opens (a report in the Run tab, a data model's SQL, a folder in the Catalog), Esc

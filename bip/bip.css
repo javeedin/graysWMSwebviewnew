@@ -141,7 +141,7 @@ pre.code { padding: 10px; overflow: auto; max-height: 420px; white-space: pre-wr
 .gridbox { min-height: 300px; }
 .plain { overflow: auto; max-height: 560px; }
 .src { display: inline-flex; gap: 5px; align-items: center; font-size: 11px; font-weight: 600; color: var(--muted); background: var(--soft); border-radius: 999px; padding: 2px 9px; vertical-align: middle; }
-.src.duck { color: #5b21b6; background: #ede9fe; } .src.apex { color: #065f46; background: #d1fae5; } .src.live { color: #1e40af; background: #dbeafe; }
+.src.duck { color: #5b21b6; background: #ede9fe; } .src.apex { color: #065f46; background: #d1fae5; } .src.live { color: #1e40af; background: #dbeafe; } .src.idx { color: #92400e; background: #fef3c7; }
 .src a { color: inherit; text-decoration: underline; cursor: pointer; }
 i.src { padding: 2px 6px; }
 .warn { color: var(--warn); } .bad { color: var(--bad); }

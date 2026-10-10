@@ -127,10 +127,27 @@ namespace WMSApp.Bip
         {
             WithDb(c =>
             {
-                Exec(c, "DELETE FROM bip_catalog WHERE pod = " + Lit(pod) + " AND parent = " + Lit(path));
+                Exec(c, "DELETE FROM bip_catalog WHERE pod = " + Lit(pod) + " AND " + InFolder(path) + " AND path <> " + Lit(path));
                 InsertItems(c, pod, items, Now());
                 return true;
             });
+        }
+
+        /// <summary>The parent folder of a catalog path ("/Custom/Finance/AR.xdo" → "/Custom/Finance", "/Custom" → "/").</summary>
+        public static string ParentOf(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return "/";
+            string t = path.Length > 1 ? path.TrimEnd('/') : path;
+            int i = t.LastIndexOf('/');
+            return i <= 0 ? "/" : t.Substring(0, i);
+        }
+
+        // BI Publisher sends a blank parentAbsolutePath for the children of "/" (and sometimes "/Custom/" with a slash) —
+        // a row is in a folder when its stored parent says so OR the parent taken from its own path does.
+        private static string InFolder(string path)
+        {
+            string p = string.IsNullOrEmpty(path) ? "/" : (path.Length > 1 ? path.TrimEnd('/') : path);
+            return "(parent = " + Lit(p) + " OR COALESCE(NULLIF(regexp_replace(path, '/[^/]*/?$', ''), ''), '/') = " + Lit(p) + ")";
         }
 
         private static void InsertItems(DuckDBConnection c, string pod, List<BipCatalogItem> items, string at)
@@ -140,9 +157,16 @@ namespace WMSApp.Bip
             foreach (var it in items)
             {
                 var row = app.CreateRow();
-                foreach (var v in new[] { pod, it.AbsolutePath ?? "", it.DisplayName ?? "", it.FileName ?? "", it.Type ?? "", it.ParentAbsolutePath ?? "", it.LastModified ?? "", it.Owner ?? "", at }) row.AppendValue(v);
+                foreach (var v in new[] { pod, it.AbsolutePath ?? "", it.DisplayName ?? "", it.FileName ?? "", it.Type ?? "", ParentPath(it), it.LastModified ?? "", it.Owner ?? "", at }) row.AppendValue(v);
                 row.EndRow();
             }
+        }
+
+        private static string ParentPath(BipCatalogItem it)
+        {
+            string pp = it.ParentAbsolutePath;
+            if (string.IsNullOrWhiteSpace(pp)) return ParentOf(it.AbsolutePath);
+            return pp.Length > 1 ? pp.TrimEnd('/') : pp;
         }
 
         /// <summary>The whole walk of a pod replaces what was kept under its root.</summary>
@@ -169,7 +193,7 @@ namespace WMSApp.Bip
         {
             return WithDb(c =>
             {
-                var rows = Read(c, "SELECT path, name, file_name, type, parent, modified, owner, read_at FROM bip_catalog WHERE pod = " + Lit(pod) + " AND parent = " + Lit(path) + " ORDER BY CASE WHEN type = 'Folder' THEN 0 ELSE 1 END, lower(name)");
+                var rows = Read(c, "SELECT path, name, file_name, type, parent, modified, owner, read_at FROM bip_catalog WHERE pod = " + Lit(pod) + " AND " + InFolder(path) + " AND path <> " + Lit(path) + " ORDER BY CASE WHEN type = 'Folder' THEN 0 ELSE 1 END, lower(name)");
                 if (rows.Count == 0)
                 {
                     // the folder itself is known (its parent was read) but empty, or never read: tell them apart by the folder's own row

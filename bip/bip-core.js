@@ -85,11 +85,29 @@
                 }, function () { step('Reading ' + path + ' from Fusion…'); return S.bip('bipCatalog', { instance: pod, path: path }); });
             });
         }).then(function (d) {
+            if ((d.items || []).length) return d;
+            // Fusion (or the kept copy) listed nothing — show what the index knows is directly under this folder
+            return ensureIndex().then(function () { return indexChildren(path); }, function () { return []; }).then(function (kids) {
+                return kids.length ? { ok: true, path: path, items: kids, src: 'index', at: P.index.at, by: P.index.by, kept: false } : d;
+            });
+        }, function (e) {
+            return ensureIndex().then(function () { return indexChildren(path); }, function () { return []; }).then(function (kids) {
+                if (!kids.length) throw e;
+                toast('Could not read ' + path + ' (' + e.message + ') — showing it from the index', 'warn', 6000);
+                return { ok: true, path: path, items: kids, src: 'index', at: P.index.at, by: P.index.by, kept: false };
+            });
+        }).then(function (d) {
             if (P.pod !== pod) return;
             P.cat.path = d.path || path; P.cat.items = d.items || []; P.cat.at = d.at; P.cat.src = d.src || 'fusion'; P.cat.kept = d.kept !== false; P.cat.by = d.by;
             P.cat.cache[P.cat.path] = { items: P.cat.items, at: d.at, src: P.cat.src, kept: P.cat.kept, by: d.by };
             lsSet('catPath', P.cat.path); render();
         }).catch(function () { render(); });
+    }
+    /** Direct children of a folder as the index knows them (folders first). */
+    function indexChildren(path) {
+        var p = path && path.length > 1 ? path.replace(/\/+$/, '') : (path || '/');
+        return (P.index.items || []).filter(function (it) { return it.absolutePath && it.absolutePath !== p && S.parentOf(it.absolutePath) === p; })
+            .sort(function (a, b) { var fa = a.type === 'Folder' ? 0 : 1, fb = b.type === 'Folder' ? 0 : 1; return fa - fb || String(a.displayName || '').toLowerCase().localeCompare(String(b.displayName || '').toLowerCase()); });
     }
     function crumbs(path) {
         var parts = String(path || '/').split('/').filter(Boolean), h = '<a data-act="cd" data-path="/"><i class="fas fa-house"></i></a>', acc = '';
@@ -109,13 +127,23 @@
     }
     function vCatalog() {
         var h = '';
-        var q = P.cat.q.trim();
-        h += '<div class="card"><div class="row"><input type="search" id="cat-q" placeholder="Filter this folder — the search box in the header finds any report in the whole catalog (Ctrl+K)" value="' + esc(P.cat.q) + '" style="flex:1;min-width:260px">' +
+        h += '<div class="card"><div class="row"><input type="search" id="cat-q" placeholder="Find a report — in ' + esc(P.cat.path) + ' first, then the whole catalog" value="' + esc(P.cat.q) + '" autocomplete="off" spellcheck="false" style="flex:1;min-width:260px">' +
             indexButton() + (P.indexing ? '<button class="btn sm" data-act="indexCancel">Stop</button>' : '') + '<a data-act="indexHelp" class="muted small" style="cursor:pointer" title="How the index works"><i class="fas fa-circle-question"></i></a>' +
             '<button class="btn" data-act="refreshFolder" title="Read this folder again from Fusion"><i class="fas fa-rotate"></i></button></div></div>';
+        return h + '<div id="cat-body">' + catBody() + '</div>';
+    }
+    /** Everything under the Catalog box — repainted alone while typing, so the box keeps its cursor. */
+    function catBody() {
+        var h = '', q = P.cat.q.trim();
         if (q) {
-            var local = P.cat.items.filter(function (it) { return q.toLowerCase().split(/\s+/).every(function (w) { return String(it.displayName || it.fileName || '').toLowerCase().indexOf(w) >= 0; }); });
-            h += '<div class="card"><h2>In ' + esc(P.cat.path) + ' <span class="pill">' + local.length + '</span> <span class="muted small">— for the whole catalog use the search box in the header</span></h2><div class="items">' + (local.length ? local.map(function (it) { return itemRow(it, false); }).join('') : '<div class="empty">Nothing here matches</div>') + '</div></div>';
+            var words = q.toLowerCase().split(/\s+/).filter(Boolean);
+            var local = P.cat.items.filter(function (it) { var n = String(it.displayName || it.fileName || '').toLowerCase(); return words.every(function (w) { return n.indexOf(w) >= 0; }); });
+            var seen = {}; local.forEach(function (it) { seen[it.absolutePath] = 1; });
+            h += '<div class="card"><h2>In ' + esc(P.cat.path) + ' <span class="pill">' + local.length + '</span></h2><div class="items">' + (local.length ? local.map(function (it) { return itemRow(it, false); }).join('') : '<div class="empty">Nothing in this folder matches</div>') + '</div></div>';
+            if (P.index.items) {
+                var more = E.search(P.index.items, q, 60).filter(function (it) { return !seen[it.absolutePath]; });
+                h += '<div class="card"><h2>Elsewhere in the catalog <span class="pill">' + more.length + '</span></h2><div class="items">' + (more.length ? more.map(function (it) { return itemRow(it, true); }).join('') : '<div class="empty">Nothing else in the ' + E.fmtNum(P.index.items.length) + ' indexed items matches — added lately? <a data-act="indexUpdate">Update the index</a></div>') + '</div></div>';
+            } else h += '<div class="card"><div class="muted small">Only this folder was searched — the catalog is not indexed on this PC yet. <a data-act="index">Index it</a> and every report is found by name.</div></div>';
             return h;
         }
         // start here
@@ -134,6 +162,7 @@
     /** Where a thing came from: this PC's DuckDB copy (read at …) with a Refresh link, or Fusion just now (kept in DuckDB). */
     function srcNote(src, at, kept, act, by) {
         if (!src) return '';
+        if (src === 'index') return '<span class="src idx" title="Fusion listed nothing here (or could not be read), so these come from the catalog index of ' + esc(at || '') + '"><i class="fas fa-sitemap"></i> from the index · ' + esc(at || '') + ' · Fusion listed nothing here' + (act ? ' · <a data-act="' + act + '" title="Read it again from Fusion">Refresh</a>' : '') + '</span>';
         var duck = src === 'duckdb', apex = src === 'apex';
         var title = duck ? 'As kept in this PC\'s DuckDB file; Refresh asks Fusion again' : apex ? 'Shared through APEX by another user; now kept on this PC too' : 'Read from the Fusion pod just now, kept on this PC and shared through APEX';
         var text = duck ? 'from DuckDB · read ' + esc(at || '') : apex ? 'from APEX · read ' + esc(at || '') + (by ? ' by ' + esc(by) : '') : 'from Fusion ' + esc(at || '') + (kept === false ? ' · <b>not kept</b>' : ' · kept + shared');
@@ -723,7 +752,7 @@
     }
     function onInput(e) {
         var t = e.target;
-        if (t.id === 'cat-q') { P.cat.q = t.value; clearTimeout(onInput.t); onInput.t = setTimeout(render, 200); }
+        if (t.id === 'cat-q') { P.cat.q = t.value; clearTimeout(onInput.t); onInput.t = setTimeout(function () { var paint = function () { var b = $('cat-body'); if (b && P.tab === 'catalog') b.innerHTML = catBody(); }; paint(); if (P.cat.q.trim() && !P.index.items) ensureIndex().then(paint, function () { }); }, 150); }
         else if (t.id === 'bip-q') { P.q.text = t.value; clearTimeout(P.q.t); P.q.t = setTimeout(function () { ensureIndex().then(hqPaint, hqPaint); }, 180); }
     }
 

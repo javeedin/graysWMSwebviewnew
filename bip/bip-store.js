@@ -178,14 +178,27 @@
     };
     // ── the catalog, shared ───────────────────────────────────────
     var CAT_COLS = 'item_path AS P, display_name AS N, file_name AS F, item_type AS T, parent_path AS PP, last_modified AS M, owner_name AS O';
-    function catItem(r) { return { absolutePath: r.P, displayName: r.N, fileName: r.F, type: r.T, parentAbsolutePath: r.PP, lastModified: r.M, owner: r.O }; }
+    function catItem(r) { return { absolutePath: r.P, displayName: r.N, fileName: r.F, type: r.T, parentAbsolutePath: r.PP || S.parentOf(r.P), lastModified: r.M, owner: r.O }; }
+    // The parent folder of a catalog path — BI Publisher sends a blank parentAbsolutePath for the children of "/".
+    S.parentOf = function (path) {
+        var t = String(path || '');
+        if (t.length > 1) t = t.replace(/\/+$/, '');
+        var i = t.lastIndexOf('/');
+        return i <= 0 ? '/' : t.substring(0, i);
+    };
+    function normFolder(path) { var p = String(path || '/'); return p.length > 1 ? p.replace(/\/+$/, '') : p; }
+    // a row is in the folder when its parent says so, or (no parent kept) its own path sits directly under the folder
+    function inFolder(path) {
+        var p = normFolder(path), pre = S.likeEsc(p === '/' ? '/' : p + '/');
+        return '(parent_path = ' + S.lit(p, 1000) + ' OR (parent_path IS NULL AND item_path LIKE ' + S.lit(pre + '%', 1000) + " ESCAPE '\\' AND item_path NOT LIKE " + S.lit(pre + '%/_%', 1000) + " ESCAPE '\\'))";
+    }
     function catInsert(pod, items) {
         var me = S.lit(S.user()), groups = [];
         for (var i = 0; i < items.length; i += 40) groups.push(items.slice(i, i + 40));
         return groups.reduce(function (p, g) {
             return p.then(function () {
                 return S.write('DELETE FROM wms_bip_catalog WHERE pod = ' + S.lit(pod) + ' AND item_path IN (' + g.map(function (it) { return S.lit(it.absolutePath, 1000); }).join(', ') + ')').then(function () {
-                    return S.write('INSERT INTO wms_bip_catalog (pod, item_path, display_name, file_name, item_type, parent_path, last_modified, owner_name, read_by) ' + g.map(function (it) { return 'SELECT ' + [S.lit(pod, 20), S.lit(it.absolutePath, 1000), S.lit(it.displayName, 400), S.lit(it.fileName, 400), S.lit(it.type, 40), S.lit(it.parentAbsolutePath, 1000), S.lit(it.lastModified, 40), S.lit(it.owner, 200), me].join(', ') + ' FROM dual'; }).join(' UNION ALL '));
+                    return S.write('INSERT INTO wms_bip_catalog (pod, item_path, display_name, file_name, item_type, parent_path, last_modified, owner_name, read_by) ' + g.map(function (it) { return 'SELECT ' + [S.lit(pod, 20), S.lit(it.absolutePath, 1000), S.lit(it.displayName, 400), S.lit(it.fileName, 400), S.lit(it.type, 40), S.lit(it.parentAbsolutePath ? normFolder(it.parentAbsolutePath) : S.parentOf(it.absolutePath), 1000), S.lit(it.lastModified, 40), S.lit(it.owner, 200), me].join(', ') + ' FROM dual'; }).join(' UNION ALL '));
                 });
             });
         }, Promise.resolve());
@@ -193,11 +206,11 @@
     S.catalog = {
         /** One folder as another user kept it → { items, at, by } (items empty = not in APEX). */
         folder: function (pod, path) {
-            return S.ensure().then(function () { return S.rows('SELECT ' + CAT_COLS + ", TO_CHAR(read_date, 'YYYY-MM-DD HH24:MI') AS AT, read_by AS RB FROM wms_bip_catalog WHERE pod = " + S.lit(pod) + ' AND parent_path = ' + S.lit(path, 1000) + " ORDER BY CASE WHEN item_type = 'Folder' THEN 0 ELSE 1 END, lower(display_name)", 1000); })
+            return S.ensure().then(function () { return S.rows('SELECT ' + CAT_COLS + ", TO_CHAR(read_date, 'YYYY-MM-DD HH24:MI') AS AT, read_by AS RB FROM wms_bip_catalog WHERE pod = " + S.lit(pod) +  ' AND ' + inFolder(path) + ' AND item_path <> ' + S.lit(normFolder(path), 1000) + " ORDER BY CASE WHEN item_type = 'Folder' THEN 0 ELSE 1 END, lower(display_name)", 1000); })
                 .then(function (r) { return { items: r.map(catItem), at: r.length ? r[0].AT : null, by: r.length ? r[0].RB : null }; });
         },
         saveFolder: function (pod, path, items) {
-            return S.ensure().then(function () { return S.write('DELETE FROM wms_bip_catalog WHERE pod = ' + S.lit(pod) + ' AND parent_path = ' + S.lit(path, 1000)); }).then(function () { return catInsert(pod, items || []); });
+            return S.ensure().then(function () { return S.write('DELETE FROM wms_bip_catalog WHERE pod = ' + S.lit(pod) + ' AND ' + inFolder(path) + ' AND item_path <> ' + S.lit(normFolder(path), 1000)); }).then(function () { return catInsert(pod, items || []); });
         },
         /** The whole catalog as last indexed by anyone → { items, at, by, root, folders, reports }; items empty when nobody indexed this pod. */
         index: function (pod) {
