@@ -1,0 +1,21 @@
+/* wms/page-tabs.css — the WMS pages as tabs across the top of the central panel (wms/page-tabs.js).
+   Trip Management is the fixed first tab; every other menu item opens its own tab. */
+.wms-ptabs { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 4px;
+    margin: -16px -18px 14px; padding: 8px 10px 0; background: #f1f5f9; border-bottom: 1px solid #dbe2ea; }
+body:not(.wms-menu-v2) .wms-ptabs { margin: -2rem -2rem 1.5rem; padding: 10px 14px 0; }
+.wms-ptabs .pt { display: inline-flex; align-items: center; gap: 7px; max-width: 260px; border: 1px solid #dbe2ea; border-bottom: 0; border-radius: 10px 10px 0 0;
+    background: #e8edf3; color: #475569; padding: 7px 9px 7px 12px; font: inherit; font-size: .82rem; font-weight: 600; line-height: 1; cursor: pointer; margin-bottom: 0; }
+.wms-ptabs .pt i { color: #6366f1; font-size: .8rem; }
+.wms-ptabs .pt span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wms-ptabs .pt:hover { background: #fff; color: #1e293b; }
+.wms-ptabs .pt.on { background: #fff; color: #1e3a8a; border-color: #c7d2fe; box-shadow: inset 0 3px 0 #4f46e5; margin-bottom: -1px; padding-bottom: 8px; }
+.wms-ptabs .pt.on i { color: #4f46e5; }
+.wms-ptabs .pt .x { margin-left: 2px; width: 18px; height: 18px; line-height: 17px; border-radius: 50%; text-align: center; color: #94a3b8; font-size: 15px; font-weight: 700; }
+.wms-ptabs .pt .x:hover { background: #fee2e2; color: #b91c1c; }
+.wms-ptabs .pt .pin { color: #94a3b8; font-size: .66rem; margin-left: 2px; }
+.wms-ptabs .sp { flex: 1; }
+.wms-ptabs .pt-all { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #dbe2ea; background: #fff; color: #475569; border-radius: 8px; padding: 5px 10px;
+    font: inherit; font-size: .76rem; font-weight: 600; cursor: pointer; margin-bottom: 6px; }
+.wms-ptabs .pt-all:hover { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
+.wms-ptabs .pt-all:disabled { opacity: .45; cursor: default; }
+.wms-ptabs .pt-all:disabled:hover { color: #475569; border-color: #dbe2ea; background: #fff; }

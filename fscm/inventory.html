@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fusion Inventory — Gray's</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="fscm.css">
+    <link rel="stylesheet" href="inv.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <script src="core.js"></script>
+    <script src="inv-util.js"></script>
+    <script src="inventory.js"></script>
+    <script src="inv-onhand.js"></script>
+    <script src="inv-transfers.js"></script>
+    <script src="inv-itemload.js"></script>
+    <script src="inv-stock.js"></script>
+    <script>
+        FX.start({
+            module: 'inventory',
+            sub: 'Items, on-hand, transfers and transactions — live from Oracle Fusion',
+            views: [INV.itemMaster, INV.itemLoading, INV.onhand, INV.subinventories, INV.stock, INV.transfers, INV.txns, INV.settings]
+        });
+    </script>
+</body>
+</html>

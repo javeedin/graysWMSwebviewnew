@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fusion SCM — Gray's</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="fscm.css">
+</head>
+<body>
+    <header class="top">
+        <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
+        <div class="logo" style="background:linear-gradient(135deg,#38bdf8,#0369a1)"><i class="fa-solid fa-diagram-project"></i></div>
+        <div><h1>Fusion SCM <span class="ver">v12.1.0</span></h1><p>Oracle Fusion supply chain, live — orders, purchasing, inventory, costing · <span id="who"></span> · <span id="inst" class="inst"></span></p></div>
+    </header>
+    <div class="hub">
+        <div class="tiles" id="tiles"></div>
+        <div class="card pad" style="max-width:980px">
+            <div class="row-btns"><b><i class="fa-solid fa-plug" style="color:var(--accent)"></i> Connection</b><span class="muted" id="conn">Fusion REST through the app — the Fusion login stays in the app, never in the page.</span><span class="grow"></span><button class="btn sm" id="ping"><i class="fa-solid fa-satellite-dish"></i> Test Fusion</button></div>
+        </div>
+    </div>
+    <div class="modal-bg" id="modal" hidden><div class="modal" id="modal-box"></div></div>
+    <div class="busy" id="busy" hidden><div><i class="fa-solid fa-circle-notch fa-spin"></i><span id="busy-t"></span></div></div>
+    <div class="toast" id="toast"></div>
+    <script src="core.js"></script>
+    <script>
+        var HUB = {
+            om: ['Sales orders from Order Hub, POS sales order, customers, shipment lines and pick confirmation.', 'Sales orders · POS · Customers · Shipping · Picks'],
+            purchasing: ['Purchase orders end to end: create, manage, life cycle, receiving, ASNs, returns, suppliers.', 'POs · Receipts · ASN · Returns · Suppliers · Loading'],
+            ship: ['Shipment lines, pick release, confirm picks, ship confirm and a batch desk.', 'Shipment lines · Picks · Batch release & ship'],
+            inventory: ['Items, on-hand, subinventories, transfer orders, transactions and data loads.', 'Items · On-hand · Transfers · Transactions · Loading'],
+            costing: ['Item costs, receipt costs and cost management processes.', 'Item cost · Receipt cost · Cost processes'],
+            setup: ['Business units, legal entities, setup data, UAT diagnostics and reference guides.', 'Setup data · Browse · UAT · Architecture']
+        };
+        FX.user = (function () { try { return (sessionStorage.getItem('loggedInUser') || localStorage.getItem('loggedInUser') || 'UNKNOWN').toUpperCase(); } catch (e) { return 'UNKNOWN'; } })();
+        FX.instance = lsGet('fx_instance', null) || 'PROD';
+        $('who').textContent = FX.user; $('inst').textContent = FX.instance; $('inst').className = 'inst ' + FX.instance;
+        $('tiles').innerHTML = FX.MODULES.map(function (m) {
+            return '<a class="tile" href="' + m.file + '"><div class="ic" style="background:linear-gradient(135deg,' + m.c[0] + ',' + m.c[1] + ')"><i class="fa-solid ' + m.icon + '"></i></div><div><b>Fusion ' + esc(m.label) + '</b><span>' + esc(HUB[m.id][0]) + '</span><small>' + esc(HUB[m.id][1]) + '</small></div></a>';
+        }).join('');
+        $('ping').onclick = function () {
+            $('conn').innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Asking ' + FX.instance + '…';
+            var t0 = Date.now();
+            FX.get('inventoryOrganizations', { limit: 1, fields: 'OrganizationCode' }).then(function () {
+                $('conn').innerHTML = '<span class="chip ok">connected</span> ' + FX.instance + ' answered in ' + (Date.now() - t0) + ' ms';
+            }).catch(function (e) { $('conn').innerHTML = '<span class="chip err">failed</span> ' + esc(e); });
+        };
+    </script>
+</body>
+</html>

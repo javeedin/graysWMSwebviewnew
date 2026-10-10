@@ -1,0 +1,38 @@
+/* Trip Details › summary card in the WMS 2.0 look (wms/trip-summary.js): a stage timeline + KPI cards built from the trip grid's
+   rows. The card's legacy ids (kpi-date-…, kpi-volume-…) are kept as hidden spans so app.js' own updates still land.
+   Delete this file + trip-summary.js (and their two lines in wms/index.html) to go back to the old tiles. */
+.ts2 { --ink: #0f172a; --ink2: #334155; --muted: #64748b; --line: #e2e8f0; --line2: #cbd5e1; --accent: #1d4ed8; --good: #15803d; --bad: #b91c1c; --warn: #b45309; --idle: #e2e8f0; }
+.ts2-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ts2-head h2 { margin: 0; font-size: 1.1rem; font-weight: 700; color: #1e293b; }
+.ts2-head h2 .mono { font-family: Consolas, 'Cascadia Mono', monospace; }
+.ts2-head .ts2-sub { color: var(--muted, #64748b); font-size: .8rem; }
+.ts2-head .ts2-sub b { color: #334155; font-weight: 600; }
+.ts2-head .ts2-day { background: #eff6ff; color: #1d4ed8; border-radius: 99px; padding: 1px 9px; font-size: .7rem; font-weight: 700; }
+.ts2-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.ts2 .tl { display: flex; overflow-x: auto; }
+.ts2 .tl > div { flex: 1; min-width: 92px; text-align: center; font-size: .72rem; position: relative; padding-top: 20px; color: var(--muted); cursor: pointer; border-radius: 8px; }
+.ts2 .tl > div:hover { background: #f8fafc; }
+.ts2 .tl > div::before { content: ''; position: absolute; top: 7px; left: 0; right: 0; height: 3px; background: var(--idle); }
+.ts2 .tl > div::after { content: ''; position: absolute; top: 2px; left: calc(50% - 7px); width: 14px; height: 14px; border-radius: 50%; background: var(--idle); border: 2px solid #fff; }
+.ts2 .tl > div.d::before, .ts2 .tl > div.d::after { background: var(--good); }
+.ts2 .tl > div.p::after { background: #f59e0b; }
+.ts2 .tl > div.x::after { background: var(--bad); }
+.ts2 .tl > div.d, .ts2 .tl > div.p, .ts2 .tl > div.x { color: var(--ink); font-weight: 600; }
+.ts2 .tl > div.on { background: #eff6ff; box-shadow: inset 0 0 0 1px var(--accent); }
+.ts2 .tl small { display: block; font-weight: 400; color: var(--muted); }
+.ts2 .kpis { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-top: 12px; }
+.ts2 .kpi { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 2px; cursor: pointer; transition: border-color .15s, box-shadow .15s; align-content: start; }
+.ts2 .kpi:hover { border-color: var(--accent); box-shadow: 0 4px 14px rgba(29,78,216,.08); }
+.ts2 .kpi .l { font-size: .72rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.ts2 .kpi .n { font-size: 1.55rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); line-height: 1.15; }
+.ts2 .kpi .s { font-size: .72rem; color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ts2 .kpi.bad { border-color: #fca5a5; } .ts2 .kpi.bad .n { color: var(--bad); }
+.ts2 .kpi.warn { border-color: #fcd34d; } .ts2 .kpi.warn .n { color: var(--warn); }
+.ts2 .kpi.good .n { color: var(--good); }
+.ts2 .kpi.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.ts2 .kpi .bar { height: 5px; border-radius: 3px; background: var(--idle); overflow: hidden; margin-top: 4px; }
+.ts2 .kpi .bar b { display: block; height: 100%; background: var(--accent); }
+.ts2 .kpi.warn .bar b { background: #f59e0b; } .ts2 .kpi.bad .bar b { background: var(--bad); } .ts2 .kpi.good .bar b { background: var(--good); }
+.ts2-filter { display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 99px; padding: 3px 6px 3px 12px; font-size: .74rem; font-weight: 600; }
+.ts2-filter button { border: 0; background: #1d4ed8; color: #fff; border-radius: 99px; width: 20px; height: 20px; cursor: pointer; font-size: .7rem; line-height: 20px; padding: 0; }
+.ts2-legacy { display: none !important; }

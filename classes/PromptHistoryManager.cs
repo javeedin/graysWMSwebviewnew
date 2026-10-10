@@ -24,10 +24,18 @@ namespace WMSApp
 
         private void EnsureFolderExists()
         {
-            if (!Directory.Exists(BASE_FOLDER))
+            try
             {
-                Directory.CreateDirectory(BASE_FOLDER);
-                System.Diagnostics.Debug.WriteLine($"[PromptHistory] Created folder: {BASE_FOLDER}");
+                if (!Directory.Exists(BASE_FOLDER))
+                {
+                    Directory.CreateDirectory(BASE_FOLDER);
+                    System.Diagnostics.Debug.WriteLine($"[PromptHistory] Created folder: {BASE_FOLDER}");
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log but don't crash - directory creation failure shouldn't prevent app startup
+                System.Diagnostics.Debug.WriteLine($"[PromptHistory WARNING] Could not create folder {BASE_FOLDER}: {ex.Message}");
             }
         }
 

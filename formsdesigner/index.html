@@ -1,0 +1,1540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Forms Designer - Gray's WMS</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+    :root {
+        --primary: #0f766e;
+        --primary-dark: #134e4a;
+        --bg: #f4f5fa;
+        --panel: #ffffff;
+        --border: #e2e8f0;
+        --text: #1e293b;
+        --muted: #64748b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        background: var(--bg); color: var(--text);
+        height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+    }
+    .topbar {
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+        color: white; padding: 0.55rem 1.1rem; display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+    }
+    .topbar .title { font-size: 15px; font-weight: 800; }
+    .topbar .ver { font-size: 9px; background: rgba(255,255,255,0.2); padding: 2px 8px; border-radius: 8px; }
+    .layout { flex: 1; display: flex; overflow: hidden; }
+    .side { width: 265px; flex-shrink: 0; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 10px; }
+    .main { flex: 1; overflow-y: auto; padding: 14px 18px; }
+    .btn { border: none; border-radius: 7px; cursor: pointer; font-size: 11.5px; font-weight: 700; padding: 6px 14px; }
+    .btn-p { background: var(--primary); color: white; }
+    .btn-g { background: #16a34a; color: white; }
+    .btn-o { background: white; color: #334155; border: 1px solid var(--border); }
+    .btn-d { background: #fee2e2; color: #b91c1c; }
+    .in { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; }
+    .lbl { display: block; font-size: 10px; font-weight: 700; color: #475569; margin-bottom: 2px; }
+    .hint { font-size: 9px; color: #94a3b8; margin-top: 1px; }
+    .sec { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+    .sec-h { padding: 8px 12px; background: #f8fafc; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 800; color: #334155; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+    .sec-b { padding: 10px 12px; }
+    .card { border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; margin-bottom: 8px; background: #fcfcfe; }
+    .card-h { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 7px 10px; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 7px 10px; }
+    .grid4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 7px 10px; }
+    .mono { font-family: Consolas, monospace; font-size: 11px; }
+    .tag { font-size: 8.5px; font-weight: 800; padding: 1px 7px; border-radius: 8px; }
+    .json-bad { border-color: #fca5a5 !important; background: #fff7f7; }
+</style>
+</head>
+<body>
+    <div class="topbar">
+        <a href="../Home/index.html" style="color:white;text-decoration:none;font-size:13px;" title="Home"><i class="fas fa-arrow-left"></i></a>
+        <div class="title"><i class="fas fa-object-group"></i> Forms Designer</div>
+        <div class="ver">v12.1.0</div>
+        <div style="flex:1;"></div>
+        <div style="font-size:10px;opacity:0.85;">Forms are stored in the DB (WMS_AI_FORMS) — no rebuild to add or change a form</div>
+    </div>
+
+    <div class="layout">
+        <!-- ── forms list ── -->
+        <div class="side">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <div style="font-size:12px;font-weight:800;color:#334155;"><i class="fas fa-layer-group"></i> Forms</div>
+                <div style="display:flex;gap:5px;">
+                    <button class="btn btn-o" onclick="loadForms()" title="Refresh list"><i class="fas fa-rotate"></i></button>
+                    <button class="btn btn-o" onclick="importForm()" title="Import a form JSON"><i class="fas fa-file-import"></i></button>
+                    <button class="btn btn-o" onclick="dbCheck()" title="Show what is actually stored in the DB (definition length per form)"><i class="fas fa-database"></i></button>
+                    <button class="btn btn-p" onclick="openNewFormWizard()"><i class="fas fa-plus"></i> New</button>
+                </div>
+            </div>
+            <button class="btn" onclick="newChatForm()" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;margin-bottom:8px;width:100%;"><i class="fas fa-comments"></i> New Form — AI Chat</button>
+            <div id="form-list" style="flex:1;overflow-y:auto;"><div style="font-size:11px;color:#94a3b8;">Loading…</div></div>
+            <div style="font-size:9.5px;color:#94a3b8;margin-top:6px;">
+                Tip: you can also ask the <b>AI Digital Employee</b> to build or change a form in plain words — it writes the same definition.
+            </div>
+        </div>
+
+        <!-- ── editor ── -->
+        <div class="main" id="editor">
+            <div style="font-size:11px;color:#94a3b8;padding:2rem;text-align:center;">Select a form on the left, or create a new one.</div>
+        </div>
+    </div>
+
+<script src="form-engine.js"></script>
+<script src="visual-designer.js"></script>
+<script>
+// ── WebView bridge ──────────────────────────────────────────
+window.pendingRequests = window.pendingRequests || {};
+function generateRequestId() { return 'req_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8); }
+function sendMessageToCSharp(message, callback) {
+    if (!(window.chrome && window.chrome.webview)) {
+        if (callback) callback('WebView2 bridge not available (open this page inside the WMS app)', null);
+        return;
+    }
+    const requestId = generateRequestId();
+    message.requestId = requestId;
+    if (callback) window.pendingRequests[requestId] = callback;
+    window.chrome.webview.postMessage(message);
+}
+if (window.chrome && window.chrome.webview) {
+    window.chrome.webview.addEventListener('message', function (event) {
+        const r = event.data;
+        if (!r || !r.requestId) return;
+        const cb = window.pendingRequests[r.requestId];
+        if (!cb) return;
+        delete window.pendingRequests[r.requestId];
+        if (r.action === 'error') { cb(r.message || 'Unknown error', null); }
+        else if (r.action === 'restResponse') {
+            if (r.success === false) cb('HTTP ' + r.statusCode, null);
+            else cb(null, r.data);
+        }
+        else cb(null, r);
+    });
+    // live status while the AI designs a form (no requestId on these)
+    window.chrome.webview.addEventListener('message', function (event) {
+        const r = event.data;
+        if (r && r.action === 'aiChatEvent') baiEvent(r);
+    });
+}
+
+const AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
+function appUserName() { try { return localStorage.getItem('wms_user') || 'DESIGNER'; } catch (e) { return 'DESIGNER'; } }
+function esc(s) {
+    return String(s === undefined || s === null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function runQuery(sql, cb) {
+    sendMessageToCSharp({ action: 'executePost', fullUrl: AI_BASE + '/executequery', body: JSON.stringify({ sql: sql, maxRows: 300, appUser: appUserName() }) }, function (err, data) {
+        if (err) { cb(String(err), null); return; }
+        try {
+            const r = typeof data === 'string' ? JSON.parse(data) : data;
+            if (!r.success) { cb(r.error || 'query failed', null); return; }
+            const cols = r.columns || [];
+            cb(null, (r.rows || []).map(row => { const o = {}; cols.forEach((c, i) => o[String(c).toUpperCase()] = row[i]); return o; }));
+        } catch (e) { cb(e.message, null); }
+    });
+}
+function runWrite(sql, cb) {
+    sendMessageToCSharp({ action: 'executePost', fullUrl: AI_BASE + '/executewrite', body: JSON.stringify({ sql: sql, appUser: appUserName() }) }, function (err, data) {
+        let d = null;
+        try { d = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
+        if (err || !d || d.success !== true) { cb(String(err || (d && d.error) || 'unknown'), null); return; }
+        cb(null, d);
+    });
+}
+function sqlq(s) { return "'" + String(s === undefined || s === null ? '' : s).replace(/'/g, "''") + "'"; }
+// Oracle SQL string literals are capped at 4000 chars, but a form
+// definition can be much larger. Emit it as TO_CLOB('..')||TO_CLOB('..')
+// with every literal kept under 3800 chars (after quote-escaping) so
+// large definitions save through the write gateway without ORA-01704.
+function clobLiteral(s) {
+    s = String(s === undefined || s === null ? '' : s);
+    const MAX = 3800, parts = [];
+    let cur = '';
+    for (let i = 0; i < s.length; i++) {
+        const piece = s[i] === "'" ? "''" : s[i];
+        if (cur.length + piece.length > MAX) { parts.push(cur); cur = ''; }
+        cur += piece;
+    }
+    if (cur.length) parts.push(cur);
+    if (!parts.length) return "TO_CLOB('')";
+    return parts.map(p => "TO_CLOB('" + p + "')").join(' || ');
+}
+
+// ── state ───────────────────────────────────────────────────
+let formRows = [];        // rows from wms_ai_forms
+let curKey = null;        // selected form_key ('' = new)
+let cur = null;           // { form_key, name, description, active, def }
+let jsonMode = false;
+
+const EMPTY_DEF = () => ({
+    title: 'New Form', icon: 'wpforms', width: 950,
+    header: { columns: 4, fields: [] },
+    details: [],
+    reports: [],
+    rules: { submitChecks: [] },
+    mobile: { columns: 1, hidden: [], order: [] },
+    sections: [],
+    regions: [],
+    style: {},
+    actions: [ { key: 'close', label: 'Close', type: 'close', style: 'default' } ]
+});
+let pageTab = 'design';   // 'chat' | 'design' | 'visual' | 'test'
+let chatMsgs = [];        // conversational builder history [{role:'user'|'ai', text, summary}]
+let chatImgs = [];        // pending screenshots for the chat builder
+let chatBusy = false;
+
+function normalizeLoadedDef(def) {
+    def.header = def.header || { columns: 4, fields: [] };
+    def.header.fields = def.header.fields || [];
+    def.details = def.details || [];
+    def.reports = def.reports || [];
+    def.rules = def.rules || {};
+    def.rules.submitChecks = def.rules.submitChecks || [];
+    def.actions = def.actions || [];
+    def.mobile = def.mobile || { columns: 1, hidden: [], order: [] };
+    def.sections = def.sections || [];
+    def.sections.forEach(s => { s.style = s.style || {}; });
+    def.regions = def.regions || [];
+    def.style = def.style || {};
+    return def;
+}
+
+// ── forms list ──────────────────────────────────────────────
+function loadForms() {
+    runQuery("SELECT form_key, name, description, active FROM wms_ai_forms ORDER BY name", function (err, rows) {
+        const box = document.getElementById('form-list');
+        if (err) {
+            box.innerHTML = '<div style="font-size:11px;color:#b91c1c;">' + esc(err) + '<br><br>Has apex_sql/49_ai_forms.sql been run?</div>';
+            return;
+        }
+        formRows = rows.map(r => ({ form_key: String(r.FORM_KEY || ''), name: String(r.NAME || ''), description: r.DESCRIPTION || '', active: String(r.ACTIVE || 'Y') }));
+        renderList();
+    });
+}
+function renderList() {
+    const box = document.getElementById('form-list');
+    if (!formRows.length) { box.innerHTML = '<div style="font-size:11px;color:#94a3b8;">No forms yet — click New.</div>'; return; }
+    box.innerHTML = formRows.map(f => `
+        <div style="border:1px solid ${curKey === f.form_key ? '#99f6e4' : 'var(--border)'};background:${curKey === f.form_key ? '#f0fdfa' : 'white'};border-radius:8px;padding:8px 10px;margin-bottom:5px;${f.active !== 'Y' ? 'opacity:0.55;' : ''}display:flex;align-items:center;gap:8px;">
+            <div onclick="openForm('${esc(f.form_key)}')" style="flex:1;min-width:0;cursor:pointer;">
+                <div style="font-size:11.5px;font-weight:700;color:#0f172a;">${esc(f.name)} ${f.active !== 'Y' ? '<span style="font-size:8.5px;color:#b91c1c;font-weight:700;">INACTIVE</span>' : ''}</div>
+                <div style="font-size:9.5px;color:#94a3b8;margin-top:2px;">${esc(f.form_key)}</div>
+            </div>
+            <button onclick="event.stopPropagation();deleteForm('${esc(f.form_key)}','${esc((f.name || '').replace(/'/g, ""))}')" title="Delete this form" style="border:none;background:#fef2f2;color:#dc2626;border-radius:7px;width:26px;height:26px;cursor:pointer;flex:0 0 auto;"><i class="fas fa-trash"></i></button>
+        </div>`).join('');
+}
+// Show what the DB actually holds: stored definition length per form, and
+// whether the read gateway returns that CLOB in full. Pinpoints write vs read.
+function dbCheck() {
+    const old = document.getElementById('dbc-modal'); if (old) old.remove();
+    document.body.insertAdjacentHTML('beforeend',
+    '<div id="dbc-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:30000;display:flex;align-items:center;justify-content:center;padding:20px;">' +
+      '<div style="background:white;width:96%;max-width:640px;max-height:88vh;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+        '<div style="padding:0.8rem 1.2rem;background:linear-gradient(135deg,var(--primary),var(--primary-dark));display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-weight:800;font-size:14px;color:white;"><i class="fas fa-database"></i> What is stored in the DB</div>' +
+          '<button onclick="document.getElementById(\'dbc-modal\').remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
+        '</div>' +
+        '<div id="dbc-body" style="padding:1rem 1.2rem;overflow:auto;font-size:12px;">Checking…</div>' +
+      '</div></div>');
+    runQuery("SELECT form_key, LENGTH(definition) AS DEFLEN, LENGTH(definition) AS READLEN FROM wms_ai_forms ORDER BY form_key", function (err, rows) {
+        const b = document.getElementById('dbc-body'); if (!b) return;
+        if (err) { b.innerHTML = '<span style="color:#b91c1c;">' + esc(err) + '</span>'; return; }
+        if (!rows.length) { b.innerHTML = 'No forms in wms_ai_forms.'; return; }
+        // DEFLEN is server-side LENGTH; READLEN comes back the same only if the
+        // read gateway returns CLOBs. We also re-read the actual CLOB per row.
+        let done = 0;
+        const info = rows.map(r => ({ key: String(r.FORM_KEY), stored: Number(r.DEFLEN) || 0, got: null }));
+        info.forEach(row => {
+            runQuery("SELECT definition FROM wms_ai_forms WHERE form_key = " + sqlq(row.key), function (e2, rr) {
+                row.got = (!e2 && rr && rr[0] && rr[0].DEFINITION != null) ? String(rr[0].DEFINITION).length : 0;
+                if (++done === info.length) render();
+            });
+        });
+        function render() {
+            b.innerHTML =
+                '<div style="color:#64748b;margin-bottom:8px;">Stored = true size (server LENGTH). Returned = what the read gateway actually sends back. If Stored &gt; 0 but Returned = 0, <b>apex_sql/35d is not active</b>.</div>' +
+                '<table style="width:100%;border-collapse:collapse;">' +
+                '<tr style="background:#f8fafc;"><th style="text-align:left;padding:6px;">Form</th><th style="text-align:right;padding:6px;">Stored</th><th style="text-align:right;padding:6px;">Returned</th><th style="padding:6px;">Status</th></tr>' +
+                info.map(r => {
+                    const ok = r.stored > 0 && r.got >= r.stored * 0.98;
+                    const readBad = r.stored > 0 && r.got < r.stored * 0.98;
+                    const badge = r.stored === 0 ? '<span style="color:#b91c1c;font-weight:700;">empty (write)</span>'
+                        : readBad ? '<span style="color:#b45309;font-weight:700;">read truncated → 35d</span>'
+                        : '<span style="color:#15803d;font-weight:700;">OK</span>';
+                    return '<tr style="border-bottom:1px solid #f1f5f9;"><td style="padding:6px;">' + esc(r.key) + '</td>' +
+                        '<td style="text-align:right;padding:6px;">' + r.stored + '</td>' +
+                        '<td style="text-align:right;padding:6px;">' + r.got + '</td>' +
+                        '<td style="padding:6px;">' + badge + '</td></tr>';
+                }).join('') + '</table>';
+        }
+    });
+}
+function deleteForm(key, name) {
+    if (!key) return;
+    if (!confirm('Delete the form "' + (name || key) + '" (' + key + ')?\n\nThis permanently removes it from the database and cannot be undone.')) return;
+    runWrite('DELETE FROM wms_ai_forms WHERE form_key = ' + sqlq(key), function (err, d) {
+        if (err) { alert('Delete failed: ' + err); return; }
+        if (curKey === key) { cur = null; curKey = ''; const ed = document.getElementById('editor'); if (ed) ed.innerHTML = '<div style="font-size:11px;color:#94a3b8;padding:2rem;text-align:center;">Form deleted. Select another or create a new one.</div>'; }
+        loadForms();
+    });
+}
+function openForm(key) {
+    runQuery("SELECT form_key, name, description, active, definition, LENGTH(definition) AS DEFLEN FROM wms_ai_forms WHERE form_key = " + sqlq(key), function (err, rows) {
+        if (err || !rows.length) { alert('Could not load form: ' + (err || 'not found')); return; }
+        const r = rows[0];
+        let def = null, warn = '';
+        const raw = r.DEFINITION;
+        const deflen = Number(r.DEFLEN) || 0;   // true stored size (server-side, unaffected by CLOB read)
+        if (raw == null || String(raw).trim() === '' || String(raw).trim() === 'null') {
+            if (deflen > 0) {
+                // The row HAS a definition of `deflen` chars, but the CLOB came
+                // back empty -> the READ gateway is not returning CLOBs. 35d is
+                // not active on this workspace (or the app hit an older handler).
+                warn = 'READ-GATEWAY ISSUE: the definition IS stored (' + deflen + ' chars) but came back empty, so apex_sql/35d is NOT active on the workspace the app uses. Re-run 35d there (verify STATUS=VALID) and confirm the ai/executequery handler calls wms_ai_execute_query. The form is safe — just not readable yet.';
+            } else {
+                warn = 'WRITE ISSUE: this form has NO stored definition (length 0) — the save did not persist. Delete it, then Import the JSON and Save, and read the green "verified — N chars" line.';
+            }
+        } else {
+            try { def = JSON.parse(raw); } catch (e) { warn = 'Stored definition did not fully parse (got ' + String(raw).length + ' of ' + deflen + ' chars). If those differ, the read is truncating — re-run apex_sql/35d.'; }
+        }
+        // unwrap an envelope { form_key, name, definition:{...} } if one was stored by mistake
+        if (def && !def.header && def.definition && def.definition.header) def = def.definition;
+        if (!def || typeof def !== 'object' || !def.header) { if (!warn) warn = 'Stored definition is unusable — starting from an empty layout.'; def = EMPTY_DEF(); }
+        if (warn) alert(warn);
+        normalizeLoadedDef(def);
+        cur = { form_key: String(r.FORM_KEY), name: String(r.NAME || ''), description: String(r.DESCRIPTION || ''), active: String(r.ACTIVE || 'Y'), def: def, isNew: false };
+        curKey = cur.form_key;
+        jsonMode = false;
+        pageTab = 'design';
+        resetTestPreview();
+        renderList(); renderEditor();
+    });
+}
+// ── New Form wizard: pick a type, start from a seeded template ──
+const FORM_TYPES = [
+    { key: 'blank', icon: 'file', name: 'Blank Form', desc: 'Completely empty — design everything yourself in the Visual tab.' },
+    { key: 'single', icon: 'file-lines', name: 'Single Form', desc: 'Header-only entry form — settings, requests, notes.' },
+    { key: 'master', icon: 'table-list', name: 'Master–Detail', desc: 'Header plus one or more grids with totals — orders, returns.' },
+    { key: 'interactive', icon: 'magnifying-glass-chart', name: 'Interactive Report', desc: 'Filter fields on top, a live report grid below, print.' },
+    { key: 'wizard', icon: 'stairs', name: 'Wizard', desc: 'Multi-step: tab pages become steps with Back / Next.' },
+    { key: 'report', icon: 'print', name: 'Report Page', desc: 'No entry — parameters and one or more printable reports.' }
+];
+function formTemplate(type) {
+    const base = EMPTY_DEF();
+    if (type === 'single') {
+        base.title = 'New Single Form';
+        base.header.fields = [
+            { key: 'entry_date', label: 'Date', type: 'date', default: '$TODAY', required: true },
+            { key: 'reference', label: 'Reference', type: 'text' },
+            { key: 'notes', label: 'Notes', type: 'textarea', span: 4 }
+        ];
+        base.actions.unshift({ key: 'save_local', label: 'Save Local', icon: 'floppy-disk', style: 'primary', type: 'local_file', validate: true, folder: 'forms' });
+    } else if (type === 'master') {
+        base.title = 'New Master-Detail Form';
+        base.header.fields = [
+            { key: 'doc_date', label: 'Date', type: 'date', default: '$TODAY', required: true },
+            { key: 'reference', label: 'Reference', type: 'text' }
+        ];
+        base.details = [{
+            key: 'lines', title: 'Lines', allowManualRow: true, allowDelete: true, qtyKey: 'qty', required: true,
+            columns: [
+                { key: 'item', label: 'Item', type: 'text', editable: true, width: 140 },
+                { key: 'description', label: 'Description', type: 'text', editable: true, width: 220 },
+                { key: 'qty', label: 'Qty', type: 'number', editable: true, default: 1, width: 70 },
+                { key: 'price', label: 'Price', type: 'number', editable: true, width: 90 },
+                { key: 'amount', label: 'Amount', type: 'computed', formula: 'qty * price' }
+            ],
+            totals: ['qty', 'amount']
+        }];
+        base.actions.unshift({ key: 'save_local', label: 'Save Local', icon: 'floppy-disk', style: 'primary', type: 'local_file', validate: true, folder: 'forms' });
+    } else if (type === 'interactive') {
+        base.title = 'New Interactive Report';
+        base.header.fields = [
+            { key: 'from_date', label: 'From', type: 'date', default: '$TODAY' },
+            { key: 'to_date', label: 'To', type: 'date', default: '$TODAY' },
+            { key: 'search', label: 'Search', type: 'text', span: 2 }
+        ];
+        base.reports = [{ key: 'results', title: 'Results', sql: '', autoRun: false }];
+        base.actions.unshift({ key: 'print', label: 'Print', icon: 'print', style: 'primary', type: 'print' });
+    } else if (type === 'wizard') {
+        base.title = 'New Wizard';
+        base.wizard = true;
+        base.header.fields = [
+            { key: 'w_date', label: 'Date', type: 'date', default: '$TODAY', required: true, tab: 'Step 1 - Basics' },
+            { key: 'w_ref', label: 'Reference', type: 'text', tab: 'Step 1 - Basics' },
+            { key: 'w_detail1', label: 'Detail A', type: 'text', tab: 'Step 2 - Details' },
+            { key: 'w_detail2', label: 'Detail B', type: 'text', tab: 'Step 2 - Details' },
+            { key: 'w_confirm', label: 'Remarks', type: 'textarea', span: 4, tab: 'Step 3 - Confirm' }
+        ];
+        base.actions.unshift({ key: 'save_local', label: 'Finish & Save', icon: 'flag-checkered', style: 'primary', type: 'local_file', validate: true, folder: 'forms' });
+    } else if (type === 'report') {
+        base.title = 'New Report Page';
+        base.header.fields = [
+            { key: 'p_from', label: 'From', type: 'date', default: '$TODAY' },
+            { key: 'p_to', label: 'To', type: 'date', default: '$TODAY' }
+        ];
+        base.reports = [{ key: 'report1', title: 'Report', sql: '', autoRun: false }];
+        base.actions = [
+            { key: 'print', label: 'Print', icon: 'print', style: 'primary', type: 'print' },
+            { key: 'close', label: 'Close', type: 'close', style: 'default' }
+        ];
+    }
+    return base;
+}
+function openNewFormWizard() {
+    const old = document.getElementById('nfw-modal');
+    if (old) old.remove();
+    document.body.insertAdjacentHTML('beforeend',
+    '<div id="nfw-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:30000;display:flex;align-items:center;justify-content:center;">' +
+      '<div style="background:white;width:94%;max-width:640px;border-radius:14px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+        '<div style="padding:0.8rem 1.2rem;background:linear-gradient(135deg,var(--primary),var(--primary-dark));display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-weight:800;font-size:14px;color:white;"><i class="fas fa-plus"></i> Create a Form — pick a type</div>' +
+          '<button onclick="document.getElementById(\'nfw-modal\').remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
+        '</div>' +
+        '<div style="padding:1rem 1.2rem;display:grid;grid-template-columns:1fr 1fr;gap:9px;">' +
+        FORM_TYPES.map(t =>
+            '<div onclick="newFormOfType(\'' + t.key + '\')" style="border:1px solid var(--border);border-radius:10px;padding:12px 14px;cursor:pointer;" onmouseover="this.style.borderColor=\'var(--primary)\';this.style.background=\'#f0fdfa\'" onmouseout="this.style.borderColor=\'var(--border)\';this.style.background=\'white\'">' +
+            '<div style="font-size:13px;font-weight:800;color:#0f172a;"><i class="fas fa-' + t.icon + '" style="color:var(--primary);"></i> ' + t.name + '</div>' +
+            '<div style="font-size:10.5px;color:#64748b;margin-top:3px;">' + t.desc + '</div></div>').join('') +
+        '<div style="grid-column:span 2;font-size:10px;color:#94a3b8;">Every type is a starting template — refine it in the Visual and Designer tabs, or describe changes to Build from AI.</div>' +
+        '</div>' +
+      '</div></div>');
+}
+function newFormOfType(type) {
+    const m = document.getElementById('nfw-modal');
+    if (m) m.remove();
+    cur = { form_key: '', name: '', description: '', active: 'Y', def: formTemplate(type), isNew: true };
+    curKey = '';
+    jsonMode = false;
+    chatImgs = [];
+    chatMsgs = [{ role: 'ai', summary: 'Loaded a ' + type + ' template. Tell me what to change — fields, data sources (tables/APIs), validations, buttons — and I\'ll update it live. Or switch to the Designer/Visual tabs.' }];
+    pageTab = 'chat';     // land in the conversational builder
+    resetTestPreview();
+    renderList(); renderEditor();
+}
+
+// ── duplicate / export / import ─────────────────────────────
+function duplicateForm() {
+    if (!cur) return;
+    normalizeDef();
+    cur = {
+        form_key: '', name: (cur.name || 'Form') + ' (copy)', description: cur.description,
+        active: 'Y', def: JSON.parse(JSON.stringify(cur.def)), isNew: true
+    };
+    curKey = '';
+    pageTab = 'design';
+    resetTestPreview();
+    renderList(); renderEditor();
+    const ss = document.getElementById('save-status');
+    if (ss) ss.innerHTML = '<span style="color:#0e7490;font-weight:700;">Copy created — set a new form key and Save.</span>';
+}
+// Export: show the full definition JSON in a copyable modal (and save a file)
+function exportForm() { openExportJson(); }
+function openExportJson() {
+    if (!cur) { alert('Open or build a form first.'); return; }
+    normalizeDef();
+    const env = { form_key: cur.form_key, name: cur.name, description: cur.description, definition: cur.def };
+    const json = JSON.stringify(env, null, 2);
+    const old = document.getElementById('exp-modal'); if (old) old.remove();
+    document.body.insertAdjacentHTML('beforeend',
+    '<div id="exp-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:30000;display:flex;align-items:center;justify-content:center;padding:20px;">' +
+      '<div style="background:white;width:96%;max-width:820px;max-height:90vh;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+        '<div style="padding:0.8rem 1.2rem;background:linear-gradient(135deg,var(--primary),var(--primary-dark));display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-weight:800;font-size:14px;color:white;"><i class="fas fa-file-export"></i> Export form JSON</div>' +
+          '<button onclick="document.getElementById(\'exp-modal\').remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
+        '</div>' +
+        '<div style="padding:1rem 1.2rem;overflow:auto;">' +
+          '<textarea id="exp-json" readonly style="width:100%;min-height:360px;font-family:Consolas,monospace;font-size:11px;border:1px solid var(--border);border-radius:8px;padding:10px;">' + esc(json) + '</textarea>' +
+          '<div id="exp-status" style="font-size:11px;margin-top:6px;color:#64748b;"></div>' +
+        '</div>' +
+        '<div style="padding:0.7rem 1.2rem;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:8px;">' +
+          '<button class="btn btn-o" onclick="document.getElementById(\'exp-modal\').remove()">Close</button>' +
+          '<button class="btn btn-o" onclick="expCopy()"><i class="fas fa-copy"></i> Copy</button>' +
+          '<button class="btn btn-g" onclick="expSave()"><i class="fas fa-floppy-disk"></i> Save .json file</button>' +
+        '</div>' +
+      '</div></div>');
+}
+function expCopy() {
+    const ta = document.getElementById('exp-json'); if (!ta) return;
+    ta.select();
+    try { navigator.clipboard.writeText(ta.value); } catch (e) { try { document.execCommand('copy'); } catch (e2) { } }
+    const s = document.getElementById('exp-status'); if (s) s.innerHTML = '<span style="color:#15803d;font-weight:700;">Copied to clipboard.</span>';
+}
+function expSave() {
+    const ta = document.getElementById('exp-json'); if (!ta) return;
+    const fileName = (cur.form_key || 'form') + '.json';
+    sendMessageToCSharp({ action: 'saveLocalFile', folder: 'forms/exports', fileName: fileName, dataBase64: btoa(unescape(encodeURIComponent(ta.value))) }, function (err, d2) {
+        const ok = !err && d2 && d2.success !== false;
+        const s = document.getElementById('exp-status');
+        if (s) s.innerHTML = ok
+            ? '<span style="color:#15803d;font-weight:700;"><i class="fas fa-check-circle"></i> Saved to ' + esc((d2 && d2.path) || fileName) + '</span>'
+            : '<span style="color:#b45309;font-weight:700;">Could not save file (' + esc(String(err || (d2 && d2.error) || '')) + ') — use Copy instead.</span>';
+    });
+}
+// Import: paste a full form JSON in a proper modal (handles large forms)
+function importForm() { openImportJson(); }
+function openImportJson() {
+    const old = document.getElementById('imp-modal'); if (old) old.remove();
+    document.body.insertAdjacentHTML('beforeend',
+    '<div id="imp-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:30000;display:flex;align-items:center;justify-content:center;padding:20px;">' +
+      '<div style="background:white;width:96%;max-width:820px;max-height:90vh;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+        '<div style="padding:0.8rem 1.2rem;background:linear-gradient(135deg,var(--primary),var(--primary-dark));display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-weight:800;font-size:14px;color:white;"><i class="fas fa-file-import"></i> Import form from JSON</div>' +
+          '<button onclick="document.getElementById(\'imp-modal\').remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
+        '</div>' +
+        '<div style="padding:1rem 1.2rem;overflow:auto;">' +
+          '<div style="font-size:11px;color:#64748b;margin-bottom:6px;">Paste a full form JSON — either an envelope <code>{form_key, name, description, definition}</code> or a bare <code>definition</code>.</div>' +
+          '<textarea id="imp-json" placeholder="Paste the form JSON here…" style="width:100%;min-height:360px;font-family:Consolas,monospace;font-size:11px;border:1px solid var(--border);border-radius:8px;padding:10px;"></textarea>' +
+          '<div id="imp-status" style="font-size:11px;margin-top:6px;min-height:16px;"></div>' +
+        '</div>' +
+        '<div style="padding:0.7rem 1.2rem;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:8px;">' +
+          '<button class="btn btn-o" onclick="document.getElementById(\'imp-modal\').remove()">Cancel</button>' +
+          '<button class="btn btn-g" onclick="doImportJson()"><i class="fas fa-download"></i> Load into designer</button>' +
+        '</div>' +
+      '</div></div>');
+    setTimeout(function () { const t = document.getElementById('imp-json'); if (t) t.focus(); }, 60);
+}
+function doImportJson() {
+    const raw = (document.getElementById('imp-json') || {}).value || '';
+    const status = document.getElementById('imp-status');
+    if (!raw.trim()) { if (status) status.innerHTML = '<span style="color:#b91c1c;">Paste the JSON first.</span>'; return; }
+    let env;
+    try { env = JSON.parse(raw); } catch (e) { if (status) status.innerHTML = '<span style="color:#b91c1c;">Invalid JSON: ' + esc(e.message) + '</span>'; return; }
+    const def = env.definition || (env.header ? env : null);
+    if (!def || !def.header) { if (status) status.innerHTML = '<span style="color:#b91c1c;">No usable definition found (it needs a "header").</span>'; return; }
+    cur = {
+        form_key: String(env.form_key || ''), name: String(env.name || def.title || 'Imported form'),
+        description: String(env.description || ''), active: 'Y',
+        def: normalizeLoadedDef(def), isNew: true
+    };
+    curKey = ''; jsonMode = false;
+    chatMsgs = [{ role: 'ai', summary: 'Imported from JSON — the preview is live. Refine by chatting, tweak in Designer/Visual, then set a form key and Save.' }];
+    const m = document.getElementById('imp-modal'); if (m) m.remove();
+    pageTab = 'chat';
+    resetTestPreview();
+    renderList(); renderEditor();
+}
+
+// ── generic binding: data-p="path.into.def" ────────────────
+function getPath(obj, path) {
+    return path.split('.').reduce((o, k) => (o === undefined || o === null) ? undefined : o[isNaN(k) ? k : Number(k)], obj);
+}
+function setPath(obj, path, val) {
+    const parts = path.split('.');
+    let o = obj;
+    for (let i = 0; i < parts.length - 1; i++) o = o[isNaN(parts[i]) ? parts[i] : Number(parts[i])];
+    o[isNaN(parts.at(-1)) ? parts.at(-1) : Number(parts.at(-1))] = val;
+}
+function bindInputs() {
+    document.querySelectorAll('#editor [data-p]').forEach(el => {
+        el.addEventListener('change', function () {
+            const path = el.getAttribute('data-p');
+            const kind = el.getAttribute('data-kind') || 'text';
+            let v;
+            if (kind === 'bool') v = el.checked;
+            else if (kind === 'num') v = el.value === '' ? undefined : Number(el.value);
+            else if (kind === 'json') {
+                if (!el.value.trim()) { v = undefined; el.classList.remove('json-bad'); }
+                else {
+                    try { v = JSON.parse(el.value); el.classList.remove('json-bad'); }
+                    catch (e) { el.classList.add('json-bad'); return; }
+                }
+            }
+            else v = el.value;
+            setPath(cur, path, v);
+        });
+    });
+}
+
+// ── editor rendering ────────────────────────────────────────
+function inTxt(path, val, extra) { return '<input type="text" class="in" data-p="' + path + '" value="' + esc(val) + '" ' + (extra || '') + '>'; }
+function inNum(path, val) { return '<input type="number" class="in" data-p="' + path + '" data-kind="num" value="' + esc(val === undefined ? '' : val) + '">'; }
+function inChk(path, val, label) { return '<label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:5px;padding-top:4px;"><input type="checkbox" data-p="' + path + '" data-kind="bool"' + (val ? ' checked' : '') + '> ' + label + '</label>'; }
+function inSel(path, val, opts) {
+    return '<select class="in" data-p="' + path + '">' + opts.map(o => '<option value="' + o + '"' + (o === String(val || '') ? ' selected' : '') + '>' + (o || '(none)') + '</option>').join('') + '</select>';
+}
+function inArea(path, val, kind, rows) {
+    const v = kind === 'json' ? (val === undefined ? '' : JSON.stringify(val, null, 2)) : (val || '');
+    return '<textarea class="in mono" data-p="' + path + '"' + (kind ? ' data-kind="' + kind + '"' : '') + ' style="min-height:' + ((rows || 3) * 17 + 14) + 'px;resize:vertical;">' + esc(v) + '</textarea>';
+}
+function fld(label, inner, hint) {
+    return '<div><label class="lbl">' + label + '</label>' + inner + (hint ? '<div class="hint">' + hint + '</div>' : '') + '</div>';
+}
+// SQL editor field: textarea + a Test SQL button that binds sample
+// values for the :PLACEHOLDERS and runs it through the query gateway
+function sqlFld(label, path, val, hint, rows) {
+    return fld(label,
+        inArea(path, val, '', rows || 2) +
+        '<div style="text-align:right;margin-top:3px;"><button class="btn btn-o" style="padding:2px 10px;font-size:10px;" onclick="openSqlTester(\'' + path + '\')"><i class="fas fa-flask"></i> Test SQL</button></div>',
+        hint);
+}
+function moveBtns(fn, i, len) {
+    return '<button class="btn btn-o" style="padding:3px 8px;" ' + (i === 0 ? 'disabled' : '') + ' onclick="' + fn + '(' + i + ',-1)"><i class="fas fa-arrow-up"></i></button>' +
+           '<button class="btn btn-o" style="padding:3px 8px;" ' + (i === len - 1 ? 'disabled' : '') + ' onclick="' + fn + '(' + i + ',1)"><i class="fas fa-arrow-down"></i></button>';
+}
+
+const FIELD_TYPES = ['text', 'number', 'date', 'textarea', 'checkbox', 'select', 'picker', 'readonly', 'computed', 'barcode', 'signature'];
+const COL_TYPES = ['text', 'number', 'computed'];
+const ACTION_TYPES = ['ords', 'sql', 'local_file', 'chat', 'print', 'close'];
+const ACTION_STYLES = ['primary', 'default', 'danger'];
+
+// Header fields as a compact table - one row per field; the pen button
+// opens the field's full attribute editor (SQLs, picker map, formula)
+function headerFieldsTable(fields) {
+    if (!fields.length) return '<div style="font-size:11px;color:#94a3b8;">No fields yet.</div>';
+    const body = fields.map((f, i) => {
+        const p = 'def.header.fields.' + i + '.';
+        const adv = !!(f.valueSql || f.listSql || f.pickerSql || f.map || f.display || f.formula || f.min !== undefined || f.max !== undefined || f.hint);
+        return '<tr style="border-top:1px solid #f1f5f9;">' +
+            '<td style="color:#94a3b8;text-align:center;padding:4px 2px;">' + (i + 1) + '</td>' +
+            '<td style="padding:3px;">' + inTxt(p + 'key', f.key) + '</td>' +
+            '<td style="padding:3px;">' + inTxt(p + 'label', f.label) + '</td>' +
+            '<td style="padding:3px;">' + inSel(p + 'type', f.type || 'text', FIELD_TYPES) + '</td>' +
+            '<td style="padding:3px;text-align:center;"><input type="checkbox" data-p="' + p + 'required" data-kind="bool"' + (f.required ? ' checked' : '') + ' title="required"></td>' +
+            '<td style="padding:3px;width:85px;">' + inTxt(p + 'tab', f.tab) + '</td>' +
+            '<td style="padding:3px;width:55px;">' + inNum(p + 'span', f.span) + '</td>' +
+            '<td style="padding:3px;width:95px;">' + inTxt(p + 'default', f.default) + '</td>' +
+            '<td style="padding:3px;white-space:nowrap;text-align:right;">' +
+              '<button class="btn ' + (adv ? 'btn-p' : 'btn-o') + '" style="padding:2px 8px;" onclick="toggleFieldAdv(' + i + ')" title="Edit attributes (value/list/picker SQL, map, formula)"><i class="fas fa-pen"></i></button>' +
+              '<button class="btn btn-o" style="padding:2px 7px;" ' + (i === 0 ? 'disabled ' : '') + 'onclick="moveField(' + i + ',-1)"><i class="fas fa-arrow-up"></i></button>' +
+              '<button class="btn btn-o" style="padding:2px 7px;" ' + (i === fields.length - 1 ? 'disabled ' : '') + 'onclick="moveField(' + i + ',1)"><i class="fas fa-arrow-down"></i></button>' +
+              '<button class="btn btn-d" style="padding:2px 7px;" onclick="delField(' + i + ')"><i class="fas fa-trash"></i></button></td>' +
+            '</tr>' +
+            '<tr id="fld-adv-' + i + '"' + (adv ? '' : ' hidden') + '><td></td><td colspan="8" style="padding:2px 3px 10px;">' +
+              '<div style="border:1px dashed var(--border);border-radius:8px;padding:9px 11px;background:#fbfcfe;">' +
+              '<div class="grid2">' +
+              sqlFld('Value SQL (auto-populate)', p + 'valueSql', f.valueSql, 'fills THIS field automatically: SQL returns one value (first column or alias VALUE). Use :OTHERFIELD — re-runs whenever that field changes') +
+              sqlFld('List SQL (select)', p + 'listSql', f.listSql, 'aliases VALUE, LABEL. Use :OTHERFIELD to make a DEPENDENT list — it reloads when that field changes') +
+              sqlFld('Picker SQL (picker)', p + 'pickerSql', f.pickerSql, ':SEARCH placeholder; user searches and picks a row') +
+              fld('Picker map (picker)', inArea(p + 'map', f.map, 'json', 2), 'JSON: { "headerFieldKey": "SQLCOLUMN" } — which columns fill which fields') +
+              '</div>' +
+              '<div class="grid4" style="margin-top:7px;">' +
+              fld('Region', inSel(p + 'region', f.region, [''].concat(((cur.def.regions) || []).map(r => r.key))), 'data block this field belongs to') +
+              fld('Section', inSel(p + 'section', f.section, [''].concat(((cur.def.sections) || []).map(s => s.key))), 'styled group (when not in a region)') +
+              fld('Display column (picker)', inTxt(p + 'display', f.display), 'column shown in the field') +
+              fld('Formula (computed)', inTxt(p + 'formula', f.formula), 'over header keys') +
+              fld('Min / Max', inNum(p + 'min', f.min) + '<div style="height:4px;"></div>' + inNum(p + 'max', f.max)) +
+              '</div></div></td></tr>';
+    }).join('');
+    return '<table style="width:100%;border-collapse:collapse;font-size:11px;background:white;border:1px dashed var(--border);border-radius:7px;">' +
+        '<thead><tr>' + ['#', 'Key', 'Label', 'Type', 'Req', 'Tab', 'Span', 'Default', ''].map(h =>
+            '<th style="padding:5px 4px;text-align:left;font-size:9.5px;color:#475569;text-transform:uppercase;">' + h + '</th>').join('') +
+        '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+function toggleFieldAdv(i) {
+    const tr = document.getElementById('fld-adv-' + i);
+    if (tr) tr.hidden = !tr.hidden;
+}
+
+// Columns as a compact editable table - one row per column, with an
+// expandable Formula / Lookup SQL row underneath
+function detailColumnsTable(d, di) {
+    const cols = d.columns || [];
+    if (!cols.length) return '<div style="font-size:11px;color:#94a3b8;padding:6px 0;">No columns yet.</div>';
+    const body = cols.map((c, ci) => {
+        const p = 'def.details.' + di + '.columns.' + ci + '.';
+        const adv = c.formula || c.lookupSql;
+        return '<tr style="border-top:1px solid #f1f5f9;">' +
+            '<td style="color:#94a3b8;text-align:center;padding:4px 2px;">' + (ci + 1) + '</td>' +
+            '<td style="padding:3px;">' + inTxt(p + 'key', c.key) + '</td>' +
+            '<td style="padding:3px;">' + inTxt(p + 'label', c.label) + '</td>' +
+            '<td style="padding:3px;">' + inSel(p + 'type', c.type || 'text', COL_TYPES) + '</td>' +
+            '<td style="padding:3px;text-align:center;"><input type="checkbox" data-p="' + p + 'editable" data-kind="bool"' + (c.editable ? ' checked' : '') + ' title="editable"></td>' +
+            '<td style="padding:3px;width:70px;">' + inNum(p + 'width', c.width) + '</td>' +
+            '<td style="padding:3px;width:90px;">' + inTxt(p + 'default', c.default) + '</td>' +
+            '<td style="padding:3px;white-space:nowrap;text-align:right;">' +
+              '<button class="btn btn-o" style="padding:2px 7px;" ' + (ci === 0 ? 'disabled ' : '') + 'onclick="moveCol(' + di + ',' + ci + ',-1)"><i class="fas fa-arrow-up"></i></button>' +
+              '<button class="btn btn-o" style="padding:2px 7px;" ' + (ci === cols.length - 1 ? 'disabled ' : '') + 'onclick="moveCol(' + di + ',' + ci + ',1)"><i class="fas fa-arrow-down"></i></button>' +
+              '<button class="btn btn-d" style="padding:2px 7px;" onclick="delCol(' + di + ',' + ci + ')"><i class="fas fa-trash"></i></button></td>' +
+            '</tr>' +
+            '<tr><td></td><td colspan="7" style="padding:0 3px 6px;">' +
+              '<details' + (adv ? ' open' : '') + '>' +
+              '<summary style="font-size:9.5px;color:' + (adv ? '#0f766e' : '#94a3b8') + ';cursor:pointer;font-weight:700;">Formula / Lookup SQL' + (adv ? ' •' : '') + '</summary>' +
+              '<div class="grid2" style="margin-top:5px;">' +
+              fld('Formula (computed)', inTxt(p + 'formula', c.formula), 'over row keys, e.g. qty * price') +
+              sqlFld('Lookup SQL (auto-fill the row)', p + 'lookupSql', c.lookupSql, 'runs when THIS cell changes. :COLUMNKEY (row) + :FIELDKEY (header) placeholders; result aliases = column keys fill the rest of the row. e.g. SELECT ITEM_DESC AS DESCRIPTION, UNIT_PRICE AS PRICE FROM price_list_items WHERE ITEM_CODE = :ITEM AND PRICE_LIST = :PRICELIST') +
+              '</div></details></td></tr>';
+    }).join('');
+    return '<table style="width:100%;border-collapse:collapse;font-size:11px;background:white;border:1px dashed var(--border);border-radius:7px;">' +
+        '<thead><tr>' + ['#', 'Key', 'Label', 'Type', 'Edit', 'Width', 'Default', ''].map(h =>
+            '<th style="padding:5px 4px;text-align:left;font-size:9.5px;color:#475569;text-transform:uppercase;">' + h + '</th>').join('') +
+        '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+
+function detailCard(d, di, len) {
+    const p = 'def.details.' + di + '.';
+    return '<div class="card">' +
+        '<div class="card-h"><span class="tag" style="background:#fef9c3;color:#a16207;">DETAIL ' + (di + 1) + ' — ' + esc(d.key || '?') + '</span>' +
+        '<div style="display:flex;gap:4px;">' + moveBtns('moveDetail', di, len) +
+        '<button class="btn btn-d" style="padding:3px 8px;" onclick="delDetail(' + di + ')"><i class="fas fa-trash"></i></button></div></div>' +
+        '<div class="grid4">' +
+        fld('Key', inTxt(p + 'key', d.key), 'used in body templates as {' + esc(d.key || 'key') + '}') +
+        fld('Title', inTxt(p + 'title', d.title)) +
+        fld('Tab page', inTxt(p + 'tab', d.tab), 'detail blocks with the same tab name group into a tab page') +
+        fld('Region', inSel(p + 'region', d.region, [''].concat(((cur.def.regions) || []).map(r => r.key))), 'multi-row region this grid belongs to') +
+        fld('Section', inSel(p + 'section', d.section, [''].concat(((cur.def.sections) || []).map(s => s.key))), 'styled group (when not in a region)') +
+        fld('Qty column key', inTxt(p + 'qtyKey', d.qtyKey), 'for line rules (default qty)') +
+        fld('Totals columns', inTxt(p + '_totalsCsv', (d.totals || []).join(','), 'placeholder="qty,net"'), 'comma separated column keys') +
+        fld('Manual rows', inChk(p + 'allowManualRow', d.allowManualRow, 'allow empty row add')) +
+        fld('Row delete', inChk(p + 'allowDelete', d.allowDelete !== false, 'allow delete')) +
+        fld('Required', inChk(p + 'required', d.required, 'at least one row')) +
+        '</div>' +
+        '<div class="grid2" style="margin-top:7px;">' +
+        sqlFld('Row picker SQL', p + 'pickerSql', d.pickerSql, ':SEARCH + header :FIELDKEY placeholders (e.g. :PRICELIST)') +
+        fld('Picker map', inArea(p + 'pickerMap', d.pickerMap, 'json', 2), 'JSON { "columnKey": "SQLCOLUMN" } — fills added rows') +
+        sqlFld('Source SQL (load rows on open)', p + 'sourceSql', d.sourceSql, 'grid starts filled with these rows (editable); aliases = column keys; header :FIELDKEY placeholders allowed') +
+        '</div>' +
+        sqlFld('Line rules SQL (companion rows, e.g. BOGO)', p + 'lineRulesSql', d.lineRulesSql,
+            ':COLUMNKEY placeholders from the parent row + header placeholders. Aliases = column keys; BUY_QTY/GET_QTY compute the companion qty') +
+        '<div style="margin-top:8px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+        '<span style="font-size:10.5px;font-weight:800;color:#475569;">Columns</span>' +
+        '<button class="btn btn-o" style="padding:3px 10px;" onclick="addCol(' + di + ')"><i class="fas fa-plus"></i> Column</button></div>' +
+        detailColumnsTable(d, di) +
+        '</div></div>';
+}
+
+function sectionCard(s, i) {
+    const p = 'def.sections.' + i + '.';
+    return '<div class="card"><div class="card-h"><span class="tag" style="background:#e2f1ef;color:#0f766e;">SECTION ' + (i + 1) + ' — ' + esc(s.key || '?') + '</span>' +
+        '<button class="btn btn-d" style="padding:3px 8px;" onclick="delSection(' + i + ')"><i class="fas fa-trash"></i></button></div>' +
+        '<div class="grid4">' +
+        fld('Key', inTxt(p + 'key', s.key)) +
+        fld('Heading', inTxt(p + 'title', s.title)) +
+        fld('Tab page', inTxt(p + 'tab', s.tab)) +
+        fld('Display', inSel(p + 'display', s.display || 'inline', ['inline', 'card', 'plain']), 'inline = heading + rule; card = boxed; plain = no heading') +
+        fld('Columns', inNum(p + 'columns', s.columns), 'empty = form default') +
+        fld('Heading color', inTxt(p + 'style.headingColor', (s.style || {}).headingColor), 'e.g. #0f766e') +
+        fld('Line color', inTxt(p + 'style.lineColor', (s.style || {}).lineColor)) +
+        fld('Background', inTxt(p + 'style.background', (s.style || {}).background)) +
+        fld('Font family', inTxt(p + 'style.font', (s.style || {}).font)) +
+        fld('Heading size px', inNum(p + 'style.fontSize', (s.style || {}).fontSize)) +
+        fld('Fetch on open', inChk(p + 'fetchOnOpen', s.fetchOnOpen, 'first row of Source SQL fills the fields')) +
+        '</div>' +
+        sqlFld('Source SQL (record query)', p + 'sourceSql', s.sourceSql, '') +
+        '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+          '<span class="hint">column aliases should match field keys (uppercase); header :FIELDKEY placeholders allowed</span>' +
+          '<button class="btn btn-p" style="padding:3px 12px;font-size:10.5px;" onclick="generateSectionFields(' + i + ')"><i class="fas fa-wand-magic-sparkles"></i> Generate fields from SQL</button>' +
+        '</div></div>';
+}
+function addSection() {
+    (cur.def.sections = cur.def.sections || []).push({ key: 'section' + (cur.def.sections.length + 1), title: 'New Section', display: 'inline', style: {} });
+    renderEditor();
+}
+function delSection(i) {
+    const key = (cur.def.sections[i] || {}).key;
+    cur.def.sections.splice(i, 1);
+    (cur.def.header.fields || []).forEach(f => { if (f.section === key) delete f.section; });
+    (cur.def.details || []).forEach(dd => { if (dd.section === key) delete dd.section; });
+    renderEditor();
+}
+// Run the section's Source SQL and create a field per result column
+// (APEX form-on-table style). Placeholders are bound to '' for the probe.
+function generateSectionFields(i) {
+    const s = cur.def.sections[i];
+    if (!s || !s.sourceSql || !s.sourceSql.trim()) { alert('Enter the Source SQL first.'); return; }
+    let sql = String(s.sourceSql).replace(/:[A-Za-z_]\w*/g, "''");
+    sql = 'SELECT * FROM (' + sql.replace(/;\s*$/, '') + ') WHERE ROWNUM <= 1';
+    runQuery(sql, function (err, rows) {
+        if (err) { alert('Could not probe the SQL:\n' + err); return; }
+        const sample = rows[0] || null;
+        let cols = sample ? Object.keys(sample) : [];
+        if (!cols.length) { alert('The query returned no columns to generate from (0 rows and no metadata). Add sample data or check the SQL.'); return; }
+        const existing = cur.def.header.fields.map(f => f.key);
+        let added = 0;
+        cols.forEach(cn => {
+            const key = cn.toLowerCase();
+            if (existing.indexOf(key) >= 0) return;
+            const v = sample ? sample[cn] : null;
+            let type = 'text';
+            if (typeof v === 'number') type = 'number';
+            else if (/(^|_)(date|_on)$/i.test(cn) || /^\d{4}-\d{2}-\d{2}/.test(String(v || ''))) type = 'date';
+            cur.def.header.fields.push({
+                key: key,
+                label: cn.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, ch => ch.toUpperCase()),
+                type: type, section: s.key
+            });
+            added++;
+        });
+        renderEditor();
+        alert(added + ' field(s) generated into section "' + (s.title || s.key) + '". Adjust types/labels as needed.');
+    });
+}
+
+function regionEditorCard(r, i) {
+    const p = 'def.regions.' + i + '.';
+    return '<div class="card"><div class="card-h"><span class="tag" style="background:#dbeafe;color:#1d4ed8;">REGION ' + (i + 1) + ' — ' + esc(r.key || '?') + '</span>' +
+        '<button class="btn btn-d" style="padding:3px 8px;" onclick="delRegion(' + i + ')"><i class="fas fa-trash"></i></button></div>' +
+        '<div class="grid4">' +
+        fld('Key', inTxt(p + 'key', r.key)) +
+        fld('Title', inTxt(p + 'title', r.title)) +
+        fld('Inside section', inSel(p + 'section', r.section, [''].concat(((cur.def.sections) || []).map(s => s.key))), 'empty = top level') +
+        fld('Display', inSel(p + 'display', r.display || 'single', ['single', 'multi']), 'single = one record as fields; multi = editable grid') +
+        fld('Columns (single)', inNum(p + 'columns', r.columns)) +
+        fld('Tab page (top level)', inTxt(p + 'tab', r.tab)) +
+        fld('Fetch on open (single)', inChk(p + 'fetchOnOpen', r.fetchOnOpen, 'first row fills the fields')) +
+        '</div>' +
+        sqlFld('Source SQL', p + 'sourceSql', r.sourceSql, 'header :FIELDKEY placeholders allowed; aliases become field keys / grid columns') +
+        '<div style="text-align:right;"><button class="btn btn-p" style="padding:3px 12px;font-size:10.5px;" onclick="generateRegion(' + i + ')"><i class="fas fa-wand-magic-sparkles"></i> Generate from SQL</button></div>' +
+        '</div>';
+}
+function addRegion() {
+    (cur.def.regions = cur.def.regions || []).push({ key: 'region' + (cur.def.regions.length + 1), title: '', display: 'single' });
+    renderEditor();
+}
+function delRegion(i) {
+    const key = (cur.def.regions[i] || {}).key;
+    cur.def.regions.splice(i, 1);
+    (cur.def.header.fields || []).forEach(f => { if (f.region === key) delete f.region; });
+    (cur.def.details || []).forEach(dd => { if (dd.region === key) delete dd.region; });
+    renderEditor();
+}
+// Generate a region's artifacts from its Source SQL: single-row ->
+// fields joined to the region; multi-row -> a detail grid with columns
+function generateRegion(i) {
+    const r = cur.def.regions[i];
+    if (!r || !r.sourceSql || !r.sourceSql.trim()) { alert('Enter the Source SQL first.'); return; }
+    let sql = String(r.sourceSql).replace(/:[A-Za-z_]\w*/g, "''");
+    sql = 'SELECT * FROM (' + sql.replace(/;\s*$/, '') + ') WHERE ROWNUM <= 1';
+    runQuery(sql, function (err, rows) {
+        if (err) { alert('Could not probe the SQL:\n' + err); return; }
+        const sample = rows[0] || null;
+        const cols = sample ? Object.keys(sample) : [];
+        if (!cols.length) { alert('The query returned no columns to generate from. Check the SQL (or add sample data).'); return; }
+        const label = cn => cn.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, ch => ch.toUpperCase());
+        const guessType = (cn, v) => typeof v === 'number' ? 'number'
+            : (/(^|_)(date|_on)$/i.test(cn) || /^\d{4}-\d{2}-\d{2}/.test(String(v || ''))) ? 'date' : 'text';
+        let added = 0;
+        if (r.display === 'multi') {
+            let det = (cur.def.details || []).find(dd => dd.region === r.key);
+            if (!det) {
+                det = { key: r.key + '_grid', title: r.title || r.key, region: r.key, allowManualRow: true, allowDelete: true, qtyKey: 'qty', columns: [], totals: [] };
+                (cur.def.details = cur.def.details || []).push(det);
+            }
+            det.sourceSql = r.sourceSql;
+            const existing = (det.columns || []).map(c => c.key);
+            cols.forEach(cn => {
+                const key = cn.toLowerCase();
+                if (existing.indexOf(key) >= 0) return;
+                det.columns.push({ key: key, label: label(cn), type: (sample && typeof sample[cn] === 'number') ? 'number' : 'text', editable: true });
+                added++;
+            });
+            alert(added + ' column(s) generated into the "' + (det.title || det.key) + '" grid (rows load from the SQL on open).');
+        } else {
+            const existing = cur.def.header.fields.map(f => f.key);
+            cols.forEach(cn => {
+                const key = cn.toLowerCase();
+                if (existing.indexOf(key) >= 0) return;
+                cur.def.header.fields.push({ key: key, label: label(cn), type: guessType(cn, sample ? sample[cn] : null), region: r.key });
+                added++;
+            });
+            alert(added + ' field(s) generated into region "' + (r.title || r.key) + '". Turn on Fetch on open to load the record.');
+        }
+        renderEditor();
+    });
+}
+
+function reportCard(r, i, len) {
+    const p = 'def.reports.' + i + '.';
+    return '<div class="card"><div class="card-h"><span class="tag" style="background:#ede9fe;color:#6d28d9;">REPORT ' + (i + 1) + ' — ' + esc(r.key || '?') + '</span>' +
+        '<button class="btn btn-d" style="padding:3px 8px;" onclick="delReport(' + i + ')"><i class="fas fa-trash"></i></button></div>' +
+        '<div class="grid3">' +
+        fld('Key', inTxt(p + 'key', r.key)) +
+        fld('Title', inTxt(p + 'title', r.title)) +
+        fld('Auto run on open', inChk(p + 'autoRun', r.autoRun, 'run automatically')) +
+        '</div>' +
+        sqlFld('Report SQL', p + 'sql', r.sql, 'read-only SELECT; header :FIELDKEY placeholders make it follow the form values. Rendered as a grid with Refresh + Print buttons', 3) +
+        '</div>';
+}
+
+function checkCard(c, i, len) {
+    const p = 'def.rules.submitChecks.' + i + '.';
+    return '<div class="card"><div class="card-h"><span class="tag" style="background:#fee2e2;color:#b91c1c;">CHECK ' + (i + 1) + '</span>' +
+        '<button class="btn btn-d" style="padding:3px 8px;" onclick="delCheck(' + i + ')"><i class="fas fa-trash"></i></button></div>' +
+        sqlFld('SQL', p + 'sql', c.sql, 'header :FIELDKEY placeholders allowed') +
+        '<div class="grid2" style="margin-top:6px;">' +
+        fld('Message on failure', inTxt(p + 'message', c.message)) +
+        fld('Mode', inSel(p + 'mode', c.mode || 'FAIL_IF_ROWS', ['FAIL_IF_ROWS', 'FAIL_IF_NO_ROWS']), 'FAIL_IF_ROWS: returned rows are violations. FAIL_IF_NO_ROWS: a row is required to pass') +
+        '</div></div>';
+}
+
+function actionCard(a, i, len) {
+    const p = 'def.actions.' + i + '.';
+    return '<div class="card">' +
+        '<div class="card-h"><span class="tag" style="background:#dcfce7;color:#15803d;">BUTTON ' + (i + 1) + ' — ' + esc(a.label || a.key || '?') + '</span>' +
+        '<div style="display:flex;gap:4px;">' + moveBtns('moveAction', i, len) +
+        '<button class="btn btn-d" style="padding:3px 8px;" onclick="delAction(' + i + ')"><i class="fas fa-trash"></i></button></div></div>' +
+        '<div class="grid4">' +
+        fld('Key', inTxt(p + 'key', a.key)) +
+        fld('Label', inTxt(p + 'label', a.label)) +
+        fld('Icon (fa)', inTxt(p + 'icon', a.icon), 'e.g. database, floppy-disk') +
+        fld('Style', inSel(p + 'style', a.style || 'default', ACTION_STYLES)) +
+        fld('Action type', inSel(p + 'type', a.type || 'ords', ACTION_TYPES)) +
+        fld('Run validations first', inChk(p + 'validate', a.validate, 'validate')) +
+        fld('Confirm text', inTxt(p + 'confirm', a.confirm), 'empty = no confirmation') +
+        fld('Success message', inTxt(p + 'successMessage', a.successMessage)) +
+        '</div>' +
+        '<div class="grid2" style="margin-top:7px;">' +
+        fld('ords: Method + URL', inSel(p + 'method', a.method || 'POST', ['POST', 'GET']) + '<div style="height:4px;"></div>' + inTxt(p + 'url', a.url, 'placeholder="https://…  ({field} placeholders ok)"')) +
+        fld('ords/local_file: Body template', inArea(p + 'bodyTemplate', a.bodyTemplate, 'json', 3), 'JSON. "{HEADER}" "{TOTALS}" "{VALUES}" "{detailKey}" "{field}" placeholders. Empty = full form values') +
+        fld('sql: Statement', inArea(p + 'statement', a.statement, '', 2), '{field} placeholders, single statement (goes through the guarded write endpoint)') +
+        fld('local_file: Folder + File name', inTxt(p + 'folder', a.folder, 'placeholder="forms  (under C:\\fusion\\)"') + '<div style="height:4px;"></div>' + inTxt(p + 'fileName', a.fileName, 'placeholder="{FORM_KEY}_{TIMESTAMP}.json"')) +
+        fld('chat: Prompt for the AI', inArea(p + 'prompt', a.prompt, '', 2), 'only works when the form is opened from the AI Digital Employee chat') +
+        '</div></div>';
+}
+
+function renderEditor() {
+    const box = document.getElementById('editor');
+    if (!cur) { box.innerHTML = ''; return; }
+    const d = cur.def;
+    let html =
+    '<div style="max-width:1050px;">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">' +
+        '<div style="display:flex;align-items:center;gap:14px;">' +
+          '<div style="font-size:14px;font-weight:800;color:#0f172a;">' + (cur.isNew ? 'New Form' : esc(cur.name)) + '</div>' +
+          '<div style="display:flex;gap:4px;">' +
+            '<div onclick="setPageTab(\'chat\')" style="padding:5px 16px;font-size:11.5px;font-weight:800;cursor:pointer;border-radius:8px;' + (pageTab === 'chat' ? 'background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;' : 'background:#ede9fe;color:#6d28d9;') + '"><i class="fas fa-comments"></i> AI Build</div>' +
+            '<div onclick="setPageTab(\'design\')" style="padding:5px 16px;font-size:11.5px;font-weight:800;cursor:pointer;border-radius:8px;' + (pageTab === 'design' ? 'background:var(--primary);color:white;' : 'background:#e2e8f0;color:#475569;') + '"><i class="fas fa-pen-ruler"></i> Designer</div>' +
+            '<div onclick="setPageTab(\'visual\')" style="padding:5px 16px;font-size:11.5px;font-weight:800;cursor:pointer;border-radius:8px;' + (pageTab === 'visual' ? 'background:var(--primary);color:white;' : 'background:#e2e8f0;color:#475569;') + '"><i class="fas fa-object-group"></i> Visual</div>' +
+            '<div onclick="setPageTab(\'test\')" style="padding:5px 16px;font-size:11.5px;font-weight:800;cursor:pointer;border-radius:8px;' + (pageTab === 'test' ? 'background:var(--primary);color:white;' : 'background:#e2e8f0;color:#475569;') + '"><i class="fas fa-vial"></i> Preview &amp; Test</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+          (pageTab === 'design' ? '<button class="btn btn-o" onclick="toggleJson()"><i class="fas fa-code"></i> ' + (jsonMode ? 'Designer' : 'JSON') + '</button>' : '') +
+          '<button class="btn btn-o" onclick="duplicateForm()" title="Copy this form as a new one"><i class="fas fa-copy"></i></button>' +
+          '<button class="btn btn-o" onclick="exportForm()" title="Export definition JSON"><i class="fas fa-file-export"></i></button>' +
+          '<button class="btn btn-g" onclick="saveForm()"><i class="fas fa-floppy-disk"></i> Save</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="save-status" style="font-size:11px;margin-bottom:8px;"></div>';
+
+    if (pageTab === 'chat') {
+        html += '<div id="chat-split" style="display:flex;gap:14px;align-items:stretch;flex-wrap:wrap;">' +
+            // left: conversation
+            '<div style="flex:1;min-width:320px;max-width:460px;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#fbfcfe;">' +
+              '<div style="padding:8px 12px;background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;font-size:12px;font-weight:800;"><i class="fas fa-wand-magic-sparkles"></i> Describe your form — I build it live</div>' +
+              '<div id="chat-msgs" style="flex:1;overflow-y:auto;padding:12px;min-height:260px;max-height:560px;"></div>' +
+              '<div id="chat-imgs" style="display:flex;gap:5px;flex-wrap:wrap;padding:0 12px;"></div>' +
+              '<div style="padding:10px;border-top:1px solid #eef2f7;background:white;">' +
+                '<textarea id="chat-in" placeholder="e.g. Customer return form. Customer search from GRFU_CUSTOMER. Reason dropdown: DAMAGED, EXPIRED, OTHER. Lines grid with item, qty, amount and a total. Validate qty &gt; 0. Buttons: Save to DB, Print, Close." ' +
+                  'style="width:100%;border:1px solid var(--border);border-radius:9px;padding:9px;font-size:12.5px;min-height:66px;resize:vertical;font-family:inherit;" onkeydown="if(event.key===\'Enter\'&&(event.ctrlKey||event.metaKey)){event.preventDefault();chatSend();}"></textarea>' +
+                '<div style="display:flex;align-items:center;gap:8px;margin-top:7px;">' +
+                  '<label class="btn btn-o" style="cursor:pointer;font-size:11px;"><i class="fas fa-image"></i> Screenshot <input type="file" accept="image/*" multiple style="display:none;" onchange="chatFiles(this.files)"></label>' +
+                  '<span style="font-size:10px;color:#94a3b8;">Ctrl+Enter to send</span>' +
+                  '<button class="btn" style="background:#7c3aed;color:white;margin-left:auto;" onclick="chatSend()"><i class="fas fa-paper-plane"></i> Send</button>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+            // right: live preview (the real engine)
+            '<div style="flex:2;min-width:340px;display:flex;flex-direction:column;">' +
+              '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">' +
+                '<span style="font-size:11px;font-weight:800;color:#334155;"><i class="fas fa-eye" style="color:var(--primary);"></i> Live preview</span>' +
+                '<div style="display:flex;gap:4px;margin-left:auto;">' +
+                  '<button class="btn ' + (testLayout === 'desktop' ? 'btn-p' : 'btn-o') + '" onclick="setTestLayout(\'desktop\')"><i class="fas fa-desktop"></i></button>' +
+                  '<button class="btn ' + (testLayout === 'mobile' ? 'btn-p' : 'btn-o') + '" onclick="setTestLayout(\'mobile\')"><i class="fas fa-mobile-screen"></i></button>' +
+                  '<button class="btn btn-g" onclick="saveForm()"><i class="fas fa-floppy-disk"></i> Save</button>' +
+                '</div>' +
+              '</div>' +
+              '<div id="chat-preview" style="border:1px solid var(--border);border-radius:12px;padding:12px;background:white;min-height:300px;overflow:auto;' + (testLayout === 'mobile' ? 'max-width:400px;' : '') + '"></div>' +
+            '</div>' +
+          '</div></div>';
+        box.innerHTML = html;
+        document.getElementById('chat-preview').appendChild(getTestContainer());
+        if (testLoadedKey !== (cur.form_key || '~new') + ':' + testLayout) reloadTestForm();
+        renderChatMsgs(); renderChatImgs();
+        return;
+    }
+
+    if (pageTab === 'visual') {
+        normalizeDef();
+        html += '<div id="vd-mount"></div></div>';
+        box.innerHTML = html;
+        renderVisualTab();
+        return;
+    }
+
+    if (pageTab === 'test') {
+        html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">' +
+            '<button class="btn btn-p" onclick="reloadTestForm()"><i class="fas fa-rotate"></i> Reload form</button>' +
+            '<div style="display:flex;gap:4px;">' +
+              '<button class="btn ' + (testLayout === 'desktop' ? 'btn-p' : 'btn-o') + '" onclick="setTestLayout(\'desktop\')"><i class="fas fa-desktop"></i></button>' +
+              '<button class="btn ' + (testLayout === 'mobile' ? 'btn-p' : 'btn-o') + '" onclick="setTestLayout(\'mobile\')" title="Test the phone layout"><i class="fas fa-mobile-screen"></i></button>' +
+            '</div>' +
+            '<span style="font-size:10.5px;color:#64748b;">The REAL form — pickers, lists, rules and buttons all execute. State survives tab switches; Reload picks up designer changes.</span>' +
+        '</div>' +
+        '<div id="test-mount"' + (testLayout === 'mobile' ? ' style="max-width:400px;"' : '') + '></div></div>';
+        box.innerHTML = html;
+        document.getElementById('test-mount').appendChild(getTestContainer());
+        if (testLoadedKey !== (cur.form_key || '~new') + ':' + testLayout) reloadTestForm();
+        return;
+    }
+
+    if (jsonMode) {
+        html += '<div class="sec"><div class="sec-h">Definition JSON (power editing)</div><div class="sec-b">' +
+            '<textarea id="json-editor" class="in mono" style="min-height:480px;resize:vertical;">' + esc(JSON.stringify(d, null, 2)) + '</textarea>' +
+            '<div style="margin-top:6px;display:flex;gap:6px;"><button class="btn btn-o" onclick="applyJson()"><i class="fas fa-check"></i> Apply to designer</button>' +
+            '<span id="json-status" style="font-size:11px;"></span></div></div></div></div>';
+        box.innerHTML = html;
+        bindInputs();
+        return;
+    }
+
+    html +=
+      // form settings
+      '<div class="sec"><div class="sec-h"><span><i class="fas fa-gear"></i> Form settings</span></div><div class="sec-b grid4">' +
+        fld('Form key', cur.isNew ? inTxt('form_key', cur.form_key) : '<input class="in" value="' + esc(cur.form_key) + '" disabled style="background:#f8fafc;">', 'unique id, e.g. goods.return') +
+        fld('Name', inTxt('name', cur.name)) +
+        fld('Description', inTxt('description', cur.description)) +
+        fld('Active', inSel('active', cur.active, ['Y', 'N'])) +
+        fld('Dialog title', inTxt('def.title', d.title)) +
+        fld('Icon (fa)', inTxt('def.icon', d.icon)) +
+        fld('Width px', inNum('def.width', d.width)) +
+        fld('Height px', inNum('def.height', d.height), 'empty = auto height') +
+        fld('Header columns', inNum('def.header.columns', d.header.columns)) +
+        fld('Wizard mode', inChk('def.wizard', d.wizard, 'tab pages become steps (Back / Next)')) +
+        fld('Mobile columns', inNum('def.mobile.columns', (d.mobile || {}).columns), 'phone layout; hide/order fields in the Visual tab\'s Mobile mode') +
+        fld('Font family', inTxt('def.style.font', (d.style || {}).font), 'e.g. Segoe UI, Georgia — applies to the whole form') +
+        fld('Body background', inTxt('def.style.background', (d.style || {}).background), 'CSS color, e.g. #fbfcfe') +
+        fld('Title bar color', inTxt('def.style.accent', (d.style || {}).accent), 'CSS color; empty = default teal') +
+      '</div></div>' +
+
+      // sections (regions)
+      '<div class="sec"><div class="sec-h"><span><i class="fas fa-layer-group"></i> Sections / Regions — ' + (d.sections || []).length + '</span>' +
+        '<button class="btn btn-p" style="padding:4px 10px;" onclick="addSection()"><i class="fas fa-plus"></i> Section</button></div><div class="sec-b">' +
+        ((d.sections || []).map((s, i) => sectionCard(s, i)).join('') ||
+         '<div style="font-size:11px;color:#94a3b8;">No sections. A SECTION is the styled group (heading + rule, or a card) inside a tab page. Put REGIONS inside sections — a region is the data-bound unit.</div>') +
+      '</div></div>' +
+
+      // regions (data-bound units inside sections)
+      '<div class="sec"><div class="sec-h"><span><i class="fas fa-database"></i> Regions (data blocks) — ' + (d.regions || []).length + '</span>' +
+        '<button class="btn btn-p" style="padding:4px 10px;" onclick="addRegion()"><i class="fas fa-plus"></i> Region</button></div><div class="sec-b">' +
+        ((d.regions || []).map((r, i) => regionEditorCard(r, i)).join('') ||
+         '<div style="font-size:11px;color:#94a3b8;">No regions. A REGION lives inside a section (or on its own) and binds to SQL: display <b>Single row</b> = a record whose columns become fields (fetch on open); display <b>Multi row</b> = an editable grid whose columns come from the query. Use Generate after testing the SQL.</div>') +
+      '</div></div>' +
+
+      // header fields
+      '<div class="sec"><div class="sec-h"><span><i class="fas fa-table-cells"></i> Header fields (master) — ' + d.header.fields.length + '</span>' +
+        '<button class="btn btn-p" style="padding:4px 10px;" onclick="addField()"><i class="fas fa-plus"></i> Field</button></div><div class="sec-b">' +
+        headerFieldsTable(d.header.fields) +
+      '</div></div>' +
+
+      // details
+      '<div class="sec"><div class="sec-h"><span><i class="fas fa-table-list"></i> Detail blocks (grids) — ' + d.details.length + '</span>' +
+        '<button class="btn btn-p" style="padding:4px 10px;" onclick="addDetail()"><i class="fas fa-plus"></i> Detail block</button></div><div class="sec-b">' +
+        (d.details.map((dd, di) => detailCard(dd, di, d.details.length)).join('') || '<div style="font-size:11px;color:#94a3b8;">No detail grids — header-only form.</div>') +
+      '</div></div>' +
+
+      // reports
+      '<div class="sec"><div class="sec-h"><span><i class="fas fa-chart-simple"></i> Reports (query grids with print) — ' + (d.reports || []).length + '</span>' +
+        '<button class="btn btn-p" style="padding:4px 10px;" onclick="addReport()"><i class="fas fa-plus"></i> Report</button></div><div class="sec-b">' +
+        ((d.reports || []).map((r, i) => reportCard(r, i, d.reports.length)).join('') || '<div style="font-size:11px;color:#94a3b8;">No reports. A report is a read-only grid under the form with Refresh and Print — its SQL can follow the header values.</div>') +
+      '</div></div>' +
+
+      // rules
+      '<div class="sec"><div class="sec-h"><span><i class="fas fa-shield-halved"></i> Submit validations — ' + d.rules.submitChecks.length + '</span>' +
+        '<button class="btn btn-p" style="padding:4px 10px;" onclick="addCheck()"><i class="fas fa-plus"></i> Check</button></div><div class="sec-b">' +
+        (d.rules.submitChecks.map((c, i) => checkCard(c, i, d.rules.submitChecks.length)).join('') || '<div style="font-size:11px;color:#94a3b8;">No SQL checks. Field-level required/min/max are set on each field.</div>') +
+      '</div></div>' +
+
+      // actions
+      '<div class="sec"><div class="sec-h"><span><i class="fas fa-hand-pointer"></i> Buttons &amp; actions — ' + d.actions.length + '</span>' +
+        '<button class="btn btn-p" style="padding:4px 10px;" onclick="addAction()"><i class="fas fa-plus"></i> Button</button></div><div class="sec-b">' +
+        (d.actions.map((a, i) => actionCard(a, i, d.actions.length)).join('') || '<div style="font-size:11px;color:#94a3b8;">No buttons yet.</div>') +
+      '</div></div>' +
+    '</div>';
+
+    box.innerHTML = html;
+    bindInputs();
+}
+
+// ── array ops ───────────────────────────────────────────────
+function addField() { cur.def.header.fields.push({ key: 'field' + (cur.def.header.fields.length + 1), label: '', type: 'text' }); renderEditor(); }
+function delField(i) { cur.def.header.fields.splice(i, 1); renderEditor(); }
+function moveField(i, dir) { const a = cur.def.header.fields; const t = a[i]; a[i] = a[i + dir]; a[i + dir] = t; renderEditor(); }
+function addDetail() { cur.def.details.push({ key: 'lines', title: 'Lines', allowManualRow: true, allowDelete: true, qtyKey: 'qty', columns: [], totals: [] }); renderEditor(); }
+function delDetail(i) { cur.def.details.splice(i, 1); renderEditor(); }
+function moveDetail(i, dir) { const a = cur.def.details; const t = a[i]; a[i] = a[i + dir]; a[i + dir] = t; renderEditor(); }
+function addCol(di) { const d = cur.def.details[di]; (d.columns = d.columns || []).push({ key: 'col' + (d.columns.length + 1), label: '', type: 'text', editable: true }); renderEditor(); }
+function delCol(di, ci) { cur.def.details[di].columns.splice(ci, 1); renderEditor(); }
+function moveCol(di, ci, dir) { const a = cur.def.details[di].columns; const t = a[ci]; a[ci] = a[ci + dir]; a[ci + dir] = t; renderEditor(); }
+function addReport() { (cur.def.reports = cur.def.reports || []).push({ key: 'report' + (cur.def.reports.length + 1), title: '', sql: '', autoRun: false }); renderEditor(); }
+function delReport(i) { cur.def.reports.splice(i, 1); renderEditor(); }
+function addCheck() { cur.def.rules.submitChecks.push({ sql: '', message: '', mode: 'FAIL_IF_ROWS' }); renderEditor(); }
+function delCheck(i) { cur.def.rules.submitChecks.splice(i, 1); renderEditor(); }
+function addAction() { cur.def.actions.push({ key: 'action' + (cur.def.actions.length + 1), label: 'New Button', type: 'ords', style: 'default', method: 'POST' }); renderEditor(); }
+function delAction(i) { cur.def.actions.splice(i, 1); renderEditor(); }
+function moveAction(i, dir) { const a = cur.def.actions; const t = a[i]; a[i] = a[i + dir]; a[i + dir] = t; renderEditor(); }
+
+// ── json mode ───────────────────────────────────────────────
+function toggleJson() { normalizeDef(); jsonMode = !jsonMode; renderEditor(); }
+function applyJson() {
+    const el = document.getElementById('json-editor');
+    const status = document.getElementById('json-status');
+    try {
+        cur.def = normalizeLoadedDef(JSON.parse(el.value));
+        jsonMode = false;
+        renderEditor();
+    } catch (e) {
+        status.innerHTML = '<span style="color:#b91c1c;">Invalid JSON: ' + esc(e.message) + '</span>';
+    }
+}
+
+// details totals come from a CSV helper field
+function normalizeDef() {
+    (cur.def.details || []).forEach(d => {
+        if (d._totalsCsv !== undefined) {
+            d.totals = String(d._totalsCsv).split(',').map(s => s.trim()).filter(Boolean);
+            delete d._totalsCsv;
+        }
+    });
+}
+
+// ── preview & test tab ──────────────────────────────────────
+// The live form lives in a persistent container that is MOVED between
+// the editor and an off-screen stash on tab switches, so its state
+// (picked customer, typed lines) survives; only Reload rebuilds it.
+let testLoadedKey = null;
+let testLayout = 'desktop';
+let _testContainer = null, _testStash = null;
+function setTestLayout(l) {
+    if (l === testLayout) return;
+    testLayout = l;
+    resetTestPreview();
+    renderEditor();
+}
+function testStash() {
+    if (!_testStash) { _testStash = document.createElement('div'); _testStash.style.display = 'none'; document.body.appendChild(_testStash); }
+    return _testStash;
+}
+function getTestContainer() {
+    if (!_testContainer) { _testContainer = document.createElement('div'); _testContainer.id = 'test-container'; testStash().appendChild(_testContainer); }
+    return _testContainer;
+}
+function resetTestPreview() {
+    testLoadedKey = null;
+    try { WMSFormEngine.close(); } catch (e) { }
+    getTestContainer().innerHTML = '';
+}
+function setPageTab(t) {
+    if (t === pageTab) return;
+    if (pageTab === 'test' || pageTab === 'chat') testStash().appendChild(getTestContainer());   // keep the live form alive
+    pageTab = t;
+    renderEditor();
+}
+function reloadTestForm() {
+    normalizeDef();
+    testLoadedKey = (cur.form_key || '~new') + ':' + testLayout;
+    WMSFormEngine.open(JSON.parse(JSON.stringify(cur.def)), {
+        formKey: cur.form_key || 'preview', mode: 'run', container: getTestContainer(), layout: testLayout
+    });
+}
+
+// ── save ────────────────────────────────────────────────────
+function saveForm() {
+    normalizeDef();
+    const status = document.getElementById('save-status');
+    const key = (cur.isNew ? (document.querySelector('[data-p="form_key"]') || {}).value || cur.form_key : cur.form_key).trim();
+    if (!key || !/^[A-Za-z0-9._\-]{2,100}$/.test(key)) { status.innerHTML = '<span style="color:#b91c1c;">Form key is required (letters, digits, dots).</span>'; return; }
+    if (!cur.name.trim()) { status.innerHTML = '<span style="color:#b91c1c;">Name is required.</span>'; return; }
+    const defJson = JSON.stringify(cur.def);
+    const expected = defJson.length;
+
+    // Robust CLOB save: write the row with an EMPTY_CLOB, then APPEND the
+    // definition in small chunks (each its own single-statement UPDATE).
+    // No statement is ever large, so nothing about literal/statement size
+    // can cause a partial or empty write.
+    const CH = 3000, chunks = [];
+    for (let i = 0; i < defJson.length; i += CH) chunks.push(defJson.slice(i, i + CH));
+    const esc1 = s => s.replace(/'/g, "''");
+    const stmts = [];
+    if (cur.isNew) {
+        stmts.push('INSERT INTO wms_ai_forms (form_key, name, description, definition, active, updated_by, updated_on) VALUES (' +
+            [sqlq(key), sqlq(cur.name), sqlq(cur.description), 'EMPTY_CLOB()', sqlq(cur.active), sqlq(appUserName()), 'SYSDATE'].join(', ') + ')');
+    } else {
+        stmts.push('UPDATE wms_ai_forms SET name = ' + sqlq(cur.name) + ', description = ' + sqlq(cur.description) +
+            ', definition = EMPTY_CLOB(), active = ' + sqlq(cur.active) +
+            ', updated_by = ' + sqlq(appUserName()) + ', updated_on = SYSDATE WHERE form_key = ' + sqlq(key));
+    }
+    chunks.forEach(c => stmts.push("UPDATE wms_ai_forms SET definition = definition || TO_CLOB('" + esc1(c) + "') WHERE form_key = " + sqlq(key)));
+
+    let idx = 0;
+    status.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-spinner fa-spin"></i> Saving (' + stmts.length + ' parts)…</span>';
+    (function next() {
+        if (idx >= stmts.length) { afterSave(); return; }
+        runWrite(stmts[idx], function (err) {
+            if (err) {
+                const hint = (idx === 0 && cur.isNew && /unique|00001/i.test(String(err)))
+                    ? ' — a form with key "' + key + '" already exists. Delete it (trash icon) or open it to update.' : '';
+                status.innerHTML = '<span style="color:#b91c1c;">Save failed at part ' + (idx + 1) + '/' + stmts.length + ': ' + esc(err) + hint + '</span>';
+                return;
+            }
+            idx++; status.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-spinner fa-spin"></i> Saving part ' + idx + '/' + stmts.length + '…</span>';
+            next();
+        });
+    })();
+
+    function afterSave() {
+        cur.form_key = key; cur.isNew = false; curKey = key;
+        loadForms();
+        runQuery("SELECT LENGTH(definition) AS LEN FROM wms_ai_forms WHERE form_key = " + sqlq(key), function (e2, rows) {
+            const stored = (rows && rows[0] && Number(rows[0].LEN)) || 0;
+            if (e2) {
+                status.innerHTML = '<span style="color:#15803d;"><i class="fas fa-check-circle"></i> Saved.</span> <span style="color:#94a3b8;">(could not verify: ' + esc(e2) + ')</span>';
+            } else if (stored >= expected * 0.98) {
+                status.innerHTML = '<span style="color:#15803d;"><i class="fas fa-check-circle"></i> Saved &amp; verified — ' + stored + ' chars stored in full. The AI chat and all pages see it immediately.</span>';
+            } else {
+                status.innerHTML = '<span style="color:#b45309;font-weight:700;"><i class="fas fa-triangle-exclamation"></i> Saved, but stored ' + stored + ' of ' + expected + ' chars — tell me and I\'ll dig in.</span>';
+            }
+        });
+    }
+}
+
+// ── SQL tester ──────────────────────────────────────────────
+// Binds sample values for :PLACEHOLDERS the same way the engine does
+// (:SEARCH -> '%TEXT%' uppercase, others -> quoted literals) and runs
+// the statement through the read-only query gateway.
+let _sqlTestPath = null;
+function openSqlTester(path) {
+    _sqlTestPath = path;
+    const sql = String(getPath(cur, path) || '');
+    if (!sql.trim()) { alert('Enter the SQL first, then click Test SQL.'); return; }
+    const phs = [...new Set(sql.match(/:[A-Za-z_]\w*/g) || [])];
+    const old = document.getElementById('sqltest-modal');
+    if (old) old.remove();
+    const html =
+    '<div id="sqltest-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:30500;display:flex;align-items:center;justify-content:center;">' +
+      '<div style="background:white;width:94%;max-width:820px;max-height:88vh;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+        '<div style="padding:0.7rem 1.1rem;background:#0f766e;display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-weight:800;font-size:13px;color:white;"><i class="fas fa-flask"></i> Test SQL</div>' +
+          '<button onclick="document.getElementById(\'sqltest-modal\').remove()" style="background:none;border:none;color:white;font-size:1.2rem;cursor:pointer;">&times;</button>' +
+        '</div>' +
+        '<div style="padding:0.8rem 1.1rem;overflow-y:auto;">' +
+          '<div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:3px;">STATEMENT</div>' +
+          '<pre class="mono" style="background:#f8fafc;border:1px solid var(--border);border-radius:7px;padding:8px;font-size:10.5px;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow-y:auto;">' + esc(sql) + '</pre>' +
+          (phs.length
+            ? '<div style="font-size:10px;font-weight:700;color:#475569;margin:8px 0 4px;">SAMPLE VALUES FOR PLACEHOLDERS</div>' +
+              '<div class="grid3">' + phs.map((p, i) =>
+                fld(esc(p), '<input type="text" class="in sqltest-ph" data-ph="' + esc(p) + '" placeholder="' + (p === ':SEARCH' ? 'search text (empty = match all)' : 'sample value') + '">')).join('') + '</div>'
+            : '<div style="font-size:10px;color:#94a3b8;margin-top:6px;">No placeholders detected — runs as-is.</div>') +
+          '<div style="margin:10px 0 6px;display:flex;gap:8px;align-items:center;">' +
+            '<button class="btn btn-p" onclick="sqlTestRun()"><i class="fas fa-play"></i> Run (max 50 rows)</button>' +
+            '<span id="sqltest-status" style="font-size:11px;"></span>' +
+          '</div>' +
+          '<div id="sqltest-res"></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+    const first = document.querySelector('#sqltest-modal .sqltest-ph');
+    if (first) setTimeout(() => first.focus(), 60);
+}
+function sqlTestRun() {
+    let sql = String(getPath(cur, _sqlTestPath) || '');
+    const status = document.getElementById('sqltest-status');
+    const res = document.getElementById('sqltest-res');
+    document.querySelectorAll('#sqltest-modal .sqltest-ph').forEach(inp => {
+        const ph = inp.getAttribute('data-ph');
+        const v = inp.value;
+        const lit = ph === ':SEARCH'
+            ? "'%" + String(v).replace(/'/g, "''").toUpperCase() + "%'"
+            : "'" + String(v).replace(/'/g, "''") + "'";
+        sql = sql.replace(new RegExp(ph.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g'), lit);
+    });
+    status.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-spinner fa-spin"></i> Running…</span>';
+    res.innerHTML = '';
+    runQuery(sql.replace(/;\s*$/, ''), function (err, rows) {
+        if (err) {
+            status.innerHTML = '<span style="color:#b91c1c;font-weight:700;">Error</span>';
+            res.innerHTML = '<div style="font-size:11px;color:#b91c1c;background:#fff7f7;border:1px solid #fca5a5;border-radius:7px;padding:8px;">' + esc(err) + '</div>' +
+                '<details style="margin-top:6px;"><summary style="font-size:9.5px;color:#94a3b8;cursor:pointer;">SQL that ran</summary><pre class="mono" style="font-size:10px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:6px;white-space:pre-wrap;word-break:break-all;">' + esc(sql) + '</pre></details>';
+            return;
+        }
+        const shown = rows.slice(0, 50);
+        status.innerHTML = '<span style="color:#15803d;font-weight:700;"><i class="fas fa-check-circle"></i> ' + rows.length + ' row(s)</span>';
+        if (!shown.length) { res.innerHTML = '<div style="font-size:11px;color:#94a3b8;padding:8px;">Query ran fine but returned no rows — check the sample values.</div>'; }
+        else {
+            const cols = Object.keys(shown[0]);
+            res.innerHTML = '<div style="border:1px solid var(--border);border-radius:8px;overflow:auto;max-height:280px;">' +
+                '<table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="background:#f8fafc;position:sticky;top:0;">' +
+                cols.map(c => '<th style="padding:5px 7px;text-align:left;">' + esc(c) + '</th>').join('') + '</tr></thead><tbody>' +
+                shown.map(r => '<tr style="border-bottom:1px solid #f1f5f9;">' + cols.map(c => '<td style="padding:4px 7px;">' + esc(r[c]) + '</td>').join('') + '</tr>').join('') +
+                '</tbody></table></div>';
+        }
+        res.innerHTML += '<details style="margin-top:6px;"><summary style="font-size:9.5px;color:#94a3b8;cursor:pointer;">SQL that ran</summary><pre class="mono" style="font-size:10px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:6px;white-space:pre-wrap;word-break:break-all;">' + esc(sql) + '</pre></details>';
+    });
+}
+
+// ── Build from AI ───────────────────────────────────────────
+// Describe the form (and paste/attach a sample screenshot). The AI
+// designs the definition JSON; the designer loads it for review -
+// nothing is saved until the user clicks Save.
+let baiImgs = [];   // { name, b64 }
+
+function openBuildAI() {
+    baiImgs = [];
+    const html =
+    '<div id="bai-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:30000;display:flex;align-items:center;justify-content:center;">' +
+      '<div style="background:white;width:94%;max-width:680px;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+        '<div style="padding:0.8rem 1.2rem;background:linear-gradient(135deg,#7c3aed,#5b21b6);display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-weight:800;font-size:14px;color:white;"><i class="fas fa-wand-magic-sparkles"></i> Build a form with AI</div>' +
+          '<button onclick="document.getElementById(\'bai-modal\').remove()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>' +
+        '</div>' +
+        '<div style="padding:1rem 1.2rem;">' +
+          '<label class="lbl">Describe the form — fields, where the data comes from, validations, buttons, reports…</label>' +
+          '<textarea id="bai-desc" class="in" style="min-height:130px;resize:vertical;" placeholder="e.g. Goods return form: customer search (with price list), return date, reason dropdown (DAMAGED/EXPIRED/OTHER), lines with item search on the customer price list, qty and amount, total amount, a validation that qty > 0, buttons: Save to DB (POST /RETURNS/NEW), Save Local, Print, Close"></textarea>' +
+          '<div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+            '<label class="btn btn-o" style="cursor:pointer;"><i class="fas fa-image"></i> Attach screenshot <input type="file" accept="image/*" multiple style="display:none;" onchange="baiFiles(this.files)"></label>' +
+            '<span style="font-size:10px;color:#94a3b8;">…or paste an image here (Ctrl+V)</span>' +
+            '<span id="bai-chips" style="display:flex;gap:5px;flex-wrap:wrap;"></span>' +
+          '</div>' +
+          '<div id="bai-status" style="font-size:11px;color:#0e7490;margin-top:10px;min-height:16px;"></div>' +
+        '</div>' +
+        '<div style="padding:0.7rem 1.2rem;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:8px;">' +
+          '<button class="btn btn-o" onclick="document.getElementById(\'bai-modal\').remove()">Cancel</button>' +
+          '<button id="bai-go" class="btn" style="background:#7c3aed;color:white;" onclick="baiBuild()"><i class="fas fa-wand-magic-sparkles"></i> Build the form</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+    document.getElementById('bai-modal').addEventListener('paste', function (e) {
+        const items = (e.clipboardData || {}).items || [];
+        for (const it of items) {
+            if (it.type && it.type.startsWith('image/')) {
+                e.preventDefault();
+                baiAddFile(it.getAsFile());
+            }
+        }
+    });
+    setTimeout(() => document.getElementById('bai-desc').focus(), 60);
+}
+function baiFiles(files) { for (const f of files) baiAddFile(f); }
+function baiAddFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function () {
+        const b64 = String(reader.result).split(',')[1] || '';
+        baiImgs.push({ name: file.name || ('pasted_' + Date.now() + '.png'), b64: b64 });
+        renderBaiChips();
+    };
+    reader.readAsDataURL(file);
+}
+function renderBaiChips() {
+    const box = document.getElementById('bai-chips');
+    if (!box) return;
+    box.innerHTML = baiImgs.map((f, i) =>
+        '<span style="font-size:10px;background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:8px;font-weight:700;">' +
+        '<i class="fas fa-image"></i> ' + esc(f.name) + ' <i class="fas fa-times" style="cursor:pointer;" onclick="baiImgs.splice(' + i + ',1);renderBaiChips()"></i></span>').join('');
+}
+function baiEvent(evt) {
+    const s = document.getElementById('bai-status');
+    if (!s) return;
+    if (evt.eventType === 'status') s.textContent = evt.text || '';
+    else if (evt.eventType === 'sqlRound') s.textContent = 'AI is checking the schema/data (round ' + (evt.round || '') + ')…';
+}
+function baiSetBusy(b) {
+    const go = document.getElementById('bai-go');
+    if (go) { go.disabled = b; go.innerHTML = b ? '<i class="fas fa-spinner fa-spin"></i> Designing…' : '<i class="fas fa-wand-magic-sparkles"></i> Build the form'; }
+}
+function baiBuild() {
+    const desc = (document.getElementById('bai-desc') || {}).value.trim();
+    const status = document.getElementById('bai-status');
+    if (!desc && !baiImgs.length) { status.innerHTML = '<span style="color:#b91c1c;">Describe the form or attach a screenshot first.</span>'; return; }
+    baiSetBusy(true);
+
+    // 1) upload screenshots into the AI workspace
+    const paths = [];
+    const queue = baiImgs.slice();
+    (function uploadNext() {
+        if (queue.length) {
+            status.textContent = 'Uploading screenshot ' + (paths.length + 1) + ' of ' + baiImgs.length + '…';
+            const f = queue.shift();
+            sendMessageToCSharp({ action: 'aiSaveAttachment', fileName: f.name, dataBase64: f.b64 }, function (err, d) {
+                if (err || !d || d.success === false) { baiSetBusy(false); status.innerHTML = '<span style="color:#b91c1c;">Screenshot upload failed: ' + esc(String(err || (d && d.error) || '')) + '</span>'; return; }
+                paths.push(d.path);
+                uploadNext();
+            });
+            return;
+        }
+        // 2) ask the AI to design the definition
+        status.textContent = 'Asking the AI to design the form… this can take a minute.';
+        const prompt =
+            'BUILD FORM DEFINITION REQUEST\n\n' +
+            'The user described the form they want built in the Forms Designer:\n"""\n' + (desc || '(no text - design from the screenshot)') + '\n"""\n' +
+            (paths.length
+                ? 'Sample screenshot(s) of the desired form are saved at:\n' + paths.map(p => '- ' + p).join('\n') +
+                  '\nREAD each image with your Read tool and reproduce its layout: sections and tab pages, field labels and order, grids with their columns, totals and buttons.\n'
+                : '') +
+            'Design the COMPLETE form definition JSON per the USER-DEFINED FORMS schema in your instructions (header fields with lists/pickers, detail grids, reports, rules.submitChecks, actions). ' +
+            'Verify every table and column you reference against the schema catalog; use the KNOWN DATA LOCATIONS (customers = GRFU_CUSTOMER). ' +
+            'Reply with action answer whose markdown contains EXACTLY ONE fenced code block: ```json { "form_key": "...", "name": "...", "description": "...", "definition": { ... } } ``` ' +
+            'Do NOT open any form and do NOT write to the database - the Forms Designer loads your JSON for the user to review, test and save.';
+        sendMessageToCSharp({ action: 'aiChatSend', text: '[CURRENT_INSTANCE: PROD]\n' + prompt, sessionId: null, instance: 'PROD' }, function (err, resp) {
+            baiSetBusy(false);
+            if (err) { status.innerHTML = '<span style="color:#b91c1c;">AI request failed: ' + esc(String(err)) + '</span>'; return; }
+            if (resp && resp.requiresApproval) { status.innerHTML = '<span style="color:#b91c1c;">The AI tried to execute a write instead of replying with the design — please try again.</span>'; return; }
+            const md = (resp && (resp.markdown || resp.answer)) || '';
+            const m = md.match(/```json\s*([\s\S]*?)```/i) || md.match(/```\s*(\{[\s\S]*?\})\s*```/);
+            if (!m) { status.innerHTML = '<span style="color:#b91c1c;">Could not find the definition JSON in the AI reply. Reply was: ' + esc(md.slice(0, 220)) + '…</span>'; return; }
+            let env;
+            try { env = JSON.parse(m[1]); } catch (e) { status.innerHTML = '<span style="color:#b91c1c;">AI returned invalid JSON: ' + esc(e.message) + '</span>'; return; }
+            const def = env.definition || (env.header ? env : null);
+            if (!def || !def.header) { status.innerHTML = '<span style="color:#b91c1c;">AI reply had no usable definition.</span>'; return; }
+            normalizeLoadedDef(def);
+            cur = {
+                form_key: String(env.form_key || 'form.' + Date.now()),
+                name: String(env.name || def.title || 'AI Form'),
+                description: String(env.description || ''),
+                active: 'Y', def: def, isNew: true
+            };
+            curKey = '';
+            const modal = document.getElementById('bai-modal');
+            if (modal) modal.remove();
+            jsonMode = false;
+            resetTestPreview();
+            pageTab = 'test';   // land straight on the live preview
+            renderList(); renderEditor();
+            const ss = document.getElementById('save-status');
+            if (ss) ss.innerHTML = '<span style="color:#6d28d9;font-weight:700;"><i class="fas fa-wand-magic-sparkles"></i> AI draft loaded — test it here, adjust in the Designer tab, then Save.</span>';
+        });
+    })();
+}
+
+// ── Conversational builder (AI Build tab) ───────────────────
+// Start a fresh blank form in chat mode and greet the user.
+function newChatForm() {
+    cur = { form_key: '', name: '', description: '', active: 'Y', def: formTemplate('blank'), isNew: true };
+    curKey = ''; jsonMode = false; chatImgs = [];
+    chatMsgs = [{ role: 'ai', summary: 'Hi! Describe the form you need — the fields, where data comes from (tables / APIs), any validations, and the buttons. I\'ll build it and you\'ll see it live on the right. Then just keep chatting to refine it.' }];
+    pageTab = 'chat';
+    resetTestPreview();
+    renderList(); renderEditor();
+}
+function chatFiles(files) { for (const f of files) chatAddFile(f); }
+function chatAddFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function () {
+        chatImgs.push({ name: file.name || ('pasted_' + Date.now() + '.png'), b64: String(reader.result).split(',')[1] || '' });
+        renderChatImgs();
+    };
+    reader.readAsDataURL(file);
+}
+function renderChatImgs() {
+    const box = document.getElementById('chat-imgs');
+    if (!box) return;
+    box.innerHTML = chatImgs.map((f, i) =>
+        '<span style="font-size:10px;background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:8px;font-weight:700;margin:4px 0;">' +
+        '<i class="fas fa-image"></i> ' + esc(f.name) + ' <i class="fas fa-times" style="cursor:pointer;" onclick="chatImgs.splice(' + i + ',1);renderChatImgs()"></i></span>').join('');
+}
+function renderChatMsgs() {
+    const box = document.getElementById('chat-msgs');
+    if (!box) return;
+    let h = chatMsgs.map(function (m) {
+        if (m.role === 'user') {
+            return '<div style="display:flex;justify-content:flex-end;margin-bottom:10px;">' +
+                '<div style="max-width:85%;background:#7c3aed;color:white;padding:8px 11px;border-radius:12px 12px 3px 12px;font-size:12px;white-space:pre-wrap;">' + esc(m.text) + '</div></div>';
+        }
+        const err = m.error ? 'color:#b91c1c;' : 'color:#334155;';
+        return '<div style="display:flex;justify-content:flex-start;margin-bottom:10px;">' +
+            '<div style="max-width:90%;background:white;border:1px solid #eef2f7;padding:8px 11px;border-radius:12px 12px 12px 3px;font-size:12px;' + err + 'white-space:pre-wrap;">' +
+            '<i class="fas fa-wand-magic-sparkles" style="color:#7c3aed;"></i> ' + esc(m.summary || m.text || '') + '</div></div>';
+    }).join('');
+    if (chatBusy) {
+        h += '<div style="display:flex;justify-content:flex-start;margin-bottom:10px;">' +
+            '<div style="background:white;border:1px solid #eef2f7;padding:8px 11px;border-radius:12px;font-size:12px;color:#7c3aed;">' +
+            '<i class="fas fa-spinner fa-spin"></i> <span id="chat-think">Building…</span></div></div>';
+    }
+    box.innerHTML = h;
+    box.scrollTop = box.scrollHeight;
+}
+// live status from the AI backend (schema checks etc.) while building
+function chatThink(txt) { const el = document.getElementById('chat-think'); if (el && txt) el.textContent = txt; }
+
+function applyChatDef(env) {
+    const def = env.definition || (env.header ? env : null);
+    if (!def || !def.header) return false;
+    normalizeLoadedDef(def);
+    cur.def = def;
+    if (env.name) cur.name = String(env.name);
+    if (env.description != null && env.description !== '') cur.description = String(env.description);
+    if (!cur.form_key && env.form_key) cur.form_key = String(env.form_key);
+    return true;
+}
+
+function chatSend() {
+    if (chatBusy) return;
+    const ta = document.getElementById('chat-in');
+    const text = (ta ? ta.value : '').trim();
+    if (!text && !chatImgs.length) return;
+    if (ta) ta.value = '';
+    chatMsgs.push({ role: 'user', text: text || '(build from the screenshot)' });
+    chatBusy = true;
+    renderChatMsgs();
+
+    const imgs = chatImgs.slice(); chatImgs = []; renderChatImgs();
+    const paths = [];
+    (function uploadNext() {
+        if (imgs.length) {
+            chatThink('Uploading screenshot ' + (paths.length + 1) + '…');
+            const f = imgs.shift();
+            sendMessageToCSharp({ action: 'aiSaveAttachment', fileName: f.name, dataBase64: f.b64 }, function (err, d) {
+                if (!err && d && d.path) paths.push(d.path);
+                uploadNext();
+            });
+            return;
+        }
+        askAi();
+    })();
+
+    function askAi() {
+        chatThink('Designing…');
+        const curDef = JSON.stringify(cur.def);
+        const prompt =
+            'CONVERSATIONAL FORM BUILD/EDIT REQUEST\n\n' +
+            'You are building a form WITH the user in the WMS Forms Designer, one instruction at a time. ' +
+            'This is the CURRENT form definition JSON (may be an empty starting form):\n```json\n' + curDef + '\n```\n' +
+            (paths.length ? 'The user attached screenshot(s) here — READ each with your Read tool and reproduce the layout:\n' + paths.map(p => '- ' + p).join('\n') + '\n' : '') +
+            'The user now says:\n"""\n' + (text || '(design from the screenshot)') + '\n"""\n\n' +
+            'Apply this instruction to the definition. Keep everything the user did NOT mention unchanged. ' +
+            'Follow the USER-DEFINED FORMS schema in your instructions (header.fields with lists/pickers/valueSql, details grids, reports, rules.submitChecks, actions with ords/sql/local_file/print/close). ' +
+            'Verify every table/column against the schema catalog; use KNOWN DATA LOCATIONS (customers = GRFU_CUSTOMER). ' +
+            'Reply with action answer whose markdown has EXACTLY ONE fenced code block:\n' +
+            '```json\n{ "name": "...", "description": "...", "summary": "one short line describing what you changed", "definition": { ...FULL updated definition... } }\n```\n' +
+            'Return the COMPLETE definition (not a diff). Do NOT write to the database and do NOT open a form.';
+        sendMessageToCSharp({ action: 'aiChatSend', text: '[CURRENT_INSTANCE: PROD]\n' + prompt, sessionId: null, instance: 'PROD' }, function (err, resp) {
+            chatBusy = false;
+            if (err) { chatMsgs.push({ role: 'ai', error: true, summary: 'Request failed: ' + String(err) }); renderChatMsgs(); return; }
+            if (resp && resp.requiresApproval) { chatMsgs.push({ role: 'ai', error: true, summary: 'The AI tried to run a write instead of returning the design — please rephrase.' }); renderChatMsgs(); return; }
+            const md = (resp && (resp.markdown || resp.answer)) || '';
+            const m = md.match(/```json\s*([\s\S]*?)```/i) || md.match(/```\s*(\{[\s\S]*?\})\s*```/);
+            if (!m) { chatMsgs.push({ role: 'ai', error: true, summary: 'I couldn\'t produce a valid form from that. Reply: ' + md.slice(0, 160) }); renderChatMsgs(); return; }
+            let env;
+            try { env = JSON.parse(m[1]); } catch (e) { chatMsgs.push({ role: 'ai', error: true, summary: 'Returned invalid JSON: ' + e.message }); renderChatMsgs(); return; }
+            if (!applyChatDef(env)) { chatMsgs.push({ role: 'ai', error: true, summary: 'The reply had no usable form definition.' }); renderChatMsgs(); return; }
+            chatMsgs.push({ role: 'ai', summary: env.summary || 'Updated the form.' });
+            renderChatMsgs();
+            if (pageTab === 'chat') reloadTestForm();   // refresh the live preview
+        });
+    }
+}
+// surface AI backend live-status events into the chat "thinking" line too
+(function () {
+    const _orig = window.baiEvent;
+    window.baiEvent = function (evt) {
+        try { if (_orig) _orig(evt); } catch (e) { }
+        if (chatBusy && evt) {
+            if (evt.eventType === 'status') chatThink(evt.text || 'Working…');
+            else if (evt.eventType === 'sqlRound') chatThink('Checking the schema / data (round ' + (evt.round || '') + ')…');
+        }
+    };
+})();
+
+loadForms();
+</script>
+</body>
+</html>

@@ -1,0 +1,1927 @@
+[
+ {
+  "id": "gl",
+  "version": "1.0.0",
+  "title": "General Ledger",
+  "area": "Financials",
+  "description": "Ledgers, accounts, period balances and journal lines: net movement, opening/closing balance, revenue, expenses, net income; trial balance and journals-to-balances checks.",
+  "module": {
+   "name": "gl",
+   "title": "General Ledger",
+   "description": "Oracle Fusion General Ledger",
+   "schedule": {
+    "mode": "DAILY",
+    "time": "05:30"
+   }
+  },
+  "tables": [
+   {
+    "module": "gl",
+    "name": "ledgers",
+    "description": "Ledgers (primary, secondary, reporting)",
+    "synonyms": [],
+    "columns": {
+     "LEDGER_NAME": {
+      "description": "Ledger name"
+     },
+     "CURRENCY_CODE": {
+      "description": "Ledger currency"
+     },
+     "PERIOD_SET_NAME": {
+      "description": "Accounting calendar"
+     },
+     "LEDGER_CATEGORY_CODE": {
+      "description": "PRIMARY, SECONDARY or ALC"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT l.LEDGER_ID, l.NAME AS LEDGER_NAME, l.CURRENCY_CODE, l.PERIOD_SET_NAME, l.ACCOUNTED_PERIOD_TYPE, l.CHART_OF_ACCOUNTS_ID, l.LEDGER_CATEGORY_CODE FROM FUSION.GL_LEDGERS l"
+    },
+    "strategy": "full",
+    "key": [
+     "LEDGER_ID"
+    ],
+    "columnTypes": {
+     "LEDGER_ID": "BIGINT",
+     "LEDGER_NAME": "VARCHAR",
+     "CURRENCY_CODE": "VARCHAR",
+     "PERIOD_SET_NAME": "VARCHAR",
+     "ACCOUNTED_PERIOD_TYPE": "VARCHAR",
+     "CHART_OF_ACCOUNTS_ID": "BIGINT",
+     "LEDGER_CATEGORY_CODE": "VARCHAR"
+    }
+   },
+   {
+    "module": "gl",
+    "name": "gl_accounts",
+    "description": "Account combinations (code combinations) with the account class",
+    "synonyms": [
+     "chart of accounts",
+     "code combinations"
+    ],
+    "columns": {
+     "SEGMENT1": {
+      "description": "First segment (often company)"
+     },
+     "SEGMENT3": {
+      "description": "Often the natural account"
+     },
+     "ACCOUNT_STRING": {
+      "description": "Segments joined with - (adjust to your chart of accounts)"
+     },
+     "ACCOUNT_TYPE": {
+      "description": "A L O R E"
+     },
+     "ACCOUNT_CLASS": {
+      "description": "Asset, Liability, Equity, Revenue, Expense"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT c.CODE_COMBINATION_ID, c.SEGMENT1, c.SEGMENT2, c.SEGMENT3, c.SEGMENT4, c.SEGMENT5, c.SEGMENT6, c.SEGMENT1 || '-' || c.SEGMENT2 || '-' || c.SEGMENT3 || '-' || c.SEGMENT4 || '-' || c.SEGMENT5 || '-' || c.SEGMENT6 AS ACCOUNT_STRING, c.ACCOUNT_TYPE, DECODE(c.ACCOUNT_TYPE, 'A', 'Asset', 'L', 'Liability', 'O', 'Equity', 'R', 'Revenue', 'E', 'Expense', c.ACCOUNT_TYPE) AS ACCOUNT_CLASS, c.ENABLED_FLAG, c.LAST_UPDATE_DATE FROM FUSION.GL_CODE_COMBINATIONS c"
+    },
+    "strategy": "incremental",
+    "key": [
+     "CODE_COMBINATION_ID"
+    ],
+    "columnTypes": {
+     "CODE_COMBINATION_ID": "BIGINT",
+     "SEGMENT1": "VARCHAR",
+     "SEGMENT2": "VARCHAR",
+     "SEGMENT3": "VARCHAR",
+     "SEGMENT4": "VARCHAR",
+     "SEGMENT5": "VARCHAR",
+     "SEGMENT6": "VARCHAR",
+     "ACCOUNT_STRING": "VARCHAR",
+     "ACCOUNT_TYPE": "VARCHAR",
+     "ACCOUNT_CLASS": "VARCHAR",
+     "ENABLED_FLAG": "VARCHAR",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    },
+    "incrementalColumn": "LAST_UPDATE_DATE",
+    "overlapMinutes": 120
+   },
+   {
+    "module": "gl",
+    "name": "gl_balances",
+    "description": "Actual period balances in the ledger currency (one row per ledger, account and period)",
+    "synonyms": [
+     "trial balance",
+     "balances"
+    ],
+    "columns": {
+     "PERIOD_NAME": {
+      "description": "Accounting period, e.g. Jan-26"
+     },
+     "PERIOD_END_DATE": {
+      "description": "Last day of the period (links to the calendar)"
+     },
+     "ADJUSTMENT_PERIOD_FLAG": {
+      "description": "Y for adjustment periods"
+     },
+     "BEGIN_BALANCE_DR": {
+      "description": "Opening debit balance"
+     },
+     "BEGIN_BALANCE_CR": {
+      "description": "Opening credit balance"
+     },
+     "PERIOD_NET_DR": {
+      "description": "Debits posted in the period"
+     },
+     "PERIOD_NET_CR": {
+      "description": "Credits posted in the period"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT b.LEDGER_ID || '-' || b.CODE_COMBINATION_ID || '-' || b.PERIOD_NAME AS BALANCE_KEY, b.LEDGER_ID, b.CODE_COMBINATION_ID, b.PERIOD_NAME, TRUNC(p.END_DATE) AS PERIOD_END_DATE, p.PERIOD_YEAR, p.PERIOD_NUM, p.ADJUSTMENT_PERIOD_FLAG, NVL(b.BEGIN_BALANCE_DR, 0) AS BEGIN_BALANCE_DR, NVL(b.BEGIN_BALANCE_CR, 0) AS BEGIN_BALANCE_CR, NVL(b.PERIOD_NET_DR, 0) AS PERIOD_NET_DR, NVL(b.PERIOD_NET_CR, 0) AS PERIOD_NET_CR FROM FUSION.GL_BALANCES b JOIN FUSION.GL_LEDGERS l ON l.LEDGER_ID = b.LEDGER_ID AND l.CURRENCY_CODE = b.CURRENCY_CODE JOIN FUSION.GL_PERIODS p ON p.PERIOD_SET_NAME = l.PERIOD_SET_NAME AND p.PERIOD_TYPE = l.ACCOUNTED_PERIOD_TYPE AND p.PERIOD_NAME = b.PERIOD_NAME WHERE b.ACTUAL_FLAG = 'A' AND b.TRANSLATED_FLAG IS NULL"
+    },
+    "strategy": "window",
+    "key": [
+     "BALANCE_KEY"
+    ],
+    "columnTypes": {
+     "BALANCE_KEY": "VARCHAR",
+     "LEDGER_ID": "BIGINT",
+     "CODE_COMBINATION_ID": "BIGINT",
+     "PERIOD_NAME": "VARCHAR",
+     "PERIOD_END_DATE": "DATE",
+     "PERIOD_YEAR": "INTEGER",
+     "PERIOD_NUM": "INTEGER",
+     "ADJUSTMENT_PERIOD_FLAG": "VARCHAR",
+     "BEGIN_BALANCE_DR": "DOUBLE",
+     "BEGIN_BALANCE_CR": "DOUBLE",
+     "PERIOD_NET_DR": "DOUBLE",
+     "PERIOD_NET_CR": "DOUBLE"
+    },
+    "windowColumn": "PERIOD_END_DATE",
+    "windowMonths": 24
+   },
+   {
+    "module": "gl",
+    "name": "gl_journal_lines",
+    "description": "Actual journal lines with their header (source, category, posting status)",
+    "synonyms": [
+     "journals",
+     "journal entries"
+    ],
+    "columns": {
+     "PERIOD_END_DATE": {
+      "description": "Last day of the journal's period (links to the calendar)"
+     },
+     "EFFECTIVE_DATE": {
+      "description": "Accounting date of the line"
+     },
+     "ACCOUNTED_DR": {
+      "description": "Debit in the ledger currency"
+     },
+     "ACCOUNTED_CR": {
+      "description": "Credit in the ledger currency"
+     },
+     "JE_SOURCE": {
+      "description": "Journal source (Payables, Receivables, Manual …)"
+     },
+     "JE_CATEGORY": {
+      "description": "Journal category"
+     },
+     "STATUS": {
+      "description": "P = posted, U = unposted"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT jl.JE_HEADER_ID * 100000 + jl.JE_LINE_NUM AS LINE_KEY, jl.JE_HEADER_ID, jl.JE_LINE_NUM, h.LEDGER_ID, jl.CODE_COMBINATION_ID, jl.PERIOD_NAME, TRUNC(p.END_DATE) AS PERIOD_END_DATE, TRUNC(jl.EFFECTIVE_DATE) AS EFFECTIVE_DATE, NVL(jl.ACCOUNTED_DR, 0) AS ACCOUNTED_DR, NVL(jl.ACCOUNTED_CR, 0) AS ACCOUNTED_CR, h.JE_SOURCE, h.JE_CATEGORY, h.STATUS, h.NAME AS JOURNAL_NAME, jl.DESCRIPTION, GREATEST(jl.LAST_UPDATE_DATE, h.LAST_UPDATE_DATE) AS LAST_UPDATE_DATE FROM FUSION.GL_JE_LINES jl JOIN FUSION.GL_JE_HEADERS h ON h.JE_HEADER_ID = jl.JE_HEADER_ID JOIN FUSION.GL_LEDGERS l ON l.LEDGER_ID = h.LEDGER_ID JOIN FUSION.GL_PERIODS p ON p.PERIOD_SET_NAME = l.PERIOD_SET_NAME AND p.PERIOD_TYPE = l.ACCOUNTED_PERIOD_TYPE AND p.PERIOD_NAME = jl.PERIOD_NAME WHERE h.ACTUAL_FLAG = 'A'"
+    },
+    "strategy": "window",
+    "key": [
+     "LINE_KEY"
+    ],
+    "columnTypes": {
+     "LINE_KEY": "BIGINT",
+     "JE_HEADER_ID": "BIGINT",
+     "JE_LINE_NUM": "INTEGER",
+     "LEDGER_ID": "BIGINT",
+     "CODE_COMBINATION_ID": "BIGINT",
+     "PERIOD_NAME": "VARCHAR",
+     "PERIOD_END_DATE": "DATE",
+     "EFFECTIVE_DATE": "DATE",
+     "ACCOUNTED_DR": "DOUBLE",
+     "ACCOUNTED_CR": "DOUBLE",
+     "JE_SOURCE": "VARCHAR",
+     "JE_CATEGORY": "VARCHAR",
+     "STATUS": "VARCHAR",
+     "JOURNAL_NAME": "VARCHAR",
+     "DESCRIPTION": "VARCHAR",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    },
+    "windowColumn": "PERIOD_END_DATE",
+    "windowMonths": 3
+   }
+  ],
+  "relationships": [
+   {
+    "fromTable": "gl.gl_balances",
+    "fromColumn": "LEDGER_ID",
+    "toTable": "gl.ledgers",
+    "toColumn": "LEDGER_ID",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "gl.gl_balances",
+    "fromColumn": "CODE_COMBINATION_ID",
+    "toTable": "gl.gl_accounts",
+    "toColumn": "CODE_COMBINATION_ID",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "gl.gl_balances",
+    "fromColumn": "PERIOD_END_DATE",
+    "toTable": "calendar",
+    "toColumn": "Date",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "gl.gl_journal_lines",
+    "fromColumn": "LEDGER_ID",
+    "toTable": "gl.ledgers",
+    "toColumn": "LEDGER_ID",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "gl.gl_journal_lines",
+    "fromColumn": "CODE_COMBINATION_ID",
+    "toTable": "gl.gl_accounts",
+    "toColumn": "CODE_COMBINATION_ID",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "gl.gl_journal_lines",
+    "fromColumn": "PERIOD_END_DATE",
+    "toTable": "calendar",
+    "toColumn": "Date",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "gl.gl_journal_lines",
+    "fromColumn": "EFFECTIVE_DATE",
+    "toTable": "calendar",
+    "toColumn": "Date",
+    "active": false,
+    "crossFilter": "single"
+   }
+  ],
+  "measures": [
+   {
+    "table": "gl.gl_balances",
+    "name": "GL Net Movement",
+    "expression": "SUMX(gl_balances, gl_balances[PERIOD_NET_DR] - gl_balances[PERIOD_NET_CR])",
+    "format": "#,0.00",
+    "folder": "Balances",
+    "description": "Debits minus credits posted in the periods in context",
+    "synonyms": [
+     "activity",
+     "period movement"
+    ]
+   },
+   {
+    "table": "gl.gl_balances",
+    "name": "GL Debits",
+    "expression": "SUM(gl_balances[PERIOD_NET_DR])",
+    "format": "#,0.00",
+    "folder": "Balances",
+    "description": "Debits posted in the period",
+    "synonyms": []
+   },
+   {
+    "table": "gl.gl_balances",
+    "name": "GL Credits",
+    "expression": "SUM(gl_balances[PERIOD_NET_CR])",
+    "format": "#,0.00",
+    "folder": "Balances",
+    "description": "Credits posted in the period",
+    "synonyms": []
+   },
+   {
+    "table": "gl.gl_balances",
+    "name": "GL Closing Balance",
+    "expression": "VAR d = MAX(gl_balances[PERIOD_END_DATE]) RETURN CALCULATE(SUMX(gl_balances, gl_balances[BEGIN_BALANCE_DR] - gl_balances[BEGIN_BALANCE_CR] + gl_balances[PERIOD_NET_DR] - gl_balances[PERIOD_NET_CR]), gl_balances[PERIOD_END_DATE] = d, gl_balances[ADJUSTMENT_PERIOD_FLAG] = \"N\")",
+    "format": "#,0.00",
+    "folder": "Balances",
+    "description": "Balance at the end of the last period in context (adjustment periods excluded)",
+    "synonyms": [
+     "ending balance",
+     "balance"
+    ]
+   },
+   {
+    "table": "gl.gl_balances",
+    "name": "GL Opening Balance",
+    "expression": "VAR d = MIN(gl_balances[PERIOD_END_DATE]) RETURN CALCULATE(SUMX(gl_balances, gl_balances[BEGIN_BALANCE_DR] - gl_balances[BEGIN_BALANCE_CR]), gl_balances[PERIOD_END_DATE] = d, gl_balances[ADJUSTMENT_PERIOD_FLAG] = \"N\")",
+    "format": "#,0.00",
+    "folder": "Balances",
+    "description": "Balance at the start of the first period in context",
+    "synonyms": [
+     "beginning balance"
+    ]
+   },
+   {
+    "table": "gl.gl_balances",
+    "name": "Revenue",
+    "expression": "-CALCULATE([GL Net Movement], gl_accounts[ACCOUNT_TYPE] = \"R\")",
+    "format": "#,0.00",
+    "folder": "P&L",
+    "description": "Revenue accounts, credits shown positive",
+    "synonyms": [
+     "sales revenue",
+     "income"
+    ]
+   },
+   {
+    "table": "gl.gl_balances",
+    "name": "Expenses",
+    "expression": "CALCULATE([GL Net Movement], gl_accounts[ACCOUNT_TYPE] = \"E\")",
+    "format": "#,0.00",
+    "folder": "P&L",
+    "description": "Expense accounts",
+    "synonyms": [
+     "costs",
+     "spend"
+    ]
+   },
+   {
+    "table": "gl.gl_balances",
+    "name": "Net Income",
+    "expression": "[Revenue] - [Expenses]",
+    "format": "#,0.00",
+    "folder": "P&L",
+    "description": "Revenue minus expenses",
+    "synonyms": [
+     "profit",
+     "net profit",
+     "P&L"
+    ]
+   },
+   {
+    "table": "gl.gl_journal_lines",
+    "name": "Journal Net (Posted)",
+    "expression": "CALCULATE(SUMX(gl_journal_lines, gl_journal_lines[ACCOUNTED_DR] - gl_journal_lines[ACCOUNTED_CR]), gl_journal_lines[STATUS] = \"P\")",
+    "format": "#,0.00",
+    "folder": "Journals",
+    "description": "Posted journal debits minus credits",
+    "synonyms": []
+   },
+   {
+    "table": "gl.gl_journal_lines",
+    "name": "Journal Lines",
+    "expression": "COUNTROWS(gl_journal_lines)",
+    "format": "#,0",
+    "folder": "Journals",
+    "description": "Journal lines",
+    "synonyms": []
+   },
+   {
+    "table": "gl.gl_journal_lines",
+    "name": "Unposted Journal Lines",
+    "expression": "CALCULATE(COUNTROWS(gl_journal_lines), gl_journal_lines[STATUS] <> \"P\")",
+    "format": "#,0",
+    "folder": "Journals",
+    "description": "Journal lines not posted yet",
+    "synonyms": [
+     "unposted journals"
+    ]
+   }
+  ],
+  "glossary": [
+   {
+    "term": "Trial balance",
+    "definition": "Debits and credits by account for a period; debits must equal credits",
+    "refs": [
+     "[GL Debits]",
+     "[GL Credits]",
+     "[GL Closing Balance]"
+    ],
+    "synonyms": [
+     "TB"
+    ],
+    "rule": null
+   },
+   {
+    "term": "Closing balance",
+    "definition": "Account balance at the end of a period",
+    "refs": [
+     "[GL Closing Balance]"
+    ],
+    "synonyms": [
+     "ending balance",
+     "period-end balance"
+    ],
+    "rule": "Closing balances are not additive over time - group by period, never sum months"
+   },
+   {
+    "term": "Net income",
+    "definition": "Revenue minus expenses from the GL",
+    "refs": [
+     "[Net Income]",
+     "[Revenue]",
+     "[Expenses]"
+    ],
+    "synonyms": [
+     "profit",
+     "P&L",
+     "bottom line"
+    ],
+    "rule": "Revenue is shown positive (credits); expenses positive (debits)"
+   }
+  ],
+  "checks": [
+   {
+    "name": "GL trial balance balances",
+    "description": "Debits equal credits for every ledger and month",
+    "left": "[GL Debits]",
+    "leftLabel": "Debits",
+    "right": "[GL Credits]",
+    "rightLabel": "Credits",
+    "by": [
+     "ledgers[LEDGER_NAME]",
+     "calendar[YearMonth]"
+    ],
+    "op": "=",
+    "tolerance": 0.01,
+    "bothSides": false,
+    "folder": "GL"
+   },
+   {
+    "name": "GL journals agree to balances",
+    "description": "Posted journal lines equal the period movement of each account (months loaded on both sides)",
+    "left": "[Journal Net (Posted)]",
+    "leftLabel": "Journals",
+    "right": "[GL Net Movement]",
+    "rightLabel": "Balances",
+    "by": [
+     "ledgers[LEDGER_NAME]",
+     "calendar[YearMonth]",
+     "gl_accounts[ACCOUNT_STRING]"
+    ],
+    "op": "=",
+    "tolerance": 0.01,
+    "bothSides": true,
+    "folder": "GL"
+   }
+  ],
+  "notes": [
+   "GL_BALANCES rows in the ledger currency with TRANSLATED_FLAG IS NULL are the totals of all entered currencies - confirm on your pod (SELECT DISTINCT TRANSLATED_FLAG FROM GL_BALANCES).",
+   "ACCOUNT_STRING joins six segments; edit gl_accounts to match your chart of accounts.",
+   "Journal lines reload the last 3 months on every refresh. For history, set the window to 24 months for the first refresh, then back to 3."
+  ]
+ },
+ {
+  "id": "ap",
+  "version": "1.0.0",
+  "title": "Payables",
+  "area": "Financials",
+  "description": "Suppliers, invoices and payment schedules: invoiced, paid, open, overdue and due amounts; invoices-to-schedules check.",
+  "module": {
+   "name": "ap",
+   "title": "Payables",
+   "description": "Oracle Fusion Payables",
+   "schedule": {
+    "mode": "DAILY",
+    "time": "05:40"
+   }
+  },
+  "tables": [
+   {
+    "module": "ap",
+    "name": "suppliers",
+    "description": "Suppliers",
+    "synonyms": [
+     "vendors"
+    ],
+    "columns": {},
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT s.VENDOR_ID, s.SEGMENT1 AS SUPPLIER_NUMBER, p.PARTY_NAME AS SUPPLIER_NAME, s.VENDOR_TYPE_LOOKUP_CODE AS SUPPLIER_TYPE, s.ENABLED_FLAG, GREATEST(s.LAST_UPDATE_DATE, p.LAST_UPDATE_DATE) AS LAST_UPDATE_DATE FROM FUSION.POZ_SUPPLIERS s JOIN FUSION.HZ_PARTIES p ON p.PARTY_ID = s.PARTY_ID"
+    },
+    "strategy": "full",
+    "key": [
+     "VENDOR_ID"
+    ],
+    "columnTypes": {
+     "VENDOR_ID": "BIGINT",
+     "SUPPLIER_NUMBER": "VARCHAR",
+     "SUPPLIER_NAME": "VARCHAR",
+     "SUPPLIER_TYPE": "VARCHAR",
+     "ENABLED_FLAG": "VARCHAR",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    }
+   },
+   {
+    "module": "ap",
+    "name": "ap_invoices",
+    "description": "Payables invoices (amounts in the invoice currency; LEDGER_AMOUNT in the ledger currency)",
+    "synonyms": [
+     "supplier invoices",
+     "bills"
+    ],
+    "columns": {
+     "INVOICE_NUM": {
+      "description": "Invoice number"
+     },
+     "BU_ID": {
+      "description": "Business unit"
+     },
+     "GL_DATE": {
+      "description": "Accounting date (links to the calendar)"
+     },
+     "INVOICE_AMOUNT": {
+      "description": "Invoice amount in the invoice currency"
+     },
+     "LEDGER_AMOUNT": {
+      "description": "Invoice amount in the ledger currency"
+     },
+     "INVOICE_TYPE": {
+      "description": "STANDARD, CREDIT, PREPAYMENT …"
+     },
+     "PAYMENT_STATUS_FLAG": {
+      "description": "Y paid, N unpaid, P partly paid"
+     },
+     "CANCELLED": {
+      "description": "Y when cancelled"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT i.INVOICE_ID, i.INVOICE_NUM, i.VENDOR_ID, i.ORG_ID AS BU_ID, TRUNC(i.INVOICE_DATE) AS INVOICE_DATE, TRUNC(i.GL_DATE) AS GL_DATE, i.INVOICE_CURRENCY_CODE, NVL(i.INVOICE_AMOUNT, 0) AS INVOICE_AMOUNT, NVL(i.AMOUNT_PAID, 0) AS AMOUNT_PAID, NVL(i.BASE_AMOUNT, NVL(i.INVOICE_AMOUNT, 0)) AS LEDGER_AMOUNT, i.INVOICE_TYPE_LOOKUP_CODE AS INVOICE_TYPE, i.PAYMENT_STATUS_FLAG, i.WFAPPROVAL_STATUS AS APPROVAL_STATUS, CASE WHEN i.CANCELLED_DATE IS NULL THEN 'N' ELSE 'Y' END AS CANCELLED, i.SOURCE, i.LAST_UPDATE_DATE FROM FUSION.AP_INVOICES_ALL i"
+    },
+    "strategy": "incremental",
+    "key": [
+     "INVOICE_ID"
+    ],
+    "columnTypes": {
+     "INVOICE_ID": "BIGINT",
+     "INVOICE_NUM": "VARCHAR",
+     "VENDOR_ID": "BIGINT",
+     "BU_ID": "BIGINT",
+     "INVOICE_DATE": "DATE",
+     "GL_DATE": "DATE",
+     "INVOICE_CURRENCY_CODE": "VARCHAR",
+     "INVOICE_AMOUNT": "DOUBLE",
+     "AMOUNT_PAID": "DOUBLE",
+     "LEDGER_AMOUNT": "DOUBLE",
+     "INVOICE_TYPE": "VARCHAR",
+     "PAYMENT_STATUS_FLAG": "VARCHAR",
+     "APPROVAL_STATUS": "VARCHAR",
+     "CANCELLED": "VARCHAR",
+     "SOURCE": "VARCHAR",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    },
+    "incrementalColumn": "LAST_UPDATE_DATE",
+    "overlapMinutes": 120
+   },
+   {
+    "module": "ap",
+    "name": "ap_schedules",
+    "description": "Invoice payment schedules: due dates and remaining amounts",
+    "synonyms": [
+     "installments"
+    ],
+    "columns": {
+     "AMOUNT_REMAINING": {
+      "description": "Still to pay (invoice currency)"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT ps.INVOICE_ID * 1000 + ps.PAYMENT_NUM AS SCHEDULE_KEY, ps.INVOICE_ID, ps.PAYMENT_NUM, TRUNC(ps.DUE_DATE) AS DUE_DATE, NVL(ps.GROSS_AMOUNT, 0) AS GROSS_AMOUNT, NVL(ps.AMOUNT_REMAINING, 0) AS AMOUNT_REMAINING, ps.PAYMENT_STATUS_FLAG, ps.HOLD_FLAG, ps.LAST_UPDATE_DATE FROM FUSION.AP_PAYMENT_SCHEDULES_ALL ps"
+    },
+    "strategy": "incremental",
+    "key": [
+     "SCHEDULE_KEY"
+    ],
+    "columnTypes": {
+     "SCHEDULE_KEY": "BIGINT",
+     "INVOICE_ID": "BIGINT",
+     "PAYMENT_NUM": "INTEGER",
+     "DUE_DATE": "DATE",
+     "GROSS_AMOUNT": "DOUBLE",
+     "AMOUNT_REMAINING": "DOUBLE",
+     "PAYMENT_STATUS_FLAG": "VARCHAR",
+     "HOLD_FLAG": "VARCHAR",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    },
+    "incrementalColumn": "LAST_UPDATE_DATE",
+    "overlapMinutes": 120
+   }
+  ],
+  "relationships": [
+   {
+    "fromTable": "ap.ap_invoices",
+    "fromColumn": "VENDOR_ID",
+    "toTable": "ap.suppliers",
+    "toColumn": "VENDOR_ID",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "ap.ap_schedules",
+    "fromColumn": "INVOICE_ID",
+    "toTable": "ap.ap_invoices",
+    "toColumn": "INVOICE_ID",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "ap.ap_invoices",
+    "fromColumn": "GL_DATE",
+    "toTable": "calendar",
+    "toColumn": "Date",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "ap.ap_schedules",
+    "fromColumn": "DUE_DATE",
+    "toTable": "calendar",
+    "toColumn": "Date",
+    "active": false,
+    "crossFilter": "single"
+   }
+  ],
+  "measures": [
+   {
+    "table": "ap.ap_invoices",
+    "name": "AP Invoice Amount",
+    "expression": "CALCULATE(SUM(ap_invoices[INVOICE_AMOUNT]), ap_invoices[CANCELLED] = \"N\")",
+    "format": "#,0.00",
+    "folder": "Payables",
+    "description": "Invoiced (not cancelled), invoice currency",
+    "synonyms": [
+     "invoiced",
+     "purchases invoiced"
+    ]
+   },
+   {
+    "table": "ap.ap_invoices",
+    "name": "AP Invoice Amount (Ledger)",
+    "expression": "CALCULATE(SUM(ap_invoices[LEDGER_AMOUNT]), ap_invoices[CANCELLED] = \"N\")",
+    "format": "#,0.00",
+    "folder": "Payables",
+    "description": "Invoiced (not cancelled), ledger currency",
+    "synonyms": []
+   },
+   {
+    "table": "ap.ap_invoices",
+    "name": "AP Invoices",
+    "expression": "CALCULATE(COUNTROWS(ap_invoices), ap_invoices[CANCELLED] = \"N\")",
+    "format": "#,0",
+    "folder": "Payables",
+    "description": "Invoices (not cancelled)",
+    "synonyms": []
+   },
+   {
+    "table": "ap.ap_invoices",
+    "name": "AP Paid Amount",
+    "expression": "SUM(ap_invoices[AMOUNT_PAID])",
+    "format": "#,0.00",
+    "folder": "Payables",
+    "description": "Paid on the invoices",
+    "synonyms": []
+   },
+   {
+    "table": "ap.ap_schedules",
+    "name": "AP Open Amount",
+    "expression": "SUM(ap_schedules[AMOUNT_REMAINING])",
+    "format": "#,0.00",
+    "folder": "Payables",
+    "description": "Still to pay, invoice currency",
+    "synonyms": [
+     "payables",
+     "what we owe",
+     "open payables"
+    ]
+   },
+   {
+    "table": "ap.ap_schedules",
+    "name": "AP Overdue Amount",
+    "expression": "CALCULATE(SUM(ap_schedules[AMOUNT_REMAINING]), FILTER(ap_schedules, ap_schedules[DUE_DATE] < TODAY()))",
+    "format": "#,0.00",
+    "folder": "Payables",
+    "description": "Open amount past its due date",
+    "synonyms": [
+     "past due payables"
+    ]
+   },
+   {
+    "table": "ap.ap_schedules",
+    "name": "AP Due Next 30 Days",
+    "expression": "CALCULATE(SUM(ap_schedules[AMOUNT_REMAINING]), FILTER(ap_schedules, ap_schedules[DUE_DATE] >= TODAY() && ap_schedules[DUE_DATE] < TODAY() + 30))",
+    "format": "#,0.00",
+    "folder": "Payables",
+    "description": "Open amount due in the next 30 days",
+    "synonyms": [
+     "cash requirement"
+    ]
+   },
+   {
+    "table": "ap.ap_schedules",
+    "name": "AP Overdue %",
+    "expression": "DIVIDE([AP Overdue Amount], [AP Open Amount])",
+    "format": "0.0%",
+    "folder": "Payables",
+    "description": "Share of the open amount that is overdue",
+    "synonyms": []
+   }
+  ],
+  "glossary": [
+   {
+    "term": "Payables",
+    "definition": "What the company owes suppliers: open payment schedules",
+    "refs": [
+     "[AP Open Amount]",
+     "[AP Overdue Amount]"
+    ],
+    "synonyms": [
+     "AP",
+     "accounts payable",
+     "what we owe",
+     "AP balance"
+    ],
+    "rule": "Amounts are in the invoice currency - group or filter by ap_invoices[INVOICE_CURRENCY_CODE] when there is more than one"
+   },
+   {
+    "term": "Overdue payables",
+    "definition": "Open schedules past their due date",
+    "refs": [
+     "[AP Overdue Amount]",
+     "[AP Overdue %]"
+    ],
+    "synonyms": [
+     "past due",
+     "late payments"
+    ],
+    "rule": null
+   }
+  ],
+  "checks": [
+   {
+    "name": "AP invoices agree to schedules",
+    "description": "Each supplier's invoice amounts equal the gross amounts of their payment schedules",
+    "left": "SUM(ap_invoices[INVOICE_AMOUNT])",
+    "leftLabel": "Invoices",
+    "right": "SUM(ap_schedules[GROSS_AMOUNT])",
+    "rightLabel": "Schedules",
+    "by": [
+     "suppliers[SUPPLIER_NAME]"
+    ],
+    "op": "=",
+    "tolerance": 0.05,
+    "bothSides": false,
+    "folder": "AP"
+   }
+  ],
+  "notes": [
+   "Withholding tax and prepayment applications can make invoice and schedule amounts differ by design - review failing suppliers before treating them as errors."
+  ]
+ },
+ {
+  "id": "ar",
+  "version": "1.0.0",
+  "title": "Receivables",
+  "area": "Financials",
+  "description": "Customers, transactions and payment schedules: billed, open, overdue, receipts and DSO; transactions-to-schedules check.",
+  "module": {
+   "name": "ar",
+   "title": "Receivables",
+   "description": "Oracle Fusion Receivables",
+   "schedule": {
+    "mode": "DAILY",
+    "time": "05:45"
+   }
+  },
+  "tables": [
+   {
+    "module": "ar",
+    "name": "customers",
+    "description": "Customer accounts",
+    "synonyms": [
+     "clients",
+     "accounts"
+    ],
+    "columns": {
+     "STATUS": {
+      "description": "A active, I inactive"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT a.CUST_ACCOUNT_ID, a.ACCOUNT_NUMBER, p.PARTY_NAME AS CUSTOMER_NAME, a.CUSTOMER_CLASS_CODE, a.STATUS, GREATEST(a.LAST_UPDATE_DATE, p.LAST_UPDATE_DATE) AS LAST_UPDATE_DATE FROM FUSION.HZ_CUST_ACCOUNTS a JOIN FUSION.HZ_PARTIES p ON p.PARTY_ID = a.PARTY_ID"
+    },
+    "strategy": "full",
+    "key": [
+     "CUST_ACCOUNT_ID"
+    ],
+    "columnTypes": {
+     "CUST_ACCOUNT_ID": "BIGINT",
+     "ACCOUNT_NUMBER": "VARCHAR",
+     "CUSTOMER_NAME": "VARCHAR",
+     "CUSTOMER_CLASS_CODE": "VARCHAR",
+     "STATUS": "VARCHAR",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    }
+   },
+   {
+    "module": "ar",
+    "name": "ar_transactions",
+    "description": "Receivables transactions (invoices, credit and debit memos) with their total",
+    "synonyms": [
+     "customer invoices",
+     "sales invoices"
+    ],
+    "columns": {
+     "TRX_NUMBER": {
+      "description": "Transaction number"
+     },
+     "COMPLETE_FLAG": {
+      "description": "Y when complete"
+     },
+     "TRX_AMOUNT": {
+      "description": "Lines incl. tax and freight, transaction currency"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT t.CUSTOMER_TRX_ID, t.TRX_NUMBER, TRUNC(t.TRX_DATE) AS TRX_DATE, t.BILL_TO_CUSTOMER_ID, t.ORG_ID AS BU_ID, t.INVOICE_CURRENCY_CODE, t.COMPLETE_FLAG, (SELECT NVL(SUM(x.EXTENDED_AMOUNT), 0) FROM FUSION.RA_CUSTOMER_TRX_LINES_ALL x WHERE x.CUSTOMER_TRX_ID = t.CUSTOMER_TRX_ID) AS TRX_AMOUNT, t.LAST_UPDATE_DATE FROM FUSION.RA_CUSTOMER_TRX_ALL t"
+    },
+    "strategy": "incremental",
+    "key": [
+     "CUSTOMER_TRX_ID"
+    ],
+    "columnTypes": {
+     "CUSTOMER_TRX_ID": "BIGINT",
+     "TRX_NUMBER": "VARCHAR",
+     "TRX_DATE": "DATE",
+     "BILL_TO_CUSTOMER_ID": "BIGINT",
+     "BU_ID": "BIGINT",
+     "INVOICE_CURRENCY_CODE": "VARCHAR",
+     "COMPLETE_FLAG": "VARCHAR",
+     "TRX_AMOUNT": "DOUBLE",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    },
+    "incrementalColumn": "LAST_UPDATE_DATE",
+    "overlapMinutes": 120
+   },
+   {
+    "module": "ar",
+    "name": "ar_schedules",
+    "description": "Payment schedules of transactions and receipts: due, remaining, class",
+    "synonyms": [
+     "open items"
+    ],
+    "columns": {
+     "CUSTOMER_ID": {
+      "description": "Customer account"
+     },
+     "CLASS": {
+      "description": "INV, CM, DM, DEP, CB, PMT (receipt)"
+     },
+     "STATUS": {
+      "description": "OP open, CL closed"
+     },
+     "GL_DATE": {
+      "description": "Accounting date (links to the calendar)"
+     },
+     "AMOUNT_DUE_ORIGINAL": {
+      "description": "Original amount, transaction currency"
+     },
+     "AMOUNT_DUE_REMAINING": {
+      "description": "Remaining, transaction currency"
+     },
+     "ACCTD_AMOUNT_DUE_ORIGINAL": {
+      "description": "Original amount, ledger currency"
+     },
+     "ACCTD_AMOUNT_DUE_REMAINING": {
+      "description": "Remaining, ledger currency"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT ps.PAYMENT_SCHEDULE_ID, ps.CUSTOMER_TRX_ID, ps.CUSTOMER_ID, ps.CLASS, ps.STATUS, TRUNC(ps.TRX_DATE) AS TRX_DATE, TRUNC(ps.GL_DATE) AS GL_DATE, TRUNC(ps.DUE_DATE) AS DUE_DATE, ps.INVOICE_CURRENCY_CODE, NVL(ps.AMOUNT_DUE_ORIGINAL, 0) AS AMOUNT_DUE_ORIGINAL, NVL(ps.AMOUNT_DUE_REMAINING, 0) AS AMOUNT_DUE_REMAINING, NVL(ps.AMOUNT_DUE_ORIGINAL, 0) * NVL(ps.EXCHANGE_RATE, 1) AS ACCTD_AMOUNT_DUE_ORIGINAL, NVL(ps.ACCTD_AMOUNT_DUE_REMAINING, 0) AS ACCTD_AMOUNT_DUE_REMAINING, ps.LAST_UPDATE_DATE FROM FUSION.AR_PAYMENT_SCHEDULES_ALL ps"
+    },
+    "strategy": "incremental",
+    "key": [
+     "PAYMENT_SCHEDULE_ID"
+    ],
+    "columnTypes": {
+     "PAYMENT_SCHEDULE_ID": "BIGINT",
+     "CUSTOMER_TRX_ID": "BIGINT",
+     "CUSTOMER_ID": "BIGINT",
+     "CLASS": "VARCHAR",
+     "STATUS": "VARCHAR",
+     "TRX_DATE": "DATE",
+     "GL_DATE": "DATE",
+     "DUE_DATE": "DATE",
+     "INVOICE_CURRENCY_CODE": "VARCHAR",
+     "AMOUNT_DUE_ORIGINAL": "DOUBLE",
+     "AMOUNT_DUE_REMAINING": "DOUBLE",
+     "ACCTD_AMOUNT_DUE_ORIGINAL": "DOUBLE",
+     "ACCTD_AMOUNT_DUE_REMAINING": "DOUBLE",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    },
+    "incrementalColumn": "LAST_UPDATE_DATE",
+    "overlapMinutes": 120
+   }
+  ],
+  "relationships": [
+   {
+    "fromTable": "ar.ar_schedules",
+    "fromColumn": "CUSTOMER_ID",
+    "toTable": "ar.customers",
+    "toColumn": "CUST_ACCOUNT_ID",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "ar.ar_transactions",
+    "fromColumn": "BILL_TO_CUSTOMER_ID",
+    "toTable": "ar.customers",
+    "toColumn": "CUST_ACCOUNT_ID",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "ar.ar_schedules",
+    "fromColumn": "GL_DATE",
+    "toTable": "calendar",
+    "toColumn": "Date",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "ar.ar_schedules",
+    "fromColumn": "DUE_DATE",
+    "toTable": "calendar",
+    "toColumn": "Date",
+    "active": false,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "ar.ar_transactions",
+    "fromColumn": "TRX_DATE",
+    "toTable": "calendar",
+    "toColumn": "Date",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "ar.ar_schedules",
+    "fromColumn": "CUSTOMER_TRX_ID",
+    "toTable": "ar.ar_transactions",
+    "toColumn": "CUSTOMER_TRX_ID",
+    "active": false,
+    "crossFilter": "single"
+   }
+  ],
+  "measures": [
+   {
+    "table": "ar.ar_schedules",
+    "name": "AR Open Amount",
+    "expression": "SUM(ar_schedules[ACCTD_AMOUNT_DUE_REMAINING])",
+    "format": "#,0.00",
+    "folder": "Receivables",
+    "description": "Still to collect, ledger currency",
+    "synonyms": [
+     "receivables",
+     "outstanding",
+     "AR balance"
+    ]
+   },
+   {
+    "table": "ar.ar_schedules",
+    "name": "AR Billed",
+    "expression": "CALCULATE(SUM(ar_schedules[ACCTD_AMOUNT_DUE_ORIGINAL]), ar_schedules[CLASS] IN {\"INV\", \"DM\"})",
+    "format": "#,0.00",
+    "folder": "Receivables",
+    "description": "Invoices and debit memos, ledger currency",
+    "synonyms": [
+     "billing",
+     "invoiced sales"
+    ]
+   },
+   {
+    "table": "ar.ar_schedules",
+    "name": "AR Receipts",
+    "expression": "-CALCULATE(SUM(ar_schedules[ACCTD_AMOUNT_DUE_ORIGINAL]), ar_schedules[CLASS] = \"PMT\")",
+    "format": "#,0.00",
+    "folder": "Receivables",
+    "description": "Cash received, ledger currency",
+    "synonyms": [
+     "collections",
+     "cash received"
+    ]
+   },
+   {
+    "table": "ar.ar_schedules",
+    "name": "AR Overdue Amount",
+    "expression": "CALCULATE(SUM(ar_schedules[ACCTD_AMOUNT_DUE_REMAINING]), FILTER(ar_schedules, ar_schedules[DUE_DATE] < TODAY()))",
+    "format": "#,0.00",
+    "folder": "Receivables",
+    "description": "Open amount past its due date",
+    "synonyms": [
+     "arrears",
+     "past due receivables"
+    ]
+   },
+   {
+    "table": "ar.ar_schedules",
+    "name": "AR Overdue %",
+    "expression": "DIVIDE([AR Overdue Amount], [AR Open Amount])",
+    "format": "0.0%",
+    "folder": "Receivables",
+    "description": "Share of the open amount that is overdue",
+    "synonyms": []
+   },
+   {
+    "table": "ar.ar_schedules",
+    "name": "DSO",
+    "expression": "DIVIDE(CALCULATE([AR Open Amount], ALL('calendar')), CALCULATE([AR Billed], DATESINPERIOD('calendar'[Date], TODAY(), -90, DAY))) * 90",
+    "format": "#,0.0",
+    "folder": "Receivables",
+    "description": "Days sales outstanding: open amount ÷ billing of the last 90 days × 90",
+    "synonyms": [
+     "days sales outstanding"
+    ]
+   }
+  ],
+  "glossary": [
+   {
+    "term": "Receivables",
+    "definition": "What customers owe: open payment schedules",
+    "refs": [
+     "[AR Open Amount]",
+     "[AR Overdue Amount]"
+    ],
+    "synonyms": [
+     "AR",
+     "accounts receivable",
+     "outstanding",
+     "what customers owe"
+    ],
+    "rule": null
+   },
+   {
+    "term": "DSO",
+    "definition": "Days sales outstanding: how many days of sales are not collected yet",
+    "refs": [
+     "[DSO]"
+    ],
+    "synonyms": [
+     "days sales outstanding",
+     "collection days"
+    ],
+    "rule": "DSO uses the last 90 days of billing up to today"
+   }
+  ],
+  "checks": [
+   {
+    "name": "AR transactions agree to schedules",
+    "description": "Complete transactions equal their payment schedules for every customer",
+    "left": "CALCULATE(SUM(ar_transactions[TRX_AMOUNT]), ar_transactions[COMPLETE_FLAG] = \"Y\")",
+    "leftLabel": "Transactions",
+    "right": "CALCULATE(SUM(ar_schedules[AMOUNT_DUE_ORIGINAL]), ar_schedules[CLASS] <> \"PMT\")",
+    "rightLabel": "Schedules",
+    "by": [
+     "customers[CUSTOMER_NAME]"
+    ],
+    "op": "=",
+    "tolerance": 0.05,
+    "bothSides": false,
+    "folder": "AR"
+   }
+  ],
+  "notes": [
+   "Line changes may not update RA_CUSTOMER_TRX_ALL.LAST_UPDATE_DATE; run a full refresh of ar_transactions monthly."
+  ]
+ },
+ {
+  "id": "po",
+  "version": "1.0.0",
+  "title": "Purchasing",
+  "area": "Procurement",
+  "description": "Purchase orders, lines and receipts: spend, ordered and received quantity, receipt rate; receipts-not-above-ordered check.",
+  "module": {
+   "name": "po",
+   "title": "Purchasing",
+   "description": "Oracle Fusion Purchasing and Receiving",
+   "schedule": {
+    "mode": "DAILY",
+    "time": "05:50"
+   }
+  },
+  "tables": [
+   {
+    "module": "po",
+    "name": "po_headers",
+    "description": "Purchase orders",
+    "synonyms": [
+     "purchase orders",
+     "POs"
+    ],
+    "columns": {
+     "BU_ID": {
+      "description": "Procurement business unit"
+     },
+     "DOCUMENT_STATUS": {
+      "description": "OPEN, CLOSED, CANCELED …"
+     },
+     "TYPE_LOOKUP_CODE": {
+      "description": "STANDARD, BLANKET …"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT h.PO_HEADER_ID, h.SEGMENT1 AS PO_NUMBER, h.VENDOR_ID, h.PRC_BU_ID AS BU_ID, TRUNC(h.CREATION_DATE) AS CREATION_DATE, h.DOCUMENT_STATUS, h.CURRENCY_CODE, h.TYPE_LOOKUP_CODE, h.LAST_UPDATE_DATE FROM FUSION.PO_HEADERS_ALL h"
+    },
+    "strategy": "incremental",
+    "key": [
+     "PO_HEADER_ID"
+    ],
+    "columnTypes": {
+     "PO_HEADER_ID": "BIGINT",
+     "PO_NUMBER": "VARCHAR",
+     "VENDOR_ID": "BIGINT",
+     "BU_ID": "BIGINT",
+     "CREATION_DATE": "DATE",
+     "DOCUMENT_STATUS": "VARCHAR",
+     "CURRENCY_CODE": "VARCHAR",
+     "TYPE_LOOKUP_CODE": "VARCHAR",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    },
+    "incrementalColumn": "LAST_UPDATE_DATE",
+    "overlapMinutes": 120
+   },
+   {
+    "module": "po",
+    "name": "po_lines",
+    "description": "Purchase order lines",
+    "synonyms": [],
+    "columns": {
+     "QUANTITY": {
+      "description": "Ordered quantity"
+     },
+     "LINE_AMOUNT": {
+      "description": "Amount in the PO currency"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT l.PO_LINE_ID, l.PO_HEADER_ID, l.LINE_NUM, l.ITEM_ID, l.ITEM_DESCRIPTION, NVL(l.QUANTITY, 0) AS QUANTITY, NVL(l.UNIT_PRICE, 0) AS UNIT_PRICE, NVL(l.AMOUNT, NVL(l.QUANTITY, 0) * NVL(l.UNIT_PRICE, 0)) AS LINE_AMOUNT, l.LINE_STATUS, l.LAST_UPDATE_DATE FROM FUSION.PO_LINES_ALL l"
+    },
+    "strategy": "incremental",
+    "key": [
+     "PO_LINE_ID"
+    ],
+    "columnTypes": {
+     "PO_LINE_ID": "BIGINT",
+     "PO_HEADER_ID": "BIGINT",
+     "LINE_NUM": "INTEGER",
+     "ITEM_ID": "BIGINT",
+     "ITEM_DESCRIPTION": "VARCHAR",
+     "QUANTITY": "DOUBLE",
+     "UNIT_PRICE": "DOUBLE",
+     "LINE_AMOUNT": "DOUBLE",
+     "LINE_STATUS": "VARCHAR",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    },
+    "incrementalColumn": "LAST_UPDATE_DATE",
+    "overlapMinutes": 120
+   },
+   {
+    "module": "po",
+    "name": "po_receipts",
+    "description": "Receiving transactions against PO lines",
+    "synonyms": [
+     "receipts",
+     "goods received"
+    ],
+    "columns": {
+     "TRANSACTION_TYPE": {
+      "description": "RECEIVE, DELIVER, RETURN TO VENDOR, CORRECT …"
+     },
+     "QUANTITY": {
+      "description": "Transaction quantity (transaction UOM)"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT t.TRANSACTION_ID, t.PO_LINE_ID, t.TRANSACTION_TYPE, TRUNC(t.TRANSACTION_DATE) AS TRANSACTION_DATE, NVL(t.QUANTITY, 0) AS QUANTITY, t.LAST_UPDATE_DATE FROM FUSION.RCV_TRANSACTIONS t WHERE t.PO_LINE_ID IS NOT NULL"
+    },
+    "strategy": "incremental",
+    "key": [
+     "TRANSACTION_ID"
+    ],
+    "columnTypes": {
+     "TRANSACTION_ID": "BIGINT",
+     "PO_LINE_ID": "BIGINT",
+     "TRANSACTION_TYPE": "VARCHAR",
+     "TRANSACTION_DATE": "DATE",
+     "QUANTITY": "DOUBLE",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    },
+    "incrementalColumn": "LAST_UPDATE_DATE",
+    "overlapMinutes": 120
+   }
+  ],
+  "relationships": [
+   {
+    "fromTable": "po.po_lines",
+    "fromColumn": "PO_HEADER_ID",
+    "toTable": "po.po_headers",
+    "toColumn": "PO_HEADER_ID",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "po.po_receipts",
+    "fromColumn": "PO_LINE_ID",
+    "toTable": "po.po_lines",
+    "toColumn": "PO_LINE_ID",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "po.po_headers",
+    "fromColumn": "VENDOR_ID",
+    "toTable": "ap.suppliers",
+    "toColumn": "VENDOR_ID",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "po.po_headers",
+    "fromColumn": "CREATION_DATE",
+    "toTable": "calendar",
+    "toColumn": "Date",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "po.po_receipts",
+    "fromColumn": "TRANSACTION_DATE",
+    "toTable": "calendar",
+    "toColumn": "Date",
+    "active": false,
+    "crossFilter": "single"
+   }
+  ],
+  "measures": [
+   {
+    "table": "po.po_lines",
+    "name": "PO Amount",
+    "expression": "SUM(po_lines[LINE_AMOUNT])",
+    "format": "#,0.00",
+    "folder": "Purchasing",
+    "description": "Ordered amount (PO currency)",
+    "synonyms": [
+     "spend",
+     "purchase value",
+     "purchases"
+    ]
+   },
+   {
+    "table": "po.po_lines",
+    "name": "PO Ordered Qty",
+    "expression": "SUM(po_lines[QUANTITY])",
+    "format": "#,0.##",
+    "folder": "Purchasing",
+    "description": "Ordered quantity",
+    "synonyms": []
+   },
+   {
+    "table": "po.po_lines",
+    "name": "PO Lines",
+    "expression": "COUNTROWS(po_lines)",
+    "format": "#,0",
+    "folder": "Purchasing",
+    "description": "Purchase order lines",
+    "synonyms": []
+   },
+   {
+    "table": "po.po_receipts",
+    "name": "PO Received Qty",
+    "expression": "CALCULATE(SUM(po_receipts[QUANTITY]), po_receipts[TRANSACTION_TYPE] = \"RECEIVE\") - CALCULATE(SUM(po_receipts[QUANTITY]), po_receipts[TRANSACTION_TYPE] = \"RETURN TO VENDOR\")",
+    "format": "#,0.##",
+    "folder": "Purchasing",
+    "description": "Received minus returned to the supplier",
+    "synonyms": [
+     "received quantity"
+    ]
+   },
+   {
+    "table": "po.po_receipts",
+    "name": "PO Receipt Rate",
+    "expression": "DIVIDE([PO Received Qty], [PO Ordered Qty])",
+    "format": "0.0%",
+    "folder": "Purchasing",
+    "description": "Received ÷ ordered quantity",
+    "synonyms": [
+     "receipt rate"
+    ]
+   },
+   {
+    "table": "po.po_receipts",
+    "name": "PO Received in Period",
+    "expression": "CALCULATE([PO Received Qty], USERELATIONSHIP(po_receipts[TRANSACTION_DATE], 'calendar'[Date]))",
+    "format": "#,0.##",
+    "folder": "Purchasing",
+    "description": "Quantity received in the dates in context (by receipt date)",
+    "synonyms": []
+   }
+  ],
+  "glossary": [
+   {
+    "term": "Spend",
+    "definition": "Ordered purchase value",
+    "refs": [
+     "[PO Amount]"
+    ],
+    "synonyms": [
+     "purchases",
+     "purchase value",
+     "procurement spend"
+    ],
+    "rule": "PO amounts are in the PO currency - group by po_headers[CURRENCY_CODE] when there is more than one"
+   }
+  ],
+  "checks": [
+   {
+    "name": "PO receipts do not exceed ordered",
+    "description": "Net received quantity is not above the ordered quantity on any PO",
+    "left": "[PO Received Qty]",
+    "leftLabel": "Received",
+    "right": "[PO Ordered Qty]",
+    "rightLabel": "Ordered",
+    "by": [
+     "po_headers[PO_NUMBER]"
+    ],
+    "op": "<=",
+    "tolerance": 0.001,
+    "bothSides": false,
+    "folder": "PO"
+   }
+  ],
+  "notes": [
+   "Receipt tolerances can allow over-receipt by design.",
+   "RCV_TRANSACTIONS.QUANTITY is in the transaction UOM; compare with the PO UOM if they differ."
+  ]
+ },
+ {
+  "id": "om",
+  "version": "1.0.0",
+  "title": "Order Management",
+  "area": "Supply Chain",
+  "description": "Sales orders and fulfillment lines: order value, fill rate, on-time shipping, backlog; shipped-not-above-ordered check.",
+  "module": {
+   "name": "om",
+   "title": "Order Management",
+   "description": "Oracle Fusion Order Management",
+   "schedule": {
+    "mode": "HOURLY",
+    "time": "06:00"
+   }
+  },
+  "tables": [
+   {
+    "module": "om",
+    "name": "om_headers",
+    "description": "Submitted sales orders",
+    "synonyms": [
+     "sales orders",
+     "orders"
+    ],
+    "columns": {
+     "CUSTOMER_NAME": {
+      "description": "Sold-to customer"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT h.HEADER_ID, h.ORDER_NUMBER, h.SOURCE_ORDER_NUMBER, h.STATUS_CODE, TRUNC(h.ORDERED_DATE) AS ORDERED_DATE, h.TRANSACTIONAL_CURRENCY_CODE AS CURRENCY_CODE, h.SOLD_TO_PARTY_ID, p.PARTY_NAME AS CUSTOMER_NAME, h.ORG_ID AS BU_ID, h.LAST_UPDATE_DATE FROM FUSION.DOO_HEADERS_ALL h LEFT JOIN FUSION.HZ_PARTIES p ON p.PARTY_ID = h.SOLD_TO_PARTY_ID WHERE h.SUBMITTED_FLAG = 'Y'"
+    },
+    "strategy": "incremental",
+    "key": [
+     "HEADER_ID"
+    ],
+    "columnTypes": {
+     "HEADER_ID": "BIGINT",
+     "ORDER_NUMBER": "VARCHAR",
+     "SOURCE_ORDER_NUMBER": "VARCHAR",
+     "STATUS_CODE": "VARCHAR",
+     "ORDERED_DATE": "DATE",
+     "CURRENCY_CODE": "VARCHAR",
+     "SOLD_TO_PARTY_ID": "BIGINT",
+     "CUSTOMER_NAME": "VARCHAR",
+     "BU_ID": "BIGINT",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    },
+    "incrementalColumn": "LAST_UPDATE_DATE",
+    "overlapMinutes": 120
+   },
+   {
+    "module": "om",
+    "name": "om_lines",
+    "description": "Fulfillment lines: ordered and shipped quantity, dates, on-time and open flags",
+    "synonyms": [
+     "order lines",
+     "fulfillment lines"
+    ],
+    "columns": {
+     "ITEM_ORG": {
+      "description": "Item id - fulfillment org id (links to items)"
+     },
+     "EXTENDED_AMOUNT": {
+      "description": "Line value, order currency"
+     },
+     "ON_TIME": {
+      "description": "Y shipped by the requested date, N late, blank not shipped"
+     },
+     "IS_OPEN": {
+      "description": "Y still to ship"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT fl.FULFILL_LINE_ID, fl.HEADER_ID, fl.FULFILL_LINE_NUMBER, fl.STATUS_CODE, fl.INVENTORY_ITEM_ID || '-' || fl.FULFILL_ORG_ID AS ITEM_ORG, NVL(fl.ORDERED_QTY, 0) AS ORDERED_QTY, NVL(fl.SHIPPED_QTY, 0) AS SHIPPED_QTY, NVL(fl.UNIT_SELLING_PRICE, 0) AS UNIT_SELLING_PRICE, NVL(fl.EXTENDED_AMOUNT, 0) AS EXTENDED_AMOUNT, TRUNC(fl.REQUEST_SHIP_DATE) AS REQUEST_SHIP_DATE, TRUNC(fl.ACTUAL_SHIP_DATE) AS ACTUAL_SHIP_DATE, CASE WHEN fl.ACTUAL_SHIP_DATE IS NULL THEN NULL WHEN TRUNC(fl.ACTUAL_SHIP_DATE) <= TRUNC(fl.REQUEST_SHIP_DATE) THEN 'Y' ELSE 'N' END AS ON_TIME, CASE WHEN fl.ACTUAL_SHIP_DATE IS NOT NULL OR fl.STATUS_CODE IN ('CANCELED', 'CLOSED', 'SHIPPED', 'BILLED', 'AWAIT_BILLING') THEN 'N' ELSE 'Y' END AS IS_OPEN, fl.LAST_UPDATE_DATE FROM FUSION.DOO_FULFILL_LINES_ALL fl"
+    },
+    "strategy": "incremental",
+    "key": [
+     "FULFILL_LINE_ID"
+    ],
+    "columnTypes": {
+     "FULFILL_LINE_ID": "BIGINT",
+     "HEADER_ID": "BIGINT",
+     "FULFILL_LINE_NUMBER": "INTEGER",
+     "STATUS_CODE": "VARCHAR",
+     "ITEM_ORG": "VARCHAR",
+     "ORDERED_QTY": "DOUBLE",
+     "SHIPPED_QTY": "DOUBLE",
+     "UNIT_SELLING_PRICE": "DOUBLE",
+     "EXTENDED_AMOUNT": "DOUBLE",
+     "REQUEST_SHIP_DATE": "DATE",
+     "ACTUAL_SHIP_DATE": "DATE",
+     "ON_TIME": "VARCHAR",
+     "IS_OPEN": "VARCHAR",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    },
+    "incrementalColumn": "LAST_UPDATE_DATE",
+    "overlapMinutes": 120
+   }
+  ],
+  "relationships": [
+   {
+    "fromTable": "om.om_lines",
+    "fromColumn": "HEADER_ID",
+    "toTable": "om.om_headers",
+    "toColumn": "HEADER_ID",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "om.om_headers",
+    "fromColumn": "ORDERED_DATE",
+    "toTable": "calendar",
+    "toColumn": "Date",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "om.om_lines",
+    "fromColumn": "ACTUAL_SHIP_DATE",
+    "toTable": "calendar",
+    "toColumn": "Date",
+    "active": false,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "om.om_lines",
+    "fromColumn": "ITEM_ORG",
+    "toTable": "inv.items",
+    "toColumn": "ITEM_ORG",
+    "active": true,
+    "crossFilter": "single"
+   }
+  ],
+  "measures": [
+   {
+    "table": "om.om_lines",
+    "name": "OM Order Value",
+    "expression": "SUM(om_lines[EXTENDED_AMOUNT])",
+    "format": "#,0.00",
+    "folder": "Orders",
+    "description": "Ordered value (order currency)",
+    "synonyms": [
+     "order intake",
+     "bookings",
+     "sales orders value"
+    ]
+   },
+   {
+    "table": "om.om_lines",
+    "name": "OM Orders",
+    "expression": "DISTINCTCOUNT(om_lines[HEADER_ID])",
+    "format": "#,0",
+    "folder": "Orders",
+    "description": "Orders with lines",
+    "synonyms": []
+   },
+   {
+    "table": "om.om_lines",
+    "name": "OM Lines",
+    "expression": "COUNTROWS(om_lines)",
+    "format": "#,0",
+    "folder": "Orders",
+    "description": "Fulfillment lines",
+    "synonyms": []
+   },
+   {
+    "table": "om.om_lines",
+    "name": "OM Ordered Qty",
+    "expression": "SUM(om_lines[ORDERED_QTY])",
+    "format": "#,0.##",
+    "folder": "Orders",
+    "description": "Ordered quantity",
+    "synonyms": []
+   },
+   {
+    "table": "om.om_lines",
+    "name": "OM Shipped Qty",
+    "expression": "SUM(om_lines[SHIPPED_QTY])",
+    "format": "#,0.##",
+    "folder": "Orders",
+    "description": "Shipped quantity",
+    "synonyms": []
+   },
+   {
+    "table": "om.om_lines",
+    "name": "OM Fill Rate",
+    "expression": "DIVIDE([OM Shipped Qty], [OM Ordered Qty])",
+    "format": "0.0%",
+    "folder": "Service",
+    "description": "Shipped ÷ ordered quantity",
+    "synonyms": [
+     "fill rate"
+    ]
+   },
+   {
+    "table": "om.om_lines",
+    "name": "OM Shipped Lines",
+    "expression": "CALCULATE(COUNTROWS(om_lines), om_lines[ON_TIME] IN {\"Y\", \"N\"})",
+    "format": "#,0",
+    "folder": "Service",
+    "description": "Lines shipped",
+    "synonyms": []
+   },
+   {
+    "table": "om.om_lines",
+    "name": "OM On-Time %",
+    "expression": "DIVIDE(CALCULATE(COUNTROWS(om_lines), om_lines[ON_TIME] = \"Y\"), [OM Shipped Lines])",
+    "format": "0.0%",
+    "folder": "Service",
+    "description": "Shipped lines that left by the requested ship date",
+    "synonyms": [
+     "on-time delivery",
+     "OTD"
+    ]
+   },
+   {
+    "table": "om.om_lines",
+    "name": "OM Backlog Value",
+    "expression": "CALCULATE(SUM(om_lines[EXTENDED_AMOUNT]), om_lines[IS_OPEN] = \"Y\")",
+    "format": "#,0.00",
+    "folder": "Orders",
+    "description": "Value of lines still to ship",
+    "synonyms": [
+     "backlog",
+     "open orders",
+     "order book"
+    ]
+   },
+   {
+    "table": "om.om_lines",
+    "name": "OM Shipped by Ship Date",
+    "expression": "CALCULATE([OM Shipped Qty], USERELATIONSHIP(om_lines[ACTUAL_SHIP_DATE], 'calendar'[Date]))",
+    "format": "#,0.##",
+    "folder": "Service",
+    "description": "Shipped quantity by the date it shipped",
+    "synonyms": []
+   }
+  ],
+  "glossary": [
+   {
+    "term": "Backlog",
+    "definition": "Ordered value not shipped yet",
+    "refs": [
+     "[OM Backlog Value]"
+    ],
+    "synonyms": [
+     "open orders",
+     "order book",
+     "unshipped orders"
+    ],
+    "rule": null
+   },
+   {
+    "term": "On-time delivery",
+    "definition": "Share of shipped lines that shipped by the requested date",
+    "refs": [
+     "[OM On-Time %]"
+    ],
+    "synonyms": [
+     "OTD",
+     "on time",
+     "delivery performance"
+    ],
+    "rule": null
+   },
+   {
+    "term": "Order intake",
+    "definition": "Value of orders received",
+    "refs": [
+     "[OM Order Value]",
+     "[OM Orders]"
+    ],
+    "synonyms": [
+     "bookings",
+     "new orders"
+    ],
+    "rule": null
+   }
+  ],
+  "checks": [
+   {
+    "name": "OM shipped does not exceed ordered",
+    "description": "Shipped quantity is not above the ordered quantity on any order",
+    "left": "[OM Shipped Qty]",
+    "leftLabel": "Shipped",
+    "right": "[OM Ordered Qty]",
+    "rightLabel": "Ordered",
+    "by": [
+     "om_headers[ORDER_NUMBER]"
+    ],
+    "op": "<=",
+    "tolerance": 0.001,
+    "bothSides": false,
+    "folder": "OM"
+   }
+  ],
+  "notes": [
+   "Confirm one submitted row per order in DOO_HEADERS_ALL on your pod (change orders keep versions).",
+   "IS_OPEN uses common status codes - adjust to your orchestration statuses."
+  ]
+ },
+ {
+  "id": "inv",
+  "version": "1.0.0",
+  "title": "Inventory",
+  "area": "Supply Chain",
+  "description": "Items, on-hand and material transactions: stock quantity, items in stock, receipts, issues and net movement; no-negative-stock check.",
+  "module": {
+   "name": "inv",
+   "title": "Inventory",
+   "description": "Oracle Fusion Inventory",
+   "schedule": {
+    "mode": "HOURLY",
+    "time": "06:00"
+   }
+  },
+  "tables": [
+   {
+    "module": "inv",
+    "name": "items",
+    "description": "Items per inventory organization",
+    "synonyms": [
+     "products",
+     "SKUs"
+    ],
+    "columns": {
+     "ITEM_ORG": {
+      "description": "Item id - organization id"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT i.INVENTORY_ITEM_ID || '-' || i.ORGANIZATION_ID AS ITEM_ORG, i.INVENTORY_ITEM_ID, i.ORGANIZATION_ID, i.ITEM_NUMBER, (SELECT tl.DESCRIPTION FROM FUSION.EGP_SYSTEM_ITEMS_TL tl WHERE tl.INVENTORY_ITEM_ID = i.INVENTORY_ITEM_ID AND tl.ORGANIZATION_ID = i.ORGANIZATION_ID AND tl.LANGUAGE = USERENV('LANG')) AS DESCRIPTION, i.PRIMARY_UOM_CODE, i.ITEM_TYPE, i.INVENTORY_ITEM_STATUS_CODE, i.LAST_UPDATE_DATE FROM FUSION.EGP_SYSTEM_ITEMS_B i"
+    },
+    "strategy": "incremental",
+    "key": [
+     "ITEM_ORG"
+    ],
+    "columnTypes": {
+     "ITEM_ORG": "VARCHAR",
+     "INVENTORY_ITEM_ID": "BIGINT",
+     "ORGANIZATION_ID": "BIGINT",
+     "ITEM_NUMBER": "VARCHAR",
+     "DESCRIPTION": "VARCHAR",
+     "PRIMARY_UOM_CODE": "VARCHAR",
+     "ITEM_TYPE": "VARCHAR",
+     "INVENTORY_ITEM_STATUS_CODE": "VARCHAR",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    },
+    "incrementalColumn": "LAST_UPDATE_DATE",
+    "overlapMinutes": 120
+   },
+   {
+    "module": "inv",
+    "name": "onhand",
+    "description": "On-hand quantity today (snapshot, reloaded in full)",
+    "synonyms": [
+     "stock",
+     "inventory on hand"
+    ],
+    "columns": {
+     "QUANTITY": {
+      "description": "On-hand quantity (primary UOM)"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT q.ONHAND_QUANTITIES_ID, q.INVENTORY_ITEM_ID || '-' || q.ORGANIZATION_ID AS ITEM_ORG, q.INVENTORY_ITEM_ID, q.ORGANIZATION_ID, q.SUBINVENTORY_CODE, q.LOCATOR_ID, q.LOT_NUMBER, NVL(q.TRANSACTION_QUANTITY, 0) AS QUANTITY, TRUNC(q.DATE_RECEIVED) AS DATE_RECEIVED FROM FUSION.INV_ONHAND_QUANTITIES_DETAIL q"
+    },
+    "strategy": "full",
+    "key": [
+     "ONHAND_QUANTITIES_ID"
+    ],
+    "columnTypes": {
+     "ONHAND_QUANTITIES_ID": "BIGINT",
+     "ITEM_ORG": "VARCHAR",
+     "INVENTORY_ITEM_ID": "BIGINT",
+     "ORGANIZATION_ID": "BIGINT",
+     "SUBINVENTORY_CODE": "VARCHAR",
+     "LOCATOR_ID": "BIGINT",
+     "LOT_NUMBER": "VARCHAR",
+     "QUANTITY": "DOUBLE",
+     "DATE_RECEIVED": "DATE"
+    }
+   },
+   {
+    "module": "inv",
+    "name": "inv_transactions",
+    "description": "Material transactions (receipts, issues, transfers)",
+    "synonyms": [
+     "stock movements",
+     "material transactions"
+    ],
+    "columns": {
+     "QUANTITY": {
+      "description": "+ in, - out"
+     }
+    },
+    "source": {
+     "kind": "fusion",
+     "sql": "SELECT t.TRANSACTION_ID, t.INVENTORY_ITEM_ID || '-' || t.ORGANIZATION_ID AS ITEM_ORG, t.ORGANIZATION_ID, t.SUBINVENTORY_CODE, t.TRANSACTION_TYPE_ID, TRUNC(t.TRANSACTION_DATE) AS TRANSACTION_DATE, NVL(t.TRANSACTION_QUANTITY, 0) AS QUANTITY, t.TRANSACTION_UOM, t.LAST_UPDATE_DATE FROM FUSION.INV_MATERIAL_TXNS t"
+    },
+    "strategy": "incremental",
+    "key": [
+     "TRANSACTION_ID"
+    ],
+    "columnTypes": {
+     "TRANSACTION_ID": "BIGINT",
+     "ITEM_ORG": "VARCHAR",
+     "ORGANIZATION_ID": "BIGINT",
+     "SUBINVENTORY_CODE": "VARCHAR",
+     "TRANSACTION_TYPE_ID": "BIGINT",
+     "TRANSACTION_DATE": "DATE",
+     "QUANTITY": "DOUBLE",
+     "TRANSACTION_UOM": "VARCHAR",
+     "LAST_UPDATE_DATE": "TIMESTAMP"
+    },
+    "incrementalColumn": "LAST_UPDATE_DATE",
+    "overlapMinutes": 120
+   }
+  ],
+  "relationships": [
+   {
+    "fromTable": "inv.onhand",
+    "fromColumn": "ITEM_ORG",
+    "toTable": "inv.items",
+    "toColumn": "ITEM_ORG",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "inv.inv_transactions",
+    "fromColumn": "ITEM_ORG",
+    "toTable": "inv.items",
+    "toColumn": "ITEM_ORG",
+    "active": true,
+    "crossFilter": "single"
+   },
+   {
+    "fromTable": "inv.inv_transactions",
+    "fromColumn": "TRANSACTION_DATE",
+    "toTable": "calendar",
+    "toColumn": "Date",
+    "active": true,
+    "crossFilter": "single"
+   }
+  ],
+  "measures": [
+   {
+    "table": "inv.onhand",
+    "name": "On-hand Qty",
+    "expression": "SUM(onhand[QUANTITY])",
+    "format": "#,0.##",
+    "folder": "Stock",
+    "description": "Quantity on hand now",
+    "synonyms": [
+     "stock",
+     "on hand",
+     "inventory quantity"
+    ]
+   },
+   {
+    "table": "inv.onhand",
+    "name": "Items in Stock",
+    "expression": "CALCULATE(DISTINCTCOUNT(onhand[ITEM_ORG]), onhand[QUANTITY] > 0)",
+    "format": "#,0",
+    "folder": "Stock",
+    "description": "Items with stock (per organization)",
+    "synonyms": []
+   },
+   {
+    "table": "inv.inv_transactions",
+    "name": "Stock Receipts Qty",
+    "expression": "CALCULATE(SUM(inv_transactions[QUANTITY]), inv_transactions[QUANTITY] > 0)",
+    "format": "#,0.##",
+    "folder": "Movements",
+    "description": "Quantity into stock",
+    "synonyms": [
+     "stock in"
+    ]
+   },
+   {
+    "table": "inv.inv_transactions",
+    "name": "Stock Issues Qty",
+    "expression": "-CALCULATE(SUM(inv_transactions[QUANTITY]), inv_transactions[QUANTITY] < 0)",
+    "format": "#,0.##",
+    "folder": "Movements",
+    "description": "Quantity out of stock",
+    "synonyms": [
+     "stock out",
+     "consumption"
+    ]
+   },
+   {
+    "table": "inv.inv_transactions",
+    "name": "Net Stock Movement",
+    "expression": "SUM(inv_transactions[QUANTITY])",
+    "format": "#,0.##",
+    "folder": "Movements",
+    "description": "In minus out",
+    "synonyms": []
+   }
+  ],
+  "glossary": [
+   {
+    "term": "Stock",
+    "definition": "Quantity on hand now",
+    "refs": [
+     "[On-hand Qty]",
+     "[Items in Stock]"
+    ],
+    "synonyms": [
+     "on-hand",
+     "inventory",
+     "stock level"
+    ],
+    "rule": "On-hand is today's snapshot - it is not filtered by dates"
+   }
+  ],
+  "checks": [
+   {
+    "name": "INV no negative on-hand",
+    "description": "No on-hand record has a negative quantity",
+    "left": "CALCULATE(COUNTROWS(onhand), onhand[QUANTITY] < 0)",
+    "leftLabel": "Negative rows",
+    "right": "0",
+    "rightLabel": "Allowed",
+    "by": [
+     "onhand[ORGANIZATION_ID]"
+    ],
+    "op": "=",
+    "tolerance": 0,
+    "bothSides": false,
+    "folder": "INV"
+   }
+  ],
+  "notes": [
+   "Item descriptions come from EGP_SYSTEM_ITEMS_TL in the session language."
+  ]
+ }
+]

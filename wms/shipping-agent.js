@@ -1,0 +1,6565 @@
+// ============================================================
+// SHIPPING AGENTS — WMS Module
+// ============================================================
+
+(function() {
+    'use strict';
+
+    const APEX_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
+    const WMS_BASE  = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT';
+
+    // Active agent loop handles: { agentId: intervalHandle }
+    window._saLoops       = {};
+    // Current selected agent
+    window._saCurrentAgent = null;
+    // All loaded agents
+    window._saAgents       = [];
+
+    // ─── Status colours ─────────────────────────────────────
+    const STATUS_STYLE = {
+        IDLE:      { bg: '#f1f5f9', color: '#475569', dot: '#94a3b8' },
+        RUNNING:   { bg: '#dcfce7', color: '#15803d', dot: '#22c55e' },
+        PAUSED:    { bg: '#fef9c3', color: '#a16207', dot: '#eab308' },
+        COMPLETED: { bg: '#ede9fe', color: '#6d28d9', dot: '#8b5cf6' },
+        ERROR:     { bg: '#fee2e2', color: '#b91c1c', dot: '#ef4444' }
+    };
+
+    const ACTIVITY_ICON = {
+        CHECK_STATUS:    { icon: 'fa-eye',            color: '#0891b2' },
+        PRINT:           { icon: 'fa-print',          color: '#7c3aed' },
+        PICK_RELEASE:    { icon: 'fa-shipping-fast',  color: '#0891b2' },
+        NOTIFY_PICKER:   { icon: 'fa-bell',           color: '#d97706' },
+        SHIP_CONFIRM:    { icon: 'fa-check-circle',   color: '#059669' },
+        CANCEL_LINE:     { icon: 'fa-times-circle',   color: '#dc2626' },
+        ANOMALY_DETECT:  { icon: 'fa-exclamation-triangle', color: '#d97706' },
+        AI_ANALYSIS:     { icon: 'fa-brain',          color: '#7c3aed' }
+    };
+
+    const TRIP_STATUS_STYLE = {
+        PENDING:   { bg: '#f1f5f9', color: '#475569' },
+        ACTIVE:    { bg: '#dcfce7', color: '#15803d' },
+        COMPLETED: { bg: '#ede9fe', color: '#6d28d9' },
+        FAILED:    { bg: '#fee2e2', color: '#b91c1c' }
+    };
+
+    // ─── C# IPC API helpers ──────────────────────────────────
+    // All REST calls go through C# (WebView2 IPC) via sendMessageToCSharp
+
+    function rawGet(url) {
+        return new Promise((resolve, reject) => {
+            console.log('[ShippingAgent] GET', url);
+            if (typeof sendMessageToCSharp !== 'function') {
+                return reject(new Error('C# bridge not available (sendMessageToCSharp undefined)'));
+            }
+            sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function(err, data) {
+                if (err) { console.error('[ShippingAgent] GET error', url, err); return reject(new Error(String(err))); }
+                try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
+                catch(e) { resolve(data); }
+            });
+        });
+    }
+
+    function fusionShipmentLinesGet(orderNumber, instanceName) {
+        const baseUrl = (instanceName || 'PROD').toUpperCase() === 'PROD'
+            ? 'https://efmh.fa.em3.oraclecloud.com'
+            : 'https://efmh-test.fa.em3.oraclecloud.com';
+        const url = `${baseUrl}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${encodeURIComponent(orderNumber)}&limit=500`;
+        console.log('[ShippingAgent] Fusion shipmentLines GET', url);
+        return new Promise((resolve, reject) => {
+            if (typeof sendMessageToCSharp !== 'function') {
+                return reject(new Error('C# bridge not available'));
+            }
+            sendMessageToCSharp({ action: 'executeOracleFusionGet', fullUrl: url, instance: instanceName }, function(err, data) {
+                if (err) { console.error('[ShippingAgent] Fusion GET error', url, err); return reject(new Error(String(err))); }
+                try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
+                catch(e) { resolve(data); }
+            });
+        });
+    }
+
+    function fusionShipmentLinesUrl(orderNumber, instanceName) {
+        const baseUrl = (instanceName || 'PROD').toUpperCase() === 'PROD'
+            ? 'https://efmh.fa.em3.oraclecloud.com'
+            : 'https://efmh-test.fa.em3.oraclecloud.com';
+        return `${baseUrl}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${encodeURIComponent(orderNumber || '{ORDER_NUMBER}')}&limit=500`;
+    }
+
+    function wmsGet(path) { return rawGet(`${WMS_BASE}/${path}`); }
+
+    function apexGet(path) {
+        return new Promise((resolve, reject) => {
+            const url = `${APEX_BASE}/${path}`;
+            console.log('[ShippingAgent] GET', url);
+            if (typeof sendMessageToCSharp !== 'function') {
+                return reject(new Error('C# bridge not available (sendMessageToCSharp undefined)'));
+            }
+            sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function(err, data) {
+                if (err) {
+                    console.error('[ShippingAgent] GET error', url, err);
+                    return reject(new Error(String(err)));
+                }
+                console.log('[ShippingAgent] GET response', url, data);
+                try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
+                catch(e) { resolve(data); }
+            });
+        });
+    }
+
+    function apexPost(path, body) {
+        return new Promise((resolve, reject) => {
+            const url     = `${APEX_BASE}/${path}`;
+            const bodyStr = JSON.stringify(body);
+            console.log('[ShippingAgent] POST', url, bodyStr);
+            if (typeof sendMessageToCSharp !== 'function') {
+                return reject(new Error('C# bridge not available (sendMessageToCSharp undefined)'));
+            }
+            sendMessageToCSharp({ action: 'executePost', fullUrl: url, body: bodyStr }, function(err, data) {
+                if (err) {
+                    console.error('[ShippingAgent] POST error', url, err);
+                    return reject(new Error(String(err)));
+                }
+                console.log('[ShippingAgent] POST response', url, data);
+                try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
+                catch(e) { resolve(data); }
+            });
+        });
+    }
+
+    function apexPut(path, body) {
+        return new Promise((resolve, reject) => {
+            const url     = `${APEX_BASE}/${path}`;
+            const bodyStr = JSON.stringify(body);
+            console.log('[ShippingAgent] PUT', url, bodyStr);
+            if (typeof sendMessageToCSharp !== 'function') {
+                return reject(new Error('C# bridge not available (sendMessageToCSharp undefined)'));
+            }
+            sendMessageToCSharp({ action: 'executePost', fullUrl: url, body: bodyStr, method: 'PUT' }, function(err, data) {
+                if (err) {
+                    console.error('[ShippingAgent] PUT error', url, err);
+                    return reject(new Error(String(err)));
+                }
+                try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
+                catch(e) { resolve(data); }
+            });
+        });
+    }
+
+    function apexDelete(path) {
+        return new Promise((resolve, reject) => {
+            const url = `${APEX_BASE}/${path}`;
+            console.log('[ShippingAgent] DELETE', url);
+            if (typeof sendMessageToCSharp !== 'function') {
+                return reject(new Error('C# bridge not available (sendMessageToCSharp undefined)'));
+            }
+            sendMessageToCSharp({ action: 'executePost', fullUrl: url, body: '{}', method: 'DELETE' }, function(err, data) {
+                if (err) {
+                    console.error('[ShippingAgent] DELETE error', url, err);
+                    return reject(new Error(String(err)));
+                }
+                try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
+                catch(e) { resolve(data); }
+            });
+        });
+    }
+
+    // ─── BOGO / Child-line cancellation helpers ──────────────────────────────
+    // When a main line is cancelled, its child lines must be cancelled too:
+    //   1) numbered sub-lines first (line 3 → 3.1, 3.2, …)
+    //   2) if none exist, BOGO promo mapping (mainitemcode → promoitemcode)
+    // BOGO master list is cached per instance in window._saBogoCache.
+
+    const ORDS_ROOT = APEX_BASE.replace(/\/TRIPMANAGEMENT$/, '');
+    window._saBogoCache = window._saBogoCache || {};
+
+    async function saGetBogoMap(instance) {
+        const key = (instance || 'PROD').toUpperCase() === 'TEST' ? 'TEST' : 'PROD';
+        if (window._saBogoCache[key]) return window._saBogoCache[key];
+        const url = `${ORDS_ROOT}/ARMODULE/BOGO?p_instance_name=${key}`;
+        try {
+            const data  = await rawGet(url);
+            const items = (data && data.items) ? data.items : (Array.isArray(data) ? data : []);
+            const map = {}; // MAINITEMCODE (upper) → [{ promo, promoName }]
+            for (const it of items) {
+                const main  = (it.mainitemcode  || it.MAINITEMCODE  || '').toString().trim().toUpperCase();
+                const promo = (it.promoitemcode || it.PROMOITEMCODE || '').toString().trim().toUpperCase();
+                if (!main || !promo) continue;
+                if (!map[main]) map[main] = [];
+                if (!map[main].some(p => p.promo === promo))
+                    map[main].push({ promo, promoName: it.promoname || it.PROMONAME || '' });
+            }
+            const entry = { map, itemCount: items.length, fetchedAt: new Date(), url };
+            window._saBogoCache[key] = entry;
+            console.log(`[ShippingAgent] BOGO map cached for ${key}: ${items.length} row(s), ${Object.keys(map).length} main item(s)`);
+            return entry;
+        } catch(e) {
+            console.error('[ShippingAgent] BOGO fetch failed:', e.message);
+            // Return empty (uncached) map so cancellation still proceeds without BOGO expansion
+            return { map: {}, itemCount: 0, fetchedAt: null, url, error: e.message };
+        }
+    }
+
+    // Field accessors tolerant of both APEX response shapes
+    // (getsalesorderlinesbytrip uses PRODUCT_NUMBER/STATUS, getsalesorderlines uses LINE_STATUS/ITEM_NUMBER)
+    function saLineNum(l)    { return (l.LINE_NUMBER || l.line_number || '').toString().trim(); }
+    function saLineItem(l)   { return (l.PRODUCT_NUMBER || l.product_number || l.ITEM_NUMBER || l.item_number || l.ITEM || l.item || '').toString().trim(); }
+    function saLineStatus(l) { return (l.LINE_STATUS || l.line_status || l.STATUS || l.status || '').toString().trim(); }
+    // The fulfillment line id is what Fusion needs to cancel a line. Different
+    // ORDS endpoints name it differently: getsalesorderlinesbytrip returns
+    // FULFILL_LINE_ID, but the per-order getsalesorderlines (used by the
+    // scheduled agent's Task 2) returns SOURCE_FULFILLMENT_LINE_ID /
+    // FULFILLMENT_LINE_ID. Resolve ALL variants or the (approved) cancel silently
+    // sends null ids and Fusion cancels nothing.
+    function saLineFulfillId(l) {
+        return l.FULFILL_LINE_ID || l.fulfill_line_id
+            || l.SOURCE_FULFILLMENT_LINE_ID || l.source_fulfillment_line_id
+            || l.FULFILLMENT_LINE_ID || l.fulfillment_line_id
+            || l.SOURCE_ORDER_FULFILLMENT_LINE_ID || l.source_order_fulfillment_line_id
+            || null;
+    }
+    function saLineKey(l)    { return String(saLineFulfillId(l) || `LN:${saLineNum(l)}:${saLineItem(l)}`); }
+
+    // Child lines already past the point of no return are skipped (with a warning)
+    function saChildBlocked(status) {
+        const s = (status || '').toUpperCase();
+        return s.includes('CANCEL') || s.includes('SHIPPED') || s.includes('INTERFAC');   // Awaiting Shipping children ARE cancelled with their main line
+    }
+
+    // Expands flagged main lines with their child lines.
+    // orderLines: ALL lines of the order; flagged: main lines to cancel.
+    // Returns { lines, childCount, skipped: [{line, parentNum, via, reason}] }
+    async function saExpandCancelLines(orderNumber, orderLines, flagged, instance) {
+        const included = new Set(flagged.map(saLineKey));
+        const out      = flagged.slice();
+        const skipped  = [];
+        let bogoEntry  = null;
+
+        for (const parent of flagged) {
+            const pNum = saLineNum(parent);
+
+            // 1) Numbered sub-lines: "3" → "3.1", "3.2", …
+            let children = pNum
+                ? orderLines.filter(l => saLineNum(l).startsWith(pNum + '.'))
+                : [];
+            let via = 'SUB-LINE';
+
+            // 2) BOGO fallback — only when the parent has no numbered sub-lines at all
+            if (children.length === 0) {
+                if (!bogoEntry) bogoEntry = await saGetBogoMap(instance);
+                const promos = bogoEntry.map[saLineItem(parent).toUpperCase()] || [];
+                if (promos.length > 0) {
+                    const promoCodes = promos.map(p => p.promo);
+                    children = orderLines.filter(l => promoCodes.includes(saLineItem(l).toUpperCase()));
+                    via = 'BOGO';
+                }
+            }
+
+            for (const ch of children) {
+                const key = saLineKey(ch);
+                if (included.has(key)) continue; // already flagged as main or already added
+                const st = saLineStatus(ch);
+                if (saChildBlocked(st)) {
+                    skipped.push({ line: ch, parentNum: pNum, via, reason: `status "${st}" not cancellable` });
+                    continue;
+                }
+                if (!saLineFulfillId(ch)) {
+                    skipped.push({ line: ch, parentNum: pNum, via, reason: 'missing FULFILL_LINE_ID' });
+                    continue;
+                }
+                included.add(key);
+                ch._saChildOf  = pNum || saLineItem(parent);
+                ch._saChildVia = via;
+                out.push(ch);
+            }
+        }
+        return { lines: out, childCount: out.length - flagged.length, skipped };
+    }
+
+    // Human-readable log block for one order's cancellation set
+    function saCancelLogText(orderNumber, lines, skipped) {
+        const rows = lines.map(l => l._saChildOf
+            ? `   ↳ line ${saLineNum(l) || '?'} ${saLineItem(l)} — CHILD of line ${l._saChildOf} via ${l._saChildVia} (status: ${saLineStatus(l)})`
+            : `   • line ${saLineNum(l) || '?'} ${saLineItem(l)} — MAIN (status: ${saLineStatus(l)})`);
+        const skips = (skipped || []).map(s =>
+            `   ⚠ SKIPPED child line ${saLineNum(s.line) || '?'} ${saLineItem(s.line)} of line ${s.parentNum} (${s.via}) — ${s.reason}`);
+        return `CANCEL order ${orderNumber} — ${lines.length} line(s):\n` + rows.concat(skips).join('\n');
+    }
+
+    // Append to the per-trip cancellation log file (C:\fusion\agent_logs\) via C#
+    function saAppendCancelLog(tripId, message) {
+        return new Promise((resolve) => {
+            if (typeof sendMessageToCSharp !== 'function') return resolve();
+            sendMessageToCSharp({ action: 'appendAgentLog', tripId: String(tripId), message },
+                (err) => { if (err) console.warn('[ShippingAgent] appendAgentLog failed:', err); resolve(); });
+        });
+    }
+
+    // Cancellation log viewer — opened from the 📄 icon in the trip header
+    window.saShowCancelLog = function(tripId) {
+        document.getElementById('sa-cancel-log-dlg')?.remove();
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-cancel-log-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `
+            <div style="background:#0f172a;border-radius:12px;width:90vw;max-width:900px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;border:1px solid #334155;box-shadow:0 24px 80px rgba(0,0,0,0.4);">
+                <div style="padding:0.75rem 1.1rem;background:#1e293b;display:flex;align-items:center;gap:0.6rem;flex-shrink:0;">
+                    <i class="fas fa-file-alt" style="color:#f87171;"></i>
+                    <div>
+                        <div style="font-weight:800;font-size:13px;color:#f1f5f9;">Cancellation Log — Trip ${esc(String(tripId))}</div>
+                        <div id="sa-cancel-log-path" style="font-size:9px;color:#64748b;margin-top:1px;">Loading…</div>
+                    </div>
+                    <button onclick="saShowCancelLog('${esc(String(tripId))}')" title="Refresh"
+                        style="margin-left:auto;background:none;border:1px solid #334155;border-radius:6px;padding:3px 8px;cursor:pointer;color:#94a3b8;font-size:11px;">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button onclick="document.getElementById('sa-cancel-log-dlg').remove()"
+                        style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;line-height:1;">×</button>
+                </div>
+                <pre id="sa-cancel-log-content" style="flex:1;overflow:auto;margin:0;padding:1rem 1.2rem;font-size:10.5px;line-height:1.6;color:#a6e3a1;font-family:monospace;white-space:pre-wrap;word-break:break-word;">Loading…</pre>
+            </div>`;
+        document.body.appendChild(dlg);
+        dlg.addEventListener('click', e => { if (e.target === dlg) dlg.remove(); });
+
+        sendMessageToCSharp({ action: 'readAgentLog', tripId: String(tripId) }, (err, data) => {
+            const pathEl = document.getElementById('sa-cancel-log-path');
+            const bodyEl = document.getElementById('sa-cancel-log-content');
+            if (!bodyEl) return;
+            if (err) {
+                bodyEl.textContent = 'Failed to read log: ' + err;
+                bodyEl.style.color = '#f87171';
+                return;
+            }
+            if (pathEl) pathEl.textContent = data.filePath || '';
+            if (!data.exists || !data.content) {
+                bodyEl.textContent = 'No cancellations logged yet for this trip.';
+                bodyEl.style.color = '#64748b';
+            } else {
+                bodyEl.textContent = data.content;
+                bodyEl.scrollTop = bodyEl.scrollHeight;
+            }
+        });
+    };
+
+    // Show API info popup (used by page header and create modal)
+    window.saShowApiInfo = function(method, url, bodyObj) {
+        const existing = document.getElementById('sa-api-popup');
+        if (existing) existing.remove();
+        const bodyHtml = bodyObj
+            ? `<div style="margin-top:0.75rem;"><div style="color:#94a3b8;font-size:10px;font-weight:700;margin-bottom:4px;">REQUEST BODY</div>
+               <pre style="margin:0;color:#86efac;font-family:monospace;font-size:11px;white-space:pre-wrap;max-height:200px;overflow-y:auto;">${esc(JSON.stringify(bodyObj, null, 2))}</pre></div>`
+            : '';
+        const methodColor = method === 'GET' ? '#0891b2' : method === 'POST' ? '#059669' : method === 'PUT' ? '#d97706' : '#dc2626';
+        document.body.insertAdjacentHTML('beforeend', `
+        <div id="sa-api-popup" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:20000;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+            <div style="background:#0f172a;border-radius:12px;padding:1.5rem;width:560px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                    <span style="color:#e2e8f0;font-weight:700;font-size:13px;"><i class="fas fa-code" style="color:#667eea;margin-right:6px;"></i>API Call Details</span>
+                    <button onclick="document.getElementById('sa-api-popup').remove()" style="background:none;border:none;color:#64748b;font-size:1.3rem;cursor:pointer;">&times;</button>
+                </div>
+                <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.5rem;">
+                    <span style="background:${methodColor};color:white;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;">${method}</span>
+                    <span style="color:#60a5fa;font-size:11px;word-break:break-all;font-family:monospace;">${esc(url)}</span>
+                </div>
+                <div style="color:#94a3b8;font-size:10px;margin-bottom:0.5rem;">Content-Type: application/json &nbsp;·&nbsp; Via: C# RestApiClient (executePost / executeGet)</div>
+                ${bodyHtml}
+            </div>
+        </div>`);
+    };
+
+    // ─── Page initialisation ────────────────────────────────
+    window.saInitPage = async function() {
+        SADB.probe();
+        // Default date filter: today
+        const today = new Date().toISOString().slice(0, 10);
+        const fromEl    = document.getElementById('sa-from-date');
+        const toEl      = document.getElementById('sa-to-date');
+        const statusEl  = document.getElementById('sa-status-filter');
+        if (fromEl   && !fromEl.value)   fromEl.value   = today;
+        if (toEl     && !toEl.value)     toEl.value     = today;
+        if (statusEl && !statusEl.value) statusEl.value = 'ACTIVE';
+        try {
+            await saRefreshDashboard();
+        } catch(e) {
+            console.error('[ShippingAgent] Init error:', e);
+        }
+    };
+
+    // Build the agents/list query string from date + status inputs
+    function saListQueryString() {
+        const from   = document.getElementById('sa-from-date')?.value   || '';
+        const to     = document.getElementById('sa-to-date')?.value     || '';
+        const status = document.getElementById('sa-status-filter')?.value || 'ACTIVE';
+        const parts  = [];
+        if (from)                parts.push(`FROM_DATE=${encodeURIComponent(from)}`);
+        if (to)                  parts.push(`TO_DATE=${encodeURIComponent(to)}`);
+        if (status !== 'ALL')    parts.push(`AGENT_STATUS=${encodeURIComponent(status)}`);
+        return parts.length ? `agents/list?${parts.join('&')}` : 'agents/list';
+    }
+
+    // ─── Dashboard ──────────────────────────────────────────
+    window.saRefreshDashboard = async function() {
+        const icon = document.getElementById('sa-refresh-icon');
+        if (icon) icon.classList.add('fa-spin');
+        const path = saListQueryString();
+        try {
+            const data = await apexGet(path);
+            // Normalise: APEX may return column names in any case; map to uppercase keys
+            const agents = (data.items || []).map(a => ({
+                ID:                   a.ID   || a.id   || a.AGENT_ID || a.agent_id,
+                NAME:                 a.NAME || a.name,
+                DESCRIPTION:          a.DESCRIPTION  || a.description  || '',
+                INSTANCE_NAME:        a.INSTANCE_NAME || a.instance_name || '',
+                CAPABILITIES:         a.CAPABILITIES  || a.capabilities  || '',
+                STATUS:               a.STATUS || a.status || 'IDLE',
+                AGENT_STATUS:         a.AGENT_STATUS || a.agent_status || (a.CLOSED_DATE || a.closed_date ? 'CLOSED' : 'ACTIVE'),
+                CHECK_INTERVAL_SECONDS: a.CHECK_INTERVAL_SECONDS || a.check_interval_seconds || 60,
+                MAX_RETRIES:          a.MAX_RETRIES   || a.max_retries   || 3,
+                CREATED_BY:           a.CREATED_BY    || a.created_by    || '',
+                CREATED_DATE:         a.CREATED_DATE  || a.created_date,
+                LAST_ACTIVE_DATE:     a.LAST_ACTIVE_DATE || a.last_active_date,
+                TOTAL_TRIPS_PROCESSED: a.TOTAL_TRIPS_PROCESSED || a.total_trips_processed || 0,
+                TOTAL_ACTIONS_TAKEN:  a.TOTAL_ACTIONS_TAKEN || a.total_actions_taken || 0,
+                TRIP_COUNT:           a.TRIP_COUNT    || a.trip_count    || 0,
+                ACTIONS_TODAY:        a.ACTIONS_TODAY || a.actions_today || 0,
+                ANOMALIES_TODAY:      a.ANOMALIES_TODAY || a.anomalies_today || 0
+            }));
+            window._saAgents = agents;
+            window._saAgentsLoaded = true;
+            saRenderCards(agents);
+            saUpdateStats(agents);
+        } catch(e) {
+            console.error('[ShippingAgent] Refresh error:', e);
+            showNotification(`Failed to load agents: ${e.message} | URL: ${APEX_BASE}/${path}`, 'error');
+        } finally {
+            if (icon) icon.classList.remove('fa-spin');
+        }
+    };
+
+    // Called from the API icon on the page header
+    window.saShowPageApiInfo = function() {
+        const path   = saListQueryString();
+        const from   = document.getElementById('sa-from-date')?.value    || '(all)';
+        const to     = document.getElementById('sa-to-date')?.value      || '(all)';
+        const status = document.getElementById('sa-status-filter')?.value || 'ACTIVE';
+        saShowApiInfo('GET', `${APEX_BASE}/${path}`,
+            { note: 'Query parameters', FROM_DATE: from, TO_DATE: to, AGENT_STATUS: status });
+    };
+
+    function saUpdateStats(agents) {
+        const running   = agents.filter(a => a.STATUS === 'RUNNING').length;
+        const trips     = agents.reduce((s, a) => s + (a.TRIP_COUNT || 0), 0);
+        const actions   = agents.reduce((s, a) => s + (a.ACTIONS_TODAY || 0), 0);
+        const anomalies = agents.reduce((s, a) => s + (a.ANOMALIES_TODAY || 0), 0);
+
+        setText('sa-stat-total',    agents.length);
+        setText('sa-stat-running',  running);
+        setText('sa-stat-trips',    trips);
+        setText('sa-stat-actions',  actions);
+        setText('sa-stat-anomalies',anomalies);
+        setText('sa-active-count',  `${running} Active`);
+    }
+
+    function saRenderCards(agents) {
+        const container  = document.getElementById('sa-agent-cards');
+        const noAgentsEl = document.getElementById('sa-no-agents');
+        if (!container) return;
+
+        // Remove existing cards (keep no-agents placeholder)
+        container.querySelectorAll('.sa-agent-card').forEach(c => c.remove());
+
+        if (agents.length === 0) {
+            if (noAgentsEl) noAgentsEl.style.display = 'block';
+            return;
+        }
+        if (noAgentsEl) noAgentsEl.style.display = 'none';
+
+        agents.forEach(agent => {
+            const st   = STATUS_STYLE[agent.STATUS] || STATUS_STYLE.IDLE;
+            const card = document.createElement('div');
+            card.className = 'sa-agent-card';
+            card.setAttribute('data-agent-id', agent.ID);
+            const isSelected = window._saCurrentAgent && window._saCurrentAgent.ID === agent.ID;
+            card.style.cssText = `background: white; border-radius: 10px; padding: 0.85rem 1rem;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.07); cursor: pointer; transition: all 0.2s;
+                border: 2px solid ${isSelected ? '#7c3aed' : 'transparent'};`;
+            card.onmouseenter = () => { if (!isSelected) card.style.borderColor = '#e2e8f0'; };
+            card.onmouseleave = () => { if (!isSelected) card.style.borderColor = 'transparent'; };
+            card.onclick = () => saSelectAgent(agent);
+
+            const isRunning = window._saLoops[agent.ID] != null;
+            const loopIndicator = isRunning
+                ? `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#22c55e;margin-right:4px;animation:saPulse 1.5s infinite;"></span>`
+                : '';
+
+            card.innerHTML = `
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;">
+                    <div style="font-size:13px;font-weight:700;color:#1e293b;line-height:1.3;">${loopIndicator}${esc(agent.NAME)}</div>
+                    <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;margin-left:6px;">
+                        <span style="background:${agent.AGENT_STATUS==='CLOSED'?'#fee2e2':agent.AGENT_STATUS==='ACTIVE'?'#dcfce7':'#fef9c3'};color:${agent.AGENT_STATUS==='CLOSED'?'#b91c1c':agent.AGENT_STATUS==='ACTIVE'?'#15803d':'#a16207'};padding:2px 7px;border-radius:10px;font-size:9px;font-weight:700;">${agent.AGENT_STATUS||'ACTIVE'}</span>
+                        <span style="background:${st.bg};color:${st.color};padding:2px 7px;border-radius:10px;font-size:9px;font-weight:700;">${agent.STATUS}</span>
+                    </div>
+                </div>
+                <div style="font-size:10px;color:#64748b;margin-bottom:0.5rem;">${esc(agent.INSTANCE_NAME)} · ${esc(agent.DESCRIPTION || '')}</div>
+                <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.5rem;">${saCapabilityChips(agent.CAPABILITIES)}</div>
+                <div style="display:flex;gap:0.75rem;font-size:10px;color:#94a3b8;">
+                    <span><i class="fas fa-truck" style="color:#0891b2;"></i> ${agent.TRIP_COUNT || 0} trip(s)</span>
+                    <span><i class="fas fa-bolt" style="color:#d97706;"></i> ${agent.ACTIONS_TODAY || 0} today</span>
+                    <span><i class="fas fa-clock"></i> ${saTimeAgo(agent.LAST_ACTIVE_DATE)}</span>
+                </div>
+                <div style="margin-top:5px;font-size:10px;color:#cbd5e1;border-top:1px solid #f1f5f9;padding-top:4px;">
+                    <i class="fas fa-calendar-plus" style="color:#a78bfa;"></i> Created: <span style="color:#7c3aed;font-weight:600;">${saFormatDate(agent.CREATED_DATE)}</span>
+                </div>
+                <div id="sa-card-asof-${agent.ID}" style="display:none;margin-top:3px;font-size:10px;color:#0e7490;font-weight:600;" title="DuckDB mode: when this agent's trips were last read from Fusion and APEX"></div>
+                ${isSelected ? `<div id="sa-left-trips-${agent.ID}" style="margin-top:6px;border-top:1px solid #e2e8f0;padding-top:6px;">
+                    <div style="font-size:9px;color:#94a3b8;"><i class="fas fa-spinner fa-spin"></i> Loading trips...</div>
+                </div>` : ''}`;
+
+            container.appendChild(card);
+        });
+    }
+
+    function saCapabilityChips(caps) {
+        if (!caps) return '';
+        const LABELS = {
+            MONITOR:      { label: 'Monitor',      color: '#0891b2' },
+            PRINT:        { label: 'Print',         color: '#7c3aed' },
+            PICK_RELEASE: { label: 'Pick Release',  color: '#059669' },
+            NOTIFY:       { label: 'Notify',        color: '#d97706' },
+            ANOMALY:      { label: 'Anomaly',       color: '#dc2626' },
+            AI_ANALYSIS:  { label: 'AI',            color: '#6d28d9' }
+        };
+        return caps.split(',').map(c => {
+            const info = LABELS[c.trim()] || { label: c.trim(), color: '#64748b' };
+            return `<span style="background:${info.color}18;color:${info.color};border:1px solid ${info.color}33;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;">${info.label}</span>`;
+        }).join('');
+    }
+
+    // ─── Select Agent → show detail ─────────────────────────
+    window.saSelectAgent = async function(agent) {
+        window._saCurrentAgent = agent;
+
+        // Re-render cards to show selection
+        saRenderCards(window._saAgents);
+
+        const empty   = document.getElementById('sa-detail-empty');
+        const content = document.getElementById('sa-detail-content');
+        if (empty)   empty.style.display   = 'none';
+        if (content) { content.style.display = 'flex'; }
+
+        setText('sa-detail-name', agent.NAME);
+        const idChip = document.getElementById('sa-detail-agent-id');
+        if (idChip) idChip.innerHTML = `<span style="background:#1e293b;color:#a78bfa;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;font-family:monospace;">ID: ${agent.ID}</span>`;
+        const isClosed = agent.AGENT_STATUS === 'CLOSED';
+        document.getElementById('sa-detail-meta').innerHTML =
+            `<span style="color:#7c3aed;font-weight:600;">${esc(agent.INSTANCE_NAME)}</span> &nbsp;·&nbsp; Interval: ${agent.CHECK_INTERVAL_SECONDS}s &nbsp;·&nbsp; Max retries: ${agent.MAX_RETRIES} &nbsp;·&nbsp; Created: ${saFormatDate(agent.CREATED_DATE)}${isClosed ? ` &nbsp;·&nbsp; <span style="color:#b91c1c;font-weight:700;">CLOSED ${saFormatDate(agent.CLOSED_DATE)}</span>` : ''}`;
+        // Update Close Agent button state
+        const closeBtn = document.getElementById('sa-btn-close-agent');
+        if (closeBtn) {
+            closeBtn.disabled        = isClosed;
+            closeBtn.style.opacity   = isClosed ? '0.5' : '1';
+            closeBtn.innerHTML       = isClosed
+                ? '<i class="fas fa-times-circle"></i> Closed'
+                : '<i class="fas fa-times-circle"></i> Close Agent';
+        }
+
+        saUpdateDetailStatusBadge(agent.STATUS);
+
+        // Load first tab
+        saShowTab('trips');
+        await saLoadTrips();
+    };
+
+    function saUpdateDetailStatusBadge(status) {
+        const st = STATUS_STYLE[status] || STATUS_STYLE.IDLE;
+        const badge = document.getElementById('sa-detail-status-badge');
+        if (badge) {
+            badge.textContent = status;
+            badge.style.background = st.bg;
+            badge.style.color      = st.color;
+        }
+        // Show/hide control buttons
+        const btnStart  = document.getElementById('sa-btn-start');
+        const btnPause  = document.getElementById('sa-btn-pause');
+        const btnStop   = document.getElementById('sa-btn-stop');
+        if (btnStart)  btnStart.style.display  = (status === 'IDLE' || status === 'PAUSED')  ? '' : 'none';
+        if (btnPause)  btnPause.style.display  = status === 'RUNNING' ? '' : 'none';
+        if (btnStop)   btnStop.style.display   = (status === 'RUNNING' || status === 'PAUSED') ? '' : 'none';
+    }
+
+    // ─── Tabs ────────────────────────────────────────────────
+    window.saShowTab = function(tab, btnEl) {
+        document.querySelectorAll('.sa-tab-content').forEach(t => t.style.display = 'none');
+        document.querySelectorAll('.sa-tab-btn').forEach(b => {
+            b.style.color       = '#64748b';
+            b.style.borderBottom = '2px solid transparent';
+        });
+        const content = document.getElementById(`sa-tab-${tab}`);
+        if (content) content.style.display = '';
+
+        const btn = btnEl || document.querySelector(`.sa-tab-btn[data-tab="${tab}"]`);
+        if (btn) {
+            btn.style.color       = '#7c3aed';
+            btn.style.borderBottom = '2px solid #7c3aed';
+        }
+
+        if (tab === 'activity')     saRefreshActivity();
+        if (tab === 'performance')  saLoadPerformance();
+        if (tab === 'notifications') saLoadNotifications();
+    };
+
+    // ─── Trips Tab ───────────────────────────────────────────
+    const SHIPPING_STATUS_STYLE = {
+        SHIPPED:     { bg: '#dcfce7', color: '#15803d', icon: 'fa-check-circle' },
+        CONFIRMED:   { bg: '#dbeafe', color: '#1d4ed8', icon: 'fa-thumbs-up' },
+        STAGED:      { bg: '#e0f2fe', color: '#0369a1', icon: 'fa-layer-group' },
+        BACKORDERED: { bg: '#fef9c3', color: '#a16207', icon: 'fa-exclamation-circle' },
+        CANCELLED:   { bg: '#fee2e2', color: '#b91c1c', icon: 'fa-times-circle' },
+        PENDING:     { bg: '#f1f5f9', color: '#475569', icon: 'fa-clock' }
+    };
+
+    // The trip date / lorry / bay / priority chips of a trip card (drawn from GETTRIPDETAILS, or from DuckDB)
+    function saTripMetaChips(tripDate, lorry, bay, prio) {
+        return [
+            tripDate ? `<span style="background:#f0fdf4;color:#15803d;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-calendar-alt"></i> Trip Date: ${esc(tripDate)}</span>` : '',
+            lorry    ? `<span style="background:#e0f2fe;color:#0369a1;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-truck"></i> ${esc(lorry)}</span>` : '',
+            bay      ? `<span style="background:#fef9c3;color:#a16207;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-warehouse"></i> Bay ${esc(bay)}</span>` : '',
+            prio     ? `<span style="background:#fce7f3;color:#be185d;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-star"></i> Priority ${esc(prio)}</span>` : ''
+        ].filter(Boolean).join('');
+    }
+
+    async function saLoadTrips() {
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
+        const list = document.getElementById('sa-trips-list');
+        if (!list) return;
+        list.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:12px;"><i class="fas fa-spinner fa-spin"></i> Loading trips...</div>`;
+        try {
+            const data  = await apexGet(`agents/${agent.ID}/trips`);
+            const trips = (data.items || []).map(t => ({
+                TRIP_ID:          t.TRIP_ID   || t.trip_id,
+                TRIP_NAME:        t.TRIP_NAME || t.trip_name,
+                STATUS:           t.STATUS    || t.status    || 'PENDING',
+                INSTANCE_NAME:    t.INSTANCE_NAME || t.instance_name || agent.INSTANCE_NAME,
+                ORDERS_TOTAL:     t.ORDERS_TOTAL  || t.orders_total  || 0,
+                ORDERS_PROCESSED: t.ORDERS_PROCESSED || t.orders_processed || 0,
+                ORDERS_PRINTED:   t.ORDERS_PRINTED   || t.orders_printed   || 0,
+                ORDERS_STUCK:     t.ORDERS_STUCK     || t.orders_stuck     || 0,
+                ANOMALIES_FOUND:  t.ANOMALIES_FOUND  || t.anomalies_found  || 0,
+                ASSIGNED_DATE:    t.ASSIGNED_DATE    || t.assigned_date,
+                NOTES:            t.NOTES || t.notes || '',
+                LORRY_NUMBER:     t.LORRY_NUMBER  || t.lorry_number  || '',
+                LOADING_BAY:      t.LOADING_BAY   || t.loading_bay   || '',
+                PRIORITY:         t.PRIORITY      || t.priority      || ''
+            }));
+            // Store trips for this agent globally
+            window._saAgentTrips = window._saAgentTrips || {};
+            window._saAgentTrips[agent.ID] = trips;
+
+            // Populate left-panel trip checklist (all checked by default)
+            window._saSelectedTrips = window._saSelectedTrips || {};
+            trips.forEach(t => {
+                if (window._saSelectedTrips[t.TRIP_ID] === undefined)
+                    window._saSelectedTrips[t.TRIP_ID] = true;
+            });
+            const leftTrips = document.getElementById(`sa-left-trips-${agent.ID}`);
+            if (leftTrips) {
+                leftTrips.innerHTML = trips.length === 0
+                    ? `<div style="font-size:9px;color:#94a3b8;">No trips assigned</div>`
+                    : SADB.enabled() ? SADB.leftTripsTable(agent, trips)       // DuckDB mode: + in DuckDB / refreshed / cancelled per trip
+                    : `<div style="font-size:9px;font-weight:700;color:#475569;margin-bottom:4px;">TRIPS — select to show</div>` +
+                      trips.map(t => {
+                          const checked = window._saSelectedTrips[t.TRIP_ID] !== false;
+                          const st = TRIP_STATUS_STYLE[t.STATUS] || TRIP_STATUS_STYLE.PENDING;
+                          return `<label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:10px;color:#1e293b;" onclick="event.stopPropagation()">
+                              <input type="checkbox" ${checked ? 'checked' : ''} onchange="saToggleTripVisible('${esc(t.TRIP_ID)}', this.checked)" style="accent-color:#7c3aed;cursor:pointer;">
+                              <span style="font-weight:600;">${esc(t.TRIP_NAME || t.TRIP_ID)}</span>
+                              <span style="background:${st.bg};color:${st.color};padding:1px 6px;border-radius:6px;font-size:8px;font-weight:700;">${t.STATUS}</span>
+                          </label>`;
+                      }).join('');
+            }
+
+            if (trips.length === 0) {
+                list.innerHTML = `<div style="padding:2rem;text-align:center;color:#94a3b8;font-size:12px;">No trips assigned yet.<br>Click <strong>Assign Trip</strong> to add one.</div>`;
+                return;
+            }
+            // Render cards — only show trips that are checked in left panel
+            const visibleTrips = trips.filter(t => window._saSelectedTrips[t.TRIP_ID] !== false);
+            // Render cards first (meta chips filled async below)
+            list.innerHTML = visibleTrips.map(t => {
+                const st  = TRIP_STATUS_STYLE[t.STATUS] || TRIP_STATUS_STYLE.PENDING;
+                const pct = t.ORDERS_TOTAL > 0 ? Math.round((t.ORDERS_PROCESSED / t.ORDERS_TOTAL) * 100) : 0;
+                return `
+                <div style="background:white;border-radius:10px;border:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,0.06);overflow:hidden;">
+                    <!-- Trip header -->
+                    <div style="background:linear-gradient(to right,#f8fafc,#fff);padding:0.75rem 1rem;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;">
+                        <div style="display:flex;align-items:center;gap:0.5rem;">
+                            <div style="width:28px;height:28px;background:linear-gradient(135deg,#7c3aed,#5b21b6);border-radius:6px;display:flex;align-items:center;justify-content:center;">
+                                <i class="fas fa-truck" style="color:white;font-size:0.7rem;"></i>
+                            </div>
+                            <div>
+                                <div style="font-size:13px;font-weight:700;color:#1e293b;">${esc(t.TRIP_NAME || t.TRIP_ID)}</div>
+                                <div style="font-size:10px;color:#64748b;">${esc(t.INSTANCE_NAME)} · Assigned: ${saFormatDate(t.ASSIGNED_DATE)}</div>
+                                <div id="sa-trip-meta-${esc(t.TRIP_ID)}" style="display:flex;gap:0.5rem;margin-top:3px;flex-wrap:wrap;">
+                                    <span style="color:#cbd5e1;font-size:9px;"><i class="fas fa-spinner fa-spin"></i></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
+                            <span class="sa-mra-flag" data-inst="${esc((t.INSTANCE_NAME || 'PROD').toUpperCase())}">${saMraFlagChip(null)}</span>
+                            <span id="sa-trip-asof-${esc(t.TRIP_ID)}" style="display:none;background:#ecfeff;color:#0e7490;border:1px solid #a5f3fc;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;white-space:nowrap;" title="DuckDB mode: when this trip was last read from Fusion and APEX"></span>
+                            <button id="sa-trip-refresh-${esc(t.TRIP_ID)}" onclick="saDbRefreshTrip('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}', event)" style="display:none;background:#0e7490;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Read this trip from Fusion and APEX again and save it on this PC — orders already interfaced or cancelled are kept as they are; hold Shift to read every order"><i class="fas fa-sync"></i> Refresh</button>
+                            <span style="background:${st.bg};color:${st.color};padding:2px 10px;border-radius:10px;font-size:10px;font-weight:700;">${t.STATUS}</span>
+                            <button onclick="saShowTripOrdersApiInfo('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#1e293b;color:#94a3b8;border:none;padding:3px 7px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Show API calls for this trip"><i class="fas fa-code"></i></button>
+                            <button onclick="saLoadTripOrders('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#0891b2;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Load order details">
+                                <i class="fas fa-list"></i> Orders
+                            </button>
+                            <button onclick="saShowTripLines('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#f59e0b;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Show all order lines for this trip">
+                                <i class="fas fa-table"></i> Order Lines
+                            </button>
+                            <button onclick="saShowCancelLog('${esc(t.TRIP_ID)}')" style="background:#dc2626;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="View cancellation log for this trip">
+                                <i class="fas fa-file-alt"></i> Log
+                            </button>
+                            <button onclick="saUnassignTrip(${agent.ID},'${esc(t.TRIP_ID)}')" style="background:none;border:none;cursor:pointer;color:#94a3b8;font-size:12px;padding:3px 5px;" title="Remove trip" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='#94a3b8'"><i class="fas fa-times"></i></button>
+                        </div>
+                    </div>
+                    <!-- Trip stats row -->
+                    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0;border-bottom:1px solid #f1f5f9;">
+                        ${saTripStatCell('Orders',     t.ORDERS_TOTAL,    '#667eea', 'fa-box',                `sa-stat-orders-${t.TRIP_ID}`)}
+                        ${saTripStatCell('Processed',  t.ORDERS_PROCESSED,'#059669', 'fa-check',              `sa-stat-processed-${t.TRIP_ID}`)}
+                        ${saTripStatCell('Printed',    t.ORDERS_PRINTED,  '#7c3aed', 'fa-print',              `sa-stat-printed-${t.TRIP_ID}`)}
+                        ${saTripStatCell('To Cancel',  t.ORDERS_STUCK,    '#d97706', 'fa-pause-circle',       `sa-stat-stuck-${t.TRIP_ID}`)}
+                        ${saTripStatCell('Cancelled',  t.ANOMALIES_FOUND, '#dc2626', 'fa-ban',                `sa-stat-cancelled-${t.TRIP_ID}`)}
+                    </div>
+                    <!-- Progress bar -->
+                    <div style="padding:0.5rem 1rem;background:#fafafa;">
+                        <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin-bottom:3px;">
+                            <span>Processing progress</span><span id="sa-progress-pct-${t.TRIP_ID}" style="font-weight:700;color:#7c3aed;">${pct}%</span>
+                        </div>
+                        <div style="background:#e2e8f0;border-radius:4px;height:5px;overflow:hidden;">
+                            <div id="sa-progress-bar-${t.TRIP_ID}" style="background:linear-gradient(90deg,#7c3aed,#5b21b6);height:100%;width:${pct}%;transition:width 0.4s;border-radius:4px;"></div>
+                        </div>
+                    </div>
+                    <!-- Order details container (loaded on demand) -->
+                    <div id="sa-trip-orders-${esc(t.TRIP_ID)}" style="display:none;"></div>
+                </div>`;
+            }).join('');
+
+            // DuckDB mode: trips this PC holds are drawn from DuckDB, the others are read once (today's calls) and saved
+            if (await SADB.afterTripsRendered(agent, trips)) return;
+
+            saMraPaintFlags(false);
+
+            // Auto-load orders for ALL trips (silent) so DB status GET runs on agent open
+            // Use all trips (not just visible) so data is ready if user unchecks then re-checks
+            trips.forEach(t => {
+                saLoadTripOrders(t.TRIP_ID, t.INSTANCE_NAME, true);
+            });
+
+
+            // Async: fetch lorry/bay/priority for each trip from GETTRIPDETAILS (first row only)
+            trips.forEach(t => {
+                wmsGet(`GETTRIPDETAILS/${encodeURIComponent(t.TRIP_ID)}?P_INSTANCE_NAME=${t.INSTANCE_NAME}&limit=1`)
+                    .then(d => {
+                        const row = (d.items || [])[0];
+                        if (!row) return;
+                        const lorry    = row.TRIP_LORRY    || row.trip_lorry    || '';
+                        const bay      = row.LOADING_BAY   || row.loading_bay   || '';
+                        const prio     = row.TRIP_PRIORITY || row.trip_priority || '';
+                        const rawDate  = row.TRIP_DATE     || row.trip_date     || '';
+                        // Format trip date: take just the date part (strip time if ISO string)
+                        const tripDate = rawDate ? rawDate.toString().split('T')[0] : '';
+                        const metaEl  = document.getElementById(`sa-trip-meta-${t.TRIP_ID}`);
+                        if (!metaEl) return;
+                        // Store trip date on the card element for use by saPrintOrder
+                        metaEl.setAttribute('data-trip-date', tripDate);
+                        metaEl.innerHTML = saTripMetaChips(tripDate, lorry, bay, prio);
+                    })
+                    .catch(() => {
+                        const metaEl = document.getElementById(`sa-trip-meta-${t.TRIP_ID}`);
+                        if (metaEl) metaEl.innerHTML = '';
+                    });
+            });
+
+        } catch(e) {
+            list.innerHTML = `<div style="padding:1rem;color:#dc2626;font-size:12px;">${e.message}</div>`;
+        }
+    }
+
+    // Toggle a trip's visibility in the right panel and re-render trips
+    window.saToggleTripVisible = function(tripId, checked) {
+        window._saSelectedTrips = window._saSelectedTrips || {};
+        window._saSelectedTrips[tripId] = checked;
+        saLoadTrips(); // re-render right panel with updated selection
+    };
+
+    window.saShowTripOrdersApiInfo = function(tripId, instanceName) {
+        const agent  = window._saCurrentAgent;
+        const agentId = agent ? agent.ID : '{agentId}';
+        const inst   = instanceName || 'PROD';
+
+        const url1 = `${WMS_BASE}/GETTRIPDETAILS/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${inst}`;
+        const url2 = `${APEX_BASE}/agents/${agentId}/trips/${encodeURIComponent(tripId)}/orders?P_INSTANCE_NAME=${inst}`;
+
+        saShowApiInfo('GET', url1, null, 'Step 1 — Primary: GETTRIPDETAILS (all trip orders)');
+        // Show both in a combined popup
+        const existing = document.getElementById('sa-api-popup');
+        if (existing) {
+            existing.remove();
+        }
+        const pop = document.createElement('div');
+        pop.id = 'sa-api-popup';
+        pop.style.cssText = 'position:fixed;top:60px;right:20px;width:580px;max-height:85vh;overflow-y:auto;background:#0f172a;color:#e2e8f0;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.6);z-index:99999;font-family:monospace;font-size:11px;';
+        pop.innerHTML = `
+            <div style="padding:0.75rem 1rem;background:#1e293b;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;">
+                <span style="font-weight:800;font-size:12px;color:#7c3aed;"><i class="fas fa-code"></i> Trip Orders — API Calls (Trip ${esc(tripId)})</span>
+                <button onclick="document.getElementById('sa-api-popup').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">×</button>
+            </div>
+            <div style="padding:1rem;display:flex;flex-direction:column;gap:1rem;">
+
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
+                        Step 1 — Primary source: all orders on this trip
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:0.5rem 0.7rem;">
+                        <div style="color:#38bdf8;word-break:break-all;">${esc(url1)}</div>
+                    </div>
+                    <div style="color:#64748b;font-size:9px;margin-top:0.3rem;">
+                        Module: <strong>WAREHOUSEMANAGEMENT</strong> · Endpoint: <strong>GETTRIPDETAILS/{tripId}</strong><br>
+                        Returns all order lines for the trip. Deduplicated by ORDER_NUMBER in JS. Always available.
+                    </div>
+                </div>
+
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
+                        Step 2 — Enrichment: shipment line details (optional)
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:0.5rem 0.7rem;">
+                        <div style="color:#38bdf8;word-break:break-all;">${esc(url2)}</div>
+                    </div>
+                    <div style="color:#64748b;font-size:9px;margin-top:0.3rem;">
+                        Module: <strong>TRIPMANAGEMENT</strong> · Endpoint: <strong>agents/:agentId/trips/:tripId/orders</strong><br>
+                        Provides print job counts from <code>wms_print_jobs</code>.
+                    </div>
+                </div>
+
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
+                        Step 3 — Live status per order: Oracle Fusion shipmentLines
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:0.5rem 0.7rem;">
+                        <div style="color:#38bdf8;word-break:break-all;">${esc(fusionShipmentLinesUrl('{ORDER_NUMBER}', inst))}</div>
+                    </div>
+                    <div style="color:#64748b;font-size:9px;margin-top:0.3rem;">
+                        Triggered by <strong>Get Shipment Lines</strong> or <strong>Refresh</strong> button per order.<br>
+                        PROD → <code>efmh.fa.em3.oraclecloud.com</code> &nbsp;|&nbsp; TRAIN → <code>efmh-test.fa.em3.oraclecloud.com</code>
+                    </div>
+                </div>
+
+                <div style="background:#1e293b;border-radius:6px;padding:0.5rem 0.7rem;font-size:9px;color:#94a3b8;">
+                    <i class="fas fa-info-circle" style="color:#7c3aed;"></i>
+                    Steps 1 & 2 via <strong>executeGet</strong>. Step 3 via <strong>executeOracleFusionGet</strong> (Fusion credentials from C# config).<br>
+                    Check console for <code>[ShippingAgent] GET ...</code> and <code>[ShippingAgent] Fusion shipmentLines GET ...</code> logs.
+                </div>
+            </div>`;
+        document.body.appendChild(pop);
+    };
+
+    function saTripStatCell(label, value, color, icon, id) {
+        const idAttr = id ? `id="${id}"` : '';
+        return `<div ${idAttr} style="padding:0.5rem 0.3rem;text-align:center;border-right:1px solid #f1f5f9;">
+            <i class="fas ${icon}" style="color:${color};font-size:0.75rem;display:block;margin-bottom:2px;"></i>
+            <div style="font-size:13px;font-weight:800;color:${color};">${value || 0}</div>
+            <div style="font-size:9px;color:#94a3b8;font-weight:600;">${label}</div>
+        </div>`;
+    }
+
+    function saRefreshTripCardStats(tripId) {
+        const kpi = saCpComputeKpi(tripId);
+        const update = (id, val, color) => {
+            const el = document.getElementById(id);
+            if (el) {
+                const numEl = el.querySelector('div');
+                if (numEl) { numEl.textContent = val; numEl.style.color = color; }
+            }
+        };
+        update(`sa-stat-orders-${tripId}`,    kpi.total,        '#667eea');
+        update(`sa-stat-processed-${tripId}`, kpi.interfaced,   kpi.interfaced >= kpi.total && kpi.total > 0 ? '#059669' : '#d97706');
+        update(`sa-stat-printed-${tripId}`,   kpi.printed,      kpi.printed >= kpi.total && kpi.total > 0 ? '#059669' : '#7c3aed');
+        update(`sa-stat-stuck-${tripId}`,     kpi.toCancel,     kpi.toCancel > 0 ? '#dc2626' : '#94a3b8');
+        update(`sa-stat-cancelled-${tripId}`, kpi.autoCancelled || 0, (kpi.autoCancelled || 0) > 0 ? '#ea580c' : '#94a3b8');
+        // Update progress bar
+        const pct = kpi.total > 0 ? Math.round((kpi.interfaced / kpi.total) * 100) : 0;
+        const barEl = document.getElementById(`sa-progress-bar-${tripId}`);
+        if (barEl) barEl.style.width = pct + '%';
+        const pctEl = document.getElementById(`sa-progress-pct-${tripId}`);
+        if (pctEl) pctEl.textContent = pct + '%';
+    }
+
+    window.saLoadTripOrders = async function(tripId, instanceName, silent) {
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        if (!container) return;
+
+        if (container.dataset.loaded === '1') {
+            // Already loaded — Orders button toggles visibility
+            if (!silent) container.style.display = container.style.display === 'none' ? 'block' : 'none';
+            return;
+        }
+        // Always show the container while loading (visible to user)
+        container.style.display = 'block';
+        container.innerHTML = `<div style="padding:0.75rem 1rem;text-align:center;color:#94a3b8;font-size:11px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</div>`;
+
+        try {
+            const inst = instanceName || 'PROD';
+
+            const tripData = await wmsGet(`GETTRIPDETAILS/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${inst}`);
+            const rows = (tripData.items || []);
+
+            if (rows.length === 0) {
+                container.innerHTML = `<div style="padding:0.75rem 1rem;font-size:11px;color:#94a3b8;text-align:center;">No orders found for this trip.</div>`;
+                if (SADB.on()) { SADB.onTripOrders(agent, tripId, inst, [], null); container.dataset.loaded = '1'; }
+                return;
+            }
+
+            // Deduplicate by ORDER_NUMBER — keep first occurrence for customer name + all fields for editTripOrder
+            const seen = new Set();
+            const orders = [];
+            rows.forEach(r => {
+                const on = (r.ORDER_NUMBER || r.order_number || '').toString().trim();
+                if (!on || seen.has(on)) return;
+                seen.add(on);
+                orders.push({
+                    ORDER_NUMBER:   on,
+                    ACCOUNT_NAME:   r.ACCOUNT_NAME    || r.account_name    || '',
+                    ACCOUNT_NUMBER: r.ACCOUNT_NUMBER  || r.account_number  || '',
+                    ORDER_TYPE:     r.ORDER_TYPE       || r.order_type      || '',
+                    INSTANCE:       r.INSTANCE         || r.instance        || inst,
+                    TRIP_ID:        r.TRIP_ID          || r.trip_id         || tripId,
+                    TRIP_DATE:      r.TRIP_DATE        || r.trip_date       || '',
+                    LORRY_NUMBER:   r.TRIP_LORRY       || r.trip_lorry      || r.LORRY_NUMBER || '',
+                    PICKER:         r.PICKER_NAME      || r.picker_name     || '',
+                    PRIORITY:       r.TRIP_PRIORITY    || r.trip_priority   || '',
+                    PICK_CONFIRM_ST: r.PICK_CONFIRM_ST || r.pick_confirm_st || ''
+                });
+            });
+
+            container.innerHTML = saRenderOrdersTable(orders, tripId, inst);
+            container.dataset.loaded = '1';
+            container.style.display = 'block';
+
+            // DuckDB mode: the trip's orders (base columns) go to this PC; the status columns follow as they are read
+            if (SADB.on()) SADB.onTripOrders(agent, tripId, inst, orders, rows[0]);
+
+            // Pre-populate from DB (previously saved status) — DuckDB mode paints what this PC already holds instead
+            if (SADB.on()) Object.values(SADB.rows[tripId] || {}).forEach(r => SADB.paintRow(tripId, r));
+            else try {
+                const dbData = await apexGet(`agents/${agent.ID}/trips/${encodeURIComponent(tripId)}/orders/status`);
+                (dbData.items || []).forEach(rec => {
+                    const on = (rec.ORDER_NUMBER || rec.order_number || '').toString().trim();
+                    const rowEl = document.getElementById(`sa-order-row-${tripId}-${on}`);
+                    if (!rowEl) return;
+                    const sc = (col, html) => { const c = rowEl.querySelector(`[data-col="${col}"]`); if (c) c.innerHTML = html; };
+                    const activeL  = parseInt(rec.ACTIVE_LINES   || rec.active_lines   || 0);
+                    const stagedL  = parseInt(rec.STAGED_LINES   || rec.staged_lines   || 0);
+                    const ifcL     = parseInt(rec.INTERFACED_LINES|| rec.interfaced_lines|| 0);
+                    const cancelL  = parseInt(rec.CANCELLED_LINES|| rec.cancelled_lines || 0);
+                    const otherL   = parseInt(rec.BACKORDER_LINES || rec.backorder_lines || 0);
+                    const pickedL  = parseInt(rec.PICKED_COUNT   || rec.picked_count   || 0);
+                    const shippedL = parseInt(rec.SHIPPED_COUNT  || rec.shipped_count  || 0);
+                    const pTotal   = parseInt(rec.PRINT_TOTAL    || rec.print_total    || 0);
+                    const pPrint   = parseInt(rec.PRINT_PRINTED  || rec.print_printed  || 0);
+                    const olCount  = parseInt(rec.ORDER_LINES_COUNT || rec.order_lines_count || 0);
+                    const status   = rec.ORDER_STATUS || rec.order_status || '';
+                    const lastF    = (rec.LAST_FETCHED || rec.last_fetched || '').toString().substring(0,16);
+
+                    // Order Status badge
+                    let stBadge;
+                    if ((status.includes('Interfaced') || status.includes('Shipped')) && !status.includes('/'))
+                        stBadge = saBadge('Interfaced', '#dcfce7', '#15803d', 'fa-check-circle');
+                    else if (status.includes('Interfaced') || status.includes('Shipped'))
+                        stBadge = saBadge(status, '#fef9c3', '#a16207', 'fa-truck');
+                    else if (status.includes('Staged'))
+                        stBadge = saBadge(status, '#dbeafe', '#1d4ed8', 'fa-layer-group');
+                    else if (status)
+                        stBadge = saBadge(status, '#f1f5f9', '#64748b', 'fa-clock');
+                    else stBadge = `<span style="color:#94a3b8;font-size:9px;">—</span>`;
+
+                    sc('status',    stBadge);
+                    sc('staged',    stagedL > 0
+                        ? saBadge(`${stagedL}`, '#dbeafe', '#1d4ed8', 'fa-layer-group')
+                        : saBadge('0', '#f1f5f9', '#94a3b8', null));
+                    sc('picking',   activeL > 0 ? (pickedL === activeL ? saBadge(`${pickedL}/${activeL}`, '#dcfce7', '#15803d', 'fa-check') : saBadge(`${pickedL}/${activeL}`, '#fef9c3', '#a16207', 'fa-box')) : saBadge('N/A', '#f1f5f9', '#94a3b8', null));
+                    sc('shipping',  activeL > 0 ? (shippedL === activeL ? saBadge(`${shippedL}/${activeL}`, '#dcfce7', '#15803d', 'fa-truck') : saBadge(`${shippedL}/${activeL}`, '#fef9c3', '#a16207', 'fa-truck')) : saBadge('N/A', '#f1f5f9', '#94a3b8', null));
+                    sc('backorder', otherL > 0 ? saBadge(`${otherL}`, '#fef9c3', '#a16207', 'fa-exclamation-triangle') : saBadge('0', '#f0fdf4', '#15803d', null));
+                    sc('cancel',    cancelL > 0 ? saBadge(`${cancelL}`, '#fee2e2', '#b91c1c', 'fa-ban') : saBadge('0', '#f0fdf4', '#15803d', null));
+                    sc('order_lines', olCount > 0 ? `<span style="font-weight:700;color:#1e293b;font-size:11px;">${olCount}</span><div style="color:#94a3b8;font-size:8px;">lines</div>` : `<span style="color:#94a3b8;font-size:9px;">—</span>`);
+                    sc('print',     pTotal > 0 ? (pPrint === pTotal ? saBadge('Printed', '#dcfce7', '#15803d', 'fa-check') : saBadge(`${pPrint}/${pTotal}`, '#fef9c3', '#a16207', 'fa-print')) : saBadge('No Jobs', '#f1f5f9', '#94a3b8', 'fa-print'));
+                    sc('checked',   lastF ? `<span style="font-size:8px;color:#64748b;">${lastF}</span>` : `<span style="color:#94a3b8;font-size:9px;">—</span>`);
+                });
+            } catch(e) {
+                console.warn('[ShippingAgent] Could not pre-populate from DB:', e.message);
+            }
+
+            // Auto-run print status + shipment lines after orders are loaded
+            // (DuckDB mode waits for them, so a refresh knows when the trip is complete and saves it)
+            if (SADB.on()) {
+                await saGetPrintStatus(tripId, inst); saRefreshTripCardStats(tripId);
+                await saGetAllShipmentLines(tripId, inst); saRefreshTripCardStats(tripId);
+            } else {
+                setTimeout(() => saGetPrintStatus(tripId, inst).then(() => saRefreshTripCardStats(tripId)), 200);
+                setTimeout(() => saGetAllShipmentLines(tripId, inst).then(() => saRefreshTripCardStats(tripId)), 500);
+            }
+
+        } catch(e) {
+            container.innerHTML = `<div style="padding:0.75rem 1rem;color:#dc2626;font-size:11px;">${e.message}</div>`;
+        }
+    };
+
+    // Track last-fetch timestamps per order: { orderNumber: Date }
+    window._saOrderLastFetched    = window._saOrderLastFetched    || {};
+    // Track classified line counts per order for DB save
+    window._saLastFetchedCounts   = window._saLastFetchedCounts   || {};
+
+    window.saFetchOrderStatus = async function(orderNumber, instanceName, tripId) {
+        const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
+        if (!rowEl) return;
+
+        const setCell = (col, html) => {
+            const cell = rowEl.querySelector(`[data-col="${col}"]`);
+            if (cell) cell.innerHTML = html;
+        };
+
+        // Record fetch time immediately
+        const fetchedAt = new Date();
+        window._saOrderLastFetched[orderNumber] = fetchedAt;
+        const timeStr = fetchedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+        setCell('status',   `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('picking',  `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('shipping', `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('cancel',   `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('print',    `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('staged',    `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('backorder', `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('checked',  `<span style="color:#94a3b8;font-size:9px;"><i class="fas fa-sync fa-spin"></i> Fetching...</span>`);
+
+        // Declare counts outside try so they're available for the DB save below
+        let readyToRelease = 0, releasedToWH = 0, staged = 0, interfaced = 0, cancelled = 0, other = 0;
+        let totalQty = 0, stagedQty = 0, shippedQty = 0;
+        let totalLines = 0, fusionFetchOk = false;
+        let orderStatusText = 'Pending';
+        let rowAccountName = '', rowOrderType = '';
+
+        // Read account/order type from row data for DB save
+        try {
+            const dr = rowEl.querySelector('[data-row]');
+            if (dr) { const rd = JSON.parse(dr.getAttribute('data-row')); rowAccountName = rd.ACCOUNT_NAME || ''; rowOrderType = rd.ORDER_TYPE || ''; }
+        } catch(e) {}
+
+        try {
+            // Use Oracle Fusion REST API directly (executeOracleFusionGet via C# bridge)
+            const slData = await fusionShipmentLinesGet(orderNumber, instanceName);
+            const lines  = slData.items || [];
+
+            if (lines.length === 0) {
+                setCell('status',    saBadge('No Lines', '#f1f5f9', '#94a3b8', 'fa-clock'));
+                setCell('staged',    saBadge('—', '#f1f5f9', '#94a3b8', null));
+                setCell('picking',   saBadge('—', '#f1f5f9', '#94a3b8', null));
+                setCell('shipping',  saBadge('—', '#f1f5f9', '#94a3b8', null));
+                setCell('backorder', saBadge('—', '#f1f5f9', '#94a3b8', null));
+                setCell('cancel',    saBadge('—', '#f1f5f9', '#94a3b8', null));
+                setCell('print',     saBadge('N/A', '#f1f5f9', '#94a3b8', 'fa-print'));
+                setCell('checked',   saCheckedBadge(timeStr, 0));
+                fusionFetchOk = true;
+                if (SADB.on()) SADB.onOrderStatus(tripId, orderNumber, { statusText: 'No Lines', total: 0, staged: 0, interfaced: 0, released: 0, ready: 0, cancelled: 0, other: 0, shippedLines: 0, totalQty: 0, stagedQty: 0, shippedQty: 0, lines: [], inst: instanceName });
+                // Fall through to DB save with all zeros
+            } else {
+
+            let shippedLines = 0;
+            lines.forEach(l => {
+                // Fusion uses LineStatusCode: Y=Interfaced/Shipped, C=Staged, X=Cancelled
+                // LineStatus text: "Ready to Release", "Released to Warehouse", "Staged", "Interfaced", "Cancelled"
+                const lsc  = (l.LineStatusCode || '').toString().toUpperCase().trim();
+                const ls   = (l.LineStatus || l.LineStatusCode || '').toString().toUpperCase().trim();
+
+                const isShipped = ls.includes('SHIPPED') && !ls.includes('INTERFACED');
+                if (isShipped) shippedLines++;
+
+                if      (lsc === 'Y' || ls.includes('INTERFACED') || ls.includes('PENDING INVENTORY') || ls.includes('SHIPPED'))  interfaced++;
+                else if (lsc === 'C' || ls.includes('STAGED'))                  staged++;
+                else if (lsc === 'X' || ls.includes('CANCEL'))                  cancelled++;
+                else if (ls.includes('RELEASED TO WAREHOUSE') || ls.includes('RELEASED')) releasedToWH++;
+                else if (ls.includes('READY'))                                  readyToRelease++;
+                else                                                            other++;
+
+                totalQty   += parseFloat(l.RequestedQuantity || 0);
+                stagedQty  += parseFloat(l.StagedQuantity    || 0);
+                shippedQty += parseFloat(l.ShippedQuantity   || 0);
+            });
+
+            totalLines = lines.length;
+            const total = totalLines;
+            const activeLines = total - cancelled;
+
+            // ── Overall line-status badge (dominant) ──
+            // interfaced bucket includes Shipped lines — show as Interfaced
+            let domBadge;
+            if (interfaced > 0 && interfaced === total)
+                domBadge = saBadge('Interfaced',       '#dcfce7', '#15803d', 'fa-check-circle');
+            else if (interfaced > 0 && interfaced === activeLines)
+                domBadge = saBadge('Interfaced',       '#dcfce7', '#15803d', 'fa-check-circle');
+            else if (cancelled > 0 && cancelled === total)
+                domBadge = saBadge('Cancelled',        '#fee2e2', '#b91c1c', 'fa-ban');
+            else if (interfaced > 0)
+                domBadge = saBadge(`Part Interfaced`,  '#bbf7d0', '#166534', 'fa-truck');
+            else if (staged > 0 && staged === total)
+                domBadge = saBadge('Staged',           '#dbeafe', '#1d4ed8', 'fa-layer-group');
+            else if (staged > 0)
+                domBadge = saBadge(`Part Staged`,      '#bfdbfe', '#1d4ed8', 'fa-layer-group');
+            else if (releasedToWH > 0)
+                domBadge = saBadge('Released to WH',   '#e0f2fe', '#0369a1', 'fa-share-square');
+            else if (readyToRelease > 0)
+                domBadge = saBadge('Ready to Release', '#fef9c3', '#a16207', 'fa-clock');
+            else
+                domBadge = saBadge('Pending',          '#f1f5f9', '#64748b', 'fa-clock');
+
+            // ── Order Status: "Interfaced" if all active lines interfaced, else "9/10 Interfaced" ──
+            let orderStatusBadge;
+            if (activeLines === 0)
+                orderStatusBadge = saBadge('Cancelled', '#fee2e2', '#b91c1c', 'fa-ban');
+            else if (interfaced === activeLines)
+                orderStatusBadge = saBadge('Interfaced', '#dcfce7', '#15803d', 'fa-check-circle');
+            else if (interfaced > 0)
+                orderStatusBadge = saBadge(`${interfaced}/${activeLines} Interfaced`, '#fef9c3', '#a16207', 'fa-truck');
+            else if (staged > 0 && staged === activeLines)
+                orderStatusBadge = saBadge('Staged', '#dbeafe', '#1d4ed8', 'fa-layer-group');
+            else if (staged > 0)
+                orderStatusBadge = saBadge(`${staged}/${activeLines} Staged`, '#e0f2fe', '#0369a1', 'fa-layer-group');
+            else if (releasedToWH > 0)
+                orderStatusBadge = saBadge('Released to WH', '#e0f2fe', '#0369a1', 'fa-share-square');
+            else if (readyToRelease > 0)
+                orderStatusBadge = saBadge('Ready to Release', '#fef9c3', '#a16207', 'fa-clock');
+            else
+                orderStatusBadge = saBadge('Pending', '#f1f5f9', '#64748b', 'fa-clock');
+
+            // ── Staged column — count of lines currently in Staged state ──
+            const stagedBadge = staged > 0
+                ? saBadge(`${staged}`, '#dbeafe', '#1d4ed8', 'fa-layer-group')
+                : saBadge('0', '#f1f5f9', '#94a3b8', null);
+
+            // ── Picking: staged + interfaced = picked ──
+            const pickedCount = staged + interfaced;
+            const pickBadge = activeLines === 0
+                ? saBadge('N/A', '#f1f5f9', '#94a3b8', null)
+                : pickedCount === activeLines
+                    ? saBadge(`${pickedCount}/${activeLines}`, '#dcfce7', '#15803d', 'fa-check')
+                    : pickedCount === 0
+                        ? saBadge(`0/${activeLines}`, '#fef2f2', '#b91c1c', 'fa-times')
+                        : saBadge(`${pickedCount}/${activeLines}`, '#fef9c3', '#a16207', 'fa-box');
+
+            // ── Shipping: interfaced = shipped ──
+            const shipBadge = activeLines === 0
+                ? saBadge('N/A', '#f1f5f9', '#94a3b8', null)
+                : interfaced === activeLines
+                    ? saBadge(`${interfaced}/${activeLines}`, '#dcfce7', '#15803d', 'fa-truck')
+                    : interfaced === 0
+                        ? saBadge(`0/${activeLines}`, '#fef2f2', '#b91c1c', 'fa-times')
+                        : saBadge(`${interfaced}/${activeLines}`, '#fef9c3', '#a16207', 'fa-truck');
+
+            // ── Backorder (other bucket) ──
+            const backorderBadge = other > 0
+                ? saBadge(`${other}`, '#fef9c3', '#a16207', 'fa-exclamation-triangle')
+                : saBadge('0', '#f0fdf4', '#15803d', null);
+
+            // ── Cancellation ──
+            const cancelBadge = cancelled > 0
+                ? saBadge(`${cancelled}`, '#fee2e2', '#b91c1c', 'fa-ban')
+                : saBadge('0', '#f0fdf4', '#15803d', null);
+
+            // Determine order status text for DB save
+            orderStatusText = activeLines === 0 ? 'Cancelled'
+                : interfaced === activeLines ? 'Interfaced'
+                : interfaced > 0 ? `${interfaced}/${activeLines} Interfaced`
+                : staged > 0 ? 'Staged'
+                : releasedToWH > 0 ? 'Released to WH'
+                : readyToRelease > 0 ? 'Ready to Release'
+                : 'Pending';
+            if (SADB.on()) SADB.onOrderStatus(tripId, orderNumber, { statusText: orderStatusText, total: totalLines, staged, interfaced, released: releasedToWH, ready: readyToRelease, cancelled, other, shippedLines, totalQty, stagedQty, shippedQty, lines, inst: instanceName });
+
+            setCell('status',    orderStatusBadge);
+            // staged is set from WMS getsalesorderlines below (LINE_STATUS='Staged')
+            setCell('picking',   pickBadge);
+            setCell('shipping',  shipBadge);
+            setCell('backorder', backorderBadge);
+            setCell('cancel',    cancelBadge);
+            setCell('checked',   saCheckedBadge(timeStr, lines.length));
+            // Update shipped indicator in first column
+            if (shippedLines > 0) {
+                const indEl = rowEl.querySelector('[data-col="shipped-indicator"]');
+                if (indEl) indEl.innerHTML = `<span style="background:#fef9c3;color:#a16207;border:1px solid #fde68a;padding:0px 5px;border-radius:4px;font-size:9px;font-weight:700;" title="${shippedLines} line(s) with Shipped status">${shippedLines}s</span>`;
+            }
+
+            // Post activity log for single-order refresh
+            const agent = window._saCurrentAgent;
+            if (agent) {
+                saLogActivity(agent.ID, tripId, orderNumber, 'CHECK_STATUS', 'SUCCESS', 1,
+                    `Shipment lines checked: ${lines.length} line(s) — ${domBadge.replace(/<[^>]+>/g,'').trim()} at ${timeStr}`,
+                    null, null);
+            }
+            fusionFetchOk = true;
+            } // end else (lines.length > 0)
+
+        } catch(e) {
+            // Don't overwrite status with Error — preserve last good status, just flag checked cell
+            const existingStatus = rowEl?.querySelector('[data-col="status"]')?.textContent?.trim();
+            if (!existingStatus || existingStatus === '' || existingStatus === '—') {
+                setCell('status', `<span style="color:#dc2626;font-size:9px;" title="${esc(e.message)}">Error</span>`);
+            }
+            setCell('checked', `<span style="color:#dc2626;font-size:9px;" title="${esc(e.message)}"><i class="fas fa-exclamation-circle"></i> ${timeStr}</span>`);
+            if (SADB.on()) SADB.onChecked(tripId, orderNumber, e.message);
+
+            const agent = window._saCurrentAgent;
+            if (agent) {
+                saLogActivity(agent.ID, tripId, orderNumber, 'CHECK_STATUS', 'FAILED', 1,
+                    `Shipment lines fetch failed: ${e.message}`, null, null);
+            }
+        }
+
+        // ── Print status — query wms_print_jobs directly via APEX ──
+        let pTotal = 0, pPrinted = 0;
+        try {
+            const pjData = await apexGet(`printjobs/order/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${instanceName}`);
+            pTotal   = parseInt((pjData.items || []).length || pjData.total || 0);
+            pPrinted = parseInt((pjData.items || []).filter(j => (j.PRINT_STATUS || j.print_status || '').toUpperCase() === 'PRINTED').length || 0);
+        } catch(e) {
+            // Fallback: try getting counts from wms_shiping_agents_orders_status if print endpoint not deployed
+            try {
+                const agent = window._saCurrentAgent;
+                if (agent) {
+                    const dbData = await apexGet(`agents/${agent.ID}/trips/${encodeURIComponent(tripId)}/orders/status`);
+                    const match = (dbData.items || []).find(o => (o.ORDER_NUMBER || o.order_number || '').toString().trim() === orderNumber.toString().trim());
+                    if (match) {
+                        pTotal   = parseInt(match.PRINT_TOTAL   || match.print_total   || 0);
+                        pPrinted = parseInt(match.PRINT_PRINTED || match.print_printed || 0);
+                    }
+                }
+            } catch(e2) { /* non-fatal */ }
+        }
+
+        const printBadge = pTotal === 0
+            ? saBadge('No Jobs', '#f1f5f9', '#94a3b8', 'fa-print')
+            : pPrinted === pTotal
+                ? saBadge('Printed', '#dcfce7', '#15803d', 'fa-check')
+                : saBadge(`${pPrinted}/${pTotal}`, '#fef9c3', '#a16207', 'fa-print');
+        setCell('print', printBadge);
+        if (SADB.on()) SADB.onPrintCount(tripId, orderNumber, pTotal, pPrinted);
+
+        // ── Order Lines count + Staged count: GET getsalesorderlines ──
+        let orderLinesCount = 0;
+        try {
+            setCell('order_lines', `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+            const olData = await apexGet(`trip/orders/getsalesorderlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${instanceName}`);
+            const olItems = olData.items || [];
+            orderLinesCount = olItems.length || (olData.count) || 0;
+            setCell('order_lines', `<span style="font-weight:700;color:#1e293b;font-size:11px;">${orderLinesCount}</span><div style="color:#94a3b8;font-size:8px;">lines</div>`);
+
+            // Count lines where LINE_STATUS = 'Staged' from WMS
+            const wmsStaged = olItems.filter(l => {
+                const s = (l.LINE_STATUS || l.line_status || l.STATUS || l.status || '').toString().toUpperCase();
+                return s.includes('STAGED');
+            }).length;
+            setCell('staged', wmsStaged > 0
+                ? saBadge(`${wmsStaged}`, '#dbeafe', '#1d4ed8', 'fa-layer-group')
+                : saBadge('0', '#f1f5f9', '#94a3b8', null));
+            if (SADB.on()) SADB.onOrderLines(tripId, orderNumber, olItems, wmsStaged, orderLinesCount, instanceName);
+        } catch(e) {
+            setCell('order_lines', `<span style="color:#94a3b8;font-size:9px;">—</span>`);
+        }
+
+        // ── Fetch Fusion order lines (save to APEX DB) ──
+        try {
+            await apexPost(`trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instanceName}&p_order_number=${encodeURIComponent(orderNumber)}&p_trip_id=${encodeURIComponent(tripId)}`, {});
+            saLogActivity(window._saCurrentAgent && window._saCurrentAgent.ID, tripId, orderNumber,
+                'FETCH_ORDERS', 'SUCCESS', 1, `Fusion order lines fetched for ${orderNumber}`, null, null);
+        } catch(e) {
+            console.warn('[ShippingAgent] fetchfusionorderlines failed (non-fatal):', e.message);
+        }
+
+        // ── Save status to DB (DELETE + INSERT via APEX) ──
+        try {
+            const agent = window._saCurrentAgent;
+            if (agent) {
+                const activeL = totalLines - cancelled;
+                const payload = {
+                    agentId:         agent.ID,
+                    tripId:          tripId,
+                    orderNumber:     orderNumber,
+                    instanceName:    instanceName,
+                    accountName:     rowAccountName,
+                    orderType:       rowOrderType,
+                    orderStatus:     orderStatusText,
+                    totalLines:      totalLines,
+                    activeLines:     activeL,
+                    stagedLines:     staged,
+                    interfacedLines: interfaced,
+                    releasedLines:   releasedToWH,
+                    readyLines:      readyToRelease,
+                    cancelledLines:  cancelled,
+                    backorderLines:  other,
+                    pickedCount:     staged + interfaced,
+                    shippedCount:    interfaced,
+                    totalQty:        totalQty,
+                    stagedQty:       stagedQty,
+                    shippedQty:      shippedQty,
+                    orderLinesCount: orderLinesCount
+                    // printTotal / printPrinted omitted — queried live from wms_print_jobs in PL/SQL
+                };
+                // Store last payload globally so API info popup can display it
+                window._saLastDbSavePayload = payload;
+                console.log('[ShippingAgent] Saving order status to DB:', payload);
+                const saveResult = await apexPost('agents/orders/status/save', payload);
+                console.log('[ShippingAgent] DB save result:', saveResult);
+                if (saveResult && saveResult.status === 'error') {
+                    console.error('[ShippingAgent] DB save returned error:', saveResult.message);
+                }
+                // Update print cell immediately from DB save response (has live print counts from wms_print_jobs)
+                if (saveResult && saveResult.printTotal !== undefined) {
+                    const pt = parseInt(saveResult.printTotal  || 0);
+                    const pp = parseInt(saveResult.printPrinted || 0);
+                    const pb = pt === 0
+                        ? saBadge('No Jobs', '#f1f5f9', '#94a3b8', 'fa-print')
+                        : pp === pt
+                            ? saBadge('Printed', '#dcfce7', '#15803d', 'fa-check')
+                            : saBadge(`${pp}/${pt}`, '#fef9c3', '#a16207', 'fa-print');
+                    setCell('print', pb);
+                    if (SADB.on()) SADB.onPrintCount(tripId, orderNumber, pt, pp);
+                }
+            }
+        } catch(e) {
+            console.error('[ShippingAgent] Save order status FAILED:', e.message,
+                '— Check that APEX handler agents/orders/status/save is deployed (30_agents_order_status.sql)');
+        }
+    };
+
+    // Run shipment lines fetch for ALL orders in the trip table
+    window.saGetAllShipmentLines = async function(tripId, instanceName) {
+        const agent = window._saCurrentAgent;
+        const btn   = document.getElementById(`sa-btn-get-sl-${tripId}`);
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...'; }
+
+        // Collect all order rows in this trip's container
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        if (!container) return;
+        const rows = container.querySelectorAll('tr[id^="sa-order-row-"]');
+
+        let fetched = 0;
+        const fetchOne = async row => {
+            // Extract orderNumber and instance from row id: sa-order-row-{tripId}-{orderNumber}
+            const idParts = row.id.replace(`sa-order-row-${tripId}-`, '');
+            const orderNumber = idParts;
+            if (!orderNumber) return;
+            await saFetchOrderStatus(orderNumber, instanceName, tripId);
+            fetched++;
+        };
+
+        // DuckDB mode: SADB.POOL orders at a time (traditional: every order of the trip at once). On a refresh the orders
+        // already final on this PC (Interfaced / Cancelled) are not read again — Shift + Refresh reads every order.
+        let skipped = 0;
+        if (SADB.on()) {
+            const todo = Array.from(rows).filter(row => {
+                const on = row.id.replace(`sa-order-row-${tripId}-`, '');
+                if (!SADB.full && SADB.isFinal(SADB.get(tripId, on))) { skipped++; return false; }
+                return true;
+            });
+            SADB.lastSkipped[tripId] = skipped;
+            let done = 0;
+            await SADB.pool(todo, SADB.POOL, async row => {
+                SADB.setSub(`order ${done + 1} of ${todo.length}${skipped ? ` (${skipped} already interfaced kept)` : ''}`);
+                await fetchOne(row);
+                done++;
+            });
+            SADB.setSub('');
+        }
+        else await Promise.all(Array.from(rows).map(fetchOne));
+
+        // Post activity log entry
+        if (agent) {
+            const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            saLogActivity(agent.ID, tripId, null, 'CHECK_STATUS', 'SUCCESS', 1,
+                `Fetched shipment lines for ${fetched} order(s) at ${now}`,
+                JSON.stringify({ orders: fetched, instance: instanceName }), null);
+        }
+
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-download"></i> Get Shipment Lines'; }
+        if (!SADB.quiet) showNotification(`Shipment lines fetched for ${fetched} order(s)${skipped ? `, ${skipped} already interfaced / cancelled not read again` : ''}.`, 'success');
+    };
+
+    // Cache: { [tripId]: { [orderNumber]: { total, printed } } }
+    window._saPrintCache = window._saPrintCache || {};
+
+    // Fetch live print status from wms_print_jobs for all orders in the trip and update grid
+    window.saGetPrintStatus = async function(tripId, instanceName) {
+        const btn = document.getElementById(`sa-btn-print-status-${tripId}`);
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...'; }
+
+        try {
+            const data = await apexGet(`printjobs/trip/${encodeURIComponent(tripId)}`);
+            const rows = (data.items || []);
+
+            // Build map and store in cache
+            const map = {};
+            rows.forEach(r => {
+                const on       = (r.ORDER_NUMBER || r.order_number || '').toString().trim();
+                const total    = parseInt(r.PRINT_TOTAL   || r.print_total   || 0);
+                const printed  = parseInt(r.PRINT_PRINTED || r.print_printed || 0);
+                const filePath = r.FILE_PATH || r.file_path || r.LAST_FILE_PATH || r.last_file_path || '';
+                if (on) map[on] = { total, printed, filePath };
+            });
+            window._saPrintCache[tripId] = map;
+            if (SADB.on()) SADB.onPrintMap(tripId, map);
+
+            if (rows.length === 0) {
+                if (!SADB.quiet) showNotification('No print jobs found for this trip.', 'info');
+            } else {
+                // Update the print cell for every order row in this trip
+                const container = document.getElementById(`sa-trip-orders-${tripId}`);
+                if (container) {
+                    container.querySelectorAll('tr[id^="sa-order-row-"]').forEach(row => {
+                        const parts = row.id.split(`sa-order-row-${tripId}-`);
+                        const on = parts[1] || '';
+                        const cell = row.querySelector('[data-col="print"]');
+                        if (!cell) return;
+                        const info = map[on];
+                        if (info && info.total > 0) {
+                            cell.innerHTML = info.printed === info.total
+                                ? saBadge('Printed', '#dcfce7', '#15803d', 'fa-check')
+                                : saBadge(`${info.printed}/${info.total}`, '#fef9c3', '#a16207', 'fa-print');
+                        } else {
+                            cell.innerHTML = saBadge('No Jobs', '#f1f5f9', '#94a3b8', 'fa-print');
+                        }
+                    });
+                }
+
+                if (!SADB.quiet) showNotification(`Print status updated for ${rows.length} order(s).`, 'success');
+            }
+        } catch(e) {
+            showNotification(`Print status fetch failed: ${e.message}`, 'error');
+            console.error('[ShippingAgent] saGetPrintStatus failed:', e);
+        }
+
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-print"></i> Get Print Status'; }
+    };
+
+    // ─── Verify PDFs dialog ───────────────────────────────────
+    window.saVerifyPdfs = async function(tripId, instanceName) {
+        const metaEl   = document.getElementById(`sa-trip-meta-${tripId}`);
+        const tripDate = (metaEl && metaEl.getAttribute('data-trip-date')) || new Date().toISOString().split('T')[0];
+
+        // Collect orders from the rendered table
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        const orderRows = container ? Array.from(container.querySelectorAll('tr[id^="sa-order-row-"]')) : [];
+
+        const orders = orderRows.map(row => {
+            const parts = row.id.split(`sa-order-row-${tripId}-`);
+            const on = parts[1] || '';
+            let customer = '';
+            try { const a = row.querySelector('a[data-row]'); if (a) { const d = JSON.parse(a.getAttribute('data-row').replace(/&quot;/g,'"')); customer = d.ACCOUNT_NAME || ''; } } catch(e) {}
+            return { orderNumber: on, customer };
+        }).filter(o => o.orderNumber);
+
+        if (orders.length === 0) {
+            showNotification('No orders found — click Orders first.', 'info');
+            return;
+        }
+
+        // Build dialog
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-verify-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99998;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `
+            <div style="background:white;border-radius:14px;width:92vw;max-width:1100px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.4);overflow:hidden;">
+                <div style="padding:0.9rem 1.2rem;background:#0f172a;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+                    <span style="font-size:14px;font-weight:800;color:#f59e0b;"><i class="fas fa-file-pdf"></i> Verify PDFs — Trip ${esc(tripId)} &nbsp;<span style="font-size:10px;color:#94a3b8;font-weight:400;">Date: ${esc(tripDate)} &nbsp;·&nbsp; ${orders.length} orders</span></span>
+                    <button onclick="document.getElementById('sa-verify-dlg').remove()" style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;">×</button>
+                </div>
+                <div style="overflow:auto;flex:1;">
+                    <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                        <thead>
+                            <tr style="background:#f8fafc;position:sticky;top:0;z-index:1;">
+                                <th style="padding:8px 10px;text-align:left;color:#475569;font-weight:700;border-bottom:2px solid #e2e8f0;">#</th>
+                                <th style="padding:8px 10px;text-align:left;color:#475569;font-weight:700;border-bottom:2px solid #e2e8f0;">Order Number</th>
+                                <th style="padding:8px 10px;text-align:left;color:#475569;font-weight:700;border-bottom:2px solid #e2e8f0;">Customer</th>
+                                <th style="padding:8px 10px;text-align:left;color:#475569;font-weight:700;border-bottom:2px solid #e2e8f0;">File Name</th>
+                                <th style="padding:8px 10px;text-align:center;color:#475569;font-weight:700;border-bottom:2px solid #e2e8f0;">File Exists</th>
+                                <th style="padding:8px 10px;text-align:center;color:#475569;font-weight:700;border-bottom:2px solid #e2e8f0;">Lines Exist</th>
+                                <th style="padding:8px 10px;text-align:center;color:#475569;font-weight:700;border-bottom:2px solid #e2e8f0;">Preview</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sa-verify-tbody">
+                            ${orders.map((o, i) => `
+                            <tr id="sa-verify-row-${esc(o.orderNumber)}" style="border-bottom:1px solid #f1f5f9;">
+                                <td style="padding:7px 10px;color:#94a3b8;">${i+1}</td>
+                                <td style="padding:7px 10px;font-weight:700;color:#1e293b;">${esc(o.orderNumber)}</td>
+                                <td style="padding:7px 10px;color:#475569;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(o.customer)}</td>
+                                <td style="padding:7px 10px;color:#64748b;font-family:monospace;font-size:10px;">${esc(o.orderNumber)}.pdf</td>
+                                <td style="padding:7px 10px;text-align:center;" id="sv-exists-${esc(o.orderNumber)}"><i class="fas fa-spinner fa-spin" style="color:#94a3b8;"></i></td>
+                                <td style="padding:7px 10px;text-align:center;" id="sv-lines-${esc(o.orderNumber)}"><i class="fas fa-spinner fa-spin" style="color:#94a3b8;"></i></td>
+                                <td style="padding:7px 10px;text-align:center;" id="sv-preview-${esc(o.orderNumber)}">—</td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+        document.body.appendChild(dlg);
+
+        // Verify each order sequentially
+        for (const o of orders) {
+            await new Promise(resolve => {
+                sendMessageToCSharp({
+                    action: 'verifyOrderPdf',
+                    orderNumber: o.orderNumber,
+                    tripId, tripDate
+                }, function(err, data) {
+                    try { if (typeof data === 'string') data = JSON.parse(data); } catch(e) {}
+
+                    const existsCell  = document.getElementById(`sv-exists-${o.orderNumber}`);
+                    const linesCell   = document.getElementById(`sv-lines-${o.orderNumber}`);
+                    const previewCell = document.getElementById(`sv-preview-${o.orderNumber}`);
+                    const row         = document.getElementById(`sa-verify-row-${o.orderNumber}`);
+
+                    if (err || !data || data.success === false) {
+                        if (existsCell) existsCell.innerHTML = `<span style="color:#dc2626;font-size:13px;">✗</span>`;
+                        if (linesCell)  linesCell.innerHTML  = `<span style="color:#dc2626;font-size:13px;">✗</span>`;
+                        if (previewCell) previewCell.innerHTML = `<span style="font-size:9px;color:#94a3b8;">error</span>`;
+                        resolve(); return;
+                    }
+
+                    // File exists?
+                    if (existsCell) existsCell.innerHTML = data.exists
+                        ? `<span style="color:#15803d;font-size:16px;">✓</span>`
+                        : `<span style="color:#dc2626;font-size:16px;">✗</span><div style="font-size:8px;color:#94a3b8;">not found</div>`;
+
+                    // Lines exist? (fileSize > 500 = has content)
+                    if (linesCell) linesCell.innerHTML = !data.exists
+                        ? `<span style="color:#94a3b8;">—</span>`
+                        : data.hasLines
+                            ? `<span style="color:#15803d;font-size:16px;">✓</span><div style="font-size:8px;color:#64748b;">${Math.round(data.fileSize/1024)}KB</div>`
+                            : `<span style="color:#f59e0b;font-size:16px;">⚠</span><div style="font-size:8px;color:#94a3b8;">empty / no lines</div>`;
+
+                    // Highlight row red if missing or empty
+                    if (row && (!data.exists || !data.hasLines)) row.style.background = '#fff5f5';
+
+                    // PDF preview thumbnail
+                    if (previewCell && data.base64) {
+                        const pdfUrl = `data:application/pdf;base64,${data.base64}`;
+                        previewCell.innerHTML = `
+                            <button onclick="saVerifyShowPdf('${o.orderNumber}','${data.base64}')"
+                                style="background:#7c3aed;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:9px;cursor:pointer;">
+                                <i class="fas fa-eye"></i> View
+                            </button>`;
+                    } else if (previewCell && data.exists) {
+                        previewCell.innerHTML = `<span style="font-size:9px;color:#94a3b8;">too large</span>`;
+                    }
+
+                    resolve();
+                });
+            });
+        }
+    };
+
+    // Show PDF fullscreen from base64
+    window.saVerifyShowPdf = function(orderNumber, base64) {
+        const existing = document.getElementById('sa-pdf-viewer-dlg');
+        if (existing) existing.remove();
+
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-pdf-viewer-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;flex-direction:column;';
+        dlg.innerHTML = `
+            <div style="padding:0.6rem 1rem;background:#1e293b;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+                <span style="color:white;font-weight:700;font-size:13px;"><i class="fas fa-file-pdf" style="color:#f87171;"></i> ${esc(orderNumber)}.pdf</span>
+                <button onclick="document.getElementById('sa-pdf-viewer-dlg').remove()" style="background:#dc2626;color:white;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-weight:700;">✕ Close</button>
+            </div>
+            <iframe src="data:application/pdf;base64,${base64}" style="flex:1;border:none;"></iframe>`;
+        document.body.appendChild(dlg);
+    };
+
+    // Open the PDF download folder for this trip in Windows Explorer
+    window.saOpenPdfFolder = function(tripId) {
+        const metaEl = document.getElementById(`sa-trip-meta-${tripId}`);
+        const tripDate = (metaEl && metaEl.getAttribute('data-trip-date')) || new Date().toISOString().split('T')[0];
+        const folderPath = `C:\\fusion\\${tripDate}\\${tripId}`;
+
+        sendMessageToCSharp({ action: 'openFolder', folderPath }, function(err) {
+            if (err) showNotification(`Could not open folder: ${err}`, 'error');
+        });
+    };
+
+    // ─── PDF Download / Print helpers ────────────────────────
+
+    // Returns the SOAP URL for the given order/instance (display only)
+    function saSoapReportUrl(instanceName) {
+        return (instanceName || 'PROD').toUpperCase() === 'PROD'
+            ? 'https://efmh.fa.em3.oraclecloud.com/xmlpserver/services/v2/ReportService'
+            : 'https://efmh-test.fa.em3.oraclecloud.com/xmlpserver/services/v2/ReportService';
+    }
+
+    // Show API info popup for the print SOAP call
+    window.saShowPrintApiInfo = function(orderNumber, instanceName) {
+        const soapUrl       = saSoapReportUrl(instanceName);
+        const lineCountPath = '/Custom/OQ/GR_SO_LINE_COUNT_BIP.xdo';
+        const reportPath    = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
+        const inst          = (instanceName || 'PROD').toUpperCase();
+        const existing = document.getElementById('sa-api-popup');
+        if (existing) existing.remove();
+
+        const makeSoapXml = (path) => `&lt;soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+  xmlns:v2="http://xmlns.oracle.com/oxp/service/v2"&gt;
+  &lt;soapenv:Body&gt;
+    &lt;v2:runReport&gt;
+      &lt;v2:reportRequest&gt;
+        &lt;v2:reportAbsolutePath&gt;${path}&lt;/v2:reportAbsolutePath&gt;
+        &lt;v2:parameterNameValues&gt;
+          &lt;v2:listOfParamNameValues&gt;
+            &lt;v2:item&gt;
+              &lt;v2:name&gt;Order_Number&lt;/v2:name&gt;
+              &lt;v2:values&gt;&lt;v2:item&gt;<strong>${esc(orderNumber)}</strong>&lt;/v2:item&gt;&lt;/v2:values&gt;
+            &lt;/v2:item&gt;
+          &lt;/v2:listOfParamNameValues&gt;
+        &lt;/v2:parameterNameValues&gt;
+      &lt;/v2:reportRequest&gt;
+      &lt;v2:userID&gt;[Fusion username from config]&lt;/v2:userID&gt;
+      &lt;v2:password&gt;[Fusion password from config]&lt;/v2:password&gt;
+    &lt;/v2:runReport&gt;
+  &lt;/soapenv:Body&gt;
+&lt;/soapenv:Envelope&gt;`;
+
+        document.body.insertAdjacentHTML('beforeend', `
+        <div id="sa-api-popup" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:20000;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+            <div style="background:#0f172a;border-radius:12px;padding:1.5rem;width:660px;max-width:95vw;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                    <span style="color:#e2e8f0;font-weight:700;font-size:13px;"><i class="fas fa-code" style="color:#ef4444;margin-right:6px;"></i>Print API Details — ${esc(orderNumber)}</span>
+                    <button onclick="document.getElementById('sa-api-popup').remove()" style="background:none;border:none;color:#64748b;font-size:1.3rem;cursor:pointer;">&times;</button>
+                </div>
+
+                <!-- Endpoint -->
+                <div style="margin-bottom:0.75rem;">
+                    <div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:4px;">
+                        <span style="background:#7c3aed;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">SOAP POST</span>
+                        Oracle Fusion BI Publisher — ${inst === 'PROD' ? '🟢 PROD' : '🟡 TRAIN/TEST'} <strong>${esc(inst)}</strong>
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:0.5rem 0.8rem;">
+                        <div style="color:#38bdf8;font-size:11px;word-break:break-all;font-family:monospace;">${esc(soapUrl)}</div>
+                    </div>
+                </div>
+
+                <!-- Step 1: Line Count Check -->
+                <div style="background:#1e293b;border:1px solid #f59e0b;border-radius:6px;padding:0.6rem 0.8rem;margin-bottom:0.75rem;font-size:10px;line-height:1.8;color:#94a3b8;">
+                    <div style="color:#fbbf24;font-weight:700;font-size:11px;margin-bottom:4px;"><i class="fas fa-search" style="margin-right:4px;"></i>Step 1 — Line Count Check</div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">Report:</span> <code style="color:#fbbf24;">${lineCountPath}</code></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">Returns:</span> <code>LINE_COUNT</code> — if 0, print is skipped with status <strong style="color:#94a3b8;">NoLines</strong></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">C# Action:</span> <code>checkOrderLineCount</code> → <code>HandleCheckOrderLineCount()</code></div>
+                    <pre style="background:#0f172a;border-radius:6px;padding:0.6rem;color:#fcd34d;font-size:9px;overflow-x:auto;white-space:pre-wrap;margin:4px 0 0 0;">${makeSoapXml(lineCountPath)}</pre>
+                </div>
+
+                <!-- Step 2: PDF Download -->
+                <div style="background:#1e293b;border:1px solid #4ade80;border-radius:6px;padding:0.6rem 0.8rem;margin-bottom:0.5rem;font-size:10px;line-height:1.8;color:#94a3b8;">
+                    <div style="color:#4ade80;font-weight:700;font-size:11px;margin-bottom:4px;"><i class="fas fa-file-pdf" style="color:#ef4444;margin-right:4px;"></i>Step 2 — PDF Download (only when LINE_COUNT &gt; 0)</div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">Report:</span> <code style="color:#4ade80;">${reportPath}</code></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">Parameter:</span> <code>Order_Number</code> = <strong style="color:#4ade80;">${esc(orderNumber)}</strong></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">C# Action:</span> <code>printSalesOrder</code> → <code>HandlePrintSalesOrder()</code> → <code>FusionPdfDownloader</code></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">PDF saved to:</span> <code>C:\\fusion\\{tripDate}\\{tripId}\\${esc(orderNumber)}.pdf</code></div>
+                    <pre style="background:#0f172a;border-radius:6px;padding:0.6rem;color:#86efac;font-size:9px;overflow-x:auto;white-space:pre-wrap;margin:4px 0 0 0;">${makeSoapXml(reportPath)}</pre>
+                </div>
+            </div>
+        </div>`);
+    };
+
+    // Check LINE_COUNT via GR_SO_LINE_COUNT_BIP.xdo before printing
+    // Returns Promise<number> — lineCount, or -1 on error
+    // Also updates the PLines cell in the order row for the given tripId
+    function saCheckLineCount(orderNumber, instanceName, tripId) {
+        return new Promise((resolve) => {
+            if (typeof sendMessageToCSharp !== 'function') { resolve(-1); return; }
+
+            // Show spinner in PLines cell while checking
+            if (tripId) {
+                const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
+                if (rowEl) {
+                    const pl = rowEl.querySelector('[data-col="plines"]');
+                    if (pl) pl.innerHTML = `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`;
+                }
+            }
+
+            sendMessageToCSharp({
+                action:      'checkOrderLineCount',
+                orderNumber: orderNumber,
+                instance:    instanceName || 'PROD'
+            }, function(err, data) {
+                if (err) {
+                    console.warn(`[saCheckLineCount] error for ${orderNumber}:`, err);
+                    if (tripId) saUpdatePlinesCell(tripId, orderNumber, -1);
+                    resolve(-1); return;
+                }
+                try { data = typeof data === 'string' ? JSON.parse(data) : data; } catch(e) {}
+                const count = (data && typeof data.lineCount === 'number') ? data.lineCount : -1;
+                console.log(`[saCheckLineCount] ${orderNumber} → lineCount=${count}`);
+                if (tripId) saUpdatePlinesCell(tripId, orderNumber, count);
+                resolve(count);
+            });
+        });
+    }
+
+    function saUpdatePlinesCell(tripId, orderNumber, count) {
+        if (SADB.on()) SADB.onPlines(tripId, orderNumber, count);
+        const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
+        if (!rowEl) return;
+        const pl = rowEl.querySelector('[data-col="plines"]');
+        if (!pl) return;
+        if (count < 0) {
+            pl.innerHTML = `<span style="color:#94a3b8;font-size:9px;">—</span>`;
+        } else if (count === 0) {
+            pl.innerHTML = `<span style="background:#fef2f2;color:#b91c1c;padding:2px 6px;border-radius:5px;font-size:9px;font-weight:700;">0</span>`;
+        } else {
+            pl.innerHTML = `<span style="background:#dcfce7;color:#15803d;padding:2px 6px;border-radius:5px;font-size:9px;font-weight:700;">${count}</span>`;
+        }
+    }
+
+    // Call C# printSalesOrder action → SOAP → C# saves PDF → returns actual filePath from C#
+    function saDownloadOrderPdf(orderNumber, tripId, tripDate, instanceName) {
+        const date = (tripDate || new Date().toISOString().split('T')[0]).split('T')[0];
+        return new Promise((resolve, reject) => {
+            if (typeof sendMessageToCSharp !== 'function') return reject(new Error('C# bridge not available'));
+            console.log('[ShippingAgent] printSalesOrder SOAP call:', { orderNumber, tripId, date, instanceName });
+            sendMessageToCSharp({
+                action:      'printSalesOrder',
+                orderNumber: orderNumber,
+                tripId:      tripId,
+                tripDate:    date,
+                instance:    instanceName || 'PROD'
+            }, function(err, data) {
+                if (err) return reject(new Error(String(err)));
+                try { data = typeof data === 'string' ? JSON.parse(data) : data; } catch(e) {}
+                if (data && data.success === false) return reject(new Error(data.message || 'PDF download failed'));
+                // Use the filePath that C# actually saved to (do NOT override it)
+                console.log('[ShippingAgent] printSalesOrder result:', data);
+                resolve(data);
+            });
+        });
+    }
+
+    // Call C# getPdfAsBase64 → returns base64 string; also validates PDF has content
+    function saGetPdfBase64(filePath) {
+        return new Promise((resolve, reject) => {
+            if (typeof sendMessageToCSharp !== 'function') return reject(new Error('C# bridge not available'));
+            console.log('[ShippingAgent] getPdfAsBase64 request — path:', filePath);
+            sendMessageToCSharp({ action: 'getPdfAsBase64', filePath: filePath }, function(err, data) {
+                console.log('[ShippingAgent] getPdfAsBase64 response — err:', err, 'data:', data);
+                if (err) return reject(new Error(`C# error reading PDF at "${filePath}": ${err}`));
+                try { data = typeof data === 'string' ? JSON.parse(data) : data; } catch(e) {}
+                if (!data || !data.success) {
+                    const msg = (data && data.message) || (data && data.error) || JSON.stringify(data);
+                    return reject(new Error(`Failed to read PDF at "${filePath}" — C# says: ${msg}`));
+                }
+                resolve(data.data || data);
+            });
+        });
+    }
+
+    // Show choice popup: "Preview PDF" or "Close" after successful download + verification
+    // hasLines: true when PDF has pages (invoice generated)
+    function saShowPdfChoice(base64, orderNumber, filePath, fileSize, hasLines) {
+        const existing = document.getElementById('sa-pdf-choice-modal');
+        if (existing) existing.remove();
+
+        const sizeKb   = Math.round(fileSize / 1024);
+        const statusBg = hasLines ? '#dcfce7' : '#fef9c3';
+        const statusCol= hasLines ? '#15803d' : '#a16207';
+        const statusIcon = hasLines ? 'fa-check-circle' : 'fa-exclamation-triangle';
+        const statusMsg  = hasLines
+            ? `Invoice PDF downloaded successfully — ${sizeKb}KB. This order has lines and is ready to print.`
+            : `PDF downloaded (${sizeKb}KB) but appears to have no content. The invoice may not be fully generated yet.`;
+
+        document.body.insertAdjacentHTML('beforeend', `
+        <div id="sa-pdf-choice-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:25000;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+            <div style="background:white;border-radius:14px;width:420px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.4);overflow:hidden;">
+                <!-- Header -->
+                <div style="background:linear-gradient(135deg,#1e293b,#334155);padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:center;">
+                    <span style="color:white;font-weight:700;font-size:13px;"><i class="fas fa-file-pdf" style="color:#ef4444;margin-right:6px;"></i>PDF Downloaded</span>
+                    <button onclick="document.getElementById('sa-pdf-choice-modal').remove()" style="background:#475569;color:white;border:none;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:12px;">&times;</button>
+                </div>
+                <!-- Status banner -->
+                <div style="background:${statusBg};padding:0.75rem 1.25rem;border-bottom:1px solid #e2e8f0;">
+                    <div style="display:flex;align-items:flex-start;gap:0.5rem;">
+                        <i class="fas ${statusIcon}" style="color:${statusCol};margin-top:1px;"></i>
+                        <div>
+                            <div style="font-weight:700;color:${statusCol};font-size:12px;">Order: ${esc(orderNumber)}</div>
+                            <div style="font-size:11px;color:#374151;margin-top:2px;">${statusMsg}</div>
+                        </div>
+                    </div>
+                </div>
+                <!-- File path -->
+                <div style="padding:0.6rem 1.25rem;background:#f8fafc;border-bottom:1px solid #e2e8f0;">
+                    <div style="font-size:9px;color:#94a3b8;font-weight:700;margin-bottom:2px;">SAVED TO</div>
+                    <div style="font-size:10px;color:#475569;font-family:monospace;word-break:break-all;">${esc(filePath)}</div>
+                </div>
+                <!-- Action buttons -->
+                <div style="padding:1rem 1.25rem;display:flex;gap:0.75rem;justify-content:flex-end;">
+                    <button onclick="document.getElementById('sa-pdf-choice-modal').remove()"
+                        style="background:#f1f5f9;color:#475569;border:none;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">
+                        <i class="fas fa-times"></i> Close
+                    </button>
+                    <button onclick="document.getElementById('sa-pdf-choice-modal').remove(); window._saOpenPdfFull()"
+                        style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;border:none;padding:8px 18px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">
+                        <i class="fas fa-eye"></i> Preview Order
+                    </button>
+                </div>
+            </div>
+        </div>`);
+
+        // Store the open-PDF callback on window so the button can call it after closing modal
+        window._saOpenPdfFull = function() {
+            const ex2 = document.getElementById('sa-pdf-full-modal');
+            if (ex2) ex2.remove();
+            document.body.insertAdjacentHTML('beforeend', `
+            <div id="sa-pdf-full-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:26000;display:flex;flex-direction:column;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+                <div style="background:#1e293b;border-radius:12px;padding:1rem;width:90vw;max-width:950px;height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.7);">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+                        <span style="color:#e2e8f0;font-weight:700;font-size:13px;"><i class="fas fa-file-pdf" style="color:#ef4444;margin-right:6px;"></i>Invoice — ${esc(orderNumber)}</span>
+                        <button onclick="document.getElementById('sa-pdf-full-modal').remove()" style="background:#475569;color:white;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-weight:700;">&times; Close</button>
+                    </div>
+                    <iframe src="data:application/pdf;base64,${base64}" style="flex:1;border:none;border-radius:8px;background:white;"></iframe>
+                </div>
+            </div>`);
+        };
+    }
+
+    // Insert a record into wms_print_jobs via APEX REST POST
+    async function saInsertPrintJob(orderNumber, tripId, tripDate, instanceName, filePath, fileSize, accountName, accountNumber) {
+        const cleanDate = (tripDate || new Date().toISOString().split('T')[0]).split('T')[0];
+        const payload = {
+            orderNumber,
+            tripId,
+            tripDate:      cleanDate,
+            instanceName:  instanceName || 'PROD',
+            filePath:      filePath      || '',
+            fileSizeBytes: fileSize      || 0,
+            downloadStatus: 'Completed',
+            printStatus:    'Pending',
+            overallStatus:  'Downloaded',
+            customerName:  accountName   || '',
+            accountNumber: accountNumber || ''
+        };
+        console.log('[ShippingAgent] POST printjobs/save payload:', JSON.stringify(payload));
+        try {
+            const result = await apexPost('printjobs/save', payload);
+            console.log('[ShippingAgent] printjobs/save response:', JSON.stringify(result));
+            if (result && result.status === 'error') {
+                console.error('[ShippingAgent] printjobs/save ERROR:', result.message);
+                showNotification(`Print job save failed: ${result.message}`, 'error');
+            }
+        } catch(e) {
+            console.error('[ShippingAgent] Could not insert print job:', e.message,
+                '— Check that APEX handler printjobs/save is deployed (31_agents_printjob_save.sql)');
+            showNotification(`Print job save failed: ${e.message}`, 'error');
+        }
+    }
+
+    // Print a single order: download PDF via SOAP → verify content → show choice popup
+    window.saPrintOrder = async function(orderNumber, tripId, tripDate, instanceName, silent) {
+        const btn = document.getElementById(`sa-print-btn-${tripId}-${orderNumber}`);
+        const setBtn = (html, disabled) => { if (btn) { btn.innerHTML = html; btn.disabled = !!disabled; } };
+        setBtn('<i class="fas fa-spinner fa-spin"></i>', true);
+
+        const agent = window._saCurrentAgent;
+
+        // Prefer trip date from the meta chip element (fetched from GETTRIPDETAILS = actual trip date)
+        // Fall back to passed-in tripDate, then today
+        const metaEl = document.getElementById(`sa-trip-meta-${tripId}`);
+        const actualTripDate = (metaEl && metaEl.getAttribute('data-trip-date'))
+            || (tripDate || '').split('T')[0]
+            || new Date().toISOString().split('T')[0];
+
+        // Get account info from row data for print job record
+        let accountName = '', accountNumber = '';
+        const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
+        if (rowEl) {
+            const dr = rowEl.querySelector('[data-row]');
+            if (dr) try { const rd = JSON.parse(dr.getAttribute('data-row')); accountName = rd.ACCOUNT_NAME || ''; accountNumber = rd.ACCOUNT_NUMBER || ''; } catch(e) {}
+        }
+
+        // Check "Direct Download" checkbox for this trip — skip all checks/logging, SOAP only
+        const directChk = document.getElementById(`sa-chk-direct-${tripId}`);
+        const directMode = directChk && directChk.checked;
+
+        console.log(`[ShippingAgent] saPrintOrder: order=${orderNumber} tripId=${tripId} tripDate=${actualTripDate} instance=${instanceName} directMode=${directMode}`);
+
+        try {
+            if (directMode) {
+                // ── DIRECT MODE: straight to SOAP, no line count check; the print job row is still saved
+                //    (not awaited, so it costs no time) — the Picker Monitor reads wms_print_jobs ──
+                const dlResult = await saDownloadOrderPdf(orderNumber, tripId, actualTripDate, instanceName);
+                const filePath = dlResult.filePath || dlResult.pdfPath || '';
+                if (!filePath) throw new Error('PDF path not returned from C#');
+                const base64   = dlResult.base64 || '';
+                const fileSize = dlResult.fileSize || Math.round(base64.length * 0.75);
+                const hasLines = fileSize > 500;
+                if (hasLines) saInsertPrintJob(orderNumber, tripId, actualTripDate, instanceName, filePath, fileSize, accountName, accountNumber);
+                if (rowEl) {
+                    const pc = rowEl.querySelector('[data-col="print"]');
+                    if (pc) pc.innerHTML = hasLines
+                        ? saBadge('Downloaded', '#dcfce7', '#15803d', 'fa-check')
+                        : saBadge('Empty PDF', '#fef9c3', '#a16207', 'fa-exclamation-triangle');
+                }
+                if (SADB.on()) SADB.onPrinted(tripId, orderNumber, hasLines ? 'Downloaded' : 'Empty PDF', filePath);
+                if (!silent) saShowPdfChoice(base64, orderNumber, filePath, fileSize, hasLines);
+                setBtn('<i class="fas fa-print"></i>', false);
+                if (!silent) showNotification(`PDF for ${orderNumber} downloaded.`, hasLines ? 'success' : 'warning');
+                return;
+            }
+
+            // 1. Check LINE_COUNT first — skip print if order has no lines
+            saConsoleLog(`Print ▶ Checking line count for ${orderNumber}...`, 'info');
+            const lineCount = await saCheckLineCount(orderNumber, instanceName, tripId);
+            if (lineCount === 0) {
+                saConsoleLog(`Print   ${orderNumber} — LINE_COUNT=0, no lines to print → NoLines`, 'skip');
+                if (rowEl) {
+                    const pc = rowEl.querySelector('[data-col="print"]');
+                    if (pc) pc.innerHTML = saBadge('NoLines', '#f1f5f9', '#64748b', 'fa-minus-circle');
+                }
+                if (SADB.on()) SADB.onPrinted(tripId, orderNumber, 'NoLines', '');
+                setBtn('<i class="fas fa-print"></i>', false);
+                if (!silent) showNotification(`Order ${orderNumber} has no lines — nothing to print.`, 'warning');
+                return;
+            }
+            saConsoleLog(`Print   ${orderNumber} — LINE_COUNT=${lineCount > 0 ? lineCount : '(check failed, proceeding)'}, proceeding with PDF download`, 'info');
+
+            // 2. Download PDF via SOAP → C# saves to C:\fusion\{tripDate}\{tripId}\{order}.pdf
+            //    C# now also returns base64 in the response so we don't need a second read call
+            showNotification(`Downloading invoice PDF for ${orderNumber}...`, 'info');
+            const dlResult = await saDownloadOrderPdf(orderNumber, tripId, actualTripDate, instanceName);
+            console.log('[ShippingAgent] SOAP download result (base64 length):', (dlResult.base64 || '').length, 'filePath:', dlResult.filePath);
+            const filePath = dlResult.filePath || dlResult.pdfPath || '';
+            if (!filePath) throw new Error('PDF path not returned from C#');
+
+            // 2. Use base64 returned directly from printSalesOrder response (no second round-trip needed)
+            const base64   = dlResult.base64 || '';
+            const fileSize = dlResult.fileSize || Math.round(base64.length * 0.75);
+            const hasLines = fileSize > 500;
+            console.log(`[ShippingAgent] PDF ready: size=${fileSize} hasLines=${hasLines} path=${filePath}`);
+
+            // 3. Only insert into wms_print_jobs when PDF has real content (lines found)
+            if (hasLines) {
+                await saInsertPrintJob(orderNumber, tripId, actualTripDate, instanceName, filePath, fileSize, accountName, accountNumber);
+                console.log(`[ShippingAgent] Print job inserted for ${orderNumber} — file has content`);
+            } else {
+                console.warn(`[ShippingAgent] Skipping print job insert for ${orderNumber} — PDF appears empty`);
+            }
+
+            // 4. Update print cell badge on the row
+            if (rowEl) {
+                const pc = rowEl.querySelector('[data-col="print"]');
+                if (pc) pc.innerHTML = hasLines
+                    ? saBadge('Downloaded', '#dcfce7', '#15803d', 'fa-check')
+                    : saBadge('Empty PDF', '#fef9c3', '#a16207', 'fa-exclamation-triangle');
+            }
+
+            if (SADB.on()) SADB.onPrinted(tripId, orderNumber, hasLines ? 'Downloaded' : 'Empty PDF', filePath);
+
+            // 5. Show choice popup only for individual prints (not batch Print Trip)
+            if (!silent) saShowPdfChoice(base64, orderNumber, filePath, fileSize, hasLines);
+
+            // 6. Log activity
+            if (agent) {
+                saLogActivity(agent.ID, tripId, orderNumber, 'PRINT', 'SUCCESS', 1,
+                    `PDF downloaded — ${Math.round(fileSize/1024)}KB, hasLines: ${hasLines}`, null, null);
+            }
+
+            setBtn('<i class="fas fa-print"></i>', false);
+            showNotification(`PDF for ${orderNumber} downloaded${hasLines ? ' — has content.' : ' — may be empty!'}`, hasLines ? 'success' : 'warning');
+
+        } catch(e) {
+            setBtn('<i class="fas fa-print"></i>', false);
+            showNotification(`Print failed for ${orderNumber}: ${e.message}`, 'error');
+            if (agent) {
+                saLogActivity(agent.ID, tripId, orderNumber, 'PRINT', 'FAILED', 1,
+                    `PDF download failed: ${e.message}`, null, null);
+            }
+        }
+    };
+
+    // Print ALL fully-interfaced orders in a trip
+    // ─── MRA before printing ──────────────────────────────────
+    // Print Trip first interfaces every printable order to MRA (same C# MRAProcessor as the MRA buttons),
+    // then prints only the orders MRA accepted, already had, or whose order type is not interfaced
+    // (MRA_ORDER_TYPES INTERFACE_FLAG = N). A failed MRA order is never printed.
+    window._saMra = window._saMra || {};                  // { tripId: { order: {st, irn, msg} } }
+    function saMraBadge(r, tripId, order) {
+        if (!r) return '<span style="color:#94a3b8;font-size:9px;">—</span>';
+        const tip = esc((r.irn ? 'IRN ' + r.irn + (r.msg ? ' — ' : '') : '') + (r.msg || '') + (r.secs ? ` (${r.secs.toFixed(1)} s)` : ''));
+        const b = {
+            RUNNING: ['<i class="fas fa-spinner fa-spin"></i> MRA…', '#ede9fe', '#6d28d9'],
+            QUEUED:  ['<i class="far fa-clock"></i> Waiting', '#f1f5f9', '#64748b'],
+            DONE:    ['<i class="fas fa-check"></i> Interfaced', '#dcfce7', '#15803d'],
+            ALREADY: ['<i class="fas fa-check-double"></i> Done', '#dcfce7', '#15803d'],
+            SKIPPED: ['<i class="fas fa-minus-circle"></i> Not req.', '#f1f5f9', '#475569'],
+            OFF:     ['<i class="fas fa-power-off"></i> MRA off', '#fef9c3', '#a16207'],
+            FAILED:  ['<i class="fas fa-times-circle"></i> Failed', '#fef2f2', '#b91c1c']
+        }[r.st] || ['—', '#f1f5f9', '#94a3b8'];
+        const live = r.st === 'RUNNING' && r.step ? ` <span style="font-weight:500;opacity:.8;">${esc(r.step)}</span>` : '';
+        const key = tripId != null ? ` data-trip="${esc(String(tripId))}" data-order="${esc(String(order))}"` : '';
+        const icon = 'display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;border:none;cursor:pointer;font-size:9px;padding:0;';
+        const logBtn = key && (r.log && r.log.length || r.st === 'FAILED')
+            ? `<button type="button"${key} onclick="saMraLog(this)" title="MRA log — every step, timings, the MRA request and answer" style="${icon}background:#e0e7ff;color:#4338ca;"><i class="fas fa-file-alt"></i></button>` : '';
+        const retryBtn = key && r.st === 'FAILED'
+            ? `<button type="button"${key} onclick="saMraRetry(this)" title="Retry MRA for this order — printed straight away when MRA accepts it" style="${icon}background:#fee2e2;color:#b91c1c;"><i class="fas fa-redo"></i></button>` : '';
+        return `<span style="display:inline-flex;align-items:center;gap:3px;"><span onclick="saMraDetails(this)"${key} data-tip="${tip}" title="${tip}" style="display:inline-flex;align-items:center;gap:3px;background:${b[1]};color:${b[2]};border-radius:10px;padding:2px 8px;font-size:9px;font-weight:700;cursor:${r.st === 'RUNNING' ? 'default' : 'pointer'};white-space:nowrap;">${b[0]}${live}</span>${logBtn}${retryBtn}</span>`;
+    }
+    function saMraBadgeFor(tripId, order) { return saMraBadge(((window._saMra || {})[tripId] || {})[order], tripId, order); }
+    function saMraSet(tripId, order, r) {
+        (window._saMra[tripId] = window._saMra[tripId] || {})[order] = r;
+        if (r && !r.fromDb && SADB.on()) SADB.onMra(tripId, order, r);
+        const cell = document.querySelector(`#sa-order-row-${CSS.escape(String(tripId))}-${CSS.escape(String(order))} [data-col="mra"]`);
+        if (cell) cell.innerHTML = saMraBadge(r, tripId, order);
+    }
+    window.saMraDetails = function(el) {
+        if (el.dataset.trip && el.dataset.order) {
+            const r = ((window._saMra[el.dataset.trip] || {})[el.dataset.order]) || null;
+            if (r && (r.log && r.log.length || r.st === 'FAILED')) { saMraLog(el); return; }
+        }
+        const tip = el.getAttribute('data-tip') || '';
+        if (tip) alert(tip);
+    };
+    // Plain-words reason for a failed MRA order, from the step it stopped at and the message
+    function saMraWhy(r) {
+        const m = r.msg || '', st = r.stepCode || '';
+        if (r.gw === 'TIMEOUT') return 'The MRA gateway took longer than 60 s to answer. MRA may have created the invoice — Retry checks that first and will not send it twice.';
+        if (r.gw === 'UNREACHABLE') return 'The MRA gateway could not be reached, so nothing was sent. Safe to retry when MRA is back.';
+        if (/^Not sent/i.test(m)) return 'Nothing was sent for this order: the gateway was down for the orders before it. Safe to retry.';
+        if (/not closed|not shipped|line\(s\)/i.test(m) || st === 'ValidatingOrderLines') return 'Some order lines are not shipped / closed in Fusion yet. Ship them first, then Retry.';
+        if (/summary not found|details not found/i.test(m)) return 'The Fusion report returned no data for this order (wrong instance, or the order is not in that BU / org).';
+        if (/MRA_ORDER_TYPES/i.test(m)) return 'The order type could not be checked against MRA_ORDER_TYPES.';
+        if (/update Fusion/i.test(m)) return 'MRA accepted the invoice, but writing the IRN back to Fusion failed. Retry finds it as already done at MRA.';
+        if (/timed out after/i.test(m)) return 'The app got no answer for this order in time. Retry is safe — the first step checks whether MRA already has it.';
+        return '';
+    }
+    window.saMraLog = function(el) {
+        const tripId = el.dataset.trip, order = el.dataset.order;
+        const r = ((window._saMra[tripId] || {})[order]) || {};
+        document.getElementById('sa-mra-log-dlg')?.remove();
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-mra-log-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:10050;display:flex;align-items:center;justify-content:center;padding:16px;';
+        const col = { error: '#b91c1c', warning: '#a16207', success: '#15803d', step: '#4338ca', info: '#334155' };
+        const t0 = r.log && r.log.length ? r.log[0].t : 0;
+        const lines = (r.log || []).map(l => `<div style="display:flex;gap:8px;padding:3px 0;border-bottom:1px dashed #e2e8f0;">
+                <span style="color:#94a3b8;min-width:52px;text-align:right;">+${((l.t - t0) / 1000).toFixed(1)}s</span>
+                <span style="color:${col[l.type] || col.info};white-space:pre-wrap;word-break:break-word;flex:1;">${esc(l.text)}</span></div>`).join('')
+            || '<div style="color:#94a3b8;">No log for this order (it was settled before this session or not sent).</div>';
+        const why = r.st === 'FAILED' ? saMraWhy(r) : '';
+        const timings = r.timings ? `<div style="margin-top:6px;font-size:11px;color:#475569;"><b>Time per step:</b> ${esc(r.timings)}</div>` : '';
+        const json = (o) => esc(JSON.stringify(o, null, 2) || '');
+        const reqRes = (r.req || r.res) ? `<details style="margin-top:8px;"><summary style="cursor:pointer;font-weight:700;font-size:12px;">MRA request &amp; answer</summary>
+                ${r.req ? `<div style="font-size:11px;margin:6px 0 2px;color:#64748b;">Request${r.reqUrl ? ' → ' + esc(r.reqUrl) : ''}</div><pre style="max-height:180px;overflow:auto;background:#f8fafc;padding:8px;border-radius:6px;font-size:10px;">${json(r.req)}</pre>` : ''}
+                ${r.res ? `<div style="font-size:11px;margin:6px 0 2px;color:#64748b;">Answer</div><pre style="max-height:180px;overflow:auto;background:#f8fafc;padding:8px;border-radius:6px;font-size:10px;">${json(r.res)}</pre>` : ''}</details>` : '';
+        dlg.innerHTML = `<div style="background:#fff;border-radius:12px;width:min(760px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,.3);">
+            <div style="padding:12px 16px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:10px;">
+                <i class="fas fa-file-alt" style="color:#4338ca;"></i>
+                <div style="flex:1;"><div style="font-weight:800;">MRA log — order ${esc(order)}</div>
+                    <div style="font-size:11px;color:#64748b;">Trip ${esc(tripId)} · ${esc(r.st || '—')}${r.secs ? ' · ' + r.secs.toFixed(1) + ' s' : ''}${r.tries > 1 ? ' · try ' + r.tries : ''}${r.at ? ' · ' + esc(r.at) : ''}</div></div>
+                <button type="button" id="sa-mra-log-x" style="border:none;background:none;font-size:18px;cursor:pointer;color:#64748b;">✕</button></div>
+            <div style="padding:12px 16px;overflow:auto;flex:1;">
+                ${r.msg ? `<div style="padding:8px 10px;border-radius:8px;background:${r.st === 'FAILED' ? '#fef2f2' : '#f0fdf4'};color:${r.st === 'FAILED' ? '#991b1b' : '#166534'};font-size:12px;font-weight:600;">${esc(r.msg)}</div>` : ''}
+                ${why ? `<div style="margin-top:6px;padding:8px 10px;border-radius:8px;background:#fffbeb;color:#92400e;font-size:12px;"><i class="fas fa-lightbulb"></i> ${esc(why)}</div>` : ''}
+                ${timings}
+                <div style="margin-top:10px;font-family:Consolas,monospace;font-size:11px;">${lines}</div>
+                ${reqRes}
+            </div>
+            <div style="padding:10px 16px;border-top:1px solid #e2e8f0;display:flex;gap:8px;justify-content:flex-end;">
+                <button type="button" id="sa-mra-log-copy" style="padding:6px 12px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;cursor:pointer;"><i class="fas fa-copy"></i> Copy log</button>
+                ${r.st === 'FAILED' ? `<button type="button" id="sa-mra-log-retry" style="padding:6px 12px;border:none;background:#b91c1c;color:#fff;border-radius:6px;cursor:pointer;"><i class="fas fa-redo"></i> Retry &amp; print</button>` : ''}
+            </div></div>`;
+        document.body.appendChild(dlg);
+        const close = () => dlg.remove();
+        dlg.addEventListener('click', e => { if (e.target === dlg) close(); });
+        dlg.querySelector('#sa-mra-log-x').onclick = close;
+        dlg.querySelector('#sa-mra-log-copy').onclick = () => {
+            const txt = [`MRA log — order ${order} (trip ${tripId}) — ${r.st}`, r.msg || '', r.timings ? 'Timings: ' + r.timings : '']
+                .concat((r.log || []).map(l => `+${((l.t - t0) / 1000).toFixed(1)}s [${l.type}] ${l.text}`))
+                .concat(r.req ? ['Request: ' + JSON.stringify(r.req)] : []).concat(r.res ? ['Answer: ' + JSON.stringify(r.res)] : []).join('\n');
+            navigator.clipboard?.writeText(txt).then(() => showNotification('MRA log copied.', 'success'), () => {});
+        };
+        const rb = dlg.querySelector('#sa-mra-log-retry');
+        if (rb) rb.onclick = () => { close(); saMraRetry(el); };
+    };
+    // Retry one failed order: MRA again (its first step checks whether MRA already has it, so nothing
+    // is sent twice), and print it at once when MRA clears it — the same rule as Print Trip.
+    window.saMraRetry = async function(el) {
+        const tripId = el.dataset.trip, order = el.dataset.order;
+        const prev = ((window._saMra[tripId] || {})[order]) || {};
+        if (prev.st === 'RUNNING') return;
+        const row = document.getElementById(`sa-order-row-${tripId}-${order}`);
+        const instanceName = prev.inst || row?.getAttribute('data-inst') || 'PROD';
+        let creds;
+        try { creds = await saMraCredentials(); }
+        catch (e) { showNotification('MRA needs the Fusion credentials: ' + e.message, 'error'); return; }
+        // the MRA status table first: an order that reached MRA since (another PC, another screen) is not sent again
+        let r = null;
+        if (typeof window.wmsMraDone === 'function') {
+            saMraSet(tripId, order, { st: 'RUNNING', step: 'status table', inst: instanceName });
+            const d = (await window.wmsMraDone([order], instanceName).catch(() => ({})))[String(order).trim()];
+            if (d) {
+                const text = 'Already in MRA' + (d.irn ? ' (IRN ' + d.irn + ')' : '') + (d.at ? ' since ' + d.at : '') + ' — not sent again';
+                r = { st: 'ALREADY', irn: d.irn || '', msg: text, at: new Date().toLocaleTimeString(), log: [{ t: Date.now(), type: 'success', text }] };
+                showNotification(`Order ${order} already reached MRA — not sent again.`, 'info');
+            }
+        }
+        if (!r) {
+            saMraSet(tripId, order, { st: 'RUNNING', step: 'retry', inst: instanceName });
+            r = await saMraInterfaceOrder(order, instanceName, creds, (live) => saMraSet(tripId, order, Object.assign({ st: 'RUNNING', inst: instanceName }, live)), undefined, tripId);
+        }
+        r.tries = (prev.tries || 1) + 1;
+        r.inst = instanceName;
+        saMraSet(tripId, order, r);
+        const agent = window._saCurrentAgent;
+        if (agent) saLogActivity(agent.ID, tripId, null, 'MRA', r.st === 'FAILED' ? 'FAILED' : 'SUCCESS', 1, `MRA retry ${order}: ${r.st}${r.msg ? ' — ' + r.msg : ''}`, null, null);
+        if (r.st === 'FAILED') { showNotification(`MRA still failed for ${order}: ${r.msg}`, 'error'); return; }
+        let tripDate = new Date().toISOString().split('T')[0];
+        const dataRow = row?.querySelector('[data-row]');
+        if (dataRow) {
+            try { tripDate = JSON.parse(decodeURIComponent(escape(atob(dataRow.getAttribute('data-row'))))).TRIP_DATE || tripDate; }
+            catch (e) { try { tripDate = JSON.parse(dataRow.getAttribute('data-row')).TRIP_DATE || tripDate; } catch (e2) {} }
+        }
+        try {
+            await saPrintOrder(order, tripId, tripDate, instanceName, true);
+            showNotification(`MRA ${r.st === 'DONE' ? 'interfaced' : r.st === 'ALREADY' ? 'already had' : 'not required for'} ${order} — printed.`, 'success');
+        } catch (e) {
+            showNotification(`MRA is fine for ${order}, but printing failed: ${e.message}`, 'warning');
+        }
+    };
+    // ─── MRA interface switch (Yes / No) ──────────────────────
+    // WMS_MRA_INTERFACE_CONFIG holds one row per instance (PROD / TEST) with INTERFACE_FLAG Y or N
+    // (apex_sql/79_mra_interface_config.sql — created here on first use, both rows seeded with Y).
+    // Print Trip reads it fresh on every click: Y = interface to MRA before printing, N = print without MRA.
+    // The flag shows as a chip in every trip header; clicking it changes it (logged with user + time).
+    const SA_MRA_CFG = 'WMS_MRA_INTERFACE_CONFIG';
+    let _saMraCfgReady = null, _saMraFlags = {};
+    function saAppUser() { try { return localStorage.getItem('wms_user') || (typeof appUserName === 'function' ? appUserName() : 'WMS'); } catch (e) { return 'WMS'; } }
+    function saAi(op, payload) {
+        return new Promise((resolve, reject) => {
+            if (typeof sendMessageToCSharp !== 'function') return reject(new Error('C# bridge not available'));
+            sendMessageToCSharp({ action: 'executePost', fullUrl: `${WMS_BASE}/ai/${op}`, body: JSON.stringify(Object.assign({ appUser: saAppUser() }, payload)) }, (err, data) => {
+                if (err) return reject(new Error(String(err)));
+                let d = data;
+                if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { return reject(new Error('Unexpected database reply: ' + String(data).slice(0, 150))); } }
+                if (!d || d.success === false) return reject(new Error((d && (d.error || d.message)) || 'Database API error'));
+                resolve(d);
+            });
+        });
+    }
+    async function saAiRead(sql) {
+        const d = await saAi('executequery', { sql, maxRows: 50 });
+        const cols = (d.columns || []).map(c => String(c.name || c).toUpperCase());
+        return (d.rows || []).map(r => {
+            const o = {};
+            if (Array.isArray(r)) cols.forEach((c, i) => o[c] = r[i]); else Object.keys(r).forEach(k => o[k.toUpperCase()] = r[k]);
+            return o;
+        });
+    }
+    function saMraCfgEnsure() {
+        if (_saMraCfgReady) return _saMraCfgReady;
+        _saMraCfgReady = (async () => {
+            const have = await saAiRead(`SELECT table_name FROM user_tables WHERE table_name = '${SA_MRA_CFG}'`);
+            if (!have.length) {
+                await saAi('executewrite', { sql: `CREATE TABLE wms_mra_interface_config (instance_name VARCHAR2(20) PRIMARY KEY, ` +
+                    `interface_flag VARCHAR2(1) DEFAULT 'Y' NOT NULL CONSTRAINT wms_mra_cfg_flag_ck CHECK (interface_flag IN ('Y','N')), ` +
+                    `note VARCHAR2(400), changed_by VARCHAR2(120), changed_date DATE DEFAULT SYSDATE)` });
+            }
+            for (const inst of ['PROD', 'TEST']) {
+                await saAi('executewrite', { sql: `MERGE INTO wms_mra_interface_config t USING (SELECT '${inst}' AS inst FROM dual) s ON (t.instance_name = s.inst) ` +
+                    `WHEN NOT MATCHED THEN INSERT (instance_name, interface_flag, note, changed_by, changed_date) VALUES (s.inst, 'Y', 'Default', 'SYSTEM', SYSDATE)` });
+            }
+        })().catch(e => { _saMraCfgReady = null; throw e; });
+        return _saMraCfgReady;
+    }
+    /** Reads the flags of all instances → { PROD: {flag, by, at}, TEST: … } */
+    async function saMraLoadFlags() {
+        await saMraCfgEnsure();
+        const rows = await saAiRead(`SELECT instance_name, interface_flag, changed_by, TO_CHAR(changed_date, 'YYYY-MM-DD HH24:MI') AS changed_at FROM wms_mra_interface_config`);
+        const out = {};
+        rows.forEach(r => { out[String(r.INSTANCE_NAME).toUpperCase()] = { flag: String(r.INTERFACE_FLAG || 'Y').toUpperCase() === 'N' ? 'N' : 'Y', by: r.CHANGED_BY || '', at: r.CHANGED_AT || '' }; });
+        _saMraFlags = out;
+        return out;
+    }
+    /** The flag for one instance, read from the table now. A missing row counts as Y (the table is seeded with Y). */
+    async function saMraFlag(instance) {
+        const all = await saMraLoadFlags();
+        return all[(instance || 'PROD').toUpperCase()] || { flag: 'Y', by: '', at: '' };
+    }
+    function saMraFlagChip(f, err) {
+        const base = 'display:inline-flex;align-items:center;gap:4px;padding:2px 9px;border-radius:10px;font-size:10px;font-weight:700;cursor:pointer;white-space:nowrap;';
+        if (err) return `<span onclick="saMraToggleFlag(this)" title="Could not read ${SA_MRA_CFG}: ${esc(err)} — click to retry" style="${base}background:#fee2e2;color:#b91c1c;"><i class="fas fa-exclamation-triangle"></i> MRA: ?</span>`;
+        if (!f) return `<span style="${base}background:#f1f5f9;color:#94a3b8;cursor:default;"><i class="fas fa-spinner fa-spin"></i> MRA</span>`;
+        const tip = `MRA interface on Print Trip: ${f.flag === 'Y' ? 'YES' : 'NO'}` + (f.by ? ` — set by ${f.by} ${f.at}` : '') + ' — click to open MRA Interface';
+        return f.flag === 'Y'
+            ? `<span onclick="saMraToggleFlag(this)" title="${esc(tip)}" style="${base}background:#dcfce7;color:#15803d;border:1px solid #86efac;"><i class="fas fa-flag"></i> MRA: Yes</span>`
+            : `<span onclick="saMraToggleFlag(this)" title="${esc(tip)}" style="${base}background:#fef08a;color:#dc2626;border:1px solid #facc15;"><i class="fas fa-flag"></i> MRA: No</span>`;
+    }
+    async function saMraPaintFlags(fresh) {
+        const slots = document.querySelectorAll('.sa-mra-flag');
+        if (!slots.length) return;
+        try {
+            const all = fresh || !Object.keys(_saMraFlags).length ? await saMraLoadFlags() : _saMraFlags;
+            slots.forEach(el => { el.innerHTML = saMraFlagChip(all[el.dataset.inst] || { flag: 'Y', by: '', at: '' }); });
+        } catch (e) {
+            console.warn('[ShippingAgent] MRA flag read failed:', e.message);
+            slots.forEach(el => { el.innerHTML = saMraFlagChip(null, e.message); });
+        }
+    }
+    window.saMraRefreshFlags = () => saMraPaintFlags(true);
+    // The chip opens WMS › MRA Interface (switch with a reason + change history); the confirm toggle
+    // below is only the fallback when that page is not in this window.
+    window.saMraToggleFlag = async function(el) {
+        if (typeof window.navigateToPage === 'function' && window.MraInterface && document.querySelector('.menu-item[data-page="mra-interface"]')) {
+            window.navigateToPage('mra-interface');
+            return;
+        }
+        const slot = el.closest('.sa-mra-flag'); if (!slot) return;
+        const inst = slot.dataset.inst || 'PROD';
+        let cur;
+        try { cur = await saMraFlag(inst); } catch (e) { showNotification('Could not read the MRA setting: ' + e.message, 'error'); saMraPaintFlags(true); return; }
+        const next = cur.flag === 'Y' ? 'N' : 'Y';
+        const msg = next === 'N'
+            ? `Turn MRA interface OFF for ${inst}?\n\nPrint Trip will print orders WITHOUT interfacing them to MRA, for every agent and trip on ${inst}.`
+            : `Turn MRA interface ON for ${inst}?\n\nPrint Trip will interface every order to MRA first and print only the ones MRA accepts.`;
+        if (!confirm(msg)) return;
+        const who = saAppUser().replace(/'/g, "''").slice(0, 120);
+        try {
+            await saAi('executewrite', { sql: `MERGE INTO wms_mra_interface_config t USING (SELECT '${inst.replace(/'/g, "''")}' AS inst FROM dual) s ON (t.instance_name = s.inst) ` +
+                `WHEN MATCHED THEN UPDATE SET t.interface_flag = '${next}', t.changed_by = '${who}', t.changed_date = SYSDATE ` +
+                `WHEN NOT MATCHED THEN INSERT (instance_name, interface_flag, changed_by, changed_date) VALUES (s.inst, '${next}', '${who}', SYSDATE)` });
+            const agent = window._saCurrentAgent;
+            if (agent) saLogActivity(agent.ID, null, null, 'MRA', 'SUCCESS', 1, `MRA interface for ${inst} set to ${next === 'Y' ? 'YES' : 'NO'} by ${saAppUser()}`, null, null);
+            showNotification(`MRA interface for ${inst} is now ${next === 'Y' ? 'YES' : 'NO'}.`, 'success');
+        } catch (e) { showNotification('Could not save the MRA setting: ' + e.message, 'error'); }
+        saMraPaintFlags(true);
+    };
+
+    async function saMraCredentials() {
+        if (window.F_username && window.F_password) return { username: window.F_username, password: window.F_password };
+        if (typeof fetchFusionCredentialsForBatchMRA === 'function') return await fetchFusionCredentialsForBatchMRA();
+        throw new Error('Fusion credentials are not available');
+    }
+    /** One order through the C# MRA processor → { st, irn, msg, log, timings, secs }. onLive(partial) gets each step. */
+    const SA_MRA_STEPS = { CheckingMRAStatus: 'check', FetchingOrderSummary: 'summary', CheckingOrderType: 'type', FetchingOrderDetails: 'lines',
+        ValidatingOrderLines: 'validate', CreatingMRAInvoice: 'gateway', UpdatingFusionOrder: 'Fusion update' };
+    function saMraInterfaceOrder(orderNumber, instanceName, creds, onLive, batchId, tripId) {
+        return new Promise(resolve => {
+            if (!window.chrome?.webview) { resolve({ st: 'FAILED', msg: 'WebView2 not available' }); return; }
+            const requestId = 'sa_mra_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+            const started = Date.now();
+            const log = [{ t: started, type: 'step', text: `Start MRA for ${orderNumber} on ${instanceName || 'PROD'}` }];
+            const extra = {};
+            let timer = null;
+            const handler = function(event) {
+                let data = event.data;
+                if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { return; } }
+                if (!data || data.requestId !== requestId) return;
+                const now = Date.now();
+                if (data.action === 'mraProcessingProgress') {
+                    log.push({ t: now, type: 'step', text: data.message || data.step });
+                    if (onLive) try { onLive({ step: SA_MRA_STEPS[data.step] || '', log }); } catch (e) {}
+                    return;
+                }
+                if (data.action === 'mraLog') { log.push({ t: now, type: data.type || 'info', text: String(data.message || '').slice(0, 4000) }); return; }
+                if (data.action === 'mraRequestData') { extra.req = data.request; extra.reqUrl = data.endpoint; log.push({ t: now, type: 'info', text: 'Sent to the MRA gateway' + (data.endpoint ? ' (' + data.endpoint + ')' : '') }); return; }
+                if (data.action === 'mraResponseData') { extra.res = data.response; log.push({ t: now, type: data.success ? 'success' : 'error', text: 'MRA gateway answered: ' + (data.success ? 'OK' : 'error') }); return; }
+                if (data.action === 'mraOrderData') { log.push({ t: now, type: 'info', text: `Order read from Fusion: ${(data.lines || []).length} line(s)` }); return; }
+                if (data.action === 'error') { done({ st: 'FAILED', msg: data.message || 'MRA processing error' }); return; }
+                if (data.action !== 'processMRAInterfaceResponse') return;
+                if (data.timings) console.log(`[ShippingAgent] MRA ${orderNumber} timings: ${data.timings}`);
+                const base = { timings: data.timings || '', stepCode: data.currentStep || '' };
+                if (data.errorDetails && !data.success) log.push({ t: now, type: 'error', text: 'Details: ' + String(data.errorDetails).slice(0, 2000) });
+                if (data.success) done(Object.assign(base, { st: 'DONE', irn: data.irnCode || '', msg: data.message || '' }));
+                else if (data.skipped) done(Object.assign(base, { st: 'SKIPPED', msg: data.message || 'Order type not interfaced to MRA' }));
+                else if (/already done/i.test(data.message || '')) done(Object.assign(base, { st: 'ALREADY', msg: data.message }));
+                else done(Object.assign(base, { st: 'FAILED', msg: data.message || 'MRA interface failed', step: data.currentStep, gw: data.gatewayProblem || null }));
+            };
+            function done(r) {
+                clearTimeout(timer); window.chrome.webview.removeEventListener('message', handler);
+                const end = Date.now();
+                log.push({ t: end, type: r.st === 'FAILED' ? 'error' : 'success', text: `${r.st}: ${r.msg || ''}`.trim() });
+                resolve(Object.assign(r, extra, { log, secs: (end - started) / 1000, at: new Date(end).toLocaleTimeString() }));
+            }
+            window.chrome.webview.addEventListener('message', handler);
+            timer = setTimeout(() => done({ st: 'FAILED', msg: 'MRA request timed out after 3 minutes' }), 180000);
+            window.chrome.webview.postMessage({ action: 'processMRAInterface', requestId, orderNumber,
+                fusionUsername: creds.username, fusionPassword: creds.password, instance: instanceName || 'PROD', batchId: batchId || ('one_' + requestId),
+                source: 'SHIPPING_AGENT', tripId: tripId != null ? String(tripId) : undefined, appUser: (function(){try{return localStorage.getItem('wms_user')||sessionStorage.getItem('loggedInUser')||'';}catch(e){return '';}})() });
+        });
+    }
+    // How many orders go to MRA at the same time (each order already runs its 3 Fusion reports in parallel).
+    // Per PC in localStorage 'sa.mra.parallel' (1–6), default 4.
+    function saMraParallel() {
+        let n = 4; try { n = parseInt(localStorage.getItem('sa.mra.parallel') || '4', 10) || 4; } catch (e) {}
+        return Math.max(1, Math.min(6, n));
+    }
+
+    window.saPrintTrip = async function(tripId, instanceName) {
+        const agent    = window._saCurrentAgent;
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        if (!container) return;
+
+        const btn = document.getElementById(`sa-btn-print-trip-${tripId}`);
+        const setBtn = (html, disabled) => { if (btn) { btn.disabled = disabled; btn.innerHTML = html; } };
+
+        const rows = Array.from(container.querySelectorAll('tr[id^="sa-order-row-"]'));
+        const printable = [];
+        let notReady = 0;
+        for (const row of rows) {
+            const orderNumber = row.id.replace(`sa-order-row-${tripId}-`, '');
+            if (!orderNumber) continue;
+            // Only orders whose status cell shows Interfaced or Shipped (all lines done)
+            const statusText = (row.querySelector('[data-col="status"]')?.textContent || '').trim();
+            const isPrintable = (statusText.includes('Interfaced') || statusText.includes('Shipped')) && !statusText.includes('/');
+            if (!isPrintable) { notReady++; continue; }
+            let tripDate = new Date().toISOString().split('T')[0];
+            const dataRow = row.querySelector('[data-row]');
+            if (dataRow) {
+                try { const rd = JSON.parse(decodeURIComponent(escape(atob(dataRow.getAttribute('data-row'))))); tripDate = rd.TRIP_DATE || tripDate; }
+                catch (e) { try { const rd = JSON.parse(dataRow.getAttribute('data-row')); tripDate = rd.TRIP_DATE || tripDate; } catch (e2) {} }
+            }
+            printable.push({ orderNumber, tripDate });
+        }
+        if (!printable.length) {
+            showNotification(`Nothing to print: no order of trip ${tripId} is fully interfaced yet (${notReady} not ready).`, 'warning');
+            return;
+        }
+
+        // ── Phase 0: is MRA interface switched on? (read from WMS_MRA_INTERFACE_CONFIG now) ──
+        setBtn('<i class="fas fa-spinner fa-spin"></i> MRA flag...', true);
+        let mraOn = true;
+        try {
+            const f = await saMraFlag(instanceName);
+            mraOn = f.flag === 'Y';
+            console.log(`[ShippingAgent] MRA interface flag for ${instanceName || 'PROD'}: ${f.flag}`);
+        } catch (e) {
+            if (!confirm(`Could not read the MRA interface setting (${e.message}).\n\nOK = interface to MRA and print (the usual way)\nCancel = stop, nothing is printed`)) {
+                setBtn('<i class="fas fa-print"></i> Print Trip', false);
+                return;
+            }
+        }
+        saMraPaintFlags(true);
+        if (!mraOn) {
+            printable.forEach(o => saMraSet(tripId, o.orderNumber, { st: 'OFF', msg: 'MRA interface is switched off (MRA: No) for ' + (instanceName || 'PROD') }));
+            if (agent) saLogActivity(agent.ID, tripId, null, 'MRA', 'SUCCESS', 1, `MRA interface is OFF for ${instanceName || 'PROD'} — ${printable.length} orders printed without MRA`, null, null);
+        }
+
+        // ── Phase 1: MRA (only when the flag is Yes) ──────────
+        setBtn('<i class="fas fa-spinner fa-spin"></i> MRA...', true);
+        let creds;
+        if (mraOn) try { creds = await saMraCredentials(); }
+        catch (e) {
+            setBtn('<i class="fas fa-print"></i> Print Trip', false);
+            showNotification('MRA needs the Fusion credentials: ' + e.message + ' — nothing was printed.', 'error');
+            return;
+        }
+        const mra = { DONE: 0, ALREADY: 0, SKIPPED: 0, FAILED: 0 };
+        const toPrint = mraOn ? [] : printable.slice();
+        let gwStreak = 0, gwStop = null;   // two MRA gateway timeouts / connection errors in a row = gateway down: stop sending
+        // Several orders at the same time (saMraParallel), results kept in trip order so printing order does not change.
+        const batchId = 'pt_' + tripId + '_' + Date.now();   // MRA_ORDER_TYPES is read once for this click
+        const results = new Array(printable.length);
+        const todo = [];
+        printable.forEach((o, i) => {
+            const prev = ((window._saMra[tripId] || {})[o.orderNumber]) || null;
+            if (mraOn && prev && (prev.st === 'DONE' || prev.st === 'ALREADY' || prev.st === 'SKIPPED')) results[i] = prev;   // this session already settled it
+            else if (mraOn) { todo.push(i); saMraSet(tripId, o.orderNumber, { st: 'QUEUED', tries: prev?.tries || 0, inst: instanceName }); }
+        });
+        // The MRA status table first (every PC, every screen — WMS_MRA_INTERFACE_STATUS): an order that already reached
+        // MRA is never sent again; orders this session or DuckDB already settled were left out above.
+        if (mraOn && todo.length && typeof window.wmsMraDone === 'function') {
+            setBtn('<i class="fas fa-spinner fa-spin"></i> MRA check...', true);
+            const already = await window.wmsMraDone(todo.map(i => printable[i].orderNumber), instanceName).catch(e => { console.warn('[ShippingAgent] MRA status table not read:', e); return {}; });
+            const keep = [];
+            todo.forEach(i => {
+                const o = printable[i], d = already[String(o.orderNumber).trim()];
+                if (!d) { keep.push(i); return; }
+                const prev = ((window._saMra[tripId] || {})[o.orderNumber]) || {};
+                const text = 'Already in MRA' + (d.irn ? ' (IRN ' + d.irn + ')' : '') + (d.at ? ' since ' + d.at : '') + (d.source ? ' via ' + d.source : '') + ' — not sent again';
+                results[i] = { st: 'ALREADY', irn: d.irn || '', msg: text, tries: prev.tries || 0, inst: instanceName, at: new Date().toLocaleTimeString(), log: [{ t: Date.now(), type: 'success', text }] };
+                saMraSet(tripId, o.orderNumber, results[i]);
+            });
+            if (keep.length !== todo.length) console.log(`[ShippingAgent] ${todo.length - keep.length} order(s) of trip ${tripId} already in MRA (status table) — not sent again`);
+            todo.length = 0; todo.push(...keep);
+        }
+        let finished = 0;
+        const t0 = Date.now();
+        const paint = () => setBtn(`<i class="fas fa-spinner fa-spin"></i> MRA ${finished}/${todo.length}` + (finished ? ` · ${Math.round((Date.now() - t0) / 1000)}s` : ''), true);
+        if (mraOn && todo.length) {
+            paint();
+            let next = 0;
+            const worker = async () => {
+                while (next < todo.length) {
+                    const i = todo[next++], o = printable[i];
+                    const prev = ((window._saMra[tripId] || {})[o.orderNumber]) || {};
+                    let r;
+                    if (gwStop) r = { st: 'FAILED', msg: 'Not sent: ' + gwStop, log: [{ t: Date.now(), type: 'warning', text: 'Not sent: ' + gwStop }] };
+                    else {
+                        saMraSet(tripId, o.orderNumber, { st: 'RUNNING', inst: instanceName });
+                        r = await saMraInterfaceOrder(o.orderNumber, instanceName, creds,
+                            live => saMraSet(tripId, o.orderNumber, Object.assign({ st: 'RUNNING', inst: instanceName }, live)), batchId, tripId);
+                        if (r.gw) gwStreak++; else if (r.st === 'DONE' || r.step === 'CreatingMRAInvoice') gwStreak = 0;
+                        if (gwStreak >= 2 && !gwStop) gwStop = `the MRA gateway did not answer for ${gwStreak} orders in a row — stopped sending; nothing was sent for this order. Use Retry when MRA answers.`;
+                    }
+                    r.tries = (prev.tries || 0) + 1; r.inst = instanceName;
+                    saMraSet(tripId, o.orderNumber, r);
+                    results[i] = r;
+                    finished++; paint();
+                }
+            };
+            await Promise.all(Array.from({ length: Math.min(saMraParallel(), todo.length) }, worker));
+            console.log(`[ShippingAgent] MRA for ${todo.length} orders of trip ${tripId} took ${((Date.now() - t0) / 1000).toFixed(1)} s (${saMraParallel()} at a time)`);
+        }
+        for (let i = 0; mraOn && i < printable.length; i++) {
+            const o = printable[i], r = results[i];
+            mra[r.st] = (mra[r.st] || 0) + 1;
+            if (r.st !== 'FAILED') toPrint.push(o);
+            else console.warn(`[ShippingAgent] MRA failed for ${o.orderNumber}: ${r.msg}`);
+        }
+        if (agent && mraOn) {
+            saLogActivity(agent.ID, tripId, null, 'MRA', mra.FAILED ? 'FAILED' : 'SUCCESS', 1,
+                `Trip MRA — ${mra.DONE} interfaced, ${mra.ALREADY} already done, ${mra.SKIPPED} not required, ${mra.FAILED} failed`, null, null);
+        }
+
+        // ── Phase 2: print what MRA cleared ──────────────────
+        let printed = 0;
+        for (let i = 0; i < toPrint.length; i++) {
+            const o = toPrint[i];
+            setBtn(`<i class="fas fa-spinner fa-spin"></i> Printing ${i + 1}/${toPrint.length}`, true);
+            try {
+                await saPrintOrder(o.orderNumber, tripId, o.tripDate, instanceName, true); // silent=true: no popup
+                printed++;
+                // Small delay between orders to avoid rate-limiting on Fusion SOAP (skipped in direct mode)
+                const isDirect = document.getElementById(`sa-chk-direct-${tripId}`)?.checked;
+                if (!isDirect) await new Promise(r => setTimeout(r, 800));
+            } catch(e) {
+                console.warn(`[ShippingAgent] Print failed for ${o.orderNumber}:`, e.message);
+            }
+        }
+
+        setBtn('<i class="fas fa-print"></i> Print Trip', false);
+
+        if (agent) {
+            saLogActivity(agent.ID, tripId, null, 'PRINT', 'SUCCESS', 1,
+                `Trip print done — ${printed} printed, ${mra.FAILED} held back (MRA failed), ${notReady} not fully interfaced`, null, null);
+        }
+        const mraText = !mraOn ? `MRA interface is OFF for ${instanceName || 'PROD'} (MRA: No) — printed without MRA` : `MRA: ${mra.DONE} interfaced, ${mra.ALREADY} already done, ${mra.SKIPPED} not required` + (mra.FAILED ? `, ${mra.FAILED} FAILED (not printed — use the log icon for the reason and Retry to send it again)` : '');
+        showNotification(`${mraText}. Printed ${printed}` + (notReady ? `, ${notReady} not ready` : '') + '.', mra.FAILED ? 'warning' : 'success');
+    };
+
+    // Cancel Orders — shows dialog immediately with spinner, then loads lines.
+    // Does NOT depend on DOM order rows being loaded first.
+    // Cancel Orders — shows dialog immediately, then syncs + fetches lines.
+    window.saCancelTripOrders = async function(tripId, instanceName) {
+        const inst    = instanceName || 'PROD';
+        const agent   = window._saCurrentAgent || null;
+        const getUrl  = `${APEX_BASE}/trip/orders/getsalesorderlinesbytrip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`;
+
+        // Show dialog immediately
+        document.getElementById('sa-all-lines-dlg')?.remove();
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-all-lines-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `
+            <div style="background:#ffffff;border-radius:14px;width:95vw;max-width:1100px;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.25);overflow:hidden;border:2px solid #e2e8f0;">
+                <!-- Header -->
+                <div style="padding:0.85rem 1.2rem;background:#f8fafc;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:0.75rem;flex-shrink:0;">
+                    <span style="font-size:18px;">📋</span>
+                    <div>
+                        <div style="font-weight:800;font-size:14px;color:#1e293b;">Sales Order Lines — Trip ${esc(String(tripId))}</div>
+                        <div style="font-size:11px;color:#64748b;margin-top:2px;" id="sa-all-lines-subtitle">Loading…</div>
+                    </div>
+                    <!-- API icon -->
+                    <button onclick="
+                        const p=document.getElementById('sa-lines-api-popup');
+                        if(p){p.remove();return;}
+                        const pop=document.createElement('div');
+                        pop.id='sa-lines-api-popup';
+                        pop.style.cssText='position:absolute;top:3.5rem;left:1rem;right:1rem;background:#0f172a;border:1px solid #0e7490;border-radius:8px;padding:0.75rem 1rem;z-index:100000;font-size:11px;color:#38bdf8;word-break:break-all;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+                        pop.innerHTML='<strong style=\'color:#7dd3fc;\'>GET</strong> ${esc(getUrl)}<button onclick=\'document.getElementById(\\\'sa-lines-api-popup\\\').remove()\' style=\'float:right;background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;\'>×</button>';
+                        document.getElementById('sa-all-lines-dlg').querySelector('div').style.position='relative';
+                        document.getElementById('sa-all-lines-dlg').querySelector('div').appendChild(pop);
+                    " style="margin-left:0.25rem;background:none;border:1px solid #e2e8f0;border-radius:6px;padding:3px 7px;cursor:pointer;color:#0e7490;font-size:11px;"
+                    title="${esc(getUrl)}">
+                        <i class="fas fa-plug"></i>
+                    </button>
+                    <button onclick="document.getElementById('sa-all-lines-dlg').remove()" style="margin-left:auto;background:none;border:none;color:#94a3b8;font-size:22px;cursor:pointer;line-height:1;">×</button>
+                </div>
+                <!-- Body -->
+                <div id="sa-all-lines-body" style="flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+                    <div style="text-align:center;color:#94a3b8;padding:2rem;">
+                        <i class="fas fa-spinner fa-spin" style="font-size:28px;color:#7c3aed;margin-bottom:0.75rem;display:block;"></i>
+                        <div id="sa-all-lines-status" style="font-size:12px;color:#64748b;">Syncing order lines from Fusion…</div>
+                        <div id="sa-all-lines-progress" style="margin-top:0.4rem;font-size:10px;color:#94a3b8;"></div>
+                    </div>
+                </div>
+                <!-- Footer -->
+                <div style="padding:0.6rem 1.2rem;border-top:1px solid #e2e8f0;background:#f8fafc;display:flex;align-items:center;gap:0.5rem;" id="sa-all-lines-footer">
+                    <button onclick="document.getElementById('sa-all-lines-dlg').remove()"
+                        style="padding:0.4rem 1rem;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;font-size:12px;font-weight:600;color:#475569;margin-left:auto;">
+                        Close
+                    </button>
+                </div>
+            </div>`;
+        document.body.appendChild(dlg);
+
+        const setStatus   = (msg) => { const el = document.getElementById('sa-all-lines-status');   if (el) el.textContent = msg; };
+        const setProgress = (msg) => { const el = document.getElementById('sa-all-lines-progress'); if (el) el.textContent = msg; };
+        const setSubtitle = (msg) => { const el = document.getElementById('sa-all-lines-subtitle'); if (el) el.textContent = msg; };
+        const isOpen      = ()    => !!document.getElementById('sa-all-lines-dlg');
+
+        // STEP 1: Get order numbers from DOM (best-effort for POST sync)
+        const domContainer = document.getElementById(`sa-trip-orders-${tripId}`);
+        const domRows = domContainer
+            ? Array.from(domContainer.querySelectorAll(`tr[id^="sa-order-row-${tripId}-"]`))
+            : [];
+        const orderNumbers = domRows
+            .map(r => r.id.replace(`sa-order-row-${tripId}-`, '').trim())
+            .filter(Boolean);
+
+        // STEP 2: POST fetchfusionorderlines per order (if DOM rows available)
+        if (orderNumbers.length > 0) {
+            let done = 0;
+            for (const orderNum of orderNumbers) {
+                if (!isOpen()) return;
+                setStatus('Syncing order lines from Fusion…');
+                setProgress(`Order ${done + 1} of ${orderNumbers.length}: ${orderNum}`);
+                try {
+                    const postUrl = `${APEX_BASE}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${encodeURIComponent(inst)}&p_order_number=${encodeURIComponent(orderNum)}&p_trip_id=${encodeURIComponent(tripId)}`;
+                    await new Promise((res, rej) => {
+                        sendMessageToCSharp({ action: 'executePost', fullUrl: postUrl, body: '{}' },
+                            (err, data) => err ? rej(new Error(String(err))) : res(data));
+                    });
+                } catch(e) {
+                    console.warn(`[saCancelTripOrders] POST failed for ${orderNum}:`, e.message);
+                }
+                done++;
+            }
+        }
+
+        if (!isOpen()) return;
+
+        // STEP 3: GET all lines for the trip
+        setStatus('Fetching order lines from WMS…');
+        setProgress('');
+        let allLines = [];
+        try {
+            const relUrl = `trip/orders/getsalesorderlinesbytrip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`;
+            const data   = await apexGet(relUrl);
+            allLines = (data && data.items) ? data.items : (Array.isArray(data) ? data : []);
+        } catch(e) {
+            if (!isOpen()) return;
+            const body = document.getElementById('sa-all-lines-body');
+            if (body) body.innerHTML = `<div style="text-align:center;padding:2rem;color:#dc2626;">
+                <i class="fas fa-exclamation-circle" style="font-size:28px;margin-bottom:0.5rem;display:block;"></i>
+                <div style="font-weight:700;margin-bottom:0.4rem;">Failed to fetch order lines</div>
+                <div style="font-size:10px;color:#64748b;word-break:break-all;">${esc(e.message)}</div>
+                <div style="margin-top:0.75rem;font-size:10px;color:#94a3b8;word-break:break-all;">URL: ${esc(getUrl)}</div>
+            </div>`;
+            return;
+        }
+
+        if (!isOpen()) return;
+
+        // STEP 4: Populate dialog
+        await saPopulateAllLinesDialog(agent || { ID: null }, tripId, inst, allLines, getUrl, setSubtitle);
+    };
+
+    // Populates the already-open sa-all-lines-dlg with fetched lines.
+    async function saPopulateAllLinesDialog(agent, tripId, inst, allLines, getUrl, setSubtitle) {
+        const dlg = document.getElementById('sa-all-lines-dlg');
+        if (!dlg) return;
+
+        const isProd = (inst || '').toUpperCase() === 'PROD';
+        const fusionBase = isProd
+            ? 'https://efmh.fa.em3.oraclecloud.com'
+            : 'https://efmh-test.fa.em3.oraclecloud.com';
+
+        const isCancellable = (status) => {
+            const s = (status || '').toUpperCase();
+            return s.includes('SCHEDULED') || s.includes('MANUAL RESERVATION');
+        };
+
+        // Build Fusion cancel URL and JSON body for an order's flagged lines
+        const fusionCancelUrl = (orderNumber) =>
+            `${fusionBase}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${encodeURIComponent(orderNumber)}`;
+
+        const buildCancelBody = (orderLines) => ({
+            lines: orderLines.map(l => ({
+                FulfillLineId   : saLineFulfillId(l),
+                OrderedQuantity : 0,
+                CancelReason    : 'OUT OF STOCK'
+            }))
+        });
+
+        // Group by order number
+        const orderMap = {};
+        for (const line of allLines) {
+            const on = line.SOURCE_ORDER_NUMBER || line.source_order_number || '—';
+            if (!orderMap[on]) orderMap[on] = [];
+            orderMap[on].push(line);
+        }
+        const orders      = Object.keys(orderMap).sort();
+        const flaggedLines = allLines.filter(l => isCancellable(l.STATUS || l.status));
+        const totalFlagged = flaggedLines.length;
+
+        // Expand each order's flagged main lines with child lines (numbered sub-lines / BOGO)
+        const expandedGroups = {}; // orderNum → main + child lines to cancel
+        const skippedByOrder = {}; // orderNum → skipped child info
+        const childKeys      = new Set();
+        for (const on of orders) {
+            const mains = orderMap[on].filter(l => isCancellable(l.STATUS || l.status));
+            if (mains.length === 0) continue;
+            const exp = await saExpandCancelLines(on, orderMap[on], mains, inst);
+            expandedGroups[on] = exp.lines;
+            skippedByOrder[on] = exp.skipped;
+            exp.lines.forEach(l => { if (l._saChildOf) childKeys.add(saLineKey(l)); });
+        }
+        const totalToCancel = Object.values(expandedGroups).reduce((s, a) => s + a.length, 0);
+        const totalChildren = totalToCancel - totalFlagged;
+
+        // KPI counts by status
+        const statusCounts = {};
+        for (const l of allLines) {
+            const s = l.STATUS || l.status || 'Unknown';
+            statusCounts[s] = (statusCounts[s] || 0) + 1;
+        }
+
+        if (setSubtitle) setSubtitle(
+            `${orders.length} order(s) · ${allLines.length} line(s)` +
+            (totalToCancel > 0
+                ? ` · ⚠ ${totalToCancel} flagged for cancellation (${totalFlagged} main + ${totalChildren} child)`
+                : ' · nothing to cancel')
+        );
+
+        // Status badge colours
+        const statusBadge = (status, flagged) => {
+            const s = (status || '').toUpperCase();
+            let bg = '#f1f5f9', color = '#475569';
+            if (flagged)                           { bg = '#fef2f2'; color = '#dc2626'; }
+            else if (s.includes('INTERFAC'))       { bg = '#f0fdf4'; color = '#16a34a'; }
+            else if (s.includes('SHIPPED'))        { bg = '#ecfdf5'; color = '#059669'; }
+            else if (s.includes('AWAIT'))          { bg = '#eff6ff'; color = '#2563eb'; }
+            else if (s.includes('PENDING'))        { bg = '#fffbeb'; color = '#d97706'; }
+            else if (s.includes('CANCELLED'))      { bg = '#fef2f2'; color = '#dc2626'; }
+            return `<span style="background:${bg};color:${color};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;white-space:nowrap;">${esc(status)}</span>`;
+        };
+
+        // KPI chips
+        const kpiHtml = Object.entries(statusCounts)
+            .sort((a,b) => b[1]-a[1])
+            .map(([st, cnt]) => {
+                const flagged = isCancellable(st);
+                const s = st.toUpperCase();
+                let bg = '#f1f5f9', color = '#475569';
+                if (flagged)                      { bg = '#fef2f2'; color = '#dc2626'; }
+                else if (s.includes('INTERFAC'))  { bg = '#f0fdf4'; color = '#16a34a'; }
+                else if (s.includes('SHIPPED'))   { bg = '#ecfdf5'; color = '#059669'; }
+                else if (s.includes('AWAIT'))     { bg = '#eff6ff'; color = '#2563eb'; }
+                else if (s.includes('PENDING'))   { bg = '#fffbeb'; color = '#d97706'; }
+                else if (s.includes('CANCELLED')) { bg = '#fef2f2'; color = '#dc2626'; }
+                return `<span style="background:${bg};color:${color};padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;white-space:nowrap;border:1px solid ${bg};">
+                    ${esc(st)} <strong style="margin-left:4px;">${cnt}</strong>
+                </span>`;
+            }).join('');
+
+        // No lines message
+        const noLines = `<div style="text-align:center;padding:3rem;color:#94a3b8;">
+            <i class="fas fa-inbox" style="font-size:32px;margin-bottom:0.75rem;display:block;"></i>
+            <div style="font-size:13px;color:#64748b;font-weight:600;">No order lines found for this trip.</div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:0.4rem;word-break:break-all;">URL called: ${esc(getUrl)}</div>
+        </div>`;
+
+        const orderSections = orders.length === 0 ? noLines : orders.map(orderNum => {
+            const lines      = orderMap[orderNum];
+            const expanded   = expandedGroups[orderNum] || [];
+            const hasFlagged = expanded.length > 0;
+            const flaggedCnt = expanded.length;
+            const cancelBodyPreview = hasFlagged ? JSON.stringify(buildCancelBody(expanded), null, 2) : '';
+            const fusionUrl = fusionCancelUrl(orderNum);
+
+            const lineRows = lines.map((l, idx) => {
+                const status   = l.STATUS              || l.status              || '—';
+                const flagged  = isCancellable(status);
+                const isChild  = childKeys.has(saLineKey(l));
+                const lineNum  = l.LINE_NUMBER         || l.line_number         || '—';
+                const item     = l.PRODUCT_NUMBER      || l.product_number      || '—';
+                const desc     = l.PRODUCT_DESCRIPTION || l.product_description || '';
+                const ordQty   = l.ORDERED_QUANTITY    || l.ordered_quantity    || '—';
+                const resQty   = l.RESERVED_QUANTITY   || l.reserved_quantity   || '—';
+                const fulfId   = l.FULFILL_LINE_ID     || l.fulfill_line_id     || '—';
+                const cancelSt = l.CANCEL_STATUS       || l.cancel_status       || '';
+                const rowBg    = flagged ? 'background:#fff5f5;' : (isChild ? 'background:#fff7ed;' : (idx%2===0?'background:#fafafa;':''));
+                const childBadge = isChild
+                    ? ` <span style="background:#ffedd5;color:#ea580c;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;white-space:nowrap;" title="Cancelled together with main line ${esc(String(l._saChildOf))}">↳ child of ${esc(String(l._saChildOf))} · ${esc(String(l._saChildVia))}</span>`
+                    : '';
+                return `<tr class="sa-lines-row" data-search="${esc((status+' '+item+' '+desc+' '+lineNum).toLowerCase())}" style="border-bottom:1px solid #f1f5f9;${rowBg}">
+                    <td style="padding:5px 8px;color:${flagged?'#dc2626':(isChild?'#ea580c':'#374151')};font-size:11px;font-weight:${(flagged||isChild)?'700':'400'};">${isChild?'↳ ':''}${esc(String(lineNum))}</td>
+                    <td style="padding:5px 8px;font-size:11px;color:#1e293b;font-weight:600;">${esc(String(item))}</td>
+                    <td style="padding:5px 8px;font-size:10px;color:#64748b;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(desc)}">${esc(desc)}</td>
+                    <td style="padding:5px 8px;">${statusBadge(status, flagged)}${childBadge}</td>
+                    <td style="padding:5px 8px;font-size:11px;color:#1e293b;text-align:right;">${esc(String(ordQty))}</td>
+                    <td style="padding:5px 8px;font-size:11px;color:#64748b;text-align:right;">${esc(String(resQty))}</td>
+                    <td style="padding:5px 8px;font-size:10px;color:#94a3b8;">${esc(String(fulfId))}</td>
+                    <td style="padding:5px 8px;font-size:10px;color:#94a3b8;">${esc(String(cancelSt))}</td>
+                </tr>`;
+            }).join('');
+
+            const countBadge = hasFlagged
+                ? `<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;margin-left:8px;">⚠ ${flaggedCnt} to cancel</span>`
+                : `<span style="background:#f1f5f9;color:#64748b;padding:2px 8px;border-radius:10px;font-size:10px;margin-left:8px;">${lines.length} line(s)</span>`;
+
+            // API icon (hover tooltip) — only shown when there are flagged lines
+            const apiIconHtml = hasFlagged ? `
+                <span style="margin-left:auto;position:relative;display:inline-block;" class="sa-cancel-api-wrap">
+                    <button title="View cancel API details" onmouseenter="this.nextElementSibling.style.display='block'" onmouseleave="this.nextElementSibling.style.display='none'"
+                        style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;cursor:pointer;color:#0e7490;font-size:10px;">
+                        <i class="fas fa-plug"></i> API
+                    </button>
+                    <div style="display:none;position:absolute;right:0;top:110%;width:480px;background:#0f172a;border:1px solid #0e7490;border-radius:8px;padding:0.75rem;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+                        <div style="font-size:10px;color:#7dd3fc;margin-bottom:0.4rem;"><strong>PATCH</strong> ${esc(fusionUrl)}</div>
+                        <pre style="font-size:9px;color:#a5f3fc;white-space:pre-wrap;word-break:break-all;margin:0;max-height:200px;overflow-y:auto;">${esc(cancelBodyPreview)}</pre>
+                    </div>
+                </span>` : '';
+
+            return `<div style="margin-bottom:0.75rem;border:1px solid ${hasFlagged?'#fca5a5':'#e2e8f0'};border-radius:8px;overflow:hidden;">
+                <div style="background:${hasFlagged?'#fff5f5':'#f8fafc'};padding:0.4rem 0.75rem;display:flex;align-items:center;gap:0.25rem;border-bottom:1px solid ${hasFlagged?'#fca5a5':'#e2e8f0'};">
+                    <span style="font-weight:700;color:#7c3aed;font-size:12px;"><i class="fas fa-file-invoice"></i> ${esc(orderNum)}</span>
+                    ${countBadge}
+                    ${apiIconHtml}
+                </div>
+                <table style="width:100%;border-collapse:collapse;background:#fff;">
+                    <thead>
+                        <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:left;font-weight:600;">Line#</th>
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:left;font-weight:600;">Item</th>
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:left;font-weight:600;">Description</th>
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:left;font-weight:600;">Status</th>
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:right;font-weight:600;">Ord Qty</th>
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:right;font-weight:600;">Res Qty</th>
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:left;font-weight:600;">Fulfill Line ID</th>
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:left;font-weight:600;">Cancel Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>${lineRows}</tbody>
+                </table>
+            </div>`;
+        }).join('');
+
+        // Inject body: legend + KPI bar + search + order sections
+        const body = document.getElementById('sa-all-lines-body');
+        if (body) {
+            const legendHtml = totalToCancel > 0
+                ? `<div style="padding:0.45rem 1rem;background:#fff5f5;border-bottom:1px solid #fca5a5;font-size:11px;color:#dc2626;flex-shrink:0;">
+                       <i class="fas fa-exclamation-triangle"></i>
+                       Rows in <strong>red</strong> = <strong>Scheduled</strong> or <strong>Manual Reservation Required</strong> — will be cancelled.
+                       ${totalChildren > 0 ? `<span style="color:#ea580c;margin-left:0.5rem;">Rows in <strong>orange</strong> = child lines (sub-line / BOGO) cancelled together with their main line.</span>` : ''}
+                   </div>` : '';
+
+            const kpiBarHtml = allLines.length > 0
+                ? `<div style="padding:0.5rem 1rem;border-bottom:1px solid #e2e8f0;display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center;flex-shrink:0;background:#fafafa;">
+                       <span style="font-size:10px;color:#94a3b8;font-weight:600;margin-right:0.25rem;">Status:</span>
+                       ${kpiHtml}
+                   </div>` : '';
+
+            const searchBarHtml = `<div style="padding:0.4rem 1rem;border-bottom:1px solid #e2e8f0;flex-shrink:0;background:#fff;">
+                <input id="sa-lines-search" type="text" placeholder="🔍  Search item, status, description, line #…"
+                    oninput="(function(v){document.querySelectorAll('.sa-lines-row').forEach(r=>{r.style.display=r.dataset.search.includes(v.toLowerCase())?'':'none'});})(this.value)"
+                    style="width:100%;box-sizing:border-box;padding:5px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;color:#1e293b;outline:none;">
+            </div>`;
+
+            body.style.cssText = 'flex:1;display:flex;flex-direction:column;overflow:hidden;';
+            body.innerHTML = legendHtml + kpiBarHtml + searchBarHtml +
+                `<div style="overflow-y:auto;padding:0.75rem 1rem;flex:1;">${orderSections}</div>`;
+        }
+
+        // Update footer with correct Fusion cancel API
+        const footer = document.getElementById('sa-all-lines-footer');
+        if (footer) {
+            const cancelOrders = orders.filter(o => (expandedGroups[o] || []).length > 0);
+            footer.innerHTML = `
+                <span style="font-size:11px;color:#64748b;">
+                    ${totalToCancel > 0
+                        ? `<i class="fas fa-ban" style="color:#dc2626;"></i> <strong style="color:#dc2626;">${totalToCancel}</strong> line(s) across <strong>${cancelOrders.length}</strong> order(s) will be cancelled (${totalFlagged} main + ${totalChildren} child)`
+                        : '<i class="fas fa-check-circle" style="color:#22c55e;"></i> No lines require cancellation'}
+                </span>
+                <button onclick="document.getElementById('sa-all-lines-dlg').remove()"
+                    style="padding:0.4rem 1rem;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;font-size:12px;font-weight:600;color:#475569;margin-left:auto;">
+                    Close
+                </button>
+                ${totalToCancel > 0 ? `
+                <button id="sa-all-lines-api-btn" title="View cancel API details"
+                    style="padding:0.4rem 0.75rem;border:1px solid #0e7490;border-radius:8px;background:#fff;cursor:pointer;font-size:11px;color:#0e7490;margin-left:0.5rem;">
+                    <i class="fas fa-plug"></i>
+                </button>
+                <button id="sa-all-lines-cancel-btn"
+                    style="padding:0.4rem 1.2rem;border:none;border-radius:8px;background:#dc2626;cursor:pointer;font-size:12px;font-weight:700;color:white;margin-left:0.5rem;">
+                    <i class="fas fa-ban"></i> Cancel ${totalToCancel} Flagged Line(s)
+                </button>` : ''}`;
+
+            if (totalToCancel > 0) {
+                const cancelGroups = expandedGroups;
+
+                // API info button in footer — shows all orders' URLs + bodies
+                document.getElementById('sa-all-lines-api-btn').onclick = () => {
+                    const existing = document.getElementById('sa-lines-footer-api');
+                    if (existing) { existing.remove(); return; }
+                    const pop = document.createElement('div');
+                    pop.id = 'sa-lines-footer-api';
+                    pop.style.cssText = 'position:fixed;bottom:4rem;right:1rem;width:520px;max-height:60vh;overflow-y:auto;background:#0f172a;border:1px solid #0e7490;border-radius:10px;padding:1rem;z-index:100000;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+                    pop.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                        <span style="font-size:11px;color:#7dd3fc;font-weight:700;"><i class="fas fa-plug"></i> Cancel API — ${isProd?'PROD':'TEST'}</span>
+                        <button onclick="document.getElementById('sa-lines-footer-api').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">×</button>
+                    </div>` +
+                    cancelOrders.map(on => {
+                        const body = JSON.stringify(buildCancelBody(cancelGroups[on]), null, 2);
+                        return `<div style="margin-bottom:0.75rem;border:1px solid #1e293b;border-radius:6px;overflow:hidden;">
+                            <div style="background:#1e293b;padding:0.3rem 0.6rem;font-size:9px;color:#7dd3fc;">
+                                <strong>PATCH</strong> ${esc(fusionCancelUrl(on))}
+                            </div>
+                            <pre style="margin:0;padding:0.5rem;font-size:9px;color:#a5f3fc;white-space:pre-wrap;word-break:break-all;">${esc(body)}</pre>
+                        </div>`;
+                    }).join('');
+                    document.body.appendChild(pop);
+                };
+
+                // Cancel button — calls Fusion PATCH per order, shows full response
+                document.getElementById('sa-all-lines-cancel-btn').onclick = async () => {
+                    const btn = document.getElementById('sa-all-lines-cancel-btn');
+                    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling…'; }
+
+                    const results = []; // { orderNumber, url, requestBody, status, response, ok }
+
+                    for (const orderNumber of cancelOrders) {
+                        const url         = fusionCancelUrl(orderNumber);
+                        const requestBody = buildCancelBody(cancelGroups[orderNumber]);
+                        const bodyStr     = JSON.stringify(requestBody);
+                        let responseText  = '', ok = false, httpStatus = '';
+
+                        await saAppendCancelLog(tripId, 'MANUAL ' + saCancelLogText(orderNumber, cancelGroups[orderNumber], skippedByOrder[orderNumber]));
+
+                        try {
+                            const raw = await new Promise((res, rej) => {
+                                sendMessageToCSharp({
+                                    action  : 'executeOracleFusionPatch',
+                                    fullUrl : url,
+                                    body    : bodyStr,
+                                    instance: inst
+                                }, (err, data) => err ? rej(new Error(String(err))) : res(data));
+                            });
+                            // data comes back as parsed object or string
+                            responseText = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2);
+                            ok = true;
+                            const childCnt = cancelGroups[orderNumber].filter(l => l._saChildOf).length;
+                            await saAppendCancelLog(tripId, `RESULT order ${orderNumber}: SUCCESS — ${cancelGroups[orderNumber].length} line(s) cancelled (${cancelGroups[orderNumber].length - childCnt} main + ${childCnt} child)`);
+                            if (agent.ID) await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'SUCCESS',
+                                cancelGroups[orderNumber].length,
+                                `Cancelled ${cancelGroups[orderNumber].length} line(s) via Fusion PATCH (incl. ${childCnt} child)`, null, null);
+                        } catch(e) {
+                            responseText = e.message;
+                            ok = false;
+                            await saAppendCancelLog(tripId, `RESULT order ${orderNumber}: FAILED — ${e.message}`);
+                            if (agent.ID) await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'FAILED', 1, e.message, null, null);
+                        }
+                        results.push({ orderNumber, url, requestBody, bodyStr, responseText, ok });
+                    }
+
+                    // Show response dialog (keep cancel dialog open behind it)
+                    document.getElementById('sa-cancel-response-dlg')?.remove();
+                    const successCount = results.filter(r => r.ok).length;
+                    const failCount    = results.filter(r => !r.ok).length;
+
+                    const resultRows = results.map(r => `
+                        <div style="margin-bottom:1rem;border:1px solid ${r.ok?'#bbf7d0':'#fca5a5'};border-radius:8px;overflow:hidden;">
+                            <div style="background:${r.ok?'#f0fdf4':'#fff5f5'};padding:0.4rem 0.75rem;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid ${r.ok?'#bbf7d0':'#fca5a5'};">
+                                <i class="fas ${r.ok?'fa-check-circle':'fa-times-circle'}" style="color:${r.ok?'#16a34a':'#dc2626'};"></i>
+                                <strong style="font-size:12px;color:${r.ok?'#15803d':'#dc2626'};">Order ${esc(r.orderNumber)}</strong>
+                                <span style="margin-left:auto;font-size:10px;color:#64748b;">PATCH</span>
+                            </div>
+                            <div style="padding:0.5rem 0.75rem;background:#fafafa;">
+                                <div style="font-size:10px;color:#64748b;margin-bottom:0.25rem;word-break:break-all;">
+                                    <strong>URL:</strong> ${esc(r.url)}
+                                </div>
+                                <details style="margin-bottom:0.4rem;">
+                                    <summary style="font-size:10px;color:#7c3aed;cursor:pointer;font-weight:600;">Request Body</summary>
+                                    <pre style="margin:0.25rem 0 0;font-size:9px;color:#374151;background:#fff;border:1px solid #e2e8f0;border-radius:4px;padding:0.4rem;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow-y:auto;">${esc(JSON.stringify(r.requestBody, null, 2))}</pre>
+                                </details>
+                                <div style="font-size:10px;color:#374151;font-weight:600;margin-bottom:0.25rem;">Response:</div>
+                                <pre style="margin:0;font-size:9px;color:${r.ok?'#15803d':'#dc2626'};background:#fff;border:1px solid #e2e8f0;border-radius:4px;padding:0.4rem;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;">${esc(r.responseText)}</pre>
+                            </div>
+                        </div>`).join('');
+
+                    const rdlg = document.createElement('div');
+                    rdlg.id = 'sa-cancel-response-dlg';
+                    rdlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100000;display:flex;align-items:center;justify-content:center;';
+                    rdlg.innerHTML = `
+                        <div style="background:#fff;border-radius:14px;width:700px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.3);overflow:hidden;border:2px solid ${failCount===0?'#bbf7d0':'#fca5a5'};">
+                            <div style="padding:0.85rem 1.2rem;background:${failCount===0?'#f0fdf4':'#fff5f5'};border-bottom:1px solid ${failCount===0?'#bbf7d0':'#fca5a5'};display:flex;align-items:center;gap:0.75rem;flex-shrink:0;">
+                                <i class="fas ${failCount===0?'fa-check-circle':'fa-exclamation-triangle'}" style="font-size:18px;color:${failCount===0?'#16a34a':'#dc2626'};"></i>
+                                <div>
+                                    <div style="font-weight:800;font-size:13px;color:${failCount===0?'#15803d':'#dc2626'};">
+                                        ${failCount===0 ? 'Cancellation Successful' : `${failCount} order(s) failed`}
+                                    </div>
+                                    <div style="font-size:10px;color:#64748b;margin-top:2px;">
+                                        ${successCount} succeeded · ${failCount} failed · PATCH to Oracle Fusion (${isProd?'PROD':'TEST'})
+                                    </div>
+                                </div>
+                                <button onclick="document.getElementById('sa-cancel-response-dlg').remove()" style="margin-left:auto;background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">×</button>
+                            </div>
+                            <div style="overflow-y:auto;padding:1rem;flex:1;">${resultRows}</div>
+                            <div style="padding:0.6rem 1.2rem;border-top:1px solid #e2e8f0;background:#f8fafc;display:flex;justify-content:flex-end;gap:0.5rem;">
+                                <button onclick="
+                                    document.getElementById('sa-cancel-response-dlg').remove();
+                                    saCancelTripOrders('${esc(String(tripId))}','${esc(inst)}');"
+                                    style="padding:0.4rem 1.2rem;border:1px solid #7c3aed;border-radius:8px;background:#fff;cursor:pointer;font-size:12px;font-weight:700;color:#7c3aed;">
+                                    <i class="fas fa-sync-alt"></i> Refresh Lines
+                                </button>
+                                <button onclick="document.getElementById('sa-cancel-response-dlg').remove();"
+                                    style="padding:0.4rem 1.2rem;border:none;border-radius:8px;background:#1e293b;cursor:pointer;font-size:12px;font-weight:700;color:white;">
+                                    Close
+                                </button>
+                            </div>
+                        </div>`;
+                    document.body.appendChild(rdlg);
+
+                    if (btn) { btn.disabled = false; btn.innerHTML = `<i class="fas fa-ban"></i> Cancel ${totalToCancel} Flagged Line(s)`; }
+                };
+            }
+        }
+    }
+
+    // ── Backordered Lines Dialog ─────────────────────────────────────────────────
+    window.saShowBackorderedLines = async function(tripId, instanceName) {
+        const inst     = instanceName || 'PROD';
+        const getUrl   = `${APEX_BASE}/trip/orders/getsalesorderlinesbytrip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`;
+        const APEX_LOT = (orderNum) => `${APEX_BASE}/trips/orders/getlotdetails/${encodeURIComponent(orderNum)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`;
+
+        const isBackordered = (status) => (status || '').toUpperCase().includes('BACKORDER');
+
+        // Remove any existing dialog
+        document.getElementById('sa-backorder-dlg')?.remove();
+
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-backorder-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `
+            <div style="background:#fff;border-radius:14px;width:1050px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;">
+                <div style="background:linear-gradient(135deg,#d97706,#b45309);padding:0.85rem 1.4rem;display:flex;align-items:center;gap:0.75rem;flex-shrink:0;position:relative;">
+                    <i class="fas fa-exclamation-triangle" style="color:white;font-size:1.1rem;"></i>
+                    <div>
+                        <div style="font-weight:700;color:white;font-size:0.95rem;">Backordered Lines — Trip ${esc(String(tripId))}</div>
+                        <div id="sa-bo-subtitle" style="font-size:0.72rem;color:rgba(255,255,255,0.8);margin-top:2px;">Loading…</div>
+                    </div>
+                    <button onclick="
+                        const p=document.getElementById('sa-bo-api-popup');
+                        if(p){p.remove();return;}
+                        const pop=document.createElement('div');
+                        pop.id='sa-bo-api-popup';
+                        pop.style.cssText='position:absolute;top:3.5rem;left:1rem;right:1rem;background:#0f172a;border:1px solid #0e7490;border-radius:8px;padding:0.75rem 1rem;z-index:100000;font-size:11px;color:#38bdf8;word-break:break-all;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+                        pop.innerHTML='<strong style=\'color:#7dd3fc;\'>GET</strong> ${esc(getUrl)}<button onclick=\'document.getElementById(\\\'sa-bo-api-popup\\\').remove()\' style=\'float:right;background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;\'>×</button>';
+                        document.getElementById('sa-backorder-dlg').querySelector('div').appendChild(pop);
+                    " style="margin-left:auto;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:white;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:0.72rem;font-weight:700;"
+                    title="${esc(getUrl)}">
+                        <i class="fas fa-plug"></i> API
+                    </button>
+                    <button onclick="document.getElementById('sa-backorder-dlg').remove()" style="background:none;border:none;color:rgba(255,255,255,0.8);font-size:1.3rem;cursor:pointer;line-height:1;">×</button>
+                </div>
+                <div id="sa-backorder-body" style="flex:1;overflow-y:auto;padding:1.2rem;">
+                    <div style="text-align:center;padding:2rem;color:#94a3b8;">
+                        <i class="fas fa-spinner fa-spin" style="font-size:1.5rem;margin-bottom:0.5rem;display:block;"></i>
+                        Loading backordered lines…
+                    </div>
+                </div>
+                <div style="padding:0.75rem 1.2rem;border-top:1px solid #e2e8f0;background:#f8fafc;display:flex;justify-content:flex-end;">
+                    <button onclick="document.getElementById('sa-backorder-dlg').remove()"
+                        style="padding:0.4rem 1.2rem;border:none;border-radius:8px;background:#1e293b;cursor:pointer;font-size:12px;font-weight:700;color:white;">
+                        Close
+                    </button>
+                </div>
+            </div>`;
+        document.body.appendChild(dlg);
+
+        const body     = document.getElementById('sa-backorder-body');
+        const subtitle = document.getElementById('sa-bo-subtitle');
+
+        try {
+            // 1. Fetch all lines for the trip — same API as Cancel Orders
+            subtitle.textContent = 'Fetching order lines from APEX…';
+            const raw      = await rawGet(getUrl);
+            const allLines = Array.isArray(raw) ? raw : (raw && raw.items ? raw.items : []);
+
+            // 2. Filter to BACKORDERED lines only
+            const boLines = allLines.filter(l => isBackordered(l.STATUS || l.status));
+
+            if (!boLines.length) {
+                subtitle.textContent = `${allLines.length} line(s) checked — none backordered`;
+                body.innerHTML = `
+                    <div style="text-align:center;padding:2rem;">
+                        <i class="fas fa-check-circle" style="color:#22c55e;font-size:2rem;margin-bottom:0.5rem;display:block;"></i>
+                        <div style="font-weight:700;color:#15803d;">No backordered lines found</div>
+                        <div style="color:#94a3b8;font-size:0.8rem;margin-top:0.3rem;">${allLines.length} line(s) checked across all orders in trip ${esc(String(tripId))}.</div>
+                    </div>`;
+                return;
+            }
+
+            // 3. Group backordered lines by order
+            const orderMap = {};
+            for (const l of boLines) {
+                const on = l.SOURCE_ORDER_NUMBER || l.source_order_number || '—';
+                if (!orderMap[on]) orderMap[on] = [];
+                orderMap[on].push(l);
+            }
+            const orderNums = Object.keys(orderMap).sort();
+
+            subtitle.textContent = `${boLines.length} backordered line(s) across ${orderNums.length} order(s) — fetching WMS lot details…`;
+
+            // 4. Fetch lot details per order in parallel
+            const lotByOrder = {};
+            await Promise.all(orderNums.map(async (orderNum) => {
+                try {
+                    const lotData = await apexGet(`trips/orders/getlotdetails/${encodeURIComponent(orderNum)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
+                    lotByOrder[orderNum] = Array.isArray(lotData) ? lotData : (lotData && lotData.items ? lotData.items : []);
+                } catch(e) {
+                    console.warn('[BackorderedLines] Lot details failed for', orderNum, e.message);
+                    lotByOrder[orderNum] = [];
+                }
+            }));
+
+            const withPicked = orderNums.filter(on => {
+                const total = (lotByOrder[on] || []).reduce((s, r) => s + Number(r.picked_qty || r.PICKED_QTY || 0), 0);
+                return total > 0;
+            });
+
+            subtitle.textContent = `${boLines.length} backordered line(s) · ${orderNums.length} order(s)${withPicked.length ? ` · ⚠ ${withPicked.length} with picked qty` : ''}`;
+
+            // 5. Render
+            let html = `
+                <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:1rem;">
+                    <div style="background:#fef3c7;color:#92400e;padding:0.4rem 0.9rem;border-radius:8px;font-size:0.78rem;font-weight:700;">
+                        <i class="fas fa-exclamation-triangle"></i> ${boLines.length} backordered line(s) across ${orderNums.length} order(s)
+                    </div>
+                    ${withPicked.length
+                        ? `<div style="background:#fee2e2;color:#b91c1c;padding:0.4rem 0.9rem;border-radius:8px;font-size:0.78rem;font-weight:700;">
+                            <i class="fas fa-hand-paper"></i> ${withPicked.length} order(s) have picked qty — DO NOT cancel
+                           </div>`
+                        : `<div style="background:#d1fae5;color:#065f46;padding:0.4rem 0.9rem;border-radius:8px;font-size:0.78rem;font-weight:700;">
+                            <i class="fas fa-check-circle"></i> No picked qty — safe to review
+                           </div>`}
+                </div>`;
+
+            orderNums.forEach(orderNum => {
+                const lines        = orderMap[orderNum];
+                const lotRows      = lotByOrder[orderNum] || [];
+                const totalPickedQty = lotRows.reduce((s, r) => s + Number(r.picked_qty || r.PICKED_QTY || 0), 0);
+                const hasPickedQty = totalPickedQty > 0;
+                const borderColor  = hasPickedQty ? '#dc2626' : '#d97706';
+                const bgColor      = hasPickedQty ? '#fff5f5' : '#fffbeb';
+
+                html += `
+                <div style="border:1px solid ${borderColor};border-left:4px solid ${borderColor};border-radius:8px;margin-bottom:1rem;background:${bgColor};overflow:hidden;">
+                    <div style="padding:0.6rem 0.9rem;display:flex;align-items:center;gap:0.6rem;border-bottom:1px solid ${borderColor}30;">
+                        <strong style="font-size:0.88rem;color:#1e293b;">#${esc(orderNum)}</strong>
+                        <span style="background:${hasPickedQty?'#fee2e2':'#fef3c7'};color:${hasPickedQty?'#b91c1c':'#92400e'};padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:700;">
+                            ${lines.length} backordered line(s)
+                        </span>
+                        ${hasPickedQty
+                            ? `<span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:700;">
+                                <i class="fas fa-hand-paper"></i> Picked Qty: ${totalPickedQty} — DO NOT CANCEL
+                               </span>`
+                            : `<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:700;">
+                                <i class="fas fa-check"></i> Picked Qty: 0
+                               </span>`}
+                    </div>
+                    <div style="padding:0.6rem 0.9rem;overflow-x:auto;">
+                        <table style="width:100%;border-collapse:collapse;font-size:0.75rem;min-width:600px;">
+                            <thead>
+                                <tr style="background:#f8fafc;">
+                                    <th style="padding:4px 8px;text-align:left;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Line #</th>
+                                    <th style="padding:4px 8px;text-align:left;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Item</th>
+                                    <th style="padding:4px 8px;text-align:left;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Description</th>
+                                    <th style="padding:4px 8px;text-align:left;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Status</th>
+                                    <th style="padding:4px 8px;text-align:right;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Ordered Qty</th>
+                                    <th style="padding:4px 8px;text-align:right;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Picked Qty (WMS)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${lines.map(l => {
+                                    const lineNum    = l.LINE_NUMBER   || l.line_number   || '—';
+                                    const item       = l.ITEM_NUMBER   || l.item_number   || l.PRODUCT_NUMBER || '—';
+                                    const desc       = l.ITEM_DESC     || l.item_desc     || l.DESCRIPTION    || '—';
+                                    const status     = l.STATUS        || l.status        || 'Backordered';
+                                    const orderedQty = l.ORDERED_QTY   || l.ordered_qty   || l.QUANTITY        || '—';
+                                    const lotRow     = lotRows.find(r =>
+                                        (r.item_code || r.ITEM_CODE || '').toUpperCase() === item.toUpperCase()
+                                    );
+                                    const pickedQty  = lotRow ? Number(lotRow.picked_qty || lotRow.PICKED_QTY || 0) : 0;
+                                    return `<tr style="border-bottom:1px solid #f1f5f9;">
+                                        <td style="padding:4px 8px;color:#64748b;">${esc(String(lineNum))}</td>
+                                        <td style="padding:4px 8px;font-weight:600;">${esc(String(item))}</td>
+                                        <td style="padding:4px 8px;color:#475569;font-size:0.7rem;">${esc(String(desc))}</td>
+                                        <td style="padding:4px 8px;">
+                                            <span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:0.68rem;font-weight:700;">${esc(String(status))}</span>
+                                        </td>
+                                        <td style="padding:4px 8px;text-align:right;">${esc(String(orderedQty))}</td>
+                                        <td style="padding:4px 8px;text-align:right;${pickedQty>0?'color:#dc2626;font-weight:700;':'color:#94a3b8;'}">${pickedQty>0?'⚠ '+pickedQty:pickedQty}</td>
+                                    </tr>`;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>`;
+            });
+
+            body.innerHTML = html;
+
+        } catch(err) {
+            body.innerHTML = `<div style="text-align:center;padding:2rem;color:#dc2626;">
+                <i class="fas fa-times-circle" style="font-size:1.5rem;margin-bottom:0.5rem;display:block;"></i>
+                <div style="font-weight:700;margin-bottom:0.3rem;">Error loading backordered lines</div>
+                <div style="font-size:0.75rem;color:#64748b;word-break:break-all;">${esc(String(err && err.message ? err.message : err))}</div>
+                <div style="margin-top:0.5rem;font-size:0.7rem;color:#94a3b8;word-break:break-all;">URL: ${esc(getUrl)}</div>
+            </div>`;
+        }
+    };
+
+    window.saShowShipmentLinesApiInfo = function(sampleOrderNumber, instanceName) {
+        const inst     = instanceName || 'PROD';
+        const fusionUrl = fusionShipmentLinesUrl(sampleOrderNumber, inst);
+        const isProd   = inst.toUpperCase() === 'PROD';
+
+        const existing = document.getElementById('sa-api-popup');
+        if (existing) existing.remove();
+
+        const pop = document.createElement('div');
+        pop.id = 'sa-api-popup';
+        pop.style.cssText = 'position:fixed;top:60px;right:20px;width:600px;max-height:90vh;overflow-y:auto;background:#0f172a;color:#e2e8f0;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.6);z-index:99999;font-family:monospace;font-size:11px;';
+        pop.innerHTML = `
+            <div style="padding:0.75rem 1rem;background:#1e293b;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;">
+                <span style="font-weight:800;font-size:12px;color:#7c3aed;"><i class="fas fa-code"></i> Get Shipment Lines — Oracle Fusion REST API</span>
+                <button onclick="document.getElementById('sa-api-popup').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">×</button>
+            </div>
+            <div style="padding:1rem;display:flex;flex-direction:column;gap:0.9rem;">
+
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
+                        Oracle Fusion — shipmentLines (called once per order)
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #7c3aed;border-radius:6px;padding:0.6rem 0.8rem;">
+                        <div style="color:#a78bfa;font-size:9px;margin-bottom:6px;font-weight:700;">
+                            ${isProd ? '🟢 PROD' : '🟡 TRAIN/TEST'} — Instance: <strong>${esc(inst)}</strong>
+                        </div>
+                        <div style="display:flex;gap:4px;align-items:flex-start;">
+                            <input readonly value="${esc(fusionUrl)}" onclick="this.select()" style="flex:1;background:#0f172a;color:#38bdf8;border:1px solid #334155;border-radius:4px;padding:5px 7px;font-family:monospace;font-size:10px;word-break:break-all;white-space:pre-wrap;width:100%;cursor:pointer;" title="Click to select all">
+                            <button onclick="navigator.clipboard.writeText('${esc(fusionUrl)}').then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='📋',1200)})" style="background:#7c3aed;color:white;border:none;border-radius:4px;padding:5px 8px;cursor:pointer;font-size:11px;flex-shrink:0;" title="Copy URL">📋</button>
+                        </div>
+                    </div>
+                    <div style="color:#64748b;font-size:9px;margin-top:0.4rem;line-height:1.7;">
+                        <strong style="color:#94a3b8;">Host:</strong>
+                        <span style="color:#f472b6;">PROD</span> → <code>efmh.fa.em3.oraclecloud.com</code> &nbsp;|&nbsp;
+                        <span style="color:#fbbf24;">TRAIN</span> → <code>efmh-test.fa.em3.oraclecloud.com</code><br>
+                        <strong style="color:#94a3b8;">Resource:</strong> <code>/fscmRestApi/resources/11.13.18.05/shipmentLines</code><br>
+                        <strong style="color:#94a3b8;">Query:</strong> <code>q=Order={ORDER_NUMBER}&limit=500</code><br>
+                        <strong style="color:#94a3b8;">Auth:</strong> Via C# <code>executeOracleFusionGet</code> (Fusion credentials from config)<br>
+                        <strong style="color:#94a3b8;">Response fields:</strong> <code>LineStatusCode</code>, <code>LineStatus</code>, <code>RequestedQuantity</code>, <code>StagedQuantity</code>, <code>ShippedQuantity</code>
+                    </div>
+                </div>
+
+                <div style="background:#1e293b;border-radius:6px;padding:0.6rem 0.8rem;font-size:9px;color:#94a3b8;line-height:1.8;">
+                    <div style="color:#e2e8f0;font-weight:700;margin-bottom:0.4rem;"><i class="fas fa-sitemap" style="color:#7c3aed;"></i> Status Classification (LineStatusCode → meaning)</div>
+                    <div><code style="color:#fbbf24;">Ready to Release</code> → Picking not yet started</div>
+                    <div><code style="color:#38bdf8;">Released to WH</code> → Pick wave released, picking in progress</div>
+                    <div><code style="color:#60a5fa;">C → Staged</code> → <strong style="color:#e2e8f0;">Picking done</strong> ✓</div>
+                    <div><code style="color:#4ade80;">Y → Interfaced</code> → <strong style="color:#e2e8f0;">Shipping done</strong> ✓✓</div>
+                    <div><code style="color:#4ade80;">Pending inventory processing</code> → treated as <strong style="color:#e2e8f0;">Interfaced</strong> ✓✓</div>
+                    <div><code style="color:#f87171;">X → Cancelled</code> → Line cancelled</div>
+                </div>
+
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
+                        APEX — Sales Order Lines count (per order)
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #0891b2;border-radius:6px;padding:0.5rem 0.8rem;">
+                        <div style="display:flex;gap:4px;align-items:flex-start;">
+                            <input readonly value="${esc(APEX_BASE)}/trip/orders/getsalesorderlines/${esc(sampleOrderNumber||'{ORDER_NUMBER}')}?P_INSTANCE_NAME=${esc(inst)}" onclick="this.select()" style="flex:1;background:#0f172a;color:#38bdf8;border:1px solid #334155;border-radius:4px;padding:5px 7px;font-family:monospace;font-size:10px;width:100%;cursor:pointer;" title="Click to select all">
+                            <button onclick="navigator.clipboard.writeText(this.previousElementSibling.value).then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='📋',1200)})" style="background:#0891b2;color:white;border:none;border-radius:4px;padding:5px 8px;cursor:pointer;font-size:11px;flex-shrink:0;" title="Copy URL">📋</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#d97706;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">POST</span>
+                        APEX — Save Fusion order lines to DB (per order)
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #d97706;border-radius:6px;padding:0.5rem 0.8rem;color:#fcd34d;font-size:10px;word-break:break-all;">
+                        ${esc(APEX_BASE)}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${esc(inst)}&amp;p_order_number=<strong>{ORDER_NUMBER}</strong>&amp;p_trip_id=<strong>${esc(String(tripId))}</strong>
+                    </div>
+                </div>
+
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#7c3aed;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">SOAP</span>
+                        Oracle Fusion — Download Invoice PDF (Print button)
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #7c3aed;border-radius:6px;padding:0.5rem 0.8rem;color:#c4b5fd;font-size:10px;word-break:break-all;">
+                        ${isProd ? 'https://efmh.fa.em3.oraclecloud.com' : 'https://efmh-test.fa.em3.oraclecloud.com'}/xmlpserver/services/v2/ReportService<br>
+                        <span style="color:#94a3b8;">Report:</span> /Custom/OQ/GR_SalesOrder_Rep.xdo &nbsp;·&nbsp; <span style="color:#94a3b8;">Param:</span> Order_Number=<strong>{ORDER_NUMBER}</strong><br>
+                        <span style="color:#94a3b8;">Via C#:</span> <code>printSalesOrder</code> action → saves PDF to C:\fusion\{date}\{tripId}\{order}.pdf
+                    </div>
+                </div>
+
+                <div style="font-size:9px;color:#64748b;line-height:1.6;">
+                    <i class="fas fa-clock" style="color:#7c3aed;"></i> Fetch time stored in <code>window._saOrderLastFetched[orderNumber]</code> — shown in <strong>Last Checked</strong> column.<br>
+                    <i class="fas fa-history" style="color:#7c3aed;"></i> Every fetch posts a <code>CHECK_STATUS</code> entry to the agent Activity Log.<br>
+                    <i class="fas fa-print" style="color:#7c3aed;"></i> Print button available per order and at trip level (Print Trip). PDF verified by reading back base64 content.
+                </div>
+            </div>`;
+        document.body.appendChild(pop);
+    };
+
+    window.saShowDbSaveApiInfo = function() {
+        const existing = document.getElementById('sa-api-popup');
+        if (existing) existing.remove();
+
+        const payload = window._saLastDbSavePayload;
+        const payloadJson = payload
+            ? JSON.stringify(payload, null, 2)
+            : '// Not yet fetched — click "Get Shipment Lines" first';
+
+        const pop = document.createElement('div');
+        pop.id = 'sa-api-popup';
+        pop.style.cssText = 'position:fixed;top:60px;right:20px;width:620px;max-height:90vh;overflow-y:auto;background:#0f172a;color:#e2e8f0;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.6);z-index:99999;font-family:monospace;font-size:11px;';
+        pop.innerHTML = `
+            <div style="padding:0.75rem 1rem;background:#1e293b;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;">
+                <span style="font-weight:800;font-size:12px;color:#f59e0b;"><i class="fas fa-database"></i> DB Save — WMS_SHIPING_AGENTS_ORDERS_STATUS</span>
+                <button onclick="document.getElementById('sa-api-popup').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">×</button>
+            </div>
+            <div style="padding:1rem;display:flex;flex-direction:column;gap:0.9rem;">
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#d97706;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">POST</span>
+                        APEX REST — Save order shipment status per order
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #f59e0b;border-radius:6px;padding:0.6rem 0.8rem;color:#fcd34d;font-size:10px;word-break:break-all;">
+                        ${esc(APEX_BASE)}/agents/orders/status/save
+                    </div>
+                    <div style="color:#64748b;font-size:9px;margin-top:0.35rem;line-height:1.7;">
+                        Called from <code>saFetchOrderStatus()</code> after each Fusion shipmentLines response.<br>
+                        <code>printTotal</code> / <code>printPrinted</code> are <strong>not sent</strong> — PL/SQL queries <code>wms_print_jobs</code> live.<br>
+                        Deployed via: <code>apex_sql/30_agents_order_status.sql</code> — Handler A.
+                    </div>
+                </div>
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;margin-bottom:0.4rem;">
+                        ${payload ? '<span style="color:#4ade80;">● Last actual payload sent</span>' : '<span style="color:#f87171;">● No payload yet — fetch shipment lines first</span>'}
+                    </div>
+                    <pre style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:0.8rem;overflow-x:auto;font-size:10px;color:#a5f3fc;margin:0;white-space:pre-wrap;line-height:1.6;">${esc(payloadJson)}</pre>
+                </div>
+                <div style="background:#1e293b;border-radius:6px;padding:0.6rem 0.8rem;font-size:9px;color:#94a3b8;line-height:1.8;">
+                    <div style="color:#e2e8f0;font-weight:700;margin-bottom:0.4rem;"><i class="fas fa-table" style="color:#f59e0b;"></i> Table: WMS_SHIPING_AGENTS_ORDERS_STATUS</div>
+                    <div>Unique constraint: <code>(agent_id, trip_id, order_number, instance_name)</code></div>
+                    <div>Strategy: <strong>DELETE + INSERT</strong> on every fetch (full refresh per order)</div>
+                    <div>GET endpoint: <code>agents/{agentId}/trips/{tripId}/orders/status</code></div>
+                    <div>DELETE endpoint: <code>agents/{agentId}/trips/{tripId}/orders/status</code></div>
+                </div>
+            </div>`;
+        document.body.appendChild(pop);
+    };
+
+    window.saShowGetStatusApiInfo = function(tripId, instanceName) {
+        const agent   = window._saCurrentAgent;
+        const agentId = agent ? (agent.ID || agent.id) : '?';
+        const getUrl  = `${APEX_BASE}/agents/${agentId}/trips/${encodeURIComponent(tripId)}/orders/status`;
+
+        const existing = document.getElementById('sa-api-popup');
+        if (existing) existing.remove();
+
+        const pop = document.createElement('div');
+        pop.id = 'sa-api-popup';
+        pop.style.cssText = 'position:fixed;top:60px;right:20px;width:620px;max-height:90vh;overflow-y:auto;background:#0f172a;color:#e2e8f0;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.6);z-index:99999;font-family:monospace;font-size:11px;';
+        pop.innerHTML = `
+            <div style="padding:0.75rem 1rem;background:#1e293b;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;">
+                <span style="font-weight:800;font-size:12px;color:#4ade80;"><i class="fas fa-search"></i> GET — WMS_SHIPING_AGENTS_ORDERS_STATUS</span>
+                <button onclick="document.getElementById('sa-api-popup').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">×</button>
+            </div>
+            <div style="padding:1rem;display:flex;flex-direction:column;gap:0.9rem;">
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
+                        Called on trip open — pre-populates order status columns from DB
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #4ade80;border-radius:6px;padding:0.8rem;color:#4ade80;font-size:10px;word-break:break-all;line-height:1.8;">
+                        ${esc(getUrl)}
+                    </div>
+                    <div style="color:#64748b;font-size:9px;margin-top:0.4rem;line-height:1.7;">
+                        <strong style="color:#94a3b8;">agentId:</strong> <code>${agentId}</code> &nbsp;·&nbsp;
+                        <strong style="color:#94a3b8;">tripId:</strong> <code>${esc(tripId)}</code> &nbsp;·&nbsp;
+                        <strong style="color:#94a3b8;">instanceName:</strong> <code>${esc(instanceName || 'PROD')}</code><br>
+                        <strong style="color:#94a3b8;">When:</strong> Inside <code>saLoadTripOrders()</code> — runs every time you click Orders on a trip card.<br>
+                        <strong style="color:#94a3b8;">APEX handler:</strong> URI Template <code>agents/:agentId/trips/:tripId/orders/status</code> — Method <strong>GET</strong> — Source Type <strong>SQL Query</strong>
+                    </div>
+                </div>
+                <div style="background:#1e293b;border-radius:6px;padding:0.7rem 0.8rem;font-size:9px;color:#94a3b8;line-height:1.8;">
+                    <div style="color:#e2e8f0;font-weight:700;margin-bottom:0.4rem;"><i class="fas fa-exclamation-triangle" style="color:#f59e0b;"></i> If this returns no rows or 404:</div>
+                    <div>1. Make sure Handler B (GET) is deployed in APEX — <code>apex_sql/30_agents_order_status.sql</code></div>
+                    <div>2. URI template must be exactly: <code>agents/:agentId/trips/:tripId/orders/status</code></div>
+                    <div>3. Source Type must be <strong>SQL Query</strong> (not PL/SQL)</div>
+                    <div>4. Run POST (Get Shipment Lines) first to insert data, then reload trip orders</div>
+                </div>
+            </div>`;
+        document.body.appendChild(pop);
+    };
+
+    function saCheckedBadge(timeStr, lineCount) {
+        return `<div style="font-size:9px;color:#059669;"><i class="fas fa-check-circle"></i> ${timeStr}</div>` +
+               `<div style="font-size:9px;color:#94a3b8;">${lineCount} line(s)</div>`;
+    }
+
+    // Badge helpers
+    function saBadge(label, bg, color, icon) {
+        return `<span style="background:${bg};color:${color};padding:2px 7px;border-radius:6px;font-size:9px;font-weight:700;white-space:nowrap;display:inline-block;">${icon ? `<i class="fas ${icon}"></i> ` : ''}${label}</span>`;
+    }
+
+    function saPickBadge(yesCount, noCount, total) {
+        if (total === 0) return saBadge('N/A', '#f1f5f9', '#94a3b8', null);
+        if (yesCount === total) return saBadge('Confirmed', '#dcfce7', '#15803d', 'fa-check');
+        if (yesCount === 0)    return saBadge('Not Picked', '#fef2f2', '#b91c1c', 'fa-times');
+        return saBadge(`${yesCount}/${total} Picked`, '#fef9c3', '#a16207', 'fa-box');
+    }
+
+    function saShipBadge(yesCount, noCount, total) {
+        if (total === 0) return saBadge('N/A', '#f1f5f9', '#94a3b8', null);
+        if (yesCount === total) return saBadge('Shipped', '#dcfce7', '#15803d', 'fa-truck');
+        if (yesCount === 0)    return saBadge('Not Shipped', '#fef2f2', '#b91c1c', 'fa-times');
+        return saBadge(`${yesCount}/${total} Shipped`, '#fef9c3', '#a16207', 'fa-truck');
+    }
+
+    function saRenderOrdersTable(orders, tripId, inst) {
+        const spin = `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`;
+        const rows = orders.map(o => {
+            // Encode row data safely using base64 to avoid JSON/HTML escaping issues
+            // (order names can contain apostrophes, %, backslashes etc.)
+            const rowB64 = btoa(unescape(encodeURIComponent(JSON.stringify(o))));
+            return `
+            <tr id="sa-order-row-${esc(tripId)}-${esc(o.ORDER_NUMBER)}" style="border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+                <td style="padding:6px 8px;min-width:120px;">
+                    <a href="javascript:void(0)" onclick="editTripOrder(JSON.parse(decodeURIComponent(escape(atob(this.dataset.row)))))" data-row="${rowB64}"
+                        style="font-weight:700;color:#6d28d9;font-size:11px;text-decoration:none;cursor:pointer;"
+                        title="Open order transactions">${esc(o.ORDER_NUMBER)}</a>
+                    <div style="color:#64748b;font-size:9px;">${esc(o.ACCOUNT_NAME)}</div>
+                    <div style="color:#94a3b8;font-size:9px;">${esc(o.ORDER_TYPE)} <span data-col="shipped-indicator"></span></div>
+                </td>
+                <td style="padding:6px 8px;text-align:center;" data-col="status">${spin}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="staged">${spin}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="picking">${spin}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="shipping">${spin}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="backorder">${spin}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="cancel">${spin}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="order_lines">${spin}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="mra">${saMraBadgeFor(tripId, o.ORDER_NUMBER)}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="print">${spin}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="plines"><span style="color:#94a3b8;font-size:9px;">—</span></td>
+                <td style="padding:6px 8px;text-align:center;" data-col="checked"><span style="color:#94a3b8;font-size:9px;">—</span></td>
+                <td style="padding:6px 8px;text-align:center;">
+                    <div style="display:flex;gap:3px;justify-content:center;flex-wrap:wrap;">
+                        <button onclick="saFetchOrderStatus('${esc(o.ORDER_NUMBER)}','${esc(o.INSTANCE)}','${esc(tripId)}')"
+                            style="background:#e0f2fe;color:#0369a1;border:none;padding:3px 7px;border-radius:5px;font-size:9px;cursor:pointer;font-weight:700;" title="Refresh shipment lines">
+                            <i class="fas fa-sync"></i>
+                        </button>
+                        <button id="sa-print-btn-${esc(tripId)}-${esc(o.ORDER_NUMBER)}"
+                            onclick="saPrintOrder('${esc(o.ORDER_NUMBER)}','${esc(tripId)}','${esc(o.TRIP_DATE)}','${esc(o.INSTANCE)}')"
+                            style="background:#7c3aed;color:white;border:none;padding:3px 7px;border-radius:5px;font-size:9px;cursor:pointer;font-weight:700;" title="Download invoice PDF via SOAP">
+                            <i class="fas fa-print"></i>
+                        </button>
+                        <button onclick="saShowPrintApiInfo('${esc(o.ORDER_NUMBER)}','${esc(o.INSTANCE)}')"
+                            style="background:#1e293b;color:#94a3b8;border:none;padding:3px 6px;border-radius:5px;font-size:9px;cursor:pointer;font-weight:600;" title="Show SOAP call details">
+                            <i class="fas fa-code"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>`;
+        }).join('');
+
+        return `
+        <div style="padding:0.5rem 0;overflow-x:auto;">
+            <div style="padding:0 1rem 0.4rem;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:10px;font-weight:700;color:#475569;">${orders.length} ORDER(S)</span>
+                <div style="display:flex;gap:0.4rem;align-items:center;">
+                    <button onclick="saShowShipmentLinesApiInfo('${esc(orders[0] && orders[0].ORDER_NUMBER || '')}','${esc(inst)}')"
+                        style="background:#1e293b;color:#94a3b8;border:none;padding:4px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;"
+                        title="${esc(fusionShipmentLinesUrl(orders[0] && orders[0].ORDER_NUMBER || '', inst))}"><i class="fas fa-plug"></i> API</button>
+                    <button onclick="saShowDbSaveApiInfo()"
+                        style="background:#1e293b;color:#f59e0b;border:1px solid #f59e0b;padding:4px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="Show DB save POST body (WMS_SHIPING_AGENTS_ORDERS_STATUS)"><i class="fas fa-database"></i></button>
+                    <button onclick="saShowGetStatusApiInfo('${esc(tripId)}','${esc(inst)}')"
+                        style="background:#1e293b;color:#4ade80;border:1px solid #4ade80;padding:4px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="Show GET status URL (WMS_SHIPING_AGENTS_ORDERS_STATUS)"><i class="fas fa-search"></i></button>
+                    <button id="sa-btn-get-sl-${esc(tripId)}"
+                        onclick="saGetAllShipmentLines('${esc(tripId)}','${esc(inst)}')"
+                        style="background:#7c3aed;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;">
+                        <i class="fas fa-download"></i> Get Shipment Lines
+                    </button>
+                    <button id="sa-btn-print-status-${esc(tripId)}"
+                        onclick="saGetPrintStatus('${esc(tripId)}','${esc(inst)}')"
+                        style="background:#0891b2;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="Fetch live print status from wms_print_jobs for this trip">
+                        <i class="fas fa-print"></i> Get Print Status
+                    </button>
+                    <button onclick="saOpenPdfFolder('${esc(tripId)}')"
+                        style="background:#475569;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="Open PDF download folder in Windows Explorer">
+                        <i class="fas fa-folder-open"></i> Open PDF Folder
+                    </button>
+                    <button onclick="saVerifyPdfs('${esc(tripId)}','${esc(inst)}')"
+                        style="background:#0f172a;color:#f59e0b;border:1px solid #f59e0b;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="Check each order PDF exists and has lines">
+                        <i class="fas fa-file-pdf"></i> Verify PDFs
+                    </button>
+                    <label style="display:flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#475569;cursor:pointer;padding:4px 8px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:5px;"
+                        title="When checked: skip the line count check — call SOAP printSalesOrder directly for maximum speed (the print job is still saved to wms_print_jobs)">
+                        <input type="checkbox" id="sa-chk-direct-${esc(tripId)}" checked style="cursor:pointer;">
+                        Direct Download
+                    </label>
+                    <button id="sa-btn-print-trip-${esc(tripId)}"
+                        onclick="saPrintTrip('${esc(tripId)}','${esc(inst)}')"
+                        style="background:#059669;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="Download & view invoice PDFs for all fully-interfaced orders">
+                        <i class="fas fa-print"></i> Print Trip
+                    </button>
+                    <button onclick="saCancelTripOrders('${esc(tripId)}','${esc(inst)}')"
+                        style="background:#dc2626;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="Cancel Sales Orders">
+                        <i class="fas fa-ban"></i> Cancel Orders
+                    </button>
+                    <button onclick="saShowBackorderedLines('${esc(tripId)}','${esc(inst)}')"
+                        style="background:#d97706;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="View backordered lines and picked quantities">
+                        <i class="fas fa-exclamation-triangle"></i> Backordered Lines
+                    </button>
+                </div>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                <thead>
+                    <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
+                        <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700;">Order # / Customer</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Order Status</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Staged</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Picking</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Shipping</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Backorder</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Cancelled</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Order Lines</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;" title="MRA (Mauritius Revenue Authority) e-invoicing status — Print Trip interfaces to MRA before printing">MRA St</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Printing</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;" title="Line count from GR_SO_LINE_COUNT_BIP report">PLines</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Last Checked</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+    }
+
+
+    window.saUnassignTrip = async function(agentId, tripId) {
+        if (!confirm(`Remove trip "${tripId}" from this agent?`)) return;
+        try {
+            await apexDelete(`agents/${agentId}/trips/${encodeURIComponent(tripId)}`);
+            showNotification('Trip removed from agent.', 'success');
+            await saLoadTrips();
+        } catch(e) {
+            showNotification('Failed to remove trip: ' + e.message, 'error');
+        }
+    };
+
+    // ─── Show Trip Order Lines dialog ────────────────────────
+
+    window.saShowTripLines = async function(tripId, instanceName) {
+        const inst = instanceName || 'PROD';
+        const url  = `${APEX_BASE.replace('TRIPMANAGEMENT','TRIPMANAGEMENT')}/gettrillines?P_TRIP_ID=${encodeURIComponent(tripId)}&P_INSTANCE_NAME=${inst}`;
+
+        // Show modal with spinner first
+        const existing = document.getElementById('sa-triplines-modal');
+        if (existing) existing.remove();
+        document.body.insertAdjacentHTML('beforeend', `
+        <div id="sa-triplines-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:22000;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+            <div style="background:white;border-radius:12px;width:95vw;max-width:1200px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+                <div style="padding:1rem 1.25rem;background:linear-gradient(135deg,#1e293b,#334155);border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                        <div style="color:white;font-weight:700;font-size:14px;"><i class="fas fa-table" style="color:#fbbf24;margin-right:6px;"></i>Order Lines — Trip ${esc(tripId)}</div>
+                        <div style="color:#94a3b8;font-size:10px;margin-top:2px;">${esc(inst)} · ${esc(url)}</div>
+                    </div>
+                    <button onclick="document.getElementById('sa-triplines-modal').remove()" style="background:#475569;color:white;border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-weight:700;">&times;</button>
+                </div>
+                <div id="sa-triplines-body" style="flex:1;overflow:auto;padding:1rem;">
+                    <div style="text-align:center;padding:2rem;color:#94a3b8;"><i class="fas fa-spinner fa-spin fa-2x"></i><div style="margin-top:0.5rem;">Loading order lines...</div></div>
+                </div>
+            </div>
+        </div>`);
+
+        try {
+            const data  = await rawGet(`${APEX_BASE}/gettrillines?P_TRIP_ID=${encodeURIComponent(tripId)}&P_INSTANCE_NAME=${inst}`);
+            const lines = data.items || [];
+            const body  = document.getElementById('sa-triplines-body');
+            if (!body) return;
+
+            if (lines.length === 0) {
+                body.innerHTML = `<div style="text-align:center;padding:2rem;color:#94a3b8;font-size:12px;">No order lines found for trip ${esc(tripId)}.</div>`;
+                return;
+            }
+
+            // Collect column headers dynamically from first row
+            const cols = Object.keys(lines[0]);
+            const thStyle = 'padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:700;white-space:nowrap;border-bottom:2px solid #e2e8f0;background:#f8fafc;';
+            const tdStyle = 'padding:5px 10px;font-size:11px;color:#1e293b;border-bottom:1px solid #f1f5f9;white-space:nowrap;';
+
+            body.innerHTML = `
+            <div style="margin-bottom:0.5rem;font-size:11px;color:#475569;font-weight:600;">${lines.length} line(s)</div>
+            <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;">
+                <thead><tr>${cols.map(c => `<th style="${thStyle}">${esc(c)}</th>`).join('')}</tr></thead>
+                <tbody>${lines.map((row, i) => `
+                <tr style="background:${i%2===0?'white':'#f8fafc'};" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background='${i%2===0?'white':'#f8fafc'}'">
+                    ${cols.map(c => `<td style="${tdStyle}">${esc(String(row[c] ?? ''))}</td>`).join('')}
+                </tr>`).join('')}
+                </tbody>
+            </table>
+            </div>`;
+        } catch(e) {
+            const body = document.getElementById('sa-triplines-body');
+            if (body) body.innerHTML = `<div style="padding:1rem;color:#dc2626;font-size:12px;">${esc(e.message)}</div>`;
+        }
+    };
+
+    // ─── Activity Log Tab ────────────────────────────────────
+
+    const ACTIVITY_LABEL = {
+        CHECK_STATUS:   'Fetching Shipment Lines',
+        PRINT:          'Printing',
+        PICK_RELEASE:   'Pick Release',
+        NOTIFY_PICKER:  'Notify Picker',
+        SHIP_CONFIRM:   'Ship Confirm',
+        CANCEL_LINE:    'Cancelling Lines',
+        ANOMALY_DETECT: 'Anomaly Detection',
+        AI_ANALYSIS:    'AI Analysis',
+        FETCH_ORDERS:   'Fetching Sales Order Lines',
+        FETCH_TRIPS:    'Fetching Trips',
+        ASSIGN_TRIP:    'Assigning Trip',
+    };
+
+    window.saRefreshActivity = async function() {
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
+        const feed = document.getElementById('sa-activity-feed');
+        if (!feed) return;
+        feed.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;"><i class="fas fa-spinner fa-spin"></i></div>`;
+        try {
+            const data       = await apexGet(`agents/${agent.ID}/activity?LIMIT=100`);
+            const activities = data.items || [];
+            if (activities.length === 0) {
+                feed.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;">No activity yet.</div>`;
+                return;
+            }
+            feed.innerHTML = activities.map(a => {
+                // Normalize lowercase ORDS column names
+                const actType    = a.ACTIVITY_TYPE  || a.activity_type  || '';
+                const status     = a.STATUS         || a.status         || '';
+                const msg        = a.MESSAGE        || a.message        || '';
+                const tripId     = a.TRIP_ID        || a.trip_id        || '';
+                const orderNum   = a.ORDER_NUMBER   || a.order_number   || '';
+                const attempt    = a.ATTEMPT_NUMBER || a.attempt_number || 1;
+                const durationMs = a.DURATION_MS    || a.duration_ms    || null;
+                const createdDate= a.CREATED_DATE   || a.created_date   || '';
+
+                const info  = ACTIVITY_ICON[actType] || { icon: 'fa-history', color: '#64748b' };
+                const label = ACTIVITY_LABEL[actType] || actType || 'Activity';
+
+                const isOk    = status === 'SUCCESS';
+                const isFail  = status === 'FAILED';
+                const isRetry = status === 'RETRY';
+                const statusColor = isOk ? '#059669' : isFail ? '#dc2626' : isRetry ? '#d97706' : '#94a3b8';
+                const statusBg    = isOk ? '#f0fdf4' : isFail ? '#fff5f5' : isRetry ? '#fefce8' : '#f8fafc';
+                const statusIcon  = isOk ? 'fa-check-circle' : isFail ? 'fa-times-circle' : isRetry ? 'fa-redo' : 'fa-circle';
+
+                const meta = [
+                    tripId    ? `<span style="background:#ede9fe;color:#6d28d9;padding:1px 5px;border-radius:3px;font-size:8px;font-weight:700;">Trip ${esc(tripId)}</span>` : '',
+                    orderNum  ? `<span style="background:#e0f2fe;color:#0369a1;padding:1px 5px;border-radius:3px;font-size:8px;font-weight:700;">Order ${esc(orderNum)}</span>` : '',
+                    durationMs ? `<span style="color:#94a3b8;font-size:8px;">${durationMs}ms</span>` : '',
+                    attempt > 1 ? `<span style="background:#fef9c3;color:#a16207;padding:1px 5px;border-radius:3px;font-size:8px;font-weight:700;">Attempt #${attempt}</span>` : ''
+                ].filter(Boolean).join(' ');
+
+                return `
+                <div style="display:flex;gap:0.6rem;align-items:flex-start;padding:7px 8px;border-radius:7px;background:${statusBg};border:1px solid ${isOk?'#dcfce7':isFail?'#fee2e2':isRetry?'#fef9c3':'#f1f5f9'};margin-bottom:4px;">
+                    <div style="width:26px;height:26px;border-radius:6px;background:${info.color}20;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                        <i class="fas ${info.icon}" style="color:${info.color};font-size:11px;"></i>
+                    </div>
+                    <div style="flex:1;min-width:0;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+                            <span style="font-weight:700;color:#1e293b;font-size:11px;">${esc(label)}</span>
+                            <div style="display:flex;align-items:center;gap:4px;">
+                                <i class="fas ${statusIcon}" style="color:${statusColor};font-size:10px;"></i>
+                                <span style="font-size:10px;color:${statusColor};font-weight:700;">${esc(status)}</span>
+                            </div>
+                        </div>
+                        ${msg ? `<div style="color:#475569;font-size:10px;margin-top:2px;white-space:pre-wrap;word-break:break-word;">${esc(msg)}</div>` : ''}
+                        <div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+                            ${meta}
+                            <span style="color:#94a3b8;font-size:8px;">${saFormatDate(createdDate)}</span>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        } catch(e) {
+            feed.innerHTML = `<div style="color:#dc2626;font-size:11px;">${e.message}</div>`;
+        }
+    };
+
+    // ─── Performance Tab ─────────────────────────────────────
+    async function saLoadPerformance() {
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
+        const content = document.getElementById('sa-performance-content');
+        if (!content) return;
+        content.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:12px;"><i class="fas fa-spinner fa-spin"></i> Loading...</div>`;
+        try {
+            const data  = await apexGet(`agents/${agent.ID}/performance`);
+            const rows  = data.items || [];
+            if (rows.length === 0) {
+                content.innerHTML = `<div style="padding:2rem;text-align:center;color:#94a3b8;font-size:12px;">No performance data yet.</div>`;
+                return;
+            }
+            const today = rows[0];
+            content.innerHTML = `
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:0.75rem;">
+                    ${saStatCard('Status Checks',    today.STATUS_CHECKS,    '#0891b2', 'fa-eye')}
+                    ${saStatCard('Prints',           today.PRINTS_TRIGGERED, '#7c3aed', 'fa-print')}
+                    ${saStatCard('Pick Releases',    today.PICK_RELEASES,    '#059669', 'fa-shipping-fast')}
+                    ${saStatCard('Notifications',    today.NOTIFICATIONS_SENT,'#d97706','fa-bell')}
+                    ${saStatCard('Anomalies',        today.ANOMALIES_FLAGGED,'#dc2626', 'fa-exclamation-triangle')}
+                    ${saStatCard('AI Calls',         today.AI_CALLS,         '#6d28d9', 'fa-brain')}
+                    ${saStatCard('Retries',          today.RETRIES_TOTAL,    '#f59e0b', 'fa-redo')}
+                    ${saStatCard('Errors',           today.ERRORS_TOTAL,     '#dc2626', 'fa-times-circle')}
+                </div>
+                <div style="margin-top:1rem;">
+                    <div style="font-size:12px;font-weight:700;color:#1e293b;margin-bottom:0.75rem;">Daily History</div>
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                            <thead>
+                                <tr style="background:#f8fafc;">
+                                    <th style="padding:6px 8px;text-align:left;border-bottom:2px solid #e2e8f0;color:#64748b;">Date</th>
+                                    <th style="padding:6px 8px;text-align:right;border-bottom:2px solid #e2e8f0;color:#64748b;">Checks</th>
+                                    <th style="padding:6px 8px;text-align:right;border-bottom:2px solid #e2e8f0;color:#64748b;">Prints</th>
+                                    <th style="padding:6px 8px;text-align:right;border-bottom:2px solid #e2e8f0;color:#64748b;">Pick Rel.</th>
+                                    <th style="padding:6px 8px;text-align:right;border-bottom:2px solid #e2e8f0;color:#64748b;">Notifs</th>
+                                    <th style="padding:6px 8px;text-align:right;border-bottom:2px solid #e2e8f0;color:#64748b;">Retries</th>
+                                    <th style="padding:6px 8px;text-align:right;border-bottom:2px solid #e2e8f0;color:#64748b;">Errors</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows.map(r => `
+                                <tr style="border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+                                    <td style="padding:5px 8px;font-weight:600;color:#374151;">${r.PERF_DATE || ''}</td>
+                                    <td style="padding:5px 8px;text-align:right;color:#0891b2;">${r.STATUS_CHECKS || 0}</td>
+                                    <td style="padding:5px 8px;text-align:right;color:#7c3aed;">${r.PRINTS_TRIGGERED || 0}</td>
+                                    <td style="padding:5px 8px;text-align:right;color:#059669;">${r.PICK_RELEASES || 0}</td>
+                                    <td style="padding:5px 8px;text-align:right;color:#d97706;">${r.NOTIFICATIONS_SENT || 0}</td>
+                                    <td style="padding:5px 8px;text-align:right;color:#f59e0b;">${r.RETRIES_TOTAL || 0}</td>
+                                    <td style="padding:5px 8px;text-align:right;color:#dc2626;">${r.ERRORS_TOTAL || 0}</td>
+                                </tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>`;
+        } catch(e) {
+            content.innerHTML = `<div style="color:#dc2626;font-size:12px;">${e.message}</div>`;
+        }
+    }
+
+    function saStatCard(label, value, color, icon) {
+        return `<div style="background:${color}12;border:1px solid ${color}30;border-radius:8px;padding:0.75rem;text-align:center;">
+            <i class="fas ${icon}" style="color:${color};font-size:1.1rem;margin-bottom:0.3rem;display:block;"></i>
+            <div style="font-size:1.4rem;font-weight:800;color:${color};">${value || 0}</div>
+            <div style="font-size:10px;color:#64748b;font-weight:600;">${label}</div>
+        </div>`;
+    }
+
+    // ─── Notifications Tab ───────────────────────────────────
+    async function saLoadNotifications() {
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
+        const list = document.getElementById('sa-notifications-list');
+        if (!list) return;
+        list.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:12px;"><i class="fas fa-spinner fa-spin"></i></div>`;
+        try {
+            const data  = await apexGet(`agents/${agent.ID}/notifications`);
+            const notifs = data.items || [];
+            if (notifs.length === 0) {
+                list.innerHTML = `<div style="padding:2rem;text-align:center;color:#94a3b8;font-size:12px;">No notifications.</div>`;
+                return;
+            }
+            const SEV_STYLE = {
+                INFO:  { bg: '#eff6ff', color: '#1d4ed8', icon: 'fa-info-circle' },
+                WARN:  { bg: '#fef9c3', color: '#a16207', icon: 'fa-exclamation-triangle' },
+                ERROR: { bg: '#fee2e2', color: '#b91c1c', icon: 'fa-times-circle' }
+            };
+            list.innerHTML = notifs.map(n => {
+                const s = SEV_STYLE[n.SEVERITY] || SEV_STYLE.INFO;
+                return `<div style="background:${s.bg};border-radius:8px;padding:0.6rem 0.9rem;display:flex;gap:0.6rem;align-items:flex-start;">
+                    <i class="fas ${s.icon}" style="color:${s.color};margin-top:2px;flex-shrink:0;"></i>
+                    <div>
+                        <div style="font-size:11px;font-weight:700;color:${s.color};">${esc(n.NOTIFICATION_TYPE)}</div>
+                        <div style="font-size:11px;color:#374151;">${esc(n.MESSAGE)}</div>
+                        <div style="font-size:10px;color:#94a3b8;">${n.TRIP_ID ? `Trip: ${esc(n.TRIP_ID)}` : ''} ${n.ORDER_NUMBER ? `· Order: ${esc(n.ORDER_NUMBER)}` : ''} · ${saFormatDate(n.SENT_DATE)}</div>
+                    </div>
+                </div>`;
+            }).join('');
+        } catch(e) {
+            list.innerHTML = `<div style="color:#dc2626;font-size:12px;">${e.message}</div>`;
+        }
+    }
+
+    // ─── Agent Controls ──────────────────────────────────────
+    // Run config per trip: { [tripId]: { enabled, task1, task2, task3 } }
+    window._saAgentRunConfig = window._saAgentRunConfig || {};
+
+    window.saStartAgent = async function() {
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
+
+        document.getElementById('sa-start-dlg')?.remove();
+
+        const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+
+        // Build trip rows HTML
+        const tripRows = trips.length === 0
+            ? '<div style="color:#94a3b8;font-size:11px;padding:0.5rem;">No trips assigned to this agent.</div>'
+            : trips.map(t => {
+                const tid = esc(t.TRIP_ID);
+                const tname = esc(t.TRIP_NAME || t.TRIP_ID);
+                const tdate = t.TRIP_DATE ? esc(t.TRIP_DATE.split('T')[0]) : '';
+                return `
+                <div id="sa-dlg-trip-${tid}" style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:0.5rem;">
+                    <label style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.75rem;background:#f8fafc;cursor:pointer;font-weight:700;font-size:12px;color:#1e293b;">
+                        <input type="checkbox" id="sa-dlg-trip-chk-${tid}" checked
+                            onchange="saStartDlgToggleTrip('${tid}')"
+                            style="width:15px;height:15px;accent-color:#7c3aed;">
+                        <i class="fas fa-truck" style="color:#7c3aed;"></i>
+                        ${tname}
+                        ${tdate ? `<span style="font-weight:400;color:#64748b;font-size:10px;">— ${tdate}</span>` : ''}
+                    </label>
+                    <div id="sa-dlg-tasks-${tid}" style="padding:0.4rem 0.75rem 0.5rem 2.2rem;display:flex;flex-direction:column;gap:4px;background:white;">
+                        ${[
+                            ['task1','fa-search','Check Shipment Lines','Fetches latest shipment line statuses from Oracle Fusion'],
+                            ['task2','fa-exclamation-triangle','Check Scheduled / Manual Reservations','Detects order lines stuck in Scheduled or Manual Reservations and cancels them — related child lines (sub-lines / BOGO promo items) will be cancelled automatically as well'],
+                            ['task3','fa-print','Auto-Print Interfaced Orders','Downloads and prints PDFs for orders with Interfaced status']
+                        ].map(([key,icon,label,desc]) => `
+                        <label style="display:flex;align-items:flex-start;gap:0.5rem;cursor:pointer;font-size:11px;color:#334155;">
+                            <input type="checkbox" id="sa-dlg-${key}-${tid}" checked
+                                style="margin-top:2px;width:13px;height:13px;accent-color:#7c3aed;">
+                            <span>
+                                <i class="fas ${icon}" style="color:#7c3aed;width:12px;"></i>
+                                <strong>${label}</strong>
+                                <span style="color:#94a3b8;display:block;font-size:9px;margin-top:1px;">${desc}</span>
+                            </span>
+                        </label>`).join('')}
+                    </div>
+                </div>`;
+            }).join('');
+
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-start-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `
+            <div style="background:white;border-radius:14px;width:480px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.35);overflow:hidden;">
+                <div style="padding:0.9rem 1.2rem;background:#0f172a;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+                    <span style="font-weight:800;font-size:14px;color:#a78bfa;"><i class="fas fa-play-circle"></i> Start Agent — ${esc(agent.NAME)}</span>
+                    <button onclick="document.getElementById('sa-start-dlg').remove()" style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;">×</button>
+                </div>
+
+                <div style="overflow-y:auto;padding:1rem 1.2rem;flex:1;">
+
+                    <!-- SECTION 1: Interval -->
+                    <div style="margin-bottom:1rem;">
+                        <div style="font-size:10px;font-weight:800;color:#7c3aed;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">
+                            <i class="fas fa-clock"></i> &nbsp;1 — Refresh Interval
+                        </div>
+                        <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+                            ${[['30 min',1800],['1 hour',3600],['1.5 hours',5400],['2 hours',7200]].map(([label,secs]) => `
+                            <button id="sa-dlg-int-${secs}" onclick="saStartDlgSelectInterval(${secs})"
+                                style="padding:0.4rem 0.8rem;border:2px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer;font-size:11px;font-weight:700;color:#475569;transition:all 0.15s;">
+                                ${label}
+                            </button>`).join('')}
+                        </div>
+                        <div id="sa-dlg-int-warn" style="font-size:9px;color:#ef4444;margin-top:4px;display:none;">Please select an interval.</div>
+                    </div>
+
+                    <!-- SECTION 2: Trips & Tasks -->
+                    <div>
+                        <div style="font-size:10px;font-weight:800;color:#7c3aed;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">
+                            <i class="fas fa-truck"></i> &nbsp;2 — Trips &amp; Tasks
+                        </div>
+                        <!-- Quick mode presets: apply the same task selection to every trip -->
+                        <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.6rem;">
+                            <span style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;align-self:center;">Quick mode:</span>
+                            <button type="button" onclick="saStartDlgSetMode('cancel')" title="Only cancel Scheduled / Manual Reservation lines — no status check, no printing"
+                                style="padding:0.3rem 0.7rem;border:1px solid #fecaca;border-radius:20px;background:#fef2f2;color:#dc2626;cursor:pointer;font-size:10px;font-weight:800;">
+                                <i class="fas fa-ban"></i> Cancel lines only
+                            </button>
+                            <button type="button" onclick="saStartDlgSetMode('print')" title="Only auto-print interfaced orders"
+                                style="padding:0.3rem 0.7rem;border:1px solid #bbf7d0;border-radius:20px;background:#f0fdf4;color:#16a34a;cursor:pointer;font-size:10px;font-weight:800;">
+                                <i class="fas fa-print"></i> Print only
+                            </button>
+                            <button type="button" onclick="saStartDlgSetMode('all')" title="Run all tasks: check lines, cancel, and print"
+                                style="padding:0.3rem 0.7rem;border:1px solid #ddd6fe;border-radius:20px;background:#f5f3ff;color:#7c3aed;cursor:pointer;font-size:10px;font-weight:800;">
+                                <i class="fas fa-list-check"></i> All tasks
+                            </button>
+                        </div>
+                        ${tripRows}
+                    </div>
+
+                    <!-- Auto-cancellation notice -->
+                    <div style="margin-top:0.75rem;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:0.6rem 0.8rem;display:flex;gap:0.5rem;align-items:flex-start;">
+                        <i class="fas fa-exclamation-triangle" style="color:#d97706;margin-top:2px;flex-shrink:0;"></i>
+                        <div style="font-size:10.5px;color:#92400e;line-height:1.5;">
+                            <strong>Cancellation needs approval:</strong> lines in <strong>Scheduled</strong> / <strong>Manual Reservation Required</strong> status
+                            — with their related <strong>child lines</strong> (numbered sub-lines such as 3.1, 3.2, or BOGO promo items) — are listed on an
+                            <strong>approval card</strong>; nothing is cancelled in Fusion until you approve it, and those orders are not printed until you decide.
+                            Every decision and cancellation is written to the trip's cancellation log (<i class="fas fa-file-alt"></i> Log button on the trip header).
+                        </div>
+                    </div>
+
+                </div>
+
+                <div style="padding:0.75rem 1.2rem;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:0.5rem;flex-shrink:0;background:#fafafa;">
+                    <button onclick="document.getElementById('sa-start-dlg').remove()"
+                        style="padding:0.45rem 1rem;border:1px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer;font-size:12px;font-weight:600;color:#64748b;">
+                        Cancel
+                    </button>
+                    <button onclick="saConfirmStartAgent()"
+                        style="padding:0.45rem 1.2rem;border:none;border-radius:8px;background:#7c3aed;cursor:pointer;font-size:12px;font-weight:700;color:white;">
+                        <i class="fas fa-play"></i> Start Agent
+                    </button>
+                </div>
+            </div>`;
+        document.body.appendChild(dlg);
+
+        // Pre-select 30min interval
+        saStartDlgSelectInterval(1800);
+    };
+
+    window._saStartDlgInterval = 1800;
+
+    window.saStartDlgSelectInterval = function(secs) {
+        window._saStartDlgInterval = secs;
+        [300,600,900,1800,3600].forEach(s => {
+            const btn = document.getElementById(`sa-dlg-int-${s}`);
+            if (!btn) return;
+            if (s === secs) {
+                btn.style.borderColor = '#7c3aed';
+                btn.style.background  = '#f5f3ff';
+                btn.style.color       = '#7c3aed';
+            } else {
+                btn.style.borderColor = '#e2e8f0';
+                btn.style.background  = 'white';
+                btn.style.color       = '#475569';
+            }
+        });
+        document.getElementById('sa-dlg-int-warn').style.display = 'none';
+    };
+
+    // Quick-mode preset: set the task checkboxes for EVERY trip in the dialog.
+    //   cancel → Task 2 only (cancel Scheduled/Manual Reservation lines)
+    //   print  → Task 3 only (auto-print interfaced orders)
+    //   all    → all three tasks
+    window.saStartDlgSetMode = function(mode) {
+        const agent = window._saCurrentAgent;
+        const trips = (agent && window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        const want = mode === 'cancel' ? { t1:false, t2:true,  t3:false }
+                   : mode === 'print'  ? { t1:false, t2:false, t3:true  }
+                   : /* all */           { t1:true,  t2:true,  t3:true  };
+        trips.forEach(t => {
+            const tid = t.TRIP_ID;
+            const c1 = document.getElementById(`sa-dlg-task1-${tid}`);
+            const c2 = document.getElementById(`sa-dlg-task2-${tid}`);
+            const c3 = document.getElementById(`sa-dlg-task3-${tid}`);
+            if (c1) c1.checked = want.t1;
+            if (c2) c2.checked = want.t2;
+            if (c3) c3.checked = want.t3;
+        });
+    };
+
+    window.saStartDlgToggleTrip = function(tripId) {
+        const enabled = document.getElementById(`sa-dlg-trip-chk-${tripId}`)?.checked;
+        const tasksDiv = document.getElementById(`sa-dlg-tasks-${tripId}`);
+        if (tasksDiv) {
+            tasksDiv.style.opacity  = enabled ? '1' : '0.35';
+            tasksDiv.style.pointerEvents = enabled ? '' : 'none';
+        }
+    };
+
+    window.saConfirmStartAgent = async function() {
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
+
+        const intervalSeconds = window._saStartDlgInterval || 1800;
+        if (!intervalSeconds) {
+            document.getElementById('sa-dlg-int-warn').style.display = 'block';
+            return;
+        }
+
+        // Build run config from dialog checkboxes
+        const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        window._saAgentRunConfig = {};
+        trips.forEach(t => {
+            const tid = t.TRIP_ID;
+            window._saAgentRunConfig[tid] = {
+                enabled : !!(document.getElementById(`sa-dlg-trip-chk-${tid}`)?.checked),
+                task1   : !!(document.getElementById(`sa-dlg-task1-${tid}`)?.checked),
+                task2   : !!(document.getElementById(`sa-dlg-task2-${tid}`)?.checked),
+                task3   : !!(document.getElementById(`sa-dlg-task3-${tid}`)?.checked),
+            };
+        });
+
+        document.getElementById('sa-start-dlg').remove();
+
+        try {
+            await apexPut(`agents/${agent.ID}/status`, { status: 'RUNNING', checkIntervalSeconds: intervalSeconds });
+            agent.STATUS = 'RUNNING';
+            agent.CHECK_INTERVAL_SECONDS = intervalSeconds;
+            saUpdateDetailStatusBadge('RUNNING');
+            saRenderCards(window._saAgents);
+            saStartAgentLoop(agent, intervalSeconds);
+            const intervalLabel = intervalSeconds >= 3600 ? intervalSeconds/3600+'h' : intervalSeconds/60+'min';
+            showNotification(`Agent "${agent.NAME}" started — every ${intervalLabel}.`, 'success');
+            saShowControlPanel(agent);
+        } catch(e) {
+            showNotification('Failed to start agent: ' + e.message, 'error');
+        }
+    };
+
+    window.saPauseAgent = async function() {
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
+        try {
+            await apexPut(`agents/${agent.ID}/status`, { status: 'PAUSED' });
+            agent.STATUS = 'PAUSED';
+            saUpdateDetailStatusBadge('PAUSED');
+            saStopAgentLoop(agent.ID);
+            saRenderCards(window._saAgents);
+            showNotification(`Agent "${agent.NAME}" paused.`, 'success');
+        } catch(e) {
+            showNotification('Failed to pause agent: ' + e.message, 'error');
+        }
+    };
+
+    window.saStopAgent = async function() {
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
+        if (!confirm(`Stop agent "${agent.NAME}"? This will set it to IDLE.`)) return;
+        try {
+            await apexPut(`agents/${agent.ID}/status`, { status: 'IDLE' });
+            agent.STATUS = 'IDLE';
+            saUpdateDetailStatusBadge('IDLE');
+            saStopAgentLoop(agent.ID);
+            saRenderCards(window._saAgents);
+            showNotification(`Agent "${agent.NAME}" stopped.`, 'success');
+        } catch(e) {
+            showNotification('Failed to stop agent: ' + e.message, 'error');
+        }
+    };
+
+    window.saShowCloseAgentApiInfo = function() {
+        const agent = window._saCurrentAgent;
+        const agentId = agent ? agent.ID : ':agentId';
+        const url = `${APEX_BASE}/agents/${agentId}/close`;
+        saShowApiInfo('Close Agent API', 'POST', url, '{}', 'URI Template: agents/:agentId/close\nSets AGENT_STATUS=CLOSED permanently in wms_agents');
+    };
+
+    window.saCloseAgent = async function() {
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
+        const closeUrl = `${APEX_BASE}/agents/${agent.ID}/close`;
+        console.log('[ShippingAgent] Close agent URL:', closeUrl);
+        if (!confirm(`Close agent "${agent.NAME}"?\n\nThis will permanently set its status to CLOSED. It will no longer appear in the active agents list.\n\nYou can still view its history but it cannot be restarted.`)) return;
+        try {
+            await apexPost(`agents/${agent.ID}/close`, {});
+            agent.AGENT_STATUS = 'CLOSED';
+            agent.STATUS       = 'IDLE';
+            saStopAgentLoop(agent.ID);
+            // Update Close button to reflect closed state
+            const closeBtn = document.getElementById('sa-btn-close-agent');
+            if (closeBtn) {
+                closeBtn.disabled = true;
+                closeBtn.style.opacity = '0.5';
+                closeBtn.innerHTML = '<i class="fas fa-times-circle"></i> Closed';
+            }
+            saUpdateDetailStatusBadge('IDLE');
+            saRenderCards(window._saAgents);
+            await saRefreshDashboard();
+            showNotification(`Agent "${agent.NAME}" has been closed.`, 'success');
+        } catch(e) {
+            showNotification(`Failed to close agent: ${e.message} | URL: ${closeUrl}`, 'error');
+            console.error('[ShippingAgent] Close agent failed:', closeUrl, e);
+        }
+    };
+
+    // Per-trip pause state: { tripId: true/false }
+    window._saPausedTrips = window._saPausedTrips || {};
+
+    // ─── Control Panel ───────────────────────────────────────
+    window.saShowControlPanel = async function(agent) {
+        const existing = document.getElementById('sa-control-panel');
+        if (existing) existing.remove();
+
+        const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        const intervalSec = agent.CHECK_INTERVAL_SECONDS || 60;
+        const intervalLabel = intervalSec >= 3600 ? intervalSec/3600+'h' : intervalSec/60+'min';
+
+        const panel = document.createElement('div');
+        panel.id = 'sa-control-panel';
+        panel.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#0f172a;color:#e2e8f0;z-index:9999;border-top:2px solid #7c3aed;font-size:11px;';
+        panel.innerHTML = `
+            <div style="display:flex;align-items:center;gap:1rem;padding:0.5rem 1rem;border-bottom:1px solid #1e293b;flex-wrap:wrap;">
+                <span style="font-weight:800;color:#a78bfa;font-size:12px;"><i class="fas fa-robot"></i> ${esc(agent.NAME)}</span>
+                <span id="sa-cp-status" style="background:#059669;color:white;padding:1px 8px;border-radius:8px;font-size:10px;font-weight:700;">RUNNING</span>
+                <span style="color:#64748b;font-size:10px;"><i class="fas fa-clock"></i> Every ${intervalLabel}</span>
+                <span id="sa-cp-countdown" style="color:#f59e0b;font-size:10px;font-weight:700;"></span>
+                <span id="sa-cp-last-tick" style="color:#64748b;font-size:9px;"></span>
+                <div style="margin-left:auto;display:flex;gap:0.4rem;">
+                    <button onclick="saPauseAgent()" style="background:#d97706;color:white;border:none;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:700;"><i class="fas fa-pause"></i> Pause All</button>
+                    <button onclick="saStopAgent()" style="background:#dc2626;color:white;border:none;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:700;"><i class="fas fa-stop"></i> Stop</button>
+                    <button onclick="document.getElementById('sa-control-panel').remove()" style="background:#334155;color:#94a3b8;border:none;padding:3px 8px;border-radius:6px;font-size:10px;cursor:pointer;">▼ Hide</button>
+                </div>
+            </div>
+            <div style="display:flex;gap:0;overflow-x:auto;border-bottom:1px solid #0f172a;" id="sa-cp-trips">
+                ${trips.length === 0
+                    ? '<div style="padding:0.75rem 1rem;color:#64748b;font-size:11px;">No trips assigned</div>'
+                    : trips.map(t => saRenderCpTrip(t, agent.ID)).join('')}
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 10px;background:#0d1829;border-top:1px solid #1e293b;">
+                <button id="sa-console-toggle-btn" onclick="saToggleConsole()"
+                    style="background:#1e3a5f;color:#93c5fd;border:1px solid #1e40af;padding:2px 12px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;">
+                    <i class="fas fa-terminal"></i> Console ▼
+                </button>
+                <span id="sa-cp-task" style="color:#38bdf8;font-size:9px;font-style:italic;flex:1;text-align:center;padding:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+            </div>
+            <div id="sa-console-wrap" style="display:none;">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:3px 10px;background:#0a0f1a;border-top:1px solid #1e293b;">
+                    <span style="font-size:9px;color:#475569;font-family:monospace;"><i class="fas fa-terminal" style="margin-right:4px;color:#7c3aed;"></i>AGENT CONSOLE</span>
+                    <button onclick="saClearConsole()" style="background:transparent;border:none;color:#475569;font-size:9px;cursor:pointer;padding:0;">clear</button>
+                </div>
+                <div id="sa-console-log" style="height:200px;overflow-y:auto;background:#0a0f1a;padding:4px 0;"></div>
+            </div>`;
+        document.body.appendChild(panel);
+
+        // Start countdown timer
+        saStartCpCountdown(agent);
+
+        // Immediately fetch fresh print status for each active trip, then refresh KPIs
+        const runCfg = window._saAgentRunConfig || {};
+        for (const t of trips) {
+            const cfg = runCfg[t.TRIP_ID] || { enabled: true };
+            if (!cfg.enabled) continue;
+            const tripInst = t.INSTANCE_NAME || t.instance_name || agent.INSTANCE_NAME || 'PROD';
+            try { await saGetPrintStatus(t.TRIP_ID, tripInst); } catch(e) { /* non-fatal */ }
+        }
+        saUpdateCpKpis();
+    };
+
+    function saRenderCpTrip(t, agentId) {
+        const paused = window._saPausedTrips[t.TRIP_ID];
+        const kpi = saCpComputeKpi(t.TRIP_ID);
+        const agent = window._saCurrentAgent;
+        const instance = t.INSTANCE_NAME || t.instance_name || (agent && agent.INSTANCE_NAME) || 'PROD';
+        const printUrl = `${APEX_BASE}/printjobs/trip/${encodeURIComponent(t.TRIP_ID)}`;
+        return `<div id="sa-cp-trip-${esc(t.TRIP_ID)}" style="border-right:1px solid #1e293b;padding:0.5rem 0.8rem;min-width:240px;flex-shrink:0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;gap:4px;">
+                <span style="font-weight:700;color:#e2e8f0;font-size:11px;"><i class="fas fa-truck" style="color:#7c3aed;"></i> ${esc(t.TRIP_NAME || t.TRIP_ID)}</span>
+                <div style="display:flex;gap:3px;align-items:center;">
+                    <button onclick="saCpRefreshTrip('${esc(t.TRIP_ID)}','${esc(instance)}')" title="Refresh print status"
+                        style="background:#1e40af;color:white;border:none;padding:1px 6px;border-radius:5px;font-size:9px;cursor:pointer;" id="sa-cp-refresh-${esc(t.TRIP_ID)}">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button onclick="saShowApiInfo('Print Status API','GET','${esc(printUrl)}',null,'printjobs/trip/:tripId\\nReturns all orders with print_total and print_printed for the trip')"
+                        title="API info" style="background:#0e7490;color:white;border:none;padding:1px 6px;border-radius:5px;font-size:9px;cursor:pointer;">
+                        <i class="fas fa-plug"></i>
+                    </button>
+                    <button onclick="saToggleTripPause('${esc(t.TRIP_ID)}')" id="sa-cp-pause-${esc(t.TRIP_ID)}"
+                        style="background:${paused?'#059669':'#d97706'};color:white;border:none;padding:1px 7px;border-radius:5px;font-size:9px;cursor:pointer;font-weight:700;">
+                        ${paused ? '<i class="fas fa-play"></i> Resume' : '<i class="fas fa-pause"></i> Pause'}
+                    </button>
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;" id="sa-cp-kpi-${esc(t.TRIP_ID)}">
+                ${saRenderCpKpis(kpi)}
+            </div>
+        </div>`;
+    }
+
+    window.saCpRefreshTrip = async function(tripId, instance) {
+        const btn = document.getElementById(`sa-cp-refresh-${tripId}`);
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+        try {
+            await saGetPrintStatus(tripId, instance);
+            console.log(`[ShippingAgent] CP refresh — cache for ${tripId}:`, JSON.stringify(window._saPrintCache[tripId]));
+            const kpiEl = document.getElementById(`sa-cp-kpi-${tripId}`);
+            if (kpiEl) kpiEl.innerHTML = saRenderCpKpis(saCpComputeKpi(tripId));
+        } catch(e) { console.error('[ShippingAgent] CP refresh failed:', e); }
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync-alt"></i>'; }
+    };
+
+    function saRenderCpKpis(kpi) {
+        const chip = (label, val, color) =>
+            `<div style="background:#1e293b;border-radius:4px;padding:3px 5px;">
+                <div style="font-size:8px;color:#64748b;">${label}</div>
+                <div style="font-weight:700;color:${color};font-size:11px;">${val}</div>
+            </div>`;
+        const done = (a, b) => b > 0 && a === b;
+        return chip('Interfaced',  done(kpi.interfaced,kpi.total) ? '✓ '+kpi.total : `${kpi.interfaced}/${kpi.total}`, done(kpi.interfaced,kpi.total)?'#4ade80':'#f59e0b')
+             + chip('Downloaded', done(kpi.printed,kpi.total)    ? '✓ '+kpi.total : `${kpi.printed}/${kpi.total}`,    done(kpi.printed,kpi.total)?'#4ade80':'#94a3b8')
+             + chip('Ifc Lines', done(kpi.ifcLines,kpi.totalLines) ? '✓ '+kpi.totalLines : `${kpi.ifcLines}/${kpi.totalLines}`, done(kpi.ifcLines,kpi.totalLines)?'#4ade80':'#38bdf8')
+             + chip('To Cancel', `${kpi.toCancel}`, kpi.toCancel>0?'#f87171':'#4ade80')
+             + chip('Cancelled', `${kpi.autoCancelled||0}`, (kpi.autoCancelled||0)>0?'#fb923c':'#475569');
+    }
+
+    function saCpComputeKpi(tripId) {
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        let total=0, interfaced=0, ifcLines=0, totalLines=0, toCancel=0;
+        const orderNumbers = [];
+        if (container) {
+            container.querySelectorAll('tr[id^="sa-order-row-"]').forEach(row => {
+                const st = (row.querySelector('[data-col="status"]')?.textContent || '').trim();
+                // 'Cancelled' and 'No Lines' orders — exclude from all counts
+                if (!st || st === 'Cancelled' || st.toLowerCase() === 'cancelled' ||
+                    st === 'No Lines' || st.toLowerCase() === 'no lines') return;
+                total++;
+                const on = row.id.replace(`sa-order-row-${tripId}-`, '');
+                if (on) orderNumbers.push(on);
+                const ifc = parseInt(row.querySelector('[data-col="shipping"]')?.textContent?.match(/\d+/)?.[0] || 0);
+                const tl  = parseInt(row.querySelector('[data-col="shipping"]')?.textContent?.match(/\/(\d+)/)?.[1] || 0);
+                // 'Order Status' = Oracle final state meaning fully interfaced; also count plain Interfaced/Shipped
+                const isInterfaced = st.includes('Interfaced') || st.includes('Shipped') || st === 'Order Status';
+                if (isInterfaced && !st.includes('/')) interfaced++;
+                ifcLines  += ifc;
+                totalLines += tl;
+                toCancel  += parseInt(row.querySelector('[data-col="backorder"]')?.textContent?.match(/\d+/)?.[0] || 0);
+            });
+        }
+        // Use cached print data from API — presence in wms_print_jobs = downloaded = done
+        const printMap = window._saPrintCache && window._saPrintCache[tripId] || {};
+        let printed = 0;
+        orderNumbers.forEach(on => {
+            const info = printMap[on];
+            if (info && info.total > 0) printed++; // downloaded = done
+        });
+        console.log(`[ShippingAgent] KPI trip=${tripId} domOrders=${JSON.stringify(orderNumbers.slice(0,3))} cacheKeys=${JSON.stringify(Object.keys(printMap).slice(0,3))} printed=${printed}`);
+        // If no orders in DOM yet but cache has data, use cache length as total
+        const printTotal = Object.keys(printMap).length;
+        const printPrinted = Object.values(printMap).filter(v => v.total > 0).length;
+        const autoCancelled = (window._saCancelledLines && window._saCancelledLines[tripId]) || 0;
+        if (total === 0 && printTotal > 0) {
+            return { total: printTotal, interfaced: 0, printed: printPrinted, ifcLines: 0, totalLines: 0, toCancel: 0, autoCancelled };
+        }
+        return { total, interfaced, printed, ifcLines, totalLines, toCancel, autoCancelled };
+    }
+
+    window.saToggleTripPause = function(tripId) {
+        window._saPausedTrips = window._saPausedTrips || {};
+        window._saPausedTrips[tripId] = !window._saPausedTrips[tripId];
+        const paused = window._saPausedTrips[tripId];
+        const btn = document.getElementById(`sa-cp-pause-${tripId}`);
+        if (btn) {
+            btn.style.background = paused ? '#059669' : '#d97706';
+            btn.innerHTML = paused ? '<i class="fas fa-play"></i> Resume' : '<i class="fas fa-pause"></i> Pause';
+        }
+        showNotification(`Trip ${tripId} ${paused ? 'paused' : 'resumed'}.`, 'info');
+    };
+
+    async function saUpdateCpKpis() {
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
+        const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        const instance = agent.INSTANCE_NAME || 'PROD';
+        const runCfg = window._saAgentRunConfig || {};
+        // Refresh print cache from API for each active trip
+        for (const t of trips) {
+            const cfg = runCfg[t.TRIP_ID] || { enabled: true };
+            if (!cfg.enabled) continue;
+            const tripInst = t.INSTANCE_NAME || t.instance_name || agent.INSTANCE_NAME || 'PROD';
+            try { await saGetPrintStatus(t.TRIP_ID, tripInst); } catch(e) { /* non-fatal */ }
+        }
+        trips.forEach(t => {
+            const kpiEl = document.getElementById(`sa-cp-kpi-${t.TRIP_ID}`);
+            if (kpiEl) kpiEl.innerHTML = saRenderCpKpis(saCpComputeKpi(t.TRIP_ID));
+        });
+    }
+
+    function saStartCpCountdown(agent) {
+        clearInterval(window._saCpCountdown);
+        const totalSec = agent.CHECK_INTERVAL_SECONDS || 60;
+        let remaining = totalSec;
+        window._saCpCountdown = setInterval(() => {
+            remaining--;
+            if (remaining <= 0) remaining = totalSec;
+            const el = document.getElementById('sa-cp-countdown');
+            if (el) el.textContent = `Next tick in ${remaining}s`;
+        }, 1000);
+    }
+
+    function saCpSetTask(msg) {
+        const el = document.getElementById('sa-cp-task');
+        if (el) el.textContent = msg ? `▶ ${msg}` : '';
+        if (msg) saConsoleLog(msg, 'task');
+    }
+
+    // ─── Live Agent Console ───────────────────────────────────────────────────────
+    window._saConsoleBuffer = [];
+
+    window.saConsoleLog = function(msg, level) {
+        level = level || 'info';
+        const now   = new Date();
+        const ts    = now.toTimeString().slice(0,8);
+        const entry = { ts, msg, level };
+        window._saConsoleBuffer.push(entry);
+        if (window._saConsoleBuffer.length > 300) window._saConsoleBuffer.shift();
+
+        const panel = document.getElementById('sa-console-log');
+        if (!panel) return;
+
+        const colors = {
+            tick:    { bg:'#1e293b', col:'#38bdf8', icon:'⏱' },
+            task:    { bg:'#0f2040', col:'#93c5fd', icon:'▶' },
+            success: { bg:'#052e16', col:'#4ade80', icon:'✓' },
+            warn:    { bg:'#2d1a00', col:'#fbbf24', icon:'⚠' },
+            error:   { bg:'#2d0a0a', col:'#f87171', icon:'✕' },
+            skip:    { bg:'#1e293b', col:'#64748b', icon:'↷' },
+            info:    { bg:'#0f172a', col:'#94a3b8', icon:'·' },
+        };
+        const c = colors[level] || colors.info;
+        const line = document.createElement('div');
+        line.style.cssText = `display:flex;gap:6px;padding:2px 8px;background:${c.bg};border-left:2px solid ${c.col};margin-bottom:1px;font-size:10px;font-family:monospace;align-items:baseline;`;
+        line.innerHTML = `<span style="color:#475569;flex-shrink:0;">${ts}</span><span style="color:${c.col};flex-shrink:0;">${c.icon}</span><span style="color:#e2e8f0;word-break:break-word;">${msg.replace(/</g,'&lt;')}</span>`;
+        panel.appendChild(line);
+        panel.scrollTop = panel.scrollHeight;
+    };
+
+    window.saToggleConsole = function() {
+        const wrap = document.getElementById('sa-console-wrap');
+        const btn  = document.getElementById('sa-console-toggle-btn');
+        if (!wrap) return;
+        const open = wrap.style.display !== 'none';
+        wrap.style.display = open ? 'none' : 'block';
+        if (btn) btn.innerHTML = open ? '<i class="fas fa-terminal"></i> Console' : '<i class="fas fa-terminal"></i> Console ▲';
+        if (!open) {
+            // Replay buffer into panel
+            const panel = document.getElementById('sa-console-log');
+            if (panel && !panel.dataset.filled) {
+                panel.dataset.filled = '1';
+                window._saConsoleBuffer.forEach(e => {
+                    const colors = { tick:'#38bdf8', task:'#93c5fd', success:'#4ade80', warn:'#fbbf24', error:'#f87171', skip:'#64748b', info:'#94a3b8' };
+                    const icons  = { tick:'⏱', task:'▶', success:'✓', warn:'⚠', error:'✕', skip:'↷', info:'·' };
+                    const bgs    = { tick:'#1e293b', task:'#0f2040', success:'#052e16', warn:'#2d1a00', error:'#2d0a0a', skip:'#1e293b', info:'#0f172a' };
+                    const col = colors[e.level]||colors.info, icon = icons[e.level]||'·', bg = bgs[e.level]||bgs.info;
+                    const line = document.createElement('div');
+                    line.style.cssText = `display:flex;gap:6px;padding:2px 8px;background:${bg};border-left:2px solid ${col};margin-bottom:1px;font-size:10px;font-family:monospace;align-items:baseline;`;
+                    line.innerHTML = `<span style="color:#475569;flex-shrink:0;">${e.ts}</span><span style="color:${col};flex-shrink:0;">${icon}</span><span style="color:#e2e8f0;word-break:break-word;">${e.msg.replace(/</g,'&lt;')}</span>`;
+                    panel.appendChild(line);
+                });
+                panel.scrollTop = panel.scrollHeight;
+            }
+        }
+    };
+
+    window.saClearConsole = function() {
+        window._saConsoleBuffer = [];
+        const panel = document.getElementById('sa-console-log');
+        if (panel) { panel.innerHTML = ''; panel.dataset.filled = '1'; }
+    };
+
+    // Check if all trips are done (all orders Interfaced + all printed)
+    function saCheckAllDone(agent) {
+        const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        if (trips.length === 0) return false;
+        let allDone = true;
+        for (const t of trips) {
+            if (window._saPausedTrips && window._saPausedTrips[t.TRIP_ID]) continue;
+            const kpi = saCpComputeKpi(t.TRIP_ID);
+            if (kpi.total === 0) { allDone = false; break; }
+            if (kpi.interfaced < kpi.total || kpi.printed < kpi.total) { allDone = false; break; }
+        }
+        return allDone;
+    }
+
+    // ─── Agent Loop ──────────────────────────────────────────
+    function saStartAgentLoop(agent, overrideIntervalSeconds) {
+        saStopAgentLoop(agent.ID); // clear any existing
+        const intervalMs = Math.max((overrideIntervalSeconds || agent.CHECK_INTERVAL_SECONDS || 300), 300) * 1000;
+        agent.CHECK_INTERVAL_SECONDS = Math.round(intervalMs / 1000);
+        // Track start time, reset counters and per-trip done flags
+        if (!window._saAgentStats) window._saAgentStats = {};
+        window._saAgentStats[agent.ID] = {
+            startTime:  new Date(),
+            tickCount:  0,
+            retryCount: 0
+        };
+        window._saTripDone = window._saTripDone || {};
+        // Clear done flags for this agent's trips so fresh run starts clean
+        const agentTrips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        agentTrips.forEach(t => { delete window._saTripDone[t.TRIP_ID]; });
+        // Clear any previous abort flag so the new run can proceed
+        if (!window._saAgentAbort) window._saAgentAbort = {};
+        window._saAgentAbort[agent.ID] = false;
+        // Refresh BOGO parent/child mapping once per run
+        window._saBogoCache = {};
+        window._saLoops[agent.ID] = setInterval(() => {
+            saAgentTick(agent); // saAgentTick calls saUpdateCpKpis internally
+        }, intervalMs);
+        console.log(`[ShippingAgent] Loop started for agent ${agent.ID}, interval ${intervalMs}ms`);
+        // Run immediately
+        saAgentTick(agent);
+    }
+
+    function saStopAgentLoop(agentId) {
+        // Set abort flag first so any in-progress async tick sees it and exits early
+        if (!window._saAgentAbort) window._saAgentAbort = {};
+        window._saAgentAbort[agentId] = true;
+        if (window._saLoops[agentId]) {
+            clearInterval(window._saLoops[agentId]);
+            delete window._saLoops[agentId];
+            console.log(`[ShippingAgent] Loop stopped for agent ${agentId}`);
+        }
+    }
+
+    async function saAgentTick(agent) {
+        const tickTime = new Date().toLocaleTimeString();
+        console.log(`[ShippingAgent] ⏱ Tick at ${tickTime} for agent ${agent.ID} (${agent.NAME})`);
+        saConsoleLog(`Tick #${((window._saAgentStats && window._saAgentStats[agent.ID] && window._saAgentStats[agent.ID].tickCount) || 0) + 1} — ${agent.NAME} @ ${tickTime}`, 'tick');
+        const el = document.getElementById('sa-cp-last-tick');
+        if (el) el.textContent = `Last tick: ${tickTime}`;
+        // Count refreshes
+        if (window._saAgentStats && window._saAgentStats[agent.ID]) {
+            window._saAgentStats[agent.ID].tickCount++;
+        }
+
+        // Kill switch (AI Digital Employee > Control): a paused AI does nothing on this tick
+        const ctl = await saAiStatus();
+        if (ctl && ctl.enabled === false) {
+            saConsoleLog(`⏸ AI is paused${ctl.reason ? ' (' + ctl.reason + ')' : ''}${ctl.by ? ' by ' + ctl.by : ''} — agent does nothing until it is resumed`, 'warn');
+            saCpSetTask('AI paused — waiting');
+            return;
+        }
+        // decisions taken in the Inbox (possibly on another PC) for this agent's cancel requests
+        await saSyncCancelInbox();
+
+        const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+
+        for (const trip of trips) {
+            // Check abort flag — Stop was clicked while a previous trip was processing
+            if (window._saAgentAbort && window._saAgentAbort[agent.ID]) {
+                saConsoleLog('⛔ Agent stopped — aborting tick', 'warn');
+                return;
+            }
+            const cfg = (window._saAgentRunConfig && window._saAgentRunConfig[trip.TRIP_ID]) || { enabled:true, task1:true, task2:true, task3:true };
+            if (!cfg.enabled) {
+                console.log(`[ShippingAgent] Trip ${trip.TRIP_ID} not in run config — skipping`);
+                saConsoleLog(`Trip ${trip.TRIP_NAME || trip.TRIP_ID} — disabled in config, skipping`, 'skip');
+                continue;
+            }
+            if (window._saPausedTrips && window._saPausedTrips[trip.TRIP_ID]) {
+                console.log(`[ShippingAgent] Trip ${trip.TRIP_ID} is paused — skipping`);
+                saConsoleLog(`Trip ${trip.TRIP_NAME || trip.TRIP_ID} — paused, skipping`, 'skip');
+                continue;
+            }
+            // Skip trips already marked fully complete — no point re-checking
+            if (window._saTripDone && window._saTripDone[trip.TRIP_ID]) {
+                console.log(`[ShippingAgent] Trip ${trip.TRIP_ID} already done — skipping`);
+                saConsoleLog(`Trip ${trip.TRIP_NAME || trip.TRIP_ID} — already complete ✓, skipping`, 'skip');
+                continue;
+            }
+            saConsoleLog(`Processing trip ${trip.TRIP_NAME || trip.TRIP_ID} …`, 'info');
+            // Use trip's own instance name (PROD/TEST), fall back to agent's
+            const instance = trip.INSTANCE_NAME || trip.instance_name || agent.INSTANCE_NAME || 'PROD';
+            await saProcessTripTick(agent, trip, instance, cfg);
+
+            // After processing, check if all tasks for this trip are now complete
+            const kpi = saCpComputeKpi(trip.TRIP_ID);
+            const needPrint = cfg.task3 !== false;
+            const tripAllDone = kpi.total > 0
+                && kpi.interfaced >= kpi.total
+                && (!needPrint || kpi.printed >= kpi.total);
+            if (tripAllDone) {
+                window._saTripDone = window._saTripDone || {};
+                window._saTripDone[trip.TRIP_ID] = true;
+                console.log(`[ShippingAgent] ✅ Trip ${trip.TRIP_ID} fully complete — won't check again this session`);
+                // Show a visual indicator on the control panel trip header
+                const tripHeader = document.getElementById(`sa-cp-trip-${trip.TRIP_ID}`);
+                if (tripHeader) {
+                    const doneTag = tripHeader.querySelector('.sa-trip-done-tag');
+                    if (!doneTag) {
+                        const tag = document.createElement('span');
+                        tag.className = 'sa-trip-done-tag';
+                        tag.style.cssText = 'background:#059669;color:#fff;border-radius:4px;padding:1px 6px;font-size:9px;font-weight:700;margin-left:6px;';
+                        tag.textContent = '✓ Done';
+                        const nameEl = tripHeader.querySelector('span[style*="font-weight:700"]');
+                        if (nameEl) nameEl.appendChild(tag);
+                    }
+                }
+            }
+        }
+
+        await saUpdateCpKpis();
+        saCpSetTask('');
+
+        if (window._saCurrentAgent && window._saCurrentAgent.ID === agent.ID) {
+            const actTab = document.getElementById('sa-tab-activity');
+            if (actTab && actTab.style.display !== 'none') saRefreshActivity();
+        }
+
+        // Auto-stop if all work is done
+        if (saCheckAllDone(agent)) {
+            saStopAgentLoop(agent.ID);
+            clearInterval(window._saCpCountdown);
+            saCpSetTask('✅ All tasks completed');
+            const statusEl = document.getElementById('sa-cp-status');
+            if (statusEl) { statusEl.textContent = 'COMPLETED'; statusEl.style.background = '#059669'; }
+            const countdownEl = document.getElementById('sa-cp-countdown');
+            if (countdownEl) countdownEl.textContent = '';
+            try { await apexPut(`agents/${agent.ID}/status`, { status: 'IDLE' }); agent.STATUS = 'IDLE'; saUpdateDetailStatusBadge('IDLE'); saRenderCards(window._saAgents); } catch(e) {}
+            saShowCompletionDialog(agent);
+        }
+    }
+
+    function saShowCompletionDialog(agent) {
+        document.getElementById('sa-completion-dlg')?.remove();
+
+        const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        const runCfg = window._saAgentRunConfig || {};
+        const completedAt = new Date().toLocaleTimeString();
+
+        const tripSummaryRows = trips.map(t => {
+            const cfg = runCfg[t.TRIP_ID] || { enabled:true, task1:true, task2:true, task3:true };
+            if (!cfg.enabled) return '';
+            const kpi = saCpComputeKpi(t.TRIP_ID);
+            const tasksDone = [
+                cfg.task1 ? `<span style="color:#4ade80;"><i class="fas fa-check"></i> Shipment Lines checked (${kpi.ifcLines}/${kpi.totalLines} interfaced)</span>` : '',
+                cfg.task2 ? `<span style="color:#4ade80;"><i class="fas fa-check"></i> Scheduled / Manual Reservations checked</span>` : '',
+                cfg.task3 ? `<span style="color:#4ade80;"><i class="fas fa-check"></i> All ${kpi.printed} order(s) printed</span>` : '',
+            ].filter(Boolean).join('<br>');
+            return `
+                <div style="border:1px solid #1e293b;border-radius:8px;padding:0.6rem 0.8rem;margin-bottom:0.5rem;background:#0f172a;">
+                    <div style="font-weight:700;color:#a78bfa;font-size:11px;margin-bottom:0.35rem;">
+                        <i class="fas fa-truck"></i> Trip ${esc(t.TRIP_NAME || t.TRIP_ID)}
+                        <span style="color:#4ade80;margin-left:0.5rem;font-size:10px;">✓ ${kpi.interfaced}/${kpi.total} Interfaced &nbsp; ✓ ${kpi.printed}/${kpi.total} Printed</span>
+                    </div>
+                    <div style="font-size:10px;line-height:1.9;">${tasksDone}</div>
+                </div>`;
+        }).join('');
+
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-completion-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `
+            <div style="background:#1e293b;border-radius:14px;width:460px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.5);overflow:hidden;border:2px solid #4ade80;">
+                <div style="padding:1rem 1.2rem;background:#0f172a;display:flex;align-items:center;gap:0.75rem;">
+                    <span style="font-size:22px;">🎉</span>
+                    <div>
+                        <div style="font-weight:800;font-size:13px;color:#4ade80;">All Tasks Completed — Agent Stopped</div>
+                        <div style="font-size:10px;color:#64748b;margin-top:2px;">${esc(agent.NAME)} &nbsp;·&nbsp; Completed at ${completedAt}</div>
+                    </div>
+                </div>
+                <div style="overflow-y:auto;padding:1rem;">
+                    <div style="font-size:10px;color:#94a3b8;margin-bottom:0.75rem;">
+                        The following tasks were completed for all active trips. The agent has been stopped automatically.
+                    </div>
+                    ${tripSummaryRows || '<div style="color:#64748b;font-size:11px;">No active trips.</div>'}
+                </div>
+                <div style="padding:0.75rem 1.2rem;border-top:1px solid #0f172a;display:flex;justify-content:flex-end;gap:0.5rem;background:#0f172a;">
+                    <button onclick="saGenerateAgentReport(window._saCurrentAgent)"
+                        style="padding:0.45rem 1.2rem;border:none;border-radius:8px;background:#6366f1;cursor:pointer;font-size:12px;font-weight:700;color:#fff;">
+                        <i class="fas fa-file-pdf"></i> Generate Report
+                    </button>
+                    <button onclick="document.getElementById('sa-completion-dlg').remove()"
+                        style="padding:0.45rem 1.2rem;border:none;border-radius:8px;background:#4ade80;cursor:pointer;font-size:12px;font-weight:700;color:#0f172a;">
+                        <i class="fas fa-check"></i> OK
+                    </button>
+                </div>
+            </div>`;
+        document.body.appendChild(dlg);
+    }
+
+    // ─── Agent PDF Report Generator ──────────────────────────────────────────────
+    window.saGenerateAgentReport = async function(agent) {
+        if (!agent) { alert('No agent data available.'); return; }
+
+        const trips      = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        const runCfg     = window._saAgentRunConfig || {};
+        const stats      = (window._saAgentStats && window._saAgentStats[agent.ID]) || {};
+        const endTime    = new Date();
+        const startTime  = stats.startTime ? new Date(stats.startTime) : null;
+        const tickCount  = stats.tickCount  || 0;
+
+        console.log('[Report] agent=', agent.ID, agent.NAME, 'trips=', trips.length, 'stats=', stats);
+
+        const fmtDt  = d => d ? d.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '—';
+        const fmtDur = (s, e) => {
+            if (!s || !e) return '—';
+            const ms = e - s;
+            const h  = Math.floor(ms / 3600000);
+            const m  = Math.floor((ms % 3600000) / 60000);
+            const sc = Math.floor((ms % 60000) / 1000);
+            return [h ? `${h}h` : '', m ? `${m}m` : '', `${sc}s`].filter(Boolean).join(' ');
+        };
+
+        // ── Collect per-trip data ───────────────────────────────────────────────
+        const reportTrips = [];
+        let grandOrders = 0, grandInterfaced = 0, grandPrinted = 0;
+        let grandIfcLines = 0, grandTotalLines = 0, grandToCancel = 0, grandCancelled = 0;
+        const customerSet = new Set();
+
+        // If no trips in _saAgentTrips, try to collect from all visible trip containers
+        const tripsToProcess = trips.length > 0 ? trips : [];
+        console.log('[Report] tripsToProcess=', tripsToProcess.map(t => t.TRIP_ID));
+
+        for (const t of tripsToProcess) {
+            const cfg  = runCfg[t.TRIP_ID] || { enabled:true };
+            if (!cfg.enabled) { console.log('[Report] trip', t.TRIP_ID, 'disabled, skipping'); continue; }
+            const kpi  = saCpComputeKpi(t.TRIP_ID);
+            console.log('[Report] trip', t.TRIP_ID, 'kpi=', kpi);
+            grandOrders     += kpi.total;
+            grandInterfaced += kpi.interfaced;
+            grandPrinted    += kpi.printed;
+            grandIfcLines   += kpi.ifcLines;
+            grandTotalLines += kpi.totalLines;
+            grandToCancel   += kpi.toCancel;
+            grandCancelled  += kpi.autoCancelled || 0;
+
+            // ── Collect order rows from DOM ────────────────────────────────────
+            const container = document.getElementById(`sa-trip-orders-${t.TRIP_ID}`);
+            console.log('[Report] container for trip', t.TRIP_ID, '=', container ? 'found' : 'NOT FOUND');
+            const orderRows = container ? Array.from(container.querySelectorAll('tr[id^="sa-order-row-"]')) : [];
+            console.log('[Report] orderRows count=', orderRows.length);
+            const orders = orderRows.map(row => {
+                const dc = (col) => (row.querySelector(`[data-col="${col}"]`)?.textContent || '').trim();
+                const orderNum  = (row.id.split(`sa-order-row-${t.TRIP_ID}-`)[1] || '');
+                // Account name is in the second <div> inside the first <td>
+                const firstTd   = row.querySelector('td');
+                const acctDiv   = firstTd ? firstTd.querySelectorAll('div')[0] : null;
+                const account   = acctDiv ? acctDiv.textContent.trim() : '';
+                const status    = dc('status');
+                const staged    = dc('staged');
+                const printing  = dc('print');
+                if (account) customerSet.add(account);
+                // PDF path from print cache
+                const printMap  = (window._saPrintCache && window._saPrintCache[t.TRIP_ID]) || {};
+                const printInfo = printMap[orderNum] || {};
+                return { orderNum, account, status, staged, printing, filePath: printInfo.filePath || printInfo.file_path || '' };
+            });
+
+            // Fetch PDF paths from DB if needed
+            let pdfRows = [];
+            try {
+                const inst = t.INSTANCE_NAME || agent.INSTANCE_NAME || 'PROD';
+                const res  = await apexGet(`printjobs/trip/${encodeURIComponent(t.TRIP_ID)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
+                pdfRows    = (res.items || []);
+            } catch(e) { /* ignore */ }
+            const pdfMap = {};
+            pdfRows.forEach(r => {
+                const on = r.ORDER_NUMBER || r.order_number || '';
+                if (on) pdfMap[on] = r.FILE_PATH || r.file_path || '';
+            });
+            // Merge DB file paths into order records
+            orders.forEach(o => { if (!o.filePath && pdfMap[o.orderNum]) o.filePath = pdfMap[o.orderNum]; });
+
+            reportTrips.push({ trip: t, kpi, orders });
+        }
+
+        const totalCustomers = customerSet.size;
+        const instance       = agent.INSTANCE_NAME || 'PROD';
+
+        // ── Build HTML report ──────────────────────────────────────────────────
+        const tripSections = reportTrips.map(({ trip, kpi, orders }) => {
+            const orderRows = orders.map(o => {
+                const hasPath   = !!o.filePath;
+                const pathCell  = hasPath
+                    ? `<span style="font-family:monospace;font-size:9.5px;color:#1d4ed8;word-break:break-all;">${o.filePath}</span>`
+                    : `<span style="color:#94a3b8;font-style:italic;">Not downloaded</span>`;
+                const statusBg  = /interfac|ship/i.test(o.status) ? '#d1fae5' : /cancel|backorder/i.test(o.status) ? '#fee2e2' : '#f1f5f9';
+                const statusCol = /interfac|ship/i.test(o.status) ? '#065f46' : /cancel|backorder/i.test(o.status) ? '#991b1b' : '#475569';
+                return `<tr>
+                    <td style="padding:5px 8px;font-weight:600;font-size:10px;border-bottom:1px solid #f1f5f9;">${o.orderNum || '—'}</td>
+                    <td style="padding:5px 8px;font-size:10px;border-bottom:1px solid #f1f5f9;">${o.account || '—'}</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;">
+                        <span style="background:${statusBg};color:${statusCol};padding:2px 7px;border-radius:99px;font-size:9px;font-weight:700;">${o.status || '—'}</span>
+                    </td>
+                    <td style="padding:5px 8px;font-size:10px;border-bottom:1px solid #f1f5f9;text-align:center;">${o.staged || '—'}</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;">${pathCell}</td>
+                    <td style="padding:5px 8px;text-align:center;border-bottom:1px solid #f1f5f9;">
+                        ${hasPath ? '<span style="color:#059669;font-size:13px;">&#10003;</span>' : '<span style="color:#cbd5e1;font-size:13px;">&#10007;</span>'}
+                    </td>
+                </tr>`;
+            }).join('');
+
+            const kpiBar = [
+                { lbl:'Orders',      val: kpi.total,       col:'#6366f1', bg:'#ede9fe' },
+                { lbl:'Interfaced',  val: kpi.interfaced,  col:'#059669', bg:'#d1fae5' },
+                { lbl:'PDFs',        val: kpi.printed,     col:'#2563eb', bg:'#dbeafe' },
+                { lbl:'Lines IFC',   val:`${kpi.ifcLines}/${kpi.totalLines}`, col:'#0891b2', bg:'#cffafe' },
+                { lbl:'To Cancel',   val: kpi.toCancel,       col: kpi.toCancel>0?'#dc2626':'#6b7280',        bg: kpi.toCancel>0?'#fee2e2':'#f1f5f9' },
+                { lbl:'Auto-Cancelled', val: kpi.autoCancelled||0, col: (kpi.autoCancelled||0)>0?'#ea580c':'#6b7280', bg: (kpi.autoCancelled||0)>0?'#ffedd5':'#f1f5f9' },
+            ].map(k => `<div style="background:${k.bg};border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;">
+                <div style="font-size:18px;font-weight:800;color:${k.col};">${k.val}</div>
+                <div style="font-size:9px;color:#64748b;font-weight:600;margin-top:2px;">${k.lbl}</div>
+            </div>`).join('');
+
+            return `
+            <div style="margin-bottom:28px;page-break-inside:avoid;">
+                <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;padding:10px 16px;border-radius:10px 10px 0 0;display:flex;align-items:center;gap:10px;">
+                    <span style="font-size:16px;">🚚</span>
+                    <div>
+                        <div style="font-weight:800;font-size:13px;">Trip ${trip.TRIP_NAME || trip.TRIP_ID}</div>
+                        <div style="font-size:10px;opacity:0.8;">ID: ${trip.TRIP_ID} &nbsp;·&nbsp; Instance: ${trip.INSTANCE_NAME || instance}</div>
+                    </div>
+                </div>
+                <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px;padding:14px;">
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">${kpiBar}</div>
+                    <table style="width:100%;border-collapse:collapse;font-size:10px;">
+                        <thead>
+                            <tr style="background:#f8fafc;">
+                                <th style="padding:6px 8px;text-align:left;font-size:9px;color:#64748b;font-weight:700;border-bottom:2px solid #e2e8f0;">ORDER #</th>
+                                <th style="padding:6px 8px;text-align:left;font-size:9px;color:#64748b;font-weight:700;border-bottom:2px solid #e2e8f0;">CUSTOMER</th>
+                                <th style="padding:6px 8px;text-align:left;font-size:9px;color:#64748b;font-weight:700;border-bottom:2px solid #e2e8f0;">STATUS</th>
+                                <th style="padding:6px 8px;text-align:center;font-size:9px;color:#64748b;font-weight:700;border-bottom:2px solid #e2e8f0;">STAGED</th>
+                                <th style="padding:6px 8px;text-align:left;font-size:9px;color:#64748b;font-weight:700;border-bottom:2px solid #e2e8f0;">PDF PATH</th>
+                                <th style="padding:6px 8px;text-align:center;font-size:9px;color:#64748b;font-weight:700;border-bottom:2px solid #e2e8f0;">PDF ✓</th>
+                            </tr>
+                        </thead>
+                        <tbody>${orderRows || '<tr><td colspan="6" style="padding:10px;color:#94a3b8;text-align:center;">No orders loaded</td></tr>'}</tbody>
+                    </table>
+                </div>
+            </div>`;
+        }).join('');
+
+        const summaryKpis = [
+            { icon:'🚚', lbl:'Trips',            val: reportTrips.length,  col:'#4f46e5', bg:'#ede9fe' },
+            { icon:'📦', lbl:'Total Orders',      val: grandOrders,         col:'#0891b2', bg:'#cffafe' },
+            { icon:'👥', lbl:'Customers',         val: totalCustomers,      col:'#7c3aed', bg:'#f3e8ff' },
+            { icon:'✅', lbl:'Interfaced Orders', val: grandInterfaced,     col:'#059669', bg:'#d1fae5' },
+            { icon:'🖨️', lbl:'PDFs Downloaded',   val: grandPrinted,        col:'#2563eb', bg:'#dbeafe' },
+            { icon:'📋', lbl:'Lines Interfaced',  val: `${grandIfcLines}/${grandTotalLines}`, col:'#0369a1', bg:'#e0f2fe' },
+            { icon:'❌', lbl:'Lines to Cancel',   val: grandToCancel,    col: grandToCancel>0?'#dc2626':'#6b7280',   bg: grandToCancel>0?'#fee2e2':'#f1f5f9' },
+            { icon:'🚫', lbl:'Auto-Cancelled',   val: grandCancelled,   col: grandCancelled>0?'#ea580c':'#6b7280',  bg: grandCancelled>0?'#ffedd5':'#f1f5f9' },
+            { icon:'🔄', lbl:'Refreshes Done',   val: tickCount,        col:'#d97706', bg:'#fef3c7' },
+        ].map(k => `
+            <div style="background:${k.bg};border-radius:12px;padding:14px 16px;text-align:center;flex:1;min-width:100px;">
+                <div style="font-size:22px;margin-bottom:4px;">${k.icon}</div>
+                <div style="font-size:22px;font-weight:900;color:${k.col};line-height:1;">${k.val}</div>
+                <div style="font-size:9px;color:#64748b;font-weight:600;margin-top:4px;text-transform:uppercase;letter-spacing:0.5px;">${k.lbl}</div>
+            </div>`).join('');
+
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Agent Report — ${agent.NAME}</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Segoe UI',Arial,sans-serif; background:#f8fafc; color:#1e293b; }
+  @page { size:A4; margin:15mm 12mm; }
+  @media print {
+    body { background:#fff; }
+    .no-print { display:none !important; }
+    .page-break { page-break-before:always; }
+  }
+</style>
+</head>
+<body style="padding:30px 36px;max-width:1000px;margin:0 auto;">
+
+  <!-- Toolbar -->
+  <div class="no-print" style="text-align:right;margin-bottom:20px;display:flex;justify-content:flex-end;gap:10px;">
+    <button onclick="window.print()" style="background:#4f46e5;color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">
+      🖨️ Print / Save as PDF
+    </button>
+    <button onclick="document.getElementById('sa-report-overlay').remove()" style="background:#dc2626;color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">
+      ✕ Close
+    </button>
+  </div>
+
+  <!-- Header -->
+  <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);color:white;border-radius:16px;padding:24px 28px;margin-bottom:24px;position:relative;overflow:hidden;">
+    <div style="position:absolute;top:-20px;right:-20px;width:160px;height:160px;border-radius:50%;background:rgba(255,255,255,0.04);"></div>
+    <div style="position:absolute;bottom:-30px;right:60px;width:100px;height:100px;border-radius:50%;background:rgba(255,255,255,0.03);"></div>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;">
+      <div>
+        <div style="font-size:10px;color:#94a3b8;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">Gray's WMS — Shipping Agent Report</div>
+        <div style="font-size:26px;font-weight:900;color:#fff;margin-bottom:4px;">${agent.NAME}</div>
+        <div style="font-size:11px;color:#94a3b8;">Agent ID: ${agent.ID} &nbsp;·&nbsp; Instance: ${instance}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="background:rgba(74,222,128,0.15);border:1px solid #4ade80;border-radius:8px;padding:6px 14px;display:inline-block;">
+          <div style="color:#4ade80;font-size:11px;font-weight:800;">✅ COMPLETED</div>
+        </div>
+        <div style="font-size:9px;color:#64748b;margin-top:8px;">Generated: ${fmtDt(endTime)}</div>
+      </div>
+    </div>
+    <!-- Timeline -->
+    <div style="display:flex;gap:24px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.08);">
+      <div>
+        <div style="font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:2px;">▶ Started</div>
+        <div style="font-size:12px;color:#e2e8f0;font-weight:600;">${fmtDt(startTime)}</div>
+      </div>
+      <div>
+        <div style="font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:2px;">⏹ Ended</div>
+        <div style="font-size:12px;color:#e2e8f0;font-weight:600;">${fmtDt(endTime)}</div>
+      </div>
+      <div>
+        <div style="font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:2px;">⏱ Total Duration</div>
+        <div style="font-size:12px;color:#4ade80;font-weight:700;">${fmtDur(startTime, endTime)}</div>
+      </div>
+      <div>
+        <div style="font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:2px;">🔄 Refresh Interval</div>
+        <div style="font-size:12px;color:#e2e8f0;font-weight:600;">${agent.CHECK_INTERVAL_SECONDS || '—'}s</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary KPIs -->
+  <div style="margin-bottom:24px;">
+    <div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">📊 Summary</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">${summaryKpis}</div>
+  </div>
+
+  <!-- Trip Sections -->
+  <div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">🚚 Trip Details</div>
+  ${tripSections || '<div style="color:#94a3b8;text-align:center;padding:20px;">No trip data available.</div>'}
+
+  <!-- Footer -->
+  <div style="margin-top:32px;padding-top:16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
+    <div style="font-size:9px;color:#94a3b8;">Gray's WMS Warehouse Management System &nbsp;·&nbsp; Confidential</div>
+    <div style="font-size:9px;color:#94a3b8;">Report generated ${fmtDt(endTime)}</div>
+  </div>
+
+</body>
+</html>`;
+
+        // Render report as full-screen overlay inside current page
+        // (avoids WebView2 blob:null restriction with window.open)
+        document.getElementById('sa-report-overlay')?.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'sa-report-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;background:#f8fafc;overflow-y:auto;';
+        // Extract just the <body> content from the HTML string and inject it
+        const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+        const bodyContent = bodyMatch ? bodyMatch[1] : html;
+        // Add print styles inline
+        const styleEl = document.createElement('style');
+        styleEl.textContent = `
+            #sa-report-overlay * { box-sizing:border-box; }
+            @media print {
+                body > *:not(#sa-report-overlay) { display:none !important; }
+                #sa-report-overlay { position:static !important; overflow:visible !important; }
+                .no-print { display:none !important; }
+            }
+        `;
+        document.head.appendChild(styleEl);
+        overlay.innerHTML = `<div style="padding:30px 36px;max-width:1000px;margin:0 auto;">${bodyContent}</div>`;
+        document.body.appendChild(overlay);
+        overlay.scrollTop = 0;
+    };
+
+    async function saProcessTripTick(agent, trip, instance, cfg) {
+        cfg = cfg || { task1:true, task2:true, task3:true };
+        const tripId  = trip.TRIP_ID;
+        const t0      = Date.now();
+        console.log(`[ShippingAgent] Processing trip ${tripId}`);
+
+        // Collect order rows from the rendered table
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        if (!container || container.dataset.loaded !== '1') {
+            saConsoleLog(`Trip ${tripId} — orders not loaded yet, skipping tick`, 'warn');
+            return;
+        }
+        const orderRows = Array.from(container.querySelectorAll('tr[id^="sa-order-row-"]'));
+        if (orderRows.length === 0) { saConsoleLog(`Trip ${tripId} — no order rows found`, 'warn'); return; }
+
+        saConsoleLog(`Trip ${tripId} — ${orderRows.length} order(s) to process`, 'info');
+
+        // ── TASK 1: Check Shipment Lines (Fusion) ───────────
+        if (!cfg.task1) { saConsoleLog(`Trip ${tripId} — Task 1 disabled in config`, 'skip'); }
+        else {
+        saCpSetTask(`Task 1: Checking shipment lines — Trip ${tripId}`);
+        saConsoleLog(`Task 1 ▶ Checking Fusion shipment lines for trip ${tripId}`, 'task');
+        try {
+            await saGetAllShipmentLines(tripId, instance);
+            saConsoleLog(`Task 1 ✓ Shipment lines updated for ${orderRows.length} order(s)`, 'success');
+            await saLogActivity(agent.ID, tripId, null, 'CHECK_STATUS', 'SUCCESS', orderRows.length,
+                `Shipment lines checked for ${orderRows.length} order(s)`, null, Date.now()-t0);
+        } catch(e) {
+            saConsoleLog(`Task 1 ✗ Shipment line check failed: ${e.message}`, 'error');
+            await saLogActivity(agent.ID, tripId, null, 'CHECK_STATUS', 'FAILED', 1, e.message, null, Date.now()-t0);
+        }
+
+        } // end task1
+
+        // ── TASK 2: Check Order Lines for Scheduled / Manual Reservations ──
+        if (!cfg.task2) { saConsoleLog(`Trip ${tripId} — Task 2 disabled in config`, 'skip'); }
+        else {
+        saCpSetTask(`Task 2: Checking order lines for Scheduled/Manual Reservations — Trip ${tripId}`);
+        saConsoleLog(`Task 2 ▶ Scanning order lines for Scheduled/Manual Reservations — trip ${tripId}`, 'task');
+
+        // Collect all lines needing cancellation grouped by order
+        const cancelGroups = {}; // { orderNumber: [ line, ... ] }
+        if (SADB.on()) {
+            // DuckDB mode: the order lines were read with the shipment lines in Task 1 and sit on this PC — no second read per order
+            try {
+                const g = await SADB.groupsForTrip(agent, tripId);
+                for (const orderNumber of Object.keys(g)) {
+                    cancelGroups[orderNumber] = g[orderNumber];
+                    const childCnt = g[orderNumber].filter(l => l._saChildOf).length;
+                    saConsoleLog(`Task 2 ⚠ Order ${orderNumber}: ${g[orderNumber].length} line(s) need cancellation (${g[orderNumber].length - childCnt} main + ${childCnt} child) — from the lines kept on this PC`, 'warn');
+                    await saAppendCancelLog(tripId, saCancelLogText(orderNumber, g[orderNumber], []));
+                    await saLogActivity(agent.ID, tripId, orderNumber, 'ANOMALY_DETECT', 'SUCCESS', g[orderNumber].length,
+                        `Order ${orderNumber}: ${g[orderNumber].length} line(s) need cancellation (${g[orderNumber].length - childCnt} main Scheduled/Manual Reservations + ${childCnt} child)`, null, null);
+                }
+            } catch(e) {
+                saConsoleLog(`Task 2 ✗ Could not read the order lines kept on this PC: ${e.message}`, 'error');
+            }
+        } else for (const row of orderRows) {
+            if (window._saAgentAbort && window._saAgentAbort[agent.ID]) {
+                saConsoleLog('⛔ Agent stopped — aborting Task 2', 'warn'); return;
+            }
+            const orderNumber = row.id.replace(`sa-order-row-${tripId}-`, '');
+            if (!orderNumber) continue;
+            saCpSetTask(`Task 2: Fetching lines for ${orderNumber}`);
+            saConsoleLog(`Task 2   Checking order ${orderNumber} …`, 'info');
+            try {
+                const olData = await apexGet(`trip/orders/getsalesorderlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${instance}`);
+                const lines  = (olData.items || []);
+                const toCancel = lines.filter(l => {
+                    const s = (l.LINE_STATUS || l.line_status || l.STATUS || l.status || '').toString().toUpperCase();
+                    return s.includes('SCHEDULED') || s.includes('MANUAL RESERVATION');
+                });
+                if (toCancel.length > 0) {
+                    // Expand main lines with child lines (numbered sub-lines, then BOGO promo items)
+                    const exp = await saExpandCancelLines(orderNumber, lines, toCancel, instance);
+                    cancelGroups[orderNumber] = exp.lines;
+                    if (exp.childCount > 0)
+                        saConsoleLog(`Task 2   Order ${orderNumber}: +${exp.childCount} child line(s) added (sub-line/BOGO)`, 'info');
+                    for (const s of exp.skipped)
+                        saConsoleLog(`Task 2 ⚠ Order ${orderNumber}: child line ${saLineNum(s.line)} ${saLineItem(s.line)} skipped — ${s.reason}`, 'warn');
+                    saConsoleLog(`Task 2 ⚠ Order ${orderNumber}: ${exp.lines.length} line(s) need cancellation (${toCancel.length} main + ${exp.childCount} child)`, 'warn');
+                    await saAppendCancelLog(tripId, saCancelLogText(orderNumber, exp.lines, exp.skipped));
+                    await saLogActivity(agent.ID, tripId, orderNumber, 'ANOMALY_DETECT', 'SUCCESS', exp.lines.length,
+                        `Order ${orderNumber}: ${exp.lines.length} line(s) need cancellation (${toCancel.length} main Scheduled/Manual Reservations + ${exp.childCount} child)`, null, null);
+                } else {
+                    saConsoleLog(`Task 2 ✓ Order ${orderNumber}: ${lines.length} line(s) — OK`, 'success');
+                }
+            } catch(e) {
+                saConsoleLog(`Task 2 ✗ Error fetching lines for ${orderNumber}: ${e.message}`, 'error');
+                console.warn(`[ShippingAgent] Task 2 error for ${orderNumber}:`, e.message);
+            }
+        }
+
+        const totalToCancel = Object.values(cancelGroups).reduce((s, arr) => s + arr.length, 0);
+        if (totalToCancel > 0) {
+            // Never cancel on our own: the lines wait on an approval card (saCancelApprovalCard) and are
+            // only sent to Fusion when a person approves them. Printing of those orders waits too (Task 3).
+            const ask = saRequestCancelApproval(agent, tripId, instance, cancelGroups);
+            if (ask === 'new') {
+                saConsoleLog(`Task 2 ⚠ ${totalToCancel} line(s) across ${Object.keys(cancelGroups).length} order(s) need cancelling — waiting for approval`, 'warn');
+                saCpSetTask(`Task 2: ${totalToCancel} line(s) waiting for cancel approval — Trip ${tripId}`);
+                await saLogNotification(agent.ID, tripId, null, 'APPROVAL',
+                    `Trip ${tripId}: ${totalToCancel} line(s) across ${Object.keys(cancelGroups).length} order(s) need cancelling — approval required`, 'WARN');
+            } else if (ask === 'pending') {
+                saConsoleLog(`Task 2 ⏳ ${totalToCancel} line(s) still waiting for cancel approval`, 'info');
+            } else if (ask === 'rejected') {
+                saConsoleLog(`Task 2 ⛔ Cancelling these ${totalToCancel} line(s) was rejected — not asking again until the lines change`, 'skip');
+            }
+        } else {
+            saClearCancelApproval(tripId);
+            saConsoleLog(`Task 2 ✓ No lines requiring cancellation found`, 'success');
+        }
+
+        } // end task2
+
+        // ── TASK 3: Auto-Print Interfaced Orders ─────────────
+        if (!cfg.task3) { saConsoleLog(`Trip ${tripId} — Task 3 disabled in config`, 'skip'); }
+        else {
+        saCpSetTask(`Task 3: Auto-printing interfaced orders — Trip ${tripId}`);
+        saConsoleLog(`Task 3 ▶ Auto-print scan for interfaced orders — trip ${tripId}`, 'task');
+        let autoPrinted = 0;
+        for (const row of orderRows) {
+            if (window._saAgentAbort && window._saAgentAbort[agent.ID]) {
+                saConsoleLog('⛔ Agent stopped — aborting Task 3', 'warn'); return;
+            }
+            const orderNumber = row.id.replace(`sa-order-row-${tripId}-`, '');
+            if (!orderNumber) continue;
+            if (saCancelPendingFor(tripId, orderNumber)) {
+                saConsoleLog(`Task 3   Order ${orderNumber} — line cancellation waiting for approval, not printing yet`, 'skip');
+                continue;
+            }
+            const statusText = (row.querySelector('[data-col="status"]')?.textContent || '').trim();
+            const printText  = (row.querySelector('[data-col="print"]')?.textContent  || '').trim();
+
+            // Parse print_printed / print_total from cell (format: "X/Y" or "No Jobs" or "Printed X/X")
+            const printMatch = printText.match(/(\d+)\/(\d+)/);
+            const printTotal   = printMatch ? parseInt(printMatch[2]) : 0;
+            const printPrinted = printMatch ? parseInt(printMatch[1]) : 0;
+
+            // Skip if already downloaded (print_total > 0 means PDF exists in wms_print_jobs)
+            if (printTotal > 0) {
+                saConsoleLog(`Task 3   Order ${orderNumber} — PDF already downloaded (${printPrinted}/${printTotal}), skipping`, 'skip');
+                continue;
+            }
+
+            // Only print if fully Interfaced or Shipped and not yet downloaded/printed
+            const readyToPrint = statusText === 'Interfaced' || statusText === 'Shipped' || statusText.includes('Shipped');
+            if (readyToPrint) {
+                saConsoleLog(`Task 3   Order ${orderNumber} — status "${statusText}", sending to print …`, 'info');
+                saCpSetTask(`Task 3: Printing ${orderNumber} — Trip ${tripId}`);
+                try {
+                    await saPrintOrder(orderNumber, tripId, '', instance, true); // silent=true
+                    autoPrinted++;
+                    saConsoleLog(`Task 3 ✓ Order ${orderNumber} — PDF downloaded & queued for print`, 'success');
+                    await saLogActivity(agent.ID, tripId, orderNumber, 'AUTO_PRINT', 'SUCCESS', 1,
+                        `Auto-printed interfaced order ${orderNumber}`, null, null);
+                } catch(e) {
+                    saConsoleLog(`Task 3 ✗ Order ${orderNumber} — print failed: ${e.message}`, 'error');
+                    await saLogActivity(agent.ID, tripId, orderNumber, 'AUTO_PRINT', 'FAILED', 1,
+                        `Auto-print failed for ${orderNumber}: ${e.message}`, null, null);
+                }
+            } else {
+                saConsoleLog(`Task 3   Order ${orderNumber} — status "${statusText}", not ready to print`, 'info');
+            }
+        }
+        if (autoPrinted > 0) {
+            saConsoleLog(`Task 3 ✓ Auto-printed ${autoPrinted} order(s) for trip ${tripId}`, 'success');
+            await saGetPrintStatus(tripId, instance);  // refresh print column after batch print
+            showNotification(`Auto-printed ${autoPrinted} order(s) for trip ${tripId}.`, 'success');
+        } else {
+            saConsoleLog(`Task 3 — No new orders to print this tick`, 'info');
+        }
+        } // end task3
+
+        // Refresh trip card stats after all tasks complete
+        saRefreshTripCardStats(tripId);
+    }
+
+    // ─── Cancel Review Dialog ─────────────────────────────────
+    // Shows lines needing cancellation grouped by order. User reviews and confirms.
+    // cancelGroups: { orderNumber: [ lineObj, ... ] }
+    function saShowCancelReviewDialog(agent, tripId, instance, cancelGroups) {
+        return new Promise(resolve => {
+            document.getElementById('sa-cancel-review-dlg')?.remove();
+
+            const orders = Object.keys(cancelGroups).sort();
+            const totalLines = orders.reduce((s, o) => s + cancelGroups[o].length, 0);
+            const cancelUrl = (orderNumber) =>
+                `${APEX_BASE}/trip/orders/cancelscheduledlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${instance}`;
+
+            const orderRows = orders.map(orderNumber => {
+                const lines = cancelGroups[orderNumber];
+                const lineRows = lines.map(l => {
+                    const lineNum   = l.LINE_NUMBER   || l.line_number   || l.LINE_ID   || l.line_id   || '—';
+                    const item      = l.ITEM_NUMBER   || l.item_number   || l.ITEM      || l.item      || '—';
+                    const desc      = l.ITEM_DESC     || l.item_desc     || l.DESCRIPTION || l.description || '';
+                    const status    = l.LINE_STATUS   || l.line_status   || l.STATUS    || l.status    || '—';
+                    const qty       = l.ORDERED_QTY   || l.ordered_qty   || l.QTY       || l.qty       || '—';
+                    const fulfillId = l.SOURCE_FULFILLMENT_LINE_ID || l.source_fulfillment_line_id ||
+                                      l.FULFILLMENT_LINE_ID || l.fulfillment_line_id || '—';
+                    return `<tr style="border-bottom:1px solid #1e293b;">
+                        <td style="padding:4px 6px;color:#f59e0b;font-size:10px;">${esc(String(lineNum))}</td>
+                        <td style="padding:4px 6px;font-size:10px;">${esc(String(item))}</td>
+                        <td style="padding:4px 6px;font-size:9px;color:#94a3b8;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(String(desc))}</td>
+                        <td style="padding:4px 6px;font-size:10px;"><span style="background:#7f1d1d;color:#fca5a5;padding:1px 6px;border-radius:4px;">${esc(String(status))}</span></td>
+                        <td style="padding:4px 6px;font-size:10px;text-align:right;">${esc(String(qty))}</td>
+                        <td style="padding:4px 6px;font-size:9px;color:#64748b;">${esc(String(fulfillId))}</td>
+                    </tr>`;
+                }).join('');
+
+                return `<div style="margin-bottom:0.75rem;border:1px solid #1e293b;border-radius:8px;overflow:hidden;">
+                    <div style="background:#0f172a;padding:0.4rem 0.75rem;display:flex;justify-content:space-between;align-items:center;">
+                        <span style="font-weight:700;color:#a78bfa;font-size:11px;"><i class="fas fa-file-invoice"></i> Order ${esc(orderNumber)}</span>
+                        <span style="font-size:9px;color:#f87171;">${lines.length} line(s) to cancel</span>
+                    </div>
+                    <table style="width:100%;border-collapse:collapse;background:#0a0f1e;">
+                        <thead>
+                            <tr style="background:#1e293b;">
+                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">Line#</th>
+                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">Item</th>
+                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">Description</th>
+                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">Status</th>
+                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:right;">Qty</th>
+                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">FulfillmentLineId</th>
+                            </tr>
+                        </thead>
+                        <tbody>${lineRows}</tbody>
+                    </table>
+                    <div style="padding:0.35rem 0.75rem;background:#0f172a;font-size:9px;color:#64748b;">
+                        <i class="fas fa-plug" style="color:#0e7490;"></i> Cancel endpoint: <code style="color:#38bdf8;">${esc(cancelUrl(orderNumber))}</code>
+                    </div>
+                </div>`;
+            }).join('');
+
+            const dlg = document.createElement('div');
+            dlg.id = 'sa-cancel-review-dlg';
+            dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:99999;display:flex;align-items:center;justify-content:center;';
+            dlg.innerHTML = `
+                <div style="background:#1e293b;border-radius:14px;width:700px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.5);overflow:hidden;border:2px solid #f87171;">
+                    <div style="padding:0.9rem 1.2rem;background:#0f172a;display:flex;align-items:center;gap:0.75rem;flex-shrink:0;">
+                        <span style="font-size:20px;">⚠️</span>
+                        <div>
+                            <div style="font-weight:800;font-size:13px;color:#f87171;">Lines Requiring Cancellation — Trip ${esc(tripId)}</div>
+                            <div style="font-size:10px;color:#64748b;margin-top:2px;">${orders.length} order(s) · ${totalLines} line(s) in Scheduled / Manual Reservations status</div>
+                        </div>
+                        <button onclick="document.getElementById('sa-cancel-review-dlg').remove()" style="margin-left:auto;background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;">×</button>
+                    </div>
+                    <div style="overflow-y:auto;padding:1rem;flex:1;color:#e2e8f0;">
+                        <div style="font-size:10px;color:#94a3b8;margin-bottom:0.75rem;">
+                            Review the lines below. Click <strong style="color:#f87171;">Cancel All Listed Lines</strong> to proceed with cancellation order by order,
+                            or <strong style="color:#64748b;">Skip</strong> to leave them as-is this tick.
+                        </div>
+                        ${orderRows}
+                    </div>
+                    <div style="padding:0.75rem 1.2rem;border-top:1px solid #0f172a;display:flex;justify-content:flex-end;gap:0.5rem;background:#0f172a;flex-shrink:0;">
+                        <button id="sa-cancel-skip-btn" onclick="document.getElementById('sa-cancel-review-dlg').remove()"
+                            style="padding:0.45rem 1rem;border:1px solid #334155;border-radius:8px;background:#1e293b;cursor:pointer;font-size:12px;font-weight:600;color:#94a3b8;">
+                            Skip This Tick
+                        </button>
+                        <button id="sa-cancel-confirm-btn"
+                            style="padding:0.45rem 1.2rem;border:none;border-radius:8px;background:#dc2626;cursor:pointer;font-size:12px;font-weight:700;color:white;">
+                            <i class="fas fa-ban"></i> Cancel All Listed Lines (${totalLines})
+                        </button>
+                    </div>
+                </div>`;
+            document.body.appendChild(dlg);
+
+            // Confirm button — runs cancellation order by order
+            document.getElementById('sa-cancel-confirm-btn').onclick = async () => {
+                const confirmBtn = document.getElementById('sa-cancel-confirm-btn');
+                const skipBtn   = document.getElementById('sa-cancel-skip-btn');
+                confirmBtn.disabled = true;
+                skipBtn.disabled    = true;
+                confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling...';
+
+                let successCount = 0, failCount = 0;
+                for (const orderNumber of orders) {
+                    try {
+                        await new Promise((res, rej) => {
+                            sendMessageToCSharp({
+                                action  : 'executePost',
+                                fullUrl : cancelUrl(orderNumber),
+                                payload : {}
+                            }, (err, data) => err ? rej(new Error(err)) : res(data));
+                        });
+                        successCount++;
+                        await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'SUCCESS', cancelGroups[orderNumber].length,
+                            `Cancelled ${cancelGroups[orderNumber].length} Scheduled/Manual Reservations line(s)`, null, null);
+                    } catch(e) {
+                        failCount++;
+                        await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'FAILED', 1, e.message, null, null);
+                    }
+                }
+
+                document.getElementById('sa-cancel-review-dlg')?.remove();
+                if (failCount === 0) {
+                    showNotification(`✅ Cancelled lines for ${successCount} order(s) successfully.`, 'success');
+                } else {
+                    showNotification(`⚠ Cancelled ${successCount} OK, ${failCount} failed — check activity log.`, 'warning');
+                }
+                resolve();
+            };
+
+            // Skip closes and resolves
+            document.getElementById('sa-cancel-skip-btn').addEventListener('click', resolve, { once: true });
+        });
+    }
+
+    async function saDetectAnomalies(agent, trip, orders, instance) {
+        // Simple anomaly: check if any shipment lines saved in APEX have mismatched statuses
+        // This is a placeholder — extend with real business logic
+        const lines = [];
+        for (const order of orders.slice(0, 5)) { // limit to first 5 orders per tick
+            try {
+                const data = await apexGet(`orders/shipmentlines/${encodeURIComponent(order)}?P_INSTANCE_NAME=${instance}`);
+                if (data.items) lines.push(...data.items);
+            } catch(e) { /* ignore */ }
+        }
+        const cancelled = lines.filter(l => l.LINE_STATUS_CODE === 'CANCELLED').length;
+        const backOrdered = lines.filter(l => l.LINE_STATUS_CODE === 'BACKORDERED').length;
+        if (cancelled > 0 || backOrdered > 0) {
+            return `Trip ${trip.TRIP_ID}: ${cancelled} cancelled line(s), ${backOrdered} backordered line(s) detected.`;
+        }
+        return null;
+    }
+
+    async function saRunAiAnalysis(agent, trip, orders) {
+        const prompt = `You are a WMS Shipping Agent AI. Analyse trip ${trip.TRIP_ID} with ${orders.length} order(s): ${orders.slice(0,5).join(', ')}. Orders processed: ${trip.ORDERS_PROCESSED}/${trip.ORDERS_TOTAL}. Anomalies found: ${trip.ANOMALIES_FOUND}. Give a 1-sentence status summary and 1 action recommendation.`;
+
+        return new Promise((resolve) => {
+            const requestId = 'sa-ai-' + Date.now();
+            window.pendingRequests = window.pendingRequests || {};
+            // the WMS bridge calls back (err, data); data = { success, error, content: [{ text }] }
+            window.pendingRequests[requestId] = async (err, response) => {
+                const msg = (!err && response?.content?.[0]?.text) || (response?.error ? 'AI analysis unavailable: ' + response.error : 'Analysis complete.');
+                await saLogActivity(agent.ID, trip.TRIP_ID, null, 'AI_ANALYSIS', 'SUCCESS', 1, msg.substring(0, 500), null, null);
+                await saLogNotification(agent.ID, trip.TRIP_ID, null, 'COMPLETION', msg.substring(0, 500), 'INFO');
+                resolve(msg);
+            };
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(JSON.stringify({
+                    action: 'claudeChat',
+                    requestId,
+                    message: prompt,
+                    conversationHistory: []
+                }));
+            } else {
+                delete window.pendingRequests[requestId];
+                resolve('AI not available in browser mode.');
+            }
+        });
+    }
+
+    // ─── Log helpers ─────────────────────────────────────────
+    // ── Task 2 approval: cancelling order lines in Fusion always needs a person ──────────
+    // One card per trip. The card is keyed by the exact lines (order + FulfillLineId), so the same
+    // request is never shown twice and a rejected request is not asked again until the lines change.
+    function saEscHtml(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+    function saCancelSig(groups) {
+        return Object.keys(groups).sort().map(o => o + ':' + groups[o].map(l => saLineFulfillId(l) || saLineNum(l)).sort().join(',')).join('|');
+    }
+    function saCancelPendingFor(tripId, orderNumber) {
+        const a = window._saCancelApprovals && window._saCancelApprovals[tripId];
+        return !!(a && (a.state === 'pending' || a.state === 'running') && a.groups[orderNumber]);
+    }
+    function saClearCancelApproval(tripId) {
+        const a = window._saCancelApprovals && window._saCancelApprovals[tripId];
+        if (a && a.state === 'pending') { delete window._saCancelApprovals[tripId]; saRenderCancelCards(); }
+    }
+    function saRequestCancelApproval(agent, tripId, instance, groups) {
+        window._saCancelApprovals = window._saCancelApprovals || {};
+        const sig = saCancelSig(groups), cur = window._saCancelApprovals[tripId];
+        // 'done' with the same lines = the approved cancel did not go through in Fusion -> ask again
+        if (cur && cur.sig === sig && cur.state !== 'done') return cur.state === 'rejected' ? 'rejected' : 'pending';
+        if (cur && cur.state === 'running') return 'pending';
+        const req = window._saCancelApprovals[tripId] = { sig, groups, agent, instance, tripId, state: 'pending', at: new Date(), sel: Object.fromEntries(Object.keys(groups).map(o => [o, true])) };
+        saRenderCancelCards();
+        saCreateCancelInbox(req);
+        try { if (typeof showNotification === 'function') showNotification(`Shipping Agent: approve cancelling lines for trip ${tripId}`, 'warning'); } catch (e) { }
+        return 'new';
+    }
+    function saRenderCancelCards() {
+        let box = document.getElementById('sa-cancel-approvals');
+        const list = Object.values(window._saCancelApprovals || {}).filter(a => a.state !== 'rejected' && a.state !== 'done');
+        if (!list.length) { if (box) box.remove(); return; }
+        if (!box) {
+            box = document.createElement('div');
+            box.id = 'sa-cancel-approvals';
+            box.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:10050;display:flex;flex-direction:column;gap:10px;max-height:80vh;overflow-y:auto;width:min(560px,92vw);';
+            document.body.appendChild(box);
+            box.addEventListener('click', saCancelCardClick);
+            box.addEventListener('change', e => {
+                const cb = e.target.closest('input[data-sa-sel]'); if (!cb) return;
+                const a = window._saCancelApprovals[cb.dataset.trip]; if (a) a.sel[cb.dataset.saSel] = cb.checked;
+                saRenderCancelCards();
+            });
+        }
+        box.innerHTML = list.map(a => {
+            const prod = String(a.instance || '').toUpperCase() !== 'TEST';
+            const orders = Object.keys(a.groups);
+            const nSel = orders.filter(o => a.sel[o]).reduce((n, o) => n + a.groups[o].length, 0);
+            const rows = orders.map(o => a.groups[o].map((l, i) => `<tr style="border-top:1px solid #f1f5f9;${a.sel[o] ? '' : 'opacity:.45;'}">
+                ${i === 0 ? `<td rowspan="${a.groups[o].length}" style="padding:5px 6px;vertical-align:top;"><label style="display:flex;gap:6px;align-items:center;font-weight:700;cursor:pointer;"><input type="checkbox" data-sa-sel="${saEscHtml(o)}" data-trip="${saEscHtml(a.tripId)}" ${a.sel[o] ? 'checked' : ''} ${a.state !== 'pending' ? 'disabled' : ''}>${saEscHtml(o)}</label></td>` : ''}
+                <td style="padding:5px 6px;">${saEscHtml(saLineNum(l))}${l._saChildOf ? ' <span style="color:#64748b;font-size:10px;">child</span>' : ''}</td>
+                <td style="padding:5px 6px;">${saEscHtml(saLineItem(l))}</td>
+                <td style="padding:5px 6px;">${saEscHtml(saLineStatus(l))}</td>
+                <td style="padding:5px 6px;text-align:right;">${saEscHtml(l.ORDERED_QUANTITY || l.ordered_quantity || l.ORDERED_QTY || l.ordered_qty || '')}</td>
+                <td style="padding:5px 6px;">${saLineFulfillId(l) ? '' : '<span style="color:#b91c1c;font-size:10px;" title="No FulfillLineId — this line will be skipped">no id</span>'}</td></tr>`).join('')).join('');
+            const body = a.state === 'running' ? `<div style="padding:10px 14px;color:#0e7490;font-weight:600;">⏳ Cancelling in Fusion… (approved by ${saEscHtml(a.approvedBy)})</div>`
+                : `<div style="max-height:260px;overflow:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f8fafc;text-align:left;color:#475569;">
+                    <th style="padding:5px 6px;">Order</th><th style="padding:5px 6px;">Line</th><th style="padding:5px 6px;">Item</th><th style="padding:5px 6px;">Status</th><th style="padding:5px 6px;text-align:right;">Qty</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+                  <div style="display:flex;gap:8px;justify-content:flex-end;align-items:center;padding:10px 14px;border-top:1px solid #e2e8f0;">
+                    <span style="margin-right:auto;font-size:11px;color:#64748b;">Reason sent to Fusion: OUT OF STOCK · orders on hold for printing until decided</span>
+                    <button data-sa-act="reject" data-trip="${saEscHtml(a.tripId)}" style="border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:7px 12px;font-weight:600;cursor:pointer;">Reject</button>
+                    <button data-sa-act="approve" data-trip="${saEscHtml(a.tripId)}" ${nSel ? '' : 'disabled'} style="border:0;background:#b91c1c;color:#fff;border-radius:8px;padding:7px 12px;font-weight:700;cursor:pointer;${nSel ? '' : 'opacity:.5;'}">Cancel ${nSel} line(s) in Fusion</button></div>`;
+            return `<div style="background:#fff;border:1px solid #fecaca;border-radius:14px;box-shadow:0 14px 40px rgba(15,23,42,.25);overflow:hidden;font-family:inherit;">
+                <div style="display:flex;gap:10px;align-items:center;padding:10px 14px;background:linear-gradient(135deg,#fef2f2,#fff7ed);border-bottom:1px solid #fecaca;">
+                  <span style="font-size:18px;">✋</span>
+                  <div style="flex:1;"><div style="font-weight:800;color:#7f1d1d;">Approve line cancellations — Trip ${saEscHtml(a.tripId)}</div>
+                  <div style="font-size:11px;color:#9a3412;">${saEscHtml(a.agent && (a.agent.AGENT_NAME || a.agent.NAME) || 'Shipping Agent')} found Scheduled / Manual Reservation lines · ${a.at.toLocaleTimeString()}${a.inboxId ? ` · <b title="Also waiting in AI Digital Employee › Control › Inbox — an approver can decide it from any PC">Inbox #${a.inboxId}</b>` : ''}</div></div>
+                  <span style="font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;background:${prod ? '#b91c1c' : '#0e7490'};color:#fff;">${prod ? 'PROD' : 'TEST'}</span></div>
+                ${body}</div>`;
+        }).join('');
+    }
+    async function saCancelCardClick(e) {
+        const b = e.target.closest('button[data-sa-act]'); if (!b) return;
+        const a = window._saCancelApprovals[b.dataset.trip]; if (!a || a.state !== 'pending') return;
+        const user = localStorage.getItem('loggedInUser') || sessionStorage.getItem('loggedInUser') || 'WMS_USER';
+        if (a.inboxId) {
+            const selection = JSON.stringify(Object.keys(a.groups).filter(o => a.sel[o]));
+            const d = await saHost('aiInboxDecide', { inboxId: a.inboxId, approve: b.dataset.saAct === 'approve', selectionJson: selection, note: 'decided on the Shipping Agent card' });
+            if (!d || d.ok === false) {
+                if (typeof showNotification === 'function') showNotification('Inbox: ' + ((d && d.error) || 'could not record the decision'), 'error');
+                await saSyncCancelInbox();      // someone else may have decided it already
+                return;
+            }
+        }
+        if (b.dataset.saAct === 'reject') {
+            a.state = 'rejected'; a.decidedBy = user;
+            saRenderCancelCards();
+            saConsoleLog(`Task 2 ⛔ Cancelling lines for trip ${a.tripId} rejected by ${user}`, 'warn');
+            await saLogActivity(a.agent.ID, a.tripId, null, 'CANCEL_REJECTED', 'SUCCESS', 1, `Line cancellation rejected by ${user}: ${Object.keys(a.groups).join(', ')}`, null, null);
+            return;
+        }
+        const chosen = {};
+        Object.keys(a.groups).forEach(o => { if (a.sel[o]) chosen[o] = a.groups[o]; });
+        if (!Object.keys(chosen).length) return;
+        await saRunApprovedCancel(a, chosen, user);
+    }
+    async function saRunApprovedCancel(a, chosen, approvedBy) {
+        a.state = 'running'; a.approvedBy = approvedBy;
+        saRenderCancelCards();
+        await saLogActivity(a.agent.ID, a.tripId, null, 'CANCEL_APPROVED', 'SUCCESS', 1, `Line cancellation approved by ${approvedBy}: ${Object.keys(chosen).join(', ')}`, null, null);
+        let res = { cancelled: 0, failed: 0 };
+        try { res = await saExecuteCancels(a.agent, a.tripId, a.instance, chosen, approvedBy) || res; }
+        finally {
+            a.state = 'done'; saRenderCancelCards();
+            if (a.inboxId) saHost('aiInboxComplete', { inboxId: a.inboxId, status: res.failed ? 'FAILED' : 'DONE', result: `${res.cancelled} line(s) cancelled, ${res.failed} order(s) failed` });
+            saHost('aiAudit', { source: 'SHIPPING_AGENT', actionKey: 'cancel_lines', outcome: res.failed ? 'FAILED' : 'OK', approval: a.inboxId ? 'INBOX' : 'CARD', instance: a.instance,
+                refId: 'TRIP:' + a.tripId + (a.inboxId ? ' INBOX:' + a.inboxId : ''), target: Object.keys(chosen).join(','), detail: `${res.cancelled} line(s) cancelled, approved by ${approvedBy}` });
+        }
+    }
+
+    // ── bridge + control plane (kill switch, inbox) ──────────────
+    function saHost(action, payload) {
+        return new Promise(resolve => {
+            if (typeof sendMessageToCSharp !== 'function' || !(window.chrome && window.chrome.webview)) { resolve(null); return; }
+            const user = localStorage.getItem('loggedInUser') || sessionStorage.getItem('loggedInUser') || '';
+            sendMessageToCSharp(Object.assign({ action, appUser: user }, payload || {}), (err, data) => resolve(err ? { ok: false, error: String(err) } : data), 20000, false);
+        });
+    }
+    async function saAiStatus() {
+        const d = await saHost('aiControlStatus', {});
+        return d && d.ok !== false ? d : null;      // unreachable = carry on as before
+    }
+    async function saCreateCancelInbox(a) {
+        const lines = Object.keys(a.groups).map(o => `${o}: ` + a.groups[o].map(l => `${saLineNum(l)} ${saLineItem(l)} (${saLineStatus(l)})`).join(', '));
+        const n = Object.values(a.groups).reduce((s, x) => s + x.length, 0);
+        const d = await saHost('aiInboxCreate', {
+            source: 'SHIPPING_AGENT', actionKey: 'cancel_lines', instance: String(a.instance || 'PROD').toUpperCase(), refId: 'TRIP:' + a.tripId,
+            sig: ('SA:' + a.tripId + ':' + a.sig).slice(0, 200),
+            title: `Cancel ${n} line(s) on trip ${a.tripId} (${Object.keys(a.groups).length} order(s))`,
+            summary: `Shipping Agent "${(a.agent && (a.agent.NAME || a.agent.AGENT_NAME)) || ''}" found Scheduled / Manual Reservation lines. Reason sent to Fusion: OUT OF STOCK.\n` + lines.join('\n').slice(0, 3500),
+            payloadJson: JSON.stringify({ tripId: a.tripId, orders: Object.keys(a.groups), lines: n })
+        });
+        if (!d || !d.inboxId) return;              // APEX unreachable: the card on this page still works
+        a.inboxId = d.inboxId;
+        saRenderCancelCards();
+        if (d.status === 'APPROVED' && a.state === 'pending') {       // approved while this PC was not running it
+            saConsoleLog(`Task 2 ✓ Trip ${a.tripId}: request #${d.inboxId} was already approved in the Inbox — cancelling now`, 'success');
+            await saRunApprovedCancel(a, saParseSelection(d.resultText, a), 'Inbox');
+        }
+    }
+    function saParseSelection(text, a) {
+        let orders = null;
+        try { if (text && text.indexOf('SELECTION:') === 0) orders = JSON.parse(text.slice(10)); } catch (e) { }
+        const chosen = {};
+        Object.keys(a.groups).forEach(o => { if (!orders || orders.indexOf(o) >= 0) chosen[o] = a.groups[o]; });
+        return chosen;
+    }
+    async function saSyncCancelInbox() {
+        const open = Object.values(window._saCancelApprovals || {}).filter(a => a.inboxId && a.state === 'pending');
+        if (!open.length) return;
+        const d = await saHost('aiInboxGet', { ids: open.map(a => a.inboxId) });
+        if (!d || !Array.isArray(d.items)) return;
+        for (const it of d.items) {
+            const a = open.find(x => String(x.inboxId) === String(it.INBOX_ID));
+            if (!a || a.state !== 'pending') continue;
+            if (it.STATUS === 'APPROVED') {
+                saConsoleLog(`Task 2 ✓ Trip ${a.tripId}: request #${a.inboxId} approved in the Inbox by ${it.DECIDED_BY} — cancelling`, 'success');
+                await saRunApprovedCancel(a, saParseSelection(it.RESULT_TEXT, a), it.DECIDED_BY || 'Inbox');
+            } else if (it.STATUS === 'REJECTED') {
+                a.state = 'rejected'; a.decidedBy = it.DECIDED_BY;
+                saConsoleLog(`Task 2 ⛔ Trip ${a.tripId}: request #${a.inboxId} rejected in the Inbox by ${it.DECIDED_BY}${it.DECISION_NOTE ? ' — ' + it.DECISION_NOTE : ''}`, 'warn');
+                await saLogActivity(a.agent.ID, a.tripId, null, 'CANCEL_REJECTED', 'SUCCESS', 1, `Line cancellation rejected in the Inbox by ${it.DECIDED_BY}`, null, null);
+                saRenderCancelCards();
+            } else if (it.EXPIRED === 'Y') {
+                a.state = 'done';                   // asked again on the next tick if the lines still need it
+                saRenderCancelCards();
+            }
+        }
+    }
+    async function saExecuteCancels(agent, tripId, instance, cancelGroups, approvedBy) {
+        const isProd     = (instance || '').toUpperCase() !== 'TEST';
+        const fusionBase = isProd ? 'https://efmh.fa.em3.oraclecloud.com' : 'https://efmh-test.fa.em3.oraclecloud.com';
+        const cancelUrl  = (orderNum) => `${fusionBase}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${encodeURIComponent(orderNum)}`;
+        const cancelBody = (lines) => ({
+            lines: lines.map(l => ({
+                FulfillLineId   : saLineFulfillId(l),
+                OrderedQuantity : 0,
+                CancelReason    : 'OUT OF STOCK'
+            }))
+        });
+
+        let autoCancelled = 0, cancelFailed = 0;
+        for (const orderNum of Object.keys(cancelGroups)) {
+            let lines = cancelGroups[orderNum];
+            // Guard: never PATCH lines with no resolvable FulfillLineId — Fusion
+            // would silently cancel nothing. Drop & log them so the failure is visible.
+            const missing = lines.filter(l => !saLineFulfillId(l));
+            if (missing.length) {
+                lines = lines.filter(l => saLineFulfillId(l));
+                saConsoleLog(`Task 2 ⚠ Order ${orderNum}: ${missing.length} line(s) have no FulfillLineId — skipped (check getsalesorderlines column names)`, 'warn');
+                await saAppendCancelLog(tripId, `WARN order ${orderNum}: ${missing.length} line(s) skipped — no FulfillLineId resolved`);
+            }
+            if (lines.length === 0) {
+                saConsoleLog(`Task 2 ✗ Order ${orderNum}: no cancellable line had a FulfillLineId — nothing sent to Fusion`, 'error');
+                await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'FAILED', missing.length,
+                    `No FulfillLineId resolved for any flagged line of ${orderNum}`, null, null);
+                continue;
+            }
+            saCpSetTask(`Task 2: Cancelling ${lines.length} line(s) for ${orderNum} (approved by ${approvedBy})`);
+            saConsoleLog(`Task 2   Cancelling ${lines.length} line(s) for order ${orderNum} …`, 'info');
+            try {
+                await new Promise((res, rej) => {
+                    sendMessageToCSharp({
+                        action  : 'executeOracleFusionPatch',
+                        fullUrl : cancelUrl(orderNum),
+                        body    : JSON.stringify(cancelBody(lines)),
+                        instance: instance
+                    }, (err, data) => err ? rej(new Error(String(err))) : res(data));
+                });
+                autoCancelled += lines.length;
+                if (SADB.on() && !SADB.inConfirm) SADB.onCancelSent(agent, tripId, instance, orderNum, lines, 'SENT', 'Fusion accepted the PATCH', approvedBy);
+                const childCnt = lines.filter(l => l._saChildOf).length;
+                saConsoleLog(`Task 2 ✓ Order ${orderNum}: ${lines.length} line(s) cancelled successfully${childCnt ? ` (${childCnt} child)` : ''}`, 'success');
+                await saAppendCancelLog(tripId, `RESULT order ${orderNum}: SUCCESS — ${lines.length} line(s) cancelled (${lines.length - childCnt} main + ${childCnt} child)`);
+                await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'SUCCESS', lines.length,
+                    `Cancelled ${lines.length} line(s) via Fusion PATCH (${lines.length - childCnt} main + ${childCnt} child) — approved by ${approvedBy}`, null, null);
+                // Update the KPI cancelled counter in DOM
+                if (!window._saCancelledLines) window._saCancelledLines = {};
+                window._saCancelledLines[tripId] = (window._saCancelledLines[tripId] || 0) + lines.length;
+                // Update the backorder/cancel cell in the order row
+                const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNum}`);
+                if (rowEl) {
+                    const cancelCell = rowEl.querySelector('[data-col="cancel"]');
+                    if (cancelCell) cancelCell.innerHTML = `<span style="background:#fef9c3;color:#a16207;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:700;" title="Cancelled by agent — approved by ${saEscHtml(approvedBy)}">${lines.length} ✓</span>`;
+                }
+            } catch(e) {
+                cancelFailed++;
+                saConsoleLog(`Task 2 ✗ Order ${orderNum}: cancel failed — ${e.message}`, 'error');
+                if (SADB.on() && !SADB.inConfirm) SADB.onCancelSent(agent, tripId, instance, orderNum, lines, 'FAILED', e.message, approvedBy);
+                await saAppendCancelLog(tripId, `RESULT order ${orderNum}: FAILED — ${e.message}`);
+                await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'FAILED', 1, e.message, null, null);
+            }
+        }
+        if (autoCancelled > 0) {
+            saConsoleLog(`Task 2 ✓ Cancelled ${autoCancelled} line(s) for trip ${tripId} (approved by ${approvedBy})`, 'success');
+            showNotification(`Cancelled ${autoCancelled} line(s) for trip ${tripId}.`, 'success');
+            // Refresh KPI panel
+            const kpiEl = document.getElementById(`sa-cp-kpi-${tripId}`);
+            if (kpiEl) kpiEl.innerHTML = saRenderCpKpis(saCpComputeKpi(tripId));
+        }
+        return { cancelled: autoCancelled, failed: cancelFailed };
+    }
+
+    async function saLogActivity(agentId, tripId, orderNumber, activityType, status, attempt, message, detailJson, durationMs) {
+        try {
+            await apexPost('agents/activity/log', {
+                agentId, tripId, orderNumber, activityType, status,
+                attempt: attempt || 1, message: (message || '').substring(0, 2000),
+                detailJson: detailJson ? JSON.stringify(detailJson) : null,
+                durationMs
+            });
+        } catch(e) {
+            console.warn('[ShippingAgent] Failed to log activity:', e);
+        }
+    }
+
+    async function saLogNotification(agentId, tripId, orderNumber, notifType, message, severity) {
+        try {
+            await apexPost('agents/notifications/log', {
+                agentId, tripId, orderNumber, notifType,
+                message: (message || '').substring(0, 2000),
+                severity: severity || 'INFO'
+            });
+        } catch(e) {
+            console.warn('[ShippingAgent] Failed to log notification:', e);
+        }
+    }
+
+    // ─── Auto-generate agent name ────────────────────────────
+    function saGenerateAgentName() {
+        const now  = new Date();
+        const days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+        const pad  = n => String(n).padStart(2,'0');
+        const date = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+        const day  = days[now.getDay()];
+        // Sequence: count existing agents + 1
+        const seq  = String((window._saAgents || []).length + 1).padStart(3,'0');
+        return `${date} ${day} #${seq}`;
+    }
+
+    // ─── Create Agent Modal ──────────────────────────────────
+    window.saOpenCreateModal = function() {
+        const instance  = (document.getElementById('current-instance-display')?.textContent || 'PROD').trim();
+        const agentName = saGenerateAgentName();
+
+        // Build the preview POST body for the API info panel
+        const previewBody = {
+            name: agentName,
+            description: 'Shipping agent description',
+            instanceName: instance,
+            capabilities: 'MONITOR,PRINT,PICK_RELEASE,NOTIFY,ANOMALY,AI_ANALYSIS',
+            checkIntervalSeconds: 60,
+            maxRetries: 3,
+            createdBy: localStorage.getItem('loggedInUser') || 'WMS_USER'
+        };
+        const previewUrl  = `${APEX_BASE}/agents/create`;
+        const previewJson = JSON.stringify(previewBody, null, 2);
+
+        const html = `
+        <div id="sa-create-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;">
+            <div style="background:white;border-radius:14px;padding:2rem;width:540px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;">
+                    <h3 style="margin:0;font-size:1.1rem;color:#1e293b;"><i class="fas fa-user-cog" style="color:#7c3aed;"></i> Create Shipping Agent</h3>
+                    <div style="display:flex;gap:0.5rem;align-items:center;">
+                        <button id="sa-create-api-btn" onclick="saShowCreateApiInfo()"
+                            style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;"
+                            title="View POST call and JSON body">
+                            <i class="fas fa-code"></i> API
+                        </button>
+                        <button onclick="document.getElementById('sa-create-modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#64748b;">&times;</button>
+                    </div>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:0.85rem;">
+                    <div>
+                        <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px;">Agent Name <span style="color:#94a3b8;font-weight:400;">(auto-generated)</span></label>
+                        <input id="sa-new-name" type="text" value="${esc(agentName)}" oninput="saUpdateApiPreview()" style="width:100%;padding:0.5rem;border:1px solid #7c3aed;border-radius:6px;font-size:13px;box-sizing:border-box;font-weight:600;color:#7c3aed;">
+                    </div>
+                    <div>
+                        <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px;">Description</label>
+                        <input id="sa-new-desc" type="text" placeholder="Optional description" oninput="saUpdateApiPreview()" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                    <div style="display:flex;gap:1rem;">
+                        <div style="flex:1;">
+                            <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px;">Instance</label>
+                            <select id="sa-new-instance" onchange="saUpdateApiPreview()" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;">
+                                <option value="PROD" ${instance==='PROD'?'selected':''}>PROD</option>
+                                <option value="TEST" ${instance==='TEST'?'selected':''}>TEST</option>
+                            </select>
+                        </div>
+                        <div style="flex:1;">
+                            <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px;">Check Interval (secs)</label>
+                            <input id="sa-new-interval" type="number" value="60" min="10" max="3600" oninput="saUpdateApiPreview()" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;box-sizing:border-box;">
+                        </div>
+                        <div style="flex:1;">
+                            <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px;">Max Retries</label>
+                            <input id="sa-new-retries" type="number" value="3" min="1" max="10" oninput="saUpdateApiPreview()" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;box-sizing:border-box;">
+                        </div>
+                    </div>
+                    <div>
+                        <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:8px;">Capabilities</label>
+                        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+                            ${[
+                                ['MONITOR',      'Monitor Orders',   '#0891b2', 'fa-eye'],
+                                ['PRINT',        'Auto Print',       '#7c3aed', 'fa-print'],
+                                ['PICK_RELEASE', 'Pick Release',     '#059669', 'fa-shipping-fast'],
+                                ['NOTIFY',       'Notify Pickers',   '#d97706', 'fa-bell'],
+                                ['ANOMALY',      'Anomaly Detect',   '#dc2626', 'fa-exclamation-triangle'],
+                                ['AI_ANALYSIS',  'AI Analysis',      '#6d28d9', 'fa-brain']
+                            ].map(([val, label, color, icon]) => `
+                                <label style="display:flex;align-items:center;gap:0.4rem;background:${color}12;border:1px solid ${color}30;padding:5px 10px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:600;color:${color};">
+                                    <input type="checkbox" name="sa-cap" value="${val}" checked onchange="saUpdateApiPreview()" style="cursor:pointer;">
+                                    <i class="fas ${icon}"></i> ${label}
+                                </label>`).join('')}
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1.5rem;">
+                    <button onclick="document.getElementById('sa-create-modal').remove()" style="background:#f1f5f9;color:#374151;border:none;padding:0.5rem 1.25rem;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">Cancel</button>
+                    <button onclick="saSubmitCreate()" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;border:none;padding:0.5rem 1.5rem;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;"><i class="fas fa-plus"></i> Create Agent</button>
+                </div>
+            </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', html);
+        document.getElementById('sa-new-name').focus();
+    };
+
+    // Build current form body for API preview
+    function saGetCreateBody() {
+        const caps = [...document.querySelectorAll('input[name="sa-cap"]:checked')].map(c => c.value).join(',');
+        return {
+            name:                 document.getElementById('sa-new-name')?.value || '',
+            description:          document.getElementById('sa-new-desc')?.value || '',
+            instanceName:         document.getElementById('sa-new-instance')?.value || 'PROD',
+            capabilities:         caps,
+            checkIntervalSeconds: parseInt(document.getElementById('sa-new-interval')?.value || 60),
+            maxRetries:           parseInt(document.getElementById('sa-new-retries')?.value || 3),
+            createdBy:            localStorage.getItem('loggedInUser') || 'WMS_USER'
+        };
+    }
+
+    // Show popup with live form values
+    window.saShowCreateApiInfo = function() {
+        saShowApiInfo('POST', `${APEX_BASE}/agents/create`, saGetCreateBody());
+    };
+
+    // No-op kept for backward compat (oninput still calls this)
+    window.saUpdateApiPreview = function() {};
+
+    window.saSubmitCreate = async function() {
+        const name = document.getElementById('sa-new-name')?.value?.trim();
+        if (!name) { showNotification('Agent name is required.', 'error'); return; }
+
+        const caps = [...document.querySelectorAll('input[name="sa-cap"]:checked')].map(c => c.value).join(',');
+        const body = {
+            name,
+            description: document.getElementById('sa-new-desc')?.value || '',
+            instanceName: document.getElementById('sa-new-instance')?.value || 'PROD',
+            capabilities: caps,
+            checkIntervalSeconds: parseInt(document.getElementById('sa-new-interval')?.value || 60),
+            maxRetries: parseInt(document.getElementById('sa-new-retries')?.value || 3),
+            createdBy: localStorage.getItem('loggedInUser') || 'WMS_USER'
+        };
+
+        try {
+            const result = await apexPost('agents/create', body);
+            document.getElementById('sa-create-modal')?.remove();
+            showNotification(`Agent "${name}" created successfully.`, 'success');
+            await saRefreshDashboard();
+        } catch(e) {
+            showNotification('Failed to create agent: ' + e.message, 'error');
+        }
+    };
+
+    // ─── Assign Trip Modal ───────────────────────────────────
+    window.saOpenAssignTripModal = function(preselectedAgentId) {
+        const agent = window._saCurrentAgent;
+        if (!agent && !preselectedAgentId) {
+            showNotification('Please select an agent first.', 'error');
+            return;
+        }
+
+        // Build trip options from tripOrdersStore or any available trip data
+        const tripOptions = saGetAvailableTrips();
+        const agentSelect = preselectedAgentId
+            ? `<input type="hidden" id="sa-assign-agent-id" value="${preselectedAgentId}">`
+            : `<input type="hidden" id="sa-assign-agent-id" value="${agent.ID}">`;
+
+        const html = `
+        <div id="sa-assign-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;">
+            <div style="background:white;border-radius:14px;padding:2rem;width:440px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;">
+                    <h3 style="margin:0;font-size:1.1rem;color:#1e293b;"><i class="fas fa-truck" style="color:#0891b2;"></i> Assign Trip to Agent</h3>
+                    <button onclick="document.getElementById('sa-assign-modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#64748b;">&times;</button>
+                </div>
+                ${agentSelect}
+                <div style="display:flex;flex-direction:column;gap:0.85rem;">
+                    <div>
+                        <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px;">Trip ID *</label>
+                        <input id="sa-assign-trip-id" type="text" placeholder="e.g. 1042" list="sa-trip-datalist" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;box-sizing:border-box;">
+                        <datalist id="sa-trip-datalist">${tripOptions.map(t => `<option value="${esc(t.id)}">`).join('')}</datalist>
+                    </div>
+                    <div>
+                        <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px;">Trip Name</label>
+                        <input id="sa-assign-trip-name" type="text" placeholder="Optional display name" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;box-sizing:border-box;">
+                    </div>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:0.75rem;margin-top:1.5rem;">
+                    <button onclick="document.getElementById('sa-assign-modal').remove()" style="background:#f1f5f9;color:#374151;border:none;padding:0.5rem 1.25rem;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">Cancel</button>
+                    <button onclick="saSubmitAssignTrip()" style="background:linear-gradient(135deg,#0891b2,#0e7490);color:white;border:none;padding:0.5rem 1.5rem;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;"><i class="fas fa-plus"></i> Assign Trip</button>
+                </div>
+            </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', html);
+        document.getElementById('sa-assign-trip-id').focus();
+    };
+
+    window.saSubmitAssignTrip = async function() {
+        const agentId  = document.getElementById('sa-assign-agent-id')?.value;
+        const tripId   = document.getElementById('sa-assign-trip-id')?.value?.trim();
+        const tripName = document.getElementById('sa-assign-trip-name')?.value?.trim() || tripId;
+        if (!tripId) { showNotification('Trip ID is required.', 'error'); return; }
+
+        const agent = window._saAgents.find(a => a.ID == agentId) || window._saCurrentAgent;
+        const instanceName = agent?.INSTANCE_NAME || 'PROD';
+
+        try {
+            await apexPost(`agents/${agentId}/trips`, { tripId, tripName, instanceName });
+            document.getElementById('sa-assign-modal')?.remove();
+            showNotification(`Trip "${tripName}" assigned to agent.`, 'success');
+            if (window._saCurrentAgent && window._saCurrentAgent.ID == agentId) {
+                await saLoadTrips();
+            }
+            await saRefreshDashboard();
+        } catch(e) {
+            showNotification('Failed to assign trip: ' + e.message, 'error');
+        }
+    };
+
+    function saGetAvailableTrips() {
+        const trips = [];
+        if (window.tripOrdersStore) {
+            Object.keys(window.tripOrdersStore).forEach(id => trips.push({ id }));
+        }
+        return trips;
+    }
+
+    // ─── "Add to Agent" from Trip Management ────────────────
+    window.saAddTripToAgent = async function(tripId, tripName, instanceName) {
+        // Always fetch fresh list of ACTIVE agents only
+        let activeAgents = [];
+        try {
+            const data = await apexGet('agents/active');
+            activeAgents = (data.items || []).map(a => ({
+                ID:           a.ID   || a.id,
+                NAME:         a.NAME || a.name,
+                INSTANCE_NAME: a.INSTANCE_NAME || a.instance_name || '',
+                STATUS:       a.STATUS || a.status || 'IDLE',
+                TRIP_COUNT:   a.TRIP_COUNT || a.trip_count || 0
+            }));
+        } catch(e) {
+            showNotification('Failed to load active agents: ' + e.message, 'error');
+            return;
+        }
+
+        if (activeAgents.length === 0) {
+            showNotification('No active agents found. Create one in Shipping Agents page first.', 'error');
+            return;
+        }
+
+        const options = activeAgents.map(a =>
+            `<option value="${a.ID}">${esc(a.NAME)} (${esc(a.INSTANCE_NAME)}) — ${a.TRIP_COUNT} trip(s) · ${esc(a.STATUS)}</option>`
+        ).join('');
+
+        const html = `
+        <div id="sa-addto-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;">
+            <div style="background:white;border-radius:14px;padding:1.75rem;width:420px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                    <h3 style="margin:0;font-size:1rem;color:#1e293b;"><i class="fas fa-user-cog" style="color:#7c3aed;"></i> Assign Trip to Agent</h3>
+                    <button onclick="document.getElementById('sa-addto-modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#64748b;">&times;</button>
+                </div>
+                <div style="background:#f0f9ff;border-radius:8px;padding:0.6rem 0.9rem;margin-bottom:1rem;font-size:12px;color:#0369a1;">
+                    <i class="fas fa-truck" style="margin-right:5px;"></i>
+                    Assigning <strong>Trip ${esc(tripId)}</strong> ${tripName !== `Trip ${tripId}` ? `(${esc(tripName)})` : ''} to a Shipping Agent
+                </div>
+                <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:6px;">Select Active Agent (${activeAgents.length} available)</label>
+                <select id="sa-addto-agent-select" style="width:100%;padding:0.5rem;border:1px solid #7c3aed;border-radius:6px;font-size:12px;margin-bottom:1rem;outline:none;">
+                    ${options}
+                </select>
+                <div style="display:flex;justify-content:flex-end;gap:0.75rem;">
+                    <button onclick="document.getElementById('sa-addto-modal').remove()" style="background:#f1f5f9;color:#374151;border:none;padding:0.5rem 1.25rem;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">Cancel</button>
+                    <button onclick="saSubmitAddTo('${esc(tripId)}','${esc(tripName||tripId)}','${esc(instanceName||'PROD')}')" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;border:none;padding:0.5rem 1.25rem;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;"><i class="fas fa-link"></i> Assign</button>
+                </div>
+            </div>
+        </div>`;
+        document.body.insertAdjacentHTML('beforeend', html);
+    };
+
+    window.saSubmitAddTo = async function(tripId, tripName, instanceName) {
+        const agentId = document.getElementById('sa-addto-agent-select')?.value;
+        if (!agentId) return;
+        try {
+            await apexPost(`agents/${agentId}/trips`, { tripId, tripName, instanceName });
+            document.getElementById('sa-addto-modal')?.remove();
+            showNotification(`Trip "${tripName}" assigned to agent.`, 'success');
+            await saRefreshDashboard();
+        } catch(e) {
+            showNotification('Failed to assign trip: ' + e.message, 'error');
+        }
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════════════════════
+    // DuckDB mode — "Use DuckDB" (checkbox in the agent header, on by default, per PC)
+    // ───────────────────────────────────────────────────────────────────────────────────────
+    // Everything the agent reads for a trip (GETTRIPDETAILS orders, Fusion shipment lines, WMS order lines,
+    // print jobs, MRA results, PDF downloads, PLines) is ALSO written into the WMS 2.0 DuckDB file
+    // (C:\fusion\wms2\wms2.duckdb) through the host actions w2Put / w2Query / w2Queries, in the agent's own
+    // tables w2_sa_* (the host only accepts names starting with w2_; the WMS 2.0 tables are not touched):
+    //   w2_sa_trips        one row per agent × trip   — date, lorry, bay, priority, KPIs, refreshed_at
+    //   w2_sa_orders       one row per agent × trip × order — every column of the trip table
+    //   w2_sa_ship_lines   the Fusion shipment lines of each order (bucket READY / RELEASED / STAGED / INTERFACED / CANCELLED)
+    //   w2_sa_order_lines  the WMS order lines of each order (what the cancellation rule reads; raw_json = the APEX row)
+    //   w2_sa_cancel_log   every line sent to Fusion for cancellation (DONE / FAILED / GONE / SENT) with who and when
+    //   w2_sa_refresh_log  every first load / refresh / check
+    // The FIRST click on an agent runs today's calls (one trip after another, the per-order calls 5 at a time) and
+    // saves; the next clicks, tick boxes and page opens draw the trip tables from DuckDB alone; "Refresh all",
+    // the Refresh of one trip card and "Check cancellation lines" read Fusion + APEX again like the first time.
+    // After every load the lines eligible for cancellation (Task 2's rule on the order lines kept in DuckDB) are
+    // shown in a popup with tick boxes and Confirm: each order is read live before the PATCH and again 2.5 s after
+    // it (DONE only when the line now reads Cancelled), then the trips touched are refreshed from Fusion once.
+    // Off (localStorage sa.duck = '0'), or a host that does not answer w2Status (an exe built before WMS 2.0)
+    // = today's behaviour, unchanged.
+    const SADB_T = {
+        w2_sa_trips: ['agent_id', 'trip_id', 'trip_name', 'pod', 'trip_date', 'lorry', 'loading_bay', 'priority', 'assigned_date', 'status', 'mra_flag',
+            'orders_total', 'processed', 'printed', 'to_cancel', 'cancelled', 'refreshed_at', 'refresh_kind', 'refresh_ms', 'refresh_error', 'raw_json'],
+        w2_sa_orders: ['agent_id', 'trip_id', 'pod', 'order_number', 'account_name', 'account_number', 'order_type', 'trip_date', 'lorry', 'picker', 'priority', 'pick_confirm_st',
+            'order_status', 'total_lines', 'active_lines', 'staged_lines', 'interfaced_lines', 'released_lines', 'ready_lines', 'cancelled_lines', 'backorder_lines', 'shipped_lines',
+            'picked_count', 'shipped_count', 'total_qty', 'staged_qty', 'shipped_qty', 'order_lines_count', 'wms_staged',
+            'print_total', 'print_printed', 'print_file', 'print_state', 'printed_at', 'plines',
+            'mra_st', 'mra_irn', 'mra_msg', 'mra_tries', 'mra_at', 'mra_inst', 'last_checked', 'check_error', 'raw_json'],
+        w2_sa_ship_lines: ['agent_id', 'trip_id', 'pod', 'order_number', 'line', 'item', 'line_status', 'line_status_code', 'bucket', 'requested_qty', 'staged_qty', 'shipped_qty',
+            'shipment', 'shipment_line', 'fulfill_line_id', 'checked_at', 'raw_json'],
+        w2_sa_order_lines: ['agent_id', 'trip_id', 'pod', 'order_number', 'line_number', 'item', 'description', 'status', 'fulfill_line_id', 'ordered_qty', 'read_at', 'raw_json'],
+        w2_sa_cancel_log: ['run_id', 'ts', 'pc', 'by_user', 'agent_id', 'trip_id', 'pod', 'order_number', 'line_number', 'item', 'status_before', 'fulfill_line_id', 'via', 'result', 'message', 'source'],
+        w2_sa_refresh_log: ['run_id', 'agent_id', 'kind', 'trips', 'started_at', 'ended_at', 'ms', 'orders', 'failures', 'summary', 'by_user']
+    };
+    const SADB = window.SADB = {
+        POOL: 5,                 // per-order calls at the same time during a first load / refresh (today: every order at once)
+        host: null,              // null = not asked yet, true = the host answers w2Status, false = old exe / DuckDB broken
+        hostError: '',
+        probing: null,
+        quiet: false,            // an orchestrated refresh is running: the per-trip toasts stay silent
+        busy: false,             // a first load / refresh / confirm is running (one at a time)
+        agentId: null,
+        rows: {},                // mirror of w2_sa_orders: { tripId: { orderNumber: row } }
+        trips: {},               // mirror of w2_sa_trips: { tripId: row }
+        olines: {},              // mirror of w2_sa_order_lines (the APEX rows): { tripId: { orderNumber: [line] } }
+        dirty: {},               // { tripId: Set(orderNumber) } waiting for flush()
+        flushTimer: null,
+        io: Promise.resolve(),   // every DuckDB write runs through this chain, in order
+        shown: {},               // { agentId: true } the popup was shown once for this agent in this session
+        lastCands: null,
+        session: {},             // { tripId: true } refreshed from Fusion + APEX since this page was opened
+        doneCounts: {},          // { tripId: lines cancelled through this page (cancel log DONE) }
+        stopping: false,         // Stop pressed: finish the order in hand, read nothing more, keep what was read
+        full: false,             // Shift + Refresh: read every order again, also the ones already Interfaced / Cancelled
+        lastSkipped: {},         // { tripId: orders not read again on the last refresh (already final on this PC) }
+        statusMain: ''
+    };
+    const S = v => (v == null ? null : String(v));
+    SADB.lit = s => "'" + String(s == null ? '' : s).replace(/'/g, "''") + "'";
+    SADB.pad2 = n => ('0' + n).slice(-2);
+    SADB.ts = function(ms) { const d = new Date(ms || Date.now()); return `${d.getFullYear()}-${SADB.pad2(d.getMonth() + 1)}-${SADB.pad2(d.getDate())} ${SADB.pad2(d.getHours())}:${SADB.pad2(d.getMinutes())}:${SADB.pad2(d.getSeconds())}`; };
+    SADB.now = () => SADB.ts();
+    SADB.hm = s => (s ? String(s).slice(11, 16) || String(s) : '');
+    SADB.dateOf = s => (s ? String(s).slice(0, 10) : '');
+    SADB.user = function() { try { return localStorage.getItem('wms_user') || sessionStorage.getItem('loggedInUser') || localStorage.getItem('loggedInUser') || 'WMS'; } catch (e) { return 'WMS'; } };
+    SADB.sleep = ms => new Promise(r => setTimeout(r, ms));
+    SADB.enabled = function() { try { return localStorage.getItem('sa.duck') !== '0'; } catch (e) { return true; } };
+    SADB.on = () => SADB.enabled() && SADB.host === true;
+    /** n at a time (the first load / refresh / confirm); a failing item never stops the others. */
+    SADB.pool = function(items, n, fn) {
+        let i = 0;
+        const next = () => {
+            if (i >= items.length || SADB.stopping) return Promise.resolve();
+            const idx = i++;
+            return Promise.resolve().then(() => fn(items[idx], idx)).catch(e => console.warn('[ShippingAgent] pooled call failed:', e && e.message || e)).then(next);
+        };
+        const w = []; for (let k = 0; k < Math.min(n, items.length); k++) w.push(next());
+        return Promise.all(w);
+    };
+
+    // ── host IO ─────────────────────────────────────────────
+    /** One DuckDB host call. The file is shared by every Gray's WMS window on this PC (separate processes, one mutex in the
+        host): when another window holds it for longer than the host waits, the answer is busy — asked again, 3 times. */
+    SADB.call = function(action, payload, ms, attempt) {
+        return new Promise((resolve, reject) => {
+            if (typeof sendMessageToCSharp !== 'function' || !(window.chrome && window.chrome.webview)) { reject(new Error('host not available')); return; }
+            sendMessageToCSharp(Object.assign({ action, appUser: SADB.user() }, payload || {}), (err, data) => {
+                if (err) { reject(new Error(typeof err === 'string' ? err : (err.message || JSON.stringify(err)))); return; }
+                if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { /* keep the text */ } }
+                resolve(data);
+            }, ms || 120000, false);
+        }).then(data => {
+            const busy = data && data.ok === false && (data.busy || /another .*window|busy/i.test(String(data.error || '')));
+            if (busy && (attempt || 0) < 3) {
+                SADB.setHeaderStatus && SADB.setHeaderStatus('<i class="fas fa-hourglass-half"></i> Another WMS window is writing to DuckDB — waiting…');
+                return new Promise(r => setTimeout(r, 1500 + 1500 * (attempt || 0))).then(() => SADB.call(action, payload, ms, (attempt || 0) + 1));
+            }
+            return data;
+        });
+    };
+    /** Does this build answer the WMS 2.0 DuckDB actions? Asked once per page; the answer paints the header controls. */
+    SADB.probe = function() {
+        if (SADB.probing) return SADB.probing;
+        SADB.probing = SADB.call('w2Status', {}, 15000)
+            .then(d => { SADB.host = !!(d && d.ok !== false); SADB.hostError = SADB.host ? '' : ((d && d.error) || 'DuckDB did not answer'); return SADB.host; },
+                  e => { SADB.host = false; SADB.hostError = /timed out/i.test(String(e && e.message)) ? 'this build has no WMS 2.0 DuckDB actions (rebuild the app)' : String(e && e.message || e); return false; })
+            .then(ok => { SADB.paintHeader(); if (!ok) console.warn('[ShippingAgent] DuckDB mode unavailable:', SADB.hostError); return ok; });
+        return SADB.probing;
+    };
+    SADB.rowsOf = function(d) { const cols = (d.columns || []).map(c => String(c).toLowerCase()); return (d.rows || []).map(r => { const o = {}; cols.forEach((c, i) => { o[c] = r[i]; }); return o; }); };
+    SADB.q = function(sql) {
+        return SADB.call('w2Query', { sql, maxRows: 200000 }).then(d => { if (!d || d.ok === false) throw new Error((d && d.error) || 'query failed'); return SADB.rowsOf(d); });
+    };
+    /** Several reads in one round trip; a failed one (e.g. the table does not exist yet) gives []. */
+    SADB.qs = function(list) {
+        return SADB.call('w2Queries', { queries: list }).then(d => ((d && d.results) || []).map((r, i) => {
+            if (!r || r.error) { if (r && r.error && !/does not exist|not found/i.test(r.error)) console.warn('[ShippingAgent] DuckDB query failed:', r.error, list[i]); return []; }
+            return SADB.rowsOf(r);
+        }));
+    };
+    SADB.put = function(table, scope, rows) {
+        return SADB.call('w2Put', { table, scope: scope || {}, rows: rows || [], replaceAll: false, columns: SADB_T[table] || [] }, 300000)
+            .then(d => { if (!d || d.ok === false) throw new Error((d && d.error) || 'save failed'); return d; });
+    };
+    /** Writes run one after another so a per-order update never lands before the trip's base rows. */
+    SADB.serial = function(fn) {
+        const p = SADB.io.then(fn, fn);
+        SADB.io = p.catch(e => console.warn('[ShippingAgent] DuckDB write failed:', e && e.message || e));
+        return p;
+    };
+
+    // ── mirror of w2_sa_orders ──────────────────────────────
+    SADB.reset = function(agentId) { SADB.agentId = agentId; SADB.rows = {}; SADB.trips = {}; SADB.olines = {}; SADB.dirty = {}; };
+    SADB.row = function(tripId, order) {
+        const t = SADB.rows[tripId] = SADB.rows[tripId] || {};
+        return t[order] = t[order] || { agent_id: S(SADB.agentId), trip_id: S(tripId), order_number: S(order) };
+    };
+    SADB.get = (tripId, order) => (SADB.rows[tripId] || {})[order] || null;
+    /** An order whose last read left nothing to follow: every active line interfaced, or every line cancelled. */
+    SADB.isFinal = r => !!(r && r.last_checked && !r.check_error && (r.order_status === 'Interfaced' || r.order_status === 'Cancelled'));
+    /** Merge a few columns into one order row and write it (with the other changed rows of the trip) a moment later. */
+    SADB.touch = function(tripId, order, patch) {
+        if (!SADB.on() || SADB.agentId == null) return;
+        const r = SADB.row(tripId, order);
+        Object.keys(patch).forEach(k => { r[k] = S(patch[k]); });
+        (SADB.dirty[tripId] = SADB.dirty[tripId] || new Set()).add(String(order));
+        clearTimeout(SADB.flushTimer);
+        SADB.flushTimer = setTimeout(() => SADB.flush(), 400);
+    };
+    SADB.flush = function() {
+        clearTimeout(SADB.flushTimer);
+        const work = [];
+        Object.keys(SADB.dirty).forEach(tripId => {
+            const orders = Array.from(SADB.dirty[tripId] || []);
+            delete SADB.dirty[tripId];
+            if (!orders.length) return;
+            const rows = orders.map(o => SADB.rows[tripId] && SADB.rows[tripId][o]).filter(Boolean);
+            if (!rows.length) return;
+            work.push(SADB.serial(() => SADB.put('w2_sa_orders', { agent_id: S(SADB.agentId), trip_id: S(tripId), order_number: orders }, rows)));
+        });
+        return Promise.all(work).catch(() => {});
+    };
+    /** Wait until every write so far has reached DuckDB. */
+    SADB.settle = async function() { await SADB.flush(); await SADB.io; };
+
+    // ── what the agent reads → DuckDB (hooks called from the agent's own functions) ──
+    SADB.bucket = function(l) {
+        const lsc = String(l.LineStatusCode || '').toUpperCase().trim(), ls = String(l.LineStatus || l.LineStatusCode || '').toUpperCase().trim();
+        if (lsc === 'Y' || ls.includes('INTERFACED') || ls.includes('PENDING INVENTORY') || ls.includes('SHIPPED')) return 'INTERFACED';
+        if (lsc === 'C' || ls.includes('STAGED')) return 'STAGED';
+        if (lsc === 'X' || ls.includes('CANCEL')) return 'CANCELLED';
+        if (ls.includes('RELEASED TO WAREHOUSE') || ls.includes('RELEASED')) return 'RELEASED';
+        if (ls.includes('READY')) return 'READY';
+        return 'OTHER';
+    };
+    /** GETTRIPDETAILS answered: the trip's orders (base columns; status columns of orders still on the trip are kept until read again). */
+    SADB.onTripOrders = function(agent, tripId, inst, orders, firstRow) {
+        if (!SADB.on()) return;
+        if (SADB.agentId !== agent.ID) SADB.reset(agent.ID);
+        const keep = SADB.rows[tripId] || {}, next = {};
+        orders.forEach(o => {
+            next[o.ORDER_NUMBER] = Object.assign({}, keep[o.ORDER_NUMBER] || {}, {
+                agent_id: S(agent.ID), trip_id: S(tripId), pod: inst, order_number: S(o.ORDER_NUMBER), account_name: o.ACCOUNT_NAME || '', account_number: o.ACCOUNT_NUMBER || '',
+                order_type: o.ORDER_TYPE || '', trip_date: SADB.dateOf(o.TRIP_DATE), lorry: o.LORRY_NUMBER || '', picker: o.PICKER || '', priority: o.PRIORITY || '',
+                pick_confirm_st: o.PICK_CONFIRM_ST || '', raw_json: JSON.stringify(o)
+            });
+        });
+        SADB.rows[tripId] = next;
+        delete SADB.dirty[tripId];
+        SADB.serial(() => SADB.put('w2_sa_orders', { agent_id: S(agent.ID), trip_id: S(tripId) }, Object.values(next)));
+        const r = firstRow || {};
+        SADB.saveTrip(tripId, {
+            pod: inst, orders_total: orders.length,
+            trip_date: SADB.dateOf(r.TRIP_DATE || r.trip_date || (orders[0] && orders[0].TRIP_DATE) || SADB.trips[tripId]?.trip_date || ''),
+            lorry: r.TRIP_LORRY || r.trip_lorry || r.LORRY_NUMBER || (orders[0] && orders[0].LORRY_NUMBER) || SADB.trips[tripId]?.lorry || '',
+            loading_bay: r.LOADING_BAY || r.loading_bay || SADB.trips[tripId]?.loading_bay || '',
+            priority: r.TRIP_PRIORITY || r.trip_priority || (orders[0] && orders[0].PRIORITY) || SADB.trips[tripId]?.priority || ''
+        });
+        SADB.paintMeta(tripId);
+    };
+    SADB.saveTrip = function(tripId, extra) {
+        const t = SADB.trips[tripId] = Object.assign(SADB.trips[tripId] || {}, { agent_id: S(SADB.agentId), trip_id: S(tripId) });
+        Object.keys(extra || {}).forEach(k => { t[k] = S(extra[k]); });
+        return SADB.serial(() => SADB.put('w2_sa_trips', { agent_id: S(SADB.agentId), trip_id: S(tripId) }, [t]));
+    };
+    /** Fusion shipmentLines answered for one order (saFetchOrderStatus): counts + the lines. */
+    SADB.onOrderStatus = function(tripId, order, c) {
+        if (!SADB.on()) return;
+        SADB.touch(tripId, order, {
+            order_status: c.statusText, total_lines: c.total, active_lines: c.total - c.cancelled, staged_lines: c.staged, interfaced_lines: c.interfaced,
+            released_lines: c.released, ready_lines: c.ready, cancelled_lines: c.cancelled, backorder_lines: c.other, shipped_lines: c.shippedLines || 0,
+            picked_count: c.staged + c.interfaced, shipped_count: c.interfaced, total_qty: c.totalQty, staged_qty: c.stagedQty, shipped_qty: c.shippedQty,
+            last_checked: SADB.now(), check_error: ''
+        });
+        const rows = (c.lines || []).map(l => ({
+            agent_id: S(SADB.agentId), trip_id: S(tripId), pod: c.inst || '', order_number: S(order),
+            line: S(l.OrderLineNumber || l.LineNumber || l.SourceLineNumber || l.ShipmentLine || ''), item: S(l.Item || l.ItemNumber || ''),
+            line_status: S(l.LineStatus || ''), line_status_code: S(l.LineStatusCode || ''), bucket: SADB.bucket(l),
+            requested_qty: S(l.RequestedQuantity || 0), staged_qty: S(l.StagedQuantity || 0), shipped_qty: S(l.ShippedQuantity || 0),
+            shipment: S(l.Shipment == null ? '' : l.Shipment), shipment_line: S(l.ShipmentLine || ''), fulfill_line_id: S(l.FulfillmentLineId || l.FulfillLineId || ''),
+            checked_at: SADB.now(), raw_json: JSON.stringify(l)
+        }));
+        SADB.serial(() => SADB.put('w2_sa_ship_lines', { agent_id: S(SADB.agentId), trip_id: S(tripId), order_number: S(order) }, rows));
+    };
+    SADB.onChecked = function(tripId, order, err) { if (SADB.on()) SADB.touch(tripId, order, { last_checked: SADB.now(), check_error: String(err || '').slice(0, 300) }); };
+    /** getsalesorderlines answered (the WMS order lines the cancellation rule reads). */
+    SADB.onOrderLines = function(tripId, order, items, wmsStaged, count, inst) {
+        if (!SADB.on()) return;
+        (SADB.olines[tripId] = SADB.olines[tripId] || {})[order] = items || [];
+        SADB.touch(tripId, order, { order_lines_count: count, wms_staged: wmsStaged });
+        const rows = (items || []).map(l => ({
+            agent_id: S(SADB.agentId), trip_id: S(tripId), pod: inst || '', order_number: S(order), line_number: saLineNum(l), item: saLineItem(l),
+            description: S(l.ITEM_DESC || l.item_desc || l.DESCRIPTION || l.description || ''), status: saLineStatus(l), fulfill_line_id: S(saLineFulfillId(l) || ''),
+            ordered_qty: S(l.ORDERED_QUANTITY || l.ordered_quantity || l.ORDERED_QTY || l.ordered_qty || ''), read_at: SADB.now(), raw_json: JSON.stringify(l)
+        }));
+        SADB.serial(() => SADB.put('w2_sa_order_lines', { agent_id: S(SADB.agentId), trip_id: S(tripId), order_number: S(order) }, rows));
+    };
+    SADB.onPrintCount = function(tripId, order, total, printed) { if (SADB.on()) SADB.touch(tripId, order, { print_total: total, print_printed: printed }); };
+    SADB.onPrintMap = function(tripId, map) { if (SADB.on()) Object.keys(map).forEach(o => SADB.touch(tripId, o, { print_total: map[o].total, print_printed: map[o].printed, print_file: map[o].filePath || '' })); };
+    SADB.onPrinted = function(tripId, order, state, filePath) {
+        if (!SADB.on()) return;
+        const r = SADB.get(tripId, order);
+        const patch = { print_state: state, print_file: filePath || '', printed_at: SADB.now() };
+        if (state === 'Downloaded') patch.print_total = Math.max(1, parseInt((r && r.print_total) || 0) || 0);   // downloaded = a print job row exists
+        SADB.touch(tripId, order, patch);
+    };
+    SADB.onMra = function(tripId, order, r) {
+        if (!SADB.on() || !r || r.st === 'RUNNING' || r.st === 'QUEUED') return;
+        SADB.touch(tripId, order, { mra_st: r.st, mra_irn: r.irn || '', mra_msg: String(r.msg || '').slice(0, 500), mra_tries: r.tries || 1, mra_at: r.at || SADB.hm(SADB.now()), mra_inst: r.inst || '' });
+    };
+    SADB.onPlines = function(tripId, order, count) { if (SADB.on() && count >= 0) SADB.touch(tripId, order, { plines: count }); };
+    /** The agent's approved cancel (Task 2 card / Inbox) sent lines: SENT = Fusion accepted the PATCH (not verified), FAILED = refused. */
+    SADB.onCancelSent = function(agent, tripId, inst, order, lines, result, message, by) {
+        if (!SADB.on()) return;
+        const runId = 'sa_' + Date.now().toString(36);
+        const rows = lines.map(l => SADB.logRow(runId, agent, tripId, inst, order, l, result, message, by, 'AGENT_CARD'));
+        if (rows.length) SADB.serial(() => SADB.put('w2_sa_cancel_log', { run_id: runId }, rows));
+    };
+    SADB.logRow = (runId, agent, tripId, inst, order, l, result, message, by, source) => ({
+        run_id: runId, ts: SADB.now(), pc: '', by_user: by || SADB.user(), agent_id: S(agent.ID), trip_id: S(tripId), pod: inst, order_number: S(order),
+        line_number: saLineNum(l), item: saLineItem(l), status_before: saLineStatus(l), fulfill_line_id: S(saLineFulfillId(l) || ''),
+        via: l._saChildOf ? (l._saChildVia || 'CHILD') : 'MAIN', result, message: String(message || '').slice(0, 500), source: source || 'POPUP'
+    });
+
+    // ── reading back ────────────────────────────────────────
+    /** The agent's rows on this PC → mirrors. */
+    SADB.loadAgent = async function(agent) {
+        const a = SADB.lit(S(agent.ID));
+        const [orders, trips, lines] = await SADB.qs([
+            `SELECT * FROM w2_sa_orders WHERE agent_id = ${a}`,
+            `SELECT * FROM w2_sa_trips WHERE agent_id = ${a}`,
+            `SELECT trip_id, order_number, raw_json FROM w2_sa_order_lines WHERE agent_id = ${a}`
+        ]);
+        SADB.reset(agent.ID);
+        orders.forEach(r => { (SADB.rows[r.trip_id] = SADB.rows[r.trip_id] || {})[r.order_number] = r; });
+        trips.forEach(t => { SADB.trips[t.trip_id] = t; });
+        lines.forEach(l => {
+            let raw = null; try { raw = JSON.parse(l.raw_json); } catch (e) { /* skip */ }
+            if (!raw) return;
+            const t = SADB.olines[l.trip_id] = SADB.olines[l.trip_id] || {};
+            (t[l.order_number] = t[l.order_number] || []).push(raw);
+        });
+    };
+    /** Was this trip ever read on this PC? (a trip with no orders counts once it was refreshed) */
+    SADB.hasTrip = tripId => !!(SADB.rows[tripId] && Object.keys(SADB.rows[tripId]).length) || !!(SADB.trips[tripId] && SADB.trips[tripId].refreshed_at);
+    SADB.statusBadge = function(status) {
+        const s = String(status || '');
+        if (!s) return '<span style="color:#94a3b8;font-size:9px;">—</span>';
+        if (s === 'No Lines') return saBadge('No Lines', '#f1f5f9', '#94a3b8', 'fa-clock');
+        if (s === 'Cancelled') return saBadge('Cancelled', '#fee2e2', '#b91c1c', 'fa-ban');
+        if ((s.includes('Interfaced') || s.includes('Shipped')) && !s.includes('/')) return saBadge('Interfaced', '#dcfce7', '#15803d', 'fa-check-circle');
+        if (s.includes('Interfaced') || s.includes('Shipped')) return saBadge(s, '#fef9c3', '#a16207', 'fa-truck');
+        if (s === 'Staged') return saBadge('Staged', '#dbeafe', '#1d4ed8', 'fa-layer-group');
+        if (s.includes('Staged')) return saBadge(s, '#e0f2fe', '#0369a1', 'fa-layer-group');
+        if (s.includes('Released')) return saBadge(s, '#e0f2fe', '#0369a1', 'fa-share-square');
+        if (s.includes('Ready')) return saBadge(s, '#fef9c3', '#a16207', 'fa-clock');
+        return saBadge(s, '#f1f5f9', '#64748b', 'fa-clock');
+    };
+    /** Draw one order row of the trip table from its DuckDB row (the same badges saFetchOrderStatus draws). */
+    SADB.paintRow = function(tripId, r) {
+        const order = r.order_number;
+        const rowEl = document.getElementById(`sa-order-row-${tripId}-${order}`);
+        if (!rowEl) return;
+        const sc = (col, html) => { const c = rowEl.querySelector(`[data-col="${col}"]`); if (c) c.innerHTML = html; };
+        const n = k => parseInt(r[k] || 0) || 0;
+        const status = r.order_status || '', total = n('total_lines'), activeL = n('active_lines'), stagedL = r.wms_staged != null && r.wms_staged !== '' ? n('wms_staged') : n('staged_lines');
+        const cancelL = n('cancelled_lines'), otherL = n('backorder_lines'), picked = n('picked_count'), shipped = n('shipped_count'), olCount = n('order_lines_count');
+        const checked = !!r.last_checked;
+        sc('status', checked ? SADB.statusBadge(status || (total === 0 ? 'No Lines' : 'Pending')) : '<span style="color:#94a3b8;font-size:9px;">—</span>');
+        if (checked && total === 0 && !status) {
+            ['staged', 'picking', 'shipping', 'backorder', 'cancel'].forEach(c => sc(c, saBadge('—', '#f1f5f9', '#94a3b8', null)));
+        } else if (checked) {
+            sc('staged', stagedL > 0 ? saBadge(`${stagedL}`, '#dbeafe', '#1d4ed8', 'fa-layer-group') : saBadge('0', '#f1f5f9', '#94a3b8', null));
+            sc('picking', activeL === 0 ? saBadge('N/A', '#f1f5f9', '#94a3b8', null)
+                : picked === activeL ? saBadge(`${picked}/${activeL}`, '#dcfce7', '#15803d', 'fa-check')
+                : picked === 0 ? saBadge(`0/${activeL}`, '#fef2f2', '#b91c1c', 'fa-times') : saBadge(`${picked}/${activeL}`, '#fef9c3', '#a16207', 'fa-box'));
+            sc('shipping', activeL === 0 ? saBadge('N/A', '#f1f5f9', '#94a3b8', null)
+                : shipped === activeL ? saBadge(`${shipped}/${activeL}`, '#dcfce7', '#15803d', 'fa-truck')
+                : shipped === 0 ? saBadge(`0/${activeL}`, '#fef2f2', '#b91c1c', 'fa-times') : saBadge(`${shipped}/${activeL}`, '#fef9c3', '#a16207', 'fa-truck'));
+            sc('backorder', otherL > 0 ? saBadge(`${otherL}`, '#fef9c3', '#a16207', 'fa-exclamation-triangle') : saBadge('0', '#f0fdf4', '#15803d', null));
+            sc('cancel', cancelL > 0 ? saBadge(`${cancelL}`, '#fee2e2', '#b91c1c', 'fa-ban') : saBadge('0', '#f0fdf4', '#15803d', null));
+        }
+        sc('order_lines', olCount > 0 ? `<span style="font-weight:700;color:#1e293b;font-size:11px;">${olCount}</span><div style="color:#94a3b8;font-size:8px;">lines</div>` : `<span style="color:#94a3b8;font-size:9px;">—</span>`);
+        if (n('shipped_lines') > 0) { const ind = rowEl.querySelector('[data-col="shipped-indicator"]'); if (ind) ind.innerHTML = `<span style="background:#fef9c3;color:#a16207;border:1px solid #fde68a;padding:0px 5px;border-radius:4px;font-size:9px;font-weight:700;" title="${n('shipped_lines')} line(s) with Shipped status">Shipped ${n('shipped_lines')}</span>`; }
+        // MRA: the saved result becomes this session's result too (Print Trip skips orders MRA already has)
+        if (r.mra_st) saMraSet(tripId, order, { st: r.mra_st, irn: r.mra_irn || '', msg: r.mra_msg || '', tries: parseInt(r.mra_tries || 1) || 1, at: r.mra_at || '', inst: r.mra_inst || '', fromDb: true });
+        // Printing
+        const pt = n('print_total'), pp = n('print_printed');
+        if (r.print_state === 'Downloaded') sc('print', saBadge('Downloaded', '#dcfce7', '#15803d', 'fa-check'));
+        else if (r.print_state === 'Empty PDF') sc('print', saBadge('Empty PDF', '#fef9c3', '#a16207', 'fa-exclamation-triangle'));
+        else if (r.print_state === 'NoLines') sc('print', saBadge('NoLines', '#f1f5f9', '#64748b', 'fa-minus-circle'));
+        else if (pt > 0) sc('print', pp === pt ? saBadge('Printed', '#dcfce7', '#15803d', 'fa-check') : saBadge(`${pp}/${pt}`, '#fef9c3', '#a16207', 'fa-print'));
+        else if (checked) sc('print', saBadge('No Jobs', '#f1f5f9', '#94a3b8', 'fa-print'));
+        if (r.plines != null && r.plines !== '') {
+            const c = n('plines'), pl = rowEl.querySelector('[data-col="plines"]');
+            if (pl) pl.innerHTML = c === 0 ? `<span style="background:#fef2f2;color:#b91c1c;padding:2px 6px;border-radius:5px;font-size:9px;font-weight:700;">0</span>`
+                : `<span style="background:#dcfce7;color:#15803d;padding:2px 6px;border-radius:5px;font-size:9px;font-weight:700;">${c}</span>`;
+        }
+        if (r.check_error) sc('checked', `<span style="color:#dc2626;font-size:9px;" title="${esc(r.check_error)}"><i class="fas fa-exclamation-circle"></i> ${esc(SADB.hm(r.last_checked))}</span>`);
+        else if (checked) sc('checked', `<div style="font-size:9px;color:#059669;" title="Read ${esc(r.last_checked)} — shown from DuckDB"><i class="fas fa-database"></i> ${esc(SADB.hm(r.last_checked))}</div><div style="font-size:9px;color:#94a3b8;">${total} line(s)</div>`);
+        if (checked) window._saOrderLastFetched[order] = new Date(String(r.last_checked).replace(' ', 'T'));
+    };
+    /** Draw a whole trip from DuckDB — no network. */
+    SADB.paintTrip = function(tripId, inst) {
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        if (!container) return;
+        const rows = Object.values(SADB.rows[tripId] || {}).sort((a, b) => String(a.order_number).localeCompare(String(b.order_number)));
+        const orders = rows.map(r => ({
+            ORDER_NUMBER: r.order_number, ACCOUNT_NAME: r.account_name || '', ACCOUNT_NUMBER: r.account_number || '', ORDER_TYPE: r.order_type || '', INSTANCE: r.pod || inst,
+            TRIP_ID: r.trip_id || tripId, TRIP_DATE: r.trip_date || '', LORRY_NUMBER: r.lorry || '', PICKER: r.picker || '', PRIORITY: r.priority || '', PICK_CONFIRM_ST: r.pick_confirm_st || ''
+        }));
+        container.style.display = 'block';
+        container.dataset.loaded = '1';
+        const t = SADB.trips[tripId] || {};
+        if (!orders.length) {
+            container.innerHTML = `<div style="padding:0.75rem 1rem;font-size:11px;color:#94a3b8;text-align:center;">No orders found for this trip${t.refreshed_at ? ' (read ' + esc(t.refreshed_at) + ')' : ''}.</div>`;
+        } else {
+            container.innerHTML = saRenderOrdersTable(orders, tripId, inst);
+            const pmap = window._saPrintCache[tripId] = window._saPrintCache[tripId] || {};
+            rows.forEach(r => {
+                SADB.paintRow(tripId, r);
+                const pt = parseInt(r.print_total || 0) || 0;
+                if (pt > 0 || r.print_state === 'Downloaded') pmap[r.order_number] = { total: Math.max(pt, r.print_state === 'Downloaded' ? 1 : 0), printed: parseInt(r.print_printed || 0) || 0, filePath: r.print_file || '' };
+            });
+        }
+        SADB.paintMeta(tripId);
+        saRefreshTripCardStats(tripId);
+    };
+    SADB.paintMeta = function(tripId) {
+        const t = SADB.trips[tripId];
+        const metaEl = document.getElementById(`sa-trip-meta-${tripId}`);
+        if (metaEl && t && (t.trip_date || t.lorry || t.loading_bay || t.priority)) {
+            metaEl.setAttribute('data-trip-date', t.trip_date || '');
+            metaEl.innerHTML = saTripMetaChips(t.trip_date, t.lorry, t.loading_bay, t.priority);
+        }
+        SADB.setAsOf(tripId, t && t.refreshed_at
+            ? `<i class="fas fa-database"></i> as of ${esc(SADB.hm(t.refreshed_at))}${t.refresh_error ? ' <i class="fas fa-exclamation-circle" style="color:#dc2626;" title="' + esc(t.refresh_error) + '"></i>' : ''}`
+            : '<i class="fas fa-database"></i> not read yet');
+    };
+    SADB.setAsOf = function(tripId, html) { const el = document.getElementById(`sa-trip-asof-${tripId}`); if (el) { el.innerHTML = html; el.style.display = SADB.on() ? '' : 'none'; } };
+
+    // ── reading Fusion + APEX again (first load / Refresh / Check) ──
+    /** One trip, today's calls (saLoadTripOrders → print status → shipment lines, 5 orders at a time), then the trip row + log. */
+    SADB.refreshTrip = async function(agent, trip, kind) {
+        const tripId = trip.TRIP_ID, inst = trip.INSTANCE_NAME || agent.INSTANCE_NAME || 'PROD';
+        const t0 = Date.now(), runId = 'sr_' + t0.toString(36) + Math.random().toString(36).slice(2, 6);
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        if (container) container.dataset.loaded = '';
+        SADB.setAsOf(tripId, '<i class="fas fa-sync fa-spin"></i> reading…');
+        let error = '';
+        try { await saLoadTripOrders(tripId, inst, true); }
+        catch (e) { error = e && e.message || String(e); }
+        await SADB.settle();
+        const kpi = saCpComputeKpi(tripId);
+        const all = Object.values(SADB.rows[tripId] || {});
+        const failures = all.filter(r => r.check_error).length;
+        const stopped = SADB.stopping, skipped = SADB.lastSkipped[tripId] || 0;
+        const read = all.filter(r => r.last_checked).length;
+        await SADB.saveTrip(tripId, {
+            trip_name: trip.TRIP_NAME || '', pod: inst, status: trip.STATUS || '', assigned_date: trip.ASSIGNED_DATE || '',
+            orders_total: kpi.total, processed: kpi.interfaced, printed: kpi.printed, to_cancel: kpi.toCancel, cancelled: kpi.autoCancelled || 0,
+            refreshed_at: stopped ? ((SADB.trips[tripId] || {}).refreshed_at || '') : SADB.now(), refresh_kind: kind || 'refresh', refresh_ms: Date.now() - t0,
+            refresh_error: stopped ? `stopped — ${read} of ${all.length} order(s) read, the rest kept as they were` : error,
+            mra_flag: ((_saMraFlags || {})[String(inst).toUpperCase()] || {}).flag || ''
+        }).catch(() => {});
+        SADB.serial(() => SADB.put('w2_sa_refresh_log', { run_id: runId }, [{
+            run_id: runId, agent_id: S(agent.ID), kind: (kind || 'refresh') + (SADB.full ? '-full' : ''), trips: S(tripId), started_at: SADB.ts(t0), ended_at: SADB.now(), ms: S(Date.now() - t0),
+            orders: S(all.length), failures: S(failures), by_user: SADB.user(),
+            summary: error || `${all.length} order(s), ${failures} failed${skipped ? `, ${skipped} already interfaced / cancelled kept` : ''}${stopped ? ' — stopped' : ''}`
+        }]));
+        if (!stopped) SADB.session[tripId] = true;
+        SADB.paintMeta(tripId);
+        SADB.paintHeader();
+        SADB.paintLeftTrips(agent);
+        return { tripId, orders: all.length, failures, error };
+    };
+    /** Every (visible) trip of the agent, one after another. */
+    SADB.refreshAll = async function(agent, kind) {
+        if (SADB.busy) { showNotification('A read is already running — wait for it to finish.', 'info'); return null; }
+        const trips = ((window._saAgentTrips || {})[agent.ID] || []).filter(t => document.getElementById(`sa-trip-orders-${t.TRIP_ID}`));
+        if (!trips.length) { showNotification('No trips to read.', 'info'); return []; }
+        SADB.busy = true; SADB.quiet = true; SADB.stopping = false; SADB.paintHeader();
+        const out = [];
+        try {
+            for (let i = 0; i < trips.length; i++) {
+                if (!window._saCurrentAgent || window._saCurrentAgent.ID !== agent.ID) break;      // the user moved to another agent
+                if (SADB.stopping) break;
+                SADB.setHeaderStatus(`<i class="fas fa-sync fa-spin"></i> Reading trip ${esc(trips[i].TRIP_NAME || trips[i].TRIP_ID)} (${i + 1} of ${trips.length})${SADB.full ? ' · every order' : ''}…`);
+                out.push(await SADB.refreshTrip(agent, trips[i], kind));
+            }
+        } finally { SADB.busy = false; SADB.quiet = false; SADB.full = false; SADB.setHeaderStatus(''); SADB.paintHeader(); }
+        const failed = out.filter(o => o.error || o.failures).length, kept = out.reduce((n, o) => n + (SADB.lastSkipped[o.tripId] || 0), 0);
+        if (SADB.stopping) { SADB.stopping = false; showNotification(`Stopped — ${out.length} trip(s) read, what was read is kept.`, 'warning'); return out; }
+        showNotification(`Read ${out.length} trip(s) from Fusion and APEX${kept ? `, ${kept} interfaced order(s) kept as they were` : ''}${failed ? ', ' + failed + ' with failures' : ''}.`, failed ? 'warning' : 'success');
+        return out;
+    };
+    /**
+     * Called by saLoadTrips once the trip cards are on the page. DuckDB mode: paint the trips this PC holds,
+     * read the others like the first time (and save), then show the cancellation popup. Returns false when off.
+     */
+    SADB.afterTripsRendered = async function(agent, trips) {
+        if (!SADB.enabled()) return false;
+        await SADB.probe();
+        if (!SADB.on()) return false;
+        const visible = trips.filter(t => document.getElementById(`sa-trip-orders-${t.TRIP_ID}`));
+        if (SADB.busy) {                     // a read is running: show what is there, the running read paints the rest
+            visible.forEach(t => { if (SADB.hasTrip(t.TRIP_ID) && document.getElementById(`sa-trip-orders-${t.TRIP_ID}`).dataset.loaded !== '1') SADB.paintTrip(t.TRIP_ID, t.INSTANCE_NAME); });
+            saMraPaintFlags(false);
+            return true;
+        }
+        await SADB.settle();
+        await SADB.loadAgent(agent);
+        visible.forEach(t => { if (SADB.hasTrip(t.TRIP_ID)) SADB.paintTrip(t.TRIP_ID, t.INSTANCE_NAME); else SADB.setAsOf(t.TRIP_ID, '<i class="fas fa-database"></i> not read yet'); });
+        saMraPaintFlags(false);
+        SADB.paintHeader();
+        SADB.paintLeftTrips(agent);
+        const missing = visible.filter(t => !SADB.hasTrip(t.TRIP_ID));
+        if (missing.length) {
+            SADB.busy = true; SADB.quiet = true; SADB.stopping = false; SADB.paintHeader();
+            try {
+                for (let i = 0; i < missing.length; i++) {
+                    if (!window._saCurrentAgent || window._saCurrentAgent.ID !== agent.ID) return true;
+                    if (SADB.stopping) { showNotification(`Stopped — ${i} of ${missing.length} trip(s) read, the others on the next Refresh.`, 'warning'); break; }
+                    SADB.setHeaderStatus(`<i class="fas fa-sync fa-spin"></i> First read of trip ${esc(missing[i].TRIP_NAME || missing[i].TRIP_ID)} (${i + 1} of ${missing.length})…`);
+                    await SADB.refreshTrip(agent, missing[i], 'first');
+                }
+            } finally { SADB.busy = false; SADB.quiet = false; SADB.stopping = false; SADB.setHeaderStatus(''); SADB.paintHeader(); }
+        }
+        if (missing.length || !SADB.shown[agent.ID]) {
+            SADB.shown[agent.ID] = true;
+            await SADB.askCancel(agent, missing.length ? `after reading ${missing.length} trip(s)` : 'from the data on this PC', !missing.length);
+        } else {
+            SADB.candidates(agent).then(c => SADB.paintCancelBadge(c)).catch(() => {});
+        }
+        return true;
+    };
+
+    // ── cancellation: candidates, popup, confirm ────────────
+    SADB.flagged = l => { const s = saLineStatus(l).toUpperCase(); return s.includes('SCHEDULED') || s.includes('MANUAL RESERVATION'); };
+    SADB.readLines = (order, inst) => apexGet(`trip/orders/getsalesorderlines/${encodeURIComponent(order)}?P_INSTANCE_NAME=${inst}`).then(d => (d && d.items) || []);
+    /** The order as Fusion has it now: fetchfusionorderlines refreshes the APEX copy, getsalesorderlines reads it. */
+    SADB.liveLines = async function(order, inst, tripId) {
+        try { await apexPost(`trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${inst}&p_order_number=${encodeURIComponent(order)}&p_trip_id=${encodeURIComponent(tripId)}`, {}); }
+        catch (e) { console.warn('[ShippingAgent] fetchfusionorderlines failed (reading the APEX copy as it is):', e.message); }
+        return SADB.readLines(order, inst);
+    };
+    SADB.wmsStaged = items => items.filter(l => saLineStatus(l).toUpperCase().includes('STAGED')).length;
+    /**
+     * The lines eligible for cancellation from the order lines on this PC — Task 2's rule (Scheduled / Manual Reservation
+     * main lines + their sub-lines or BOGO items through saExpandCancelLines). A line cancelled through this page in the last
+     * 15 minutes is left out (the APEX copy can lag behind Fusion for a moment); after that, what Fusion shows is what counts.
+     * → [{ tripId, tripName, inst, order, row, lines, skipped, already }]
+     */
+    SADB.candidates = async function(agent, tripIds) {
+        const trips = (window._saAgentTrips || {})[agent.ID] || [];
+        const want = tripIds ? new Set(tripIds.map(String)) : null;
+        const done = {}, counts = {}, recent = SADB.ts(Date.now() - 15 * 60000);
+        try {
+            (await SADB.q(`SELECT trip_id, order_number, fulfill_line_id, ts FROM w2_sa_cancel_log WHERE agent_id = ${SADB.lit(S(agent.ID))} AND result = 'DONE'`))
+                .forEach(r => {
+                    if (String(r.ts || '') >= recent) done[r.order_number + ':' + r.fulfill_line_id] = 1;
+                    counts[r.trip_id] = (counts[r.trip_id] || 0) + 1;
+                });
+        } catch (e) { /* no log yet */ }
+        if (!tripIds) SADB.doneCounts = counts;
+        const out = [];
+        for (const t of trips) {
+            if (want && !want.has(String(t.TRIP_ID))) continue;
+            const inst = t.INSTANCE_NAME || agent.INSTANCE_NAME || 'PROD';
+            const byOrder = SADB.olines[t.TRIP_ID] || {};
+            for (const order of Object.keys(byOrder).sort()) {
+                const lines = byOrder[order].map(l => Object.assign({}, l));      // fresh copies: saExpandCancelLines marks children
+                const flagged = lines.filter(SADB.flagged);
+                if (!flagged.length) continue;
+                const exp = await saExpandCancelLines(order, lines, flagged, inst);
+                const fresh = exp.lines.filter(l => !done[order + ':' + (saLineFulfillId(l) || '')]);
+                if (!fresh.length) continue;
+                out.push({ tripId: t.TRIP_ID, tripName: t.TRIP_NAME || t.TRIP_ID, inst, order, row: SADB.get(t.TRIP_ID, order), lines: fresh, skipped: exp.skipped, already: exp.lines.length - fresh.length });
+            }
+        }
+        SADB.lastCands = out;
+        return out;
+    };
+    /** Task 2 on the agent tick in DuckDB mode: { order: lines } for one trip from the lines kept on this PC. */
+    SADB.groupsForTrip = async function(agent, tripId) {
+        const c = await SADB.candidates(agent, [tripId]);
+        const groups = {};
+        c.forEach(x => { groups[x.order] = x.lines; });
+        return groups;
+    };
+    SADB.askCancel = async function(agent, why, quietWhenNone) {
+        let c = [];
+        try { c = await SADB.candidates(agent); } catch (e) { showNotification('Could not work out the cancellation lines: ' + e.message, 'error'); return []; }
+        SADB.paintCancelBadge(c);
+        if (!c.length) { if (!quietWhenNone) showNotification(`No order lines are eligible for cancellation (${why}).`, 'success'); return c; }
+        SADB.showPopup(agent, c, why);
+        return c;
+    };
+    SADB.paintCancelBadge = function(c) {
+        if (window._saCurrentAgent) SADB.paintLeftTrips(window._saCurrentAgent, c);
+        const el = document.getElementById('sa-duck-cancel-badge');
+        if (!el) return;
+        const n = (c || []).reduce((s, x) => s + x.lines.length, 0);
+        el.style.display = SADB.on() && n ? '' : 'none';
+        el.innerHTML = `<i class="fas fa-ban"></i> ${n} line(s) to cancel · <u>Review</u>`;
+        el.title = `${(c || []).length} order(s) have Scheduled / Manual Reservation lines — click to review and confirm`;
+    };
+    SADB.showPopup = function(agent, cands, why) {
+        document.getElementById('sa-duck-cancel-dlg')?.remove();
+        const totalLines = cands.reduce((s, c) => s + c.lines.length, 0);
+        const tripIds = [...new Set(cands.map(c => String(c.tripId)))];
+        const prod = cands.some(c => String(c.inst || '').toUpperCase() !== 'TEST');
+        const lineRow = (l, i, c) => `<tr style="border-top:1px solid #f1f5f9;">
+            <td style="padding:4px 6px;">${saEscHtml(saLineNum(l) || '—')}${l._saChildOf ? ` <span style="color:#64748b;font-size:10px;">child of ${saEscHtml(l._saChildOf)} · ${saEscHtml(l._saChildVia || '')}</span>` : ''}</td>
+            <td style="padding:4px 6px;">${saEscHtml(saLineItem(l))}</td>
+            <td style="padding:4px 6px;color:#64748b;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${saEscHtml(l.ITEM_DESC || l.item_desc || l.DESCRIPTION || l.description || '')}">${saEscHtml(l.ITEM_DESC || l.item_desc || l.DESCRIPTION || l.description || '')}</td>
+            <td style="padding:4px 6px;"><span style="background:#fee2e2;color:#b91c1c;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;">${saEscHtml(saLineStatus(l))}</span></td>
+            <td style="padding:4px 6px;text-align:right;">${saEscHtml(l.ORDERED_QUANTITY || l.ordered_quantity || l.ORDERED_QTY || l.ordered_qty || '')}</td>
+            <td style="padding:4px 6px;font-size:10px;color:${saLineFulfillId(l) ? '#64748b' : '#b91c1c'};">${saLineFulfillId(l) ? saEscHtml(String(saLineFulfillId(l))) : 'no id — will be skipped'}</td></tr>`;
+        const skipRow = s => `<tr style="border-top:1px solid #f1f5f9;opacity:.6;">
+            <td style="padding:4px 6px;">${saEscHtml(saLineNum(s.line) || '—')} <span style="color:#64748b;font-size:10px;">child of ${saEscHtml(s.parentNum || '')} · ${saEscHtml(s.via || '')}</span></td>
+            <td style="padding:4px 6px;">${saEscHtml(saLineItem(s.line))}</td><td style="padding:4px 6px;color:#64748b;"></td>
+            <td style="padding:4px 6px;"><span style="background:#f1f5f9;color:#475569;padding:1px 6px;border-radius:4px;font-size:10px;">${saEscHtml(saLineStatus(s.line))}</span></td>
+            <td style="padding:4px 6px;text-align:right;"></td><td style="padding:4px 6px;font-size:10px;color:#a16207;">skipped — ${saEscHtml(s.reason)}</td></tr>`;
+        const groups = tripIds.map(tid => {
+            const list = cands.filter(c => String(c.tripId) === tid);
+            const orders = list.map((c, idx) => `<div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:8px;" data-sa-cand="${cands.indexOf(c)}">
+                <div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:#f8fafc;">
+                    <label style="display:flex;align-items:center;gap:6px;font-weight:700;cursor:pointer;"><input type="checkbox" checked data-sa-pick="${cands.indexOf(c)}" style="accent-color:#b91c1c;cursor:pointer;"> ${saEscHtml(c.order)}</label>
+                    <span style="color:#64748b;font-size:11px;">${saEscHtml(c.row && c.row.account_name || '')}${c.row && c.row.order_type ? ' · ' + saEscHtml(c.row.order_type) : ''}</span>
+                    <span style="margin-left:auto;font-size:10px;color:#b91c1c;font-weight:700;">${c.lines.length} line(s)</span>
+                    ${c.already ? `<span style="font-size:10px;color:#15803d;" title="Cancelled through this page in the last 15 minutes; the next refresh from Fusion shows it">${c.already} already sent</span>` : ''}
+                    <span style="font-size:10px;color:#64748b;">${saEscHtml(c.row && c.row.order_status || '')}</span>
+                </div>
+                <table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="color:#475569;text-align:left;background:#fff;">
+                    <th style="padding:4px 6px;">Line</th><th style="padding:4px 6px;">Item</th><th style="padding:4px 6px;">Description</th><th style="padding:4px 6px;">Status</th><th style="padding:4px 6px;text-align:right;">Qty</th><th style="padding:4px 6px;">Fulfill line id</th></tr></thead>
+                    <tbody>${c.lines.map((l, i) => lineRow(l, i, c)).join('')}${c.skipped.map(skipRow).join('')}</tbody></table>
+            </div>`).join('');
+            const t = list[0];
+            return `<div style="margin-bottom:12px;"><div style="font-size:11px;font-weight:800;color:#475569;margin:0 0 6px;"><i class="fas fa-truck" style="color:#7c3aed;"></i> ${saEscHtml(t.tripName)} · ${saEscHtml(t.inst)} · ${list.length} order(s)</div>${orders}</div>`;
+        }).join('');
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-duck-cancel-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99998;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `<div style="background:#fff;border-radius:14px;width:min(900px,94vw);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.45);overflow:hidden;border:1px solid #fecaca;">
+            <div style="display:flex;gap:10px;align-items:center;padding:12px 16px;background:linear-gradient(135deg,#fef2f2,#fff7ed);border-bottom:1px solid #fecaca;">
+                <span style="font-size:20px;">✋</span>
+                <div style="flex:1;">
+                    <div style="font-weight:800;color:#7f1d1d;font-size:14px;">Lines eligible for cancellation — ${saEscHtml(agent.NAME || '')}</div>
+                    <div style="font-size:11px;color:#9a3412;">${totalLines} line(s) in ${cands.length} order(s) on ${tripIds.length} trip(s) · Scheduled / Manual Reservation main lines with their sub-lines or BOGO items · ${saEscHtml(why || '')}</div>
+                </div>
+                <span style="font-size:10px;font-weight:800;padding:2px 8px;border-radius:10px;background:${prod ? '#b91c1c' : '#0e7490'};color:#fff;">${prod ? 'PROD' : 'TEST'}</span>
+                <button type="button" data-sa-close style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;line-height:1;">×</button>
+            </div>
+            <div style="overflow:auto;padding:12px 16px;flex:1;">${groups}</div>
+            <div id="sa-duck-cancel-prog" style="display:none;padding:8px 16px;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:600;border-top:1px solid #dbeafe;"></div>
+            <div style="display:flex;gap:8px;align-items:center;padding:10px 16px;border-top:1px solid #e2e8f0;background:#fafafa;flex-wrap:wrap;">
+                <span style="margin-right:auto;font-size:11px;color:#64748b;">Reason sent to Fusion: OUT OF STOCK · each order is read live before the PATCH and again 2.5 s after it · the trips are then refreshed from Fusion</span>
+                <button type="button" data-sa-close style="border:1px solid #cbd5e1;background:#fff;border-radius:8px;padding:7px 12px;font-weight:600;cursor:pointer;">Close</button>
+                <button type="button" data-sa-check style="border:1px solid #0e7490;background:#fff;color:#0e7490;border-radius:8px;padding:7px 12px;font-weight:700;cursor:pointer;" title="Read every trip from Fusion and APEX again and show what is still eligible"><i class="fas fa-redo"></i> Check cancellation lines</button>
+                <button type="button" data-sa-confirm style="border:0;background:#b91c1c;color:#fff;border-radius:8px;padding:7px 14px;font-weight:700;cursor:pointer;"><i class="fas fa-ban"></i> Confirm — cancel ${totalLines} line(s)</button>
+            </div></div>`;
+        document.body.appendChild(dlg);
+        const confirmBtn = dlg.querySelector('[data-sa-confirm]');
+        const recount = () => {
+            const picked = cands.filter((c, i) => dlg.querySelector(`input[data-sa-pick="${i}"]`)?.checked);
+            const n = picked.reduce((s, c) => s + c.lines.length, 0);
+            confirmBtn.disabled = !n; confirmBtn.style.opacity = n ? '1' : '.5';
+            confirmBtn.innerHTML = `<i class="fas fa-ban"></i> Confirm — cancel ${n} line(s)`;
+            dlg.querySelectorAll('[data-sa-cand]').forEach(box => { box.style.opacity = dlg.querySelector(`input[data-sa-pick="${box.dataset.saCand}"]`)?.checked ? '1' : '.45'; });
+            return picked;
+        };
+        dlg.addEventListener('change', e => { if (e.target.matches('input[data-sa-pick]')) recount(); });
+        dlg.querySelectorAll('[data-sa-close]').forEach(b => b.addEventListener('click', () => { if (!SADB.busy) dlg.remove(); }));
+        dlg.querySelector('[data-sa-check]').addEventListener('click', async () => { if (SADB.busy) return; dlg.remove(); await saDbCheckCancel(); });
+        confirmBtn.addEventListener('click', async () => {
+            if (SADB.busy) return;
+            const picked = recount();
+            if (!picked.length) return;
+            const n = picked.reduce((s, c) => s + c.lines.length, 0);
+            if (!confirm(`Cancel ${n} line(s) in ${picked.length} order(s) in Fusion (${prod ? 'PROD' : 'TEST'})?\n\nReason: OUT OF STOCK. Each order is read live first; a line that is no longer Scheduled / Manual Reservation is not sent.`)) return;
+            await SADB.confirm(agent, picked, dlg);
+        });
+    };
+    /** Confirm: live read → PATCH (saExecuteCancels: FulfillLineId guard, Fusion PATCH, activity log) → verify → DuckDB log → refresh → ask again. */
+    SADB.confirm = async function(agent, cands, dlg) {
+        const ctl = await saAiStatus();
+        if (ctl && ctl.enabled === false) { showNotification(`AI actions are paused${ctl.reason ? ' (' + ctl.reason + ')' : ''} — nothing was cancelled.`, 'warning'); return; }
+        const user = SADB.user(), runId = 'sc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+        const prog = dlg.querySelector('#sa-duck-cancel-prog');
+        const say = html => { if (prog) { prog.style.display = ''; prog.innerHTML = html; } };
+        dlg.querySelectorAll('button, input').forEach(b => { b.disabled = true; });
+        const logRows = [];
+        let done = 0, failed = 0, gone = 0, skippedNoId = 0;
+        SADB.busy = true; SADB.quiet = true; SADB.inConfirm = true; SADB.stopping = false; SADB.paintHeader();   // inConfirm: saExecuteCancels' SENT rows stay out, the verified rows below are the record
+        let stoppedAt = -1;
+        try {
+            for (let i = 0; i < cands.length; i++) {
+                if (SADB.stopping) { stoppedAt = i; break; }       // Stop: the orders not reached stay eligible and come back in the popup
+                const c = cands[i];
+                const where = `Order ${saEscHtml(c.order)} · trip ${saEscHtml(c.tripName)} (${i + 1} of ${cands.length})`;
+                say(`<i class="fas fa-sync fa-spin"></i> ${where} — reading the order live…`);
+                let fresh;
+                try { fresh = await SADB.liveLines(c.order, c.inst, c.tripId); }
+                catch (e) {
+                    c.lines.forEach(l => logRows.push(SADB.logRow(runId, agent, c.tripId, c.inst, c.order, l, 'FAILED', 'live read failed: ' + e.message, user)));
+                    failed += c.lines.length; continue;
+                }
+                SADB.onOrderLines(c.tripId, c.order, fresh, SADB.wmsStaged(fresh), fresh.length, c.inst);
+                const flagged = fresh.filter(SADB.flagged);
+                const exp = flagged.length ? await saExpandCancelLines(c.order, fresh, flagged, c.inst) : { lines: [], skipped: [] };
+                const want = new Set(c.lines.map(saLineKey));
+                const toSend = exp.lines.filter(l => want.has(saLineKey(l)));
+                c.lines.filter(l => !exp.lines.some(x => saLineKey(x) === saLineKey(l))).forEach(l => {
+                    gone++; logRows.push(SADB.logRow(runId, agent, c.tripId, c.inst, c.order, l, 'GONE', 'no longer Scheduled / Manual Reservation when read live — nothing sent', user));
+                });
+                const noId = toSend.filter(l => !saLineFulfillId(l));
+                noId.forEach(l => { skippedNoId++; logRows.push(SADB.logRow(runId, agent, c.tripId, c.inst, c.order, l, 'FAILED', 'no FulfillLineId — not sent', user)); });
+                const send = toSend.filter(l => saLineFulfillId(l));
+                if (!send.length) continue;
+                say(`<i class="fas fa-sync fa-spin"></i> ${where} — cancelling ${send.length} line(s) in Fusion…`);
+                let res;
+                try { res = await saExecuteCancels(agent, c.tripId, c.inst, { [c.order]: send }, user) || { cancelled: 0, failed: 1 }; }
+                catch (e) { res = { cancelled: 0, failed: 1, error: e.message }; }
+                say(`<i class="fas fa-sync fa-spin"></i> ${where} — checking Fusion…`);
+                await SADB.sleep(2500);
+                let after = null;
+                try { after = await SADB.readLines(c.order, c.inst); } catch (e) { /* verify from the PATCH result */ }
+                send.forEach(l => {
+                    const k = saLineKey(l), now = after ? after.find(x => saLineKey(x) === k) : null;
+                    const ok = !res.failed && (after ? (!now || saLineStatus(now).toUpperCase().includes('CANCEL')) : true);
+                    const msg = ok ? (after ? (now ? 'cancelled in Fusion' : 'line gone from the order') : 'Fusion accepted the PATCH (not read back)')
+                        : res.failed ? 'Fusion refused the PATCH' + (res.error ? ': ' + res.error : ' (see the activity log)') : 'still ' + saLineStatus(now) + ' after the PATCH';
+                    logRows.push(SADB.logRow(runId, agent, c.tripId, c.inst, c.order, l, ok ? 'DONE' : 'FAILED', msg, user));
+                    if (ok) done++; else failed++;
+                });
+                if (after) SADB.onOrderLines(c.tripId, c.order, after, SADB.wmsStaged(after), after.length, c.inst);
+            }
+        } finally { SADB.busy = false; SADB.quiet = false; SADB.inConfirm = false; SADB.stopping = false; }
+        if (stoppedAt >= 0) saConsoleLog(`Popup ⛔ Stopped before order ${cands[stoppedAt].order} — ${cands.length - stoppedAt} order(s) not sent`, 'warn');
+        if (logRows.length) await SADB.serial(() => SADB.put('w2_sa_cancel_log', { run_id: runId }, logRows)).catch(() => {});
+        saHost('aiAudit', { source: 'SHIPPING_AGENT', actionKey: 'cancel_lines', outcome: failed ? 'FAILED' : 'OK', approval: 'POPUP', instance: cands[0].inst, refId: 'AGENT:' + agent.ID,
+            target: [...new Set(cands.map(c => c.order))].join(','), detail: `${done} line(s) cancelled, ${failed} failed, ${gone} no longer eligible — confirmed by ${user} on the Shipping Agent popup` });
+        saConsoleLog(`Popup ✓ ${done} line(s) cancelled, ${failed} failed, ${gone} no longer eligible (confirmed by ${user})`, failed ? 'warn' : 'success');
+        say(`<i class="fas fa-sync fa-spin"></i> ${done} cancelled, ${failed} failed, ${gone} no longer eligible${skippedNoId ? `, ${skippedNoId} without id` : ''} — refreshing the trips from Fusion…`);
+        const tripIds = [...new Set(cands.map(c => String(c.tripId)))];
+        const trips = ((window._saAgentTrips || {})[agent.ID] || []).filter(t => tripIds.includes(String(t.TRIP_ID)));
+        SADB.busy = true; SADB.quiet = true;
+        try { for (const t of trips) await SADB.refreshTrip(agent, t, 'after-cancel'); }
+        finally { SADB.busy = false; SADB.quiet = false; SADB.paintHeader(); }
+        dlg.remove();
+        showNotification(`Cancellation: ${done} line(s) cancelled, ${failed} failed, ${gone} no longer eligible${stoppedAt >= 0 ? `, ${cands.length - stoppedAt} order(s) not sent (stopped)` : ''}.`, failed || stoppedAt >= 0 ? 'warning' : 'success');
+        await SADB.askCancel(agent, 'after the cancellation and the refresh', true);
+    };
+
+    // ── the agent card's trip table: select to show + in DuckDB / refreshed / cancelled ──
+    SADB.leftTripsTable = function(agent, trips) {
+        const th = (t, tip) => `<th style="padding:2px 4px;font-size:8px;color:#64748b;font-weight:700;text-align:center;white-space:nowrap;" title="${esc(tip)}">${t}</th>`;
+        const rows = trips.map(t => {
+            const checked = window._saSelectedTrips[t.TRIP_ID] !== false;
+            const st = TRIP_STATUS_STYLE[t.STATUS] || TRIP_STATUS_STYLE.PENDING;
+            const id = esc(String(t.TRIP_ID));
+            const dash = '<span style="color:#cbd5e1;">—</span>';
+            return `<tr data-sa-lt="${id}" style="border-top:1px solid #f1f5f9;">
+                <td style="padding:2px 2px;"><input type="checkbox" ${checked ? 'checked' : ''} onchange="saToggleTripVisible('${id}', this.checked)" onclick="event.stopPropagation()" style="accent-color:#7c3aed;cursor:pointer;margin:0;"></td>
+                <td style="padding:2px 4px;font-size:10px;font-weight:600;color:#1e293b;white-space:nowrap;">${esc(t.TRIP_NAME || t.TRIP_ID)}</td>
+                <td style="padding:2px 4px;"><span style="background:${st.bg};color:${st.color};padding:1px 6px;border-radius:6px;font-size:8px;font-weight:700;">${esc(t.STATUS)}</span></td>
+                <td id="sa-lt-duck-${id}" style="padding:2px 4px;text-align:center;font-size:10px;">${dash}</td>
+                <td id="sa-lt-read-${id}" style="padding:2px 4px;text-align:center;font-size:10px;">${dash}</td>
+                <td id="sa-lt-cancel-${id}" style="padding:2px 4px;text-align:center;font-size:10px;">${dash}</td>
+            </tr>`;
+        }).join('');
+        return `<div style="font-size:9px;font-weight:700;color:#475569;margin-bottom:3px;">TRIPS — select to show</div>
+            <table style="width:100%;border-collapse:collapse;" onclick="event.stopPropagation()">
+                <thead><tr>${th('', '')}${th('Trip', '')}${th('', '')}${th('<i class="fas fa-database"></i>', 'In DuckDB on this PC: ✓ the trip was read and saved (hover = when), ✗ not yet')}${th('<i class="fas fa-sync"></i>', 'Refreshed from Fusion + APEX since this page was opened')}${th('<i class="fas fa-ban"></i>', 'Cancellations: ✓ no eligible line left (number = lines cancelled through this page), amber = lines waiting for Confirm, — not read yet')}</tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+    };
+    /** Fill the three status cells of the agent card's trip table from the mirrors, the session and the last candidates run. */
+    SADB.paintLeftTrips = function(agent, cands) {
+        if (!agent || !document.querySelector('[data-sa-lt]')) return;
+        const on = SADB.on();
+        const pending = {};
+        (cands || SADB.lastCands || []).forEach(c => { pending[c.tripId] = (pending[c.tripId] || 0) + c.lines.length; });
+        const ok = (tip) => `<i class="fas fa-check-circle" style="color:#15803d;" title="${esc(tip)}"></i>`;
+        const no = (tip) => `<i class="fas fa-times-circle" style="color:#dc2626;" title="${esc(tip)}"></i>`;
+        const dash = '<span style="color:#cbd5e1;" title="not read yet">—</span>';
+        ((window._saAgentTrips || {})[agent.ID] || []).forEach(t => {
+            const id = String(t.TRIP_ID), tr = SADB.trips[id] || {};
+            const has = SADB.hasTrip(id);
+            const duck = document.getElementById(`sa-lt-duck-${id}`), read = document.getElementById(`sa-lt-read-${id}`), can = document.getElementById(`sa-lt-cancel-${id}`);
+            if (!duck) return;
+            if (!on) { duck.innerHTML = read.innerHTML = can.innerHTML = dash; return; }
+            duck.innerHTML = has ? ok(`In DuckDB — read ${tr.refreshed_at || ''}${tr.refresh_error ? ' · last read had an error: ' + tr.refresh_error : ''}`) : no('Not in DuckDB yet — the first read saves it');
+            read.innerHTML = SADB.session[id] ? ok(`Refreshed in this session at ${SADB.hm(tr.refreshed_at)}`) : has ? no(`Shown from DuckDB (read ${tr.refreshed_at || ''}) — not refreshed since this page was opened`) : dash;
+            const doneN = SADB.doneCounts[id] || 0, pend = pending[id] || 0;
+            if (!has) can.innerHTML = dash;
+            else if (pend) can.innerHTML = `<span onclick="saDbShowCancel()" style="background:#fef3c7;color:#b45309;border:1px solid #fcd34d;padding:0 5px;border-radius:6px;font-size:9px;font-weight:700;cursor:pointer;" title="${pend} line(s) eligible for cancellation — click to review and confirm">${pend} <i class="fas fa-exclamation-triangle"></i></span>`;
+            else can.innerHTML = `${ok(doneN ? `No eligible line left — ${doneN} line(s) cancelled through this page` : 'No line eligible for cancellation')}${doneN ? ` <span style="font-size:9px;color:#15803d;font-weight:700;">${doneN}</span>` : ''}`;
+        });
+    };
+
+    // ── header controls ─────────────────────────────────────
+    SADB.setHeaderStatus = function(html) { SADB.statusMain = html || ''; SADB.setSub(''); };
+    SADB.setSub = function(sub) {
+        const el = document.getElementById('sa-duck-status');
+        if (!el) return;
+        const html = SADB.statusMain ? SADB.statusMain + (sub ? ` <span style="color:#64748b;font-weight:500;">· ${esc(sub)}</span>` : '') : '';
+        el.innerHTML = html; el.style.display = html ? '' : 'none';
+    };
+    window.saDbStop = function() {
+        if (!SADB.busy) return;
+        SADB.stopping = true;
+        SADB.statusMain = '<i class="fas fa-hand-paper"></i> Stopping after the order in hand…'; SADB.setSub('');
+        const b = document.getElementById('sa-btn-db-stop'); if (b) { b.disabled = true; b.style.opacity = '.6'; }
+    };
+    SADB.paintHeader = function() {
+        const chk = document.getElementById('sa-duck-chk');
+        const on = SADB.on(), en = SADB.enabled();
+        if (chk) {
+            chk.checked = en;
+            chk.disabled = SADB.host === false;
+            const wrap = chk.closest('label');
+            if (wrap) wrap.title = SADB.host === false ? 'DuckDB mode is not available: ' + SADB.hostError
+                : 'Use DuckDB: the first click on an agent reads Fusion + APEX and saves every answer on this PC; the next clicks draw the trips from DuckDB alone. Refresh reads again.';
+            if (wrap) wrap.style.opacity = SADB.host === false ? '.55' : '1';
+        }
+        ['sa-btn-db-refresh', 'sa-btn-db-check'].forEach(id => { const b = document.getElementById(id); if (b) { b.style.display = on ? '' : 'none'; b.disabled = SADB.busy; b.style.opacity = SADB.busy ? '.6' : '1'; } });
+        const stop = document.getElementById('sa-btn-db-stop');
+        if (stop) { stop.style.display = on && SADB.busy ? '' : 'none'; stop.disabled = SADB.stopping; stop.style.opacity = SADB.stopping ? '.6' : '1'; }
+        const asof = document.getElementById('sa-duck-asof');
+        if (asof) {
+            const a = window._saCurrentAgent;
+            const trips = a ? ((window._saAgentTrips || {})[a.ID] || []) : [];
+            const times = trips.map(t => SADB.trips[t.TRIP_ID] && SADB.trips[t.TRIP_ID].refreshed_at).filter(Boolean).sort();
+            asof.style.display = on && a ? '' : 'none';
+            asof.innerHTML = !trips.length ? '' : times.length === trips.length ? `<i class="fas fa-database"></i> data as of ${esc(SADB.hm(times[0]))}`
+                : times.length ? `<i class="fas fa-database"></i> ${trips.length - times.length} trip(s) not read yet · oldest ${esc(SADB.hm(times[0]))}` : '<i class="fas fa-database"></i> nothing read yet';
+            asof.title = times.length ? 'Oldest trip read: ' + times[0] + (times.length > 1 ? ' · newest: ' + times[times.length - 1] : '') : '';
+        }
+        const card = window._saCurrentAgent && document.getElementById(`sa-card-asof-${window._saCurrentAgent.ID}`);
+        if (card) { const asofEl = document.getElementById('sa-duck-asof'); card.innerHTML = on && asofEl && asofEl.innerHTML ? asofEl.innerHTML : ''; card.style.display = on ? '' : 'none'; }
+        document.querySelectorAll('[id^="sa-trip-asof-"], [id^="sa-trip-refresh-"]').forEach(el => { el.style.display = on ? '' : 'none'; });
+        if (!on) SADB.paintCancelBadge([]);
+        if (window._saCurrentAgent) SADB.paintLeftTrips(window._saCurrentAgent);
+    };
+    window.saDuckToggle = function(on) {
+        try { localStorage.setItem('sa.duck', on ? '1' : '0'); } catch (e) { /* ignore */ }
+        SADB.paintHeader();
+        showNotification(on ? 'DuckDB mode on — trips are drawn from this PC; Refresh reads Fusion and APEX again.' : 'DuckDB mode off — the traditional per-order calls run.', 'info');
+        if (window._saCurrentAgent) saLoadTrips();
+    };
+    window.saDbRefreshAll = async function(ev) {
+        const a = window._saCurrentAgent;
+        if (!a || !SADB.on()) return;
+        SADB.full = !!(ev && ev.shiftKey);                 // Shift: read every order, also the ones already interfaced
+        const out = await SADB.refreshAll(a, 'refresh');
+        if (out) await SADB.askCancel(a, 'after the refresh');
+    };
+    window.saDbCheckCancel = async function(ev) {
+        const a = window._saCurrentAgent;
+        if (!a || !SADB.on()) return;
+        SADB.full = !!(ev && ev.shiftKey);
+        const out = await SADB.refreshAll(a, 'check');
+        if (out) await SADB.askCancel(a, 'after re-reading every trip');
+    };
+    window.saDbRefreshTrip = async function(tripId, inst, ev) {
+        const a = window._saCurrentAgent;
+        if (!a || !SADB.on()) return;
+        if (SADB.busy) { showNotification('A read is already running — wait for it to finish.', 'info'); return; }
+        const t = ((window._saAgentTrips || {})[a.ID] || []).find(x => String(x.TRIP_ID) === String(tripId)) || { TRIP_ID: tripId, INSTANCE_NAME: inst };
+        SADB.full = !!(ev && ev.shiftKey);
+        SADB.busy = true; SADB.quiet = true; SADB.stopping = false; SADB.paintHeader();
+        SADB.setHeaderStatus(`<i class="fas fa-sync fa-spin"></i> Reading trip ${esc(t.TRIP_NAME || tripId)}${SADB.full ? ' · every order' : ''}…`);
+        let r;
+        try { r = await SADB.refreshTrip(a, t, 'trip'); }
+        finally { SADB.busy = false; SADB.quiet = false; SADB.full = false; SADB.setHeaderStatus(''); SADB.paintHeader(); }
+        const kept = SADB.lastSkipped[tripId] || 0, stopped = SADB.stopping; SADB.stopping = false;
+        showNotification(stopped ? `Trip ${tripId}: stopped — what was read is kept.` : `Trip ${tripId}: ${r.orders - kept} order(s) read from Fusion and APEX${kept ? `, ${kept} already interfaced kept` : ''}${r.failures ? ', ' + r.failures + ' failed' : ''}${r.error ? ' — ' + r.error : ''}.`, stopped || r.error || r.failures ? 'warning' : 'success');
+        await SADB.askCancel(a, `after refreshing trip ${tripId}`, true);
+    };
+    window.saDbShowCancel = function() { const a = window._saCurrentAgent; if (a && SADB.on()) SADB.askCancel(a, 'from the data on this PC'); };
+
+    // ─── Page show hook ──────────────────────────────────────
+    // The WMS navigates with navigateToPage (app.js): the agents list is read the first time the page is opened and
+    // kept after that (before, this wrapped window.showPage, which nothing ever called, so the page never loaded itself).
+    document.addEventListener('DOMContentLoaded', function() {
+        const orig = window.navigateToPage;
+        if (typeof orig === 'function') {
+            window.navigateToPage = function(pageId) {
+                const r = orig.apply(this, arguments);
+                if (pageId === 'shipping-agents' && !window._saAgentsLoaded) setTimeout(saInitPage, 100);
+                return r;
+            };
+        }
+        if ((window.location.hash || '').replace('#', '') === 'shipping-agents' && !window._saAgentsLoaded) setTimeout(saInitPage, 300);
+        SADB.probe();
+    });
+
+    // ─── CSS animation ───────────────────────────────────────
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes saPulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50%       { opacity: 0.5; transform: scale(1.3); }
+        }
+    `;
+    document.head.appendChild(style);
+
+    // ─── Utility ─────────────────────────────────────────────
+    function esc(s) {
+        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function setText(id, val) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = val;
+    }
+
+    function saFormatDate(d) {
+        if (!d) return '—';
+        try { return new Date(d).toLocaleString(); } catch(e) { return d; }
+    }
+
+    function saTimeAgo(d) {
+        if (!d) return 'never';
+        const diff = Date.now() - new Date(d).getTime();
+        if (diff < 60000)   return 'just now';
+        if (diff < 3600000) return Math.floor(diff/60000) + 'm ago';
+        if (diff < 86400000)return Math.floor(diff/3600000) + 'h ago';
+        return Math.floor(diff/86400000) + 'd ago';
+    }
+
+})();

@@ -1,0 +1,1007 @@
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Linq;
+using System.Net.Http;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Newtonsoft.Json;
+
+namespace WMSApp.MRA
+{
+    /// <summary>
+    /// Main MRA processor - handles all steps of MRA interface process
+    /// </summary>
+    public class MRAProcessor
+    {
+        private readonly string _fusionUsername;
+        private readonly string _fusionPassword;
+        private readonly string _instance;
+        private readonly string _mraApiUrl;
+
+        // The MRA gateway answers in a few seconds when healthy. HttpClient's default (100 s) made every hung
+        // call cost 100 s; one shared client also reuses the connection between orders.
+        public const int MRA_GATEWAY_TIMEOUT_SECONDS = 60;
+        private static readonly HttpClient MraHttp = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+        // The Fusion order update (step 6) used a new HttpClient per order: a new TLS connection to Fusion every time.
+        // One shared client keeps the connection open between orders (the 4 parallel workers of MraBatch share it).
+        private static readonly HttpClient FusionHttp = new HttpClient(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5), MaxConnectionsPerServer = 8 }) { Timeout = TimeSpan.FromSeconds(120) };
+
+        // Report paths
+        private const string MRA_CHECK_REPORT = "/Custom/DEXPRESS/ORDER MANAGEMENT/POS_RERPOTS/MRA_TRX_NO_CHECK_BIP.xdo";
+        private const string ORDER_SUMMARY_REPORT = "/Custom/DEXPRESS/ORDER MANAGEMENT/POS_RERPOTS/ORDER_SUMMARY_4_ORDER_NUMBER_BIP.xdo";
+        private const string ORDER_DETAILS_REPORT = "/Custom/DEXPRESS/ORDER MANAGEMENT/POS_RERPOTS/ORDER_DETAILS_MRA_BIP.xdo";
+
+        // APEX table MRA_ORDER_TYPES says which order types go to MRA: INTERFACE_FLAG = 'Y' only
+        private const string APEX_QUERY_URL =
+            "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/executequery";
+
+        // Org IDs
+        private const string INVENTORY_ORG_ID = "300000003277749";
+        private const string ORG_ID = "300000003234003";
+
+        /// <summary>Where the run started (WMS, SHIPPING_AGENT, WMS2, AI_EMPLOYEE, AI_AGENT, ORDER_MGMT …) — kept in WMS_MRA_INTERFACE_STATUS.</summary>
+        public string Instance => _instance;
+        public string Source { get; set; } = "WMS";
+        /// <summary>Trip of the order when the caller knows it; otherwise the status row looks it up in WMS_TRIP_DETAILS.</summary>
+        public string TripId { get; set; }
+        /// <summary>App login of the person / agent that ran it.</summary>
+        public string AppUser { get; set; }
+
+        public MRAProcessor(
+            string fusionUsername,
+            string fusionPassword,
+            string instance,
+            string mraApiUrl = "http://mra.busi.in/MRAInvoice.php")
+        {
+            _fusionUsername = fusionUsername;
+            _fusionPassword = fusionPassword;
+            _instance = instance;
+            _mraApiUrl = mraApiUrl;
+        }
+
+        /// <summary>
+        /// Main method to process MRA interface for an order
+        /// </summary>
+        public async Task<MRAProcessingResult> ProcessMRAInterfaceAsync(
+            string orderNumber,
+            Action<string, MRAProcessingStep> progressCallback = null,
+            Action<Dictionary<string, object>, List<Dictionary<string, object>>> orderDataCallback = null,
+            Action<string, object> mraRequestCallback = null,
+            Action<bool, object> mraResponseCallback = null,
+            Action<string, string> logCallback = null)
+        {
+            var result = new MRAProcessingResult
+            {
+                OrderNumber = orderNumber,
+                CurrentStep = MRAProcessingStep.Initial
+            };
+            var timings = new List<string>();
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            void Mark(string step) { timings.Add($"{step} {sw.Elapsed.TotalSeconds:0.0}s"); sw.Restart(); result.Timings = string.Join(", ", timings); }
+            Task<DataSet> summaryTask = null, detailsTask = null;
+            var started = DateTime.Now; var total = System.Diagnostics.Stopwatch.StartNew();
+            Dictionary<string, object> header = null; int lineCount = 0; MRAInvoiceCreationResult invoice = null; bool already = false, fusionUpdated = false;
+
+            try
+            {
+                // Step 0: our own record first. WMS_MRA_INTERFACE_STATUS holds every run from every screen and PC; a
+                // SUCCESS / ALREADY_DONE row for this order and instance means MRA has it — nothing is sent again, and no
+                // Fusion report is needed. (The pages ask the same table before they call the processor; this guard
+                // covers every other caller: AI Digital Employee, AI Agent, Order Management, WMS 2.0.)
+                progressCallback?.Invoke("Checking the MRA status table...", MRAProcessingStep.CheckingMRAStatus);
+                result.CurrentStep = MRAProcessingStep.CheckingMRAStatus;
+                // No ConfigureAwait(false) here: the progress / log callbacks that follow must run on the caller's context
+                // (Form1 posts them to the WebView, which only the UI thread may touch).
+                var prior = await MRAInterfaceStatus.FindDoneAsync(orderNumber, _instance, AppUser);
+                Mark("status table");
+                if (prior != null)
+                {
+                    already = true;
+                    result.Success = false;
+                    result.IrnCode = prior.Irn;
+                    result.Message = $"MRA interface is already done for order {orderNumber} (recorded {prior.At}" +
+                        (string.IsNullOrEmpty(prior.Irn) ? "" : $", IRN {prior.Irn}") + (string.IsNullOrEmpty(prior.Source) ? "" : $", by {prior.Source}") + ") - not sent again";
+                    result.CurrentStep = MRAProcessingStep.Completed;
+                    logCallback?.Invoke(result.Message, "info");
+                    return result;
+                }
+
+                // Step 1: Check if already interfaced to MRA. The three Fusion reports (check, summary, details) are
+                // independent, so they run at the same time instead of one after the other.
+                progressCallback?.Invoke("Checking if order is already interfaced to MRA...", MRAProcessingStep.CheckingMRAStatus);
+                result.CurrentStep = MRAProcessingStep.CheckingMRAStatus;
+
+                var checkTask = CheckMRAInterfaceStatusAsync(orderNumber, logCallback);
+                summaryTask = FetchOrderSummaryAsync(orderNumber, logCallback);
+                detailsTask = FetchOrderDetailsAsync(orderNumber, logCallback);
+                var mraCheck = await checkTask;
+                Mark("check report");
+                if (mraCheck.IsInterfaced)
+                {
+                    already = true;
+                    result.Success = false;
+                    result.Message = $"MRA interface is already done for order {orderNumber}";
+                    result.CurrentStep = MRAProcessingStep.Completed;
+                    return result;
+                }
+
+                // Step 2: Fetch order summary
+                progressCallback?.Invoke("Fetching order summary from Fusion...", MRAProcessingStep.FetchingOrderSummary);
+                result.CurrentStep = MRAProcessingStep.FetchingOrderSummary;
+
+                var orderSummary = await summaryTask;
+                Mark("summary report");
+                if (orderSummary == null || orderSummary.Tables.Count < 2 || orderSummary.Tables[1].Rows.Count == 0)
+                {
+                    logCallback?.Invoke(
+                        $"Order summary not found — report returned {(orderSummary?.Tables.Count ?? 0)} table(s); expected data rows in Table[1]. Review the report parameters and XML logged above.",
+                        "warning");
+                    result.Success = false;
+                    result.Message = "Order summary not found";
+                    result.CurrentStep = MRAProcessingStep.Failed;
+                    return result;
+                }
+
+                // Step 2b: Only order types with INTERFACE_FLAG = 'Y' in MRA_ORDER_TYPES are sent to MRA
+                progressCallback?.Invoke("Checking the order type against MRA_ORDER_TYPES...", MRAProcessingStep.CheckingOrderType);
+                result.CurrentStep = MRAProcessingStep.CheckingOrderType;
+
+                try { header = ConvertDataRowToDictionary(orderSummary.Tables[1].Rows[0]); } catch { }
+                string orderTypeCode = orderSummary.Tables[1].Columns.Contains("ORDER_TYPE_CODE")
+                    ? orderSummary.Tables[1].Rows[0]["ORDER_TYPE_CODE"]?.ToString()?.Trim() ?? ""
+                    : "";
+                var typeCheck = await CheckOrderTypeAsync(orderTypeCode, logCallback);
+                Mark("order type check");
+                if (!typeCheck.Allowed)
+                {
+                    result.Success = false;
+                    result.Skipped = typeCheck.Excluded;
+                    result.Message = typeCheck.Message;
+                    result.CurrentStep = typeCheck.Excluded ? MRAProcessingStep.Completed : MRAProcessingStep.Failed;
+                    return result;
+                }
+
+                // Step 3: Fetch order details
+                progressCallback?.Invoke("Fetching order line details from Fusion...", MRAProcessingStep.FetchingOrderDetails);
+                result.CurrentStep = MRAProcessingStep.FetchingOrderDetails;
+
+                var orderDetails = await detailsTask;
+                Mark("details report");
+                if (orderDetails == null || orderDetails.Tables.Count < 2 || orderDetails.Tables[1].Rows.Count == 0)
+                {
+                    int tblCount = orderDetails?.Tables.Count ?? 0;
+                    int t1Rows = (orderDetails != null && orderDetails.Tables.Count > 1) ? orderDetails.Tables[1].Rows.Count : 0;
+                    logCallback?.Invoke(
+                        $"Order details not found — report returned {tblCount} table(s), Table[1] rows={t1Rows}. Expected order lines in Table[1]. " +
+                        $"Parameters used: ORG_ID={ORG_ID}, INVENTORY_ORG_ID={INVENTORY_ORG_ID}, SOURCE_ORDER_NUMBER={orderNumber}. Review the report XML logged above.",
+                        "warning");
+                    result.Success = false;
+                    result.Message = "Order details not found";
+                    result.CurrentStep = MRAProcessingStep.Failed;
+                    return result;
+                }
+
+                lineCount = orderDetails.Tables[1].Rows.Count;
+                // Send order data to JavaScript for Tab 1
+                if (orderDataCallback != null)
+                {
+                    try
+                    {
+                        var headerData = ConvertDataRowToDictionary(orderSummary.Tables[1].Rows[0]);
+                        var linesData = ConvertDataTableToList(orderDetails.Tables[1]);
+                        orderDataCallback(headerData, linesData);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Error sending order data: {ex.Message}");
+                    }
+                }
+
+                // Step 4: Validate all lines are closed
+                progressCallback?.Invoke("Validating order line statuses...", MRAProcessingStep.ValidatingOrderLines);
+                result.CurrentStep = MRAProcessingStep.ValidatingOrderLines;
+
+                var validation = ValidateOrderLines(orderDetails.Tables[1]);
+                if (!validation.AllLinesClosed)
+                {
+                    result.Success = false;
+                    result.Message = $"Cannot interface to MRA: {validation.Message}";
+                    result.ErrorDetails = string.Join(", ", validation.OpenLines);
+                    result.CurrentStep = MRAProcessingStep.Failed;
+                    return result;
+                }
+
+                // Step 5: Create MRA invoice
+                progressCallback?.Invoke("Creating MRA invoice...", MRAProcessingStep.CreatingMRAInvoice);
+                result.CurrentStep = MRAProcessingStep.CreatingMRAInvoice;
+
+                var invoiceResult = await CreateMRAInvoiceAsync(orderSummary.Tables[1], orderDetails.Tables[1], mraRequestCallback, mraResponseCallback);
+                invoice = invoiceResult;
+                Mark("mra gateway");
+                if (!invoiceResult.Success)
+                {
+                    result.GatewayProblem = invoiceResult.GatewayProblem;
+                    result.Success = false;
+                    result.Message = $"Failed to create MRA invoice: {invoiceResult.ErrorMessage}";
+                    result.CurrentStep = MRAProcessingStep.Failed;
+                    return result;
+                }
+
+                result.IrnCode = invoiceResult.IrnCode;
+                result.QrCodeBase64 = invoiceResult.QrCodeBase64;
+                result.HeaderId = orderSummary.Tables[1].Rows[0]["HEADER_ID"]?.ToString();
+
+                // Step 6: Update Fusion Order
+                progressCallback?.Invoke("Updating Fusion Order Management...", MRAProcessingStep.UpdatingFusionOrder);
+                result.CurrentStep = MRAProcessingStep.UpdatingFusionOrder;
+
+                var updateResult = await UpdateFusionOrderAsync(result.HeaderId, result.IrnCode);
+                Mark("fusion update");
+                if (!updateResult.Success)
+                {
+                    result.Success = false;
+                    result.Message = $"MRA invoice created but failed to update Fusion: {updateResult.Message}";
+                    result.CurrentStep = MRAProcessingStep.Failed;
+                    return result;
+                }
+
+                fusionUpdated = true;
+                // Success!
+                result.Success = true;
+                result.Message = $"MRA interface completed successfully. IRN: {result.IrnCode}";
+                result.CurrentStep = MRAProcessingStep.Completed;
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.Message = $"Error during MRA processing: {ex.Message}";
+                result.ErrorDetails = ex.StackTrace;
+                result.CurrentStep = MRAProcessingStep.Failed;
+                return result;
+            }
+            finally
+            {
+                // A report started early but not awaited (order stopped before it) must not raise an unobserved exception
+                foreach (var t in new[] { summaryTask, detailsTask })
+                    if (t != null && !t.IsCompleted) _ = t.ContinueWith(x => { _ = x.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+                    else if (t != null && t.IsFaulted) _ = t.Exception;
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] {orderNumber} timings: {result.Timings}");
+                // Every run — manual, Shipping Agent, WMS 2.0, AI Digital Employee, AI Agent, Order Management — leaves one row
+                await MRAInterfaceStatus.RecordAsync(this, result, header, lineCount, invoice, already, fusionUpdated, started, total.ElapsedMilliseconds);
+            }
+        }
+
+        /// <summary>
+        /// Step 1: Check if order is already interfaced to MRA
+        /// </summary>
+        private async Task<MRACheckResult> CheckMRAInterfaceStatusAsync(string orderNumber, Action<string, string> logCallback = null)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] CheckMRAInterfaceStatusAsync - Order: {orderNumber}, Instance: {_instance}");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== MRA CHECK PARAMETERS ==========");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Order Number: '{orderNumber}'");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Order Number Length: {orderNumber?.Length ?? 0}");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Instance: '{_instance}'");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ==========================================");
+
+            var reportRunner = new FusionReportRunner(_fusionUsername, _fusionPassword, _instance);
+
+            var parameters = new Dictionary<string, string>
+            {
+                { "source_order_number", orderNumber }
+            };
+
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Running MRA check report: {MRA_CHECK_REPORT}");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Parameter: source_order_number = '{orderNumber}'");
+            var reportResult = await reportRunner.RunReportAsync(MRA_CHECK_REPORT, parameters, log: msg => logCallback?.Invoke(msg, "info"));
+
+            if (!reportResult.Success)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA check report FAILED: {reportResult.ErrorMessage}");
+                throw new Exception($"Failed to check MRA status: {reportResult.ErrorMessage}");
+            }
+
+            // Debug: Log the raw XML data
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== RAW XML DATA ==========");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] {reportResult.RawXmlData}");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== END RAW XML ==========");
+
+            // Debug: Log the dataset structure with ALL data
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA check report SUCCESS. Tables count: {reportResult.DataSet.Tables.Count}");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== ALL TABLES DATA ==========");
+            for (int i = 0; i < reportResult.DataSet.Tables.Count; i++)
+            {
+                var table = reportResult.DataSet.Tables[i];
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ----- Table[{i}]: Name={table.TableName}, Rows={table.Rows.Count}, Columns={table.Columns.Count} -----");
+
+                // Log column names
+                var columnNames = new List<string>();
+                foreach (DataColumn col in table.Columns)
+                {
+                    columnNames.Add(col.ColumnName);
+                }
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[{i}] Columns: {string.Join(", ", columnNames)}");
+
+                // Log ALL rows data
+                if (table.Rows.Count > 0)
+                {
+                    for (int rowIdx = 0; rowIdx < table.Rows.Count; rowIdx++)
+                    {
+                        var rowValues = new List<string>();
+                        foreach (DataColumn col in table.Columns)
+                        {
+                            var val = table.Rows[rowIdx][col];
+                            rowValues.Add($"{col.ColumnName}={val ?? "(null)"}");
+                        }
+                        System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[{i}] Row[{rowIdx}]: {string.Join(", ", rowValues)}");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[{i}] has NO ROWS");
+                }
+            }
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== END ALL TABLES DATA ==========");
+
+            // Tables[0] = parameters, Tables[1] = MRA data for this specific order
+            // If order is NOT interfaced → Tables[1] will have 0 rows
+            // If order IS interfaced → Tables[1] will have 1 row with MRA_TRX_NO
+            bool isInterfaced = false;
+            string mraTrxNo = string.Empty;
+
+            // Check if Tables[1] exists
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== TABLE[1] ANALYSIS ==========");
+            if (reportResult.DataSet.Tables.Count > 1)
+            {
+                DataTable dtMRA = reportResult.DataSet.Tables[1];
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[1] EXISTS - Name: {dtMRA.TableName}, Rows: {dtMRA.Rows.Count}, Columns: {dtMRA.Columns.Count}");
+
+                // Log ALL columns
+                var colNames = new List<string>();
+                foreach (DataColumn col in dtMRA.Columns)
+                {
+                    colNames.Add(col.ColumnName);
+                }
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[1] Columns: {string.Join(", ", colNames)}");
+
+                // Log ALL rows with ALL column values
+                if (dtMRA.Rows.Count > 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[1] DATA ({dtMRA.Rows.Count} rows):");
+                    for (int rowIdx = 0; rowIdx < dtMRA.Rows.Count; rowIdx++)
+                    {
+                        var rowVals = new List<string>();
+                        foreach (DataColumn col in dtMRA.Columns)
+                        {
+                            var val = dtMRA.Rows[rowIdx][col];
+                            rowVals.Add($"{col.ColumnName}='{val}'");
+                        }
+                        System.Diagnostics.Debug.WriteLine($"[MRAProcessor]   Row[{rowIdx}]: {string.Join(", ", rowVals)}");
+                    }
+
+                    // Check MRA_TRX_NO from first row
+                    if (dtMRA.Columns.Contains("MRA_TRX_NO"))
+                    {
+                        mraTrxNo = dtMRA.Rows[0]["MRA_TRX_NO"]?.ToString() ?? string.Empty;
+                        System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA_TRX_NO from Row[0]: '{mraTrxNo}'");
+
+                        // If MRA_TRX_NO has value → already interfaced
+                        if (!string.IsNullOrWhiteSpace(mraTrxNo))
+                        {
+                            isInterfaced = true;
+                            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA_TRX_NO has value - ORDER IS INTERFACED");
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA_TRX_NO is empty - ORDER NOT INTERFACED");
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MRAProcessor] WARNING: MRA_TRX_NO column not found in Table[1]!");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[1] has NO ROWS - order not interfaced");
+                }
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[1] DOES NOT EXIST (Tables.Count={reportResult.DataSet.Tables.Count})");
+            }
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== END TABLE[1] ANALYSIS ==========");
+
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] FINAL RESULT - IsInterfaced: {isInterfaced}, MRA_TRX_NO: '{mraTrxNo}'");
+
+            return new MRACheckResult
+            {
+                IsInterfaced = isInterfaced,
+                Message = isInterfaced ? $"Order already interfaced to MRA (TRX: {mraTrxNo})" : "Order not yet interfaced",
+                MraOrderNumber = orderNumber
+            };
+        }
+
+        /// <summary>
+        /// Step 2: Fetch order summary
+        /// </summary>
+        private async Task<DataSet> FetchOrderSummaryAsync(string orderNumber, Action<string, string> logCallback = null)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== FETCH ORDER SUMMARY ==========");
+            var reportRunner = new FusionReportRunner(_fusionUsername, _fusionPassword, _instance);
+
+            var parameters = new Dictionary<string, string>
+            {
+                { "INVENTORY_ORG_ID", INVENTORY_ORG_ID },
+                { "ORG_ID", ORG_ID },
+                { "SOURCE_ORDER_NUMBER", orderNumber }
+            };
+
+            var reportResult = await reportRunner.RunReportAsync(ORDER_SUMMARY_REPORT, parameters, log: msg => logCallback?.Invoke(msg, "info"));
+
+            if (!reportResult.Success)
+            {
+                throw new Exception($"Failed to fetch order summary: {reportResult.ErrorMessage}");
+            }
+
+            // Debug: Log tables structure
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Order Summary - Tables count: {reportResult.DataSet.Tables.Count}");
+            for (int i = 0; i < reportResult.DataSet.Tables.Count; i++)
+            {
+                var table = reportResult.DataSet.Tables[i];
+                var cols = new List<string>();
+                foreach (DataColumn col in table.Columns) cols.Add(col.ColumnName);
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Summary Table[{i}]: Name={table.TableName}, Rows={table.Rows.Count}, Columns: {string.Join(", ", cols)}");
+
+                if (table.Rows.Count > 0)
+                {
+                    var vals = new List<string>();
+                    foreach (DataColumn col in table.Columns) vals.Add($"{col.ColumnName}={table.Rows[0][col]}");
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Summary Table[{i}] Row[0]: {string.Join(", ", vals)}");
+                }
+            }
+
+            return reportResult.DataSet;
+        }
+
+        /// <summary>
+        /// Step 3: Fetch order details
+        /// </summary>
+        private async Task<DataSet> FetchOrderDetailsAsync(string orderNumber, Action<string, string> logCallback = null)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== FETCH ORDER DETAILS ==========");
+            var reportRunner = new FusionReportRunner(_fusionUsername, _fusionPassword, _instance);
+
+            var parameters = new Dictionary<string, string>
+            {
+                { "INVENTORY_ORG_ID", INVENTORY_ORG_ID },
+                { "ORG_ID", ORG_ID },
+                { "SOURCE_ORDER_NUMBER", orderNumber }
+            };
+
+            var reportResult = await reportRunner.RunReportAsync(ORDER_DETAILS_REPORT, parameters, log: msg => logCallback?.Invoke(msg, "info"));
+
+            if (!reportResult.Success)
+            {
+                throw new Exception($"Failed to fetch order details: {reportResult.ErrorMessage}");
+            }
+
+            // Debug: Log tables structure
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Order Details - Tables count: {reportResult.DataSet.Tables.Count}");
+            for (int i = 0; i < reportResult.DataSet.Tables.Count; i++)
+            {
+                var table = reportResult.DataSet.Tables[i];
+                var cols = new List<string>();
+                foreach (DataColumn col in table.Columns) cols.Add(col.ColumnName);
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Details Table[{i}]: Name={table.TableName}, Rows={table.Rows.Count}, Columns: {string.Join(", ", cols)}");
+
+                if (table.Rows.Count > 0)
+                {
+                    var vals = new List<string>();
+                    foreach (DataColumn col in table.Columns) vals.Add($"{col.ColumnName}={table.Rows[0][col]}");
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Details Table[{i}] Row[0]: {string.Join(", ", vals)}");
+                }
+            }
+
+            return reportResult.DataSet;
+        }
+
+        /// <summary>
+        /// Step 2b: is this order type interfaced to MRA? Reads APEX table MRA_ORDER_TYPES through the
+        /// read-only query gateway. Only a row for the type with INTERFACE_FLAG = 'Y' lets the order through;
+        /// 'N' or a type missing from the table means "do not interface" (Excluded). When the table cannot
+        /// be read the order is NOT sent either (Excluded = false, so it shows as a failure to retry).
+        /// </summary>
+        // MRA_ORDER_TYPES is read once per Print Trip click: the page sends one batch id with every order of
+        // that click (OrderTypesBatch), the first order reads the table and the others reuse that read (also
+        // when they run at the same time). Without a batch id every order reads it, as before.
+        public string OrderTypesBatch { get; set; }
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<(List<Dictionary<string, string>> Rows, List<string> Names, string Error)>>> _orderTypeBatches = new();
+
+        private static async Task<(List<Dictionary<string, string>> Rows, List<string> Names, string Error)> ReadOrderTypesAsync()
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            string body = JsonConvert.SerializeObject(new { sql = "SELECT * FROM mra_order_types", maxRows = 1000, appUser = Environment.UserName });
+            var resp = await http.PostAsync(APEX_QUERY_URL, new StringContent(body, Encoding.UTF8, "application/json"));
+            string text = await resp.Content.ReadAsStringAsync();
+            var root = Newtonsoft.Json.Linq.JObject.Parse(text);
+            if (root.Value<bool?>("success") == false || root["rows"] == null)
+                return (null, null, "Could not read MRA_ORDER_TYPES (" + (root.Value<string>("error") ?? "HTTP " + (int)resp.StatusCode) + ") - not sent to MRA");
+
+            var cols = (root["columns"] as Newtonsoft.Json.Linq.JArray ?? new Newtonsoft.Json.Linq.JArray())
+                .Select(c => (c.Type == Newtonsoft.Json.Linq.JTokenType.Object ? c.Value<string>("name") : c.ToString())?.ToUpperInvariant() ?? "").ToList();
+            var rows = new List<Dictionary<string, string>>();
+            foreach (var r in (Newtonsoft.Json.Linq.JArray)root["rows"])
+            {
+                var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                if (r is Newtonsoft.Json.Linq.JArray arr) { for (int i = 0; i < arr.Count && i < cols.Count; i++) d[cols[i]] = arr[i]?.ToString(); }
+                else if (r is Newtonsoft.Json.Linq.JObject obj) foreach (var p in obj.Properties()) d[p.Name.ToUpperInvariant()] = p.Value?.ToString();
+                rows.Add(d);
+            }
+            var names = cols.Count > 0 ? cols : (rows.FirstOrDefault()?.Keys.ToList() ?? new List<string>());
+            return (rows, names, null);
+        }
+
+        private Task<(List<Dictionary<string, string>> Rows, List<string> Names, string Error)> OrderTypesAsync()
+        {
+            if (string.IsNullOrWhiteSpace(OrderTypesBatch)) return ReadOrderTypesAsync();
+            // keep only the last few clicks
+            if (_orderTypeBatches.Count > 20) foreach (var k in _orderTypeBatches.Keys.Take(_orderTypeBatches.Count - 10).ToList()) _orderTypeBatches.TryRemove(k, out _);
+            var lazy = _orderTypeBatches.GetOrAdd(OrderTypesBatch, _ => new Lazy<Task<(List<Dictionary<string, string>>, List<string>, string)>>(ReadOrderTypesAsync));
+            var task = lazy.Value;
+            // a failed read is not shared: the next order of the click reads again
+            _ = task.ContinueWith(t => { if (t.IsFaulted || t.Result.Error != null) _orderTypeBatches.TryRemove(OrderTypesBatch, out _); }, TaskScheduler.Default);
+            return task;
+        }
+
+        private async Task<(bool Allowed, bool Excluded, string Message)> CheckOrderTypeAsync(string orderType, Action<string, string> logCallback)
+        {
+            if (string.IsNullOrWhiteSpace(orderType))
+                return (false, false, "Cannot check MRA_ORDER_TYPES: the order summary has no ORDER_TYPE_CODE - not sent to MRA");
+            try
+            {
+                var read = await OrderTypesAsync();
+                if (read.Error != null) return (false, false, read.Error);
+                var rows = read.Rows; var names = read.Names;
+                string flagCol = names.FirstOrDefault(c => c == "INTERFACE_FLAG")
+                              ?? names.FirstOrDefault(c => c.Contains("INTERFACE") && c.Contains("FLAG"))
+                              ?? names.FirstOrDefault(c => c.Contains("INTERFACE"));
+                var typeCols = names.Where(c => c != flagCol && c.Contains("TYPE")).ToList();
+                if (flagCol == null || typeCols.Count == 0)
+                    return (false, false, "MRA_ORDER_TYPES has no INTERFACE_FLAG / order type column (columns: " + string.Join(", ", names) + ") - not sent to MRA");
+
+                var matches = rows.Where(r => typeCols.Any(c => r.TryGetValue(c, out var v) && string.Equals(v?.Trim(), orderType, StringComparison.OrdinalIgnoreCase))).ToList();
+                logCallback?.Invoke($"MRA_ORDER_TYPES: order type '{orderType}' → {(matches.Count == 0 ? "not in the table" : string.Join(", ", matches.Select(m => flagCol + "=" + (m.TryGetValue(flagCol, out var f) ? f : ""))))}", "info");
+                if (matches.Any(m => m.TryGetValue(flagCol, out var f) && string.Equals(f?.Trim(), "Y", StringComparison.OrdinalIgnoreCase)))
+                    return (true, false, "");
+                return (false, true, matches.Count == 0
+                    ? $"Not sent to MRA: order type '{orderType}' is not set up in MRA_ORDER_TYPES (only INTERFACE_FLAG = Y types are interfaced)"
+                    : $"Not sent to MRA: order type '{orderType}' has {flagCol} = N in MRA_ORDER_TYPES");
+            }
+            catch (Exception ex)
+            {
+                return (false, false, "Could not check MRA_ORDER_TYPES (" + ex.Message + ") - not sent to MRA");
+            }
+        }
+
+        /// <summary>
+        /// Step 4: Validate all order lines are closed
+        /// </summary>
+        private OrderValidationResult ValidateOrderLines(DataTable orderLinesTable)
+        {
+            var result = new OrderValidationResult
+            {
+                AllLinesClosed = true,
+                OpenLines = new List<string>()
+            };
+
+            if (orderLinesTable == null || orderLinesTable.Rows.Count == 0)
+            {
+                result.AllLinesClosed = true;
+                result.Message = "No lines found (treated as valid)";
+                return result;
+            }
+
+            // Debug: Log available columns
+            var columnNames = new List<string>();
+            foreach (DataColumn col in orderLinesTable.Columns)
+            {
+                columnNames.Add(col.ColumnName);
+            }
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ValidateOrderLines - Available columns: {string.Join(", ", columnNames)}");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ValidateOrderLines - Rows: {orderLinesTable.Rows.Count}");
+
+            // Check if LINE_STATUS column exists
+            if (!orderLinesTable.Columns.Contains("LINE_STATUS"))
+            {
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] WARNING: LINE_STATUS column not found! Skipping validation.");
+                result.AllLinesClosed = true;
+                result.Message = "Line status validation skipped (column not found)";
+                return result;
+            }
+
+            foreach (DataRow row in orderLinesTable.Rows)
+            {
+                string status = row["LINE_STATUS"]?.ToString()?.ToUpper() ?? string.Empty;
+                string lineNumber = orderLinesTable.Columns.Contains("LINE_NUMBER")
+                    ? row["LINE_NUMBER"]?.ToString() ?? "Unknown"
+                    : "Unknown";
+
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Line {lineNumber}: Status = '{status}'");
+
+                if (status != "CLOSED" && status != "AWAIT_BILLING" && status != "BILLED" && status != "SHIPPED" && status != "CANCELED")
+                {
+                    result.AllLinesClosed = false;
+                    result.OpenLines.Add($"Line {lineNumber}: {status}");
+                }
+            }
+
+            if (!result.AllLinesClosed)
+            {
+                result.Message = $"Found {result.OpenLines.Count} line(s) that are not closed/billed/shipped";
+            }
+            else
+            {
+                result.Message = "All lines are closed/billed/shipped";
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Step 5: Create MRA invoice via API
+        /// </summary>
+        private async Task<MRAInvoiceCreationResult> CreateMRAInvoiceAsync(
+            DataTable orderSummary,
+            DataTable orderDetails,
+            Action<string, object> mraRequestCallback = null,
+            Action<bool, object> mraResponseCallback = null)
+        {
+            try
+            {
+                DataRow headerRow = orderSummary.Rows[0];
+
+                // Build invoice object
+                string orderType = headerRow["ORDER_TYPE_CODE"]?.ToString();
+                DateTime orderDate = Convert.ToDateTime(headerRow["ORDER_DATE"]);
+                string formattedDate = orderDate.ToString("yyyyMMdd HH:mm:ss");
+                double totalOrderAmount = Convert.ToDouble(headerRow["ORDER_AMOUNT"]);
+                string mraTan = headerRow["MRA_TAN"]?.ToString();
+                string mraBrn = headerRow["MRA_BRN"]?.ToString();
+                string mraId = headerRow["MRA_ID"]?.ToString();
+
+                string invoiceTypeDesc = "STD";
+                string reasonStated = "";
+                string invoiceRefIdentifier = "";
+
+                if (totalOrderAmount < 0)
+                {
+                    invoiceTypeDesc = "CRN";
+                    reasonStated = "RETURN ORDER";
+                    invoiceRefIdentifier = headerRow["REFERENCE_NO"]?.ToString();
+                    if (string.IsNullOrEmpty(invoiceRefIdentifier))
+                    {
+                        invoiceRefIdentifier = headerRow["SOURCE_ORDER_NUMBER"]?.ToString();
+                    }
+                }
+
+                if (orderType == "PRO-FORMA INVOICE")
+                {
+                    invoiceTypeDesc = "PRF";
+                }
+
+                string buname = "GRAYS INC BU";
+
+                string pVatRegNo = "";
+                try { pVatRegNo = headerRow["VATREGNO"]?.ToString(); } catch { }
+
+                var invoice = new Invoice
+                {
+                    EbsMraId = mraId,
+                    InvoiceCounter = headerRow["HEADER_ID"]?.ToString(),
+                    TransactionType = headerRow["MRA_CUSTOMER_CAT"]?.ToString(),
+                    PreviousNoteHash = "prevNote",
+                    PersonType = "VATR",
+                    InvoiceTypeDesc = invoiceTypeDesc,
+                    Currency = "MUR",
+                    InvoiceIdentifier = headerRow["SOURCE_ORDER_NUMBER"]?.ToString(),
+                    TotalVatAmount = Math.Round(Math.Abs(Convert.ToDouble(headerRow["TAX_AMOUNT"])), 3),
+                    TotalAmtWoVatCur = Math.Round(Math.Abs(Convert.ToDouble(headerRow["ORDER_AMOUNT"])) - Math.Abs(Convert.ToDouble(headerRow["TAX_AMOUNT"])), 3),
+                    TotalAmtWoVatMur = Math.Round(Math.Abs(Convert.ToDouble(headerRow["ORDER_AMOUNT"])) - Math.Abs(Convert.ToDouble(headerRow["TAX_AMOUNT"])), 3),
+                    InvoiceTotal = Math.Round(Math.Abs(Convert.ToDouble(headerRow["ORDER_AMOUNT"])), 3),
+                    DiscountTotalAmount = Math.Round(Math.Abs(Convert.ToDouble(headerRow["DISCOUNT_AMOUNT"])), 3),
+                    TotalAmtPaid = Math.Round(Math.Abs(Convert.ToDouble(headerRow["ORDER_AMOUNT"])), 3),
+                    DateTimeInvoiceIssued = formattedDate,
+                    SalesTransactions = "CASH",
+                    ReasonStated = reasonStated,
+                    InvoiceRefIdentifier = invoiceRefIdentifier,
+
+                    Seller = new Seller
+                    {
+                        Name = buname,
+                        TradeName = buname,
+                        Tan = mraTan,
+                        Brn = mraBrn,
+                        BusinessAddr = "BEAU-PLAN",
+                        BusinessPhoneNo = "2093000",
+                        EbsCounterNo = "20"
+                    },
+
+                    Buyer = new Buyer
+                    {
+                        Name = headerRow["ACCOUNT_NAME"]?.ToString(),
+                        Brn = headerRow["BRN"]?.ToString() ?? "",
+                        BusinessAddr = headerRow["CUSTOMER_MAIN_CAT"]?.ToString(),
+                        BuyerType = "VATR",
+                        Tan = pVatRegNo
+                    },
+
+                    ItemList = new List<InvoiceItem>()
+                };
+
+                // Add line items
+                int rowNumber = 1;
+                foreach (DataRow itemRow in orderDetails.Rows)
+                {
+                    string taxCode = itemRow["TAX_CLASSIFICATION_CODE"]?.ToString();
+                    string finalTaxCode;
+                    if (taxCode == "6004") finalTaxCode = "TC01";
+                    else if (taxCode == "23006") finalTaxCode = "TC03";
+                    else finalTaxCode = "TC01";
+
+                    string nature = itemRow["ITEM_NUMBER"]?.ToString().Contains("SGG") == true ? "SERVICES" : "GOODS";
+
+                    invoice.ItemList.Add(new InvoiceItem
+                    {
+                        ItemNo = rowNumber.ToString(),
+                        TaxCode = finalTaxCode,
+                        Nature = nature,
+                        ProductCodeMra = rowNumber.ToString(),
+                        ProductCodeOwn = itemRow["ITEM_NUMBER"]?.ToString(),
+                        ItemDesc = itemRow["DESCRIPTION"]?.ToString(),
+                        Quantity = Convert.ToInt32(itemRow["ORIGINAL_QTY"]),
+                        UnitPrice = Convert.ToDouble(itemRow["UNIT_LIST_PRICE"]),
+                        Discount = Math.Round(Math.Abs(Convert.ToDouble(itemRow["DISCOUNT_AMOUNT"])), 3),
+                        DiscountedValue = Math.Round(Math.Abs(Convert.ToDouble(itemRow["DISCOUNT_AMOUNT"])), 3),
+                        AmtWoVatCur = Math.Round(Convert.ToDouble(itemRow["NET_AMOUNT"]) - Convert.ToDouble(itemRow["TAX_AMOUNT"]), 3),
+                        AmtWoVatMur = Math.Round(Convert.ToDouble(itemRow["NET_AMOUNT"]) - Convert.ToDouble(itemRow["TAX_AMOUNT"]), 3),
+                        VatAmt = Math.Round(Convert.ToDouble(itemRow["TAX_AMOUNT"]), 3),
+                        TotalPrice = Math.Round(Convert.ToDouble(itemRow["NET_AMOUNT"]), 3)
+                    });
+                    rowNumber++;
+                }
+
+                // Serialize to JSON
+                string jsonData = JsonConvert.SerializeObject(invoice, Formatting.Indented);
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Invoice JSON: {jsonData}");
+
+                // Send MRA request info to JavaScript for Tab 2
+                try
+                {
+                    mraRequestCallback?.Invoke(_mraApiUrl, invoice);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Error sending MRA request data: {ex.Message}");
+                }
+
+                // Send to MRA API (shared client, own time limit)
+                {
+                    var content = new StringContent(jsonData, Encoding.UTF8, "application/json");
+                    HttpResponseMessage response;
+                    string responseBody;
+                    using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(MRA_GATEWAY_TIMEOUT_SECONDS)))
+                    {
+                        try
+                        {
+                            response = await MraHttp.PostAsync(_mraApiUrl, content, cts.Token);
+                            responseBody = await response.Content.ReadAsStringAsync(cts.Token);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            return new MRAInvoiceCreationResult
+                            {
+                                Success = false,
+                                RequestJson = jsonData,
+                                GatewayProblem = "TIMEOUT",
+                                ErrorMessage = $"No reply from the MRA gateway within {MRA_GATEWAY_TIMEOUT_SECONDS} s ({_mraApiUrl}). " +
+                                    "The request was sent, so MRA may still have created the invoice - check before resending."
+                            };
+                        }
+                        catch (HttpRequestException hex)
+                        {
+                            return new MRAInvoiceCreationResult
+                            {
+                                Success = false,
+                                RequestJson = jsonData,
+                                GatewayProblem = "UNREACHABLE",
+                                ErrorMessage = $"Could not reach the MRA gateway ({_mraApiUrl}): {hex.Message}. Nothing was sent to MRA."
+                            };
+                        }
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA API Response: {responseBody}");
+
+                    // Parse response - MRA may answer with an error text or JSON without a ResponseId
+                    MRAApiResponse apiResponse = null;
+                    try { apiResponse = JsonConvert.DeserializeObject<MRAApiResponse>(responseBody); }
+                    catch (JsonException) { }
+                    string irnCode = apiResponse?.Response?.ResponseId;
+                    string qrCode = apiResponse?.Response?.FiscalisedInvoices?.FirstOrDefault()?.QrCode;
+
+                    // Send MRA response info to JavaScript for Tab 2
+                    // Only an HTTP success WITH an IRN is a fiscalised invoice - anything else is a rejection
+                    bool isSuccess = response.IsSuccessStatusCode && !string.IsNullOrEmpty(irnCode);
+                    try
+                    {
+                        mraResponseCallback?.Invoke(isSuccess, new {
+                            httpStatus = (int)response.StatusCode,
+                            responseId = irnCode,
+                            qrCode = qrCode,
+                            rawResponse = responseBody
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Error sending MRA response data: {ex.Message}");
+                    }
+
+                    if (!isSuccess)
+                    {
+                        string body = (responseBody ?? "").Trim();
+                        return new MRAInvoiceCreationResult
+                        {
+                            Success = false,
+                            RequestJson = jsonData,
+                            HttpStatus = (int)response.StatusCode,
+                            RawResponse = responseBody,
+                            ErrorMessage = $"MRA did not return an IRN (HTTP {(int)response.StatusCode})" +
+                                (body.Length > 0 ? ": " + body.Substring(0, Math.Min(500, body.Length)) : "")
+                        };
+                    }
+
+                    return new MRAInvoiceCreationResult
+                    {
+                        Success = true,
+                        IrnCode = irnCode,
+                        QrCodeBase64 = qrCode,
+                        RequestJson = jsonData,
+                        HttpStatus = (int)response.StatusCode,
+                        RawResponse = responseBody
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor ERROR] Create invoice failed: {ex.Message}");
+                return new MRAInvoiceCreationResult
+                {
+                    Success = false,
+                    ErrorMessage = ex.Message
+                };
+            }
+        }
+
+        /// <summary>
+        /// Step 6: Update Fusion Order Management with IRN code
+        /// </summary>
+        private async Task<OracleFusionUpdateResult> UpdateFusionOrderAsync(string headerId, string irnCode)
+        {
+            try
+            {
+                string baseUrl = _instance.ToUpper() == "PROD"
+                    ? "https://efmh.fa.em3.oraclecloud.com"
+                    : "https://efmh-test.fa.em3.oraclecloud.com";
+
+                string endpoint = $"/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/{headerId}";
+
+                var updateRequest = new OracleFusionUpdateRequest
+                {
+                    AdditionalInformation = new List<AdditionalInformation>
+                    {
+                        new AdditionalInformation
+                        {
+                            HeaderEffBGRAYSprivateVO = new List<HeaderEffBGRAYSprivateVO>
+                            {
+                                new HeaderEffBGRAYSprivateVO
+                                {
+                                    HoldReleasedBy = irnCode
+                                }
+                            }
+                        }
+                    }
+                };
+
+                string json = JsonConvert.SerializeObject(updateRequest, Formatting.Indented);
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Update JSON: {json}");
+
+                {
+                    var byteArray = Encoding.ASCII.GetBytes($"{_fusionUsername}:{_fusionPassword}");
+                    using var request = new HttpRequestMessage
+                    {
+                        Method = new HttpMethod("PATCH"),
+                        RequestUri = new Uri(baseUrl + endpoint),
+                        Content = new StringContent(json, Encoding.UTF8, "application/json")
+                    };
+                    request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", Convert.ToBase64String(byteArray));
+
+                    using HttpResponseMessage response = await FusionHttp.SendAsync(request);
+                    string result = await response.Content.ReadAsStringAsync();
+
+                    if (response.StatusCode == System.Net.HttpStatusCode.OK)
+                    {
+                        return new OracleFusionUpdateResult
+                        {
+                            Success = true,
+                            Message = "Fusion order updated successfully"
+                        };
+                    }
+                    else
+                    {
+                        return new OracleFusionUpdateResult
+                        {
+                            Success = false,
+                            Message = $"Update failed: {response.StatusCode} - {result}"
+                        };
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return new OracleFusionUpdateResult
+                {
+                    Success = false,
+                    Message = $"Exception: {ex.Message}"
+                };
+            }
+        }
+
+        /// <summary>
+        /// Convert DataRow to Dictionary for JSON serialization
+        /// </summary>
+        private Dictionary<string, object> ConvertDataRowToDictionary(DataRow row)
+        {
+            var dict = new Dictionary<string, object>();
+            foreach (DataColumn column in row.Table.Columns)
+            {
+                dict[column.ColumnName] = row[column] == DBNull.Value ? null : row[column];
+            }
+            return dict;
+        }
+
+        /// <summary>
+        /// Convert DataTable to List of Dictionaries for JSON serialization
+        /// </summary>
+        private List<Dictionary<string, object>> ConvertDataTableToList(DataTable table)
+        {
+            var list = new List<Dictionary<string, object>>();
+            foreach (DataRow row in table.Rows)
+            {
+                list.Add(ConvertDataRowToDictionary(row));
+            }
+            return list;
+        }
+    }
+
+    // Helper result classes
+    public class MRAInvoiceCreationResult
+    {
+        public bool Success { get; set; }
+        public string GatewayProblem { get; set; }
+        public string IrnCode { get; set; }
+        public string QrCodeBase64 { get; set; }
+        public string RawResponse { get; set; }
+        public string ErrorMessage { get; set; }
+        public string RequestJson { get; set; }
+        public int? HttpStatus { get; set; }
+    }
+
+    public class OracleFusionUpdateResult
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+    }
+}

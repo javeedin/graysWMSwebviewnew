@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance Lens — Fusion Client</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="finance.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+</head>
+<body>
+    <script>
+        // Finance Lens is for FINANCE and ADMIN users only (user type from the login, saved by login.html / the host).
+        (function () {
+            var t = ''; try { t = (localStorage.getItem('userType') || '').trim().toUpperCase(); } catch (e) { }
+            if (t !== 'FINANCE' && t !== 'ADMIN') { window.FIN_BLOCKED = true; location.replace('../Home/index.html?blocked=finance'); }
+        })();
+    </script>
+    <header class="top">
+        <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
+        <div class="logo"><i class="fa-solid fa-magnifying-glass-dollar"></i></div>
+        <div>
+            <h1>Finance Lens <span class="ver">v12.1.0</span></h1>
+            <p>Financial statements, KPIs, analytics and board packs from your journal balances</p>
+        </div>
+        <div class="filters">
+            <label>Period<select id="f-period"></select></label>
+            <label id="l-ledger" style="display:none">Ledger<select id="f-ledger"></select></label>
+            <label>Company<select id="f-company"></select></label>
+            <label>Cost centre<select id="f-cc"></select></label>
+            <label>Amounts<select id="f-scale"><option value="1">Units</option><option value="100">Hundreds</option><option value="1000">Thousands</option><option value="1000000">Millions</option></select></label>
+            <button class="btn ask" id="b-ask" title="CFO Copilot — ask anything about the numbers"><i class="fa-solid fa-wand-magic-sparkles"></i> Ask</button>
+            <button class="btn primary" id="b-pack" title="One-click board pack: statements, KPIs, charts and commentary, ready to print or save as PDF"><i class="fa-solid fa-book-open"></i> Board pack</button>
+        </div>
+    </header>
+    <div class="shell">
+    <nav class="tabs side" id="tabs">
+        <button class="nav-tg" id="nav-tg" title="Collapse the menu"><i class="fa-solid fa-angles-left"></i>Collapse</button>
+        <div class="nav-h">Reports</div>
+        <button data-tab="overview" class="on"><i class="fa-solid fa-gauge-high"></i>Overview</button>
+        <button data-tab="pages"><i class="fa-regular fa-file-lines"></i>My pages</button>
+        <button data-tab="packs"><i class="fa-solid fa-book-open"></i>Board packs</button>
+        <button data-tab="ifrs"><i class="fa-solid fa-scale-balanced"></i>IFRS pack</button>
+        <button data-tab="statements"><i class="fa-solid fa-file-invoice-dollar"></i>Statements</button>
+        <button data-tab="analytics"><i class="fa-solid fa-chart-line"></i>Analytics</button>
+        <button data-tab="monitor"><i class="fa-solid fa-heart-pulse"></i>KPIs &amp; monitor</button>
+        <button data-tab="segpl"><i class="fa-solid fa-layer-group"></i>Segment P&amp;L</button>
+        <button data-tab="segai"><i class="fa-solid fa-robot"></i>AI Agent</button>
+        <button data-tab="alloc"><i class="fa-solid fa-share-nodes"></i>Cost allocation</button>
+        <button data-tab="wc"><i class="fa-solid fa-scale-unbalanced"></i>Working capital</button>
+        <button data-tab="debtors"><i class="fa-solid fa-hand-holding-dollar"></i>Debtors</button>
+        <button data-tab="creditors"><i class="fa-solid fa-file-invoice"></i>Creditors</button>
+        <button data-tab="inventory"><i class="fa-solid fa-boxes-stacked"></i>Inventory</button>
+        <button data-tab="ic"><i class="fa-solid fa-diagram-project"></i>Inter company</button>
+        <div class="nav-h">Planning</div>
+        <button data-tab="plan"><i class="fa-solid fa-bullseye"></i>Budgets &amp; forecasts</button>
+        <div class="nav-h">Control &amp; close</div>
+        <button data-tab="journals"><i class="fa-solid fa-user-secret"></i>Journal risk</button>
+        <button data-tab="closing"><i class="fa-solid fa-file-signature"></i>Close &amp; reconcile</button>
+        <button data-tab="close"><i class="fa-solid fa-list-check"></i>Close checks</button>
+        <div class="nav-h">Setup</div>
+        <button data-tab="builder"><i class="fa-solid fa-sitemap"></i>Statement builder</button>
+        <button data-tab="data"><i class="fa-solid fa-database"></i>Data</button>
+        <span class="grow"></span><span class="datachip" id="datachip">…</span>
+    </nav>
+    <div class="pane" id="pane">
+    <main id="main"><div class="empty"><i class="fa-solid fa-circle-notch fa-spin"></i>Loading…</div></main>
+    </div>
+    </div>
+
+    <div class="modal" id="modal"><div class="box"><div class="mh"><h3 id="m-title"></h3><span id="m-acts"></span><button class="icon" onclick="FL.closeModal()" title="Close (Esc)"><i class="fa-solid fa-xmark"></i></button></div><div class="mb" id="m-body"></div></div></div>
+    <div id="toasts"></div>
+
+    <script src="fin-engine.js"></script>
+    <script src="fin-seed.js"></script>
+    <script src="fin-core.js"></script>
+    <script src="fin-statements.js"></script>
+    <script src="fin-tb.js"></script>
+    <script src="fin-tbsync.js"></script>
+    <script src="fin-analytics.js"></script>
+    <script src="fin-control.js"></script>
+    <script src="fin-health.js"></script>
+    <script src="fin-close.js"></script>
+    <script src="fin-wc.js"></script>
+    <script src="fin-wcpages.js"></script>
+    <script src="fin-wchistory.js"></script>
+    <script src="fin-segpl.js"></script>
+    <script src="fin-seggroups.js"></script>
+    <script src="fin-segkpi.js"></script>
+    <script src="fin-segai.js"></script>
+    <script src="fin-ifrs-engine.js"></script>
+    <script src="fin-ifrs.js"></script>
+    <script src="fin-alloc-engine.js"></script>
+    <script src="fin-alloc.js"></script>
+    <script src="fin-ic-engine.js"></script>
+    <script src="fin-ic.js"></script>
+    <script src="fin-pages.js"></script>
+    <script src="fin-designer.js"></script>
+    <script src="fin-pastemap.js"></script>
+    <script src="fin-structure.js"></script>
+    <script src="fin-builder.js"></script>
+    <script src="fin-pack.js"></script>
+    <script src="fin-packhtml.js"></script>
+    <script src="fin-packdesign.js"></script>
+    <script src="fin-mail.js"></script>
+    <script src="fin-packarchive.js"></script>
+    <script src="fin-packnew.js"></script>
+    <script src="fin-packtrack.js"></script>
+    <script src="fin-packdist.js"></script>
+    <script src="fin-store.js"></script>
+    <script src="fin-notes.js"></script>
+    <script src="fin-plan-engine.js"></script>
+    <script src="fin-plan.js"></script>
+    <script src="fin-data.js"></script>
+    <script src="fin-fusion.js"></script>
+    <script src="fin-copilot.js"></script>
+</body>
+</html>

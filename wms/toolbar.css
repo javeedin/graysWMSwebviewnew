@@ -1,0 +1,55 @@
+/* WMS toolbar context (wms/toolbar.js): trip date, search with DuckDB autocomplete, the pending-cancellations icon */
+.wtb { display: flex; align-items: center; gap: 6px; margin-right: 4px; }
+.wtb-date { display: inline-flex; align-items: center; gap: 2px; background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 8px; padding: 2px 4px 2px 8px; color: #fff; font-size: 12px; font-weight: 700; }
+.wtb-date i.fa-calendar-alt { opacity: 0.85; margin-right: 4px; }
+.wtb-date input[type=date] { background: transparent; border: none; color: #fff; font: inherit; font-weight: 700; width: 120px; outline: none; color-scheme: dark; }
+.wtb-date button { background: none; border: none; color: #fff; cursor: pointer; padding: 2px 5px; opacity: 0.8; font-size: 11px; }
+.wtb-date button:hover { opacity: 1; }
+.wtb-date .wtb-day { font-size: 10px; opacity: 0.8; font-weight: 600; margin-left: 2px; white-space: nowrap; }
+.wtb-search { position: relative; }
+.wtb-search input { width: 230px; height: 30px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.28); background: rgba(255, 255, 255, 0.12); color: #fff; padding: 0 28px 0 30px; font-size: 12.5px; outline: none; transition: width 0.15s, background 0.15s; }
+.wtb-search input::placeholder { color: rgba(255, 255, 255, 0.7); }
+.wtb-search input:focus { background: #fff; color: #0f172a; width: 320px; border-color: #fff; }
+.wtb-search input:focus::placeholder { color: #94a3b8; }
+.wtb-search > i { position: absolute; left: 10px; top: 8px; color: rgba(255, 255, 255, 0.85); font-size: 13px; pointer-events: none; }
+.wtb-search input:focus + i, .wtb-search.open > i { color: #1e3a8a; }
+.wtb-search .wtb-x { position: absolute; right: 6px; top: 5px; background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 13px; display: none; }
+.wtb-search.has .wtb-x { display: block; }
+.wtb-dd { position: absolute; top: 36px; right: 0; width: 460px; max-width: calc(100vw - 24px); max-height: 70vh; overflow: auto; background: #fff; color: #0f172a; border-radius: 10px; box-shadow: 0 16px 48px rgba(15, 23, 42, 0.3), 0 0 0 1px #e2e8f0; z-index: 100001; display: none; font-size: 12.5px; }
+.wtb-search.open .wtb-dd { display: block; }
+.wtb-dd .g { padding: 6px 10px 2px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; font-weight: 700; border-top: 1px solid #f1f5f9; display: flex; justify-content: space-between; }
+.wtb-dd .g:first-child { border-top: none; }
+.wtb-dd .it { display: flex; align-items: center; gap: 8px; padding: 6px 10px; cursor: pointer; }
+.wtb-dd .it:hover, .wtb-dd .it.hl { background: #eef2ff; }
+.wtb-dd .it i { width: 16px; text-align: center; color: #1e3a8a; }
+.wtb-dd .it b { font-weight: 700; }
+.wtb-dd .it .sub { color: #64748b; font-size: 11.5px; margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
+.wtb-dd .it.sub-it { padding-left: 32px; }
+.wtb-dd .note { padding: 10px 12px; color: #64748b; font-size: 12px; }
+.wtb-dd .note a { color: #1e3a8a; font-weight: 700; cursor: pointer; }
+.wtb-dd mark { background: #fef08a; color: inherit; padding: 0; }
+.wtb-pill { display: inline-block; padding: 0 6px; border-radius: 999px; font-size: 10px; font-weight: 700; background: #e2e8f0; color: #334155; }
+.wtb-pill.green { background: #dcfce7; color: #15803d; } .wtb-pill.red { background: #fee2e2; color: #b91c1c; } .wtb-pill.amber { background: #fef3c7; color: #b45309; }
+#wms-cancel-btn { background: none; border: none; cursor: pointer; padding: 0.4rem; color: #cbd5e1; font-size: 1.25rem; position: relative; transition: color 0.2s; }
+#wms-cancel-btn:hover { color: #fff; }
+#wms-cancel-btn.has { color: #fca5a5; }
+#wms-cancel-btn.has i { animation: wtb-flash 1.1s ease-in-out infinite; }
+#wms-cancel-btn.busy i { animation: wtb-spin 1.4s linear infinite; }
+#wms-cancel-badge { display: none; position: absolute; top: -2px; right: -6px; background: #dc2626; color: #fff; font-size: 9px; font-weight: 800; border-radius: 9px; min-width: 16px; height: 16px; line-height: 16px; text-align: center; padding: 0 4px; box-shadow: 0 0 0 2px #0b2545; }
+#wms-cancel-btn.has #wms-cancel-badge { display: block; animation: wtb-pulse 1.1s ease-in-out infinite; }
+@keyframes wtb-flash { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.35; transform: scale(0.92); } }
+@keyframes wtb-pulse { 0%, 100% { box-shadow: 0 0 0 2px #0b2545; } 50% { box-shadow: 0 0 0 5px rgba(220, 38, 38, 0.45); } }
+@keyframes wtb-spin { to { transform: rotate(360deg); } }
+@media (max-width: 1250px) { .wtb-search input { width: 160px; } .wtb-date .wtb-day { display: none; } }
+
+/* search scope (toolbar date / every date on this PC / APEX) */
+.wtb-scope { display: flex; gap: 6px; padding: 8px 10px 6px; border-bottom: 1px solid #f1f5f9; background: #f8fafc; position: sticky; top: 0; z-index: 1; }
+.wtb-scope .chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; border: 1px solid #cbd5e1; background: #fff; color: #334155; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.wtb-scope .chip.on { background: #1e3a8a; border-color: #1e3a8a; color: #fff; }
+.wtb-scope .chip small { font-weight: 600; opacity: 0.8; }
+.wtb-scope .chip.apexc { margin-left: auto; border-style: dashed; }
+.wtb-scope .chip.apexc:hover { background: #eef2ff; }
+.wtb-pill.apex { background: #ede9fe; color: #5b21b6; }
+.wtb-pill.date { background: #e0f2fe; color: #075985; }
+.wtb-dd .g a { color: #1e3a8a; text-transform: none; letter-spacing: 0; font-weight: 700; cursor: pointer; }
+.wtb-dd .g a:hover { text-decoration: underline; }

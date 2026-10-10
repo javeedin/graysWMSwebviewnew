@@ -1,0 +1,104 @@
+# Gray's WMS CI: Python services (AI Hub incl. AI Agent evals, pipeline server), web pages, the Fusion Model engine,
+# a Linux compile check of every C# file, the real Windows build, and a secret scan of the working tree.
+name: CI
+
+on:
+  push:
+    branches: [main, master, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ai-hub:
+    name: AI Hub (ruff, mypy, pytest, agent evals)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: ai-hub } }
+    env: { AIHUB_SECRETS: file }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: ai-hub/requirements.txt }
+      - run: pip install -r requirements.txt pytest ruff mypy numpy   # numpy: the Whisper decoder test (faster-whisper brings it on a PC)
+      - run: ruff check ai_hub tests
+      - run: mypy
+      - run: python -m pytest -q
+      - name: Agent evals (offline demo planner - routing, tool order, safety guards)
+        run: AIHUB_HOME="$(mktemp -d)" python -m ai_hub eval-agent
+
+  pipeline-server:
+    name: Pipeline server (pytest)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: pipeline-server } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: pipeline-server/requirements.txt }
+      - uses: actions/setup-node@v4          # WebCrypto <-> Python key round trip
+        with: { node-version: "20" }
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest -q
+
+  web:
+    name: Web pages (syntax, ESLint for aiagent)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - name: Every page script parses
+        run: |
+          fail=0
+          for f in $(git ls-files '*.js' | grep -v -E '(^|/)(lib|node_modules|dist)/|\.min\.js$'); do
+            node --check "$f" || fail=1
+          done
+          exit $fail
+      - run: npx -y eslint@9 -c aiagent/eslint.config.mjs aiagent
+      - name: Finance Lens engine tests
+        run: node finance/tests/engine.test.js
+      - name: Cancel rules (same lines as the Shipping Agent; one file for the WMS and WMS 2.0)
+        run: cmp wms/cancel-rules.js wms2/w2-cancel-rules.js && node wms2/tests/cancel-rules.test.js && node wms2/tests/premortem.test.js && node wms/tests/alert-rules.test.js && node wms/tests/debrief-engine.test.js
+      - name: Field Apps (POS engine on the Order Pad engine; the built POS bundle is up to date)
+        run: node fieldapps/tests/pos-engine.test.js && node fieldapps/tests/clob.test.js && node fieldapps/tests/fa-apex.test.js && node fieldapps/build-app.js --check && node bip/tests/bip-engine.test.js && node debtors/tests/dc-engine.test.js && node debtors/tests/dc-cycle.test.js && node crm/tests/crm-engine.test.js
+
+  engine:
+    name: Fusion Model engine (xUnit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "8.0.x" }
+      - run: dotnet test engine/FusionModel.Tests -c Release
+
+  app-compile:
+    name: WMS app - compile every C# file (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "8.0.x" }
+      - run: dotnet restore tools/ci/AppCompileCheck
+      - run: dotnet build tools/ci/AppCompileCheck --no-restore -c Release
+
+  windows-build:
+    name: WMS app - Windows build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "8.0.x" }
+      - run: dotnet build WMSApp.csproj -c Release
+
+  secrets:
+    name: Secret scan (working tree)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: gitleaks
+        run: docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.24.3 dir /repo --no-banner --redact
