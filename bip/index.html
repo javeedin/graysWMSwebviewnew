@@ -5,10 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Oracle BIP Reporting</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<link rel="stylesheet" href="https://cdn3.devexpress.com/jslib/23.2.6/css/dx.light.css">
 <link rel="stylesheet" href="bip.css">
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdn3.devexpress.com/jslib/23.2.6/js/dx.all.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -19,18 +16,21 @@
     <a class="home" href="../Home/index.html" title="Home"><i class="fas fa-house"></i></a>
     <div><div class="ttl">Oracle BIP Reporting</div><div class="sub">The BI Publisher catalog of your Fusion pod · browse, check parameters, run in buckets, dashboards</div></div>
     <span class="sp"></span>
+    <span class="hb" id="busy" style="display:none"></span>
     <div class="who" id="who"></div>
   </header>
   <nav class="tabs" id="tabs">
     <button data-tab="catalog" class="on"><i class="fas fa-folder-tree"></i> Catalog</button>
     <button data-tab="run"><i class="fas fa-play"></i> Run</button>
     <button data-tab="dash"><i class="fas fa-table-cells-large"></i> Dashboards</button>
+    <button data-tab="explore"><i class="fas fa-database"></i> Explore</button>
     <button data-tab="history"><i class="fas fa-clock-rotate-left"></i> History</button>
     <button data-tab="settings"><i class="fas fa-gear"></i> Settings</button>
   </nav>
   <main class="main" id="main"></main>
 </div>
 <script src="bip-engine.js"></script>
+<script src="bip-grid.js"></script>
 <script src="bip-store.js"></script>
 <script src="bip-core.js"></script>
 </body>

@@ -65,3 +65,34 @@ CREATE TABLE wms_bip_run_log (
 );
 
 CREATE INDEX wms_bip_run_log_ix ON wms_bip_run_log (pod, run_date);
+
+-- ── The catalog, shared ─────────────────────────────────────────────────────
+-- Every folder a user reads and every index walk of the BI Publisher catalog is written here by the page, so another
+-- user's first open of the same folder (and the search box) is instant: this PC's DuckDB copy is asked first, APEX
+-- second, Fusion last (Refresh reads Fusion again and updates both). The page creates these tables on first use too.
+CREATE TABLE wms_bip_catalog (
+    pod           VARCHAR2(20),
+    item_path     VARCHAR2(1000),
+    display_name  VARCHAR2(400),
+    file_name     VARCHAR2(400),
+    item_type     VARCHAR2(40),
+    parent_path   VARCHAR2(1000),
+    last_modified VARCHAR2(40),
+    owner_name    VARCHAR2(200),
+    read_by       VARCHAR2(100),
+    read_date     DATE DEFAULT SYSDATE,
+    PRIMARY KEY (pod, item_path)
+);
+
+CREATE INDEX wms_bip_catalog_ix ON wms_bip_catalog (pod, parent_path);
+
+CREATE TABLE wms_bip_catalog_log (
+    pod       VARCHAR2(20),
+    root_path VARCHAR2(1000),
+    folders   NUMBER,
+    reports   NUMBER,
+    items     NUMBER,
+    ms        NUMBER,
+    read_by   VARCHAR2(100),
+    read_date DATE DEFAULT SYSDATE
+);

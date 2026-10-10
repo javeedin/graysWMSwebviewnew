@@ -6,7 +6,7 @@
     else root.BIPE = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
-    var E = { version: '1.0' };
+    var E = { version: '1.1' };
 
     // ── parameters ───────────────────────────────────────────────
     var DATE_NAME = /(^|_)(DATE|DT|DAY|PERIOD|FROM|TO|START|END|SINCE|UNTIL|AS_OF|ASOF)($|_)/i;
@@ -251,6 +251,112 @@
         columns = columns || (rows[0] ? Object.keys(rows[0]) : []);
         var esc = function (v) { if (v == null) return ''; v = String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
         return columns.map(esc).join(',') + '\n' + (rows || []).map(function (r) { return columns.map(function (c) { return esc(r[c]); }).join(','); }).join('\n');
+    };
+    // ── output formats, from the report definition ──────────────
+    /** csv | xml | data = rows the page can show as a grid. */
+    E.isData = function (f) { f = String(f || '').toLowerCase(); return f === 'csv' || f === 'xml' || f === 'data'; };
+    /** The output formats a report offers = the union of its templates' formats (getReportDefinition) in their order, plus XML data,
+     *  which runReport always accepts. → [{ value, label, data, templates, always }]. CSV is listed only when a layout offers it. */
+    E.formats = function (def) {
+        var out = [], seen = {};
+        function add(v, label, tpl) {
+            v = String(v == null ? '' : v).toLowerCase().trim(); if (!v) return; if (v === 'data') v = 'xml';
+            if (!seen[v]) { seen[v] = { value: v, label: label && String(label).trim() ? String(label).trim() : v.toUpperCase(), data: E.isData(v), templates: [] }; out.push(seen[v]); }
+            if (tpl && seen[v].templates.indexOf(tpl) < 0) seen[v].templates.push(tpl);
+        }
+        ((def && def.templates) || []).forEach(function (t) { (t.formats || []).forEach(function (f) { if (f == null) return; if (typeof f === 'string') add(f, null, t.id); else add(f.value || f.key, f.key && String(f.key).toLowerCase() !== String(f.value || '').toLowerCase() ? f.key : null, t.id); }); });
+        if (!seen.xml) add('xml', 'XML data');
+        seen.xml.always = true;
+        return out;
+    };
+    /** The format the Run tab starts on: the definition's defaultOutputFormat when a layout offers it, else csv when offered, else xml. */
+    E.defaultFormat = function (def, list) {
+        list = list || E.formats(def);
+        var d = String(def && def.defaultOutputFormat || '').toLowerCase().trim(); if (d === 'data') d = 'xml';
+        if (d && list.some(function (f) { return f.value === d; })) return d;
+        return list.some(function (f) { return f.value === 'csv'; }) ? 'csv' : 'xml';
+    };
+    /** The format a dashboard card runs with: the report's default when it is data, else csv when a layout offers it, else xml. */
+    E.dataFormat = function (def, list) {
+        list = list || E.formats(def);
+        var d = E.defaultFormat(def, list);
+        if (E.isData(d)) return d;
+        return list.some(function (f) { return f.value === 'csv'; }) ? 'csv' : 'xml';
+    };
+
+    // ── grid helpers: filters, sorting, pivot ────────────────────
+    /** One column filter: contains; =x exact; !x not containing; >n <n >=n <=n; a..b between; "=" alone = blank. */
+    E.filterMatch = function (v, expr) {
+        expr = String(expr == null ? '' : expr).trim(); if (!expr) return true;
+        var s = v == null ? '' : String(v), m;
+        if (expr === '=') return s === '';
+        if ((m = /^(>=|<=|>|<)\s*(-?[\d.,]+)$/.exec(expr))) { var n = E.num(v), x = E.num(m[2]); if (n == null || x == null) return false; return m[1] === '>' ? n > x : m[1] === '<' ? n < x : m[1] === '>=' ? n >= x : n <= x; }
+        if ((m = /^(-?[\d.,]+)\s*\.\.\s*(-?[\d.,]+)$/.exec(expr))) { var n2 = E.num(v), a = E.num(m[1]), b = E.num(m[2]); return n2 != null && n2 >= Math.min(a, b) && n2 <= Math.max(a, b); }
+        if (expr[0] === '=') return s.toLowerCase() === expr.slice(1).trim().toLowerCase();
+        if (expr[0] === '!') return s.toLowerCase().indexOf(expr.slice(1).trim().toLowerCase()) < 0;
+        return s.toLowerCase().indexOf(expr.toLowerCase()) >= 0;
+    };
+    /** Rows matching every column filter ({col: expr}) and every word of q in any of the given columns. */
+    E.filterRows = function (rows, filters, q, columns) {
+        filters = filters || {}; var fcols = Object.keys(filters).filter(function (c) { return String(filters[c] || '').trim(); });
+        var words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+        if (!fcols.length && !words.length) return (rows || []).slice();
+        return (rows || []).filter(function (r) {
+            for (var i = 0; i < fcols.length; i++) if (!E.filterMatch(r[fcols[i]], filters[fcols[i]])) return false;
+            if (!words.length) return true;
+            var cols = columns || Object.keys(r), text = '';
+            for (var j = 0; j < cols.length; j++) { var v = r[cols[j]]; if (v != null) text += String(v).toLowerCase() + '\u0001'; }
+            for (var k = 0; k < words.length; k++) if (text.indexOf(words[k]) < 0) return false;
+            return true;
+        });
+    };
+    /** A new array sorted by one column: numbers numerically, text with localeCompare, blanks last. dir 'asc' | 'desc'. */
+    E.sortRows = function (rows, col, dir) {
+        if (!col) return (rows || []).slice();
+        var sign = dir === 'desc' ? -1 : 1;
+        var dec = (rows || []).map(function (r, i) { var v = r[col]; var n = typeof v === 'number' ? v : (v != null && v !== '' && /^-?[\d,]*\.?\d+$/.test(String(v).trim()) ? E.num(v) : null); return { i: i, r: r, n: n, s: v == null ? null : String(v), blank: v == null || v === '' }; });
+        dec.sort(function (a, b) {
+            if (a.blank !== b.blank) return a.blank ? 1 : -1;
+            if (a.blank) return a.i - b.i;
+            var c = a.n != null && b.n != null ? a.n - b.n : a.n != null ? -1 : b.n != null ? 1 : a.s.localeCompare(b.s, undefined, { numeric: true, sensitivity: 'base' });
+            return c ? c * sign : a.i - b.i;
+        });
+        return dec.map(function (d) { return d.r; });
+    };
+    function keyCmp(a, b) { for (var i = 0; i < Math.max(a.length, b.length); i++) { var x = a[i] == null ? '' : a[i], y = b[i] == null ? '' : b[i]; var nx = E.num(x), ny = E.num(y); var c = nx != null && ny != null && /^-?[\d.,]+$/.test(x) && /^-?[\d.,]+$/.test(y) ? nx - ny : String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }); if (c) return c; } return 0; }
+    /** A pivot: o.rows / o.cols = field names, o.value = the column aggregated (none → count), o.fn sum | count | avg | min | max,
+     *  o.sort 'key' (default) | 'total' (rows by total desc), o.maxCols (default 60).
+     *  → { rowFields, colFields, value, fn, cols: [[keys]], rows: [{ keys, values, total, n }], colTotals, grand, colsCut } */
+    E.pivot = function (rows, o) {
+        o = o || {}; var rf = o.rows || [], cf = o.cols || [], val = o.value || null, fn = val ? (o.fn || 'sum') : 'count';
+        var SEP = '\u0001', JOIN = '\u0002';
+        var rowKeys = {}, rowOrder = [], colKeys = {}, colOrder = [], cells = {};
+        function keyOf(r, fields) { return fields.map(function (f) { var v = r[f]; return v == null || v === '' ? '(blank)' : String(v); }); }
+        function cell() { return { n: 0, k: 0, sum: 0, min: null, max: null }; }
+        function acc(c, v) { c.n++; if (v != null) { c.sum += v; c.k++; if (c.min == null || v < c.min) c.min = v; if (c.max == null || v > c.max) c.max = v; } }
+        function merge(t, c) { if (!c) return; t.n += c.n; t.k += c.k; t.sum += c.sum; if (c.min != null && (t.min == null || c.min < t.min)) t.min = c.min; if (c.max != null && (t.max == null || c.max > t.max)) t.max = c.max; }
+        function value(c) { if (!c || !c.n) return null; return fn === 'count' ? c.n : fn === 'sum' ? c.sum : fn === 'avg' ? (c.k ? c.sum / c.k : null) : fn === 'min' ? c.min : fn === 'max' ? c.max : c.n; }
+        (rows || []).forEach(function (r) {
+            var rk = keyOf(r, rf), ck = keyOf(r, cf), rs = rk.join(SEP), cs = ck.join(SEP);
+            if (!rowKeys[rs]) { rowKeys[rs] = rk; rowOrder.push(rs); }
+            if (!colKeys[cs]) { colKeys[cs] = ck; colOrder.push(cs); }
+            var id = rs + JOIN + cs; if (!cells[id]) cells[id] = cell();
+            acc(cells[id], val ? E.num(r[val]) : null);
+        });
+        rowOrder.sort(function (a, b) { return keyCmp(rowKeys[a], rowKeys[b]); });
+        colOrder.sort(function (a, b) { return keyCmp(colKeys[a], colKeys[b]); });
+        var maxCols = o.maxCols || 60, colsCut = colOrder.length > maxCols ? colOrder.length - maxCols : 0;
+        if (colsCut) colOrder = colOrder.slice(0, maxCols);
+        var out = rowOrder.map(function (rs) {
+            var tot = cell(), vals = colOrder.map(function (cs) { var c = cells[rs + JOIN + cs]; merge(tot, c); return value(c); });
+            if (colsCut) Object.keys(colKeys).forEach(function (cs) { if (colOrder.indexOf(cs) < 0) merge(tot, cells[rs + JOIN + cs]); });
+            return { keys: rowKeys[rs], values: vals, total: value(tot), n: tot.n };
+        });
+        if (o.sort === 'total') out.sort(function (a, b) { return (b.total == null ? -Infinity : b.total) - (a.total == null ? -Infinity : a.total); });
+        var grand = cell();
+        var colTotals = colOrder.map(function (cs) { var t = cell(); rowOrder.forEach(function (rs) { merge(t, cells[rs + JOIN + cs]); }); merge(grand, t); return value(t); });
+        if (colsCut) rowOrder.forEach(function (rs) { Object.keys(colKeys).forEach(function (cs) { if (colOrder.indexOf(cs) < 0) merge(grand, cells[rs + JOIN + cs]); }); });
+        return { rowFields: rf, colFields: cf, value: val, fn: fn, cols: colOrder.map(function (cs) { return colKeys[cs]; }), rows: out, colTotals: colTotals, grand: value(grand), colsCut: colsCut };
     };
     return E;
 });

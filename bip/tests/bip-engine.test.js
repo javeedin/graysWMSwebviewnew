@@ -83,5 +83,34 @@ check('fmtNum', E.fmtNum(1234567.891) === (1234568).toLocaleString() && E.fmtNum
 check('fmtMs / fmtBytes', E.fmtMs(125000) === '2 min 5 s' && E.fmtBytes(2048) === '2 KB');
 check('csvOf quotes', E.csvOf([{ a: 'x,y', b: 1 }], ['a', 'b']) === 'a,b\n"x,y",1');
 
+
+// output formats from the report definition
+const DEF1 = { defaultOutputFormat: 'pdf', templates: [{ id: 'T1', formats: [{ key: 'PDF', value: 'pdf' }, { key: 'Excel (*.xlsx)', value: 'xlsx' }] }, { id: 'T2', formats: [{ key: 'PDF', value: 'pdf' }, { key: 'HTML', value: 'html' }] }] };
+const DEF2 = { defaultOutputFormat: 'csv', templates: [{ id: 'T', formats: [{ key: 'CSV', value: 'csv' }, { key: 'Data', value: 'xml' }, { key: 'PDF', value: 'pdf' }] }] };
+check('formats: the templates\' formats in their order + XML data always, no csv unless offered', E.formats(DEF1).map(f => f.value).join(',') === 'pdf,xlsx,html,xml' && E.formats(DEF1)[3].always === true);
+check('formats: labels from the definition, templates listed per format', E.formats(DEF1)[1].label === 'Excel (*.xlsx)' && E.formats(DEF1)[0].templates.join(',') === 'T1,T2');
+check('formats: csv kept when a layout offers it, xml not doubled', E.formats(DEF2).map(f => f.value).join(',') === 'csv,xml,pdf');
+check('formats: no definition → xml only', E.formats(null).map(f => f.value).join(',') === 'xml');
+check('defaultFormat: the definition\'s default when offered', E.defaultFormat(DEF1) === 'pdf' && E.defaultFormat(DEF2) === 'csv');
+check('defaultFormat: a default no layout offers → csv when offered, else xml', E.defaultFormat({ defaultOutputFormat: 'rtf', templates: DEF2.templates }) === 'csv' && E.defaultFormat({ defaultOutputFormat: 'rtf', templates: DEF1.templates }) === 'xml');
+check('dataFormat: a card runs with the default when it is data, else csv when offered, else xml', E.dataFormat(DEF2) === 'csv' && E.dataFormat(DEF1) === 'xml' && E.dataFormat({ defaultOutputFormat: 'pdf', templates: [{ id: 'T', formats: [{ key: 'PDF', value: 'pdf' }, { key: 'CSV', value: 'csv' }] }] }) === 'csv');
+check('isData', E.isData('csv') && E.isData('XML') && E.isData('data') && !E.isData('pdf'));
+
+// grid helpers
+check('filterMatch: contains / =exact / !not', E.filterMatch('Customer 3', 'tomer') && E.filterMatch('ABC', '=abc') && !E.filterMatch('ABC', '=ab') && E.filterMatch('ABC', '!xyz') && !E.filterMatch('ABC', '!b'));
+check('filterMatch: >n <n >=n a..b and blank', E.filterMatch(150, '>100') && !E.filterMatch(50, '>100') && E.filterMatch('1,250', '>=1250') && E.filterMatch(7, '5..10') && !E.filterMatch(12, '5..10') && E.filterMatch(null, '=') && !E.filterMatch('x', '='));
+const ROWS = [{ C: 'b', V: 10 }, { C: 'a', V: null }, { C: 'c', V: '2' }, { C: 'a', V: 7 }];
+check('filterRows: column filters and every word of the search', E.filterRows(ROWS, { C: '=a' }).length === 2 && E.filterRows(ROWS, { V: '>5' }).length === 2 && E.filterRows(ROWS, {}, 'a 7').length === 1 && E.filterRows(ROWS, {}, '').length === 4);
+check('sortRows: numbers numerically, blanks last, desc', E.sortRows(ROWS, 'V', 'asc').map(r => r.V).join(',') === '2,7,10,' && E.sortRows(ROWS, 'V', 'desc').map(r => r.V).join(',') === '10,7,2,');
+check('sortRows: text, stable for equal keys', E.sortRows(ROWS, 'C', 'asc').map(r => r.V).join(',') === ',7,10,2');
+
+// pivot
+const PV = [{ R: 'north', Q: 'Q1', A: 10 }, { R: 'north', Q: 'Q2', A: 5 }, { R: 'south', Q: 'Q1', A: '2.5' }, { R: 'south', Q: 'Q1', A: 1 }];
+const pv = E.pivot(PV, { rows: ['R'], cols: ['Q'], value: 'A', fn: 'sum' });
+check('pivot: rows × cols with sums, row totals, column totals, grand total', pv.cols.map(c => c[0]).join(',') === 'Q1,Q2' && pv.rows[0].values.join(',') === '10,5' && pv.rows[1].values.join(',') === '3.5,' && pv.rows[1].total === 3.5 && pv.colTotals.join(',') === '13.5,5' && pv.grand === 18.5);
+check('pivot: count without a value column, sort by total', E.pivot(PV, { rows: ['R'] }).rows.map(r => r.keys[0] + ':' + r.total).join(',') === 'north:2,south:2' && E.pivot(PV, { rows: ['Q'], value: 'A', sort: 'total' }).rows[0].keys[0] === 'Q1');
+check('pivot: avg / min / max and two row fields', E.pivot(PV, { rows: ['R'], value: 'A', fn: 'avg' }).rows[0].total === 7.5 && E.pivot(PV, { rows: ['R', 'Q'], value: 'A', fn: 'max' }).rows.length === 3 && E.pivot(PV, { rows: ['R'], value: 'A', fn: 'min' }).rows[1].total === 1);
+check('pivot: column values beyond maxCols go into the totals', (() => { const p = E.pivot(PV, { rows: ['R'], cols: ['Q'], value: 'A', maxCols: 1 }); return p.cols.length === 1 && p.colsCut === 1 && p.rows[0].total === 15 && p.grand === 18.5; })());
+
 console.log((bad ? 'FAILED ' + bad + ' of ' : 'ok ') + n + ' BIP engine checks');
 process.exit(bad ? 1 : 0);

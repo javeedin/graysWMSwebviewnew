@@ -595,15 +595,18 @@ $@"<?xml version=""1.0"" encoding=""utf-8""?>
         /// <summary>Counts the data rows of a CSV file.</summary>
         public static long CountCsv(string file) => ReadCsv(file, 0, 0).Total;
 
-        /// <summary>A generic BIP XML output (DATA_DS / G_1 … or any repeating element) → columns + rows, capped.</summary>
-        public static (List<string> Columns, List<Dictionary<string, object>> Rows, long Total) ReadXml(string file, long offset, int limit)
+        // ── XML data output → rows ───────────────────────────────────
+        /// <summary>
+        /// Streams the rows of a BI Publisher data XML (DATA_DS / G_1 … or any layout): the first element that repeats at depth 1–3 is a
+        /// row; inside it the leaf elements are columns, a single nested group adds its leaves, a REPEATING nested group (header → lines)
+        /// gives one row per innermost element with the parent's values repeated — so a header / lines data model flattens like a join.
+        /// </summary>
+        public static IEnumerable<Dictionary<string, string>> XmlRows(string file)
         {
-            var rows = new List<Dictionary<string, object>>(); long total = 0; var cols = new List<string>(); var colSet = new HashSet<string>();
             var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, IgnoreWhitespace = true };
             using var xr = XmlReader.Create(file, settings);
-            // the row element = the first element that repeats under its parent; found by reading the first two siblings at depth 1 or 2
-            string rowName = null; int rowDepth = -1;
-            var counts = new Dictionary<string, int>();
+            string rowName = null; int rowDepth = -1; var counts = new Dictionary<string, int>();
+            bool any = false;
             while (xr.Read())
             {
                 if (xr.NodeType != XmlNodeType.Element) continue;
@@ -616,39 +619,91 @@ $@"<?xml version=""1.0"" encoding=""utf-8""?>
                         if (counts[key] == 2) { rowName = xr.LocalName; rowDepth = xr.Depth; }
                     }
                     if (rowName == null) continue;
+                    // the first occurrence was passed already: the reader sits on the second — the first is lost only for the detection
+                    // pass, so run the whole thing again knowing the row element
+                    break;
                 }
-                if (xr.LocalName != rowName || xr.Depth != rowDepth) continue;
-                // one row: its leaf children
-                var row = new Dictionary<string, object>();
-                using (var sub = xr.ReadSubtree())
-                {
-                    var el = XElement.Load(sub);
-                    foreach (var ch in el.Elements())
-                    {
-                        if (ch.HasElements) continue;
-                        string name = ch.Name.LocalName;
-                        if (colSet.Add(name)) cols.Add(name);
-                        row[name] = ch.Value.Length > 0 ? WMSApp.FusionSql.RowsetParser.Coerce(ch.Value) : null;
-                    }
-                }
-                if (total >= offset && rows.Count < limit) rows.Add(row);
-                total++;
             }
-            if (rowName == null && total == 0)
+            if (rowName == null)
             {
-                // a single row (nothing repeats): the leaf elements of the document
-                try
+                // nothing repeats: the leaves of the document are one row
+                XDocument doc; try { doc = XDocument.Load(file); } catch { yield break; }
+                var leaves = doc.Root?.Descendants().Where(e => !e.HasElements).ToList() ?? new List<XElement>();
+                if (leaves.Count == 0) yield break;
+                var one = new Dictionary<string, string>();
+                foreach (var l in leaves) one[l.Name.LocalName] = l.Value;
+                yield return one;
+                yield break;
+            }
+            using var xr2 = XmlReader.Create(file, settings);
+            while (xr2.Read())
+            {
+                if (xr2.NodeType != XmlNodeType.Element || xr2.LocalName != rowName || xr2.Depth != rowDepth) continue;
+                XElement el;
+                using (var sub = xr2.ReadSubtree()) el = XElement.Load(sub);
+                foreach (var row in Flatten(el, null)) { any = true; yield return row; }
+            }
+            if (!any) yield break;
+        }
+
+        private static IEnumerable<Dictionary<string, string>> Flatten(XElement el, Dictionary<string, string> inherited)
+        {
+            var row = inherited == null ? new Dictionary<string, string>() : new Dictionary<string, string>(inherited);
+            var groups = new List<XElement>();
+            foreach (var ch in el.Elements())
+            {
+                if (ch.HasElements) groups.Add(ch);
+                else row[ch.Name.LocalName] = ch.Value;
+            }
+            if (groups.Count == 0) { yield return row; yield break; }
+            var byName = groups.GroupBy(g => g.Name.LocalName).ToList();
+            var singles = byName.Where(g => g.Count() == 1).Select(g => g.First()).ToList();
+            var repeating = byName.Where(g => g.Count() > 1).ToList();
+            foreach (var sgl in singles)
+            {
+                // a single nested group: its leaves join the row (deeper repeats come back as rows below)
+                var inner = Flatten(sgl, null).ToList();
+                if (inner.Count == 1) { foreach (var kv in inner[0]) if (!row.ContainsKey(kv.Key)) row[kv.Key] = kv.Value; }
+                else repeating.Add(byName.First(g => g.Key == sgl.Name.LocalName));
+            }
+            if (repeating.Count == 0) { yield return row; yield break; }
+            foreach (var grp in repeating)
+                foreach (var item in grp)
+                    foreach (var r in Flatten(item, row)) yield return r;
+        }
+
+        /// <summary>Writes the rows of a data XML as CSV (header = every column seen, in first-seen order) → rows written, columns.</summary>
+        public static (long Rows, List<string> Columns) XmlToCsv(string xmlFile, string csvFile, List<string> header, bool append)
+        {
+            var cols = header != null ? new List<string>(header) : new List<string>();
+            var set = new HashSet<string>(cols);
+            if (header == null) foreach (var r in XmlRows(xmlFile)) foreach (var k in r.Keys) if (set.Add(k)) cols.Add(k);
+            long n = 0;
+            using var fs = new FileStream(csvFile, append ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.Read, 1 << 16);
+            using var w = new StreamWriter(fs, new UTF8Encoding(false), 1 << 16);
+            if (!append) w.WriteLine(string.Join(",", cols.Select(CsvField)));
+            foreach (var r in XmlRows(xmlFile))
+            {
+                w.WriteLine(string.Join(",", cols.Select(c => CsvField(r.TryGetValue(c, out var v) ? v : null))));
+                n++;
+            }
+            return (n, cols);
+        }
+
+        /// <summary>A page of rows of a data XML (the CSV conversion is the normal path; this reads the XML itself).</summary>
+        public static (List<string> Columns, List<Dictionary<string, object>> Rows, long Total) ReadXml(string file, long offset, int limit)
+        {
+            var cols = new List<string>(); var set = new HashSet<string>(); var rows = new List<Dictionary<string, object>>(); long total = 0;
+            foreach (var r in XmlRows(file))
+            {
+                foreach (var k in r.Keys) if (set.Add(k)) cols.Add(k);
+                if (total >= offset && rows.Count < limit)
                 {
-                    var doc = XDocument.Load(file);
-                    var leaves = doc.Root?.Descendants().Where(e => !e.HasElements).ToList() ?? new List<XElement>();
-                    if (leaves.Count > 0)
-                    {
-                        var row = new Dictionary<string, object>();
-                        foreach (var l in leaves) { if (colSet.Add(l.Name.LocalName)) cols.Add(l.Name.LocalName); row[l.Name.LocalName] = l.Value.Length > 0 ? WMSApp.FusionSql.RowsetParser.Coerce(l.Value) : null; }
-                        rows.Add(row); total = 1;
-                    }
+                    var d = new Dictionary<string, object>();
+                    foreach (var kv in r) d[kv.Key] = kv.Value.Length > 0 ? WMSApp.FusionSql.RowsetParser.Coerce(kv.Value) : null;
+                    rows.Add(d);
                 }
-                catch { }
+                total++;
             }
             return (cols, rows, total);
         }

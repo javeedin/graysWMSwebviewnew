@@ -1,7 +1,8 @@
 /* Oracle BIP Reporting · host bridge + APEX layer (window.BIPS).
  * The host (classes/Form1_BipHandlers.cs) does everything that touches the pod: catalog, parameters, runs (reply bipResponse,
  * live bipProgress). APEX keeps what is shared through the ai/executequery | executewrite gateway: dashboards, favourites,
- * notes per report and the run log (apex_sql/98_bip_reporting.sql, created here on first use). CLOBs follow the Field Apps
+ * notes per report, the run log and the CATALOG (WMS_BIP_CATALOG: every folder read and every index walk, so another user's
+ * first open is instant — this PC's DuckDB copy is asked first, APEX second, Fusion last) (apex_sql/98_bip_reporting.sql, created here on first use). CLOBs follow the Field Apps
  * rules: literals ≤ 1,000 chars / 3,800 bytes, reads as 600-char columns of one query, both checked against LENGTH(). */
 (function (root) {
     'use strict';
@@ -61,6 +62,13 @@
         });
     };
     S.write = function (sql) { return S.call('executewrite', { sql: sql }); };
+    /** Every row of a query (the gateway answers 1,000 at a time): sql must end with ORDER BY … */
+    S.rowsAll = function (sql, max) {
+        var out = [], page = 1000, limit = max || 100000;
+        function next(off) { return S.rows(sql + ' OFFSET ' + off + ' ROWS FETCH NEXT ' + page + ' ROWS ONLY', page).then(function (r) { out = out.concat(r); if (r.length < page || out.length >= limit) return out; return next(off + page); }); }
+        return next(0);
+    };
+    S.likeEsc = function (s) { return String(s == null ? '' : s).replace(/[\\%_]/g, function (c) { return '\\' + c; }); };
     S.lit = function (s, max) { if (s == null || s === '') return 'NULL'; s = String(s); if (max && s.length > max) { s = s.slice(0, max); if (/[\uD800-\uDBFF]$/.test(s)) s = s.slice(0, -1); } return "'" + s.replace(/'/g, "''") + "'"; };
     S.num = function (n) { if (n == null || n === '' || isNaN(+n)) return 'NULL'; return String(+n); };
     S.CLOB_READ = 600; S.CLOB_WRITE = 1000; S.CLOB_WRITE_BYTES = 3800; S.CLOB_COLS = 200;
@@ -118,12 +126,14 @@
         WMS_BIP_DASHBOARDS: "CREATE TABLE wms_bip_dashboards (dash_id VARCHAR2(40) PRIMARY KEY, name VARCHAR2(200), owner VARCHAR2(100), shared VARCHAR2(1) DEFAULT 'Y', pod VARCHAR2(20), def_json CLOB, created_date DATE DEFAULT SYSDATE, changed_by VARCHAR2(100), changed_date DATE)",
         WMS_BIP_FAVORITES: "CREATE TABLE wms_bip_favorites (username VARCHAR2(100), pod VARCHAR2(20), report_path VARCHAR2(1000), display_name VARCHAR2(400), added_date DATE DEFAULT SYSDATE, PRIMARY KEY (username, pod, report_path))",
         WMS_BIP_REPORT_NOTES: "CREATE TABLE wms_bip_report_notes (pod VARCHAR2(20), report_path VARCHAR2(1000), notes VARCHAR2(4000), tags VARCHAR2(400), changed_by VARCHAR2(100), changed_date DATE, PRIMARY KEY (pod, report_path))",
-        WMS_BIP_RUN_LOG: "CREATE TABLE wms_bip_run_log (log_id VARCHAR2(40) PRIMARY KEY, pod VARCHAR2(20), report_path VARCHAR2(1000), display_name VARCHAR2(400), app_user VARCHAR2(100), pc_name VARCHAR2(100), run_id VARCHAR2(60), format VARCHAR2(20), buckets NUMBER, rows_n NUMBER, bytes_n NUMBER, ms NUMBER, status VARCHAR2(20), error_text VARCHAR2(2000), params_json VARCHAR2(4000), run_date DATE DEFAULT SYSDATE)"
+        WMS_BIP_RUN_LOG: "CREATE TABLE wms_bip_run_log (log_id VARCHAR2(40) PRIMARY KEY, pod VARCHAR2(20), report_path VARCHAR2(1000), display_name VARCHAR2(400), app_user VARCHAR2(100), pc_name VARCHAR2(100), run_id VARCHAR2(60), format VARCHAR2(20), buckets NUMBER, rows_n NUMBER, bytes_n NUMBER, ms NUMBER, status VARCHAR2(20), error_text VARCHAR2(2000), params_json VARCHAR2(4000), run_date DATE DEFAULT SYSDATE)",
+        WMS_BIP_CATALOG: "CREATE TABLE wms_bip_catalog (pod VARCHAR2(20), item_path VARCHAR2(1000), display_name VARCHAR2(400), file_name VARCHAR2(400), item_type VARCHAR2(40), parent_path VARCHAR2(1000), last_modified VARCHAR2(40), owner_name VARCHAR2(200), read_by VARCHAR2(100), read_date DATE DEFAULT SYSDATE, PRIMARY KEY (pod, item_path))",
+        WMS_BIP_CATALOG_LOG: "CREATE TABLE wms_bip_catalog_log (pod VARCHAR2(20), root_path VARCHAR2(1000), folders NUMBER, reports NUMBER, items NUMBER, ms NUMBER, read_by VARCHAR2(100), read_date DATE DEFAULT SYSDATE)"
     };
     var ensured = null;
     S.ensure = function () {
         if (ensured) return ensured;
-        ensured = S.rows("SELECT table_name AS T FROM user_tables WHERE table_name IN ('WMS_BIP_DASHBOARDS','WMS_BIP_FAVORITES','WMS_BIP_REPORT_NOTES','WMS_BIP_RUN_LOG')", 20).then(function (r) {
+        ensured = S.rows("SELECT table_name AS T FROM user_tables WHERE table_name IN ('WMS_BIP_DASHBOARDS','WMS_BIP_FAVORITES','WMS_BIP_REPORT_NOTES','WMS_BIP_RUN_LOG','WMS_BIP_CATALOG','WMS_BIP_CATALOG_LOG')", 20).then(function (r) {
             var have = {}; r.forEach(function (x) { have[String(x.T).toUpperCase()] = 1; });
             var missing = Object.keys(S.DDL).filter(function (t) { return !have[t]; });
             return missing.reduce(function (p, t) { return p.then(function () { return S.write(S.DDL[t]).catch(function (e) { if (!/ORA-00955/.test(e.message)) throw e; }); }); }, Promise.resolve()).then(function () { return { created: missing, have: Object.keys(have) }; });
@@ -156,13 +166,54 @@
         remove: function (pod, path) { return S.write('DELETE FROM wms_bip_favorites WHERE username = ' + S.lit(S.user()) + ' AND pod = ' + S.lit(pod) + ' AND report_path = ' + S.lit(path, 1000)); }
     };
     S.notes = {
-        get: function (pod, path) { return S.ensure().then(function () { return S.rows('SELECT notes AS N, tags AS T, changed_by AS BY, TO_CHAR(changed_date, \'YYYY-MM-DD HH24:MI\') AS AT FROM wms_bip_report_notes WHERE pod = ' + S.lit(pod) + ' AND report_path = ' + S.lit(path, 1000), 1).then(function (r) { return r[0] || null; }); }); },
+        get: function (pod, path) { return S.ensure().then(function () { return S.rows('SELECT notes AS N, tags AS T, changed_by AS CHANGED_BY, TO_CHAR(changed_date, \'YYYY-MM-DD HH24:MI\') AS AT FROM wms_bip_report_notes WHERE pod = ' + S.lit(pod) + ' AND report_path = ' + S.lit(path, 1000), 1).then(function (r) { return r[0] || null; }); }); },
         save: function (pod, path, notes, tags) {
             return S.ensure().then(function () {
                 return S.write('MERGE INTO wms_bip_report_notes t USING (SELECT ' + S.lit(pod) + ' AS pod, ' + S.lit(path, 1000) + ' AS report_path FROM dual) s ON (t.pod = s.pod AND t.report_path = s.report_path) WHEN MATCHED THEN UPDATE SET notes = ' + S.lit(notes, 4000) + ', tags = ' + S.lit(tags, 400) + ', changed_by = ' + S.lit(S.user()) + ', changed_date = SYSDATE WHEN NOT MATCHED THEN INSERT (pod, report_path, notes, tags, changed_by, changed_date) VALUES (' + S.lit(pod) + ', ' + S.lit(path, 1000) + ', ' + S.lit(notes, 4000) + ', ' + S.lit(tags, 400) + ', ' + S.lit(S.user()) + ', SYSDATE)');
             });
         },
         all: function (pod) { return S.ensure().then(function () { return S.rows('SELECT report_path AS P, notes AS N, tags AS T FROM wms_bip_report_notes WHERE pod = ' + S.lit(pod), 1000); }); }
+    };
+    // ── the catalog, shared ───────────────────────────────────────
+    var CAT_COLS = 'item_path AS P, display_name AS N, file_name AS F, item_type AS T, parent_path AS PP, last_modified AS M, owner_name AS O';
+    function catItem(r) { return { absolutePath: r.P, displayName: r.N, fileName: r.F, type: r.T, parentAbsolutePath: r.PP, lastModified: r.M, owner: r.O }; }
+    function catInsert(pod, items) {
+        var me = S.lit(S.user()), groups = [];
+        for (var i = 0; i < items.length; i += 40) groups.push(items.slice(i, i + 40));
+        return groups.reduce(function (p, g) {
+            return p.then(function () {
+                return S.write('DELETE FROM wms_bip_catalog WHERE pod = ' + S.lit(pod) + ' AND item_path IN (' + g.map(function (it) { return S.lit(it.absolutePath, 1000); }).join(', ') + ')').then(function () {
+                    return S.write('INSERT INTO wms_bip_catalog (pod, item_path, display_name, file_name, item_type, parent_path, last_modified, owner_name, read_by) ' + g.map(function (it) { return 'SELECT ' + [S.lit(pod, 20), S.lit(it.absolutePath, 1000), S.lit(it.displayName, 400), S.lit(it.fileName, 400), S.lit(it.type, 40), S.lit(it.parentAbsolutePath, 1000), S.lit(it.lastModified, 40), S.lit(it.owner, 200), me].join(', ') + ' FROM dual'; }).join(' UNION ALL '));
+                });
+            });
+        }, Promise.resolve());
+    }
+    S.catalog = {
+        /** One folder as another user kept it → { items, at, by } (items empty = not in APEX). */
+        folder: function (pod, path) {
+            return S.ensure().then(function () { return S.rows('SELECT ' + CAT_COLS + ", TO_CHAR(read_date, 'YYYY-MM-DD HH24:MI') AS AT, read_by AS RB FROM wms_bip_catalog WHERE pod = " + S.lit(pod) + ' AND parent_path = ' + S.lit(path, 1000) + " ORDER BY CASE WHEN item_type = 'Folder' THEN 0 ELSE 1 END, lower(display_name)", 1000); })
+                .then(function (r) { return { items: r.map(catItem), at: r.length ? r[0].AT : null, by: r.length ? r[0].RB : null }; });
+        },
+        saveFolder: function (pod, path, items) {
+            return S.ensure().then(function () { return S.write('DELETE FROM wms_bip_catalog WHERE pod = ' + S.lit(pod) + ' AND parent_path = ' + S.lit(path, 1000)); }).then(function () { return catInsert(pod, items || []); });
+        },
+        /** The whole catalog as last indexed by anyone → { items, at, by, root, folders, reports }; items empty when nobody indexed this pod. */
+        index: function (pod) {
+            return S.ensure().then(function () { return S.rows("SELECT root_path AS R, folders AS FO, reports AS RE, items AS I, ms AS MS, read_by AS RB, TO_CHAR(read_date, 'YYYY-MM-DD HH24:MI') AS AT FROM wms_bip_catalog_log WHERE pod = " + S.lit(pod) + ' ORDER BY read_date DESC FETCH FIRST 1 ROWS ONLY', 1); })
+                .then(function (log) {
+                    if (!log.length) return { items: [], at: null };
+                    var l = log[0];
+                    return S.rowsAll('SELECT ' + CAT_COLS + ' FROM wms_bip_catalog WHERE pod = ' + S.lit(pod) + ' ORDER BY item_path').then(function (r) { return { items: r.map(catItem), at: l.AT, by: l.RB, root: l.R || '/', folders: +l.FO || 0, reports: +l.RE || 0, ms: +l.MS || 0 }; });
+                });
+        },
+        saveIndex: function (pod, root, items, folders, reports, ms) {
+            root = root || '/';
+            return S.ensure().then(function () {
+                return S.write('DELETE FROM wms_bip_catalog WHERE pod = ' + S.lit(pod) + (root === '/' ? '' : ' AND (item_path = ' + S.lit(root, 1000) + " OR item_path LIKE " + S.lit(S.likeEsc(root) + '/%', 1000) + " ESCAPE '\\')"));
+            }).then(function () { return catInsert(pod, items || []); }).then(function () {
+                return S.write('INSERT INTO wms_bip_catalog_log (pod, root_path, folders, reports, items, ms, read_by) VALUES (' + [S.lit(pod, 20), S.lit(root, 1000), S.num(folders), S.num(reports), S.num((items || []).length), S.num(ms), S.lit(S.user())].join(', ') + ')');
+            });
+        }
     };
     S.runLog = {
         add: function (e) {
