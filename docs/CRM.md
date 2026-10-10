@@ -184,6 +184,16 @@ Customers › the bar on top keeps the whole Fusion customer master on this PC (
 
 The last load is recorded in `WMS_CRM_SETTINGS` `CUST_SYNC_<pod>` (when, who, rows, mode).
 
+**Browsing.** With the box empty, the Customers grid lists every customer of this copy in pages, sorted by name:
+
+- pager « ‹ Prev, page n of m, Next › » and 25 / 50 / 100 / 200 / 500 rows a page
+- **Refresh** reads the page and the counts again
+- without DuckDB, the same pages come from the APEX copy
+
+**Searching** pages through the matches the same way. A search with nothing on this PC (3+ characters) reads Fusion by itself. What Fusion finds shows at once (*Fusion · just read*) and is kept on this PC and in APEX, so the next search finds it here. Enter or **Find in Fusion** always asks Fusion.
+
+**The APEX copy.** Every value is cut to its column's size in bytes, because accented names and addresses take more than one byte per letter. A statement APEX refuses is retried as smaller pieces, down to one row, so one bad row never stops the rest. Rows APEX still refuses are counted (*n refused by APEX*, with the reason on hover). When this PC has more customers than APEX, **Copy n to APEX** pushes this PC's copy, so other PCs get them without Fusion.
+
 Searches use this copy: the Customers box and the ask bar, every word against one search text, and 7+ digits against the phone digits. The screen pop looks up a caller's number here before asking Fusion. Without DuckDB, the APEX copy is searched. The phone index is `w2_crm_phone`.
 
 **Host** (`classes/Form1_CrmHandlers.cs`, `crm*` actions):
@@ -216,13 +226,16 @@ It also has the Debtors tools (balances, open items, statements, follow-ups) and
 
 - `node crm/tests/crm-engine.test.js` (CI) covers business hours and the SLA (with pause), routing, phone numbers, the health score, the timeline, KPIs, naive Bayes, similar tickets, the ask parser, the read-only 360 SQL (incl. the order currency column and its fallbacks), the customer-master pages, rows and search, and the AR 360 totals and rating.
 - AI Hub: `test_crm_customer_desk_routing_tools_and_module_threads`, plus the evals `crm_sla` and `crm_missed`.
-- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 76 checks. They include:
+- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 87 checks. They include:
   - every AR view, filter and drill (invoice → receipt that paid it → Back)
   - the Statements button
   - sections kept in APEX and on this PC
   - a failing section with its SQL inline and Open in Fusion SQL
   - another PC opening from the APEX copy without a Fusion read
   - 1,500 customers loaded into DuckDB and APEX
+  - paging (next, last, 200 a page, Refresh)
+  - a customer read from Fusion by itself and kept
+  - Copy to APEX
   - search and screen pop without Fusion
   - Sync changes and the copy from APEX
 

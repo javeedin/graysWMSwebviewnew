@@ -254,57 +254,96 @@
     };
 
     // ══ Customers ═════════════════════════════════════════════════════
-    C.cu = { q: '', fusion: null, searching: false, kept: null };
+    // the grid = one page of the Fusion customer master kept on this PC (all of it, or the ones matching the box); a search that
+    // finds nobody here reads Fusion by itself and keeps what it finds (this PC + APEX)
+    C.cu = { q: '', fusion: null, searching: false, kept: null, total: null, page: 0, size: ls('cu.size', 50), src: '', loading: false, auto: '', err: null };
+    var cuSeq = 0;
+    C.cuLoad = function () {
+        var cu = C.cu, my = ++cuSeq, q = cu.q.trim();
+        if (!C.cs) return Promise.resolve();
+        cu.loading = true;
+        return C.cs.page(q, cu.size, cu.page * cu.size).then(function (r) {
+            if (my !== cuSeq) return;
+            cu.kept = r.rows; cu.total = r.total; cu.src = r.src; cu.err = null;
+            // nobody here: ask Fusion once for this text (Enter / Find in Fusion asks again)
+            if (q.length >= 3 && !r.total && !C.searchLocal(q, 1).length && cu.auto !== q && D.hasHost()) { cu.auto = q; C.ACT.cuFusion(true); }
+        }, function (e) { if (my === cuSeq) { cu.kept = []; cu.total = 0; cu.err = errText(e); } }).then(function () {
+            if (my !== cuSeq) return;
+            cu.loading = false;
+            if (C.tab === 'customers') keepFocus('cu-q', C.render);
+        });
+    };
     C.views.customers = function () {
-        var q = C.cu.q, local = q ? C.searchLocal(q, 200) : [];
+        var cu = C.cu, q = cu.q.trim(), local = q && cu.page === 0 ? C.searchLocal(q, 50) : [];
         var openBy = {}; C.tickets.filter(E.isOpen).forEach(function (t) { openBy[t.ACCOUNT_NUMBER] = (openBy[t.ACCOUNT_NUMBER] || 0) + 1; });
         var lastBy = {}; C.calls.forEach(function (c) { if (!lastBy[c.ACCOUNT_NUMBER] || c.STARTED_AT > lastBy[c.ACCOUNT_NUMBER]) lastBy[c.ACCOUNT_NUMBER] = c.STARTED_AT; });
-        var rows = local.slice();
-        function add(x) { var have = rows.filter(function (y) { return y.account === x.account; })[0]; if (have) { if (!have.name) have.name = x.name; if (!have.addr) have.addr = x.addr; return; } rows.push(x); }
-        (C.cu.kept || []).forEach(add);
-        (C.cu.fusion || []).forEach(function (r) { add({ bu: '', account: r.ACCOUNT_NUMBER, name: r.CUSTOMER || r.ACCOUNT_NAME, phone: r.PHONE || '', email: r.EMAIL || '', addr: r.BILL_TO_ADDRESS || '', src: 'Fusion' }); });
-        if (!q) {
-            var rec = C.recent(), idx = C.customerIndex();
-            rows = rec.map(function (r) { return idx.filter(function (x) { return x.account === r.account; })[0] || { bu: r.bu, account: r.account, name: r.name, phone: '', email: '', src: 'recent' }; });
-            var withTickets = idx.filter(function (x) { return openBy[x.account] && !rows.some(function (r) { return r.account === x.account; }); });
-            rows = rows.concat(withTickets);
-        }
-        var kn = C.cs && C.cs.st.local ? C.cs.st.local.n : 0;
-        return (C.cs ? C.cs.bar() : '') + '<div class="card"><div class="filters"><input type="search" id="cu-q" data-in="cuQ" placeholder="Name, account number, phone or e-mail' + (kn ? ' — searches the ' + kn.toLocaleString() + ' Fusion customers on this PC' : ' — Enter also searches Fusion') + '" value="' + esc(q) + '" style="flex:1">' +
+        var rows = [];
+        function add(x) { var have = rows.filter(function (y) { return y.account === x.account; })[0]; if (have) { if (!have.name) have.name = x.name; if (!have.addr) have.addr = x.addr; if (!have.phone) have.phone = x.phone; if (!have.email) have.email = x.email; return; } rows.push(x); }
+        (cu.fusion || []).forEach(function (r) { add({ bu: '', account: r.ACCOUNT_NUMBER, name: r.CUSTOMER || r.ACCOUNT_NAME, phone: r.PHONE || '', email: r.EMAIL || '', addr: r.BILL_TO_ADDRESS || '', src: 'Fusion · just read' }); });
+        (cu.kept || []).forEach(add);
+        local.forEach(add);
+        if (cu.kept == null && !cu.loading && C.cs && C.ready) { cu.loading = true; setTimeout(C.cuLoad, 0); }
+        var rec = C.recent();
+        var total = cu.total || 0, from = total ? cu.page * cu.size + 1 : 0, to = Math.min(total, (cu.page + 1) * cu.size), pages = Math.max(1, Math.ceil(total / cu.size));
+        var srcTxt = cu.src === 'apex' ? 'from APEX (no copy on this PC)' : 'on this PC';
+        var pager = '<div class="pagerbar"><span class="small muted">' + (cu.loading ? '<span class="spin"></span> reading… ' : '') +
+            (total ? from.toLocaleString() + '–' + to.toLocaleString() + ' of <b>' + total.toLocaleString() + '</b> ' + (q ? 'matching ' : 'customers ') + srcTxt : cu.kept ? (q ? 'Nobody ' + srcTxt + ' matches' : 'No customers ' + srcTxt + ' yet — Load all Fusion customers above') : '') +
+            (cu.searching ? ' · <span class="spin"></span> reading Fusion…' : cu.fusion ? ' · ' + cu.fusion.length + ' read from Fusion now and kept' : '') + '</span><span class="sp"></span>' +
+            '<button class="btn sm" data-act="cuPage" data-p="first"' + (cu.page > 0 ? '' : ' disabled') + ' title="First page">«</button>' +
+            '<button class="btn sm" data-act="cuPage" data-p="prev"' + (cu.page > 0 ? '' : ' disabled') + '>‹ Prev</button>' +
+            '<span class="small">page <input type="number" id="cu-pg" data-ch="cuPg" min="1" max="' + pages + '" value="' + (cu.page + 1) + '" style="width:64px"> of ' + pages.toLocaleString() + '</span>' +
+            '<button class="btn sm" data-act="cuPage" data-p="next"' + (cu.page + 1 < pages ? '' : ' disabled') + '>Next ›</button>' +
+            '<button class="btn sm" data-act="cuPage" data-p="last"' + (cu.page + 1 < pages ? '' : ' disabled') + ' title="Last page">»</button>' +
+            '<select data-ch="cuSize" title="Rows per page">' + [25, 50, 100, 200, 500].map(function (n) { return '<option' + (n === cu.size ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select>' +
+            '<button class="btn sm" data-act="cuRefresh" title="Read the page again (and the counts)"><i class="fas fa-rotate"></i> Refresh</button></div>';
+        return (C.cs ? C.cs.bar() : '') + '<div class="card"><div class="filters"><input type="search" id="cu-q" data-in="cuQ" placeholder="Name, account number, phone or e-mail' + (C.cs && C.cs.st.local && C.cs.st.local.n ? ' — searches the ' + C.cs.st.local.n.toLocaleString() + ' Fusion customers on this PC; not found → read from Fusion' : ' — Enter also searches Fusion') + '" value="' + esc(cu.q) + '" style="flex:1">' +
             '<button class="btn" data-act="cuFusion"' + (q ? '' : ' disabled') + '><i class="fas fa-cloud"></i> Find in Fusion</button><button class="btn" data-act="newTicket"><i class="fas fa-plus"></i> New ticket</button></div>' +
-            '<div class="small muted">' + (q ? rows.length + ' found' + (C.cu.kept ? ' · ' + C.cu.kept.length + ' in the Fusion customer master on this PC' : ' · <span class="spin"></span> searching…') + (C.cu.searching ? ' · <span class="spin"></span> searching Fusion…' : C.cu.fusion ? ' · ' + C.cu.fusion.length + ' live from Fusion' : '') : 'Recent customers and customers with open tickets. ' + C.customerIndex().length + ' customers known on this PC.') + '</div></div>' +
-            '<div class="card">' + C.table([
+            (!q && rec.length ? '<div class="recent small"><span class="muted">Recent:</span> ' + rec.slice(0, 10).map(function (r) { return '<a data-act="open360" data-bu="' + esc(r.bu) + '" data-acct="' + esc(r.account) + '" data-name="' + esc(r.name) + '">' + esc(r.name || r.account) + '</a>'; }).join(' · ') + '</div>' : '') +
+            (cu.err ? '<div class="note bad">' + esc(cu.err) + '</div>' : '') + '</div>' +
+            '<div class="card">' + pager + C.table([
                 [function (r) { return C.avatar(r.name || r.account); }, ''],
                 [function (r) { return '<b>' + esc(r.name || '—') + '</b><div class="small muted">' + esc(r.account) + (r.status && r.status !== 'A' ? ' · ' + C.pill('inactive', 'muted') : '') + '</div>'; }, 'Customer'],
                 [function (r) { return '<span class="small">' + esc(r.addr || '') + '</span>'; }, 'Address'],
                 [function (r) { return esc(r.phone); }, 'Phone'], [function (r) { return esc(r.email); }, 'E-mail'],
                 [function (r) { return openBy[r.account] ? C.pill(openBy[r.account] + ' open', 'warn') : ''; }, 'Tickets'],
                 [function (r) { return lastBy[r.account] ? C.when(lastBy[r.account]) : ''; }, 'Last call'],
-                [function (r) { return C.pill(esc(r.src), 'muted'); }, 'Found in'],
+                [function (r) { return C.pill(esc(r.src), /just read/.test(r.src) ? 'info' : 'muted'); }, 'Found in'],
                 [function (r) { return (r.phone ? '<button class="btn sm" data-act="dialNum" data-num="' + esc(r.phone.split(' / ')[0]) + '" data-acct="' + esc(r.account) + '" title="Call"><i class="fas fa-phone"></i></button>' : '') + ' <button class="btn sm pri" data-act="open360" data-bu="' + esc(r.bu) + '" data-acct="' + esc(r.account) + '" data-name="' + esc(r.name) + '">Open</button>'; }, '', 'r']
-            ], rows.slice(0, 300), { empty: q ? (kn ? 'No customer matches.' : 'Nobody on this PC matches — press Find in Fusion, or Load all Fusion customers above.') : 'Search for a customer above.' }) + '</div>';
+            ], rows, { empty: cu.loading || cu.kept == null ? 'Reading…' : cu.searching ? 'Nobody here — reading Fusion…' : q ? 'No customer matches here or in Fusion.' : 'No customers on this PC yet — Load all Fusion customers above.' }) + (total > cu.size ? pager : '') + '</div>';
     };
     C.after.customers = function () { if (C.cs && !C.cs.st.apex && !C.cs.run) C.cs.status(); };
     var cuT = 0;
     C.IN.cuQ = function (el, e) {
         if (e && e.key === 'Enter') { C.ACT.cuFusion(); return; }
         if (C.cu.q === el.value) return;
-        C.cu.q = el.value; C.cu.fusion = null; C.cu.kept = null;
-        keepFocus('cu-q', C.render);
+        C.cu.q = el.value; C.cu.fusion = null; C.cu.page = 0;
         clearTimeout(cuT);
-        var q = el.value;
-        cuT = setTimeout(function () {
-            (C.cs ? C.cs.search(q, 200) : Promise.resolve([])).then(function (rows) { if (C.cu.q !== q) return; C.cu.kept = rows; if (C.tab === 'customers') keepFocus('cu-q', C.render); });
-        }, 220);
+        cuT = setTimeout(C.cuLoad, 250);
     };
-    C.ACT.cuFusion = function () {
-        if (!C.cu.q) return; C.cu.searching = true; C.render();
-        C.searchFusion(C.cu.q).then(function (rows) {
+    C.ACT.cuPage = function (el) {
+        var cu = C.cu, pages = Math.max(1, Math.ceil((cu.total || 0) / cu.size)), p = el.dataset.p;
+        cu.page = p === 'first' ? 0 : p === 'last' ? pages - 1 : p === 'prev' ? Math.max(0, cu.page - 1) : Math.min(pages - 1, cu.page + 1);
+        C.cuLoad();
+    };
+    C.CH.cuPg = function (el) { var cu = C.cu, pages = Math.max(1, Math.ceil((cu.total || 0) / cu.size)); cu.page = Math.max(0, Math.min(pages - 1, (+el.value || 1) - 1)); C.cuLoad(); };
+    C.CH.cuSize = function (el) { C.cu.size = +el.value || 50; lsSet('cu.size', C.cu.size); C.cu.page = 0; C.cuLoad(); };
+    C.ACT.cuRefresh = function () { if (C.cs) { C.cs.cache = {}; C.cs.status(); } C.cuLoad(); };
+    /** Find in Fusion (button / Enter, or by itself when nobody here matches): what Fusion finds is kept on this PC + APEX and shown at once */
+    C.ACT.cuFusion = function (auto) {
+        var q = C.cu.q.trim(); if (!q || C.cu.searching) return;
+        C.cu.searching = true; C.render();
+        C.searchFusion(q).then(function (rows) {
+            if (C.cu.q.trim() !== q) return;
             C.cu.fusion = rows;
-            // what Fusion found is kept with the customer master (this PC + APEX) so the next search finds it here
             var kept = rows.map(function (r) { return E.custRow(r, C.pod); }).filter(function (x) { return x.account_number; });
-            if (kept.length) { S.duck.custPut(C.pod, kept); S.customers.merge(C.pod, kept).catch(function () { }); if (C.cs) C.cs.cache = {}; }
-        }, function (e) { C.toast('Fusion: ' + errText(e), 'bad', 7000); C.cu.fusion = []; }).then(function () { C.cu.searching = false; if (C.tab === 'customers') C.render(); });
+            if (!kept.length) { if (auto !== true) C.toast('Nobody in Fusion matches "' + q + '"', 'warn'); return; }
+            C.toast(kept.length + ' customer' + (kept.length > 1 ? 's' : '') + ' read from Fusion · kept on this PC and in APEX', 'ok');
+            if (C.cs) C.cs.cache = {};
+            return Promise.all([S.duck.custPut(C.pod, kept), S.customers.merge(C.pod, kept).catch(function () { })]).then(function () { if (C.cs) C.cs.status(); });
+        }, function (e) { C.toast('Fusion: ' + errText(e), 'bad', 7000); C.cu.fusion = []; }).then(function () {
+            C.cu.searching = false;
+            if (C.cu.q.trim() === q) C.cuLoad(); else if (C.tab === 'customers') keepFocus('cu-q', C.render);
+        });
     };
     function keepFocus(id, fn) { var el = $(id), pos = el ? el.selectionStart : null; fn(); var n = $(id); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (x) { } } }
     C.keepFocus = keepFocus;
@@ -406,7 +445,7 @@
     C.ACT.refresh = function () { C.refresh(); };
     C.ACT.tkScope = function (el) { C.tk.f.scope = el.dataset.scope; lsSet('tk.f', C.tk.f); C.go('tickets'); };
     C.ACT.open360 = function (el) { C.open360(el.dataset.bu, el.dataset.acct, el.dataset.name, el.dataset.sub); };
-    C.ACT.pod = function () { C.pod = C.pod === 'PROD' ? 'TEST' : 'PROD'; lsSet('pod', C.pod); C.master = {}; C.paintWho(); C.loadMaster().then(C.render); if (C.cs) { C.cs.cache = {}; C.cs.auto(); } C.toast('Fusion customer data now from ' + C.pod); };
+    C.ACT.pod = function () { C.pod = C.pod === 'PROD' ? 'TEST' : 'PROD'; lsSet('pod', C.pod); C.master = {}; C.paintWho(); C.loadMaster().then(C.render); if (C.cs) { C.cs.cache = {}; C.cs.auto(); } C.cu.kept = null; C.cu.page = 0; C.toast('Fusion customer data now from ' + C.pod); };
 
     // ── boot ─────────────────────────────────────────────────────────
     function boot() {

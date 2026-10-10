@@ -283,7 +283,18 @@
     // ── the whole Fusion customer master in APEX (shared by every PC) ──
     C.CUST_COLS = ['pod', 'account_number', 'cust_account_id', 'customer', 'party_number', 'account_name', 'status', 'customer_type', 'customer_class', 'tax_reference', 'bill_to_address', 'email', 'phone', 'phone_digits', 'changed', 'hay'];
     var CUST_LEN = { pod: 20, account_number: 60, customer: 360, party_number: 60, account_name: 360, status: 10, customer_type: 30, customer_class: 60, tax_reference: 100, bill_to_address: 1000, email: 320, phone: 100, phone_digits: 40, changed: 20, hay: 2000 };
-    function custSel(r) { return 'SELECT ' + C.CUST_COLS.map(function (k) { return (k === 'cust_account_id' ? num(r[k]) : lit(r[k], CUST_LEN[k])) + ' AS ' + k; }).join(', ') + ' FROM dual'; }
+    /** cut a text to fit a VARCHAR2(n) column measured in BYTES (accents / non-Latin names take 2–4 bytes; a too-long value = ORA-12899) */
+    function fitBytes(v, max) {
+        var s = v == null ? '' : String(v), b = 0, i = 0;
+        for (; i < s.length; i++) {
+            var c = s.charCodeAt(i), w = c < 0x80 ? 1 : c < 0x800 ? 2 : (c >= 0xD800 && c <= 0xDBFF) ? 4 : 3;
+            if (b + w > max) break;
+            b += w; if (w === 4) i++;
+        }
+        return s.slice(0, i);
+    }
+    C.fitBytes = fitBytes;
+    function custSel(r) { return 'SELECT ' + C.CUST_COLS.map(function (k) { return (k === 'cust_account_id' ? num(r[k]) : lit(fitBytes(r[k], CUST_LEN[k]))) + ' AS ' + k; }).join(', ') + ' FROM dual'; }
     var CUST_READ = C.CUST_COLS.filter(function (k) { return k !== 'pod'; }).map(function (k) { return k + ' AS ' + k.toUpperCase(); }).join(', ');
     function lower(rows) { return rows.map(function (r) { var o = {}; Object.keys(r).forEach(function (k) { o[k.toLowerCase()] = r[k] == null ? '' : String(r[k]); }); return o; }); }
     C.customers = {
@@ -293,19 +304,33 @@
                 .then(function (r) { var x = r[0] || {}; return { n: +x.N || 0, maxChanged: x.MC || '', maxId: x.MAXID || '', at: x.RA ? D.local(x.RA) : '' }; });
         },
         /** upsert rows (E.custRow shape), 40 per MERGE; onStep(done) */
+        /** upsert rows (E.custRow shape), 40 per MERGE; a failing statement is retried as 4 × 10, then row by row, so one bad
+         *  row never stops the rest → {done, failed, error}; onStep(done, failed) */
         merge: function (pod, rows, onStep) {
             var sets = C.CUST_COLS.filter(function (k) { return k !== 'pod' && k !== 'account_number'; });
+            var res = { done: 0, failed: 0, error: null };
+            function sql(g) {
+                return 'MERGE INTO wms_crm_customers t USING (' + g.map(function (r) { return custSel(Object.assign({}, r, { pod: pod })); }).join(' UNION ALL ') + ') s ON (t.pod = s.pod AND t.account_number = s.account_number)' +
+                    ' WHEN MATCHED THEN UPDATE SET ' + sets.map(function (k) { return 't.' + k + ' = s.' + k; }).join(', ') + ', t.read_at = SYSDATE' +
+                    ' WHEN NOT MATCHED THEN INSERT (' + C.CUST_COLS.join(', ') + ', read_at) VALUES (' + C.CUST_COLS.map(function (k) { return 's.' + k; }).join(', ') + ', SYSDATE)';
+            }
+            function one(g, size) {
+                return D.write(sql(g)).then(function () { res.done += g.length; if (onStep) onStep(res.done, res.failed); }, function (e) {
+                    if (g.length === 1) { res.failed++; res.error = (e && e.message || String(e)) + ' (account ' + g[0].account_number + ')'; if (onStep) onStep(res.done, res.failed); return; }
+                    var next = size > 10 ? 10 : 1, parts = []; for (var i = 0; i < g.length; i += next) parts.push(g.slice(i, i + next));
+                    return parts.reduce(function (p, x) { return p.then(function () { return one(x, next); }); }, Promise.resolve());
+                });
+            }
             var groups = []; for (var i = 0; i < rows.length; i += 40) groups.push(rows.slice(i, i + 40));
-            var done = 0;
+            return C.ensure().then(function () { return groups.reduce(function (p, g) { return p.then(function () { return one(g, 40); }); }, Promise.resolve()); }).then(function () { return res; });
+        },
+        /** one page of the APEX copy (no DuckDB on this PC) → {rows, total} */
+        page: function (pod, q, size, offset) {
+            var w = q ? root.CRME.custWhere(q, function (v) { return lit(v); }) : '';
+            var where = ' FROM wms_crm_customers WHERE pod = ' + lit(pod) + (w ? ' AND ' + w : '');
             return C.ensure().then(function () {
-                return groups.reduce(function (p, g) {
-                    return p.then(function () {
-                        return D.write('MERGE INTO wms_crm_customers t USING (' + g.map(function (r) { return custSel(Object.assign({}, r, { pod: pod })); }).join(' UNION ALL ') + ') s ON (t.pod = s.pod AND t.account_number = s.account_number)' +
-                            ' WHEN MATCHED THEN UPDATE SET ' + sets.map(function (k) { return 't.' + k + ' = s.' + k; }).join(', ') + ', t.read_at = SYSDATE' +
-                            ' WHEN NOT MATCHED THEN INSERT (' + C.CUST_COLS.join(', ') + ', read_at) VALUES (' + C.CUST_COLS.map(function (k) { return 's.' + k; }).join(', ') + ', SYSDATE)').then(function () { done += g.length; if (onStep) onStep(done); });
-                    });
-                }, Promise.resolve());
-            }).then(function () { return done; });
+                return Promise.all([D.rows('SELECT COUNT(*) AS N' + where, 2), D.rows('SELECT ' + CUST_READ + where + ' ORDER BY customer, account_number OFFSET ' + (+offset || 0) + ' ROWS FETCH NEXT ' + (+size || 50) + ' ROWS ONLY', +size || 50)]);
+            }).then(function (r) { return { rows: lower(r[1]), total: +(r[0][0] || {}).N || 0 }; });
         },
         /** every kept customer of the pod (to fill this PC's DuckDB copy) */
         all: function (pod, max) { return C.ensure().then(function () { return D.rowsAll('SELECT ' + CUST_READ + ' FROM wms_crm_customers WHERE pod = ' + lit(pod) + ' ORDER BY account_number', max || 300000); }).then(lower); },
@@ -481,6 +506,17 @@
         custSearch: function (pod, q, max) {
             var w = root.CRME.custWhere(q, C.duck.lit); if (!w) return Promise.resolve([]);
             return C.duck.qs(['SELECT * FROM w2_crm_customers WHERE pod = ' + C.duck.lit(pod) + ' AND ' + w + ' ORDER BY customer LIMIT ' + (max || 100)]).then(function (r) { return r[0] || []; });
+        },
+        /** one page of this PC's copy, all customers or the ones matching q → {rows, total} */
+        custPage: function (pod, q, size, offset) {
+            var L = C.duck.lit, w = q ? root.CRME.custWhere(q, L) : '', where = ' FROM w2_crm_customers WHERE pod = ' + L(pod) + (w ? ' AND ' + w : '');
+            return C.duck.qs(['SELECT COUNT(*) AS n' + where, 'SELECT *' + where + ' ORDER BY customer, account_number LIMIT ' + (+size || 50) + ' OFFSET ' + (+offset || 0)]).then(function (r) {
+                return { rows: r[1] || [], total: +((r[0] || [])[0] || {}).n || 0 };
+            });
+        },
+        /** this PC's copy in pages (for the copy to APEX) */
+        custChunk: function (pod, size, offset) {
+            return C.duck.qs(['SELECT * FROM w2_crm_customers WHERE pod = ' + C.duck.lit(pod) + ' ORDER BY account_number LIMIT ' + size + ' OFFSET ' + offset]).then(function (r) { return r[0] || []; });
         },
         custByPhone: function (pod, last7) {
             if (!/^\d{7}$/.test(last7 || '')) return Promise.resolve([]);

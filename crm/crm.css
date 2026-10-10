@@ -295,3 +295,7 @@ pre.code.sm { max-height: 160px; font-size: 11px; }
 .legend .sp { flex: 1; }
 .crumbs { font-size: 12px; margin-bottom: 8px; color: var(--muted); }
 .tbl tfoot td { border-top: 2px solid var(--line); background: var(--soft); }
+.pagerbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 4px 0 10px; }
+.pagerbar .sp { flex: 1; }
+.pagerbar select, .pagerbar input { height: 28px; }
+.recent { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }

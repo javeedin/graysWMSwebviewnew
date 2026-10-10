@@ -25,7 +25,7 @@
     };
 
     function newRun(kind, label) { cs.run = { kind: kind, label: label, rows: 0, page: 0, apex: 0, t0: Date.now(), stop: false, step: 'starting…' }; paint(); return cs.run; }
-    function endRun(r, msg, cls) { r.done = true; cs.run = null; C.toast(msg, cls || 'ok', 7000); cs.status(); cs.cache = {}; }
+    function endRun(r, msg, cls) { r.done = true; cs.run = null; C.toast(msg, cls || 'ok', 7000); cs.cache = {}; cs.status().then(function () { if (C.tab === 'customers' && C.cuLoad) C.cuLoad(); }); }
 
     cs.fromApex = function () {
         var r = newRun('apex', 'Copying the customers from APEX to this PC');
@@ -42,6 +42,43 @@
         }).catch(function (e) { endRun(r, 'Copy from APEX: ' + C.errText(e), 'bad'); });
     };
 
+    /** this PC's copy → APEX (another PC then gets them without Fusion); 1,000 at a time, every row upserted */
+    cs.toApex = function () {
+        if (cs.run) return;
+        var r = newRun('push', 'Copying the customers of this PC to APEX'), off = 0;
+        r.total = (cs.st.local || {}).n || 0;
+        function next() {
+            if (r.stop) return Promise.resolve();
+            r.step = 'reading this PC'; paint();
+            return S.duck.custChunk(C.pod, 1000, off).then(function (rows) {
+                if (!rows.length) return;
+                off += rows.length; r.step = 'writing APEX'; paint();
+                return S.customers.merge(C.pod, rows.map(function (x) { return E.custRow(E.custMaster(x), C.pod); })).then(function (x) {
+                    r.rows += x.done; r.apex += x.done; r.apexFailed = (r.apexFailed || 0) + x.failed; if (x.error) r.apexErr = x.error; paint();
+                    if (rows.length === 1000) return next();
+                });
+            });
+        }
+        return next().then(function () { endRun(r, (r.stop ? 'Stopped — ' : '') + r.apex.toLocaleString() + ' customers copied to APEX' + (r.apexFailed ? ' · ' + r.apexFailed + ' refused (' + r.apexErr + ')' : ''), r.apexFailed ? 'warn' : 'ok'); },
+            function (e) { endRun(r, 'Copy to APEX: ' + C.errText(e), 'bad'); });
+    };
+    C.ACT.csToApex = function () { cs.toApex(); };
+    /** one page of the kept customers (all, or matching q): DuckDB, else APEX → {rows (index entries), total, src} */
+    cs.page = function (q, size, offset) {
+        q = String(q || '').trim();
+        function out(x, src) {
+            return { total: x.total, src: src, rows: x.rows.map(function (o) {
+                if (!C.master[o.account_number]) C.master[o.account_number] = E.custMaster(o);
+                return { bu: '', account: o.account_number, name: o.customer || o.account_name, phone: o.phone || '', email: o.email || '', src: 'Fusion master', addr: o.bill_to_address, status: o.status };
+            }) };
+        }
+        var duck = D.duck.on !== false ? S.duck.custPage(C.pod, q, size, offset) : Promise.resolve(null);
+        return duck.then(function (x) {
+            if (x && (x.total || D.duck.on)) return out(x, 'pc');
+            return S.customers.page(C.pod, q, size, offset).then(function (y) { return out(y, 'apex'); });
+        });
+    };
+
     /** mode 'all' (from the start, or resume) | 'changes' */
     cs.load = function (mode, resume) {
         if (cs.run) return;
@@ -53,8 +90,8 @@
         }
         if (mode === 'all' && resume) { var rz = C.ls(rkey(), null); if (rz && rz.lastId) lastId = rz.lastId; }
         var r = newRun(mode, mode === 'changes' ? 'Reading customers changed since ' + since : 'Loading every Fusion customer' + (lastId ? ' (continuing)' : ''));
-        r.since = since; r.lastId = lastId; r.alt = 0;
-        var apexP = Promise.resolve(), apexErr = null;
+        r.since = since; r.lastId = lastId; r.alt = 0; r.apexFailed = 0;
+        var apexP = Promise.resolve();
         function page() {
             if (r.stop) return Promise.resolve();
             r.step = 'reading page ' + (r.page + 1) + ' from Fusion'; paint();
@@ -69,15 +106,15 @@
                 r.step = 'saving page ' + r.page; paint();
                 var duckP = rows.length ? S.duck.custPut(C.pod, rows) : Promise.resolve();
                 // APEX: one page at a time behind the Fusion reads
-                apexP = apexP.then(function () { if (!rows.length || apexErr) return; return S.customers.merge(C.pod, rows).then(function (n) { r.apex += n; paint(); }); }).catch(function (e) { apexErr = e; r.apexErr = C.errText(e); paint(); });
+                apexP = apexP.then(function () { if (!rows.length) return; return S.customers.merge(C.pod, rows).then(function (x) { r.apex += x.done; r.apexFailed = (r.apexFailed || 0) + x.failed; if (x.error) r.apexErr = x.error; paint(); }); }).catch(function (e) { r.apexErr = C.errText(e); paint(); });
                 return duckP.then(function () { if (res.rows.length >= PAGE) return page(); });
             });
         }
         return page().then(function () { r.step = 'finishing the APEX copy…'; paint(); return apexP; }).then(function () {
             if (!r.stop && mode === 'all') C.lsSet(rkey(), null);
-            var info = { at: S.now(), by: D.user(), mode: mode, rows: r.rows, pages: r.page, secs: Math.round((Date.now() - r.t0) / 1000), since: r.since, stopped: r.stop, apexError: r.apexErr || null };
+            var info = { at: S.now(), by: D.user(), mode: mode, rows: r.rows, pages: r.page, secs: Math.round((Date.now() - r.t0) / 1000), since: r.since, stopped: r.stop, apexCopied: r.apex, apexFailed: r.apexFailed || 0, apexError: r.apexErr || null };
             return S.settings.save('CUST_SYNC_' + C.pod, info).catch(function () { }).then(function () {
-                endRun(r, (r.stop ? 'Stopped — ' : '') + r.rows + ' customers ' + (mode === 'changes' ? 'changed since ' + since + ' ' : '') + 'read from Fusion · kept on this PC' + (r.apexErr ? ' (APEX: ' + r.apexErr + ')' : ' and in APEX'), r.apexErr ? 'warn' : 'ok');
+                endRun(r, (r.stop ? 'Stopped — ' : '') + r.rows + ' customers ' + (mode === 'changes' ? 'changed since ' + since + ' ' : '') + 'read from Fusion · kept on this PC' + (r.apexFailed ? ' · ' + r.apexFailed + ' not copied to APEX (' + r.apexErr + ')' : ' and in APEX'), r.apexFailed ? 'warn' : 'ok');
             });
         }, function (e) {
             r.err = e;
@@ -120,12 +157,13 @@
         h += '<div class="cs-bar"><i class="fas fa-users" style="font-size:20px;color:#4338ca"></i>' +
             '<div class="st"><b>' + (lo ? lo.n.toLocaleString() : st.duck === false ? '—' : '…') + '</b>on this PC' + (st.duck === false ? ' (no DuckDB)' : '') + '</div>' +
             '<div class="st"><b>' + (ap ? ap.n.toLocaleString() : '…') + '</b>in APEX</div>' +
-            '<div class="st">' + (last ? (last.mode === 'changes' ? 'last sync of changes ' : 'last full load ') + C.when(last.at) + ' by ' + esc(last.by || '') + ' · ' + (last.rows || 0).toLocaleString() + ' rows' + (last.stopped ? ' (stopped)' : '') : 'Fusion customers not loaded yet') +
+            '<div class="st">' + (last ? (last.mode === 'changes' ? 'last sync of changes ' : 'last full load ') + C.when(last.at) + ' by ' + esc(last.by || '') + ' · ' + (last.rows || 0).toLocaleString() + ' rows' + (last.stopped ? ' (stopped)' : '') + (last.apexFailed ? ' · <span class="warnc" title="' + esc(last.apexError || '') + '">' + last.apexFailed + ' not in APEX</span>' : '') : 'Fusion customers not loaded yet') +
             (lo && lo.maxChanged ? '<br>newest change kept ' + esc(lo.maxChanged) : '') + '</div><span class="sp"></span>';
         if (r) h += '<button class="btn bad" data-act="csStop"' + (r.kind === 'apex' && false ? ' disabled' : '') + '><i class="fas fa-stop"></i> Stop</button>';
         else {
             var any = (lo && lo.n) || (ap && ap.n);
             if (st.duck && lo && ap && ap.n > lo.n) h += '<button class="btn" data-act="csApex" title="No Fusion call"><i class="fas fa-download"></i> Copy ' + (ap.n - lo.n).toLocaleString() + ' from APEX</button>';
+            if (st.duck && lo && ap && lo.n > ap.n) h += '<button class="btn" data-act="csToApex" title="So other PCs get them without Fusion"><i class="fas fa-upload"></i> Copy ' + (lo.n - ap.n).toLocaleString() + ' to APEX</button>';
             if (any) h += '<button class="btn pri" data-act="csLoad" data-mode="changes"><i class="fas fa-rotate"></i> Sync changes</button>';
             if (rz && rz.lastId) h += '<button class="btn" data-act="csLoad" data-mode="all" data-resume="1" title="From customer id ' + esc(rz.lastId) + '"><i class="fas fa-forward"></i> Continue the load (' + (rz.rows || 0).toLocaleString() + ' done)</button>';
             h += '<button class="btn ' + (any ? '' : 'pri') + '" data-act="csLoad" data-mode="all"><i class="fas fa-cloud-arrow-down"></i> ' + (any ? 'Reload all' : 'Load all Fusion customers') + '</button>';
@@ -133,8 +171,8 @@
         h += '</div>';
         if (r) {
             var secs = Math.round((Date.now() - r.t0) / 1000), pct = r.total ? Math.round(r.rows / r.total * 100) : null;
-            h += '<div class="small" style="margin-top:8px"><span class="spin"></span> ' + esc(r.label) + ' · ' + esc(r.step) + ' · <b>' + r.rows.toLocaleString() + '</b> customers' + (r.kind !== 'apex' ? ' · ' + r.apex.toLocaleString() + ' in APEX' : '') + ' · ' + secs + ' s' +
-                (r.apexErr ? ' · <span class="badc">APEX: ' + esc(r.apexErr) + '</span>' : '') + '</div><div class="cs-prog"><div style="width:' + (pct != null ? pct : Math.min(95, 5 + r.page * 4)) + '%"></div></div>';
+            h += '<div class="small" style="margin-top:8px"><span class="spin"></span> ' + esc(r.label) + ' · ' + esc(r.step) + ' · <b>' + r.rows.toLocaleString() + '</b> customers' + (r.kind !== 'apex' && r.kind !== 'push' ? ' · ' + r.apex.toLocaleString() + ' in APEX' : '') + (r.total ? ' of ' + r.total.toLocaleString() : '') + ' · ' + secs + ' s' +
+                (r.apexFailed ? ' · <span class="badc" title="' + esc(r.apexErr || '') + '">' + r.apexFailed + ' refused by APEX</span>' : '') + '</div><div class="cs-prog"><div style="width:' + (pct != null ? pct : Math.min(95, 5 + r.page * 4)) + '%"></div></div>';
         } else if (cs.lastErr) h += '<div class="note bad" style="margin-top:8px">' + esc(cs.lastErr.msg) + ' · <a data-act="csErrSql">Show the SQL</a></div>';
         return h + '</div>';
     };
