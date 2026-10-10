@@ -208,7 +208,9 @@ The last load is recorded in `WMS_CRM_SETTINGS` `CUST_SYNC_<pod>` (when, who, ro
 **Browsing.** With the box empty, the Customers grid lists every customer of this copy in pages, sorted by name:
 
 - pager « ‹ Prev, page n of m, Next › » and 25 / 50 / 100 / 200 / 500 rows a page
-- **Refresh** reads the page and the counts again
+- **Refresh** reads the page and the counts again from this PC
+- **Fusion** (beside Refresh) reads every customer of the page on screen again from Fusion, with their DFFs (one query per 200 accounts), and updates this PC and APEX — no full re-sync
+- the **↻ icon** on each row does the same for that one customer; the Customer 360 header has the same **Refresh** link (it also reads the 360's master section again)
 - without DuckDB, the same pages come from the APEX copy
 
 **Searching** pages through the matches the same way. A search with nothing on this PC (3+ characters) reads Fusion by itself. What Fusion finds shows at once (*Fusion · just read*) and is kept on this PC and in APEX, so the next search finds it here. Enter or **Find in Fusion** always asks Fusion.
@@ -247,7 +249,7 @@ It also has the Debtors tools (balances, open items, statements, follow-ups) and
 
 - `node crm/tests/crm-engine.test.js` (CI) covers business hours and the SLA (with pause), routing, phone numbers, the health score, the timeline, KPIs, naive Bayes, similar tickets, the ask parser, the read-only 360 SQL (incl. the order currency column and its fallbacks), the customer-master pages, rows and search, and the AR 360 totals and rating.
 - AI Hub: `test_crm_customer_desk_routing_tools_and_module_threads`, plus the evals `crm_sla` and `crm_missed`.
-- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 110 checks. They include:
+- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 113 checks. They include:
   - every AR view, filter and drill (invoice → receipt that paid it → Back)
   - the Statements button
   - sections kept in APEX and on this PC

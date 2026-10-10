@@ -172,9 +172,13 @@
         });
     };
     /** read these accounts again from Fusion with their DFFs → kept on this PC + APEX → the kept rows */
-    cs.readAccounts = function (accounts) {
-        accounts = (accounts || []).filter(Boolean).slice(0, 200);
+    cs.readAccounts = function (accounts, onStep) {
+        accounts = (accounts || []).filter(function (a, i, l) { return a && l.indexOf(a) === i; });
         if (!accounts.length || !D.hasHost()) return Promise.resolve([]);
+        if (accounts.length > 200) {   // 200 accounts per query, one query after another
+            var out = [], parts = []; for (var i = 0; i < accounts.length; i += 200) parts.push(accounts.slice(i, i + 200));
+            return parts.reduce(function (p, part, k) { return p.then(function () { if (onStep) onStep(k * 200, accounts.length); return cs.readAccounts(part).then(function (r) { out = out.concat(r); }); }); }, Promise.resolve()).then(function () { return out; });
+        }
         return cs.dffSpec().then(function (x) {
             var spec = x && x.spec;
             return C.fusionFirst(E.sql.customersPage(0, null, accounts.length + 5, spec, accounts), accounts.length + 10).then(function (res) {
@@ -227,6 +231,34 @@
         };
         C.ACT.cuDffLabels = function () { cs.dffSpec(true).then(function (x) { C.toast(x && x.spec ? 'DFF labels read again (' + x.n + ' segments) — Read from Fusion or Reload all to use them' : 'DFF labels: ' + (x && x.error || 'not readable'), x && x.spec ? 'ok' : 'warn', 7000); paintIt(); }); };
         if (!m.DFF_JSON && D.hasHost() && !dffBusy[acct]) C.ACT.cuDffRead();
+    };
+
+    // ── refresh one customer, or the page on screen, from Fusion (this PC + APEX updated; no full re-sync) ──
+    cs.busy = {};
+    C.ACT.cuSync1 = function (el) {
+        var acct = el.dataset.acct; if (!acct || cs.busy[acct]) return;
+        if (!D.hasHost()) { C.toast('Open the CRM inside the app to read Fusion.', 'warn'); return; }
+        cs.busy[acct] = 1; el.classList.add('spinning'); el.disabled = true;
+        cs.readAccounts([acct]).then(function (rows) {
+            C.toast(rows.length ? acct + ' read from Fusion · updated on this PC and in APEX' : 'Fusion did not return ' + acct, rows.length ? 'ok' : 'warn');
+        }, function (e) { C.toast('Fusion: ' + C.errText(e), 'bad', 7000); }).then(function () {
+            delete cs.busy[acct];
+            if (C.tab === 'customers' && C.cuLoad) C.cuLoad(); else if (C.tab === 'c360') C.render();
+        });
+    };
+    C.ACT.cuPageFusion = function () {
+        var rows = (C.cu.kept || []).concat(C.cu.fusion ? C.cu.fusion.map(function (r) { return { account: r.ACCOUNT_NUMBER }; }) : []);
+        var accts = rows.map(function (r) { return r.account; }).filter(function (a, i, l) { return a && l.indexOf(a) === i; });
+        if (!accts.length || cs.pageRun) return;
+        if (!D.hasHost()) { C.toast('Open the CRM inside the app to read Fusion.', 'warn'); return; }
+        cs.pageRun = { n: accts.length, done: 0 }; if (C.tab === 'customers') C.render();
+        cs.readAccounts(accts, function (done) { cs.pageRun.done = done; var b = document.querySelector('[data-act=cuPageFusion]'); if (b) b.lastChild.textContent = ' Fusion ' + done + ' / ' + accts.length; }).then(function (got) {
+            var miss = accts.length - got.length;
+            C.toast(got.length + ' customer' + (got.length === 1 ? '' : 's') + ' of this page read from Fusion · updated on this PC and in APEX' + (miss > 0 ? ' · ' + miss + ' not returned by Fusion' : ''), miss > 0 ? 'warn' : 'ok', 7000);
+        }, function (e) { C.toast('Fusion: ' + C.errText(e), 'bad', 7000); }).then(function () {
+            cs.pageRun = null; if (cs.status) cs.status();
+            if (C.cuLoad) C.cuLoad();
+        });
     };
 
     /** the bar on top of the Customers tab */

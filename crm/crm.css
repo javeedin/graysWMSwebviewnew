@@ -320,3 +320,9 @@ i.dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; ve
 .dfftag { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: .04em; padding: 0 4px; border-radius: 4px; background: #eef2ff; color: #4338ca; vertical-align: 1px; cursor: help; }
 .btn.dffon { color: #4338ca; }
 .kv.dff .k { cursor: help; }
+
+/* refresh one customer from Fusion */
+.btn.cu-sync { padding-left: 6px; padding-right: 6px; }
+.btn.cu-sync.spinning i { animation: cuspin .9s linear infinite; }
+@keyframes cuspin { to { transform: rotate(360deg); } }
+.c3head a.spinning i { animation: cuspin .9s linear infinite; }

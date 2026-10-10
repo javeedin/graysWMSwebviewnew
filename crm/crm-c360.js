@@ -25,6 +25,14 @@
         if (!same) load();
     };
     C.ACT.c360Sub = function (el) { C.cust.sub = el.dataset.sub; C.render(); need(); };
+    /** this customer only: the master row + DFFs from Fusion (this PC + APEX) and the 360's master section */
+    C.ACT.c360Sync = function () {
+        var c = C.cust; if (!c || c.syncing || !C.cs) return;
+        if (!D.hasHost()) { C.toast('Open the CRM inside the app to read Fusion.', 'warn'); return; }
+        c.syncing = true; C.render();
+        C.cs.readAccounts([c.account]).then(function (rows) { if (!rows.length) C.toast('Fusion did not return ' + c.account, 'warn'); else C.toast(c.account + ' refreshed from Fusion · this PC and APEX updated', 'ok'); }, function (e) { C.toast('Fusion: ' + C.errText(e), 'bad', 7000); })
+            .then(function () { c.syncing = false; fetchSection('master', true); });
+    };
     C.ACT.c360Refresh = function () { C.cust.a = null; load(true); };
     C.ACT.c360Section = function (el) { fetchSection(el.dataset.sec, true); };
     C.CH.c360Bu = function (el) { C.cust.bu = el.value; C.cust.f = {}; load(); };
@@ -209,6 +217,7 @@
             phones.map(function (p) { return '<span><i class="fas fa-phone"></i><a data-act="dialNum" data-num="' + esc(p) + '" data-acct="' + esc(c.account) + '">' + esc(p) + '</a></span>'; }).join('') +
             (email ? '<span><i class="fas fa-envelope"></i><a data-act="compose" data-to="' + esc(email) + '">' + esc(email) + '</a>' + (dm.e && !card.STMT_TO ? ' <span class="dfftag" title="From the DFF segment ' + esc(dm.e) + '">DFF</span>' : '') + '</span>' : '') +
             '<span><a data-act="cuDff" data-acct="' + esc(c.account) + '" title="Account / party / organization DFFs"><i class="fas fa-tags"></i>DFFs</a></span>' +
+            '<span><a data-act="c360Sync" class="' + (c.syncing ? 'spinning' : '') + '" title="Refresh this customer from Fusion (master + DFFs) — this PC and APEX are updated"><i class="fas fa-rotate"></i>' + (c.syncing ? 'Refreshing…' : 'Refresh') + '</a></span>' +
             (m.BILL_TO_ADDRESS ? '<span><i class="fas fa-location-dot"></i>' + esc(m.BILL_TO_ADDRESS) + '</span>' : '') + (m.COLLECTOR ? '<span><i class="fas fa-user-tie"></i>' + esc(m.COLLECTOR) + '</span>' : '') +
             (m.PAYMENT_TERMS ? '<span><i class="fas fa-calendar"></i>' + esc(m.PAYMENT_TERMS) + '</span>' : '') + (m.CREDIT_LIMIT != null && m.CREDIT_LIMIT !== '' ? '<span><i class="fas fa-gauge-high"></i>limit ' + money(m.CREDIT_LIMIT) + '</span>' : '') + '</div>' +
             '<div class="qa"><button class="btn ok" data-act="callCust"><i class="fas fa-phone"></i> Call</button><button class="btn" data-act="compose"><i class="fas fa-envelope"></i> E-mail</button>' +
