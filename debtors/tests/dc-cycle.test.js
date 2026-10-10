@@ -109,5 +109,21 @@ const plan2 = E.sendPlan(checks, { A: { status: 'PASS' } }, { SNAP_AT: 'x', REVI
 check('sendPlan: a check never run is listed as not run', plan2.bypass.map(x => x.id + ':' + x.state).join() === 'B:not run,C:not run');
 check('sendPlan: everything done → ready', E.sendPlan(checks, { A: { status: 'PASS' }, B: { status: 'PASS' }, C: { status: 'FAIL', rows: 2 } }, { SNAP_AT: 'x', REVIEW_AT: 'y' }).ready);
 
+// accounting status read after the comparison
+const omarDef = E.CHECKS.find(c => c.id === 'OM_AR_AMOUNTS');
+check('OM vs AR: no XLA join in the comparison itself (it timed out on big months)', omarDef.acct && !/xla_/i.test(omarDef.sql) && /trx_ids/.test(omarDef.sql));
+const ar = [{ ORDER_NUMBER: '1', TRX_IDS: '11,12', ACCT_STATUS: 'Not checked' }, { ORDER_NUMBER: '2', TRX_IDS: '13', ACCT_STATUS: 'Not checked' }, { ORDER_NUMBER: '3', ACCT_STATUS: 'No invoice' }, { ORDER_NUMBER: '4', TRX_IDS: '14,15...', ACCT_STATUS: 'Not checked' }, { ORDER_NUMBER: '5', TRX_IDS: '16', ACCT_STATUS: 'Invoice incomplete' }];
+const ch = E.acctChunks(ar, 2);
+check('acctChunks: unique whole ids in chunks', JSON.stringify(ch) === JSON.stringify([['11', '12'], ['13', '16']]) || JSON.stringify(ch.flat()) === JSON.stringify(['11', '12', '13', '14', '16']), JSON.stringify(ch));
+check('acctSql: ids only digits, IN list', /IN \(11, 12\)/.test(E.acctSql(['11', '12', "1) OR (1=1"])));
+E.acctMerge(ar, [{ CUSTOMER_TRX_ID: 11, EVENTS: 1, NOT_ACCOUNTED: 0, IN_ERROR: 0 }, { CUSTOMER_TRX_ID: 12, EVENTS: 1, NOT_ACCOUNTED: 1, IN_ERROR: 0 }, { CUSTOMER_TRX_ID: 14, EVENTS: 2, NOT_ACCOUNTED: 0, IN_ERROR: 1 }]);
+check('acctMerge: worst of the invoices, no event, no invoice kept, incomplete kept', ar.map(r => r.ACCT_STATUS).join() === 'Not accounted,No accounting event,No invoice,Error,Invoice incomplete', ar.map(r => r.ACCT_STATUS).join());
+
+// Customer 360 › open invoices
+const oiq = E.openItemsSql({ id: '300000003234003' }, "GR'1");
+check('openItemsSql: account quoted, BU id, open schedules only', /account_number = 'GR''1'/.test(oiq) && /ps.org_id = 300000003234003/.test(oiq) && /ps.status = 'OP'/.test(oiq) && /0/.test(E.openItemsSql({ id: 'x;drop' }, 'A')));
+const ois = E.openItemsSummary([{ REMAINING: 100, DAYS_LATE: 0, CUSTOMER: 'Grays' }, { REMAINING: 50, DAYS_LATE: 45 }, { REMAINING: 20, DAYS_LATE: 120 }, { REMAINING: -30, DAYS_LATE: 5 }]);
+check('openItemsSummary: total, overdue, credits, aging buckets, oldest, name', ois.total === 140 && ois.overdue === 40 && ois.credits === -30 && ois.aging.d60 === 50 && ois.aging.d90p === 20 && ois.aging.d30 === -30 && ois.oldest === 120 && ois.name === 'Grays', JSON.stringify(ois));
+
 console.log(bad ? 'FAILED ' + bad + ' of ' + n + ' statement cycle checks' : 'ok ' + n + ' statement cycle checks');
 process.exit(bad ? 1 : 0);

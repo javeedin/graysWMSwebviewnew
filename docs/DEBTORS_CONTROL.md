@@ -122,6 +122,17 @@ the balance with its aging bar, why the priority is what it is, and one **timeli
 answers, calls, notes, promises to pay, disputes and follow-ups. From there: *Log a call*, *Note*, *Promise to pay*
 (amount + date), *Follow-up*, *Dispute*, *Card*, *Send a statement*.
 
+Opened from a statement cycle, the balance is the cycle's (the balances read for it, else the archive). The
+**Open invoices** tab reads the customer's open items live from Fusion (AR payment schedules still open in that
+business unit: invoices, credit memos, unapplied receipts) with totals, overdue, days late, CSV and the SQL; a line
+opens its lines, accounting events and journal lines, with a link to Oracle Fusion. *Follow-ups* lists the open
+promises, disputes and tasks.
+
+**OM vs AR and its SQL.** The comparison per order is one query; the accounting status of the invoices is read
+afterwards (XLA events by invoice id, 400 at a time), because joining XLA in the same query timed out on a real
+month. *Every order of the month* waits up to 10 minutes. The workbench's **SQL** button shows the exact statement
+inside the workbench; a run that fails shows its error with the SQL, *Try again*, *Copy* and *Open in Fusion SQL*.
+
 **Priority (0–100)** — a large balance, old debt (60+ / 90+ days), broken promises, open disputes, no contact for 45
 days and a statement that did not arrive all raise it; each reason is shown.
 

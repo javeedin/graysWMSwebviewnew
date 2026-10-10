@@ -15,7 +15,7 @@
     function $(id) { return document.getElementById(id); }
     var W = DC.wb = { stack: [], links: null };
     function copy(text, msg) { try { var p = navigator.clipboard.writeText(String(text || '')); if (p && p.then) p.then(function () { if (msg) A.toast(msg, 'ok'); }, function () { }); } catch (e) { } }
-    var HIDE = /^(HEADER_ID|CUSTOMER_TRX_ID|SOURCE_ID|EVENT_ID|AE_HEADER_ID|CASH_RECEIPT_ID|FULFILL_LINE_ID|INTERFACE_LINE_ID|EVENT_STATUS_CODE|PROCESS_STATUS_CODE)$/;
+    var HIDE = /^(HEADER_ID|CUSTOMER_TRX_ID|TRX_IDS|SOURCE_ID|EVENT_ID|AE_HEADER_ID|CASH_RECEIPT_ID|FULFILL_LINE_ID|INTERFACE_LINE_ID|EVENT_STATUS_CODE|PROCESS_STATUS_CODE)$/;
     var FIRST = ['ACCOUNT_NUMBER', 'CUSTOMER', 'ACCOUNT_NAME', 'ORDER_NUMBER', 'KIND', 'TRX_NUMBER', 'RECEIPT_NUMBER', 'OM_AMOUNT', 'AR_AMOUNT', 'AMOUNT', 'DIFFERENCE', 'ACCT_STATUS'];
     var LABEL = { ACCOUNT_NUMBER: 'Customer no.', CUSTOMER: 'Customer', ORDER_NUMBER: 'Order', OM_AMOUNT: 'OM amount', AR_AMOUNT: 'AR amount', ACCT_STATUS: 'Accounting', TRX_NUMBER: 'Transaction', RECEIPT_NUMBER: 'Receipt', DIFFERENCE: 'Why', OM_LINES: 'OM lines', GL_TRANSFER: 'GL transfer', ENTRY_STATUS: 'Entry' };
     function label(c, def) { var C2 = String(c).toUpperCase(); if (C2 === 'AMOUNT' && def && def.compare) return 'Difference (OM − AR)'; return LABEL[C2] || (C2.charAt(0) + C2.slice(1).toLowerCase()).replace(/_/g, ' '); }
@@ -109,14 +109,26 @@
             });
         }).catch(function (e) { f.rows = []; f.src = 'could not read: ' + A.errText(e); paint(); });
     }
+    function varsOf() { return E.cycleVars(A.bu(C.cy.BU_ID), { stmtDate: C.cy.STMT_DATE, tolerance: C.cy.TOLERANCE != null && C.cy.TOLERANCE !== '' ? +C.cy.TOLERANCE : 1 }, {}); }
+    /** the SQL behind what is on screen: the check as it ran, or "every order of the month" (ONLY_DIFF = N) */
+    function sqlOf(f) {
+        if (f.sql) return f.sql;
+        if (f.variant === 'all' && f.def && f.def.sql) return E.fill(f.def.sql, Object.assign(varsOf(), { ONLY_DIFF: 'N' }), 'sql');
+        var r = C.results[f.id] || {};
+        if (r.sql) return r.sql;
+        return f.def && f.def.sql ? E.fill(f.def.sql, varsOf(), 'sql') : '';
+    }
     function runVariant(f) {
-        var b = A.bu(C.cy.BU_ID), vars = E.cycleVars(b, { stmtDate: C.cy.STMT_DATE, tolerance: C.cy.TOLERANCE != null && C.cy.TOLERANCE !== '' ? +C.cy.TOLERANCE : 1 }, { ONLY_DIFF: 'N' });
-        var sql = E.fill(f.def.sql, vars, 'sql'), t0 = Date.now(), end = A.busy('Reading every order of the month from Fusion…');
-        f.rows = null; f.src = 'reading…'; paint();
-        return S.fusionSql(sql, 50000).then(function (rows) {
-            end(); f.rows = rows; f.sql = sql; f.src = rows.length + ' orders read now (' + Math.round((Date.now() - t0) / 100) / 10 + ' s) · kept on this PC';
-            L.saveRows(f.id, 'all', rows); paint();
-        }, function (e) { end(); f.rows = []; f.src = 'Fusion: ' + A.errText(e); paint(); });
+        var sql = E.fill(f.def.sql, Object.assign(varsOf(), { ONLY_DIFF: 'N' }), 'sql'), t0 = Date.now(), end = A.busy('Reading every order of the month from Fusion…');
+        f.sql = sql; f.err = null; f.rows = null; if (f.autoSql) { f.showSql = false; f.autoSql = false; } f.src = 'reading every order of the month (up to 10 min)…'; paint();
+        return S.fusionSql(sql, 50000, 600000).then(function (rows) {
+            var secs = Math.round((Date.now() - t0) / 100) / 10;
+            f.rows = rows; f.src = rows.length + ' orders read now (' + secs + ' s) · reading the accounting status…'; paint();
+            return DC.cycles.acctFill(rows, function (i, n) { f.src = rows.length + ' orders read (' + secs + ' s) · accounting status ' + i + ' / ' + n; var el = $('wb-src'); if (el) el.textContent = f.src; }).then(function () {
+                end(); f.src = rows.length + ' orders read now (' + Math.round((Date.now() - t0) / 100) / 10 + ' s)' + (rows.acctFailed ? ' · ' + rows.acctFailed + ' accounting chunk(s) could not be read' : '') + ' · kept on this PC';
+                L.saveRows(f.id, 'all', rows); paint();
+            });
+        }, function (e) { end(); f.rows = []; f.err = A.errText(e); if (!f.showSql) { f.showSql = true; f.autoSql = true; } f.src = 'Fusion did not answer'; paint(); });
     }
     function filtered(f) {
         var rows = f.rows || [], fl = f.filters, keys = Object.keys(fl).filter(function (k) { return fl[k]; });
@@ -140,14 +152,17 @@
     function checkHtml(f) {
         var d = f.def, r = C.results[f.id] || {}, cols = f.cols = f.rows ? order(colsOf(f.rows)) : [];
         var h = '<div class="wb-head"><div><h2 style="margin:0">' + esc(d.title) + ' ' + pill(d.severity === 'BLOCK' ? 'blocking' : 'warning', d.severity === 'BLOCK' ? 'bad' : 'warn') + '</h2><div class="small muted">' + esc(d.help || '') + '</div>' +
-            '<div class="small" style="margin-top:4px">' + (r.status ? '<b>' + esc(r.status === 'PASS' ? 'passed' : r.status === 'NOT_RUN' ? 'not run' : r.status === 'ERROR' ? 'could not run' : (r.rows + (r.truncated ? '+' : '') + ' found')) + '</b>' : 'not run') + (r.ranAt ? ' · ' + when(r.ranAt) + ' · ' + esc(r.ranBy || '') : '') + (r.ms ? ' · ' + Math.round(+r.ms / 100) / 10 + ' s' : '') + ' · <span class="muted">' + esc(f.src || '') + '</span></div>' +
+            '<div class="small" style="margin-top:4px">' + (r.status ? '<b>' + esc(r.status === 'PASS' ? 'passed' : r.status === 'NOT_RUN' ? 'not run' : r.status === 'ERROR' ? 'could not run' : (r.rows + (r.truncated ? '+' : '') + ' found')) + '</b>' : 'not run') + (r.ranAt ? ' · ' + when(r.ranAt) + ' · ' + esc(r.ranBy || '') : '') + (r.ms ? ' · ' + Math.round(+r.ms / 100) / 10 + ' s' : '') + ' · <span class="muted" id="wb-src">' + esc(f.src || '') + '</span></div>' +
             (r.error ? '<div class="note bad" style="margin-top:6px">' + esc(r.error) + '</div>' : '') + (r.bypassNote ? '<div class="note warn" style="margin-top:6px"><i class="fas fa-user-shield"></i> Bypassed by ' + esc(r.bypassBy || '') + ': “' + esc(r.bypassNote) + '”</div>' : '') + '</div></div>';
         if (d.compare) h += '<div class="seg" style="margin:10px 0"><button data-act="wbVariant" data-v="check"' + (f.variant === 'check' ? ' class="on"' : '') + '>Only the differences</button><button data-act="wbVariant" data-v="all"' + (f.variant === 'all' ? ' class="on"' : '') + '>Every order of the month</button></div>';
+        if (f.err) h += '<div class="wb-err"><b><i class="fas fa-triangle-exclamation"></i> ' + esc(f.err) + '</b><div class="small" style="margin-top:4px">The query is below — copy it into Fusion SQL to see where the time goes, or try again (it now waits up to 10 minutes). The accounting status is read separately afterwards, so the comparison itself is the only heavy part.</div>' +
+            '<div class="row" style="margin-top:8px"><button class="btn sm" data-act="wbRetry"><i class="fas fa-rotate"></i> Try again</button><button class="btn sm" data-act="wbCopySql"><i class="fas fa-copy"></i> Copy SQL</button><button class="btn sm" data-act="wbToFsql"><i class="fas fa-database"></i> Open in Fusion SQL</button></div></div>';
+        if (f.showSql) h += sqlPanel(f);
         if (!f.rows) return h + '<div class="card empty"><i class="fas fa-spinner fa-spin"></i></div>';
         h += '<div id="wb-sum"></div>';
         h += '<div class="row" style="margin:8px 0"><span class="small muted" id="wb-n"></span><span class="sp"></span><label class="chk small"><input type="checkbox" id="wb-ids"' + (f.showIds ? ' checked' : '') + '> show ids</label>' +
             '<button class="btn sm" data-act="wbClear">Clear filters</button>' +
-            '<button class="btn sm" data-act="wbCsv"><i class="fas fa-file-csv"></i> CSV</button><button class="btn sm" data-act="wbSql"><i class="fas fa-code"></i> SQL</button>' +
+            '<button class="btn sm" data-act="wbCsv"><i class="fas fa-file-csv"></i> CSV</button><button class="btn sm' + (f.showSql ? ' pri' : '') + '" data-act="wbSql"><i class="fas fa-code"></i> ' + (f.showSql ? 'Hide SQL' : 'SQL') + '</button>' +
             (DC.cycles.canRun() ? '<button class="btn sm" data-act="wbRerun"><i class="fas fa-play"></i> Run again</button>' : '') + '</div>';
         var vis = cols.filter(function (c) { return f.showIds || !HIDE.test(String(c).toUpperCase()); });
         h += '<div class="tblw wb-grid"><table class="tbl" id="wb-grid"><thead><tr>' + vis.map(function (c) { var s = f.sort && f.sort.c === c ? (f.sort.dir > 0 ? ' ▲' : ' ▼') : ''; return '<th class="sort' + (isAmt(c) ? ' r' : '') + '" data-act="wbSort" data-c="' + esc(c) + '">' + esc(label(c, f.def)) + s + '</th>'; }).join('') + '</tr>' +
@@ -182,16 +197,16 @@
     document.addEventListener('change', function (e) { if (e.target.id === 'wb-ids') { var f = top(); if (f) { f.showIds = e.target.checked; paint(); } } });
 
     // ── a drill-down ──
-    W.drill = function (dr, fromRow) {
+    W.drill = function (dr, fromRow, buId) {
         if (!dr) return;
         if (!$('cy-wb') || !$('cy-wb').classList.contains('on')) { W.stack = []; shell(); }
         W.loadLinks();
-        var f = { type: 'drill', title: dr.label, dr: dr, row: fromRow || null, parts: {} };
+        var f = { type: 'drill', title: dr.label, dr: dr, row: fromRow || null, parts: {}, buId: buId || (W.stack[0] && W.stack[0].buId) || null };
         W.stack.push(f); paint();
         return loadDrill(f, false);
     };
     function loadDrill(f, fresh) {
-        var b = A.bu(C.cy ? C.cy.BU_ID : P.buId), defs = (E.DRILLS[f.dr.kind] || {}).parts || [], cid = C.cy ? C.cy.CYCLE_ID : 'none';
+        var b = A.bu(f.buId || (C.cy ? C.cy.BU_ID : P.buId)), defs = (E.DRILLS[f.dr.kind] || {}).parts || [], cid = f.buId ? 'c360' : C.cy ? C.cy.CYCLE_ID : 'none';
         return (fresh ? Promise.resolve({}) : L.drill(cid, f.dr.key)).then(function (kept) {
             var todo = [];
             defs.forEach(function (p) {
@@ -259,10 +274,26 @@
     ACT.wbClear = function () { var f = top(); f.filters = {}; f.chip = null; paint(); };
     ACT.wbVariant = function (d) { var f = top(); if (f.variant === d.v) return; f.variant = d.v; f.rows = null; f.filters = {}; f.chip = null; paint(); loadRows(f); };
     ACT.wbCsv = function () { var f = top(), rows = f.view || f.rows || []; if (!rows.length) return; var cols = f.cols; A.csv('check-' + f.id + (f.variant === 'all' ? '-all' : '') + '-' + C.cy.PERIOD + '.csv', cols.map(function (c) { return [c, label(c, f.def)]; }), rows); };
+    function sqlPanel(f) {
+        var sql = sqlOf(f); W._sql = sql;
+        return '<div class="wb-sql"><div class="row"><b class="small"><i class="fas fa-code"></i> SQL · ' + esc(f.variant === 'all' ? 'every order of the month' : 'as the check ran') + '</b>' +
+            (f.def && f.def.acct ? '<span class="small muted">+ the accounting status: XLA events by invoice id, 400 per query</span>' : '') + '<span class="sp"></span>' +
+            '<button class="btn sm" data-act="wbCopySql"><i class="fas fa-copy"></i> Copy</button><button class="btn sm" data-act="wbToFsql"><i class="fas fa-database"></i> Open in Fusion SQL</button></div>' +
+            '<pre class="sqlbox">' + esc(sql || '(not kept — Run again to record it)') + '</pre></div>';
+    }
     ACT.wbSql = function () {
-        var f = top(), r = C.results[f.id] || {}, sql = f.sql || r.sql;
-        var show = function (s) { A.modal('<i class="fas fa-code"></i> ' + esc(f.def.title), '<pre class="sqlbox">' + esc(s || '(not kept)') + '</pre>', '<button class="btn" data-act="wbCopySql">Copy</button><span class="sp"></span><button class="btn" data-act="mclose">Close</button>', true); W._sql = s; };
-        if (sql) show(sql); else S.cycle.checkDetail(C.cy.CYCLE_ID, f.id).then(function (d) { f.sql = d.sql; show(d.sql); });
+        var f = top(); if (!f) return;
+        if (f.type !== 'check') { var p = (f.parts && Object.keys(f.parts).map(function (k) { return f.parts[k]; }).filter(function (x) { return x && x.sql; })[0]) || {}; W._sql = p.sql; return A.modal('<i class="fas fa-code"></i> SQL', '<pre class="sqlbox">' + esc(p.sql || '') + '</pre>', '<button class="btn" data-act="wbCopySql">Copy</button><span class="sp"></span><button class="btn" data-act="mclose">Close</button>', true); }
+        f.showSql = !f.showSql; f.autoSql = false; paint();
+        if (f.showSql && !sqlOf(f)) S.cycle.checkDetail(C.cy.CYCLE_ID, f.id).then(function (d) { if (d && d.sql) { f.sql = d.sql; paint(); } });
+    };
+    ACT.wbRetry = function () { var f = top(); if (f && f.variant === 'all') { f.rows = null; runVariant(f); } else ACT.wbRerun(); };
+    ACT.wbToFsql = function () {
+        var sql = W._sql || sqlOf(top() || {}); if (!sql) return;
+        // Fusion SQL restores its editor from fusionSql.editor (JSON) on start; opened in its own tab
+        try { localStorage.setItem('fusionSql.editor', JSON.stringify(String(sql))); localStorage.setItem('fusionSql.tab', JSON.stringify('builder')); } catch (e) { }
+        copy(sql, 'Opening Fusion SQL with this query (also copied)');
+        try { window.open('../fusionsql/index.html', '_blank'); } catch (e) { }
     };
     ACT.wbCopySql = function () { copy(W._sql, 'Copied'); };
     ACT.wbCopy = function (d) { var f = top(); copy((f.parts[d.p] || {}).sql, 'Copied'); };

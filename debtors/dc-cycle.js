@@ -82,36 +82,30 @@
                "  LEFT JOIN hz_cust_accounts ca ON ca.cust_account_id = NVL(fl.bill_to_customer_id, h.sold_to_customer_id)\n  LEFT JOIN hz_parties p ON p.party_id = ca.party_id\n" +
                " WHERE h.org_id = {BU_ID} AND fl.status_code IN ('SHIPPED', 'AWAIT_BILLING')\n   AND fl.actual_ship_date < " + D + " + 1\n ORDER BY fl.actual_ship_date" },
         { id: 'OM_AR_AMOUNTS', area: 'OM → AR', severity: 'BLOCK', kind: 'SQL', title: 'OM and AR amounts of the month agree', compare: true,
-          help: 'Per customer and order: order lines shipped this month (OM) vs AR invoice lines of the month that carry the order. A row comes back when they differ by more than the tolerance — with the accounting status of its invoices.',
+          help: 'Per customer and order: order lines shipped this month (OM) vs AR invoice lines of the month that carry the order. A row comes back when they differ by more than the tolerance. The accounting status of its invoices is read in a second, light query (XLA events by invoice id, 400 at a time) so the comparison itself stays fast.',
+          acct: true,
           sql: "WITH om AS (SELECT h.header_id, h.order_number, NVL(fl.bill_to_customer_id, h.sold_to_customer_id) AS cust_id,\n" +
                "                   SUM(fl.extended_amount) AS om_amount, COUNT(*) AS om_lines, MAX(fl.actual_ship_date) AS shipped\n" +
                "              FROM doo_fulfill_lines_all fl JOIN doo_headers_all h ON h.header_id = fl.header_id\n" +
                "             WHERE h.org_id = {BU_ID} AND fl.actual_ship_date >= " + D0 + " AND fl.actual_ship_date < " + D + " + 1\n" +
                "               AND fl.status_code IN ('SHIPPED', 'AWAIT_BILLING', 'BILLED', 'CLOSED')\n" +
                "             GROUP BY h.header_id, h.order_number, NVL(fl.bill_to_customer_id, h.sold_to_customer_id)),\n" +
-               "     ar AS (SELECT l.sales_order AS order_number, MAX(t.bill_to_customer_id) AS cust_id, SUM(l.extended_amount) AS ar_amount,\n" +
-               "                   COUNT(DISTINCT t.customer_trx_id) AS ar_trx, MIN(t.trx_number) AS trx_number, MIN(t.customer_trx_id) AS customer_trx_id,\n" +
-               "                   SUM(CASE WHEN t.complete_flag = 'Y' THEN 0 ELSE 1 END) AS incomplete_lines\n" +
-               "              FROM ra_customer_trx_lines_all l JOIN ra_customer_trx_all t ON t.customer_trx_id = l.customer_trx_id\n" +
-               "             WHERE t.org_id = {BU_ID} AND l.line_type = 'LINE' AND l.sales_order IS NOT NULL\n" +
-               "               AND t.trx_date >= " + D0 + " AND t.trx_date < " + D + " + 1\n" +
-               "             GROUP BY l.sales_order),\n" +
-               "     acc AS (SELECT x.sales_order AS order_number, COUNT(e.event_id) AS events,\n" +
-               "                    SUM(CASE WHEN e.event_status_code IN ('U', 'I') OR e.process_status_code IN ('E', 'D', 'I', 'R') THEN 1 ELSE 0 END) AS not_accounted,\n" +
-               "                    SUM(CASE WHEN e.process_status_code = 'E' THEN 1 ELSE 0 END) AS in_error\n" +
-               "               FROM (SELECT DISTINCT l.customer_trx_id, l.sales_order FROM ra_customer_trx_lines_all l JOIN ra_customer_trx_all t ON t.customer_trx_id = l.customer_trx_id\n" +
-               "                      WHERE t.org_id = {BU_ID} AND l.line_type = 'LINE' AND l.sales_order IS NOT NULL AND t.trx_date >= " + D0 + " AND t.trx_date < " + D + " + 1) x\n" +
-               "               JOIN xla_transaction_entities te ON te.application_id = 222 AND te.entity_code = 'TRANSACTIONS' AND te.source_id_int_1 = x.customer_trx_id\n" +
-               "               JOIN xla_events e ON e.application_id = 222 AND e.entity_id = te.entity_id AND e.event_status_code <> 'N'\n" +
-               "              GROUP BY x.sales_order)\n" +
+               "     inv AS (SELECT l.sales_order AS order_number, t.customer_trx_id, t.trx_number, MAX(t.bill_to_customer_id) AS cust_id,\n" +
+               "                    SUM(l.extended_amount) AS amt, MAX(CASE WHEN t.complete_flag = 'Y' THEN 0 ELSE 1 END) AS incomplete\n" +
+               "               FROM ra_customer_trx_all t JOIN ra_customer_trx_lines_all l ON l.customer_trx_id = t.customer_trx_id\n" +
+               "              WHERE t.org_id = {BU_ID} AND t.trx_date >= " + D0 + " AND t.trx_date < " + D + " + 1\n" +
+               "                AND l.line_type = 'LINE' AND l.sales_order IS NOT NULL\n" +
+               "              GROUP BY l.sales_order, t.customer_trx_id, t.trx_number),\n" +
+               "     ar AS (SELECT order_number, MAX(cust_id) AS cust_id, SUM(amt) AS ar_amount, COUNT(*) AS ar_trx, MIN(trx_number) AS trx_number,\n" +
+               "                   MIN(customer_trx_id) AS customer_trx_id, SUM(incomplete) AS incomplete_trx,\n" +
+               "                   LISTAGG(customer_trx_id, ',' ON OVERFLOW TRUNCATE '...' WITHOUT COUNT) WITHIN GROUP (ORDER BY customer_trx_id) AS trx_ids\n" +
+               "              FROM inv GROUP BY order_number)\n" +
                "SELECT ca.account_number, p.party_name AS customer, NVL(om.order_number, ar.order_number) AS order_number, om.header_id,\n" +
                "       NVL(om.om_amount, 0) AS om_amount, NVL(ar.ar_amount, 0) AS ar_amount, NVL(om.om_amount, 0) - NVL(ar.ar_amount, 0) AS amount,\n" +
-               "       CASE WHEN ar.order_number IS NULL THEN 'Shipped, not invoiced this month' WHEN om.order_number IS NULL THEN 'Invoiced, not shipped this month' ELSE 'Amounts differ' END AS difference,\n" +
-               "       CASE WHEN ar.order_number IS NULL THEN 'No invoice' WHEN NVL(acc.events, 0) = 0 THEN 'No accounting event' WHEN acc.in_error > 0 THEN 'Error'\n" +
-               "            WHEN acc.not_accounted > 0 THEN 'Not accounted' ELSE 'Accounted' END AS acct_status,\n" +
-               "       ar.trx_number, ar.customer_trx_id, NVL(ar.ar_trx, 0) AS invoices, NVL(om.om_lines, 0) AS om_lines, TO_CHAR(om.shipped, 'YYYY-MM-DD') AS shipped\n" +
+               "       CASE WHEN ar.order_number IS NULL THEN 'Shipped, not invoiced this month' WHEN om.order_number IS NULL THEN 'Invoiced, not shipped this month' WHEN NVL(om.om_amount, 0) = NVL(ar.ar_amount, 0) THEN 'Agrees' ELSE 'Amounts differ' END AS difference,\n" +
+               "       CASE WHEN ar.order_number IS NULL THEN 'No invoice' WHEN ar.incomplete_trx > 0 THEN 'Invoice incomplete' ELSE 'Not checked' END AS acct_status,\n" +
+               "       ar.trx_number, ar.customer_trx_id, NVL(ar.ar_trx, 0) AS invoices, NVL(om.om_lines, 0) AS om_lines, TO_CHAR(om.shipped, 'YYYY-MM-DD') AS shipped, ar.trx_ids\n" +
                "  FROM om FULL OUTER JOIN ar ON ar.order_number = om.order_number\n" +
-               "  LEFT JOIN acc ON acc.order_number = NVL(om.order_number, ar.order_number)\n" +
                "  LEFT JOIN hz_cust_accounts ca ON ca.cust_account_id = NVL(om.cust_id, ar.cust_id)\n" +
                "  LEFT JOIN hz_parties p ON p.party_id = ca.party_id\n" +
                " WHERE ('{ONLY_DIFF}' = 'N' OR ABS(NVL(om.om_amount, 0) - NVL(ar.ar_amount, 0)) > {TOLERANCE})\n" +
@@ -131,6 +125,36 @@
         { id: 'OLD_DEBT', area: 'Customers', severity: 'WARN', kind: 'LOCAL', title: 'Debt over 90 days followed up', help: 'Customers with more than a quarter of the balance over 90 days and no open follow-up.' }
     ];
     E.AREAS = ['Receipts', 'AR', 'OM → AR', 'Period', 'Customers'];
+
+    // ── accounting status, read after the main query (XLA by invoice id) ──
+    /** the invoice ids of the rows (TRX_IDS "1,2,3" — a truncated LISTAGG keeps its whole ids), in chunks of n */
+    E.acctChunks = function (rows, n) {
+        var seen = {}, ids = [];
+        (rows || []).forEach(function (r) { String(r.TRX_IDS || r.CUSTOMER_TRX_ID || '').split(',').forEach(function (x) { x = x.trim(); if (/^\d+$/.test(x) && !seen[x]) { seen[x] = 1; ids.push(x); } }); });
+        var out = []; for (var i = 0; i < ids.length; i += (n || 400)) out.push(ids.slice(i, i + (n || 400)));
+        return out;
+    };
+    E.acctSql = function (ids) {
+        return "SELECT te.source_id_int_1 AS customer_trx_id, COUNT(e.event_id) AS events,\n" +
+            "       SUM(CASE WHEN e.event_status_code IN ('U', 'I') OR e.process_status_code IN ('E', 'D', 'I', 'R') THEN 1 ELSE 0 END) AS not_accounted,\n" +
+            "       SUM(CASE WHEN e.process_status_code = 'E' THEN 1 ELSE 0 END) AS in_error\n" +
+            "  FROM xla_transaction_entities te\n  JOIN xla_events e ON e.application_id = 222 AND e.entity_id = te.entity_id AND e.event_status_code <> 'N'\n" +
+            " WHERE te.application_id = 222 AND te.entity_code = 'TRANSACTIONS'\n   AND te.source_id_int_1 IN (" + (ids || []).filter(function (x) { return /^\d+$/.test(String(x)); }).join(', ') + ")\n" +
+            " GROUP BY te.source_id_int_1";
+    };
+    /** fold the XLA counts per invoice into each row's ACCT_STATUS (worst of its invoices); rows without invoices keep theirs */
+    E.acctMerge = function (rows, statusRows) {
+        var by = {};
+        (statusRows || []).forEach(function (s) { by[String(s.CUSTOMER_TRX_ID)] = s; });
+        (rows || []).forEach(function (r) {
+            var ids = String(r.TRX_IDS || r.CUSTOMER_TRX_ID || '').split(',').map(function (x) { return x.trim(); }).filter(function (x) { return /^\d+$/.test(x); });
+            if (!ids.length || r.ACCT_STATUS === 'Invoice incomplete') return;
+            var ev = 0, na = 0, er = 0;
+            ids.forEach(function (id) { var s = by[id]; if (s) { ev += +s.EVENTS || 0; na += +s.NOT_ACCOUNTED || 0; er += +s.IN_ERROR || 0; } });
+            r.ACCT_STATUS = !ev ? 'No accounting event' : er ? 'Error' : na ? 'Not accounted' : 'Accounted';
+        });
+        return rows;
+    };
 
     /** A LOCAL check on the cycle's customers → exception rows {ACCOUNT_NUMBER, ACCOUNT_NAME, AMOUNT, DETAIL} */
     E.localCheck = function (id, customers, ctx) {
@@ -312,6 +336,35 @@
     }
     var TRX_OF_ORDER = "IN (SELECT DISTINCT l.customer_trx_id FROM ra_customer_trx_lines_all l WHERE l.sales_order = '{ORDER_NUMBER}' AND l.line_type = 'LINE')";
     /** kind → {title, parts: [{id, title, sql}]}; placeholders {ORDER_NUMBER} {HEADER_ID} {TRX_ID} {RECEIPT_ID} {BU_ID} */
+    // ── a customer's open items (Customer 360 › Open invoices), live from Fusion ──
+    E.OPEN_ITEMS_SQL = "SELECT ps.class, NVL(t.trx_number, cr.receipt_number) AS trx_number, tt.name AS trx_type,\n" +
+        "       TO_CHAR(NVL(t.trx_date, ps.trx_date), 'YYYY-MM-DD') AS trx_date, TO_CHAR(ps.due_date, 'YYYY-MM-DD') AS due_date,\n" +
+        "       GREATEST(TRUNC(SYSDATE) - TRUNC(ps.due_date), 0) AS days_late, ps.amount_due_original AS original, ps.amount_due_remaining AS remaining,\n" +
+        "       ps.invoice_currency_code AS currency, t.ct_reference AS reference, t.purchase_order AS customer_po, p.party_name AS customer,\n" +
+        "       ps.customer_trx_id, ps.cash_receipt_id\n" +
+        "  FROM ar_payment_schedules_all ps\n" +
+        "  JOIN hz_cust_accounts ca ON ca.cust_account_id = ps.customer_id\n" +
+        "  JOIN hz_parties p ON p.party_id = ca.party_id\n" +
+        "  LEFT JOIN ra_customer_trx_all t ON t.customer_trx_id = ps.customer_trx_id\n" +
+        "  LEFT JOIN ra_cust_trx_types_all tt ON tt.cust_trx_type_seq_id = t.cust_trx_type_seq_id\n" +
+        "  LEFT JOIN ar_cash_receipts_all cr ON cr.cash_receipt_id = ps.cash_receipt_id\n" +
+        " WHERE ca.account_number = '{ACCOUNT_NUMBER}' AND ps.org_id = {BU_ID} AND ps.status = 'OP' AND ps.amount_due_remaining <> 0\n" +
+        " ORDER BY ps.due_date, NVL(t.trx_number, cr.receipt_number)";
+    E.openItemsSql = function (bu, account) { return E.fill(E.OPEN_ITEMS_SQL, { BU_ID: /^\d+$/.test(String((bu || {}).id || '')) ? bu.id : '0', ACCOUNT_NUMBER: account || '' }, 'sql'); };
+    /** totals + aging of the open items (the same buckets as the statement) */
+    E.openItemsSummary = function (rows) {
+        var t = { n: 0, total: 0, overdue: 0, credits: 0, aging: { current: 0, d30: 0, d60: 0, d90: 0, d90p: 0 }, oldest: 0, name: '' };
+        (rows || []).forEach(function (r) {
+            var amt = +r.REMAINING || 0, late = +r.DAYS_LATE || 0; t.n++; t.total += amt; if (amt < 0) t.credits += amt;
+            if (!t.name && r.CUSTOMER) t.name = r.CUSTOMER;
+            var a = t.aging; if (late <= 0) a.current += amt; else { t.overdue += amt; if (late <= 30) a.d30 += amt; else if (late <= 60) a.d60 += amt; else if (late <= 90) a.d90 += amt; else a.d90p += amt; }
+            if (amt > 0 && late > t.oldest) t.oldest = late;
+        });
+        ['total', 'overdue', 'credits'].forEach(function (k) { t[k] = Math.round(t[k] * 100) / 100; });
+        Object.keys(t.aging).forEach(function (k) { t.aging[k] = Math.round(t.aging[k] * 100) / 100; });
+        return t;
+    };
+
     E.DRILLS = {
         ORDER: { title: 'Sales order', parts: [
             { id: 'om', title: 'Order lines (Order Management)', sql: "SELECT fl.fulfill_line_number AS line, i.item_number AS item, fl.ordered_qty, fl.shipped_qty, fl.ordered_uom AS uom, fl.status_code AS status,\n" +

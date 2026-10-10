@@ -48,8 +48,9 @@
     function restOut(r) { var o = { ok: !!(r && r.ok), status: r && r.status, text: r && r.text, json: null }; if (r && !r.rest && typeof r === 'string') o.text = r; try { o.json = JSON.parse(o.text); } catch (e) { } return o; }
 
     /** Fusion SQL through the app's read-only runner → rows with upper-case keys. */
-    S.fusionSql = function (sql, rowLimit) {
-        return S.host('fusionSqlExecute', { sql: sql, rowLimit: rowLimit || 20000 }, 600000).then(function (r) {
+    /** timeoutMs (optional) lets one heavy query wait longer than the Fusion SQL setting (the host never waits past 10 min) */
+    S.fusionSql = function (sql, rowLimit, timeoutMs) {
+        return S.host('fusionSqlExecute', { sql: sql, rowLimit: rowLimit || 20000, timeoutMs: timeoutMs || undefined }, 620000).then(function (r) {
             if (!r || !r.success) throw new Error((r && r.error) || 'Fusion SQL failed');
             var cols = (r.columns || []).map(function (c) { return String(c.name || c).toUpperCase(); });
             return (r.rows || []).map(function (row) {

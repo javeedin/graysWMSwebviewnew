@@ -76,7 +76,7 @@ textarea.code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
 .seg button { border: 0; background: var(--card); padding: 6px 12px; font-weight: 600; color: var(--muted); }
 .seg button.on { background: var(--pri); color: #fff; }
-.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #0f172a; color: #fff; padding: 10px 16px; border-radius: 10px; z-index: 300; box-shadow: 0 8px 24px rgba(0,0,0,.25); font-size: 13px; max-width: 70%; }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #0f172a; color: #fff; padding: 10px 16px; border-radius: 10px; z-index: 1100; box-shadow: 0 8px 24px rgba(0,0,0,.25); font-size: 13px; max-width: 70%; }
 .toast.ok { background: var(--ok); } .toast.bad { background: var(--bad); } .toast.warn { background: var(--warn); }
 .empty { padding: 26px; text-align: center; color: var(--muted); }
 .note { background: #f0fdfa; border: 1px solid #99f6e4; color: #134e4a; border-radius: 10px; padding: 10px 12px; font-size: 13px; }
@@ -118,7 +118,7 @@ textarea.code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size
 .steps .st { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px; background: var(--soft); color: var(--muted); }
 .steps .st.done { background: #dcfce7; color: #166534; } .steps .st.bad { background: #fee2e2; color: #991b1b; }
 /* modal */
-.modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: none; align-items: flex-start; justify-content: center; z-index: 200; padding: 6vh 16px; overflow: auto; }
+.modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: none; align-items: flex-start; justify-content: center; z-index: 1000; padding: 6vh 16px; overflow: auto; }
 .modal.on { display: flex; }
 .mbox { background: #fff; border-radius: 14px; width: min(760px, 100%); box-shadow: 0 20px 60px rgba(0,0,0,.3); }
 .mbox.wide { width: min(1100px, 100%); }
@@ -192,3 +192,10 @@ textarea.code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size
 .chip.on { border-color: var(--pri); box-shadow: 0 0 0 2px rgba(15,118,110,.2); }
 .lnk { border: 0; background: transparent; color: var(--acc); padding: 0 2px; font-size: 11px; cursor: pointer; }
 .lnk:hover { color: var(--pri); }
+
+/* the workbench's SQL panel (inline, so it is never behind the overlay) */
+.wb-sql { margin: 8px 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); padding: 8px 10px; }
+.wb-sql .row { margin-bottom: 6px; }
+.wb-sql .sqlbox { max-height: 300px; }
+.wb-err { border: 1px solid #fecaca; background: #fef2f2; color: #991b1b; border-radius: 10px; padding: 10px 12px; margin: 8px 0; }
+.wb-err b { color: #7f1d1d; }

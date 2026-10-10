@@ -318,13 +318,15 @@ namespace WMSApp.FusionSql
             return null;
         }
 
-        public async Task<FusionQueryResult> ExecuteAsync(string sql, int? rowLimit, CancellationToken ct = default)
+        public async Task<FusionQueryResult> ExecuteAsync(string sql, int? rowLimit, CancellationToken ct = default, int? timeoutMs = null)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             string error = ValidateStatement(sql, out string stmt);
             if (error != null) return FusionQueryResult.Fail(error);
 
             var cfg = FusionSqlStore.LoadConfig();
+            // a caller may wait longer than the configured timeout for one heavy query (never past 10 min)
+            if (timeoutMs.HasValue) cfg.TimeoutMs = Math.Clamp(Math.Max(timeoutMs.Value, cfg.TimeoutMs), 5000, 600000);
             var cred = await GetCredentialsAsync(cfg).ConfigureAwait(false);
             if (string.IsNullOrEmpty(cred.Username) || string.IsNullOrEmpty(cred.Password))
                 return FusionQueryResult.Fail(cred.Source == "custom"

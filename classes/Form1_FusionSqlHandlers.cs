@@ -72,9 +72,10 @@ namespace WMSApp
                         {
                             string sql = FsStr(root, "sql");
                             int? limit = root.TryGetProperty("rowLimit", out var rl) && rl.TryGetInt32(out var n) ? n : (int?)null;
+                            int? waitMs = root.TryGetProperty("timeoutMs", out var tm) && tm.TryGetInt32(out var tn) ? tn : (int?)null;
                             var cts = new CancellationTokenSource();
                             _fusionSqlRunning[requestId ?? ""] = cts;
-                            try { data = await svc.ExecuteAsync(sql, limit, cts.Token); }
+                            try { data = await svc.ExecuteAsync(sql, limit, cts.Token, waitMs); }
                             catch (OperationCanceledException) { data = FusionQueryResult.Fail("Cancelled."); }
                             finally { _fusionSqlRunning.TryRemove(requestId ?? "", out _); cts.Dispose(); }
                             break;

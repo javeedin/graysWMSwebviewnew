@@ -512,7 +512,7 @@
             }).join('') : '<tr><td colspan="8" class="empty">No customer yet — read the balances in <a data-act="go" data-tab="run">Send statements</a>, or search.</td></tr>') + '</tbody></table></div></div>';
         return h;
     }
-    function open360(buId, acct) { P.cust.open = { buId: buId, account: acct }; P.cust.data = null; P.cust.sub = P.cust.sub || 'timeline'; mclose(); if (P.tab !== 'cust') go('cust'); else render(); }
+    function open360(buId, acct) { P.cust.open = { buId: buId, account: acct }; P.cust.data = null; P.cust.items = null; P.cust.sub = P.cust.sub || 'timeline'; mclose(); if (P.tab !== 'cust') go('cust'); else render(); }
     function load360() {
         var o = P.cust.open, end = busy('Reading the customer…');
         Promise.all([S.stmt.search({ buId: o.buId, account: o.account, limit: 500 }), S.act.list({ buId: o.buId, account: o.account, limit: 2000 })]).then(function (r) {
@@ -520,10 +520,40 @@
             P.cust.data = { stmts: r[0], acts: r[1] }; render();
         }, function (e) { end(); toast(errText(e), 'bad', 7000); P.cust.data = { stmts: [], acts: [] }; render(); });
     }
+    /** the customer's open invoices / receipts / credits, live from Fusion (AR payment schedules still open) */
+    function loadItems(o) {
+        var b = bu(o.buId) || { id: o.buId }, sql = E.openItemsSql(b, o.account), t0 = Date.now();
+        P.cust.items = { account: o.account, buId: o.buId, rows: null, sql: sql };
+        return S.fusionSql(sql, 5000, 300000).then(function (rows) {
+            if (!P.cust.items || P.cust.items.account !== o.account) return;
+            P.cust.items = { account: o.account, buId: o.buId, rows: rows, sql: sql, sum: E.openItemsSummary(rows), at: new Date(), ms: Date.now() - t0 }; if (P.tab === 'cust') render();
+        }, function (e) { if (!P.cust.items || P.cust.items.account !== o.account) return; P.cust.items = { account: o.account, buId: o.buId, rows: [], sql: sql, err: errText(e) }; if (P.tab === 'cust') render(); });
+    }
+    function itemsHtml(it) {
+        if (!it || !it.rows) return '<div class="empty"><i class="fas fa-spinner fa-spin"></i> Reading the open items from Fusion…</div>';
+        var h = '<div class="row" style="margin:6px 0 10px"><span class="small muted">' + (it.err ? '<span class="badc">' + esc(it.err) + '</span>' : 'Live from Fusion · ' + it.rows.length + ' open item(s)' + (it.ms ? ' · ' + Math.round(it.ms / 100) / 10 + ' s' : '')) + '</span><span class="sp"></span>' +
+            '<button class="btn sm" data-act="items360"><i class="fas fa-rotate"></i> Read again</button><button class="btn sm" data-act="itemsSql"><i class="fas fa-code"></i> ' + (P.cust.itemsSql ? 'Hide SQL' : 'SQL') + '</button>' + (it.rows.length ? '<button class="btn sm" data-act="itemsCsv"><i class="fas fa-file-csv"></i> CSV</button>' : '') + '</div>';
+        if (P.cust.itemsSql) h += '<pre class="sqlbox" style="margin-bottom:10px">' + esc(it.sql || '') + '</pre>';
+        if (!it.rows.length) return h + (it.err ? '' : '<div class="empty">Nothing open in Fusion for this customer.</div>');
+        var t = it.sum || E.openItemsSummary(it.rows);
+        h += '<div class="row" style="gap:18px;margin-bottom:8px"><span><span class="muted small">Open</span> <b class="num">' + money(t.total) + '</b></span><span><span class="muted small">Overdue</span> <b class="num ' + (t.overdue > 0 ? 'badc' : '') + '">' + money(t.overdue) + '</b></span>' + (t.credits ? '<span><span class="muted small">Credits</span> <b class="num okc">' + money(t.credits) + '</b></span>' : '') + (t.oldest ? '<span><span class="muted small">Oldest</span> <b>' + t.oldest + ' days late</b></span>' : '') + '</div>';
+        return h + '<div class="tblw"><table class="tbl"><thead><tr><th>Type</th><th>Number</th><th>Date</th><th>Due</th><th class="r">Days late</th><th class="r">Original</th><th class="r">Open</th><th>Reference</th><th></th></tr></thead><tbody>' +
+            it.rows.map(function (r, i) {
+                var late = +r.DAYS_LATE || 0, amt = +r.REMAINING || 0;
+                return '<tr class="click" data-act="item360" data-i="' + i + '"><td>' + esc(r.TRX_TYPE || r.CLASS || '') + '</td><td class="mono"><a>' + esc(r.TRX_NUMBER || '') + '</a></td><td>' + esc(r.TRX_DATE || '') + '</td><td>' + esc(r.DUE_DATE || '') + '</td>' +
+                    '<td class="r ' + (late > 90 ? 'badc' : late > 0 ? 'warnc' : '') + '">' + (late || '') + '</td><td class="r num">' + money(+r.ORIGINAL || 0) + '</td><td class="r num ' + (amt < 0 ? 'okc' : '') + '"><b>' + money(amt) + '</b></td><td class="small cut">' + esc(r.REFERENCE || r.CUSTOMER_PO || '') + '</td><td class="small muted"><i class="fas fa-chevron-right"></i></td></tr>';
+            }).join('') + '</tbody><tfoot><tr><td colspan="6" class="r"><b>Total</b></td><td class="r num"><b>' + money(t.total) + '</b></td><td colspan="2"></td></tr></tfoot></table></div>' +
+            '<div class="small muted" style="margin-top:6px">Click a line for its lines, accounting events and journal lines — with a link to open it in Oracle Fusion.</div>';
+    }
     function v360() {
         var o = P.cust.open, b = bu(o.buId) || { id: o.buId, name: o.buId }, d = P.cust.data, cd = card(o.buId, o.account) || {};
         var c = P.run.customers && P.run.loadedFor && P.run.loadedFor.split('|')[0] === o.buId ? P.run.customers.filter(function (x) { return x.account === o.account; })[0] : null;
-        var last = P.latest[key(o.buId, o.account)], name = (c && c.name) || cd.ACCOUNT_NAME || (last && last.ACCOUNT_NAME) || o.account;
+        var cyc = !c && DC.cycleCustomer ? DC.cycleCustomer(o.buId, o.account) : null, cycLabel = '';
+        if (cyc) { c = cyc.c; cycLabel = ' as at ' + cyc.stmtDate + ' · ' + cyc.label; }
+        if (!P.cust.items || P.cust.items.account !== o.account) loadItems(o);
+        var it = P.cust.items, live = it && it.rows && it.rows.length && !it.err ? (it.sum || E.openItemsSummary(it.rows)) : null;
+        if (!c && live && !P.latest[key(o.buId, o.account)]) { c = { account: o.account, name: live.name, balance: live.total, overdue: live.overdue, aging: live.aging }; cycLabel = ' open in Fusion now'; }
+        var last = P.latest[key(o.buId, o.account)], name = (c && c.name) || cd.ACCOUNT_NAME || (last && last.ACCOUNT_NAME) || (live && live.name) || o.account;
         var bal = c ? c.balance : last ? +last.BALANCE : null, aging = c && c.aging ? c.aging : last && last.AGING_JSON ? safeJson(last.AGING_JSON) : null;
         var acts = d ? d.acts : actsOf(o.buId, o.account), sc = E.score({ balance: bal || 0, aging: aging, overdue: c ? c.overdue : last && last.OVERDUE != null ? +last.OVERDUE : null }, { maxBalance: maxBal(), activities: acts, lastContact: P.contact[key(o.buId, o.account)], lastStatement: last }), band = E.band(sc.score);
         var rc = E.recipients(c || { email: last ? last.EMAIL_TO : '' }, profileOf(o.buId, o.account), b);
@@ -539,13 +569,14 @@
             '<div class="muted small">' + esc(o.account) + ' · ' + esc(b.name) + (cd.OWNER_USER ? ' · collector ' + esc(cd.OWNER_USER) : '') + (cd.TAGS ? ' · ' + esc(cd.TAGS) : '') + '</div>' +
             '<div class="facts"><span><i class="fas fa-envelope"></i> ' + (rc.delivery === 'EMAIL' ? esc(rc.to.join('; ')) : '<span class="warnc">' + esc(rc.why) + '</span>') + '</span>' + (cd.PHONE ? '<span><i class="fas fa-phone"></i> ' + esc(cd.PHONE) + '</span>' : '') + (cd.CONTACT_NAME ? '<span><i class="fas fa-user"></i> ' + esc(cd.CONTACT_NAME) + '</span>' : '') + '</div>' +
             '<div class="why" style="margin-top:8px">' + pill('Priority ' + band.label + ' · ' + sc.score, band.key) + sc.why.map(function (w) { return pill(esc(w), 'muted'); }).join('') + '</div></div>' +
-            '<div style="min-width:280px"><div class="muted small">Balance' + (c ? ' as at ' + esc(P.stmtDate) : last ? ' on the statement of ' + esc(last.STMT_DATE) : '') + '</div><div style="font-size:26px;font-weight:800" class="num">' + (bal != null ? money(bal) : '—') + '</div>' + agingBar(aging, bal) + '</div></div>' +
+            '<div style="min-width:280px"><div class="muted small">Balance' + (cycLabel ? esc(cycLabel) : c ? ' as at ' + esc(P.stmtDate) : last ? ' on the statement of ' + esc(last.STMT_DATE) : '') + '</div><div style="font-size:26px;font-weight:800" class="num">' + (bal != null ? money(bal) : '—') + '</div>' + agingBar(aging, bal) + (live && cycLabel !== ' open in Fusion now' ? '<div class="small muted" style="margin-top:4px">Open in Fusion now: <b class="num">' + money(live.total) + '</b> · ' + live.n + ' item(s)</div>' : '') + '</div></div>' +
             (cd.NOTES ? '<div class="note" style="margin-top:10px;white-space:pre-wrap">' + esc(cd.NOTES) + '</div>' : '') + '</div>';
         if (!d) return h + '<div class="card empty"><i class="fas fa-spinner fa-spin"></i></div>';
         var sub = P.cust.sub, open = d.acts.filter(function (a) { return a.STATUS === 'OPEN' && a.KIND !== 'CONFIRM'; });
-        h += '<div class="card"><div class="subtabs">' + [['timeline', 'Timeline'], ['stmts', 'Statements (' + d.stmts.length + ')'], ['open', 'Open items (' + open.length + ')']].map(function (x) { return '<button data-act="sub360" data-s="' + x[0] + '"' + (sub === x[0] ? ' class="on"' : '') + '>' + x[1] + '</button>'; }).join('') + '</div>';
+        h += '<div class="card"><div class="subtabs">' + [['timeline', 'Timeline'], ['items', 'Open invoices' + (it && it.rows ? ' (' + it.rows.length + ')' : '')], ['stmts', 'Statements (' + d.stmts.length + ')'], ['open', 'Follow-ups (' + open.length + ')']].map(function (x) { return '<button data-act="sub360" data-s="' + x[0] + '"' + (sub === x[0] ? ' class="on"' : '') + '>' + x[1] + '</button>'; }).join('') + '</div>';
         if (sub === 'stmts') h += '<div class="tblw"><table class="tbl"><thead><tr><th>When</th><th>As at</th><th class="r">Balance</th><th>To</th><th>Status</th><th>Answer</th><th>By</th></tr></thead><tbody>' + (d.stmts.length ? d.stmts.map(function (s) { return '<tr class="click" data-act="stmt" data-id="' + esc(s.STMT_ID) + '"><td class="small">' + when(s.SENT_AT || s.CREATED_AT) + '</td><td>' + esc(s.STMT_DATE) + '</td><td class="r num">' + money(+s.BALANCE) + '</td><td class="cut small">' + esc(s.EMAIL_TO || s.DELIVERY) + '</td><td>' + statePill(s) + '</td><td>' + (s.RESP_STATUS ? pill(s.RESP_STATUS === 'AGREED' ? 'Agreed' : 'Queried', s.RESP_STATUS === 'AGREED' ? 'ok' : 'bad') : '') + '</td><td class="small">' + esc(s.APP_USER) + '</td></tr>'; }).join('') : '<tr><td colspan="7" class="empty">No statement sent yet.</td></tr>') + '</tbody></table></div>';
-        else if (sub === 'open') h += open.length ? '<div class="wl">' + open.map(actItem).join('') + '</div>' : '<div class="empty">Nothing open for this customer.</div>';
+        else if (sub === 'items') h += itemsHtml(it);
+        else if (sub === 'open') h += open.length ? '<div class="wl">' + open.map(actItem).join('') + '</div>' : '<div class="empty">No open follow-ups, promises or disputes for this customer.</div>';
         else {
             var tl = E.timeline(d.stmts, d.acts);
             h += tl.length ? '<div class="tl">' + tl.map(function (x) {
@@ -777,6 +808,14 @@
         open360: function (d) { open360(d.bu, d.acct); },
         back360: function () { P.cust.open = null; P.cust.data = null; render(); },
         sub360: function (d) { P.cust.sub = d.s; render(); },
+        items360: function () { var o = P.cust.open; if (o) { loadItems(o); render(); } },
+        itemsSql: function () { P.cust.itemsSql = !P.cust.itemsSql; render(); },
+        itemsCsv: function () { var it = P.cust.items; if (it && it.rows && it.rows.length) csv('open-items-' + it.account + '.csv', Object.keys(it.rows[0]).map(function (k) { return [k, k]; }), it.rows); },
+        item360: function (d) {
+            var it = P.cust.items, r = it && it.rows && it.rows[+d.i]; if (!r || !DC.wb) return;
+            var dr = /^\d+$/.test(String(r.CUSTOMER_TRX_ID || '')) ? E.drillOf('TRX', { TRX_ID: String(r.CUSTOMER_TRX_ID), NUMBER: r.TRX_NUMBER }) : /^\d+$/.test(String(r.CASH_RECEIPT_ID || '')) ? E.drillOf('RECEIPT', { RECEIPT_ID: String(r.CASH_RECEIPT_ID), NUMBER: r.TRX_NUMBER }) : null;
+            if (dr) DC.wb.drill(dr, r, it.buId); else toast('No Fusion id on this line', 'warn');
+        },
         newAct: function (d) { actDialog(d.kind, d.bu, d.acct); },
         editCard: function (d) { cardDialog(d.bu, d.acct); },
         sendOne: function (d) { sendOneDialog(d.bu, d.acct, null); },

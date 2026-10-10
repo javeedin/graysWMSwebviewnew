@@ -70,6 +70,13 @@
         }
     };
     C.canRun = function () { return C.cy && !closed() && !((+C.cy.SENT_N || 0) + (+C.cy.POSTED_N || 0) > 0); };
+    /** the accounting status of the rows' invoices: XLA by invoice id, 400 per query, 2 at a time; a failed chunk leaves 'Not checked' */
+    C.acctFill = function (rows, onStep) {
+        var chunks = E.acctChunks(rows, 400), got = [], done = 0, failed = 0;
+        if (!chunks.length) return Promise.resolve(rows);
+        function worker() { var c = chunks.shift(); if (!c) return Promise.resolve(); return S.fusionSql(E.acctSql(c), 5000, 300000).then(function (r) { got = got.concat(r); }, function () { failed++; }).then(function () { done++; if (onStep) onStep(done, done + chunks.length); return worker(); }); }
+        return Promise.all([worker(), worker()]).then(function () { E.acctMerge(rows, got); rows.acctFailed = failed; return rows; });
+    };
     C.runOne = function (id) { var x = C.defs().filter(function (c) { return c.id === id; })[0]; return x ? runMany([x]) : Promise.resolve(); };
 
     // ── the checklist definition: the starters, with the saved changes (WMS_DC_SETTINGS.CHECKS) on top ──
@@ -239,7 +246,7 @@
         var p;
         if (d.kind === 'LOCAL') { sqlText = 'checked on the balances of ' + b.name + ' as at ' + C.cy.STMT_DATE; p = ensureCust().then(function (list) { return E.localCheck(d.id, list, { bu: b, profile: profile, activities: P.acts.filter(function (a) { return a.BU_ID === b.id; }) }); }); }
         else if (d.kind === 'BIP') { var prm = E.fillParams(d.params, vars); sqlText = d.path + '\n' + JSON.stringify(prm, null, 1); p = S.call('dcBipRows', { instance: C.cy.POD, path: d.path, params: prm }, 600000).then(function (x) { return x.rows || []; }); }
-        else { sqlText = E.fill(d.sql, vars, 'sql'); p = S.fusionSql(sqlText, ROW_LIMIT); }
+        else { sqlText = E.fill(d.sql, vars, 'sql'); p = S.fusionSql(sqlText, ROW_LIMIT, d.acct ? 600000 : undefined); if (d.acct) p = p.then(function (rows) { return C.acctFill(rows); }); }
         return p.then(function (rows) {
             var o = E.checkOutcome(rows); o.ms = Date.now() - t0; o.sql = sqlText; o.sample = rows; o.all = rows; o.truncated = d.kind !== 'LOCAL' && rows.length >= ROW_LIMIT; return o;
         }, function (e) { return { status: 'ERROR', rows: null, amount: null, error: A.errText(e), ms: Date.now() - t0, sql: sqlText, sample: [] }; })
@@ -497,6 +504,12 @@
         A.toast(accts.length + ' customer(s) of the cycle ticked — preview, then Send', 'ok', 6000);
     }
     /** after a run of this cycle: coverage counts on the cycle row + a trail line */
+    /** the open cycle's balance of one customer (Customer 360 opened from a cycle): {c, label, stmtDate} or null */
+    DC.cycleCustomer = function (buId, acct) {
+        if (!C.cy || String(C.cy.BU_ID) !== String(buId)) return null;
+        var list = C.cust || (C.bal && C.bal.length ? E.fromArchive(C.bal) : null), c = (list || []).filter(function (x) { return String(x.account) === String(acct); })[0];
+        return c ? { c: c, label: 'statement cycle ' + (C.cy.PERIOD || C.cy.STMT_DATE) + (c.fromArchive || !C.cust ? ' (archived)' : ''), stmtDate: C.cy.STMT_DATE } : null;
+    };
     DC.onRunDone = function (cycleId, counts) {
         return S.stmt.search({ cycleId: cycleId, limit: 50000 }).then(function (stmts) {
             return S.cycle.bal(cycleId).then(function (bal) {
