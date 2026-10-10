@@ -1,7 +1,7 @@
 /* Field Apps screen for the FCPos mobile app — REFERENCE CODE for the mobile repo (javeedin/reerpPOSMobileApp).
  * This file is not built here. Copy it into the app as src/screens/FieldAppsScreen.js (rename .jsx → .js), register it in
  * src/navigation/AppNavigator.js (PickerStack and MainStack) and add a tile on WMSHomeScreen, then copy
- * fieldapps/runtime/shell.html + fa-shell.js into the app's assets (Android: android/app/src/main/assets/fieldapps/;
+ * fieldapps/runtime/shell.html + fa-apex.js + fa-shell.js into the app's assets (Android: android/app/src/main/assets/fieldapps/;
  * iOS: the bundle) so the shell is trusted code shipped with the app, not downloaded.
  *
  * What it does (see docs/FIELD_APPS.md › Host protocol):
@@ -10,6 +10,10 @@
  *   - runs one app in react-native-webview on the shell and answers its ops: hello, bundle, query, submit, upload,
  *     photo (expo-camera), scan (expo-camera barcode), gps (expo-location), print (printerService ESC/POS), log
  *   - pushes events: online/offline, hardware back → 'back'
+ *   - APEX apps (kind APEX — a native Oracle APEX application built in App Builder): the shell verifies the signed launcher and
+ *     asks 'launch' {url, hosts}; this screen then shows that APEX address full screen in its own WebView (only the app's host,
+ *     the signed extra hosts and Oracle APEX hosts may be navigated to), with a small back / reload / close bar; APEX signs the
+ *     user in with the app's own authentication and keeps its session cookie in the WebView
  * Packages used: react-native-webview, expo-camera (already in the app), @react-native-async-storage/async-storage,
  * expo-location (optional — gps answers null without it), expo-file-system (optional, bundle cache on disk). */
 import React, { useEffect, useRef, useState, useCallback } from 'react';
@@ -24,6 +28,16 @@ const BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudap
 const SHELL = Platform.OS === 'android' ? 'file:///android_asset/fieldapps/shell.html' : 'fieldapps/shell.html';
 const K_DEVICE = 'fieldapps.device';       // { deviceId, key, username, keys: [{keyId, spki}] }
 const K_BUNDLE = id => 'fieldapps.bundle.' + id;
+// same rule as fieldapps/runtime/fa-apex.js FAX.mayNavigate: https only; the app's host, the signed extra hosts, Oracle APEX hosts
+const APEX_SUFFIXES = ['.oraclecloudapps.com', '.oraclecloud.com'];
+function hostOf(u) { const m = /^https:\/\/([^\/?#:]+)/i.exec(String(u || '')); return m ? m[1].toLowerCase() : null; }
+function mayNavigate(target, appUrl, hosts) {
+    if (/^(about:|data:|blob:)/i.test(String(target || ''))) return true;
+    const h = hostOf(target); if (!h) return false;
+    if (h === hostOf(appUrl)) return true;
+    if (APEX_SUFFIXES.some(x => h.endsWith(x))) return true;
+    return (hosts || []).some(x => { x = String(x || '').toLowerCase().replace(/^\*\./, '.'); return x && (x[0] === '.' ? h.endsWith(x) : h === x); });
+}
 
 async function api(path, opts) {
     const dev = JSON.parse((await AsyncStorage.getItem(K_DEVICE)) || 'null');
@@ -40,6 +54,7 @@ export default function FieldAppsScreen({ navigation }) {
     const [device, setDevice] = useState(null);
     const [apps, setApps] = useState([]);
     const [open, setOpen] = useState(null);           // app id running in the WebView
+    const [apex, setApex] = useState(null);           // { url, hosts, toolbar, name } — an APEX app opened full screen
     const [pairing, setPairing] = useState(false);
     const [code, setCode] = useState('');
     const [camera, setCamera] = useState(null);       // { mode: 'photo' | 'scan' | 'pair', resolve }
@@ -54,7 +69,7 @@ export default function FieldAppsScreen({ navigation }) {
         catch (e) { if (/pair this phone/i.test(e.message)) { await AsyncStorage.removeItem(K_DEVICE); setDevice(null); } else Alert.alert('Field Apps', e.message); }
     }, []);
     useEffect(() => { if (device && device.key) { refresh(); const t = setInterval(refresh, 60000); return () => clearInterval(t); } }, [device, refresh]);
-    useEffect(() => { const sub = BackHandler.addEventListener('hardwareBackPress', () => { if (open) { deliver({ faHost: 1, event: 'back', data: {} }); return true; } return false; }); return () => sub.remove(); }, [open]);
+    useEffect(() => { const sub = BackHandler.addEventListener('hardwareBackPress', () => { if (apex) { if (web.current) web.current.goBack(); return true; } if (open) { deliver({ faHost: 1, event: 'back', data: {} }); return true; } return false; }); return () => sub.remove(); }, [open, apex]);
 
     // ── pairing ──────────────────────────────────────────────────
     async function pair(codeText) {
@@ -96,6 +111,7 @@ export default function FieldAppsScreen({ navigation }) {
             case 'print': { for (let i = 0; i < (a.copies || 1); i++) await printerService.printText(a.text || '', { title: a.title }); return true; }   // adapt to printerService's API
             case 'log': return true;
             case 'appReady': return true;
+            case 'launch': setApex({ url: a.url, hosts: a.hosts || [], toolbar: a.toolbar !== false, name: a.name }); return { handled: true };
             case 'appError': Alert.alert('App', a.error || 'error'); return true;
             default: throw new Error('Unknown op ' + msg.op);
         }
@@ -124,6 +140,19 @@ export default function FieldAppsScreen({ navigation }) {
             {cameraModal()}
         </View>
     );
+    if (open && apex) return (
+        <View style={{ flex: 1 }}>
+            {apex.toolbar ? <View style={s.abar}>
+                <TouchableOpacity onPress={() => web.current && web.current.goBack()}><Text style={s.abtn}>‹</Text></TouchableOpacity>
+                <Text style={s.atitle} numberOfLines={1}>{apex.name || 'APEX app'}</Text>
+                <TouchableOpacity onPress={() => web.current && web.current.reload()}><Text style={s.abtn}>⟳</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => { setApex(null); setOpen(null); }}><Text style={s.abtn}>✕</Text></TouchableOpacity>
+            </View> : null}
+            <WebView ref={web} source={{ uri: apex.url }} javaScriptEnabled domStorageEnabled sharedCookiesEnabled thirdPartyCookiesEnabled setSupportMultipleWindows={false}
+                onShouldStartLoadWithRequest={r => mayNavigate(r.url, apex.url, apex.hosts)} />
+            {!apex.toolbar ? <TouchableOpacity style={s.close} onPress={() => { setApex(null); setOpen(null); }}><Text style={s.closeT}>✕</Text></TouchableOpacity> : null}
+        </View>
+    );
     if (open) return (
         <View style={{ flex: 1 }}>
             <WebView ref={web} source={{ uri: SHELL + '#app=' + encodeURIComponent(open) }} onMessage={onMessage} originWhitelist={['*']} allowFileAccess allowFileAccessFromFileURLs domStorageEnabled javaScriptEnabled
@@ -140,7 +169,7 @@ export default function FieldAppsScreen({ navigation }) {
                 renderItem={({ item }) => (
                     <TouchableOpacity style={s.tile} onPress={() => setOpen(item.appId)}>
                         <Text style={s.icon}>{item.icon || '📱'}</Text>
-                        <View style={{ flex: 1 }}><Text style={s.name}>{item.name}</Text><Text style={s.meta}>v{item.version} · {item.expiresAt ? 'until ' + item.expiresAt.slice(0, 10) : 'no expiry'}</Text></View>
+                        <View style={{ flex: 1 }}><Text style={s.name}>{item.name}</Text><Text style={s.meta}>{item.kind === 'APEX' ? 'APEX app · ' : ''}v{item.version} · {item.expiresAt ? 'until ' + item.expiresAt.slice(0, 10) : 'no expiry'}</Text></View>
                     </TouchableOpacity>
                 )} />
             <TouchableOpacity style={s.forget} onPress={async () => { await AsyncStorage.removeItem(K_DEVICE); setDevice(null); }}><Text style={s.meta}>Unpair this phone</Text></TouchableOpacity>
@@ -169,6 +198,7 @@ const s = StyleSheet.create({
     tile: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', margin: 10, marginBottom: 0, padding: 14, borderRadius: 14, elevation: 2 },
     icon: { fontSize: 30, marginRight: 14 }, name: { fontSize: 16, fontWeight: '700', color: '#0f172a' }, meta: { fontSize: 12, color: '#64748b' },
     forget: { padding: 16, alignItems: 'center' },
+    abar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#13315c', paddingHorizontal: 8, paddingVertical: 6 }, abtn: { color: '#fff', fontSize: 22, paddingHorizontal: 12 }, atitle: { flex: 1, color: '#fff', fontWeight: '700' },
     close: { position: 'absolute', top: 8, left: 8, backgroundColor: 'rgba(15,23,42,.6)', borderRadius: 16, width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }, closeT: { color: '#fff', fontWeight: '700' },
     camBar: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: 'rgba(0,0,0,.4)' },
     shutter: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#fff', borderWidth: 4, borderColor: '#cbd5e1' }, camT: { color: '#fff', fontWeight: '600' }, camX: { color: '#fff', fontWeight: '700', padding: 10 }

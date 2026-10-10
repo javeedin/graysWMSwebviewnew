@@ -41,7 +41,7 @@
 
     // ── Apps ──────────────────────────────────────────────────────
     function vApps() {
-        var h = '<div class="row" style="margin-bottom:12px"><button class="btn pri" data-act="newBuiltin"><i class="fas fa-plus"></i> New app from a built-in</button><button class="btn" data-act="newFile"><i class="fas fa-file-code"></i> New app from an HTML file</button><button class="btn" data-act="newBlank"><i class="fas fa-pen"></i> Blank app</button><span class="sp"></span><button class="btn" data-act="reloadApps"><i class="fas fa-rotate"></i> Refresh</button></div>';
+        var h = '<div class="row" style="margin-bottom:12px"><button class="btn pri" data-act="newBuiltin"><i class="fas fa-plus"></i> New app from a built-in</button><button class="btn" data-act="newFile"><i class="fas fa-file-code"></i> New app from an HTML file</button><button class="btn" data-act="newBlank"><i class="fas fa-pen"></i> Blank app</button><button class="btn" data-act="newApex" title="An app built in Oracle APEX (App Builder), published to the phones like any other app"><i class="fas fa-layer-group"></i> New APEX app</button><button class="btn ghost" data-act="apexBuilder" title="Open APEX App Builder in your browser to build or change an APEX app"><i class="fas fa-arrow-up-right-from-square"></i> APEX App Builder</button><span class="sp"></span><button class="btn" data-act="reloadApps"><i class="fas fa-rotate"></i> Refresh</button></div>';
         if (!P.admin) h += '<div class="warnbox" style="margin-bottom:12px">You can look at everything here. Signing and publishing an app to the phones needs an AI admin (AI Digital Employee › Control).</div>';
         if (!P.apps.length) h += '<div class="card empty">No apps in APEX yet. Start with the built-in POS: <b>New app from a built-in</b>.</div>';
         h += '<div class="apps">' + P.apps.map(function (a) {
@@ -50,7 +50,7 @@
             var bi = builtins()[a.APP_ID], newer = bi && String(bi.manifest.version) !== String(a.VERSION) ? '' : '';
             return '<div class="app' + (P.sel === a.APP_ID ? ' sel' : '') + '" data-app="' + esc(a.APP_ID) + '"><div class="row"><span class="ic">' + esc(a.ICON || '📱') + '</span><div><div class="nm">' + esc(a.NAME) + '</div><div class="small muted mono">' + esc(a.APP_ID) + ' · v' + esc(a.VERSION) + '</div></div><span class="sp"></span>' + st + '</div>' +
                 '<div class="ds">' + esc((a.NOTES || '')) + '</div>' +
-                '<div class="meta"><span>👥 ' + esc(usersText(a)) + '</span>' + exp + '<span>' + Math.round((+a.CODE_BYTES || 0) / 1024) + ' KB</span>' + (a.SIGNATURE ? '<span title="key ' + esc(a.KEY_ID) + '">🔏 signed</span>' : '<span>not signed</span>') + (a.PUBLISHED ? '<span>published ' + esc(fmt(a.PUBLISHED)) + ' by ' + esc(a.PUBLISHED_BY) + '</span>' : '') + newer + '</div>' +
+                '<div class="meta"><span>👥 ' + esc(usersText(a)) + '</span>' + exp + (a.KIND === 'APEX' ? '<span class="pill vio" title="An Oracle APEX application opened full screen on the phone">APEX app</span>' : '<span>' + Math.round((+a.CODE_BYTES || 0) / 1024) + ' KB</span>') + (a.SIGNATURE ? '<span title="key ' + esc(a.KEY_ID) + '">🔏 signed</span>' : '<span>not signed</span>') + (a.PUBLISHED ? '<span>published ' + esc(fmt(a.PUBLISHED)) + ' by ' + esc(a.PUBLISHED_BY) + '</span>' : '') + newer + '</div>' +
                 '<div class="acts"><button class="btn sm" data-act="preview" data-id="' + esc(a.APP_ID) + '"><i class="fas fa-mobile-screen"></i> Preview</button><button class="btn sm" data-act="edit" data-id="' + esc(a.APP_ID) + '"><i class="fas fa-pen"></i> Edit</button>' +
                 (a.STATUS === 'PUBLISHED' ? '<button class="btn sm" data-act="kill" data-id="' + esc(a.APP_ID) + '"><i class="fas fa-ban"></i> Kill</button>' : '<button class="btn sm pri" data-act="publish" data-id="' + esc(a.APP_ID) + '" ' + (P.admin ? '' : 'disabled') + '><i class="fas fa-paper-plane"></i> Publish</button>') +
                 '<button class="btn sm" data-act="check" data-id="' + esc(a.APP_ID) + '" title="Read the app back from APEX exactly as a phone would and check the code, the hash and the signature"><i class="fas fa-shield-halved"></i> Check</button><button class="btn sm ghost" data-act="delete" data-id="' + esc(a.APP_ID) + '">Delete</button></div></div>';
@@ -86,6 +86,7 @@
             var man = a.manifest || {}; man.queries = a.QUERIES && Object.keys(a.QUERIES).length ? a.QUERIES : (man.queries || {});
             var users = (a.USERS || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
             var bi = builtins()[id];
+            if (a.KIND === 'APEX') { apexEditor(a, man, users); return; }
             var html = '<div class="form">' +
                 '<div class="field"><label>Name</label><input type="text" id="e-name" value="' + esc(a.NAME) + '"></div>' +
                 '<div class="field"><label>Icon</label><input type="text" id="e-icon" value="' + esc(a.ICON || man.icon || '') + '" maxlength="4"></div>' +
@@ -102,6 +103,7 @@
     function qRow(name, q) { q = q || {}; return '<div class="card" style="padding:10px;margin-bottom:8px" data-q="1"><div class="row"><input type="text" class="qn" value="' + esc(name) + '" placeholder="name" style="width:160px"><input type="number" class="qm" value="' + esc(q.maxRows || 5000) + '" style="width:110px" title="max rows"><span class="sp"></span><button class="btn sm ghost" data-act="rmQuery">remove</button></div><textarea class="qs" rows="3" spellcheck="false">' + esc(q.sql || '') + '</textarea></div>'; }
     function readEditor() {
         var st = P.drawer.state, a = st.app, man = st.man;
+        if (a.KIND === 'APEX') return readApexEditor();
         man.name = $('e-name').value.trim() || a.NAME; man.icon = $('e-icon').value.trim(); man.description = $('e-notes').value.trim();
         try { man.settings = JSON.parse($('e-settings').value || '{}'); } catch (e) { throw new Error('Settings are not valid JSON: ' + e.message); }
         var qs = {}; [].forEach.call(document.querySelectorAll('#e-queries [data-q]'), function (el) { var n = el.querySelector('.qn').value.trim(); if (n) qs[n] = { sql: el.querySelector('.qs').value.trim(), maxRows: +el.querySelector('.qm').value || 5000 }; });
@@ -111,7 +113,7 @@
     }
     function saveDraft(e) {
         return run('Saving…', function () {
-            return FAS.apps.save({ appId: e.appId, name: e.name, kind: 'CODE', version: e.version, status: e.status === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT', pod: e.pod, icon: e.icon, manifest: JSON.stringify(e.manifestObj), code: e.code, expiresAt: e.expiresAt, notes: e.notes, codeSha256: null, manifestSha256: null, signature: null, keyId: null })
+            return FAS.apps.save({ appId: e.appId, name: e.name, kind: e.kind || 'CODE', version: e.version, status: e.status === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT', pod: e.pod, icon: e.icon, manifest: JSON.stringify(e.manifestObj), code: e.code, expiresAt: e.expiresAt, notes: e.notes, codeSha256: null, manifestSha256: null, signature: null, keyId: null })
                 .then(function () { return FAS.apps.setUsers(e.appId, e.users); }).then(function () { return FAS.apps.setQueries(e.appId, e.queries); }).then(loadApps);
         });
     }
@@ -122,7 +124,8 @@
         var man = e.manifestObj, version = (e.version || 0) + 1; man.version = version;
         var manifest = JSON.stringify(man), code = e.code;
         if (!code || code.length < 20) return Promise.reject(new Error('The app has no code'));
-        var row = { appId: e.appId, name: e.name, kind: 'CODE', version: version, pod: e.pod, icon: e.icon, expiresAt: e.expiresAt, notes: e.notes };
+        if (e.kind === 'APEX') { var ck = FAX.check((FAX.read(code) || {}).url, (FAX.read(code) || {}).hosts); if (!ck.ok) return Promise.reject(new Error('Not published: ' + ck.why)); }
+        var row = { appId: e.appId, name: e.name, kind: e.kind || 'CODE', version: version, pod: e.pod, icon: e.icon, expiresAt: e.expiresAt, notes: e.notes };
         return run('Publishing ' + e.name + '…', function (step) {
             return Promise.all([FAS.sha256(code), FAS.sha256(manifest)]).then(function (h) {
                 step('Writing ' + e.name + ' to APEX (' + Math.round(FAS.utf8Len(code) / 1024) + ' KB)…');
@@ -157,6 +160,69 @@
         });
     }
 
+    // ── APEX apps (fa-apex.js): built in APEX App Builder, published here, opened full screen on the phone ──
+    function builderUrl() { return P.apexBuilder || FAX.DEFAULT_BUILDER; }
+    function openUrl(u) { if (FAS.hasHost()) window.chrome.webview.postMessage({ action: 'openExternalUrl', url: u }); else window.open(u, '_blank'); }
+    function apexSideHtml() { return '<div class="card"><h2>APEX app</h2><div class="small mono" style="word-break:break-all">' + esc(P.apexOpen || '') + '</div><div class="row" style="margin-top:8px"><button class="btn sm pri" data-act="apexOpenWin"><i class="fas fa-arrow-up-right-from-square"></i> Open in a window</button><span class="muted small">On the phone it opens full screen, signed in with the APEX app\'s own login.</span></div></div>'; }
+    function newApex() {
+        var name = prompt('Name of the APEX app (as the pickers will see it):', 'My APEX app'); if (!name) return;
+        var id = name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'apex-app';
+        if (appById(id) && !confirm(id + ' exists — open it?')) return;
+        if (appById(id)) { editApp(id); return; }
+        var man = { id: id, name: name, icon: '🧩', kind: 'APEX', version: 1, description: '', url: '', hosts: [], queries: {}, kinds: [], settings: {} };
+        run('Saving ' + name + '…', function () {
+            return FAS.apps.save({ appId: id, name: name, kind: 'APEX', version: 0, status: 'DRAFT', icon: man.icon, manifest: JSON.stringify(man), code: FAX.code({ url: '' }), notes: '' }).then(function () { return FAS.apps.setUsers(id, []); }).then(loadApps);
+        }).then(function () { render(); editApp(id); });
+    }
+    function apexEditor(a, man, users) {
+        var def = FAX.read(a.CODE) || { url: man.url || '', hosts: man.hosts || [], toolbar: true };
+        var html = '<div class="infobox small" style="margin-bottom:12px"><b>How an APEX app gets to the phones</b><ol style="margin:6px 0 0 18px;padding:0">' +
+            '<li><b>Build it in APEX</b> — <a data-act="apexBuilder">open App Builder</a> (sign in with your APEX workspace login; nothing is stored here). Create › New Application, Universal Theme, tick <i>Install Progressive Web App</i>; choose how people sign in (APEX accounts, or the same login as the WMS).</li>' +
+            '<li><b>Run it</b> in APEX and copy the address from the browser — or <a data-act="apexPick">pick it from APEX</a>.</li>' +
+            '<li><b>Paste it below</b>, choose who gets it, <b>Save &amp; publish</b>. The address is signed, so nobody can point the tile somewhere else.</li>' +
+            '<li>On the phone: Field Apps › the tile opens the app full screen. Changes made in APEX show at once — publish again only to change the address or who gets it.</li></ol></div>' +
+            '<div class="form">' +
+            '<div class="field"><label>Name</label><input type="text" id="e-name" value="' + esc(a.NAME) + '"></div>' +
+            '<div class="field"><label>Icon</label><input type="text" id="e-icon" value="' + esc(a.ICON || man.icon || '🧩') + '" maxlength="4"></div>' +
+            '<div class="field"><label>Expires (blank = never)</label><input type="datetime-local" id="e-exp" value="' + esc(a.EXPIRES_AT || '') + '"></div>' +
+            '<div class="field"><label>Pod for {{POD}}</label><select id="e-pod"><option value="">Follows the phone</option><option ' + (a.POD === 'PROD' ? 'selected' : '') + '>PROD</option><option ' + (a.POD === 'TEST' ? 'selected' : '') + '>TEST</option></select></div>' +
+            '<div class="field wide"><label>Description</label><input type="text" id="e-notes" value="' + esc(a.NOTES || man.description || '') + '"></div>' +
+            '<div class="field wide"><label>Address of the APEX app — https://…/ords/r/&lt;workspace&gt;/&lt;app&gt;/home or …/ords/f?p=&lt;app&gt; · may use {{USER}} {{POD}} {{DEVICE}} as context (never a sign-in)</label>' +
+            '<div class="row"><input type="text" id="e-url" style="flex:1" spellcheck="false" placeholder="https://…oraclecloudapps.com/ords/r/…" value="' + esc(def.url) + '"><button class="btn sm" data-act="apexPick"><i class="fas fa-list"></i> Pick from APEX…</button><button class="btn sm" data-act="apexTry"><i class="fas fa-arrow-up-right-from-square"></i> Open</button></div>' +
+            '<div id="e-urlchk" class="small" style="margin-top:4px"></div><div id="e-apexpick"></div></div>' +
+            '<div class="field wide"><label>Other hosts the app may go to (one per line — e.g. a Microsoft / Google sign-in: login.microsoftonline.com)</label><textarea id="e-hosts" rows="2" spellcheck="false">' + esc((def.hosts || []).join('\n')) + '</textarea></div>' +
+            '<div class="field wide"><label class="chk"><input type="checkbox" id="e-toolbar" ' + (def.toolbar !== false ? 'checked' : '') + '> show the phone\'s back / reload bar over the app</label></div>' +
+            '<div class="field wide"><label>Who gets it — one login per line, or tick everyone</label><label class="chk"><input type="checkbox" id="e-all" ' + (users.indexOf('*') >= 0 ? 'checked' : '') + '> everyone with the mobile app</label><textarea id="e-users" rows="3" placeholder="ravi&#10;sam">' + esc(users.filter(function (u) { return u !== '*'; }).join('\n')) + '</textarea><div class="chips" id="e-mu" style="margin-top:6px"><button class="btn sm" data-act="mobileUsers">Pick from the mobile app\'s users…</button></div></div></div>';
+        drawer({ title: '<span>' + esc(a.ICON || '🧩') + ' ' + esc(a.NAME) + ' <span class="pill vio">APEX app</span> <span class="muted small mono">' + esc(a.APP_ID) + ' · v' + esc(a.VERSION) + ' · ' + esc(a.STATUS) + '</span></span>', html: html,
+            foot: '<button class="btn" data-act="drawerClose">Cancel</button><span class="sp"></span><button class="btn" data-act="edPreview">Preview</button><button class="btn" data-act="edSave">Save draft</button><button class="btn pri" data-act="edPublish" ' + (P.admin ? '' : 'disabled title="AI admins only"') + '>Save & publish</button>', state: { id: a.APP_ID, app: a, man: man } });
+        paintUrlCheck();
+    }
+    function hostsOf() { var el = $('e-hosts'); return el ? el.value.split(/\n|,/).map(function (h) { return h.trim(); }).filter(Boolean) : []; }
+    function paintUrlCheck() {
+        var el = $('e-urlchk'), u = $('e-url'); if (!el || !u) return;
+        if (!u.value.trim()) { el.innerHTML = '<span class="muted">Paste the address of the running APEX app.</span>'; return; }
+        var c = FAX.check(u.value, hostsOf());
+        el.innerHTML = c.ok ? '<span class="pill ok">✓</span> ' + esc(c.url) + (c.url !== u.value.trim() ? ' <span class="muted">(the session and debug parts are left out — every phone gets its own session)</span>' : '') : '<span class="pill bad">✗</span> ' + esc(c.why);
+    }
+    function readApexEditor() {
+        var st = P.drawer.state, a = st.app, man = st.man;
+        var url = $('e-url').value.trim(), hosts = hostsOf(), c = FAX.check(url, hosts);
+        if (url && !c.ok) throw new Error(c.why);
+        man.name = $('e-name').value.trim() || a.NAME; man.icon = $('e-icon').value.trim(); man.description = $('e-notes').value.trim();
+        man.kind = 'APEX'; man.url = c.ok ? c.url : ''; man.hosts = hosts; man.queries = {}; man.settings = man.settings || {};
+        var users = $('e-all').checked ? ['*'] : $('e-users').value.split(/\n|,/).map(function (s) { return s.trim(); }).filter(Boolean);
+        return { appId: st.id, kind: 'APEX', name: man.name, icon: man.icon, pod: $('e-pod').value, expiresAt: $('e-exp').value || '', notes: man.description, manifestObj: man, code: FAX.code({ url: man.url, hosts: hosts, toolbar: $('e-toolbar').checked }), users: users, queries: {}, version: +a.VERSION || 0, status: a.STATUS };
+    }
+    /** the applications of the gateway's APEX workspace (APEX_APPLICATIONS) — click one to use its address */
+    function apexPick() {
+        var box = $('e-apexpick'); if (!box) return;
+        box.innerHTML = '<div class="muted small" style="margin-top:6px"><span class="spin"></span> Reading the APEX applications…</div>';
+        FAS.rows("SELECT application_id AS APPLICATION_ID, application_name AS APPLICATION_NAME, alias AS ALIAS, workspace AS WORKSPACE, pages AS PAGES, authentication_scheme AS AUTH, TO_CHAR(last_updated_on, 'YYYY-MM-DD') AS CHANGED FROM apex_applications WHERE workspace <> 'INTERNAL' AND application_id NOT BETWEEN 4000 AND 4999 AND application_id NOT BETWEEN 3000000 AND 3999999 ORDER BY application_name", 300).then(function (r) {
+            if (!r.length) { box.innerHTML = '<div class="warnbox small" style="margin-top:6px">No application found in the APEX workspace this app reads. An app in another workspace / database: run it and paste its address.</div>'; return; }
+            box.innerHTML = '<table class="tbl" style="margin-top:6px"><tr><th>Application</th><th>Workspace</th><th class="r">Pages</th><th>Sign-in</th><th>Changed</th><th></th></tr>' + r.map(function (x) { var u = FAX.urlFromApp(FAS.ORDS, x); return '<tr><td><b>' + esc(x.APPLICATION_NAME) + '</b><div class="small muted mono">' + esc(x.APPLICATION_ID) + (x.ALIAS ? ' · ' + esc(x.ALIAS) : '') + '</div></td><td class="small">' + esc(x.WORKSPACE || '') + '</td><td class="r">' + esc(x.PAGES || '') + '</td><td class="small">' + esc(x.AUTH || '') + '</td><td class="small">' + esc(x.CHANGED || '') + '</td><td class="act"><button class="btn sm pri" data-act="apexUse" data-url="' + esc(u) + '" data-name="' + esc(x.APPLICATION_NAME) + '">Use</button></td></tr>'; }).join('') + '</table>';
+        }, function (e) { box.innerHTML = '<div class="warnbox small" style="margin-top:6px">APEX_APPLICATIONS could not be read here (' + esc(e.message) + ') — run the app in APEX and paste its address.</div>'; });
+    }
+
     // ── Preview ───────────────────────────────────────────────────
     function previewOptions() {
         var opts = [];
@@ -179,6 +245,7 @@
             '<div class="field"><label>Size</label><select id="pv-size">' + Object.keys(SIZES).map(function (k) { return '<option value="' + k + '" ' + (P.previewSize === k ? 'selected' : '') + '>' + esc(SIZES[k][2]) + '</option>'; }).join('') + '</select></div>' +
             '<div class="field"><label>Zoom</label><select id="pv-zoom">' + ['fit', '75', '100', '125'].map(function (z) { return '<option value="' + z + '" ' + (P.previewZoom === z ? 'selected' : '') + '>' + (z === 'fit' ? 'Fit the window' : z + ' %') + '</option>'; }).join('') + '</select></div>' +
             '</div><div class="row" style="margin-top:10px"><button class="btn pri" data-act="pvReload"><i class="fas fa-rotate"></i> Reload</button><button class="btn" data-act="pvRotate"><i class="fas fa-rotate-right"></i> Rotate</button><span class="sp"></span><input type="text" id="pv-scan" placeholder="barcode" style="width:150px"><button class="btn" data-act="pvScan"><i class="fas fa-barcode"></i> Scan</button><button class="btn" data-act="pvBack">Back</button></div></div>';
+        h += '<div id="pv-apex">' + (P.apexOpen ? apexSideHtml() : '') + '</div>';
         h += '<div class="card"><h2>Console <span class="muted small">(the app\'s FA.log, errors, every host call)</span> <button class="btn sm ghost" data-act="pvClear">clear</button></h2><div class="log" id="pv-log">' + P.log.map(logLine).join('') + '</div></div>';
         h += '<div class="card"><h2>Sent from this preview</h2>' + (P.sent.length ? '<table class="tbl"><tr><th>At</th><th>Kind</th><th>Ref</th><th class="r">Amount</th><th>Status</th></tr>' + P.sent.map(function (s) { return '<tr><td>' + esc(s.at) + '</td><td>' + esc(s.kind) + '</td><td class="mono">' + esc(s.ref || s.subId) + '</td><td class="r money">' + (s.amount != null ? esc(money(s.amount)) : '') + '</td><td><span class="pill ' + (s.status === 'DONE' ? 'ok' : s.status === 'ERROR' ? 'bad' : 'info') + '">' + esc(s.status) + '</span>' + (s.error ? ' <span class="small bad">' + esc(s.error) + '</span>' : '') + '</td></tr>'; }).join('') + '</table>' : '<div class="muted small">Nothing yet — complete a sale, upload a photo.</div>') + '</div>';
         return h + '</div></div>';
@@ -196,15 +263,15 @@
     function previewBundle() {
         var src = P.previewSrc || '', kind = src.split(':')[0], id = src.slice(kind.length + 1);
         if (kind === 'builtin') { var b = builtins()[id]; return Promise.resolve({ appId: id, name: b.manifest.name, version: b.manifest.version, manifest: JSON.stringify(b.manifest), manifestObj: b.manifest, code: b.code, signature: '', keyId: '', codeSha256: '', unsigned: true, queries: b.manifest.queries || {} }); }
-        if (kind === 'draft' && P.draft) { var d = P.draft; return Promise.resolve({ appId: d.appId, name: d.name, version: d.version, manifest: JSON.stringify(d.manifestObj), manifestObj: d.manifestObj, code: d.code, signature: '', keyId: '', unsigned: true, queries: d.queries || {} }); }
+        if (kind === 'draft' && P.draft) { var d = P.draft; return Promise.resolve({ appId: d.appId, kind: d.kind || 'CODE', name: d.name, version: d.version, manifest: JSON.stringify(d.manifestObj), manifestObj: d.manifestObj, code: d.code, signature: '', keyId: '', unsigned: true, queries: d.queries || {} }); }
         return FAS.apps.get(id).then(function (a) {
             if (!a) throw new Error('App ' + id + ' not found');
-            return { appId: id, name: a.NAME, version: a.VERSION, manifest: a.MANIFEST, manifestObj: a.manifest, code: a.CODE, signature: a.SIGNATURE || '', keyId: a.KEY_ID || '', codeSha256: a.CODE_SHA256 || '', expiresAt: a.EXPIRES_AT, unsigned: a.STATUS !== 'PUBLISHED' || !a.SIGNATURE, queries: a.QUERIES && Object.keys(a.QUERIES).length ? a.QUERIES : (a.manifest.queries || {}) };
+            return { appId: id, kind: a.KIND || 'CODE', name: a.NAME, version: a.VERSION, manifest: a.MANIFEST, manifestObj: a.manifest, code: a.CODE, signature: a.SIGNATURE || '', keyId: a.KEY_ID || '', codeSha256: a.CODE_SHA256 || '', expiresAt: a.EXPIRES_AT, unsigned: a.STATUS !== 'PUBLISHED' || !a.SIGNATURE, queries: a.QUERIES && Object.keys(a.QUERIES).length ? a.QUERIES : (a.manifest.queries || {}) };
         });
     }
     var cur = { bundle: null };
     function mountPreview() {
-        sizePhone();
+        sizePhone(); P.apexOpen = null;
         var fr = $('pvframe'); if (!fr) return;
         var src = P.previewSrc || '', id = src.slice(src.indexOf(':') + 1);
         cur.bundle = null;
@@ -238,7 +305,14 @@
             print: function (a) { log('print ' + (a.title || '') + ' × ' + (a.copies || 1), 'q'); printDoc(a); return true; },
             log: function (a) { log(a.m, a.level === 'error' ? 'e' : ''); },
             ready: function () { log('app ready', 'ok'); }, error: function (e) { log('app error: ' + e, 'e'); },
-            open: function (appId) { P.previewSrc = 'apex:' + appId; render(); return true; }, close: function () { log('app asked to close'); return true; }
+            open: function (appId) { P.previewSrc = 'apex:' + appId; render(); return true; }, close: function () { log('app asked to close'); return true; },
+            launch: function (a) {
+                // an APEX app: the phone opens the address full screen; here the phone frame goes there (APEX may refuse frames)
+                P.apexOpen = a.url; log('APEX app → ' + a.url, 'ok');
+                log('If the phone stays blank, APEX refuses to be shown in a frame here (Shared Components › Security › Embed in Frames). The phones are not affected — use “Open in a window”.', '');
+                var side = $('pv-apex'); if (side) side.innerHTML = apexSideHtml();
+                fr.src = a.url; return { handled: true };
+            }
         });
         FAS.keys.list().then(function (k) { P.keys = k; }).catch(function () { }).then(function () { fr.src = 'runtime/shell.html?' + Date.now() + '#app=' + encodeURIComponent(id); });
     }
@@ -403,7 +477,7 @@
     // ── Setup ─────────────────────────────────────────────────────
     function vSetup() {
         var s = P.setup || {}, me = FAS.device.get();
-        var h = '<div class="grid2"><div class="card"><h2>Tables in APEX</h2>' + (s.tables ? '<table class="tbl">' + s.tables.map(function (t) { return '<tr><td class="mono">' + esc(t.table) + '</td><td>' + (t.exists ? '<span class="pill ok">ok</span>' : '<span class="pill warn">missing</span>') + '</td></tr>'; }).join('') + '</table>' : '<div class="muted">…</div>') + '<div class="row" style="margin-top:10px"><button class="btn" data-act="setupTables">Create the missing tables</button></div></div>' +
+        var h = '<div class="grid2"><div class="card"><h2>APEX App Builder</h2><div class="muted small">Where APEX apps are built (Apps › New APEX app). Sign-in happens in your browser with your APEX workspace login — no password is kept here.</div><div class="row" style="margin-top:8px"><input type="text" id="su-apexb" style="flex:1" spellcheck="false" value="' + esc(builderUrl()) + '"><button class="btn" data-act="apexBuilderSave">Save</button><button class="btn pri" data-act="apexBuilder"><i class="fas fa-arrow-up-right-from-square"></i> Open</button></div></div></div><div class="grid2"><div class="card"><h2>Tables in APEX</h2>' + (s.tables ? '<table class="tbl">' + s.tables.map(function (t) { return '<tr><td class="mono">' + esc(t.table) + '</td><td>' + (t.exists ? '<span class="pill ok">ok</span>' : '<span class="pill warn">missing</span>') + '</td></tr>'; }).join('') + '</table>' : '<div class="muted">…</div>') + '<div class="row" style="margin-top:10px"><button class="btn" data-act="setupTables">Create the missing tables</button></div></div>' +
             '<div class="card"><h2>Phone handlers (apex_sql/97_field_apps.sql)</h2>' + (s.ping ? (s.ping.installed ? '<div class="okbox">Installed — field/ping answers ' + esc(s.ping.status) + '. Phones can pair, read apps, send results and photos.</div>' : '<div class="warnbox">Not installed (field/ping → HTTP ' + esc(s.ping.status || 0) + '). The desktop works without them; the phones need them. Run <code>apex_sql/97_field_apps.sql</code> once in SQL Developer or APEX SQL Workshop (the gateway cannot create procedures).</div>') : '<div class="muted">…</div>') + '<div class="row" style="margin-top:10px"><button class="btn" data-act="setupPing">Check again</button></div></div>' +
             '<div class="card"><h2>Signing key of this PC</h2>' + (P.hostKey ? (P.hostKey.exists ? '<div class="kv"><div class="k">Key id</div><div class="mono">' + esc(P.hostKey.keyId) + '</div><div class="k">Created</div><div>' + esc(P.hostKey.created) + '</div><div class="k">In APEX</div><div>' + (P.keys.some(function (k) { return k.keyId === P.hostKey.keyId; }) ? '<span class="pill ok">published — phones trust it</span>' : '<span class="pill warn">not yet</span> <button class="btn sm" data-act="keyPublish">Publish it</button>') + '</div></div>' : '<div class="muted">No key yet. ' + (P.hostKey.admin ? 'It is made the first time an AI admin publishes an app, or now:' : 'An AI admin makes it the first time they publish.') + '</div><div class="row" style="margin-top:8px"><button class="btn" data-act="keyCreate" ' + (P.hostKey.admin ? '' : 'disabled') + '>Create the key</button></div>') : '<div class="muted">Open this page inside the WMS app to see the key.</div>') +
             '<h3>Keys the phones trust</h3>' + (P.keys.length ? '<table class="tbl">' + P.keys.map(function (k) { return '<tr><td class="mono">' + esc(k.keyId) + '</td><td class="small">' + esc(k.by || '') + ' · ' + esc(fmt(k.at)) + '</td><td class="act"><button class="btn sm ghost" data-act="keyRemove" data-id="' + esc(k.keyId) + '" ' + (P.admin ? '' : 'disabled') + '>remove</button></td></tr>'; }).join('') + '</table>' : '<div class="muted small">none yet</div>') + '</div>' +
@@ -436,6 +510,13 @@
     // ── actions ───────────────────────────────────────────────────
     var ACT = {
         reloadApps: function () { run('Reading apps…', loadApps).then(render); },
+        newApex: function () { newApex(); },
+        apexBuilder: function () { openUrl(builderUrl()); toast('APEX App Builder opens in your browser — sign in with your APEX workspace login', 'ok', 5000); },
+        apexPick: function () { apexPick(); },
+        apexUse: function (d) { var u = $('e-url'); if (!u) return; u.value = d.url; paintUrlCheck(); var n = $('e-name'); if (n && /^My APEX app$/i.test(n.value)) n.value = d.name; $('e-apexpick').innerHTML = ''; },
+        apexTry: function () { var u = $('e-url'), c = u && FAX.check(u.value, hostsOf()); if (!c || !c.ok) { toast(c ? c.why : 'No address', 'bad'); return; } openUrl(FAX.fill(c.url, { user: FAS.user(), pod: P.pod, device: P.previewDevice, appId: P.drawer && P.drawer.state.id })); },
+        apexOpenWin: function () { if (P.apexOpen) openUrl(P.apexOpen); },
+        apexBuilderSave: function () { var v = ($('su-apexb').value || '').trim(); if (v && !/^https:\/\//i.test(v)) { toast('The address must start with https://', 'bad'); return; } run('Saving…', function () { return FAS.settings.set('apex_builder', { url: v }); }).then(function () { P.apexBuilder = v || null; toast('Saved for every PC', 'ok'); render(); }); },
         newBuiltin: function () { var ids = Object.keys(builtins()); if (!ids.length) { toast('No built-in apps in this build', 'warn'); return; } var id = ids.length === 1 ? ids[0] : prompt('Built-in app (' + ids.join(', ') + '):', ids[0]); if (id && builtins()[id]) addBuiltin(id, true); },
         addBuiltin: function (d) { addBuiltin(d.id, true); },
         previewBuiltin: function (d) { P.previewSrc = 'builtin:' + d.id; go('preview'); },
@@ -444,7 +525,7 @@
         preview: function (d) { P.previewSrc = 'apex:' + d.id; go('preview'); },
         edit: function (d) { editApp(d.id); },
         check: function (d) { checkApp(d.id); },
-        publish: function (d) { run('Opening ' + d.id + '…', function () { return FAS.apps.get(d.id); }).then(function (a) { if (!a) return; var man = a.manifest || {}; var users = (a.USERS || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean); if (!users.length && !confirm('Nobody is listed for this app yet — publish anyway?')) return; publish({ appId: d.id, name: a.NAME, icon: a.ICON, pod: a.POD, expiresAt: a.EXPIRES_AT || '', notes: a.NOTES, manifestObj: Object.assign(man, { queries: a.QUERIES && Object.keys(a.QUERIES).length ? a.QUERIES : man.queries || {} }), code: a.CODE, users: users, queries: a.QUERIES && Object.keys(a.QUERIES).length ? a.QUERIES : man.queries || {}, version: +a.VERSION || 0 }).then(render); }); },
+        publish: function (d) { run('Opening ' + d.id + '…', function () { return FAS.apps.get(d.id); }).then(function (a) { if (!a) return; var man = a.manifest || {}; var users = (a.USERS || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean); if (!users.length && !confirm('Nobody is listed for this app yet — publish anyway?')) return; publish({ appId: d.id, kind: a.KIND || 'CODE', name: a.NAME, icon: a.ICON, pod: a.POD, expiresAt: a.EXPIRES_AT || '', notes: a.NOTES, manifestObj: Object.assign(man, { queries: a.QUERIES && Object.keys(a.QUERIES).length ? a.QUERIES : man.queries || {} }), code: a.CODE, users: users, queries: a.QUERIES && Object.keys(a.QUERIES).length ? a.QUERIES : man.queries || {}, version: +a.VERSION || 0 }).then(render); }); },
         kill: function (d) { var why = prompt('Kill ' + d.id + ' on every phone? Reason:'); if (why == null) return; run('Killing…', function () { return FAS.apps.setStatus(d.id, 'KILLED'); }).then(loadApps).then(render).then(function () { toast(d.id + ' killed — phones hide it on their next check', 'ok'); }); },
         'delete': function (d) { if (!confirm('Delete app ' + d.id + ' from APEX? Submissions and photos stay.')) return; run('Deleting…', function () { return FAS.apps.del(d.id); }).then(loadApps).then(render); },
         drawerClose: function () { closeDrawer(); },
@@ -506,8 +587,10 @@
         if (ev.target.id === 'pv-src' || ev.target.id === 'pv-pod' || ev.target.id === 'pv-user' || ev.target.id === 'pv-device') { readPreviewControls(); render(); }
         if (ev.target.id === 'pv-size' || ev.target.id === 'pv-zoom') { readPreviewControls(); sizePhone(); }
         if (ev.target.id === 'pv-online') { P.previewOnline = ev.target.checked; FAH.send('online', { online: P.previewOnline }); log(P.previewOnline ? 'online' : 'offline (simulated)'); }
+        if (ev.target.id === 'e-url' || ev.target.id === 'e-hosts') paintUrlCheck();
         if (ev.target.id === 'e-code') { var el = $('e-codelen'); if (el) el.textContent = Math.round(ev.target.value.length / 1024) + ' KB'; }
     });
+    document.addEventListener('input', function (ev) { if (ev.target.id === 'e-url' || ev.target.id === 'e-hosts') paintUrlCheck(); });
     document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && P.drawer) { if (P.drawer.state && P.drawer.state.kind === 'capture') ACT.capCancel(); else closeDrawer(); } if (ev.key === 'Enter' && ev.target.id === 'pv-scan') ACT.pvScan(); if (ev.key === 'Enter' && ev.target.id === 'ps-iq') ACT.itemsFind(); });
 
     // ── boot ──────────────────────────────────────────────────────
@@ -521,6 +604,7 @@
             return FAS.keys.list().catch(function () { return []; }).then(function (k) { return [r[0], null, k]; });     // after ensure(): the settings table exists
         }).then(function (r) {
             P.admin = r[0]; P.keys = r[2] || []; P.ready = true; done();
+            FAS.settings.get('apex_builder').then(function (v) { P.apexBuilder = v && v.url || null; if (P.tab === 'setup') render(); }).catch(function () { });
             paintTabs(); render();
             Promise.all([loadSubs().catch(function () { }), loadDevices().catch(function () { })]).then(paintTabs);
             if (P.tab === 'results') loadSubs().then(render); if (P.tab === 'photos') loadPhotos().then(render); if (P.tab === 'pos') loadPos().then(render); if (P.tab === 'devices') loadDevices().then(render); if (P.tab === 'setup') loadSetup().then(render);

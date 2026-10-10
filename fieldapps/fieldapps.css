@@ -58,6 +58,7 @@ textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12p
 @keyframes sp { to { transform: rotate(360deg); } }
 .empty { padding: 28px; text-align: center; color: var(--muted); }
 .warnbox { background: #fef3c7; color: #92400e; border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+.infobox { background: #eef2ff; color: #1e3a8a; border-radius: 10px; padding: 10px 12px; font-size: 13px; } .infobox a, .warnbox a { cursor: pointer; text-decoration: underline; font-weight: 600; }
 .okbox { background: #d1fae5; color: #065f46; border-radius: 10px; padding: 10px 12px; font-size: 13px; }
 .badbox { background: #fee2e2; color: #991b1b; border-radius: 10px; padding: 10px 12px; font-size: 13px; }
 code, .code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; background: var(--soft); padding: 1px 5px; border-radius: 5px; }

@@ -66,6 +66,39 @@ the submissions land in APEX exactly as a phone's would, photos come from the we
 through `field/photos` with the desktop's own device key, the console shows every host call, and the
 *online* switch queues what the app sends until it is ticked again.
 
+## APEX apps
+
+An **APEX app** is a real Oracle APEX application, built and run by APEX itself — not HTML made here. Field Apps
+only publishes it: it decides who gets the tile and signs the address, and the phone opens the app full screen.
+
+1. **Build it in APEX.** Apps › **APEX App Builder** opens the workspace sign-in in your browser. The address is
+   set in Setup › *APEX App Builder* (shared setting `apex_builder` in `WMS_FIELD_SETTINGS`); the default is the
+   Grays `apextestdb` workspace. You sign in with your own APEX workspace login — no password is kept anywhere in
+   the WMS. In App Builder: *Create › New Application*, Universal Theme, tick *Install Progressive Web App*, and
+   choose how people sign in (APEX accounts, or the same login as the WMS).
+2. **Register it.** Apps › **New APEX app** creates a draft of kind `APEX`. The editor takes the address of the
+   *running* app — `https://…/ords/r/<workspace>/<app>/home` or `…/ords/f?p=<app>` — pasted, or chosen with
+   *Pick from APEX* (`APEX_APPLICATIONS` of the gateway's workspace; APEX's own internal and builder apps are
+   left out).
+   - The address is checked: https, an Oracle APEX host (`*.oraclecloudapps.com` / `*.oraclecloud.com`, or a
+     host you list), `/ords/` in the path, and not the App Builder / workspace sign-in.
+   - The `session=` / debug parts of a copied address are dropped.
+   - `{{USER}}`, `{{POD}}`, `{{DEVICE}}` and `{{APP}}` may be passed as page items for context (e.g.
+     `…/f?p=145:1::::::P0_POD:{{POD}}`). They are never a sign-in: the APEX app's own authentication decides who
+     gets in.
+   - *Other hosts* allows a single sign-on hop (e.g. `login.microsoftonline.com`).
+3. **Save & publish.** The app's "code" is a small launcher, `{"type":"apex","url":…,"hosts":[…],"toolbar":true}`
+   (`runtime/fa-apex.js` `FAX.code`). It is signed like any app, so nobody can point the tile elsewhere without
+   a new signature — the shell refuses a changed address.
+4. **On the phone** the shell verifies the launcher and asks the host to `launch` it. FCPos opens the address in
+   its own WebView, full screen, with a back / reload / close bar. It may only navigate to the app's host, the
+   listed hosts and Oracle APEX hosts (`FAX.mayNavigate`).
+
+Changes made in APEX show at once. Publish again only to change the address, the hosts or who gets the app.
+
+In **Preview** the phone frame goes to the APEX address. If it stays blank, the app refuses frames (*Shared
+Components › Security › Browser Security › Embed in Frames*). The phone is not affected — use *Open in a window*.
+
 ## Pairing a phone
 
 Devices › *Pair a phone*: choose the mobile login, a label, and show the QR (or the 8-letter code). In FCPos,
@@ -113,6 +146,7 @@ messages (`window.ReactNativeWebView.postMessage`), and the screen answers with
 | `scan` | `{}` | the barcode scanner → `{ code, format }` |
 | `gps` | `{}` | `{ lat, lng, acc }` |
 | `print` | `{ text, html, copies, title }` | the receipt printer (ESC/POS text) |
+| `launch` | `{ url, hosts, toolbar, name, appId }` | APEX apps only: open `url` full screen in the host's own WebView and answer `{ handled: true }`; an older host that answers *Unknown op* gets the shell navigating there itself |
 | `log`, `appReady`, `appError` | | fire and forget |
 
 The shell verifies the bundle's signature with the `keys` the host hands over (from `field/apps` or pairing)

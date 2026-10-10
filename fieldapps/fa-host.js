@@ -30,6 +30,7 @@
             case 'gps': return gps();
             case 'print': return o.print(a);
             case 'open': return o.open ? o.open(a.appId) : null;
+            case 'launch': return o.launch ? o.launch(a) : { handled: false };
             case 'close': return o.close ? o.close() : null;
             case 'log': if (o.log) o.log(a); return true;
             case 'appReady': if (o.ready) o.ready(); return true;

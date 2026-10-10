@@ -225,7 +225,7 @@
                 else hostSend('log', { m: 'verified · ' + String(b.code).length.toLocaleString() + ' characters · SHA-256 ' + String(v.codeSha || '').slice(0, 12) + '… · key ' + b.keyId }).catch(function () { });
                 if (b.expiresAt && new Date(b.expiresAt.replace(' ', 'T')) < new Date() && !ctx.allowUnsigned) throw new Error('This app expired on ' + b.expiresAt.slice(0, 16).replace('T', ' '));
                 paintChip();
-                mount();
+                if (window.FAX && window.FAX.isApex(b)) launchApex(); else mount();
             });
         }).catch(function (e) { overlay('Cannot start', e && e.message || String(e), true); hostSend('appError', { error: e && e.message || String(e) }).catch(function () { }); });
     }
@@ -249,6 +249,25 @@
         flushTimer = setInterval(flush, 30000);
         setTimeout(flush, 1500);
     }
+    /** An APEX app: the signed launcher names the address; the host opens it full screen (the phone's WebView, or the desktop
+     *  preview). A host that does not know 'launch' (an older mobile app) gets the shell navigating there itself. */
+    function launchApex() {
+        var FAX = window.FAX, def = FAX.read(bundle.code);
+        if (!def) { overlay('Cannot start', 'The APEX launcher of this app is not valid', true); return; }
+        var chk = FAX.check(def.url, def.hosts);
+        if (!chk.ok) { overlay('Cannot start', chk.why, true); hostSend('appError', { error: chk.why }).catch(function () { }); return; }
+        var url = FAX.fill(chk.url, { user: ctx.user, pod: ctx.pod, device: ctx.device, appId: bundle.appId });
+        overlay('Opening ' + (bundle.name || appId) + '…', chk.host);
+        hostSend('log', { m: 'APEX app → ' + url }).catch(function () { });
+        hostSend('launch', { url: url, hosts: def.hosts || [], name: bundle.name, appId: bundle.appId, toolbar: def.toolbar }, 30000).then(function (r) {
+            if (r && r.handled) { hideOverlay(); return; }
+            location.href = url;
+        }, function (e) {
+            if (/unknown op/i.test(e && e.message || '')) { location.href = url; return; }
+            overlay('Cannot open the APEX app', e && e.message || String(e), true);
+        });
+    }
+    SH.launchApex = launchApex;
     SH.reload = boot;
     document.addEventListener('DOMContentLoaded', function () {
         var r = $('fa-retry'); if (r) r.addEventListener('click', boot);
