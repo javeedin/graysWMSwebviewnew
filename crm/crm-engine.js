@@ -625,11 +625,53 @@
             return [base + ' AND t.org_id = ' + digits(bu) + "\n GROUP BY TO_CHAR(t.trx_date, 'YYYY-MM')\n ORDER BY 1", base + "\n GROUP BY TO_CHAR(t.trx_date, 'YYYY-MM')\n ORDER BY 1"];
         }
     };
+    // ── customer DFFs (descriptive flexfields on the account, the party and the organization profile) ──
+    /** the tables whose DFFs the customer master reads: A = account, P = party, O = organization profile */
+    E.DFF_TABLES = { A: { table: 'HZ_CUST_ACCOUNTS', alias: 'ca', label: 'Account' }, P: { table: 'HZ_PARTIES', alias: 'p', label: 'Party' }, O: { table: 'HZ_ORGANIZATION_PROFILES', alias: 'op', label: 'Organization' } };
+    /** a column that may reach SQL as a DFF column */
+    E.dffColOk = function (c) { return /^ATTRIBUTE(_CHAR|_NUMBER|_DATE|_TIMESTAMP)?\d{1,2}$/.test(String(c || '').toUpperCase()) || String(c || '').toUpperCase() === 'ATTRIBUTE_CATEGORY'; };
+    /** the DFF segments (labels) defined on those tables: FND_DF_SEGMENTS_VL × FND_DF_TABLE_USAGES; alternatives without the
+     *  application id join, then by flexfield code */
+    E.sql.dffLabels = function () {
+        var tabs = "('HZ_CUST_ACCOUNTS', 'HZ_PARTIES', 'HZ_ORGANIZATION_PROFILES')";
+        var sel = "SELECT u.table_name AS tbl, s.descriptive_flexfield_code AS flex, s.context_code AS ctx, s.column_name AS col, s.name AS label, s.sequence_number AS seq\n  FROM fnd_df_segments_vl s\n";
+        return [sel + "  JOIN fnd_df_table_usages u ON u.descriptive_flexfield_code = s.descriptive_flexfield_code AND u.application_id = s.application_id\n WHERE u.table_name IN " + tabs + "\n ORDER BY 1, 3, 6",
+            sel + "  JOIN fnd_df_table_usages u ON u.descriptive_flexfield_code = s.descriptive_flexfield_code\n WHERE u.table_name IN " + tabs + "\n ORDER BY 1, 3, 6",
+            "SELECT DECODE(s.descriptive_flexfield_code, 'HZ_CUST_ACCOUNTS', 'HZ_CUST_ACCOUNTS', 'HZ_ORGANIZATION_PROFILES', 'HZ_ORGANIZATION_PROFILES', 'HZ_PARTIES') AS tbl, s.descriptive_flexfield_code AS flex,\n" +
+            "       s.context_code AS ctx, s.column_name AS col, s.name AS label, s.sequence_number AS seq\n  FROM fnd_df_segments_vl s\n WHERE s.descriptive_flexfield_code IN ('HZ_CUST_ACCOUNTS', 'HZ_PARTIES', 'HZ_ORGANIZATION_PROFILES', 'PERSON', 'ORGANIZATION')\n ORDER BY 1, 3, 6"];
+    };
+    /** the label rows → {A|P|O: {cols: [COL…], labels: [{col, ctx, label, seq}]}} — only safe columns, ATTRIBUTE_CATEGORY added */
+    E.dffSpec = function (rows) {
+        var out = {}, tk = {}; Object.keys(E.DFF_TABLES).forEach(function (k) { tk[E.DFF_TABLES[k].table] = k; });
+        (rows || []).forEach(function (r) {
+            var k = tk[String(r.TBL || r.tbl || '').toUpperCase()], col = String(r.COL || r.col || '').toUpperCase();
+            if (!k || !E.dffColOk(col)) return;
+            var t = out[k] || (out[k] = { cols: ['ATTRIBUTE_CATEGORY'], labels: [] });
+            if (t.cols.indexOf(col) < 0) t.cols.push(col);
+            t.labels.push({ col: col, ctx: String(r.CTX || r.ctx || ''), label: String(r.LABEL || r.label || col), seq: +(r.SEQ || r.seq) || 0 });
+        });
+        Object.keys(out).forEach(function (k) { out[k].cols = out[k].cols.slice(0, 80); });
+        return out;
+    };
+    /** DFF select list for the spec (keys = which tables) — dates as text; aliases DFF_<A|P|O>_<COLUMN> */
+    function dffSelect(spec, keys) {
+        var parts = [];
+        (keys || []).forEach(function (k) {
+            var t = spec && spec[k]; if (!t) return;
+            t.cols.forEach(function (c) {
+                if (!E.dffColOk(c)) return;
+                var ref = E.DFF_TABLES[k].alias + '.' + c.toLowerCase();
+                parts.push((/_DATE|_TIMESTAMP/.test(c) ? "TO_CHAR(" + ref + ", 'YYYY-MM-DD')" : ref) + ' AS dff_' + k.toLowerCase() + '_' + c.toLowerCase());
+            });
+        });
+        return parts.length ? ',\n       ' + parts.join(', ') : '';
+    }
     /** the whole Fusion customer master, one page at a time (keyset on CUST_ACCOUNT_ID — every page costs the same at any depth);
-     *  since = 'YYYY-MM-DD HH24:MI:SS' only reads accounts / parties changed from then (Sync changes). Alternatives: with address,
-     *  e-mail and phone; with e-mail and phone; plain. */
-    E.sql.customersPage = function (afterId, since, size) {
-        var n = Math.max(50, Math.min(5000, +size || 1000)), after = digits(afterId || 0);
+     *  since = 'YYYY-MM-DD HH24:MI:SS' only reads accounts / parties changed from then (Sync changes); dff = E.dffSpec(...) adds the
+     *  account / party / organization DFF columns; account = one account only (the DFF dialog's Read from Fusion).
+     *  Alternatives: everything; DFFs without the organization profile; no DFFs (address, e-mail, phone); e-mail + phone; plain. */
+    E.sql.customersPage = function (afterId, since, size, dff, account) {
+        var n = Math.max(1, Math.min(5000, +size || 1000)), after = digits(afterId || 0);
         var changed = "GREATEST(NVL(ca.last_update_date, DATE '2000-01-01'), NVL(p.last_update_date, DATE '2000-01-01'))";
         var addr = ",\n       (SELECT l.address1 || NVL2(l.city, ', ' || l.city, '') || NVL2(l.country, ', ' || l.country, '')\n" +
             "          FROM hz_cust_acct_sites_all s JOIN hz_party_sites ps ON ps.party_site_id = s.party_site_id JOIN hz_locations l ON l.location_id = ps.location_id\n" +
@@ -638,28 +680,101 @@
             "         WHERE cp.owner_table_name = 'HZ_PARTIES' AND cp.owner_table_id = p.party_id AND cp.contact_point_type = 'EMAIL' AND cp.status = 'A') AS email,\n" +
             "       (SELECT MAX(NVL2(cp.phone_area_code, cp.phone_area_code || ' ', '') || cp.phone_number) KEEP (DENSE_RANK FIRST ORDER BY DECODE(cp.primary_flag, 'Y', 0, 1)) FROM hz_contact_points cp\n" +
             "         WHERE cp.owner_table_name = 'HZ_PARTIES' AND cp.owner_table_id = p.party_id AND cp.contact_point_type = 'PHONE' AND cp.status = 'A') AS phone";
-        function one(extra) {
+        var opJoin = "\n  LEFT JOIN hz_organization_profiles op ON op.party_id = p.party_id AND TRUNC(SYSDATE) BETWEEN op.effective_start_date AND op.effective_end_date AND op.effective_latest_change = 'Y'";
+        function one(extra, join) {
             return "SELECT ca.cust_account_id, ca.account_number, p.party_name AS customer, p.party_number, ca.account_name, ca.status, ca.customer_type, ca.customer_class_code AS customer_class,\n" +
                 "       p.jgzz_fiscal_code AS tax_reference" + extra + ",\n       TO_CHAR(" + changed + ", 'YYYY-MM-DD HH24:MI:SS') AS changed\n" +
-                "  FROM hz_cust_accounts ca\n  JOIN hz_parties p ON p.party_id = ca.party_id\n WHERE ca.cust_account_id > " + after +
-                (since && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/.test(since) ? "\n   AND " + changed + " >= TO_DATE('" + since.slice(0, 19) + "', 'YYYY-MM-DD HH24:MI:SS')" : '') +
+                "  FROM hz_cust_accounts ca\n  JOIN hz_parties p ON p.party_id = ca.party_id" + (join || '') +
+                (account ? "\n WHERE ca.account_number " + (Array.isArray(account) ? 'IN (' + account.slice(0, 500).map(q).join(', ') + ')' : '= ' + q(account)) : "\n WHERE ca.cust_account_id > " + after +
+                    (since && /^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/.test(since) ? "\n   AND " + changed + " >= TO_DATE('" + since.slice(0, 19) + "', 'YYYY-MM-DD HH24:MI:SS')" : '')) +
                 "\n ORDER BY ca.cust_account_id\n FETCH FIRST " + n + " ROWS ONLY";
         }
-        return [one(addr + cps), one(cps), one('')];
+        var list = [];
+        if (dff && dff.O) list.push(one(addr + cps + dffSelect(dff, ['A', 'P', 'O']), opJoin));
+        if (dff && (dff.A || dff.P)) list.push(one(addr + cps + dffSelect(dff, ['A', 'P'])), one(addr + cps + dffSelect(dff, ['A'])));
+        return list.concat([one(addr + cps), one(cps), one('')]).filter(function (x, i, a) { return a.indexOf(x) === i; });
     };
-    /** a Fusion master row → the row kept on this PC / in APEX (lower-case columns, digits of the phone, one search text) */
-    E.custRow = function (r, pod) {
+    /** the label of one DFF column for the row's context (the context's own label, else a global one, else any) */
+    E.dffLabel = function (spec, k, col, ctx) {
+        var ls = ((spec || {})[k] || { labels: [] }).labels.filter(function (x) { return x.col === col; });
+        var own = ls.filter(function (x) { return ctx && x.ctx === ctx; })[0], glob = ls.filter(function (x) { return /^(global|#null|$)/i.test(x.ctx) || /global/i.test(x.ctx); })[0];
+        var hit = own || glob || ls[0];
+        return { label: hit ? hit.label : col === 'ATTRIBUTE_CATEGORY' ? 'Context' : col, seq: hit ? hit.seq : col === 'ATTRIBUTE_CATEGORY' ? -1 : 999, ctx: hit ? hit.ctx : '' };
+    };
+    /** the DFF values of a Fusion row → [{t, col, label, value, ctx}] (filled values only), in segment order */
+    E.dffValues = function (r, spec) {
+        var out = [];
+        Object.keys(E.DFF_TABLES).forEach(function (k) {
+            var pre = 'DFF_' + k + '_', ctx = '';
+            Object.keys(r || {}).forEach(function (key) { if (key.toUpperCase() === pre + 'ATTRIBUTE_CATEGORY') ctx = r[key] == null ? '' : String(r[key]); });
+            Object.keys(r || {}).forEach(function (key) {
+                var K = key.toUpperCase(); if (K.indexOf(pre) !== 0) return;
+                var v = r[key]; if (v == null || String(v).trim() === '') return;
+                var col = K.slice(pre.length), l = E.dffLabel(spec, k, col, ctx);
+                out.push({ t: k, col: col, label: l.label, value: String(v), ctx: col === 'ATTRIBUTE_CATEGORY' ? '' : ctx, seq: l.seq });
+            });
+        });
+        return out.sort(function (a, b) { return 'APO'.indexOf(a.t) - 'APO'.indexOf(b.t) || a.seq - b.seq; });
+    };
+    /** a text with one or more phone numbers ("4520202 4525743 / +230 5728 1234") → their digits, one entry per number */
+    E.phoneList = function (s) {
+        var out = [];
+        String(s || '').split(/[,;\/|]+|\s{2,}/).forEach(function (part) {
+            var acc = '';
+            part.trim().split(/\s+/).forEach(function (tok) {
+                var d = tok.replace(/\D/g, ''); if (!d) return;
+                if (acc.length >= 7 && (d.length >= 7 || /^\+/.test(tok))) { out.push(acc); acc = ''; }
+                acc += d;
+            });
+            if (acc.length >= 5) out.push(acc);
+        });
+        return out;
+    };
+    /** Fusion's contact points are often empty while the e-mail / phone sit in a DFF segment (EMAIL, PHONENO …): the first DFF
+     *  value whose label says so and whose value looks like it → {email, emailFrom, phone, phoneFrom} */
+    E.dffContact = function (vals) {
+        var o = { email: '', emailFrom: '', phone: '', phoneFrom: '' };
+        (vals || []).forEach(function (x) {
+            if (!o.email && /e-?mail/i.test(x.label) && /[^\s@]+@[^\s@]+\.[^\s@]+/.test(x.value)) { o.email = x.value; o.emailFrom = x.label; }
+            if (!o.phone && /phone|mobile|\btel|gsm|contact\s*no|cell/i.test(x.label) && E.phoneList(x.value).length) { o.phone = x.value; o.phoneFrom = x.label; }
+        });
+        return o;
+    };
+    /** pack the DFF values into JSON that fits max BYTES (drops the last values rather than cutting the JSON) */
+    E.dffPack = function (o, maxBytes) {
+        maxBytes = maxBytes || 3900;
+        function bytes(t) { return unescape(encodeURIComponent(t)).length; }
+        var x = { m: o.m || {}, f: (o.f || []).map(function (v) { return [v.t, v.col, v.label, String(v.value).slice(0, 500), v.ctx || '']; }) };
+        var j = JSON.stringify(x);
+        while (bytes(j) > maxBytes && x.f.length) { x.f.pop(); x.cut = (x.cut || 0) + 1; j = JSON.stringify(x); }
+        return j;
+    };
+    /** the packed JSON back → {m, f: [{t, col, label, value, ctx}], cut} */
+    E.dffUnpack = function (j) {
+        if (!j) return { m: {}, f: [] };
+        try { var x = typeof j === 'string' ? JSON.parse(j) : j; return { m: x.m || {}, cut: x.cut || 0, f: (x.f || []).map(function (a) { return Array.isArray(a) ? { t: a[0], col: a[1], label: a[2], value: a[3], ctx: a[4] } : a; }) }; } catch (e) { return { m: {}, f: [] }; }
+    };
+    /** a Fusion master row → the row kept on this PC / in APEX (lower-case columns, digits of every phone, one search text, the DFFs) */
+    E.custRow = function (r, pod, spec) {
         var g = function (k) { var v = r[k] != null ? r[k] : r[k.toLowerCase()]; return v == null ? '' : String(v); };
         var o = { pod: pod || '', cust_account_id: g('CUST_ACCOUNT_ID'), account_number: g('ACCOUNT_NUMBER'), customer: g('CUSTOMER'), party_number: g('PARTY_NUMBER'), account_name: g('ACCOUNT_NAME'),
             status: g('STATUS'), customer_type: g('CUSTOMER_TYPE'), customer_class: g('CUSTOMER_CLASS'), tax_reference: g('TAX_REFERENCE'), bill_to_address: g('BILL_TO_ADDRESS'), email: g('EMAIL'), phone: g('PHONE'), changed: g('CHANGED') };
-        o.phone_digits = o.phone.replace(/\D/g, '');
-        o.hay = [o.account_number, o.customer, o.account_name, o.party_number, o.email, o.phone, o.tax_reference, o.bill_to_address].join(' ').toLowerCase();
+        var vals = E.dffValues(r, spec), packed = g('DFF_JSON'), m = {};
+        if (vals.length) {
+            var ct = E.dffContact(vals);
+            if (!o.email && ct.email) { o.email = ct.email; m.e = ct.emailFrom; }
+            if (!o.phone && ct.phone) { o.phone = ct.phone; m.p = ct.phoneFrom; }
+            o.dff_json = E.dffPack({ m: m, f: vals });
+        } else o.dff_json = packed;
+        o.phone_digits = E.phoneList(o.phone).join(' ');
+        var dv = E.dffUnpack(o.dff_json).f.map(function (x) { return x.value; }).join(' ');
+        o.hay = [o.account_number, o.customer, o.account_name, o.party_number, o.email, o.phone, o.tax_reference, o.bill_to_address, dv].join(' ').toLowerCase();
         return o;
     };
     /** a kept row → the Fusion-style master row the 360 shows (upper-case keys) */
     E.custMaster = function (o) {
         return { ACCOUNT_NUMBER: o.account_number, CUSTOMER: o.customer, PARTY_NUMBER: o.party_number, ACCOUNT_NAME: o.account_name, STATUS: o.status, CUSTOMER_TYPE: o.customer_type, CUSTOMER_CLASS: o.customer_class,
-            TAX_REFERENCE: o.tax_reference, BILL_TO_ADDRESS: o.bill_to_address, EMAIL: o.email, PHONE: o.phone, CUST_ACCOUNT_ID: o.cust_account_id };
+            TAX_REFERENCE: o.tax_reference, BILL_TO_ADDRESS: o.bill_to_address, EMAIL: o.email, PHONE: o.phone, CUST_ACCOUNT_ID: o.cust_account_id, DFF_JSON: o.dff_json || '' };
     };
     /** search words → a WHERE over the kept customers (every word in the search text; 7+ digits also match the phone digits) */
     E.custWhere = function (q, quote) {

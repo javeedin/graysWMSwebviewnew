@@ -315,3 +315,8 @@ i.dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; ve
 .divbar { position: relative; }
 .divbar .neg { position: absolute; right: 50%; }
 .divbar .pos { position: absolute; left: 50%; }
+
+/* DFFs on the customer master */
+.dfftag { display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: .04em; padding: 0 4px; border-radius: 4px; background: #eef2ff; color: #4338ca; vertical-align: 1px; cursor: help; }
+.btn.dffon { color: #4338ca; }
+.kv.dff .k { cursor: help; }

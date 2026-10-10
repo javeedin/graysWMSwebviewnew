@@ -155,5 +155,20 @@ ok(/i\.attribute7\) AS profit_center/.test(E.sql.salesItems('A1', 1, 24, { profi
 eq([E.dffCol('attribute_char3'), E.dffCol('SEGMENT1'), E.setup({ itemDff: { supplier: 'ATTRIBUTE5' } }).itemDff.profitCenter], ['ATTRIBUTE_CHAR3', '', 'ATTRIBUTE1'], 'dffCol + setup merge');
 ok(E.sql.salesItems("A'1", 1).every(function (x) { return x.indexOf("'A''1'") > 0 && /GROUP BY TO_CHAR/.test(x); }), 'sales items SQL');
 
+// customer DFFs: labels → spec, the page query, label per context, e-mail / phone from a DFF, packing
+var spec = E.dffSpec([{ TBL: 'HZ_CUST_ACCOUNTS', CTX: 'GRAYS', COL: 'ATTRIBUTE8', LABEL: 'Email Statements', SEQ: 1 }, { TBL: 'HZ_CUST_ACCOUNTS', CTX: 'GRAYS', COL: 'ATTRIBUTE5', LABEL: 'EMAIL', SEQ: 5 },
+    { TBL: 'HZ_CUST_ACCOUNTS', CTX: 'GRAYS', COL: 'ATTRIBUTE6', LABEL: 'PHONENO', SEQ: 6 }, { TBL: 'HZ_CUST_ACCOUNTS', CTX: 'OTHER', COL: 'ATTRIBUTE6', LABEL: 'Other', SEQ: 1 },
+    { TBL: 'HZ_PARTIES', CTX: 'Global Data Elements', COL: 'ATTRIBUTE_DATE1', LABEL: 'Since', SEQ: 1 }, { TBL: 'HZ_CUST_ACCOUNTS', CTX: 'X', COL: 'SEGMENT1 x', LABEL: 'bad', SEQ: 1 }]);
+eq([spec.A.cols.join(','), spec.P.cols.join(','), !!spec.O], ['ATTRIBUTE_CATEGORY,ATTRIBUTE8,ATTRIBUTE5,ATTRIBUTE6', 'ATTRIBUTE_CATEGORY,ATTRIBUTE_DATE1', false], 'DFF spec: safe columns + context');
+var cp = E.sql.customersPage(0, null, 1000, spec);
+ok(/ca\.attribute5 AS dff_a_attribute5/.test(cp[0]) && /TO_CHAR\(p\.attribute_date1, 'YYYY-MM-DD'\) AS dff_p_attribute_date1/.test(cp[0]) && !/dff_/.test(cp[cp.length - 1]) && cp.length === 5, 'page query: DFFs first, plain last', cp.length);
+ok(/WHERE ca\.account_number IN \('A1', 'B''2'\)/.test(E.sql.customersPage(0, null, 5, spec, ['A1', "B'2"])[0]), 'page query for some accounts');
+eq([E.dffLabel(spec, 'A', 'ATTRIBUTE6', 'GRAYS').label, E.dffLabel(spec, 'A', 'ATTRIBUTE6', 'OTHER').label], ['PHONENO', 'Other'], 'label by context');
+var crow = E.custRow({ ACCOUNT_NUMBER: 'GR7119', CUSTOMER: 'Pick & Buy', DFF_A_ATTRIBUTE_CATEGORY: 'GRAYS', DFF_A_ATTRIBUTE8: 'Yes', DFF_A_ATTRIBUTE5: 'a@winners.mu,b@grays.mu', DFF_A_ATTRIBUTE6: '4520202 4525743 +230 5728 1999', DFF_P_ATTRIBUTE_DATE1: '1990-01-22' }, 'PROD', spec);
+eq([crow.email, crow.phone_digits, E.dffUnpack(crow.dff_json).m.e, E.dffUnpack(crow.dff_json).f.length], ['a@winners.mu,b@grays.mu', '4520202 4525743 23057281999', 'EMAIL', 5], 'e-mail + phones from the DFF (not "Email Statements: Yes")');
+eq(E.phoneList('5712 3456; 4520202 4525743'), ['57123456', '4520202', '4525743'], 'phone list');
+var big = E.dffPack({ m: {}, f: Array.from({ length: 60 }, function (x, i) { return { t: 'A', col: 'ATTRIBUTE' + i, label: 'L' + i, value: 'é'.repeat(120) }; }) }, 3900);
+ok(unescape(encodeURIComponent(big)).length <= 3900 && E.dffUnpack(big).cut > 0, 'DFF pack fits the bytes, valid JSON');
+
 console.log((n - bad) + ' / ' + n + ' passed');
 if (bad) process.exit(1);

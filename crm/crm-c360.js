@@ -29,6 +29,7 @@
     C.ACT.c360Section = function (el) { fetchSection(el.dataset.sec, true); };
     C.CH.c360Bu = function (el) { C.cust.bu = el.value; C.cust.f = {}; load(); };
 
+    var dffAsked = {};
     function load(force) {
         var c = C.cust, acct = c.account;
         c.loading = true; C.render();
@@ -48,6 +49,8 @@
             $('c360-name').textContent = c.name || acct;
             C.render();
             AUTO.forEach(function (k) { if (force || !c.f[k] || !c.f[k].fresh) fetchSection(k, true); });
+            // the DFFs (e-mail / phone often sit there) once per customer and session when this PC has none
+            if (C.cs && D.hasHost() && !(C.master[acct] || {}).DFF_JSON && !dffAsked[acct]) { dffAsked[acct] = 1; C.cs.readAccounts([acct]).then(function () { if (C.cust === c && C.tab === 'c360') C.render(); }, function () { }); }
             // then the shared APEX copy: sections this PC does not have, or has older; kept on this PC too
             c.apexP = S.c360.get(C.pod, c.bu, acct, Object.keys(c.f).filter(function (k) { return c.f[k] && (c.f[k].loading || c.f[k].fresh); })).then(function (ax) {
                 if (C.cust !== c) return;
@@ -101,7 +104,7 @@
             S.duck.keep360(C.pod, c.bu, c.account, k, r.rows, r.sql);
             S.c360.put(C.pod, c.bu, c.account, k, r.rows, r.sql).then(function (x) { if (c.f[k] && c.f[k].sql === r.sql) { c.f[k].apex = 'ok'; c.f[k].cut = x.cut; } }, function (e) { if (c.f[k] && c.f[k].sql === r.sql) { c.f[k].apex = 'failed'; c.f[k].apexErr = C.errText(e); } })
                 .then(function () { if (C.cust === c && C.tab === 'c360') softPaint(k); });
-            if (k === 'master' && r.rows[0]) { C.master[c.account] = r.rows[0]; if (!c.name) { c.name = r.rows[0].CUSTOMER; $('c360-name').textContent = c.name; } keepPhones(c, r.rows[0]); }
+            if (k === 'master' && r.rows[0]) { var old = C.master[c.account] || {}; C.master[c.account] = Object.assign({}, old, r.rows[0]); ['EMAIL', 'PHONE', 'DFF_JSON'].forEach(function (x) { if (!r.rows[0][x] && old[x]) C.master[c.account][x] = old[x]; }); if (!c.name) { c.name = r.rows[0].CUSTOMER; $('c360-name').textContent = c.name; } keepPhones(c, r.rows[0]); }
         }, function (e) {
             // keep what was shown before (this PC / APEX copy), add the error and every SQL tried
             c.f[k] = Object.assign({}, cur || {}, { loading: false, err: C.errText(e), errSql: e && e.sql || list[list.length - 1], tried: e && e.tried || [] });
@@ -112,7 +115,7 @@
     /** the customer's numbers into the PC's phone index (screen pop next time) */
     function keepPhones(c, m) {
         var rows = [];
-        String(m.PHONE || '').split(/[;,/]/).forEach(function (p) { p = p.trim(); if (p) rows.push({ phone: p, last7: E.phone(p, C.setup.phone.country).last7, bu: c.bu, account: c.account, name: m.CUSTOMER || c.name, contact: '', source: 'Fusion', read_at: S.now() }); });
+        phonesOf(m.PHONE || '').forEach(function (p) { if (p) rows.push({ phone: p, last7: E.phone(p, C.setup.phone.country).last7, bu: c.bu, account: c.account, name: m.CUSTOMER || c.name, contact: '', source: 'Fusion', read_at: S.now() }); });
         if (rows.length) S.duck.put('w2_crm_phone', { account: c.account, source: 'Fusion' }, rows);
     }
     C.c360Fetch = fetchSection;
@@ -156,7 +159,21 @@
         C.modal('<i class="fas fa-code"></i> SQL · ' + esc(el.dataset.sec), '<textarea class="code" rows="18" readonly>' + esc(x.sql || '') + '</textarea>',
             '<button class="btn" data-act="sqlCopy" data-sec="' + esc(el.dataset.sec) + '"><i class="fas fa-copy"></i> Copy</button><button class="btn" data-act="sqlFusion" data-sec="' + esc(el.dataset.sec) + '"><i class="fas fa-database"></i> Open in Fusion SQL</button><button class="btn" data-act="mclose">Close</button>', true);
     };
-    function master() { var m = rowsOf('master')[0]; return m || C.master[C.cust.account] || {}; }
+    /** the live master (Customer details SQL) over the kept row (customer load, with the DFFs); e-mail / phone fall back to the kept
+     *  row, whose values may come from a DFF segment (EMAIL, PHONENO …) when Fusion's contact points are empty */
+    function master() {
+        var live = rowsOf('master')[0] || {}, kept = C.master[C.cust.account] || {}, m = Object.assign({}, kept, live);
+        ['EMAIL', 'PHONE', 'DFF_JSON', 'BILL_TO_ADDRESS'].forEach(function (k) { if (!live[k] && kept[k]) m[k] = kept[k]; });
+        return m;
+    }
+    C.c360Master = master;
+    /** one or more numbers in one text → each number (a single number keeps its spacing) */
+    function phonesOf(s) {
+        var parts = String(s || '').split(/[;,/]/).map(function (x) { return x.trim(); }).filter(Boolean), out = [];
+        parts.forEach(function (p) { var l = E.phoneList(p); if (l.length > 1) out = out.concat(l); else out.push(p); });
+        return out;
+    }
+    C.phonesOf = phonesOf;
     function arSum() { var o = C.cust.f.open; return o && o.rows ? DE.openItemsSummary(o.rows) : null; }
     function lastContact(a) {
         var at = [];
@@ -185,12 +202,13 @@
         if (c.err) return '<div class="note bad">' + esc(c.err) + '</div>';
         var m = master(), card = C.cards[c.bu + '|' + c.account] || {}, a = c.a;
         var h = a ? C.c360Health() : null;
-        var phones = String(m.PHONE || card.PHONE || '').split(/[;,/]/).map(function (x) { return x.trim(); }).filter(Boolean);
-        var email = card.STMT_TO || m.EMAIL || '';
+        var phones = phonesOf(m.PHONE || card.PHONE || '');
+        var email = card.STMT_TO || m.EMAIL || '', dm = E.dffUnpack(m.DFF_JSON).m;
         var head = '<div class="card"><div class="c3head">' + C.avatar(c.name || c.account, true) + '<div style="flex:1;min-width:280px"><div class="nm">' + esc(c.name || '—') + ' ' + (m.STATUS && m.STATUS !== 'A' ? C.pill('inactive', 'bad') : '') + (card.ON_HOLD === 'Y' || m.CREDIT_HOLD === 'Y' ? C.pill('<i class="fas fa-lock"></i> credit hold', 'bad') : '') + (card.TAGS ? ' ' + card.TAGS.split(/[,;]/).map(function (t) { return C.pill(esc(t.trim()), 'vio'); }).join(' ') : '') + '</div>' +
             '<div class="facts"><span><i class="fas fa-hashtag"></i>' + esc(c.account) + '</span><span><i class="fas fa-building"></i><select data-ch="c360Bu" style="min-height:26px;padding:2px 6px">' + C.bus.map(function (b) { return '<option value="' + esc(b.id) + '"' + (b.id === c.bu ? ' selected' : '') + '>' + esc(b.name || b.id) + '</option>'; }).join('') + '</select></span>' +
             phones.map(function (p) { return '<span><i class="fas fa-phone"></i><a data-act="dialNum" data-num="' + esc(p) + '" data-acct="' + esc(c.account) + '">' + esc(p) + '</a></span>'; }).join('') +
-            (email ? '<span><i class="fas fa-envelope"></i><a data-act="compose" data-to="' + esc(email) + '">' + esc(email) + '</a></span>' : '') +
+            (email ? '<span><i class="fas fa-envelope"></i><a data-act="compose" data-to="' + esc(email) + '">' + esc(email) + '</a>' + (dm.e && !card.STMT_TO ? ' <span class="dfftag" title="From the DFF segment ' + esc(dm.e) + '">DFF</span>' : '') + '</span>' : '') +
+            '<span><a data-act="cuDff" data-acct="' + esc(c.account) + '" title="Account / party / organization DFFs"><i class="fas fa-tags"></i>DFFs</a></span>' +
             (m.BILL_TO_ADDRESS ? '<span><i class="fas fa-location-dot"></i>' + esc(m.BILL_TO_ADDRESS) + '</span>' : '') + (m.COLLECTOR ? '<span><i class="fas fa-user-tie"></i>' + esc(m.COLLECTOR) + '</span>' : '') +
             (m.PAYMENT_TERMS ? '<span><i class="fas fa-calendar"></i>' + esc(m.PAYMENT_TERMS) + '</span>' : '') + (m.CREDIT_LIMIT != null && m.CREDIT_LIMIT !== '' ? '<span><i class="fas fa-gauge-high"></i>limit ' + money(m.CREDIT_LIMIT) + '</span>' : '') + '</div>' +
             '<div class="qa"><button class="btn ok" data-act="callCust"><i class="fas fa-phone"></i> Call</button><button class="btn" data-act="compose"><i class="fas fa-envelope"></i> E-mail</button>' +
@@ -657,13 +675,16 @@
     C.ACT.contactDel = function (el) { var c = C.cust; S.contacts.remove(el.dataset.id).then(function () { C.mclose(); c.a.contacts = c.a.contacts.filter(function (k) { return k.CONTACT_ID !== el.dataset.id; }); C.render(); }, function (e) { C.toast(C.errText(e), 'bad'); }); };
     SV.details = function (c, a, m, card) {
         function kv(obj) { var ks = Object.keys(obj || {}).filter(function (k) { return obj[k] != null && obj[k] !== ''; }); return ks.length ? '<div class="kv">' + ks.map(function (k) { return '<div class="k">' + esc(k.replace(/_/g, ' ').toLowerCase()) + '</div><div class="v">' + esc(obj[k]) + '</div>'; }).join('') + '</div>' : '<div class="empty">Nothing.</div>'; }
-        return '<div class="cols"><div class="card"><h2>Fusion customer master</h2>' + src('master') + kv(m) + '</div><div class="card"><h2>Debtors Control card</h2>' + kv(card) + '<div class="pager"><a href="../debtors/index.html">Open Debtors Control</a></div></div></div>';
+        var mm = master(), base = {}; Object.keys(m || {}).forEach(function (k) { if (k !== 'DFF_JSON') base[k] = m[k]; });
+        if (!base.EMAIL && mm.EMAIL) base.EMAIL = mm.EMAIL; if (!base.PHONE && mm.PHONE) base.PHONE = mm.PHONE;
+        return '<div class="cols"><div class="card"><h2>Fusion customer master</h2>' + src('master') + kv(base) + '</div><div class="card"><h2>Debtors Control card</h2>' + kv(card) + '<div class="pager"><a href="../debtors/index.html">Open Debtors Control</a></div></div></div>' +
+            '<div class="card"><h2><i class="fas fa-tags"></i> DFFs <span class="sp"></span><button class="btn sm" data-act="cuDff" data-acct="' + esc(c.account) + '"><i class="fas fa-cloud-arrow-down"></i> Read from Fusion</button></h2>' + C.dffHtml(mm.DFF_JSON, 'No DFF values kept for this customer yet — Read from Fusion.') + '</div>';
     };
 
     // ── quick actions on the open customer ──
     C.ACT.callCust = function () {
         var c = C.cust, m = master(), card = C.cards[c.bu + '|' + c.account] || {};
-        var nums = String(m.PHONE || card.PHONE || '').split(/[;,/]/).map(function (x) { return x.trim(); }).filter(Boolean).concat(((c.a || {}).contacts || []).map(function (k) { return k.MOBILE || k.PHONE; }).filter(Boolean));
+        var nums = phonesOf(m.PHONE || card.PHONE || '').concat(((c.a || {}).contacts || []).map(function (k) { return k.MOBILE || k.PHONE; }).filter(Boolean));
         C.phone.open({ number: nums[0] || '', account: c.account, bu: c.bu, name: c.name, numbers: nums });
     };
     C.ACT.sendStmt = function (el) { var c = C.cust; C.mail.statement({ bu: c.bu, account: c.account, name: c.name, resentOf: el.dataset.resent || null }); };

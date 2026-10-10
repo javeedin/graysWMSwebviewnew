@@ -17,7 +17,10 @@ CREATE TABLE wms_crm_contacts (contact_id VARCHAR2(40) PRIMARY KEY, bu_id VARCHA
 -- the Customer 360 Fusion sections as last read (every PC opens a customer at once) and the whole Fusion customer master
 CREATE TABLE wms_crm_c360 (c360_id VARCHAR2(300) PRIMARY KEY, pod VARCHAR2(20), bu_id VARCHAR2(30), account_number VARCHAR2(60), section VARCHAR2(30), rows_n NUMBER, cut_n NUMBER, rows_json CLOB, sql_text CLOB, read_by VARCHAR2(100), read_at DATE DEFAULT SYSDATE);
 
-CREATE TABLE wms_crm_customers (pod VARCHAR2(20) NOT NULL, account_number VARCHAR2(60) NOT NULL, cust_account_id NUMBER, customer VARCHAR2(360), party_number VARCHAR2(60), account_name VARCHAR2(360), status VARCHAR2(10), customer_type VARCHAR2(30), customer_class VARCHAR2(60), tax_reference VARCHAR2(100), bill_to_address VARCHAR2(1000), email VARCHAR2(320), phone VARCHAR2(100), phone_digits VARCHAR2(40), changed VARCHAR2(20), hay VARCHAR2(2000), read_at DATE DEFAULT SYSDATE, CONSTRAINT wms_crm_customers_pk PRIMARY KEY (pod, account_number));
+CREATE TABLE wms_crm_customers (pod VARCHAR2(20) NOT NULL, account_number VARCHAR2(60) NOT NULL, cust_account_id NUMBER, customer VARCHAR2(360), party_number VARCHAR2(60), account_name VARCHAR2(360), status VARCHAR2(10), customer_type VARCHAR2(30), customer_class VARCHAR2(60), tax_reference VARCHAR2(100), bill_to_address VARCHAR2(1000), email VARCHAR2(320), phone VARCHAR2(400), phone_digits VARCHAR2(200), changed VARCHAR2(20), hay VARCHAR2(4000), dff_json VARCHAR2(4000), read_at DATE DEFAULT SYSDATE, CONSTRAINT wms_crm_customers_pk PRIMARY KEY (pod, account_number));
+-- an older WMS_CRM_CUSTOMERS (before the DFFs) is upgraded by the page; by hand:
+--   ALTER TABLE wms_crm_customers ADD (dff_json VARCHAR2(4000));
+--   ALTER TABLE wms_crm_customers MODIFY (phone VARCHAR2(400), phone_digits VARCHAR2(200), hay VARCHAR2(4000));
 
 CREATE SEQUENCE wms_crm_ticket_seq START WITH 1 INCREMENT BY 1 NOCACHE;
 

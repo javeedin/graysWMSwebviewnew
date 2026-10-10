@@ -69,7 +69,9 @@
         function out(x, src) {
             return { total: x.total, src: src, rows: x.rows.map(function (o) {
                 if (!C.master[o.account_number]) C.master[o.account_number] = E.custMaster(o);
-                return { bu: '', account: o.account_number, name: o.customer || o.account_name, phone: o.phone || '', email: o.email || '', src: 'Fusion master', addr: o.bill_to_address, status: o.status };
+                if (o.dff_json && !C.master[o.account_number].DFF_JSON) C.master[o.account_number].DFF_JSON = o.dff_json;
+                var m = E.dffUnpack(o.dff_json).m;
+                return { bu: '', account: o.account_number, name: o.customer || o.account_name, phone: o.phone || '', email: o.email || '', phoneFrom: m.p || '', emailFrom: m.e || '', dff: o.dff_json || '', src: 'Fusion master', addr: o.bill_to_address, status: o.status };
             }) };
         }
         var duck = D.duck.on !== false ? S.duck.custPage(C.pod, q, size, offset) : Promise.resolve(null);
@@ -91,15 +93,16 @@
         if (mode === 'all' && resume) { var rz = C.ls(rkey(), null); if (rz && rz.lastId) lastId = rz.lastId; }
         var r = newRun(mode, mode === 'changes' ? 'Reading customers changed since ' + since : 'Loading every Fusion customer' + (lastId ? ' (continuing)' : ''));
         r.since = since; r.lastId = lastId; r.alt = 0; r.apexFailed = 0;
-        var apexP = Promise.resolve();
+        var apexP = Promise.resolve(), spec = null;
         function page() {
             if (r.stop) return Promise.resolve();
             r.step = 'reading page ' + (r.page + 1) + ' from Fusion'; paint();
-            var list = E.sql.customersPage(r.lastId, r.since, PAGE).slice(r.alt);
+            var list = E.sql.customersPage(r.lastId, r.since, PAGE, spec).slice(r.alt);
             return C.fusionFirst(list, PAGE + 10, 300000).then(function (res) {
                 r.alt += list.indexOf(res.sql);
                 r.sql = res.sql;
-                var rows = res.rows.map(function (x) { return E.custRow(x, C.pod); }).filter(function (x) { return x.account_number; });
+                var rows = res.rows.map(function (x) { return E.custRow(x, C.pod, spec); }).filter(function (x) { return x.account_number; });
+                if (r.page === 0) r.dff = /dff_/.test(res.sql) ? (/dff_o_/.test(res.sql) ? 'account, party + organization DFFs' : /dff_p_/.test(res.sql) ? 'account + party DFFs' : 'account DFFs') : spec ? 'no DFFs (the pod refused them)' : 'no DFFs';
                 r.page++; r.rows += rows.length;
                 res.rows.forEach(function (x) { var id = +x.CUST_ACCOUNT_ID; if (id > r.lastId) r.lastId = id; });
                 if (mode === 'all') C.lsSet(rkey(), { lastId: r.lastId, rows: r.rows, at: S.now() });
@@ -110,9 +113,10 @@
                 return duckP.then(function () { if (res.rows.length >= PAGE) return page(); });
             });
         }
-        return page().then(function () { r.step = 'finishing the APEX copy…'; paint(); return apexP; }).then(function () {
+        r.step = 'reading the DFF labels'; paint();
+        return cs.dffSpec().then(function (x) { spec = x && x.spec; }, function () { spec = null; }).then(page).then(function () { r.step = 'finishing the APEX copy…'; paint(); return apexP; }).then(function () {
             if (!r.stop && mode === 'all') C.lsSet(rkey(), null);
-            var info = { at: S.now(), by: D.user(), mode: mode, rows: r.rows, pages: r.page, secs: Math.round((Date.now() - r.t0) / 1000), since: r.since, stopped: r.stop, apexCopied: r.apex, apexFailed: r.apexFailed || 0, apexError: r.apexErr || null };
+            var info = { at: S.now(), by: D.user(), mode: mode, rows: r.rows, dff: r.dff || '', pages: r.page, secs: Math.round((Date.now() - r.t0) / 1000), since: r.since, stopped: r.stop, apexCopied: r.apex, apexFailed: r.apexFailed || 0, apexError: r.apexErr || null };
             return S.settings.save('CUST_SYNC_' + C.pod, info).catch(function () { }).then(function () {
                 endRun(r, (r.stop ? 'Stopped — ' : '') + r.rows + ' customers ' + (mode === 'changes' ? 'changed since ' + since + ' ' : '') + 'read from Fusion · kept on this PC' + (r.apexFailed ? ' · ' + r.apexFailed + ' not copied to APEX (' + r.apexErr + ')' : ' and in APEX'), r.apexFailed ? 'warn' : 'ok');
             });
@@ -150,6 +154,81 @@
         }, function () { return []; });
     };
 
+    // ── DFFs: the labels (per pod, shared in APEX), one account read again, the dialog ──
+    cs.dff = {};
+    /** the DFF segments of the customer tables → {spec, at, n, sql, error}; memory, else APEX settings CUST_DFF_<pod>, else Fusion */
+    cs.dffSpec = function (force) {
+        var pod = C.pod;
+        if (!force && cs.dff[pod]) return Promise.resolve(cs.dff[pod]);
+        var p = force ? Promise.resolve(null) : S.settings.get('CUST_DFF_' + pod).catch(function () { return null; });
+        return p.then(function (saved) {
+            if (saved && saved.spec) return (cs.dff[pod] = saved);
+            if (!D.hasHost()) return null;
+            return C.fusionFirst(E.sql.dffLabels(), 5000).then(function (res) {
+                var spec = E.dffSpec(res.rows), x = { spec: spec, at: S.now(), by: D.user(), sql: res.sql, n: res.rows.length };
+                cs.dff[pod] = x;
+                return S.settings.save('CUST_DFF_' + pod, x).catch(function () { }).then(function () { return x; });
+            }, function (e) { var x = { spec: null, at: S.now(), error: C.errText(e), sql: e && e.sql || '' }; cs.dff[pod] = x; return x; });
+        });
+    };
+    /** read these accounts again from Fusion with their DFFs → kept on this PC + APEX → the kept rows */
+    cs.readAccounts = function (accounts) {
+        accounts = (accounts || []).filter(Boolean).slice(0, 200);
+        if (!accounts.length || !D.hasHost()) return Promise.resolve([]);
+        return cs.dffSpec().then(function (x) {
+            var spec = x && x.spec;
+            return C.fusionFirst(E.sql.customersPage(0, null, accounts.length + 5, spec, accounts), accounts.length + 10).then(function (res) {
+                var rows = res.rows.map(function (r) { return E.custRow(r, C.pod, spec); }).filter(function (o) { return o.account_number; });
+                // the DFFs always; other fields only where the master shown has none (the 360's live read wins)
+                rows.forEach(function (o) {
+                    var cur = C.master[o.account_number] || {}, km = E.custMaster(o), m = Object.assign({}, cur);
+                    Object.keys(km).forEach(function (k) { if (m[k] == null || m[k] === '') m[k] = km[k]; });
+                    m.DFF_JSON = o.dff_json || cur.DFF_JSON || '';
+                    C.master[o.account_number] = m;
+                });
+                cs.cache = {};
+                return Promise.all([S.duck.custPut(C.pod, rows), S.customers.merge(C.pod, rows).catch(function () { })]).then(function () { return rows; });
+            });
+        });
+    };
+    /** the DFF values as label / value tables per level */
+    C.dffHtml = function (packed, empty) {
+        var x = E.dffUnpack(packed), by = { A: [], P: [], O: [] };
+        x.f.forEach(function (v) { (by[v.t] || (by[v.t] = [])).push(v); });
+        var h = Object.keys(E.DFF_TABLES).filter(function (k) { return by[k] && by[k].length; }).map(function (k) {
+            var ctx = by[k].filter(function (v) { return v.col === 'ATTRIBUTE_CATEGORY'; })[0];
+            return '<h3 style="margin:12px 0 6px">' + esc(E.DFF_TABLES[k].label) + ' DFF <span class="small muted">' + esc(E.DFF_TABLES[k].table) + (ctx ? ' · context ' + esc(ctx.value) : '') + '</span></h3>' +
+                '<div class="kv dff">' + by[k].filter(function (v) { return v.col !== 'ATTRIBUTE_CATEGORY'; }).map(function (v) {
+                    var hit = (x.m.e && v.label === x.m.e) || (x.m.p && v.label === x.m.p);
+                    return '<div class="k" title="' + esc(v.col + (v.ctx ? ' · ' + v.ctx : '')) + '">' + esc(v.label) + '</div><div class="v">' + esc(v.value) + (hit ? ' ' + C.pill('used as ' + (v.label === x.m.e ? 'e-mail' : 'phone'), 'info') : '') + '</div>';
+                }).join('') + '</div>';
+        }).join('');
+        return h ? h + (x.cut ? '<div class="small muted">' + x.cut + ' more values did not fit.</div>' : '') : '<div class="empty">' + esc(empty || 'No DFF values kept for this customer.') + '</div>';
+    };
+    var dffBusy = {};
+    C.ACT.cuDff = function (el) {
+        var acct = el.dataset.acct, m = C.master[acct] || {};
+        function body() {
+            var mm = C.master[acct] || {}, st = cs.dff[C.pod] || {};
+            return '<div class="kv"><div class="k">E-mail</div><div class="v">' + esc(mm.EMAIL || '—') + '</div><div class="k">Phone</div><div class="v">' + esc(mm.PHONE || '—') + '</div></div>' +
+                (dffBusy[acct] ? '<div class="small" style="margin-top:8px"><span class="spin"></span> reading Fusion…</div>' : '') +
+                C.dffHtml(mm.DFF_JSON, 'No DFF values kept for this customer yet — Read from Fusion.') +
+                '<div class="small muted" style="margin-top:10px">' + (st.error ? '<span class="badc">DFF labels: ' + esc(st.error) + '</span>' : st.at ? 'DFF labels read ' + C.when(st.at) + (st.n != null ? ' · ' + st.n + ' segments' : '') : '') + '</div>';
+        }
+        function paintIt() { var box = $('mbox'), b = box && box.dataset.dff === acct ? box.querySelector('.mb') : null; if (b) b.innerHTML = body(); }
+        var box = C.modal('<i class="fas fa-tags"></i> DFFs · ' + esc(m.CUSTOMER || acct) + ' <span class="small muted">' + esc(acct) + '</span>', body(),
+            '<button class="btn" data-act="cuDffLabels" title="Read the DFF segment names again from Fusion"><i class="fas fa-tags"></i> Labels again</button><span class="sp"></span>' +
+            '<button class="btn" data-act="cuDffRead" data-acct="' + esc(acct) + '"><i class="fas fa-cloud-arrow-down"></i> Read from Fusion</button><button class="btn" data-act="mclose">Close</button>', true);
+        box.dataset.dff = acct;
+        C.ACT.cuDffRead = function () {
+            dffBusy[acct] = true; paintIt();
+            cs.readAccounts([acct]).then(function (rows) { if (!rows.length) C.toast('Fusion did not return ' + acct, 'warn'); }, function (e) { C.toast('Fusion: ' + C.errText(e), 'bad', 7000); })
+                .then(function () { dffBusy[acct] = false; paintIt(); if (C.tab === 'customers' && C.cuLoad) C.cuLoad(); if (C.tab === 'c360') C.render(); });
+        };
+        C.ACT.cuDffLabels = function () { cs.dffSpec(true).then(function (x) { C.toast(x && x.spec ? 'DFF labels read again (' + x.n + ' segments) — Read from Fusion or Reload all to use them' : 'DFF labels: ' + (x && x.error || 'not readable'), x && x.spec ? 'ok' : 'warn', 7000); paintIt(); }); };
+        if (!m.DFF_JSON && D.hasHost() && !dffBusy[acct]) C.ACT.cuDffRead();
+    };
+
     /** the bar on top of the Customers tab */
     cs.bar = function () {
         var st = cs.st, r = cs.run, lo = st.local, ap = st.apex, last = st.last, rz = C.ls(rkey(), null);
@@ -174,6 +253,8 @@
             h += '<div class="small" style="margin-top:8px"><span class="spin"></span> ' + esc(r.label) + ' · ' + esc(r.step) + ' · <b>' + r.rows.toLocaleString() + '</b> customers' + (r.kind !== 'apex' && r.kind !== 'push' ? ' · ' + r.apex.toLocaleString() + ' in APEX' : '') + (r.total ? ' of ' + r.total.toLocaleString() : '') + ' · ' + secs + ' s' +
                 (r.apexFailed ? ' · <span class="badc" title="' + esc(r.apexErr || '') + '">' + r.apexFailed + ' refused by APEX</span>' : '') + '</div><div class="cs-prog"><div style="width:' + (pct != null ? pct : Math.min(95, 5 + r.page * 4)) + '%"></div></div>';
         } else if (cs.lastErr) h += '<div class="note bad" style="margin-top:8px">' + esc(cs.lastErr.msg) + ' · <a data-act="csErrSql">Show the SQL</a></div>';
+        else if (lo && lo.n && lo.nd === 0) h += '<div class="note" style="margin-top:8px"><i class="fas fa-tags"></i> The customers on this PC were loaded without their DFFs (e-mail / phone kept in the account DFF, grading, BRN, VAT …). <b>Reload all</b> once to bring the account, party and organization DFFs.</div>';
+        if (last && last.dff && !r) h += '<div class="small muted" style="margin-top:4px">Last load read ' + esc(last.dff) + '.</div>';
         return h + '</div>';
     };
     function paint() { var el = $('cs-bar'); if (el && C.tab === 'customers') el.outerHTML = cs.bar(); }

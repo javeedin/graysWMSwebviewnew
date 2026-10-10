@@ -194,7 +194,16 @@ Customers › the bar on top keeps the whole Fusion customer master on this PC (
 - **Sync changes** reads only accounts or parties changed since the newest change kept.
 - **Copy from APEX**: a PC whose copy is empty fills it from APEX without asking Fusion. This happens on its own when the page opens.
 
-The last load is recorded in `WMS_CRM_SETTINGS` `CUST_SYNC_<pod>` (when, who, rows, mode).
+The last load is recorded in `WMS_CRM_SETTINGS` `CUST_SYNC_<pod>` (when, who, rows, mode, which DFFs were read).
+
+**DFFs (descriptive flexfields).** Many pods keep the customer's e-mail and phone in the account DFF (segments such as EMAIL and PHONENO), not in Fusion's contact points. In that case the contact columns come back empty. Every load therefore also reads the DFFs:
+
+- **The labels.** The segments defined on `HZ_CUST_ACCOUNTS` (account), `HZ_PARTIES` (party) and `HZ_ORGANIZATION_PROFILES` (organization) are read once per pod from `FND_DF_SEGMENTS_VL` × `FND_DF_TABLE_USAGES` (`CRME.sql.dffLabels`, with fallbacks) and shared in `WMS_CRM_SETTINGS` `CUST_DFF_<pod>`. Only `ATTRIBUTE…` columns reach SQL (`CRME.dffColOk`).
+- **The values.** The page query adds those columns (`DFF_A_…`, `DFF_P_…`, `DFF_O_…`; dates as text). Alternatives drop the organization profile, then the party, then every DFF, so a pod that refuses one still loads. Each value is stored with the label of the row's context (`ATTRIBUTE_CATEGORY`, e.g. GRAYS), else the global label, in the `dff_json` column (≤ 4,000 bytes).
+- **E-mail and phone.** When the contact points are empty, the first DFF value whose label says e-mail (and that holds an address) or phone (and that holds digits) becomes the customer's e-mail / phone (`CRME.dffContact`). A label such as *Email Statements* with the value *Yes* is never taken. Every number in a text such as `4520202 4525743 4525766` is searchable and diallable (`CRME.phoneList`), so the screen pop finds the customer from any of them.
+- **In the grid** the phone and e-mail columns carry a small **DFF** tag when they came from a DFF. The tag icon on each row opens the DFF dialog: account, party and organization DFFs with their labels (the column on hover), *used as e-mail / phone*, **Read from Fusion** (that account again) and **Labels again**.
+- **In the Customer 360** the header shows the DFF e-mail and every phone, with a **DFFs** link. The Details tab has a DFF card. Opening a customer without DFFs on this PC reads them once in the background.
+- **Customers loaded before this change** have no DFFs. The bar says so: press **Reload all** once. The APEX table gets the new `DFF_JSON` column by itself (`CRMS.UPGRADES`), or run the two `ALTER TABLE` lines in `apex_sql/100_crm.sql`.
 
 **Browsing.** With the box empty, the Customers grid lists every customer of this copy in pages, sorted by name:
 
@@ -238,7 +247,7 @@ It also has the Debtors tools (balances, open items, statements, follow-ups) and
 
 - `node crm/tests/crm-engine.test.js` (CI) covers business hours and the SLA (with pause), routing, phone numbers, the health score, the timeline, KPIs, naive Bayes, similar tickets, the ask parser, the read-only 360 SQL (incl. the order currency column and its fallbacks), the customer-master pages, rows and search, and the AR 360 totals and rating.
 - AI Hub: `test_crm_customer_desk_routing_tools_and_module_threads`, plus the evals `crm_sla` and `crm_missed`.
-- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 98 checks. They include:
+- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 110 checks. They include:
   - every AR view, filter and drill (invoice → receipt that paid it → Back)
   - the Statements button
   - sections kept in APEX and on this PC

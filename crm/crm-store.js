@@ -65,8 +65,8 @@
         WMS_CRM_C360: 'CREATE TABLE wms_crm_c360 (c360_id VARCHAR2(300) PRIMARY KEY, pod VARCHAR2(20), bu_id VARCHAR2(30), account_number VARCHAR2(60), section VARCHAR2(30), rows_n NUMBER, cut_n NUMBER, ' +
             'rows_json CLOB, sql_text CLOB, read_by VARCHAR2(100), read_at DATE DEFAULT SYSDATE)',
         WMS_CRM_CUSTOMERS: 'CREATE TABLE wms_crm_customers (pod VARCHAR2(20) NOT NULL, account_number VARCHAR2(60) NOT NULL, cust_account_id NUMBER, customer VARCHAR2(360), party_number VARCHAR2(60), account_name VARCHAR2(360), ' +
-            'status VARCHAR2(10), customer_type VARCHAR2(30), customer_class VARCHAR2(60), tax_reference VARCHAR2(100), bill_to_address VARCHAR2(1000), email VARCHAR2(320), phone VARCHAR2(100), phone_digits VARCHAR2(40), ' +
-            'changed VARCHAR2(20), hay VARCHAR2(2000), read_at DATE DEFAULT SYSDATE, CONSTRAINT wms_crm_customers_pk PRIMARY KEY (pod, account_number))'
+            'status VARCHAR2(10), customer_type VARCHAR2(30), customer_class VARCHAR2(60), tax_reference VARCHAR2(100), bill_to_address VARCHAR2(1000), email VARCHAR2(320), phone VARCHAR2(400), phone_digits VARCHAR2(200), ' +
+            'changed VARCHAR2(20), hay VARCHAR2(4000), dff_json VARCHAR2(4000), read_at DATE DEFAULT SYSDATE, CONSTRAINT wms_crm_customers_pk PRIMARY KEY (pod, account_number))'
     };
     C.SEQ = 'CREATE SEQUENCE wms_crm_ticket_seq START WITH 1 INCREMENT BY 1 NOCACHE';
     C.INDEXES = [
@@ -75,6 +75,18 @@
         'CREATE INDEX wms_crm_msg_acct ON wms_crm_messages (account_number)', 'CREATE INDEX wms_crm_ct_acct ON wms_crm_contacts (account_number)',
         'CREATE INDEX wms_crm_c360_acct ON wms_crm_c360 (pod, account_number)', 'CREATE INDEX wms_crm_cust_ph ON wms_crm_customers (pod, phone_digits)', 'CREATE INDEX wms_crm_cust_id ON wms_crm_customers (pod, cust_account_id)'
     ];
+    /** columns added after the first release of a table → run on an older table (ALTER, never DROP) */
+    C.UPGRADES = [
+        { table: 'WMS_CRM_CUSTOMERS', column: 'DFF_JSON', sql: ['ALTER TABLE wms_crm_customers ADD (dff_json VARCHAR2(4000))', 'ALTER TABLE wms_crm_customers MODIFY (phone VARCHAR2(400), phone_digits VARCHAR2(200), hay VARCHAR2(4000))'] }
+    ];
+    function upgrade() {
+        return D.rows("SELECT table_name AS T, column_name AS C FROM user_tab_columns WHERE table_name IN ('" + C.UPGRADES.map(function (u) { return u.table; }).join("','") + "')", 2000).then(function (r) {
+            var have = {}; r.forEach(function (x) { have[String(x.T).toUpperCase() + '.' + String(x.C).toUpperCase()] = 1; });
+            return C.UPGRADES.filter(function (u) { return !have[u.table + '.' + u.column]; }).reduce(function (p, u) {
+                return p.then(function () { return u.sql.reduce(function (q, x) { return q.then(function () { return D.write(x).catch(function (e) { console.warn('[CRM] upgrade:', e && e.message); }); }); }, Promise.resolve()); });
+            }, Promise.resolve());
+        }).catch(function (e) { console.warn('[CRM] upgrade check:', e && e.message); });
+    }
     var ensured = null;
     C.ensure = function () {
         if (ensured) return ensured;
@@ -86,6 +98,7 @@
                 .then(function () { return D.rows("SELECT sequence_name AS T FROM user_sequences WHERE sequence_name = 'WMS_CRM_TICKET_SEQ'", 2); })
                 .then(function (s) { if (!s.length) return D.write(C.SEQ).catch(function (e) { if (!/ORA-00955/.test(e.message)) throw e; }); })
                 .then(function () { if (!missing.length) return; return C.INDEXES.reduce(function (p, d) { return p.then(function () { return D.write(d).catch(function () { }); }); }, Promise.resolve()); })
+                .then(upgrade)
                 .then(function () { return { created: missing }; });
         }).catch(function (e) { ensured = null; throw e; });
         return ensured;
@@ -281,8 +294,8 @@
     };
 
     // ── the whole Fusion customer master in APEX (shared by every PC) ──
-    C.CUST_COLS = ['pod', 'account_number', 'cust_account_id', 'customer', 'party_number', 'account_name', 'status', 'customer_type', 'customer_class', 'tax_reference', 'bill_to_address', 'email', 'phone', 'phone_digits', 'changed', 'hay'];
-    var CUST_LEN = { pod: 20, account_number: 60, customer: 360, party_number: 60, account_name: 360, status: 10, customer_type: 30, customer_class: 60, tax_reference: 100, bill_to_address: 1000, email: 320, phone: 100, phone_digits: 40, changed: 20, hay: 2000 };
+    C.CUST_COLS = ['pod', 'account_number', 'cust_account_id', 'customer', 'party_number', 'account_name', 'status', 'customer_type', 'customer_class', 'tax_reference', 'bill_to_address', 'email', 'phone', 'phone_digits', 'changed', 'hay', 'dff_json'];
+    var CUST_LEN = { pod: 20, account_number: 60, customer: 360, party_number: 60, account_name: 360, status: 10, customer_type: 30, customer_class: 60, tax_reference: 100, bill_to_address: 1000, email: 320, phone: 400, phone_digits: 200, changed: 20, hay: 4000, dff_json: 4000 };
     /** cut a text to fit a VARCHAR2(n) column measured in BYTES (accents / non-Latin names take 2–4 bytes; a too-long value = ORA-12899) */
     function fitBytes(v, max) {
         var s = v == null ? '' : String(v), b = 0, i = 0;
@@ -469,7 +482,7 @@
         w2_crm_c360: ['pod', 'bu', 'account', 'section', 'json', 'sql_text', 'read_at'],
         w2_crm_phone: ['phone', 'last7', 'bu', 'account', 'name', 'contact', 'source', 'read_at'],
         w2_crm_drill: ['pod', 'dkey', 'part', 'json', 'sql_text', 'read_at'],
-        w2_crm_customers: ['pod', 'account_number', 'cust_account_id', 'customer', 'party_number', 'account_name', 'status', 'customer_type', 'customer_class', 'tax_reference', 'bill_to_address', 'email', 'phone', 'phone_digits', 'changed', 'hay', 'read_at']
+        w2_crm_customers: ['pod', 'account_number', 'cust_account_id', 'customer', 'party_number', 'account_name', 'status', 'customer_type', 'customer_class', 'tax_reference', 'bill_to_address', 'email', 'phone', 'phone_digits', 'changed', 'hay', 'dff_json', 'read_at']
     };
     C.duck = {
         put: function (table, scope, rows) {
@@ -509,7 +522,10 @@
         },
         /** the customer master kept on this PC */
         custStatus: function (pod) {
-            return C.duck.qs(['SELECT COUNT(*) AS n, MAX(changed) AS mc, MAX(read_at) AS ra FROM w2_crm_customers WHERE pod = ' + C.duck.lit(pod)]).then(function (r) { var x = (r[0] || [])[0] || {}; return { n: +x.n || 0, maxChanged: x.mc || '', at: x.ra || '' }; });
+            var L = C.duck.lit(pod);
+            return C.duck.qs(["SELECT COUNT(*) AS n, MAX(changed) AS mc, MAX(read_at) AS ra, COUNT(CASE WHEN dff_json <> '' THEN 1 END) AS nd FROM w2_crm_customers WHERE pod = " + L])
+                .catch(function () { return C.duck.qs(['SELECT COUNT(*) AS n, MAX(changed) AS mc, MAX(read_at) AS ra FROM w2_crm_customers WHERE pod = ' + L]); })
+                .then(function (r) { var x = (r[0] || [])[0] || {}; return { n: +x.n || 0, maxChanged: x.mc || '', at: x.ra || '', nd: x.nd == null ? 0 : +x.nd }; });
         },
         custPut: function (pod, rows) {
             var now = C.now();
@@ -532,7 +548,7 @@
         },
         custByPhone: function (pod, last7) {
             if (!/^\d{7}$/.test(last7 || '')) return Promise.resolve([]);
-            return C.duck.qs(["SELECT * FROM w2_crm_customers WHERE pod = " + C.duck.lit(pod) + " AND phone_digits LIKE '%" + last7 + "' LIMIT 20"]).then(function (r) { return r[0] || []; });
+            return C.duck.qs(["SELECT * FROM w2_crm_customers WHERE pod = " + C.duck.lit(pod) + " AND phone_digits LIKE '%" + last7 + "%' LIMIT 20"]).then(function (r) { return r[0] || []; });
         }
     };
 })(window);

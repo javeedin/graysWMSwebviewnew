@@ -279,7 +279,7 @@
         var lastBy = {}; C.calls.forEach(function (c) { if (!lastBy[c.ACCOUNT_NUMBER] || c.STARTED_AT > lastBy[c.ACCOUNT_NUMBER]) lastBy[c.ACCOUNT_NUMBER] = c.STARTED_AT; });
         var rows = [];
         function add(x) { var have = rows.filter(function (y) { return y.account === x.account; })[0]; if (have) { if (!have.name) have.name = x.name; if (!have.addr) have.addr = x.addr; if (!have.phone) have.phone = x.phone; if (!have.email) have.email = x.email; return; } rows.push(x); }
-        (cu.fusion || []).forEach(function (r) { add({ bu: '', account: r.ACCOUNT_NUMBER, name: r.CUSTOMER || r.ACCOUNT_NAME, phone: r.PHONE || '', email: r.EMAIL || '', addr: r.BILL_TO_ADDRESS || '', src: 'Fusion · just read' }); });
+        (cu.fusion || []).forEach(function (r) { var m = E.dffUnpack(r.DFF_JSON).m; add({ bu: '', account: r.ACCOUNT_NUMBER, name: r.CUSTOMER || r.ACCOUNT_NAME, phone: r.PHONE || '', email: r.EMAIL || '', phoneFrom: m.p || '', emailFrom: m.e || '', dff: r.DFF_JSON || '', addr: r.BILL_TO_ADDRESS || '', src: 'Fusion · just read' }); });
         (cu.kept || []).forEach(add);
         local.forEach(add);
         if (cu.kept == null && !cu.loading && C.cs && C.ready) { cu.loading = true; setTimeout(C.cuLoad, 0); }
@@ -304,11 +304,12 @@
                 [function (r) { return C.avatar(r.name || r.account); }, ''],
                 [function (r) { return '<b>' + esc(r.name || '—') + '</b><div class="small muted">' + esc(r.account) + (r.status && r.status !== 'A' ? ' · ' + C.pill('inactive', 'muted') : '') + '</div>'; }, 'Customer'],
                 [function (r) { return '<span class="small">' + esc(r.addr || '') + '</span>'; }, 'Address'],
-                [function (r) { return esc(r.phone); }, 'Phone'], [function (r) { return esc(r.email); }, 'E-mail'],
+                [function (r) { return r.phone ? '<span class="small">' + esc(r.phone) + '</span>' + (r.phoneFrom ? ' <span class="dfftag" title="From the DFF segment ' + esc(r.phoneFrom) + '">DFF</span>' : '') : ''; }, 'Phone'],
+                [function (r) { return r.email ? '<span class="small">' + esc(r.email).replace(/,\s*/g, ',<wbr> ') + '</span>' + (r.emailFrom ? ' <span class="dfftag" title="From the DFF segment ' + esc(r.emailFrom) + '">DFF</span>' : '') : ''; }, 'E-mail'],
                 [function (r) { return openBy[r.account] ? C.pill(openBy[r.account] + ' open', 'warn') : ''; }, 'Tickets'],
                 [function (r) { return lastBy[r.account] ? C.when(lastBy[r.account]) : ''; }, 'Last call'],
                 [function (r) { return C.pill(esc(r.src), /just read/.test(r.src) ? 'info' : 'muted'); }, 'Found in'],
-                [function (r) { return (r.phone ? '<button class="btn sm" data-act="dialNum" data-num="' + esc(r.phone.split(' / ')[0]) + '" data-acct="' + esc(r.account) + '" title="Call"><i class="fas fa-phone"></i></button>' : '') + ' <button class="btn sm pri" data-act="open360" data-bu="' + esc(r.bu) + '" data-acct="' + esc(r.account) + '" data-name="' + esc(r.name) + '">Open</button>'; }, '', 'r']
+                [function (r) { var ph = E.phoneList(r.phone)[0] || ''; return '<button class="btn sm ghost' + (r.dff ? ' dffon' : '') + '" data-act="cuDff" data-acct="' + esc(r.account) + '" title="' + (r.dff ? 'Account / party / organization DFFs' : 'DFFs — read from Fusion') + '"><i class="fas fa-tags"></i></button> ' + (ph ? '<button class="btn sm" data-act="dialNum" data-num="' + esc(ph) + '" data-acct="' + esc(r.account) + '" title="Call ' + esc(ph) + '"><i class="fas fa-phone"></i></button>' : '') + ' <button class="btn sm pri" data-act="open360" data-bu="' + esc(r.bu) + '" data-acct="' + esc(r.account) + '" data-name="' + esc(r.name) + '">Open</button>'; }, '', 'r']
             ], rows, { empty: cu.loading || cu.kept == null ? 'Reading…' : cu.searching ? 'Nobody here — reading Fusion…' : q ? 'No customer matches here or in Fusion.' : 'No customers on this PC yet — Load all Fusion customers above.' }) + (total > cu.size ? pager : '') + '</div>';
     };
     C.after.customers = function () { if (C.cs && !C.cs.st.apex && !C.cs.run) C.cs.status(); };
@@ -339,7 +340,13 @@
             if (!kept.length) { if (auto !== true) C.toast('Nobody in Fusion matches "' + q + '"', 'warn'); return; }
             C.toast(kept.length + ' customer' + (kept.length > 1 ? 's' : '') + ' read from Fusion · kept on this PC and in APEX', 'ok');
             if (C.cs) C.cs.cache = {};
-            return Promise.all([S.duck.custPut(C.pod, kept), S.customers.merge(C.pod, kept).catch(function () { })]).then(function () { if (C.cs) C.cs.status(); });
+            // read them again with their DFFs (e-mail / phone often sit there); fall back to what the search found
+            var withDff = C.cs ? C.cs.readAccounts(kept.map(function (x) { return x.account_number; })).then(function (rows) {
+                var by = {}; rows.forEach(function (o) { by[o.account_number] = E.custMaster(o); });
+                C.cu.fusion = (C.cu.fusion || []).map(function (r) { return by[r.ACCOUNT_NUMBER] ? Object.assign({}, r, by[r.ACCOUNT_NUMBER]) : r; });
+                return rows.length;
+            }, function () { return 0; }) : Promise.resolve(0);
+            return withDff.then(function (n) { if (n) return; return Promise.all([S.duck.custPut(C.pod, kept), S.customers.merge(C.pod, kept).catch(function () { })]); }).then(function () { if (C.cs) C.cs.status(); });
         }, function (e) { C.toast('Fusion: ' + errText(e), 'bad', 7000); C.cu.fusion = []; }).then(function () {
             C.cu.searching = false;
             if (C.cu.q.trim() === q) C.cuLoad(); else if (C.tab === 'customers') keepFocus('cu-q', C.render);
