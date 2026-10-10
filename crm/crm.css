@@ -328,9 +328,29 @@ i.dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; ve
 .c3head a.spinning i { animation: cuspin .9s linear infinite; }
 /* Customers grid: what each customer needs (E.custFlags) */
 .cflags { display: inline-flex; gap: 4px; flex-wrap: wrap; }
-.cflag { display: inline-flex; align-items: center; gap: 4px; border: 0; cursor: pointer; padding: 3px 7px; border-radius: 999px; font-size: 11px; background: #dbeafe; color: #1e40af; }
+.cflag { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-weight: 600; border: 0; cursor: pointer; padding: 3px 7px; border-radius: 999px; font-size: 11px; background: #dbeafe; color: #1e40af; }
 .cflag b { font-weight: 800; }
 .cflag:hover { filter: brightness(.94); box-shadow: 0 0 0 2px rgba(0, 0, 0, .06); }
 .cflag.bad { background: #fee2e2; color: #991b1b; } .cflag.warn { background: #fef3c7; color: #92400e; } .cflag.vio { background: #ede9fe; color: #5b21b6; }
 .cflag.bad i { animation: cflagp 1.6s ease-in-out infinite; }
 @keyframes cflagp { 50% { opacity: .45; } }
+/* customer tabs (at most 5) */
+.tabs .ctabs { display: contents; }
+.tabs .ctab { display: inline-flex; align-items: center; gap: 6px; max-width: 240px; border-left: 1px solid var(--line) !important; }
+.tabs .ctab .cn { overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+.tabs .ctab .cx { margin-left: 2px; width: 18px; height: 18px; line-height: 17px; text-align: center; border-radius: 50%; font-size: 15px; color: var(--muted); }
+.tabs .ctab .cx:hover { background: #fee2e2; color: #991b1b; }
+.tabs .ctab .pinmark { color: #d97706; }
+.tabs .n.pin { background: var(--pri); }
+/* pinned customers */
+.pinbtn.on { color: #d97706; }
+.pinbtn.on i { transform: rotate(-30deg); }
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.pcard { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; border-top: 3px solid #d97706; }
+.pcard.hot { border-top-color: var(--bad); }
+.pcard .row { display: flex; align-items: center; gap: 8px; }
+.pcard .nm { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pcard .pfacts { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); }
+.pcard .pfacts i { margin-right: 4px; }
+.pcard .pnote { width: 100%; font-size: 12px; }
+.pcard .pneeds:empty { display: none; }

@@ -21,7 +21,8 @@
   <nav class="tabs" id="tabs">
     <button data-tab="today" class="on"><i class="fas fa-sun"></i> Today <span class="n" id="n-today"></span></button>
     <button data-tab="customers"><i class="fas fa-users"></i> Customers</button>
-    <button data-tab="c360" id="tab-c360" hidden><i class="fas fa-id-card"></i> <span id="c360-name">Customer</span></button>
+    <button data-tab="pinned"><i class="fas fa-thumbtack"></i> Pinned <span class="n pin" id="n-pinned"></span></button>
+    <span class="ctabs" id="ctabs"></span>
     <button data-tab="tickets"><i class="fas fa-ticket"></i> Tickets <span class="n" id="n-tickets"></span></button>
     <button data-tab="calls"><i class="fas fa-phone-volume"></i> Calls <span class="n" id="n-calls"></span></button>
     <button data-tab="mail"><i class="fas fa-envelope"></i> E-mails</button>
@@ -44,6 +45,7 @@
 <script src="crm-store.js"></script>
 <script src="crm-core.js"></script>
 <script src="crm-c360.js"></script>
+<script src="crm-pins.js"></script>
 <script src="crm-customers.js"></script>
 <script src="crm-tickets.js"></script>
 <script src="crm-phone.js"></script>

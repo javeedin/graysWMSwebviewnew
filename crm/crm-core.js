@@ -189,6 +189,7 @@
     C.go = function (tab) {
         C.tab = tab; if (tab !== 'c360') lsSet('tab', tab);
         document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === tab); });
+        if (C.paintCTabs) C.paintCTabs();
         C.render();
     };
     C.render = function () {
@@ -312,7 +313,7 @@
                 [function (r) { return C.flagIcons(flags[r.account], r); }, 'Needs you'],
                 [function (r) { return lastBy[r.account] ? C.when(lastBy[r.account]) : ''; }, 'Last call'],
                 [function (r) { return C.pill(esc(r.src), /just read/.test(r.src) ? 'info' : 'muted'); }, 'Found in'],
-                [function (r) { var ph = E.phoneList(r.phone)[0] || '', busy = C.cs && C.cs.busy[r.account]; return '<button class="btn sm ghost cu-sync' + (busy ? ' spinning' : '') + '" data-act="cuSync1" data-acct="' + esc(r.account) + '"' + (busy ? ' disabled' : '') + ' title="Refresh this customer from Fusion (this PC + APEX)"><i class="fas fa-rotate"></i></button>' + '<button class="btn sm ghost' + (r.dff ? ' dffon' : '') + '" data-act="cuDff" data-acct="' + esc(r.account) + '" title="' + (r.dff ? 'Account / party / organization DFFs' : 'DFFs — read from Fusion') + '"><i class="fas fa-tags"></i></button> ' + (ph ? '<button class="btn sm" data-act="dialNum" data-num="' + esc(ph) + '" data-acct="' + esc(r.account) + '" title="Call ' + esc(ph) + '"><i class="fas fa-phone"></i></button>' : '') + ' <button class="btn sm pri" data-act="open360" data-bu="' + esc(r.bu) + '" data-acct="' + esc(r.account) + '" data-name="' + esc(r.name) + '">Open</button>'; }, '', 'r']
+                [function (r) { var ph = E.phoneList(r.phone)[0] || '', busy = C.cs && C.cs.busy[r.account]; return (C.pinButton ? C.pinButton(r.account, r.bu, r.name) : '') + '<button class="btn sm ghost cu-sync' + (busy ? ' spinning' : '') + '" data-act="cuSync1" data-acct="' + esc(r.account) + '"' + (busy ? ' disabled' : '') + ' title="Refresh this customer from Fusion (this PC + APEX)"><i class="fas fa-rotate"></i></button>' + '<button class="btn sm ghost' + (r.dff ? ' dffon' : '') + '" data-act="cuDff" data-acct="' + esc(r.account) + '" title="' + (r.dff ? 'Account / party / organization DFFs' : 'DFFs — read from Fusion') + '"><i class="fas fa-tags"></i></button> ' + (ph ? '<button class="btn sm" data-act="dialNum" data-num="' + esc(ph) + '" data-acct="' + esc(r.account) + '" title="Call ' + esc(ph) + '"><i class="fas fa-phone"></i></button>' : '') + ' <button class="btn sm pri" data-act="open360" data-bu="' + esc(r.bu) + '" data-acct="' + esc(r.account) + '" data-name="' + esc(r.name) + '">Open</button>'; }, '', 'r']
             ], rows, { empty: cu.loading || cu.kept == null ? 'Reading…' : cu.searching ? 'Nobody here — reading Fusion…' : q ? 'No customer matches here or in Fusion.' : 'No customers on this PC yet — Load all Fusion customers above.' }) + (total > cu.size ? pager : '') + '</div>';
     };
     /** what each customer needs now (open tickets, callbacks, missed calls, promises, disputes, follow-ups) — E.custFlags */
@@ -321,9 +322,20 @@
     C.flagIcons = function (x, r) {
         if (!x || !x.flags.length) return '<span class="small muted" title="Nothing open for this customer">—</span>';
         return '<span class="cflags">' + x.flags.map(function (f) {
-            return '<button class="cflag ' + f.cls + '" data-act="cuFlag" data-k="' + f.k + '" data-acct="' + esc(r.account) + '" data-bu="' + esc(r.bu || '') + '" data-name="' + esc(r.name || '') + '" title="' + esc(f.label) + ' — click to see them"><i class="fas ' + FLAG_IC[f.k] + '"></i>' + (f.n > 1 || f.k === 'tickets' ? '<b>' + f.n + '</b>' : '') + '</button>';
+            return '<button class="cflag ' + f.cls + '" data-act="cuFlag" data-k="' + f.k + '" data-acct="' + esc(r.account) + '" data-bu="' + esc(r.bu || '') + '" data-name="' + esc(r.name || '') + '" title="' + esc(f.label) + ' — click to see them"><i class="fas ' + FLAG_IC[f.k] + '"></i>' + flagWord(f, x) + '</button>';
         }).join('') + '</span>';
     };
+    function flagWord(f, x) {
+        var n = f.n > 1 ? '<b>' + f.n + '</b> ' : '';
+        switch (f.k) {
+            case 'tickets': return '<b>' + f.n + '</b> open';
+            case 'callbacks': return n + 'Call back' + (x.callbacks.late ? ' · late' : x.callbacks.today ? ' · today' : '');
+            case 'missed': return n + 'Missed';
+            case 'promises': return n + 'Promise' + (x.promises.late ? ' · late' : '');
+            case 'disputes': return n + 'Dispute';
+            default: return n + 'Follow-up';
+        }
+    }
     var FLAG_TABS = [['tickets', 'Open tickets'], ['callbacks', 'Callbacks'], ['missed', 'Missed calls'], ['promises', 'Promises to pay'], ['disputes', 'Disputes'], ['followups', 'Follow-ups']];
     C.flagDlg = null;
     /** one customer's open items, the clicked kind first — tickets open the ticket, callbacks / missed calls can be called or closed */
@@ -487,11 +499,15 @@
         var ai = e.target.closest('[data-ai]'); if (ai) { askRun(+ai.dataset.ai); return; }
         if (!e.target.closest('.ask')) $('askpop').className = 'askpop';
         if (e.target.id === 'drawer') { C.dclose(); return; }
+        var cx = e.target.closest('[data-ctclose]'); if (cx) { e.stopPropagation(); C.closeCTab(cx.dataset.ctclose); return; }
         var t = e.target.closest('[data-tab]');
-        if (t && t.closest('#tabs')) { C.go(t.dataset.tab); return; }
+        if (t && t.closest('#tabs')) { if (t.dataset.ckey) C.showCTab(C.ctabByKey(t.dataset.ckey)); else C.go(t.dataset.tab); return; }
         var a = e.target.closest('[data-act]'); if (!a) return;
         var fn = C.ACT[a.dataset.act]; if (fn) { e.preventDefault(); fn(a, e); }
     });
+    // middle-click closes a customer tab
+    document.addEventListener('auxclick', function (e) { var t = e.button === 1 && e.target.closest('#tabs [data-ckey]'); if (t) { e.preventDefault(); C.closeCTab(t.dataset.ckey); } });
+    document.addEventListener('mousedown', function (e) { if (e.button === 1 && e.target.closest('#tabs [data-ckey]')) e.preventDefault(); });
     document.addEventListener('input', function (e) { var n = e.target.dataset && e.target.dataset.in; if (n && C.IN[n]) C.IN[n](e.target, e); });
     document.addEventListener('change', function (e) { var n = e.target.dataset && e.target.dataset.ch; if (n && C.CH[n]) C.CH[n](e.target, e); });
     document.addEventListener('keydown', function (e) {
@@ -516,19 +532,20 @@
     C.ACT.refresh = function () { C.refresh(); };
     C.ACT.tkScope = function (el) { C.tk.f.scope = el.dataset.scope; lsSet('tk.f', C.tk.f); C.go('tickets'); };
     C.ACT.open360 = function (el) { C.open360(el.dataset.bu, el.dataset.acct, el.dataset.name, el.dataset.sub); };
-    C.ACT.pod = function () { C.pod = C.pod === 'PROD' ? 'TEST' : 'PROD'; lsSet('pod', C.pod); C.master = {}; C.paintWho(); C.loadMaster().then(C.render); if (C.cs) { C.cs.cache = {}; C.cs.auto(); } C.cu.kept = null; C.cu.page = 0; C.toast('Fusion customer data now from ' + C.pod); };
+    C.ACT.pod = function () { C.pod = C.pod === 'PROD' ? 'TEST' : 'PROD'; lsSet('pod', C.pod); C.master = {}; C.paintWho(); C.loadMaster().then(C.render); if (C.cs) { C.cs.cache = {}; C.cs.auto(); } if (C.pins) { C.pins.list = []; C.pins.src = ''; C.pins.info = {}; C.pins.load(); } C.cu.kept = null; C.cu.page = 0; C.toast('Fusion customer data now from ' + C.pod); };
 
     // ── boot ─────────────────────────────────────────────────────────
     function boot() {
         C.paintWho();
         document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === C.tab); });
         if (C.tab === 'c360') C.tab = 'today';
+        if (C.restoreCTabs) C.restoreCTabs();
         C.render();
         if (!D.hasHost()) { $('main').innerHTML = '<div class="note warn">Open the CRM inside the Gray\'s WMS app — it reads APEX and Fusion through the app.</div>'; return; }
         var end = C.busy('Starting…');
         D.clock().then(function () { return Promise.all([D.call('crmInfo', {}, 20000).then(function (r) { C.info = r; }, function () { C.info = null; }), C.loadSetup(), C.loadMaster().catch(function () { })]); })
             .then(function () { return S.ensure(); })
-            .then(C.loadCore)
+            .then(function () { if (C.pins) C.pins.load(); return C.loadCore(); })
             .then(function () { end(); C.paintWho(); C.render(); if (C.phone && C.phone.boot) C.phone.boot(); if (C.mail && C.mail.status) C.mail.status(); C.learnBoot(); if (C.cs) C.cs.auto(); },
                 function (e) { end(); C.toast(errText(e), 'bad', 10000); C.ready = true; C.render(); });
         setInterval(function () { if (!document.hidden && C.ready && !$('modal').classList.contains('on')) C.loadCore().then(function () { if (C.tab === 'today' || C.tab === 'tickets') C.render(); }).catch(function () { }); }, 120000);

@@ -13,17 +13,62 @@
         ['stmts', 'fa-file-invoice', 'Statements'], ['tickets', 'fa-ticket', 'Tickets'], ['calls', 'fa-phone', 'Calls'], ['mail', 'fa-envelope', 'E-mails'], ['contacts', 'fa-address-book', 'Contacts'], ['details', 'fa-circle-info', 'Details']];
     var AUTO = ['master', 'open', 'sales'];
 
+    // ── customer tabs: every customer opens in a tab of its own, at most C.CTAB_MAX; one more replaces the one looked at longest ago ──
+    C.CTAB_MAX = 5;
+    C.ctabs = [];
+    var ctSeq = 0;
+    function ctKey(c) { return (c.bu || '') + '|' + c.account; }
+    function ctSave() { C.lsSet('ctabs', C.ctabs.map(function (c) { return { bu: c.bu, account: c.account, name: c.name, sub: c.sub }; })); }
+    C.paintCTabs = function () {
+        var box = $('ctabs'); if (!box) return;
+        box.innerHTML = C.ctabs.map(function (c) {
+            var on = C.tab === 'c360' && C.cust === c, pin = C.isPinned && C.isPinned(c.account);
+            return '<button data-tab="c360" data-ckey="' + esc(ctKey(c)) + '" class="ctab' + (on ? ' on' : '') + '" title="' + esc((c.name || c.account) + ' · ' + c.account + ' — middle-click or × closes') + '">' +
+                (pin ? '<i class="fas fa-thumbtack pinmark"></i>' : '<i class="fas fa-id-card"></i>') + ' <span class="cn">' + esc(c.name || c.account) + '</span>' +
+                (c.loading ? ' <span class="spin"></span>' : '') + '<span class="cx" data-ctclose="' + esc(ctKey(c)) + '" title="Close this tab">×</span></button>';
+        }).join('');
+    };
+    C.ctabByKey = function (k) { return C.ctabs.filter(function (c) { return ctKey(c) === k; })[0] || null; };
+    /** show an open customer tab (reads it the first time — a tab restored after a restart is read when it is first shown) */
+    C.showCTab = function (c, sub) {
+        if (!c) return;
+        C.cust = c; c.seen = ++ctSeq; if (sub) c.sub = sub;
+        C.go('c360');
+        if (!c.started) { c.started = true; load(); }
+        ctSave();
+    };
+    C.closeCTab = function (k) {
+        var i = C.ctabs.findIndex(function (c) { return ctKey(c) === k; }); if (i < 0) return;
+        var c = C.ctabs.splice(i, 1)[0];
+        if (C.cust === c) {
+            C.cust = null;
+            var next = C.ctabs.slice().sort(function (a, b) { return (b.seen || 0) - (a.seen || 0); })[0];
+            if (next && C.tab === 'c360') C.showCTab(next); else if (C.tab === 'c360') C.go('customers');
+        }
+        ctSave(); C.paintCTabs();
+    };
     C.open360 = function (bu, account, name, sub) {
         account = String(account || '').trim(); if (!account) return;
         bu = bu || C.buOf(account);
-        var same = C.cust && C.cust.account === account && C.cust.bu === bu;
-        if (!same) C.cust = { bu: bu, account: account, name: name || (C.master[account] || {}).CUSTOMER || '', sub: sub || 'overview', a: null, f: {}, loading: true };
-        else if (sub) C.cust.sub = sub;
-        C.pushRecent({ bu: bu, account: account, name: C.cust.name });
-        $('tab-c360').hidden = false; $('c360-name').textContent = C.cust.name || account;
-        C.go('c360');
-        if (!same) load();
+        var c = C.ctabByKey(bu + '|' + account) || C.ctabs.filter(function (x) { return x.account === account; })[0];
+        if (!c) {
+            c = { bu: bu, account: account, name: name || (C.master[account] || {}).CUSTOMER || '', sub: sub || 'overview', a: null, f: {}, loading: true };
+            if (C.ctabs.length >= C.CTAB_MAX) {
+                // replace the tab looked at longest ago, in its place
+                var old = C.ctabs.slice().sort(function (a, b) { return (a.seen || 0) - (b.seen || 0); })[0], at = C.ctabs.indexOf(old);
+                C.ctabs[at] = c;
+                C.toast((old.name || old.account) + ' closed — ' + C.CTAB_MAX + ' customer tabs at most', 'info');
+            } else C.ctabs.push(c);
+        }
+        C.pushRecent({ bu: c.bu, account: account, name: c.name });
+        C.showCTab(c, sub);
     };
+    /** the tabs of the last session come back (read when first shown) */
+    C.restoreCTabs = function () {
+        (C.ls('ctabs', []) || []).slice(0, C.CTAB_MAX).forEach(function (x) { if (x && x.account && !C.ctabByKey((x.bu || '') + '|' + x.account)) C.ctabs.push({ bu: x.bu || '', account: x.account, name: x.name || '', sub: x.sub || 'overview', a: null, f: {}, loading: true }); });
+        C.paintCTabs();
+    };
+    function nameTab(c) { C.paintCTabs(); ctSave(); }
     C.ACT.c360Sub = function (el) { C.cust.sub = el.dataset.sub; C.render(); need(); };
     /** this customer only: the master row + DFFs from Fusion (this PC + APEX) and the 360's master section */
     C.ACT.c360Sync = function () {
@@ -31,7 +76,7 @@
         if (!D.hasHost()) { C.toast('Open the CRM inside the app to read Fusion.', 'warn'); return; }
         c.syncing = true; C.render();
         C.cs.readAccounts([c.account]).then(function (rows) { if (!rows.length) C.toast('Fusion did not return ' + c.account, 'warn'); else C.toast(c.account + ' refreshed from Fusion · this PC and APEX updated', 'ok'); }, function (e) { C.toast('Fusion: ' + C.errText(e), 'bad', 7000); })
-            .then(function () { c.syncing = false; fetchSection('master', true); });
+            .then(function () { c.syncing = false; fetchSection('master', true, c); });
     };
     C.ACT.c360Refresh = function () { C.cust.a = null; load(true); };
     C.ACT.c360Section = function (el) { fetchSection(el.dataset.sec, true); };
@@ -50,18 +95,16 @@
         });
         var kept = S.duck.c360(C.pod, c.bu, acct).catch(function () { return {}; });
         Promise.all([apex, kept]).then(function (r) {
-            if (C.cust !== c) return;
             c.a = r[0]; Object.keys(r[1]).forEach(function (k) { if (!c.f[k] || !c.f[k].rows) c.f[k] = r[1][k]; });
-            c.loading = false;
+            c.loading = false; C.paintCTabs();
             if (!c.name) c.name = (c.f.master && c.f.master.rows && c.f.master.rows[0] && c.f.master.rows[0].CUSTOMER) || (c.a.tickets[0] || {}).ACCOUNT_NAME || (c.a.stmts[0] || {}).ACCOUNT_NAME || '';
-            $('c360-name').textContent = c.name || acct;
+            nameTab(c);
             C.render();
-            AUTO.forEach(function (k) { if (force || !c.f[k] || !c.f[k].fresh) fetchSection(k, true); });
+            AUTO.forEach(function (k) { if (force || !c.f[k] || !c.f[k].fresh) fetchSection(k, true, c); });
             // the DFFs (e-mail / phone often sit there) once per customer and session when this PC has none
             if (C.cs && D.hasHost() && !(C.master[acct] || {}).DFF_JSON && !dffAsked[acct]) { dffAsked[acct] = 1; C.cs.readAccounts([acct]).then(function () { if (C.cust === c && C.tab === 'c360') C.render(); }, function () { }); }
             // then the shared APEX copy: sections this PC does not have, or has older; kept on this PC too
             c.apexP = S.c360.get(C.pod, c.bu, acct, Object.keys(c.f).filter(function (k) { return c.f[k] && (c.f[k].loading || c.f[k].fresh); })).then(function (ax) {
-                if (C.cust !== c) return;
                 var got = 0;
                 Object.keys(ax).forEach(function (k) {
                     var cur = c.f[k], x = ax[k];
@@ -70,7 +113,7 @@
                     c.f[k] = x; got++;
                     S.duck.keep360(C.pod, c.bu, acct, k, x.rows, x.sql);
                 });
-                if (got && C.tab === 'c360') C.render();
+                if (got && C.tab === 'c360' && C.cust === c) C.render();
             }, function (e) { console.warn('[CRM] APEX 360 copy:', C.errText(e)); });
             need();
         }, function (e) { c.loading = false; c.err = C.errText(e); C.render(); });
@@ -81,8 +124,8 @@
         var want = { ar: ['open', 'invoices', 'receipts', 'apps', 'adjust', 'returns'], orders: ['orders'], items: c.iv === 'list' ? ['items'] : ['salesItems'], contacts: ['fcontacts'], timeline: ['orders', 'receipts'] }[c.sub] || [];
         (c.apexP || Promise.resolve()).then(function () { if (C.cust === c) want.forEach(function (k) { if (!c.f[k]) fetchSection(k, false); }); });
     }
-    function sqlOf(k) {
-        var c = C.cust, b = C.bu(c.bu) || { id: c.bu }, m = 24;
+    function sqlOf(k, cc) {
+        var c = cc || C.cust, b = C.bu(c.bu) || { id: c.bu }, m = 24;
         switch (k) {
             case 'master': return DE.masterSql([c.account]);
             case 'open': return [DE.openItemsSql(b, c.account)];
@@ -99,20 +142,20 @@
         }
         return [];
     }
-    function fetchSection(k, live) {
-        var c = C.cust; if (!c || !D.hasHost()) return;
+    function fetchSection(k, live, cc) {
+        var c = cc || C.cust; if (!c || !D.hasHost()) return;
         var cur = c.f[k];
         if (!live && cur && cur.rows) return;
         if (cur && cur.loading) return;
-        var list = sqlOf(k); if (!list.length) return;
+        var list = sqlOf(k, c); if (!list.length) return;
         c.f[k] = Object.assign({}, cur || {}, { loading: true, err: null });
-        if (C.tab === 'c360') C.render();
+        if (C.tab === 'c360' && C.cust === c) C.render(); else C.paintCTabs();
         C.fusionFirst(list, 5000).then(function (r) {
             c.f[k] = { rows: r.rows, sql: r.sql, at: S.now(), fresh: true, apex: 'saving' };
             S.duck.keep360(C.pod, c.bu, c.account, k, r.rows, r.sql);
             S.c360.put(C.pod, c.bu, c.account, k, r.rows, r.sql).then(function (x) { if (c.f[k] && c.f[k].sql === r.sql) { c.f[k].apex = 'ok'; c.f[k].cut = x.cut; } }, function (e) { if (c.f[k] && c.f[k].sql === r.sql) { c.f[k].apex = 'failed'; c.f[k].apexErr = C.errText(e); } })
                 .then(function () { if (C.cust === c && C.tab === 'c360') softPaint(k); });
-            if (k === 'master' && r.rows[0]) { var old = C.master[c.account] || {}; C.master[c.account] = Object.assign({}, old, r.rows[0]); ['EMAIL', 'PHONE', 'DFF_JSON'].forEach(function (x) { if (!r.rows[0][x] && old[x]) C.master[c.account][x] = old[x]; }); if (!c.name) { c.name = r.rows[0].CUSTOMER; $('c360-name').textContent = c.name; } keepPhones(c, r.rows[0]); }
+            if (k === 'master' && r.rows[0]) { var old = C.master[c.account] || {}; C.master[c.account] = Object.assign({}, old, r.rows[0]); ['EMAIL', 'PHONE', 'DFF_JSON'].forEach(function (x) { if (!r.rows[0][x] && old[x]) C.master[c.account][x] = old[x]; }); if (!c.name) { c.name = r.rows[0].CUSTOMER; nameTab(c); } keepPhones(c, r.rows[0]); }
         }, function (e) {
             // keep what was shown before (this PC / APEX copy), add the error and every SQL tried
             c.f[k] = Object.assign({}, cur || {}, { loading: false, err: C.errText(e), errSql: e && e.sql || list[list.length - 1], tried: e && e.tried || [] });
@@ -223,7 +266,7 @@
             '<div class="qa"><button class="btn ok" data-act="callCust"><i class="fas fa-phone"></i> Call</button><button class="btn" data-act="compose"><i class="fas fa-envelope"></i> E-mail</button>' +
             '<button class="btn pri" data-act="newTicket" data-acct="' + esc(c.account) + '"><i class="fas fa-ticket"></i> New ticket</button><button class="btn" data-act="sendStmt"><i class="fas fa-file-invoice"></i> Send statement</button>' +
             '<button class="btn" data-act="logNote"><i class="fas fa-note-sticky"></i> Note</button><button class="btn" data-act="logPromise"><i class="fas fa-handshake"></i> Promise to pay</button>' +
-            '<button class="btn ghost" data-act="askAbout" title="Ask the Autopilot about this customer"><i class="fas fa-robot"></i> Ask</button><span class="sp"></span><button class="btn ghost" data-act="c360Refresh" title="Read everything again"><i class="fas fa-rotate"></i></button></div></div>' +
+            (C.pinButton ? C.pinButton(c.account, c.bu, c.name, true) : '') + '<button class="btn ghost" data-act="askAbout" title="Ask the Autopilot about this customer"><i class="fas fa-robot"></i> Ask</button><span class="sp"></span><button class="btn ghost" data-act="c360Refresh" title="Read everything again"><i class="fas fa-rotate"></i></button></div></div>' +
             (h ? ring(h) : '') + '</div></div>';
         var tabs = '<div class="subtabs">' + SUBS.map(function (s) {
             var n = !a ? '' : s[0] === 'tickets' ? a.tickets.filter(E.isOpen).length : s[0] === 'calls' ? a.calls.length : s[0] === 'stmts' ? a.stmts.length : s[0] === 'mail' ? a.msgs.length : '';

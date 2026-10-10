@@ -8,6 +8,8 @@ Home › Warehouse & Orders › **Customer CRM** (`crm/index.html`). This is one
 |-----|--------------|
 | **Today** | Your queue, tickets past or close to their SLA, callbacks due, today's activity and recent customers. The KPI tiles open the matching ticket list. |
 | **Customers** | Searches the whole Fusion customer master kept on this PC (name, account, party number, phone, e-mail, address, tax reference), plus Debtors cards, tickets, calls and contacts. The bar on top loads the master (see *The customer master* below). **Find in Fusion** searches Fusion live; what it finds is kept too. |
+| **Pinned** | Your own list of customers to watch (per app login and pod, on every PC). Each card shows the phone, e-mail, address, last call, what the customer needs now, a note for yourself, Call / Ticket / Unpin / Open, and ▲▼ to order them. **Open n in tabs** opens the first five as customer tabs. |
+| **Customer tabs** | Every customer you open gets a tab of its own, up to **5**. Opening a sixth replaces the tab you looked at longest ago, in its place. × or a middle-click closes a tab. A pinned customer's tab shows a pin. The tabs come back after a restart and are read again when first shown. A tab in the background keeps reading Fusion while you work in another. |
 | **Customer 360** | Header with phone (click to call), e-mail, address, collector, terms, credit limit, credit hold and a **health score** (0–100 with reasons). The sub-tabs are listed below. |
 | **Tickets** | List or board, filtered by scope (open, mine, unassigned, past the SLA, waiting, resolved), queue and priority. The ticket drawer has the conversation, internal notes, canned replies, e-mail replies, SLA bars, details, the customer, *solved before* (similar resolved tickets) and the customer's link. |
 | **Calls** | Call log with KPIs (answered, missed, talk time), callbacks, recordings with a fingerprint check, and CSV export. |
@@ -166,6 +168,7 @@ The CRM suggests a **category and priority** for every new ticket and lists simi
 | `WMS_CRM_CONTACTS` | Contacts kept in the CRM |
 | `WMS_CRM_C360` | The Customer 360 Fusion sections as last read (rows JSON up to 250,000 characters, plus the SQL) |
 | `WMS_CRM_CUSTOMERS` | The whole Fusion customer master per pod |
+| `WMS_CRM_PINS` | Each agent's pinned customers per pod (note, order) |
 
 Statements, Debtors cards and the Debtors timeline are the **Debtors Control** tables. The CRM loads `../debtors/dc-*.js`, so a release with `crm` always carries `debtors`.
 
@@ -204,6 +207,27 @@ The last load is recorded in `WMS_CRM_SETTINGS` `CUST_SYNC_<pod>` (when, who, ro
 - **In the grid** the phone and e-mail columns carry a small **DFF** tag when they came from a DFF. The tag icon on each row opens the DFF dialog: account, party and organization DFFs with their labels (the column on hover), *used as e-mail / phone*, **Read from Fusion** (that account again) and **Labels again**.
 - **In the Customer 360** the header shows the DFF e-mail and every phone, with a **DFFs** link. The Details tab has a DFF card. Opening a customer without DFFs on this PC reads them once in the background.
 - **Customers loaded before this change** have no DFFs. The bar says so: press **Reload all** once. The APEX table gets the new `DFF_JSON` column by itself (`CRMS.UPGRADES`), or run the two `ALTER TABLE` lines in `apex_sql/100_crm.sql`.
+
+**What each customer needs now** — the *Needs you* column of the Customers grid (also in the Customer 360 header and on Pinned) shows one coloured badge per thing to do (`CRME.custFlags`):
+
+| Badge | When | Colour |
+|-------|------|--------|
+| **n open** (ticket) | Open tickets | red when one is past its SLA, amber when at risk, blue otherwise |
+| **Call back** | Callbacks not done | red · *late* when their date has passed, amber · *today*, blue when planned |
+| **Missed** | Missed incoming calls of the last 7 days that nobody returned (no later answered or outgoing call to that account) | red |
+| **Promise** | Open Debtors promises to pay | red · *late* after the pay-by date |
+| **Dispute** | Open Debtors disputes | amber |
+| **Follow-up** | Other open Debtors follow-ups (task, call, e-mail, visit) | red when overdue |
+
+Hover a badge for the detail. A click opens that customer's list with a tab per kind, starting on the one clicked:
+- **open tickets** — a row opens the ticket
+- **callbacks** — *Call* (marks it done) and *Done*
+- **missed calls** — *Call*
+- **promises, disputes and follow-ups** — their details
+
+The dialog's foot has **New ticket** and **Open Customer 360**. The badges follow at once when something is done.
+
+**Pins** are kept in APEX `WMS_CRM_PINS` (agent, pod, account, BU, name, note, order, pinned at; created by the page) and on this PC in DuckDB `w2_crm_pins`. The Pinned tab draws this PC's copy at once, then reads APEX, which wins and replaces this PC's copy. **Pin / Unpin** sits in each Customers row (the pin icon) and in the Customer 360 header. A pin that APEX refuses is taken back with the reason.
 
 **Browsing.** With the box empty, the Customers grid lists every customer of this copy in pages, sorted by name:
 
@@ -247,9 +271,12 @@ It also has the Debtors tools (balances, open items, statements, follow-ups) and
 
 ## Tests
 
-- `node crm/tests/crm-engine.test.js` (CI) covers business hours and the SLA (with pause), routing, phone numbers, the health score, the timeline, KPIs, naive Bayes, similar tickets, the ask parser, the read-only 360 SQL (incl. the order currency column and its fallbacks), the customer-master pages, rows and search, and the AR 360 totals and rating.
+- `node crm/tests/crm-engine.test.js` (CI) covers business hours and the SLA (with pause), routing, phone numbers, the health score, the timeline, KPIs, naive Bayes, similar tickets, the ask parser, the *Needs you* flags, the read-only 360 SQL (incl. the order currency column and its fallbacks), the customer-master pages, rows and search, and the AR 360 totals and rating.
 - AI Hub: `test_crm_customer_desk_routing_tools_and_module_threads`, plus the evals `crm_sla` and `crm_missed`.
-- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 113 checks. They include:
+- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 135 checks. They include:
+  - the *Needs you* badges (ticket past the SLA, late callback, late promise, a missed call not returned), the per-customer dialog, Done, a ticket row, the 360 header
+  - customer tabs (5 at most, the 6th replaces the oldest, ×, middle-click, back after a reload)
+  - pins (360 header, grid, Pinned tab, note, unpin, APEX + DuckDB, after a reload)
   - every AR view, filter and drill (invoice → receipt that paid it → Back)
   - the Statements button
   - sections kept in APEX and on this PC

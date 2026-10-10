@@ -32,7 +32,7 @@
         var t = new Date(d.getTime() - (D.offset || 0));
         return "TO_DATE('" + stamp(t) + "', 'YYYY-MM-DD HH24:MI')";
     };
-    var DATES = ['CREATED_AT', 'CHANGED_AT', 'DUE_FIRST', 'DUE_RESOLVE', 'FIRST_RESPONSE_AT', 'RESOLVED_AT', 'CLOSED_AT', 'PAUSED_AT', 'EVENT_AT', 'STARTED_AT', 'ANSWERED_AT', 'ENDED_AT', 'CALLBACK_AT', 'SENT_AT', 'CSAT_AT', 'LAST_CUSTOMER_AT'];
+    var DATES = ['CREATED_AT', 'CHANGED_AT', 'DUE_FIRST', 'DUE_RESOLVE', 'FIRST_RESPONSE_AT', 'RESOLVED_AT', 'CLOSED_AT', 'PAUSED_AT', 'EVENT_AT', 'STARTED_AT', 'ANSWERED_AT', 'ENDED_AT', 'CALLBACK_AT', 'SENT_AT', 'CSAT_AT', 'LAST_CUSTOMER_AT', 'PINNED_AT'];
     function loc(rows) { (rows || []).forEach(function (r) { DATES.forEach(function (k) { if (r[k]) r[k] = D.local(r[k]); }); }); return rows; }
     function cols(list) { return list.map(function (c) { return DATES.indexOf(c) >= 0 ? 'TO_CHAR(' + c.toLowerCase() + ', ' + TS + ') AS ' + c : c.toLowerCase() + ' AS ' + c; }).join(', '); }
     function like(q) { return lit('%' + String(q).toUpperCase().replace(/[\\%_]/g, function (c) { return '\\' + c; }) + '%', 200); }
@@ -66,7 +66,9 @@
             'rows_json CLOB, sql_text CLOB, read_by VARCHAR2(100), read_at DATE DEFAULT SYSDATE)',
         WMS_CRM_CUSTOMERS: 'CREATE TABLE wms_crm_customers (pod VARCHAR2(20) NOT NULL, account_number VARCHAR2(60) NOT NULL, cust_account_id NUMBER, customer VARCHAR2(360), party_number VARCHAR2(60), account_name VARCHAR2(360), ' +
             'status VARCHAR2(10), customer_type VARCHAR2(30), customer_class VARCHAR2(60), tax_reference VARCHAR2(100), bill_to_address VARCHAR2(1000), email VARCHAR2(320), phone VARCHAR2(400), phone_digits VARCHAR2(200), ' +
-            'changed VARCHAR2(20), hay VARCHAR2(4000), dff_json VARCHAR2(4000), read_at DATE DEFAULT SYSDATE, CONSTRAINT wms_crm_customers_pk PRIMARY KEY (pod, account_number))'
+            'changed VARCHAR2(20), hay VARCHAR2(4000), dff_json VARCHAR2(4000), read_at DATE DEFAULT SYSDATE, CONSTRAINT wms_crm_customers_pk PRIMARY KEY (pod, account_number))',
+        WMS_CRM_PINS: 'CREATE TABLE wms_crm_pins (app_user VARCHAR2(100) NOT NULL, pod VARCHAR2(20) NOT NULL, account_number VARCHAR2(60) NOT NULL, bu_id VARCHAR2(30), account_name VARCHAR2(360), note VARCHAR2(1000), ' +
+            'sort_n NUMBER, pinned_at DATE DEFAULT SYSDATE, CONSTRAINT wms_crm_pins_pk PRIMARY KEY (app_user, pod, account_number))'
     };
     C.SEQ = 'CREATE SEQUENCE wms_crm_ticket_seq START WITH 1 INCREMENT BY 1 NOCACHE';
     C.INDEXES = [
@@ -251,6 +253,24 @@
             return D.write('UPDATE wms_crm_contacts SET ' + setList({ name: c.NAME || '', role: c.ROLE || '', email: c.EMAIL || '', phone: c.PHONE || '', mobile: c.MOBILE || '', is_primary: c.IS_PRIMARY === 'Y' ? 'Y' : 'N', notes: c.NOTES || '', changed_by: D.user(), changed_date: 'SYSDATE' }) + ' WHERE contact_id = ' + lit(c.CONTACT_ID));
         },
         remove: function (id) { return D.write("UPDATE wms_crm_contacts SET removed = 'Y', changed_by = " + lit(D.user()) + ', changed_date = SYSDATE WHERE contact_id = ' + lit(id)); }
+    };
+
+    // ── pinned customers: one list per agent (app login) and pod; APEX is the record, this PC keeps a copy in DuckDB ──
+    var PN = ['APP_USER', 'POD', 'ACCOUNT_NUMBER', 'BU_ID', 'ACCOUNT_NAME', 'NOTE', 'SORT_N', 'PINNED_AT'];
+    C.pins = {
+        list: function (pod, user) {
+            user = user || D.user();
+            return C.ensure().then(function () { return D.rowsAll('SELECT ' + cols(PN) + ' FROM wms_crm_pins WHERE app_user = ' + lit(user) + ' AND pod = ' + lit(pod) + ' ORDER BY sort_n, pinned_at DESC', 2000); }).then(loc);
+        },
+        add: function (pod, p) {
+            var me = lit(D.user());
+            return C.ensure().then(function () {
+                return D.write('INSERT INTO wms_crm_pins (app_user, pod, account_number, bu_id, account_name, note, sort_n, pinned_at) SELECT ' + [me, lit(pod), lit(p.account, 60), lit(p.bu, 30), lit(p.name, 360), lit(p.note, 1000), num(p.sort || 0), 'SYSDATE'].join(', ') +
+                    ' FROM dual WHERE NOT EXISTS (SELECT 1 FROM wms_crm_pins WHERE app_user = ' + me + ' AND pod = ' + lit(pod) + ' AND account_number = ' + lit(p.account, 60) + ')');
+            });
+        },
+        set: function (pod, account, sets) { return D.write('UPDATE wms_crm_pins SET ' + setList(sets) + ' WHERE app_user = ' + lit(D.user()) + ' AND pod = ' + lit(pod) + ' AND account_number = ' + lit(account)); },
+        remove: function (pod, account) { return D.write('DELETE FROM wms_crm_pins WHERE app_user = ' + lit(D.user()) + ' AND pod = ' + lit(pod) + ' AND account_number = ' + lit(account)); }
     };
 
     // ── Customer 360 sections in APEX: what one PC read from Fusion, every PC opens at once ──
@@ -482,6 +502,7 @@
         w2_crm_c360: ['pod', 'bu', 'account', 'section', 'json', 'sql_text', 'read_at'],
         w2_crm_phone: ['phone', 'last7', 'bu', 'account', 'name', 'contact', 'source', 'read_at'],
         w2_crm_drill: ['pod', 'dkey', 'part', 'json', 'sql_text', 'read_at'],
+        w2_crm_pins: ['app_user', 'pod', 'account_number', 'bu_id', 'account_name', 'note', 'sort_n', 'pinned_at'],
         w2_crm_customers: ['pod', 'account_number', 'cust_account_id', 'customer', 'party_number', 'account_name', 'status', 'customer_type', 'customer_class', 'tax_reference', 'bill_to_address', 'email', 'phone', 'phone_digits', 'changed', 'hay', 'dff_json', 'read_at']
     };
     C.duck = {
@@ -545,6 +566,18 @@
         /** this PC's copy in pages (for the copy to APEX) */
         custChunk: function (pod, size, offset) {
             return C.duck.qs(['SELECT * FROM w2_crm_customers WHERE pod = ' + C.duck.lit(pod) + ' ORDER BY account_number LIMIT ' + size + ' OFFSET ' + offset]).then(function (r) { return r[0] || []; });
+        },
+        /** this agent's pins as kept on this PC (shown at once, APEX read after) */
+        pins: function (pod, user) {
+            var L = C.duck.lit;
+            return C.duck.qs(['SELECT * FROM w2_crm_pins WHERE app_user = ' + L(user || D.user()) + ' AND pod = ' + L(pod) + ' ORDER BY sort_n, pinned_at DESC']).then(function (r) {
+                return (r[0] || []).map(function (x) { return { APP_USER: x.app_user, POD: x.pod, ACCOUNT_NUMBER: x.account_number, BU_ID: x.bu_id, ACCOUNT_NAME: x.account_name, NOTE: x.note, SORT_N: +x.sort_n || 0, PINNED_AT: x.pinned_at, local: true }; });
+            }, function () { return null; });
+        },
+        /** the whole list of one agent × pod replaces what this PC had */
+        keepPins: function (pod, list, user) {
+            user = user || D.user();
+            return C.duck.put('w2_crm_pins', { app_user: user, pod: pod }, (list || []).map(function (p) { return { app_user: user, pod: pod, account_number: p.ACCOUNT_NUMBER, bu_id: p.BU_ID || '', account_name: p.ACCOUNT_NAME || '', note: p.NOTE || '', sort_n: p.SORT_N || 0, pinned_at: p.PINNED_AT || '' }; }));
         },
         custByPhone: function (pod, last7) {
             if (!/^\d{7}$/.test(last7 || '')) return Promise.resolve([]);

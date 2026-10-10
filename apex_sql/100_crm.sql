@@ -22,6 +22,9 @@ CREATE TABLE wms_crm_customers (pod VARCHAR2(20) NOT NULL, account_number VARCHA
 --   ALTER TABLE wms_crm_customers ADD (dff_json VARCHAR2(4000));
 --   ALTER TABLE wms_crm_customers MODIFY (phone VARCHAR2(400), phone_digits VARCHAR2(200), hay VARCHAR2(4000));
 
+-- each agent's pinned customers (per app login and pod)
+CREATE TABLE wms_crm_pins (app_user VARCHAR2(100) NOT NULL, pod VARCHAR2(20) NOT NULL, account_number VARCHAR2(60) NOT NULL, bu_id VARCHAR2(30), account_name VARCHAR2(360), note VARCHAR2(1000), sort_n NUMBER, pinned_at DATE DEFAULT SYSDATE, CONSTRAINT wms_crm_pins_pk PRIMARY KEY (app_user, pod, account_number));
+
 CREATE SEQUENCE wms_crm_ticket_seq START WITH 1 INCREMENT BY 1 NOCACHE;
 
 CREATE INDEX wms_crm_tk_acct ON wms_crm_tickets (account_number);
