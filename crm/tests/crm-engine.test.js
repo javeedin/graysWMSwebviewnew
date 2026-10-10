@@ -126,5 +126,8 @@ var poor = E.arRating({ invoiced: 1000, collected: 300, credits: 300, daysLate: 
 eq([good.grade, poor.grade], ['A', 'E'], 'grades A and E');
 eq(E.arRating({ invoiced: 1, collected: 1, balance: 100, overdue: 0, over90: 0, creditLimit: 50 }).factors.length, 7, 'credit limit adds a factor');
 
+// drill-downs: never the subledger accounting tables (they made a drill take minutes)
+ok(Object.keys(E.DRILLS).every(function (k) { return E.DRILLS[k].parts.every(function (p) { return !/xla_|gl_code_combinations/i.test(p.sql) && /^\s*SELECT\b/i.test(p.sql); }); }), 'no XLA / journal in a CRM drill');
+
 console.log((n - bad) + ' / ' + n + ' passed');
 if (bad) process.exit(1);

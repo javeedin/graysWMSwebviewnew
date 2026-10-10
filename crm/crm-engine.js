@@ -729,6 +729,48 @@
         return { score: score, grade: g.g, cls: g.cls, text: g.text, action: g.action, factors: f };
     };
 
+    /** the CRM's drill-downs: what a customer-service person needs, NO subledger accounting tables (XLA events / journals are
+     *  huge — they made each drill take minutes). Parts run at the same time; placeholders are filled by DCE.drillSql. */
+    E.DRILLS = {
+        TRX: { title: 'AR transaction', parts: [
+            { id: 'hd', title: 'Transaction', sql: "SELECT t.trx_number, TO_CHAR(t.trx_date, 'YYYY-MM-DD') AS trx_date, tt.name AS trx_type, tt.type AS class, ca.account_number, p.party_name AS customer,\n" +
+                "       t.invoice_currency_code AS currency, ps.amount_due_original AS amount, ps.amount_due_remaining AS remaining, TO_CHAR(ps.due_date, 'YYYY-MM-DD') AS due_date,\n" +
+                "       ps.status, t.purchase_order AS customer_po, t.ct_reference AS reference, t.complete_flag, t.customer_trx_id\n" +
+                "  FROM ra_customer_trx_all t\n  LEFT JOIN ra_cust_trx_types_all tt ON tt.cust_trx_type_seq_id = t.cust_trx_type_seq_id\n" +
+                "  LEFT JOIN ar_payment_schedules_all ps ON ps.customer_trx_id = t.customer_trx_id\n" +
+                "  LEFT JOIN hz_cust_accounts ca ON ca.cust_account_id = t.bill_to_customer_id\n  LEFT JOIN hz_parties p ON p.party_id = ca.party_id\n WHERE t.customer_trx_id = {TRX_ID}" },
+            { id: 'ln', title: 'Lines', sql: "SELECT l.line_number AS line, l.line_type, l.description, l.quantity_invoiced AS qty, l.unit_selling_price AS price, l.extended_amount AS amount,\n" +
+                "       l.sales_order AS order_number, l.sales_order_line AS order_line\n  FROM ra_customer_trx_lines_all l\n WHERE l.customer_trx_id = {TRX_ID} AND l.line_type = 'LINE'\n ORDER BY l.line_number" },
+            { id: 'pay', title: 'Receipts & credit notes applied to it', sql: "SELECT ra.application_type AS app_type, TO_CHAR(ra.apply_date, 'YYYY-MM-DD') AS apply_date, cr.receipt_number, cm.trx_number AS credit_memo, ra.amount_applied, ra.status,\n" +
+                "       ra.cash_receipt_id, ra.customer_trx_id AS cm_trx_id\n  FROM ar_receivable_applications_all ra\n  LEFT JOIN ar_cash_receipts_all cr ON cr.cash_receipt_id = ra.cash_receipt_id\n" +
+                "  LEFT JOIN ra_customer_trx_all cm ON cm.customer_trx_id = ra.customer_trx_id\n WHERE ra.applied_customer_trx_id = {TRX_ID} AND ra.status = 'APP' AND NVL(ra.display, 'Y') = 'Y'\n ORDER BY ra.apply_date" },
+            { id: 'adj', title: 'Adjustments', sql: "SELECT adj.adjustment_number, TO_CHAR(adj.apply_date, 'YYYY-MM-DD') AS apply_date, adj.amount, adj.type AS adj_type, adj.reason_code AS reason, adj.status\n" +
+                "  FROM ar_adjustments_all adj\n WHERE adj.customer_trx_id = {TRX_ID}\n ORDER BY adj.apply_date" }
+        ] },
+        RECEIPT: { title: 'Receipt', parts: [
+            { id: 'hd', title: 'Receipt', sql: "SELECT cr.receipt_number, TO_CHAR(cr.receipt_date, 'YYYY-MM-DD') AS receipt_date, cr.amount, cr.currency_code AS currency, cr.status, cr.type AS receipt_type,\n" +
+                "       (SELECT rm.name FROM ar_receipt_methods rm WHERE rm.receipt_method_id = cr.receipt_method_id) AS method, ca.account_number, p.party_name AS customer,\n" +
+                "       TO_CHAR(cr.reversal_date, 'YYYY-MM-DD') AS reversal_date, cr.reversal_category, cr.comments, cr.cash_receipt_id\n" +
+                "  FROM ar_cash_receipts_all cr\n  LEFT JOIN hz_cust_accounts ca ON ca.cust_account_id = cr.pay_from_customer\n  LEFT JOIN hz_parties p ON p.party_id = ca.party_id\n WHERE cr.cash_receipt_id = {RECEIPT_ID}" },
+            { id: 'ap', title: 'What it paid', sql: "SELECT ra.status, TO_CHAR(ra.apply_date, 'YYYY-MM-DD') AS apply_date, t.trx_number, TO_CHAR(t.trx_date, 'YYYY-MM-DD') AS trx_date, ca.account_number, ra.amount_applied, t.customer_trx_id\n" +
+                "  FROM ar_receivable_applications_all ra\n  LEFT JOIN ra_customer_trx_all t ON t.customer_trx_id = ra.applied_customer_trx_id\n  LEFT JOIN hz_cust_accounts ca ON ca.cust_account_id = t.bill_to_customer_id\n" +
+                " WHERE ra.cash_receipt_id = {RECEIPT_ID} AND NVL(ra.display, 'Y') = 'Y'\n ORDER BY ra.apply_date" },
+            { id: 'rv', title: 'History (cleared, reversed, bounced)', sql: "SELECT h.status, TO_CHAR(h.trx_date, 'YYYY-MM-DD') AS trx_date, TO_CHAR(h.gl_date, 'YYYY-MM-DD') AS gl_date, h.amount, h.current_record_flag\n" +
+                "  FROM ar_cash_receipt_history_all h\n WHERE h.cash_receipt_id = {RECEIPT_ID}\n ORDER BY h.cash_receipt_history_id" }
+        ] },
+        ORDER: { title: 'Sales order', parts: [
+            { id: 'om', title: 'Order lines', sql: "SELECT fl.fulfill_line_number AS line, i.item_number AS item, fl.ordered_qty, fl.shipped_qty, fl.ordered_uom AS uom, fl.status_code AS status,\n" +
+                "       TO_CHAR(fl.actual_ship_date, 'YYYY-MM-DD') AS shipped, fl.unit_selling_price AS price, fl.extended_amount AS amount\n" +
+                "  FROM doo_fulfill_lines_all fl\n  JOIN doo_headers_all h ON h.header_id = fl.header_id\n" +
+                "  LEFT JOIN egp_system_items_b i ON i.inventory_item_id = fl.inventory_item_id AND i.organization_id = fl.fulfill_org_id\n" +
+                " WHERE h.order_number = '{ORDER_NUMBER}' AND h.change_version_number = (SELECT MAX(x.change_version_number) FROM doo_headers_all x WHERE x.order_number = h.order_number)\n ORDER BY fl.fulfill_line_number" },
+            { id: 'ar', title: 'Invoices of the order', sql: "SELECT t.trx_number, TO_CHAR(t.trx_date, 'YYYY-MM-DD') AS trx_date, tt.name AS trx_type, COUNT(*) AS lines, SUM(l.extended_amount) AS amount, t.customer_trx_id\n" +
+                "  FROM ra_customer_trx_lines_all l\n  JOIN ra_customer_trx_all t ON t.customer_trx_id = l.customer_trx_id\n" +
+                "  LEFT JOIN ra_cust_trx_types_all tt ON tt.cust_trx_type_seq_id = t.cust_trx_type_seq_id\n" +
+                " WHERE l.sales_order = '{ORDER_NUMBER}' AND l.line_type = 'LINE'\n GROUP BY t.trx_number, t.trx_date, tt.name, t.customer_trx_id\n ORDER BY t.trx_date" }
+        ] }
+    };
+
     /** monthly sales rows → {m12, prev12, series [{month, amount}]} over the 24 months to `now` */
     E.salesTrend = function (rows, now) {
         var n = E.parse(now) || new Date(), by = {}, series = [];

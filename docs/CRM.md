@@ -30,7 +30,9 @@ The **Customer 360** sub-tabs:
   - **Returns & credit notes**: sales-order return lines with the reason, and credit memos.
   - **Adjustments**.
 
-  Every number drills down; a number inside a drill opens the next transaction, receipt or order, and **Back** returns. An invoice shows its lines, the receipts and credit notes applied to it, adjustments, accounting and journal lines. A receipt shows its applications and its history (cleared, reversed). Each view has a filter and CSV. **Statements** and **Send statement** sit in the bar.
+  Every number drills down; a number inside a drill opens the next transaction, receipt or order, and **Back** returns. An invoice shows its header with the open amount, its lines, the receipts and credit notes applied to it, and adjustments. A receipt shows what it paid and its history (cleared, reversed, bounced). An order shows its lines and its invoices.
+
+  The parts of a drill are read **at the same time**, each with its time shown. They are kept on this PC (`w2_crm_drill`), so a drill opened again appears at once; **Read again** asks Fusion. **Accounting events** and **Journal lines** stay in the dialog but run only when you press **Show**. They read Oracle's subledger accounting tables (XLA), the biggest in Fusion; reading them on every open, one part after another, made a drill take minutes. Each view has a filter and CSV. **Statements** and **Send statement** sit in the bar.
 
   The **customer rating** (A–E, 0–100) is built from weighted factors:
 
@@ -226,7 +228,7 @@ It also has the Debtors tools (balances, open items, statements, follow-ups) and
 
 - `node crm/tests/crm-engine.test.js` (CI) covers business hours and the SLA (with pause), routing, phone numbers, the health score, the timeline, KPIs, naive Bayes, similar tickets, the ask parser, the read-only 360 SQL (incl. the order currency column and its fallbacks), the customer-master pages, rows and search, and the AR 360 totals and rating.
 - AI Hub: `test_crm_customer_desk_routing_tools_and_module_threads`, plus the evals `crm_sla` and `crm_missed`.
-- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 87 checks. They include:
+- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 92 checks. They include:
   - every AR view, filter and drill (invoice → receipt that paid it → Back)
   - the Statements button
   - sections kept in APEX and on this PC

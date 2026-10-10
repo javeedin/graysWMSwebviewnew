@@ -468,6 +468,7 @@
     var DCOLS = {
         w2_crm_c360: ['pod', 'bu', 'account', 'section', 'json', 'sql_text', 'read_at'],
         w2_crm_phone: ['phone', 'last7', 'bu', 'account', 'name', 'contact', 'source', 'read_at'],
+        w2_crm_drill: ['pod', 'dkey', 'part', 'json', 'sql_text', 'read_at'],
         w2_crm_customers: ['pod', 'account_number', 'cust_account_id', 'customer', 'party_number', 'account_name', 'status', 'customer_type', 'customer_class', 'tax_reference', 'bill_to_address', 'email', 'phone', 'phone_digits', 'changed', 'hay', 'read_at']
     };
     C.duck = {
@@ -495,6 +496,17 @@
             return C.duck.put('w2_crm_c360', { pod: pod, bu: bu, account: account, section: section }, [{ pod: pod, bu: bu, account: account, section: section, json: JSON.stringify(rows || []), sql_text: sql || '', read_at: C.now() }]);
         },
         phones: function () { return C.duck.qs(['SELECT phone, last7, bu, account, name, contact, source FROM w2_crm_phone']).then(function (r) { return r[0] || []; }); },
+        /** the parts of one drill-down kept on this PC → {part: {rows, sql, at, local}} */
+        drill: function (pod, key) {
+            var L = C.duck.lit;
+            return C.duck.qs(['SELECT part, json, sql_text, read_at FROM w2_crm_drill WHERE pod = ' + L(pod) + ' AND dkey = ' + L(key)]).then(function (r) {
+                var out = {}; (r[0] || []).forEach(function (x) { try { out[x.part] = { rows: JSON.parse(x.json), sql: x.sql_text, at: x.read_at, local: true }; } catch (e) { } });
+                return out;
+            }, function () { return {}; });
+        },
+        keepDrill: function (pod, key, part, rows, sql) {
+            return C.duck.put('w2_crm_drill', { pod: pod, dkey: key, part: part }, [{ pod: pod, dkey: key, part: part, json: JSON.stringify(rows || []), sql_text: sql || '', read_at: C.now() }]);
+        },
         /** the customer master kept on this PC */
         custStatus: function (pod) {
             return C.duck.qs(['SELECT COUNT(*) AS n, MAX(changed) AS mc, MAX(read_at) AS ra FROM w2_crm_customers WHERE pod = ' + C.duck.lit(pod)]).then(function (r) { var x = (r[0] || [])[0] || {}; return { n: +x.n || 0, maxChanged: x.mc || '', at: x.ra || '' }; });

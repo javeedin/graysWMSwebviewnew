@@ -406,15 +406,15 @@
     C.ACT.drillItem = function (el) { var r = rowsOf('open')[+el.dataset.i]; if (r) drill(DE.rowDrill(r)); };
 
     // ── the drill-down dialog: every part read live; numbers in it open the next transaction / receipt / order (Back returns) ──
-    var EXTRA = {
-        TRX: [{ id: 'pay', title: 'Receipts & credit notes applied to it', sql: "SELECT ra.application_type AS app_type, TO_CHAR(ra.apply_date, 'YYYY-MM-DD') AS apply_date, cr.receipt_number, cm.trx_number AS credit_memo, ra.amount_applied, ra.status, ra.cash_receipt_id, ra.customer_trx_id AS cm_trx_id\n" +
-            "  FROM ar_receivable_applications_all ra\n  LEFT JOIN ar_cash_receipts_all cr ON cr.cash_receipt_id = ra.cash_receipt_id\n  LEFT JOIN ra_customer_trx_all cm ON cm.customer_trx_id = ra.customer_trx_id\n" +
-            " WHERE ra.applied_customer_trx_id = {TRX_ID} AND NVL(ra.display, 'Y') = 'Y'\n ORDER BY ra.apply_date" },
-            { id: 'adj', title: 'Adjustments', sql: "SELECT adj.adjustment_number, TO_CHAR(adj.apply_date, 'YYYY-MM-DD') AS apply_date, adj.amount, adj.type AS adj_type, adj.reason_code AS reason, adj.status FROM ar_adjustments_all adj WHERE adj.customer_trx_id = {TRX_ID} ORDER BY adj.apply_date" }],
-        RECEIPT: [{ id: 'rv', title: 'History (cleared, reversed, bounced)', sql: "SELECT h.status, TO_CHAR(h.trx_date, 'YYYY-MM-DD') AS trx_date, TO_CHAR(h.gl_date, 'YYYY-MM-DD') AS gl_date, h.amount, h.current_record_flag, h.reversal_gl_date FROM ar_cash_receipt_history_all h WHERE h.cash_receipt_id = {RECEIPT_ID} ORDER BY h.cash_receipt_history_id" }]
-    };
+    // The CRM's own parts (CRME.DRILLS: no subledger accounting) run at the same time; the accounting events and journal
+    // lines of Debtors Control (DCE.DRILLS — XLA, slow) stay in the dialog but run only when the user presses Show.
+    // Every part read is kept on this PC (w2_crm_drill) and shown from there next time (Refresh reads Fusion again).
+    function partsOf(dr) {
+        var own = (E.DRILLS[dr.kind] || DE.DRILLS[dr.kind]).parts.slice();
+        (DE.DRILLS[dr.kind] ? DE.DRILLS[dr.kind].parts : []).forEach(function (p) { if (p.id === 'ev' || p.id === 'je') own.push(Object.assign({}, p, { lazy: true })); });
+        return own;
+    }
     var dstack = [], dcache = {};
-    function partsOf(dr) { var def = DE.DRILLS[dr.kind]; var p = def.parts.slice(); (EXTRA[dr.kind] || []).forEach(function (x) { p.splice(dr.kind === 'TRX' ? 2 : p.length - 2, 0, x); }); return p; }
     function cellOf(col, row) {
         var r = row, c = String(col).toUpperCase();
         if (c === 'CREDIT_MEMO' && dig(r.CM_TRX_ID)) return { open: DE.drillOf('TRX', { TRX_ID: dig(r.CM_TRX_ID), NUMBER: r.CREDIT_MEMO }) };
@@ -426,31 +426,63 @@
         if (!keep) dstack = [];
         dstack.push(dr);
         paintDrill();
+        loadDrill(dr, false);
     }
+    function secs(ms) { return ms == null ? '' : ms < 1000 ? ms + ' ms' : (ms / 1000).toFixed(1) + ' s'; }
     function paintDrill() {
         var dr = dstack[dstack.length - 1]; if (!dr) return;
-        var b = C.bu(C.cust.bu) || { id: C.cust.bu }, parts = partsOf(dr), out = dcache[dr.key] = dcache[dr.key] || {};
+        var parts = partsOf(dr), out = dcache[dr.key] = dcache[dr.key] || {};
         var crumbs = dstack.length > 1 ? '<div class="crumbs">' + dstack.map(function (d, i) { return i < dstack.length - 1 ? '<a data-act="drillTo" data-i="' + i + '">' + esc(d.label) + '</a> › ' : '<b>' + esc(d.label) + '</b>'; }).join('') + '</div>' : '';
-        C.modal('<i class="fas fa-magnifying-glass"></i> ' + esc(dr.label), crumbs + parts.map(function (p) {
-            var x = out[p.id];
-            if (!x) return '<h3>' + esc(p.title) + '</h3><div class="muted small"><span class="spin"></span> reading…</div>';
-            if (x.err) return '<h3>' + esc(p.title) + '</h3><div class="note bad">' + esc(x.err) + '</div><details><summary class="small muted">SQL</summary><pre class="code sm">' + esc(x.sql) + '</pre></details>';
+        var kept = parts.filter(function (p) { return out[p.id] && out[p.id].local; }).map(function (p) { return out[p.id].at; }).sort()[0];
+        var note = '<div class="srcnote">' + (kept ? '<i class="fas fa-database"></i> kept on this PC · read ' + C.when(kept) : 'read from Fusion — every part at the same time') + ' <a data-act="drillRefresh"><i class="fas fa-rotate"></i> Read again</a></div>';
+        C.modal('<i class="fas fa-magnifying-glass"></i> ' + esc(dr.label), crumbs + note + parts.map(function (p) {
+            var x = out[p.id], head = '<h3>' + esc(p.title) + (x && x.rows ? ' <span class="muted small">' + x.rows.length + (x.ms != null ? ' · ' + secs(x.ms) : '') + '</span>' : '') + '</h3>';
+            if (!x && p.lazy) return head + '<div class="lazy small muted">Subledger accounting — read only when you ask (it is slow on large pods). <button class="btn sm" data-act="drillShow" data-p="' + p.id + '"><i class="fas fa-eye"></i> Show</button></div>';
+            if (!x || x.loading) return head + '<div class="muted small"><span class="spin"></span> reading…' + (x && x.t0 ? ' <span data-tick="' + x.t0 + '"></span>' : '') + '</div>';
+            if (x.err) return head + '<div class="note bad">' + esc(x.err) + '</div><details><summary class="small muted">SQL</summary><pre class="code sm">' + esc(x.sql) + '</pre></details>';
             var cols = Object.keys(x.rows[0] || {}).filter(function (k) { return !/(_ID|^ID)$/.test(k) || k === 'ORDER_NUMBER'; });
-            return '<h3>' + esc(p.title) + ' <span class="muted small">' + x.rows.length + '</span></h3>' + C.table(cols.map(function (k) {
+            return head + C.table(cols.map(function (k) {
                 return [function (r, i) { var l = cellOf(k, r); var v = esc(r[k]); return l && l.open && l.open.key !== dr.key ? '<a data-act="drillCell" data-p="' + p.id + '" data-r="' + i + '" data-c="' + esc(k) + '">' + v + '</a>' : v; }, k];
             }), x.rows, { empty: 'Nothing.', max: '260px' });
         }).join(''), (dstack.length > 1 ? '<button class="btn" data-act="drillBack"><i class="fas fa-arrow-left"></i> Back</button>' : '') +
             (dr.kind === 'ORDER' ? '<button class="btn" data-act="fusionOrder" data-no="' + esc(dr.vars.ORDER_NUMBER) + '" data-id="' + esc(dr.vars.HEADER_ID || '') + '"><i class="fas fa-up-right-from-square"></i> Open in Fusion</button>' : '') + '<button class="btn" data-act="mclose">Close</button>', true);
-        if (out._started) return;
-        out._started = true;
-        parts.reduce(function (pr, part) {
-            return pr.then(function () {
-                var sql = DE.drillSql(part, dr.vars, b);
-                return D.fusionSql(sql, 2000).then(function (rows) { out[part.id] = { rows: rows, sql: sql }; }, function (e) { out[part.id] = { err: C.errText(e), sql: sql }; })
-                    .then(function () { if ($('modal').classList.contains('on') && dstack[dstack.length - 1] === dr) paintDrill(); });
-            });
-        }, Promise.resolve());
     }
+    // the seconds counter of the parts being read
+    setInterval(function () { document.querySelectorAll('#modal [data-tick]').forEach(function (el) { el.textContent = secs(Date.now() - +el.dataset.tick); }); }, 500);
+    function onTop(dr) { return $('modal').classList.contains('on') && dstack[dstack.length - 1] === dr; }
+    /** the parts of one drill: this PC's copy first, then Fusion for what is missing (or everything with fresh), all at once */
+    function loadDrill(dr, fresh, onlyId) {
+        var b = C.bu(C.cust.bu) || { id: C.cust.bu }, out = dcache[dr.key] = dcache[dr.key] || {};
+        var parts = partsOf(dr).filter(function (p) { return onlyId ? p.id === onlyId : !p.lazy || out[p.id]; });
+        var local = fresh || onlyId ? Promise.resolve({}) : S.duck.drill(C.pod, dr.key);
+        return local.then(function (kept) {
+            var todo = parts.filter(function (p) {
+                if (!fresh && out[p.id] && (out[p.id].rows || out[p.id].loading)) return false;
+                if (!fresh && kept[p.id]) { out[p.id] = kept[p.id]; return false; }
+                return true;
+            });
+            if (onTop(dr)) paintDrill();
+            return Promise.all(todo.map(function (part) {
+                var sql = DE.drillSql(part, dr.vars, b), t0 = Date.now();
+                out[part.id] = { loading: true, t0: t0, sql: sql };
+                return D.fusionSql(sql, 2000).then(function (rows) {
+                    out[part.id] = { rows: rows, sql: sql, ms: Date.now() - t0, at: S.now() };
+                    S.duck.keepDrill(C.pod, dr.key, part.id, rows, sql);
+                }, function (e) { out[part.id] = { err: C.errText(e), sql: sql, ms: Date.now() - t0 }; }).then(function () { if (onTop(dr)) paintDrill(); });
+            }).concat(todo.length && onTop(dr) ? [Promise.resolve(paintDrill())] : []));
+        });
+    }
+    C.ACT.drillShow = function (el) { var dr = dstack[dstack.length - 1]; if (dr) loadDrill(dr, false, el.dataset.p); };
+    C.ACT.drillRefresh = function () {
+        var dr = dstack[dstack.length - 1]; if (!dr) return;
+        var out = dcache[dr.key] || {};
+        Object.keys(out).forEach(function (k) { if (!out[k].loading) delete out[k].rows; });
+        // the lazy parts are read again only if they were shown
+        var shown = partsOf(dr).filter(function (p) { return p.lazy && out[p.id]; }).map(function (p) { return p.id; });
+        dcache[dr.key] = {}; shown.forEach(function (id) { dcache[dr.key][id] = { loading: true }; });
+        paintDrill();
+        loadDrill(dr, true);
+    };
     C.ACT.drillCell = function (el) {
         var dr = dstack[dstack.length - 1], x = (dcache[dr.key] || {})[el.dataset.p]; if (!x) return;
         var l = cellOf(el.dataset.c, x.rows[+el.dataset.r]); if (!l) return;
