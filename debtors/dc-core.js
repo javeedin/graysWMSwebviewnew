@@ -47,7 +47,18 @@
     function csv(name, cols, rows) {
         var q = function (v) { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
         var text = '﻿' + cols.map(function (c) { return q(c[1]); }).join(',') + '\r\n' + rows.map(function (r) { return cols.map(function (c) { return q(typeof c[0] === 'function' ? c[0](r) : r[c[0]]); }).join(','); }).join('\r\n');
-        var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' })); a.download = name; a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+        saveFile(name, text, 'CSV file (*.csv)|*.csv');
+    }
+    /** a text file to this PC: the host's Save dialog (saveFileAs), else the browser download */
+    function saveFile(name, text, filter) {
+        if (S.hasHost()) {
+            var b64 = btoa(unescape(encodeURIComponent(text)));
+            return S.host('saveFileAs', { fileName: name, base64: b64, filter: filter || 'All files (*.*)|*.*', title: 'Save ' + name }, 600000).then(function (r) {
+                if (r && r.ok && r.path) toast('Saved · ' + r.path, 'ok', 5000);
+            }).catch(function (e) { toast(errText(e), 'bad'); });
+        }
+        var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/octet-stream' })); a.download = name; a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+        return Promise.resolve();
     }
     function when(s) { return s ? esc(S.local(s)) : ''; }
 
@@ -108,7 +119,9 @@
         var m = $('main'); if (!m) return;
         if (!S.hasHost()) { m.innerHTML = '<div class="card note warn">Open this page inside the Gray\'s WMS app — the reports and e-mails run in the desktop host with the application\'s Fusion credentials.</div>'; return; }
         if (!P.ready) { m.innerHTML = '<div class="card empty"><i class="fas fa-spinner fa-spin"></i> Loading…</div>'; return; }
-        m.innerHTML = P.tab === 'run' ? vRun() : P.tab === 'stmts' ? vStmts() : P.tab === 'cust' ? vCust() : P.tab === 'tasks' ? vTasks() : P.tab === 'setup' ? vSetup() : vHome();
+        var ext = window.DC.views && window.DC.views[P.tab];
+        m.innerHTML = ext ? ext() : P.tab === 'run' ? vRun() : P.tab === 'stmts' ? vStmts() : P.tab === 'cust' ? vCust() : P.tab === 'tasks' ? vTasks() : P.tab === 'setup' ? vSetup() : vHome();
+        if (ext && window.DC.after && window.DC.after[P.tab]) window.DC.after[P.tab]();
         if (P.tab === 'cust' && P.cust.open && !P.cust.data) load360();
     }
 
@@ -157,8 +170,9 @@
         var src = b.balances && b.balances.kind === 'SQL' ? 'Fusion SQL (' + esc(P.pod === S.loginPod() ? 'logged-in pod' : 'logged-in pod — the SQL runner always uses it') + ')' : 'BI Publisher · ' + esc((b.balances || {}).path || '');
         var h = '<div class="card"><div class="row"><div class="field"><label>Business unit</label><select id="r-bu">' + P.bus.filter(function (x) { return x.active !== 'N'; }).map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === b.id ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></div>' +
             '<div class="field"><label>Statement as at</label><input type="date" id="r-date" value="' + esc(P.stmtDate) + '"></div>' +
-            '<div class="field"><label>&nbsp;</label><button class="btn pri" data-act="loadBal"><i class="fas fa-download"></i> ' + (R.customers && R.loadedFor === b.id + '|' + P.stmtDate ? 'Read the balances again' : 'Read the balances') + '</button></div>' +
+            (R.cycle && R.loadedFor === b.id + '|' + P.stmtDate ? '<div class="field"><label>&nbsp;</label><button class="btn" data-act="cycleLeave" title="Leave the cycle and read today\'s balances from Fusion">Leave the cycle</button></div>' : '<div class="field"><label>&nbsp;</label><button class="btn pri" data-act="loadBal"><i class="fas fa-download"></i> ' + (R.customers && R.loadedFor === b.id + '|' + P.stmtDate ? 'Read the balances again' : 'Read the balances') + '</button></div>') +
             '<span class="sp"></span><div class="small muted" style="text-align:right">Balances: ' + src + '<br>Statement: ' + esc((b.statement || {}).path || '—') + '<br>Sent with <b>' + esc(m.label) + '</b> from <b>' + esc(m.mailbox || '?') + '</b>' + (m.ready ? '' : ' <span class="badc">(not ready — <a data-act="go" data-tab="setup">Setup</a>)</span>') + '</div></div></div>';
+        if (R.cycle && R.loadedFor === b.id + '|' + P.stmtDate) h += '<div class="note" style="margin-bottom:12px"><i class="fas fa-rotate"></i> <b>Statement cycle · ' + esc(R.cycle.title) + '</b> — the customers and balances come from the cycle\'s archive (frozen ' + esc(R.cycle.snapAt || '') + '), not from Fusion now. Every statement is recorded against the cycle. <a data-act="cycleBack">Back to the cycle</a></div>';
         if (R.live) return h + vLive();
         if (!R.customers || R.loadedFor !== b.id + '|' + P.stmtDate) return h + '<div class="card empty"><i class="fas fa-file-invoice-dollar" style="font-size:26px;color:var(--pri)"></i><br><br>Choose the business unit and the statement date, then <b>Read the balances</b>.<br><span class="small">The customers come from ' + src + '.</span></div>';
         var rows = runRows(), sel = rows.filter(function (r) { return R.sel[r.c.account]; });
@@ -203,14 +217,28 @@
             '<td>' + pill(band.label + ' · ' + r.sc.score, band.key, r.sc.why.join(' · ')) + '</td><td class="cut" title="' + esc(rc.why) + '">' + goes + '</td>' +
             '<td>' + (r.last ? '<span class="small">' + esc(r.last.STMT_DATE) + '</span> ' + statePill(r.last) : '<span class="muted small">never</span>') + (sent ? ' ' + pill('sent for this date', 'vio') : '') + '</td></tr>';
     }
-    function loadBalances() {
-        var b = curBu(), date = P.stmtDate, vars = E.vars(b, date, {}), src = b.balances || {};
-        var end = busy('Reading the balances of ' + b.name + '…');
+    /** The customers of a business unit as at a date, from its balances source (BI Publisher report or Fusion SQL), scored */
+    function readBalances(b, date, pod) {
+        var vars = E.vars(b, date, {}), src = b.balances || {};
         var p = src.kind === 'SQL' ? S.fusionSql(E.fill(src.sql || E.DEFAULT_SQL, vars, 'sql'), 50000)
-            : S.call('dcBipRows', { instance: P.pod, path: src.path, params: E.fillParams(src.params, vars) }, 900000).then(function (d) { return d.rows || []; });
+            : S.call('dcBipRows', { instance: pod || P.pod, path: src.path, params: E.fillParams(src.params, vars) }, 900000).then(function (d) { return d.rows || []; });
         return p.then(function (rows) {
-            var m = E.customers(rows, src.map), max = m.customers.reduce(function (x, c) { return Math.max(x, c.balance || 0); }, 0);
-            m.customers.forEach(function (c) { var k = key(b.id, c.account); c._score = E.score(c, { maxBalance: max, activities: actsOf(b.id, c.account), lastContact: P.contact[k], lastStatement: P.latest[k] }); });
+            var m = E.customers(rows, src.map);
+            scoreAll(b, m.customers);
+            m.rawCount = rows.length;
+            return m;
+        });
+    }
+    function scoreAll(b, list) {
+        var max = list.reduce(function (x, c) { return Math.max(x, c.balance || 0); }, 0);
+        list.forEach(function (c) { var k = key(b.id, c.account); c._score = E.score(c, { maxBalance: max, activities: actsOf(b.id, c.account), lastContact: P.contact[k], lastStatement: P.latest[k] }); });
+    }
+    function loadBalances() {
+        var b = curBu(), date = P.stmtDate;
+        var end = busy('Reading the balances of ' + b.name + '…');
+        P.run.cycle = null;
+        return readBalances(b, date).then(function (m) {
+            var rows = { length: m.rawCount };
             var R = P.run; R.customers = m.customers; R.missing = m.missing; R.columns = m.columns; R.loadedFor = b.id + '|' + date; R.loadedAt = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }); R.rawCount = rows.length;
             R.sel = {}; runRows().forEach(function (r) { if (r.rc.delivery !== 'NONE') R.sel[r.c.account] = 1; });
             end(); render(); toast(m.customers.length + ' customers read (' + rows.length + ' rows)', 'ok');
@@ -272,7 +300,7 @@
         var b = ctx.bu, rc = E.recipients(c, profileOf(b.id, c.account), b), o = ctx.opts, mail = b.mail || {};
         var vars = E.vars(b, ctx.stmtDate, c), tracked = rc.delivery === 'EMAIL' && (o.track || o.confirm), tok = tracked ? E.token() : null;
         var row = { id: E.uid('st'), runId: ctx.runId, pod: ctx.pod, buId: b.id, buName: b.name, company: b.company || b.name, account: c.account, name: c.name, stmtDate: ctx.stmtDate, currency: c.currency || b.currency, balance: c.balance, overdue: c.overdue, aging: c.aging,
-            delivery: rc.delivery, to: rc.to.join('; '), cc: rc.cc.join('; '), subject: rc.delivery === 'EMAIL' ? E.fill(mail.subject, vars) : null, machine: (P.info || {}).machine, token: tok, tracked: tracked, resentOf: ctx.resentOf };
+            delivery: rc.delivery, to: rc.to.join('; '), cc: rc.cc.join('; '), subject: rc.delivery === 'EMAIL' ? E.fill(mail.subject, vars) : null, machine: (P.info || {}).machine, token: tok, tracked: tracked, resentOf: ctx.resentOf, cycleId: ctx.cycleId || null };
         if (rc.delivery === 'NONE') { row.status = 'SKIPPED'; row.error = rc.why; return S.stmt.insert(row).then(function () { return { status: 'SKIPPED', msg: rc.why, id: row.id }; }); }
         onStep('Making the PDF…');
         return S.call('dcStatementPdf', { instance: ctx.pod, path: b.statement.path, params: E.fillParams(b.statement.params, vars), bu: b.name || b.id, stmtDate: ctx.stmtDate, fileName: c.account + ' ' + (c.name || '').slice(0, 60) + ' ' + row.id.slice(-6) }, 300000).then(function (pdf) {   // one file per statement record: a resend never overwrites a fingerprinted PDF
@@ -305,12 +333,13 @@
     }
     function runStart(items, opts, resentOf) {
         var b = curBu(), m = mailInfo(), runId = E.uid('run');
-        var ctx = { bu: b, stmtDate: P.stmtDate, pod: P.pod, runId: runId, opts: opts, method: m.method, mailbox: m.mailbox, stop: false, resentOf: resentOf };
+        var cyc = P.run.cycle && P.run.loadedFor === b.id + '|' + P.stmtDate ? P.run.cycle : null;
+        var ctx = { bu: b, stmtDate: P.stmtDate, pod: P.pod, runId: runId, opts: opts, method: m.method, mailbox: m.mailbox, stop: false, resentOf: resentOf, cycleId: cyc ? cyc.id : null };
         var live = P.run.live = { ctx: ctx, items: items.map(function (c) { return { c: c, status: 'WAIT', msg: '' }; }), started: Date.now(), done: 0 };
         var total = items.reduce(function (s, c) { return s + (c.balance || 0); }, 0);
         render();
         var endBusy = busy('Sending statements…');
-        return S.run.start({ id: runId, pod: P.pod, buId: b.id, buName: b.name, stmtDate: P.stmtDate, title: b.name + ' · ' + P.stmtDate, customers: items.length, total: total, method: m.method, mailbox: m.mailbox, sourceKind: (b.balances || {}).kind || 'BIP', machine: (P.info || {}).machine })
+        return S.run.start({ id: runId, pod: P.pod, buId: b.id, buName: b.name, stmtDate: P.stmtDate, title: b.name + ' · ' + P.stmtDate, customers: items.length, total: total, method: m.method, mailbox: m.mailbox, sourceKind: cyc ? 'CYCLE' : (b.balances || {}).kind || 'BIP', machine: (P.info || {}).machine, cycleId: ctx.cycleId })
             .then(function () {
                 var queue = live.items.slice(), par = Math.max(1, Math.min(4, +P.general.parallelPdf || 3));
                 function worker() {
@@ -327,7 +356,7 @@
                 live.items.forEach(function (it) { if (it.status !== 'FAILED' && it.status !== 'STOPPED') delete P.run.sel[it.c.account]; });   // never ticked twice by accident
                 return S.run.finish(runId, c, ctx.stop ? 'STOPPED' : 'DONE').catch(function () { });
             }, function (e) { live.error = 'The run could not be recorded in APEX, nothing was sent: ' + errText(e); live.finished = Date.now(); })
-            .then(function () { endBusy(); return loadCore(); }).then(function () { S.run.list(30).then(function (r) { P.runs = r; }); render(); }, function () { render(); });
+            .then(function () { endBusy(); if (ctx.cycleId && window.DC.onRunDone) { try { window.DC.onRunDone(ctx.cycleId, counts(live.items)); } catch (e) { console.warn(e); } } return loadCore(); }).then(function () { S.run.list(30).then(function (r) { P.runs = r; }); render(); }, function () { render(); });
     }
     function counts(items) {
         var c = { emailed: 0, posted: 0, failed: 0, skipped: 0, drafts: 0 };
@@ -605,10 +634,10 @@
             if (rc.delivery === 'EMAIL' && !m.ready) { toast('E-mail is not ready on this PC (' + m.label + ')', 'bad'); return; }
             var opts = readOpts(), d = $('o1-date').value || date, end = busy('Sending the statement…');
             mclose();
-            var ctx = { bu: b, stmtDate: d, pod: P.pod, runId: null, opts: opts, method: m.method, mailbox: m.mailbox, resentOf: resentOf || null };
+            var ctx = { bu: b, stmtDate: d, pod: P.pod, runId: null, opts: opts, method: m.method, mailbox: m.mailbox, resentOf: resentOf || null, cycleId: old && old.CYCLE_ID && d === old.STMT_DATE ? old.CYCLE_ID : null };
             processOne(ctx, c, function () { }).then(function (r) {
                 end(); toast(r.status === 'FAILED' ? 'Not sent: ' + r.msg : r.msg || r.status, r.status === 'FAILED' ? 'bad' : 'ok', 6000);
-                P.cust.data = null; if (P.stmts.rows) loadStmts(); return loadCore();
+                P.cust.data = null; if (P.stmts.rows) loadStmts(); if (ctx.cycleId && window.DC.onRunDone) { try { window.DC.onRunDone(ctx.cycleId, null); } catch (e) { } } return loadCore();
             }).then(render, function () { render(); });
         };
     }
@@ -669,6 +698,7 @@
         h += '<div class="card"><h2><i class="fas fa-sliders"></i> General</h2><div class="form"><div class="field"><label>PDFs made at the same time</label><select id="g-par">' + [1, 2, 3, 4].map(function (n) { return '<option' + (+g.parallelPdf === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></div>' +
             '<div class="field"><label>"Not opened" after (days)</label><input type="number" id="g-unop" min="1" max="60" value="' + esc(g.unopenedDays) + '"></div><div class="field"><label>Follow-up after (days)</label><input type="number" id="g-fu" min="1" max="60" value="' + esc(g.followupDays) + '"></div>' +
             '<div class="field wide"><label>Collectors (for "For" and the card)</label><input type="text" id="g-col" value="' + esc((g.collectors || []).join(', ')) + '" placeholder="user1, user2"></div></div><div class="row" style="margin-top:10px"><button class="btn sm pri" data-act="genSave">Save</button></div></div>';
+        if (window.DC.checklistCard) h += window.DC.checklistCard();
         return h + '</div></div>';
     }
     function paramsText(p) { return Object.keys(p || {}).map(function (k) { return k + ' = ' + p[k]; }).join('\n'); }
@@ -711,6 +741,8 @@
         },
         pod: function () { P.pod = P.pod === 'PROD' ? 'TEST' : 'PROD'; lsSet('pod', P.pod); paintWho(); render(); toast('Reports now run on ' + P.pod, 'ok'); },
         loadBal: loadBalances,
+        cycleBack: function () { if (window.DC.openCycle && P.run.cycle) window.DC.openCycle(P.run.cycle.id); },
+        cycleLeave: function () { P.run.cycle = null; P.run.customers = null; render(); },
         sortRun: function (d) { var s = P.run.sort; s.d = s.k === d.k ? -s.d : (d.k === 'name' || d.k === 'account' ? 1 : -1); s.k = d.k; render(); },
         selAll: function () { runRows().forEach(function (r) { if (r.rc.delivery !== 'NONE') P.run.sel[r.c.account] = 1; }); render(); },
         selNone: function () { P.run.sel = {}; render(); },
@@ -837,6 +869,14 @@
         if (b.dataset.m != null) { P.tasks.mine = b.dataset.m === '1'; lsSet('tasks.mine', P.tasks.mine); render(); }
     }
 
+    // ── for dc-cycles.js (statement cycles) ──
+    window.DC.views = window.DC.views || {}; window.DC.after = window.DC.after || {};
+    window.DC.api = {
+        P: P, S: S, E: E, ACT: ACT, render: render, go: go, toast: toast, busy: busy, modal: modal, mclose: mclose, pill: pill, kpi: kpi, when: when, esc: esc, money: money,
+        csv: csv, saveFile: saveFile, bu: bu, curBu: curBu, card: card, profileOf: profileOf, actsOf: actsOf, mailInfo: mailInfo, readBalances: readBalances, scoreAll: scoreAll,
+        statePill: statePill, loadCore: loadCore, errText: errText, today: today, addDays: addDays, key: key, open360: open360, stmtDialog: stmtDialog, findStmt: findStmt,
+        sendOne: sendOneDialog
+    };
     function boot() {
         document.querySelectorAll('#tabs button').forEach(function (b) { b.addEventListener('click', function () { if (b.dataset.tab === 'cust' && P.tab === 'cust') { P.cust.open = null; P.cust.data = null; } go(b.dataset.tab); }); });
         document.addEventListener('click', onClick);

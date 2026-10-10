@@ -141,6 +141,69 @@ CREATE TABLE wms_dc_activity (
 );
 CREATE INDEX wms_dc_act_acct ON wms_dc_activity (bu_id, account_number);
 
+-- 1b. Statement cycles (one business unit × one month: checklist → archive → statement check → send → close) --------
+ALTER TABLE wms_dc_stmts ADD (cycle_id VARCHAR2(40));     -- the page adds these to older tables itself
+ALTER TABLE wms_dc_runs  ADD (cycle_id VARCHAR2(40));
+
+CREATE TABLE wms_dc_cycles (
+    cycle_id     VARCHAR2(40) PRIMARY KEY,
+    pod          VARCHAR2(20),
+    bu_id        VARCHAR2(30),
+    bu_name      VARCHAR2(240),
+    period       VARCHAR2(7),                      -- YYYY-MM
+    stmt_date    VARCHAR2(10),                     -- the statement date (month end)
+    title        VARCHAR2(300),
+    status       VARCHAR2(20),                     -- OPEN | CHECKED | ARCHIVED | READY | SENDING | CLOSED
+    owner_user   VARCHAR2(100),
+    due_date     VARCHAR2(10),
+    tolerance    NUMBER,                           -- OM vs AR amount tolerance
+    note         VARCHAR2(2000),
+    created_by   VARCHAR2(100),
+    created_at   DATE DEFAULT SYSDATE,
+    checks_at DATE, checks_by VARCHAR2(100), checks_score NUMBER,
+    snap_at DATE, snap_by VARCHAR2(100), snap_source VARCHAR2(10),
+    customers NUMBER, total_due NUMBER, owed NUMBER, overdue NUMBER, cur_amt NUMBER, d30 NUMBER, d60 NUMBER, d90 NUMBER, d90p NUMBER,
+    credit_n NUMBER, credit_amt NUMBER, email_n NUMBER, post_n NUMBER, none_n NUMBER, items_n NUMBER,
+    new_n NUMBER, cleared_n NUMBER, up_n NUMBER, down_n NUMBER, prev_total NUMBER,   -- movement against the previous cycle
+    stmt_path VARCHAR2(1000), stmt_dm VARCHAR2(1000), stmt_sha VARCHAR2(64), stmt_changed VARCHAR2(1),
+    stmt_sql CLOB,                                  -- the statement report's data-model SQL, as it was when checked
+    stmt_def CLOB,                                  -- its report definition (JSON)
+    review_at DATE, review_by VARCHAR2(100), review_note VARCHAR2(2000),
+    sent_n NUMBER, posted_n NUMBER, failed_n NUMBER, cover_pct NUMBER,
+    closed_at DATE, closed_by VARCHAR2(100), close_note VARCHAR2(2000),
+    CONSTRAINT wms_dc_cycles_uk UNIQUE (pod, bu_id, period)
+);
+
+CREATE TABLE wms_dc_cycle_checks (
+    cycle_id    VARCHAR2(40) NOT NULL,
+    check_id    VARCHAR2(40) NOT NULL,
+    title       VARCHAR2(300),
+    area        VARCHAR2(60),
+    severity    VARCHAR2(10),                      -- BLOCK | WARN
+    kind        VARCHAR2(10),                      -- SQL | BIP | LOCAL
+    status      VARCHAR2(20),                      -- PASS | FAIL | ERROR
+    rows_n      NUMBER,
+    amount      NUMBER,
+    ms          NUMBER,
+    error_text  VARCHAR2(2000),
+    sql_text    CLOB,                              -- what ran
+    sample_json CLOB,                              -- the first 50 exception rows
+    ran_at DATE, ran_by VARCHAR2(100),
+    bypass_note VARCHAR2(2000), bypass_by VARCHAR2(100), bypass_at DATE,   -- a failure let through, with why and who
+    CONSTRAINT wms_dc_cycle_checks_pk PRIMARY KEY (cycle_id, check_id)
+);
+
+CREATE TABLE wms_dc_cycle_bal (                    -- the archived balance of every customer of the cycle
+    cycle_id VARCHAR2(40) NOT NULL, account_number VARCHAR2(60) NOT NULL, account_name VARCHAR2(360), currency VARCHAR2(10),
+    balance NUMBER, overdue NUMBER, cur_amt NUMBER, d30 NUMBER, d60 NUMBER, d90 NUMBER, d90p NUMBER, items_n NUMBER,
+    email VARCHAR2(1000), delivery VARCHAR2(10), why VARCHAR2(400), score NUMBER, prev_balance NUMBER,
+    CONSTRAINT wms_dc_cycle_bal_pk PRIMARY KEY (cycle_id, account_number)
+);
+
+CREATE TABLE wms_dc_cycle_events (                 -- the cycle's audit trail
+    event_id VARCHAR2(40) PRIMARY KEY, cycle_id VARCHAR2(40), event VARCHAR2(40), detail VARCHAR2(2000), by_user VARCHAR2(100), event_at DATE DEFAULT SYSDATE
+);
+
 -- 2. The 1×1 transparent GIF of the tracking picture --------------------------------
 CREATE TABLE wms_dc_gif (id NUMBER PRIMARY KEY, gif BLOB);
 INSERT INTO wms_dc_gif (id, gif) VALUES (1, TO_BLOB(HEXTORAW('47494638396101000100800000FFFFFF00000021F90401000000002C00000000010001000002024401003B')));

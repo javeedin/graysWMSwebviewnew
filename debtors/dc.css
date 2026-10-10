@@ -131,3 +131,43 @@ textarea.code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size
 .bucard { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 12px; }
 .bucard.off { opacity: .6; }
 @media (max-width: 700px) { .top .sub { display: none; } .kv { grid-template-columns: 1fr; } }
+
+/* ── statement cycles ── */
+.cygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.cycard { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; cursor: pointer; border: 1px solid transparent; transition: border-color .15s, transform .15s; }
+.cycard:hover { border-color: var(--pri); transform: translateY(-1px); }
+.cysteps { display: flex; align-items: center; }
+.cysteps .cs { width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; background: var(--soft); color: var(--muted); flex: none; }
+.cysteps .cs.done { background: #dcfce7; color: #166534; }
+.cysteps .cs.active { background: var(--pri); color: #fff; box-shadow: 0 0 0 3px rgba(15,118,110,.2); }
+.cysteps .cs.open { background: #dbeafe; color: #1e40af; }
+.cysteps .cs.locked { opacity: .55; }
+.cysteps .cl { flex: 1; height: 2px; background: var(--line); min-width: 8px; }
+.stepper { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+@media (max-width: 900px) { .stepper { grid-template-columns: 1fr 1fr; } }
+.stp { display: flex; gap: 10px; align-items: center; text-align: left; border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.stp > span:last-child { display: flex; flex-direction: column; min-width: 0; }
+.stp .small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stp .n { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; background: var(--soft); color: var(--muted); flex: none; }
+.stp.done .n { background: var(--ok); color: #fff; }
+.stp.active .n { background: var(--pri); color: #fff; }
+.stp.open .n { background: #dbeafe; color: #1e40af; }
+.stp.locked { opacity: .5; cursor: not-allowed; }
+.stp.cur { border-color: var(--pri); box-shadow: 0 0 0 3px rgba(15,118,110,.15); background: #f0fdfa; }
+.gatebar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; background: var(--soft); margin-bottom: 6px; }
+.ring { --p: 0; width: 54px; height: 54px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; background: conic-gradient(var(--pri) calc(var(--p) * 1%), #e2e8f0 0); }
+.ring span { width: 42px; height: 42px; border-radius: 50%; background: var(--card); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; }
+.ck { display: flex; gap: 10px; align-items: flex-start; padding: 9px 4px; border-bottom: 1px solid var(--line); }
+.ck > i { font-size: 17px; margin-top: 2px; width: 18px; text-align: center; flex: none; }
+.ck .tx { flex: 1; min-width: 0; }
+.ck .ac { display: flex; gap: 6px; flex: none; }
+.ck.byp { background: #fffbeb; }
+.byn { color: #92400e; margin-top: 3px; }
+.okc { color: var(--ok); }
+.sqlbox { background: #0f172a; color: #e2e8f0; border-radius: 9px; padding: 10px 12px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word; max-height: 340px; overflow: auto; margin: 0; }
+.sqlbox.diff { background: #f8fafc; color: var(--ink); border: 1px solid var(--line); max-height: 460px; }
+.diff .da { background: #dcfce7; color: #14532d; }
+.diff .dr { background: #fee2e2; color: #7f1d1d; }
+.trail { max-height: 70vh; overflow: auto; }
+.trail .tr { border-left: 2px solid var(--line); padding: 2px 0 10px 12px; position: relative; }
+.trail .tr::before { content: ''; position: absolute; left: -6px; top: 6px; width: 10px; height: 10px; border-radius: 50%; background: var(--pri); }

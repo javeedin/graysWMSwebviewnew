@@ -1,0 +1,90 @@
+// node debtors/tests/dc-cycle.test.js — statement cycles (pure)
+'use strict';
+const E = require('../dc-engine.js');
+require('../dc-cycle.js');
+let n = 0, bad = 0;
+function check(name, ok, extra) { n++; if (ok) console.log('ok   ' + name); else { bad++; console.log('FAIL ' + name + (extra !== undefined ? ' — ' + JSON.stringify(extra).slice(0, 400) : '')); } }
+
+// periods + placeholders
+check('periods: month end, label, previous', E.monthEnd('2026-09') === '2026-09-30' && E.monthEnd('2024-02') === '2024-02-29' && E.periodLabel('2026-09') === 'September 2026' && E.prevPeriod('2026-01') === '2025-12');
+const bu = E.SEED_BUS[0];
+const v = E.cycleVars(bu, { stmtDate: '2026-09-30', tolerance: 5 });
+check('cycle vars: PERIOD_START, MON_YY, PERIOD_NAME, TOLERANCE, BU_ID', v.PERIOD === '2026-09' && v.PERIOD_START === '2026-09-01' && v.MON_YY === 'SEP-26' && v.PERIOD_NAME === 'Sep-26' && v.TOLERANCE === '5' && v.BU_ID === '300000003234003');
+const ids = E.CHECKS.map(c => c.id);
+check('checklist: unapplied receipts, AR not accounted, OM not billed, OM vs AR, e-mails', ['UNAPPLIED_RECEIPTS', 'AR_NOT_ACCOUNTED', 'OM_NOT_BILLED', 'OM_AR_AMOUNTS', 'NO_EMAIL', 'BAD_EMAIL'].every(i => ids.indexOf(i) >= 0));
+check('checklist: every SQL fills without unknown placeholders', E.CHECKS.filter(c => c.kind === 'SQL').every(c => E.unknownVars(c.sql, v).length === 0), E.CHECKS.filter(c => c.kind === 'SQL').map(c => [c.id, E.unknownVars(c.sql, v)]).filter(x => x[1].length));
+check('checklist: the BU and the date reach the SQL', E.fill(E.CHECKS[0].sql, v, 'sql').indexOf('ps.org_id = 300000003234003') > 0 && E.fill(E.CHECKS[0].sql, v, 'sql').indexOf("TO_DATE('2026-09-30'") > 0);
+check('checklist: OM vs AR uses the month and the tolerance', /TO_DATE\('2026-09-01'/.test(E.fill(E.CHECKS.find(c => c.id === 'OM_AR_AMOUNTS').sql, v, 'sql')) && /> 5$/.test(E.fill(E.CHECKS.find(c => c.id === 'OM_AR_AMOUNTS').sql, v, 'sql')));
+
+// local checks
+const custs = [
+    { account: '1', name: 'A', balance: 100, email: 'a@x.com' },
+    { account: '2', name: 'B', balance: 50, email: '' },
+    { account: '3', name: 'C', balance: 70, email: 'bad-address' },
+    { account: '4', name: 'D', balance: -20, email: 'd@x.com' },
+    { account: '5', name: 'E', balance: 90, email: 'a@x.com' },
+    { account: '6', name: 'F', balance: 40, email: '', emailStat: 'NO' },
+    { account: '7', name: 'G', balance: 1000, email: 'g@x.com', aging: { current: 0, d30: 0, d60: 0, d90: 0, d90p: 600 } },
+    { account: '8', name: 'H', balance: 30, email: '' }
+];
+const prof = acct => acct === '8' ? { delivery: 'POST' } : null;
+const noEmail = E.localCheck('NO_EMAIL', custs, { bu, profile: prof });
+check('NO_EMAIL: no address → listed; card set to post → not; EMAIL_STAT NO → listed with the hint', noEmail.map(r => r.ACCOUNT_NUMBER).join() === '2,6' && /EMAIL_STAT/.test(noEmail[1].DETAIL), noEmail);
+check('BAD_EMAIL: the invalid address only', E.localCheck('BAD_EMAIL', custs, { bu, profile: prof }).map(r => r.ACCOUNT_NUMBER).join() === '3');
+const shared = E.localCheck('SHARED_EMAIL', custs, { bu, profile: prof });
+check('SHARED_EMAIL: both accounts on one address, each naming the other', shared.length === 2 && /also on 5/.test(shared[0].DETAIL));
+check('CREDIT_BALANCES', E.localCheck('CREDIT_BALANCES', custs, {}).map(r => r.ACCOUNT_NUMBER).join() === '4');
+check('OLD_DEBT: > 25% over 90 days without a follow-up; an open task clears it', E.localCheck('OLD_DEBT', custs, {}).map(r => r.ACCOUNT_NUMBER).join() === '7' && E.localCheck('OLD_DEBT', custs, { activities: [{ ACCOUNT_NUMBER: '7', STATUS: 'OPEN', KIND: 'TASK' }] }).length === 0);
+check('outcome: rows → FAIL with the AMOUNT added (any case)', JSON.stringify(E.checkOutcome([{ amount: '10.5' }, { Amount: 4 }])) === JSON.stringify({ status: 'FAIL', rows: 2, amount: 14.5 }) && E.checkOutcome([]).status === 'PASS');
+
+// gate
+const checks = [{ id: 'A', severity: 'BLOCK' }, { id: 'B', severity: 'BLOCK' }, { id: 'C', severity: 'WARN' }, { id: 'X', severity: 'BLOCK', enabled: false }];
+let g = E.gate(checks, { A: { status: 'PASS' } });
+check('gate: a check not run yet holds the cycle; disabled ones do not count', !g.ready && g.pending.join() === 'B,C' && g.total === 3);
+g = E.gate(checks, { A: { status: 'PASS' }, B: { status: 'FAIL' }, C: { status: 'FAIL' } });
+check('gate: a failed BLOCK check holds it, a failed WARN does not', !g.ready && g.blocking.join() === 'B' && g.warnings.join() === 'C');
+g = E.gate(checks, { A: { status: 'PASS' }, B: { status: 'ERROR', bypassNote: 'Fusion table missing on this pod, checked by hand' }, C: { status: 'FAIL' } });
+check('gate: bypassed with a comment → ready', g.ready && g.bypassed.join() === 'B' && g.score > 0 && g.score < 100);
+check('bypass needs a real comment', !E.bypassOk('ok') && E.bypassOk('Checked with Ravi, receipts applied on 2 Oct'));
+
+// archive
+const prev = [{ ACCOUNT_NUMBER: '1', BALANCE: 80 }, { ACCOUNT_NUMBER: '2', BALANCE: 50 }, { ACCOUNT_NUMBER: '9', BALANCE: 300 }];
+const snap = E.snapshot(custs, { bu, profile: prof, prev });
+const t = snap.totals;
+check('archive: totals (customers, total, owed, credit, delivery split)', t.customers === 8 && t.total === 1360 && t.owed === 1380 && t.creditN === 1 && t.creditAmt === -20 && t.emailN === 4 && t.postN === 4, t);
+check('archive: rows carry delivery, e-mail and last cycle\'s balance', snap.rows[0].delivery === 'EMAIL' && snap.rows[0].prev === 80 && snap.rows[1].delivery === 'POST' && snap.rows[2].prev === null);
+const mv = t.movement;
+check('movement: new / cleared (gone from the list) / up / unchanged', mv.hasPrev && mv.newN === 6 && mv.clearedN === 1 && mv.upN === 1 && mv.downN === 0 && mv.prevTotal === 430, mv);
+check('movement: biggest moves first', Math.abs(mv.top[0].diff) >= Math.abs(mv.top[1].diff) && mv.top.some(x => x.kind === 'CLEARED' && x.account === '9'));
+const back = E.fromArchive([{ ACCOUNT_NUMBER: '7', ACCOUNT_NAME: 'G', BALANCE: '1000', OVERDUE: '600', CUR_AMT: '0', D30: '0', D60: '0', D90: '0', D90P: '600', EMAIL: 'g@x.com', ITEMS_N: '4', CURRENCY: 'MUR' }]);
+check('fromArchive: archive rows become customers for the run (frozen balance, aging)', back[0].balance === 1000 && back[0].aging.d90p === 600 && back[0].email === 'g@x.com' && back[0].fromArchive && back[0].lines === 4);
+
+// statement report
+const model = { dataSets: [{ name: 'G_HDR', sql: 'select a from t\nwhere x = :p_cust_no' }, { name: 'G_LINES', sql: 'select b from u' }] };
+const txt = E.modelText(model);
+check('modelText: every data set with its name', /-- data set: G_HDR/.test(txt) && /select b from u/.test(txt));
+check('sqlNorm: comments, spacing and case do not count', E.sqlNorm('select a  -- x\n from t /* y */') === E.sqlNorm('SELECT A FROM T'));
+const d = E.lineDiff('a\nb\nc', 'a\nB\nc\nd');
+check('lineDiff: changed and added lines', d.filter(x => x.t === '-').map(x => x.s).join() === 'b' && d.filter(x => x.t === '+').map(x => x.s).join() === 'B,d' && d.filter(x => x.t === ' ').length === 2);
+const smp = E.samples(custs.map(c => Object.assign({ lines: c.account === '5' ? 40 : 1 }, c)));
+check('samples: largest, oldest debt, credit, most lines — each once', smp.map(s => s.why).join() === 'largest balance,credit balance,most lines' && smp[0].c.account === '7', smp.map(s => [s.c.account, s.why]));
+
+// coverage + steps
+const rows = [{ ACCOUNT_NUMBER: '1', DELIVERY: 'EMAIL' }, { ACCOUNT_NUMBER: '2', DELIVERY: 'POST' }, { ACCOUNT_NUMBER: '3', DELIVERY: 'EMAIL' }, { ACCOUNT_NUMBER: '4', DELIVERY: 'NONE' }, { ACCOUNT_NUMBER: '5', DELIVERY: 'EMAIL' }];
+const stm = [
+    { STMT_ID: 's1', ACCOUNT_NUMBER: '1', STATUS: 'FAILED', CREATED_AT: '2026-10-01 09:00' },
+    { STMT_ID: 's2', ACCOUNT_NUMBER: '1', STATUS: 'SENT', CREATED_AT: '2026-10-01 10:00', OPENS: 1, RESP_STATUS: 'AGREED' },
+    { STMT_ID: 's3', ACCOUNT_NUMBER: '2', STATUS: 'POSTED', CREATED_AT: '2026-10-01 10:00' },
+    { STMT_ID: 's4', ACCOUNT_NUMBER: '3', STATUS: 'FAILED', CREATED_AT: '2026-10-01 10:00' }
+];
+const cov = E.coverage(rows, stm).counts;
+check('coverage: the latest try counts (resend over a failure), NONE is not due', cov.customers === 5 && cov.deliverable === 4 && cov.emailed === 1 && cov.posted === 1 && cov.failed === 1 && cov.notSent === 1 && cov.agreed === 1 && cov.pct === 50, cov);
+let s = E.cycleSteps({ STATUS: 'OPEN' });
+check('steps: a new cycle starts on the checklist, the rest locked', s.active === 'checks' && s.steps.map(x => x.state).join() === 'active,locked,locked,locked,locked');
+s = E.cycleSteps({ STATUS: 'READY', CHECKS_AT: 'x', SNAP_AT: 'x', REVIEW_AT: 'x' });
+check('steps: after the statement check, send is next and close may be used', s.active === 'send' && s.steps[3].state === 'active' && s.steps[4].state === 'open');
+s = E.cycleSteps({ STATUS: 'CLOSED', CHECKS_AT: 'x' });
+check('steps: a closed cycle is done everywhere', s.closed && s.steps.every(x => x.state === 'done'));
+
+console.log(bad ? 'FAILED ' + bad + ' of ' + n + ' statement cycle checks' : 'ok ' + n + ' statement cycle checks');
+process.exit(bad ? 1 : 0);

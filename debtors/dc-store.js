@@ -146,7 +146,13 @@
         WMS_DC_RUNS: "CREATE TABLE wms_dc_runs (run_id VARCHAR2(40) PRIMARY KEY, pod VARCHAR2(20), bu_id VARCHAR2(30), bu_name VARCHAR2(240), stmt_date VARCHAR2(10), title VARCHAR2(300), customers NUMBER, emailed NUMBER DEFAULT 0, posted NUMBER DEFAULT 0, failed NUMBER DEFAULT 0, skipped NUMBER DEFAULT 0, total_balance NUMBER, status VARCHAR2(20), method VARCHAR2(20), mailbox VARCHAR2(320), source_kind VARCHAR2(10), app_user VARCHAR2(100), machine VARCHAR2(100), started_at DATE DEFAULT SYSDATE, finished_at DATE, note VARCHAR2(1000))",
         WMS_DC_STMTS: "CREATE TABLE wms_dc_stmts (stmt_id VARCHAR2(40) PRIMARY KEY, run_id VARCHAR2(40), pod VARCHAR2(20), bu_id VARCHAR2(30), bu_name VARCHAR2(240), company VARCHAR2(200), account_number VARCHAR2(60), account_name VARCHAR2(360), stmt_date VARCHAR2(10), currency VARCHAR2(10), balance NUMBER, overdue NUMBER, aging_json VARCHAR2(1000), delivery VARCHAR2(10), email_to VARCHAR2(1000), email_cc VARCHAR2(1000), subject VARCHAR2(400), file_name VARCHAR2(300), file_path VARCHAR2(600), sha256 VARCHAR2(64), bytes_n NUMBER, status VARCHAR2(20), error_text VARCHAR2(2000), method VARCHAR2(20), mailbox VARCHAR2(320), app_user VARCHAR2(100), machine VARCHAR2(100), created_at DATE DEFAULT SYSDATE, generated_at DATE, sent_at DATE, token VARCHAR2(64), tracked VARCHAR2(1) DEFAULT 'N', opens NUMBER DEFAULT 0, first_open DATE, last_open DATE, last_agent VARCHAR2(400), delivered_at DATE, read_at DATE, bounced_at DATE, bounce_text VARCHAR2(1000), resp_status VARCHAR2(20), resp_comment VARCHAR2(2000), resp_at DATE, resp_agent VARCHAR2(400), resent_of VARCHAR2(40))",
         WMS_DC_ACTIVITY: "CREATE TABLE wms_dc_activity (act_id VARCHAR2(40) PRIMARY KEY, bu_id VARCHAR2(30), account_number VARCHAR2(60), account_name VARCHAR2(360), kind VARCHAR2(20), subject VARCHAR2(400), body VARCHAR2(4000), amount NUMBER, due_date DATE, status VARCHAR2(20) DEFAULT 'OPEN', ref_id VARCHAR2(40), source VARCHAR2(20) DEFAULT 'USER', assigned_to VARCHAR2(100), created_by VARCHAR2(100), created_at DATE DEFAULT SYSDATE, done_by VARCHAR2(100), done_at DATE, outcome VARCHAR2(1000))",
-        WMS_DC_GIF: 'CREATE TABLE wms_dc_gif (id NUMBER PRIMARY KEY, gif BLOB)'
+        WMS_DC_GIF: 'CREATE TABLE wms_dc_gif (id NUMBER PRIMARY KEY, gif BLOB)',
+        WMS_DC_CYCLES: "CREATE TABLE wms_dc_cycles (cycle_id VARCHAR2(40) PRIMARY KEY, pod VARCHAR2(20), bu_id VARCHAR2(30), bu_name VARCHAR2(240), period VARCHAR2(7), stmt_date VARCHAR2(10), title VARCHAR2(300), status VARCHAR2(20), owner_user VARCHAR2(100), due_date VARCHAR2(10), tolerance NUMBER, note VARCHAR2(2000), created_by VARCHAR2(100), created_at DATE DEFAULT SYSDATE, " +
+            "checks_at DATE, checks_by VARCHAR2(100), checks_score NUMBER, snap_at DATE, snap_by VARCHAR2(100), snap_source VARCHAR2(10), customers NUMBER, total_due NUMBER, owed NUMBER, overdue NUMBER, cur_amt NUMBER, d30 NUMBER, d60 NUMBER, d90 NUMBER, d90p NUMBER, credit_n NUMBER, credit_amt NUMBER, email_n NUMBER, post_n NUMBER, none_n NUMBER, items_n NUMBER, new_n NUMBER, cleared_n NUMBER, up_n NUMBER, down_n NUMBER, prev_total NUMBER, " +
+            "stmt_path VARCHAR2(1000), stmt_dm VARCHAR2(1000), stmt_sha VARCHAR2(64), stmt_changed VARCHAR2(1), stmt_sql CLOB, stmt_def CLOB, review_at DATE, review_by VARCHAR2(100), review_note VARCHAR2(2000), sent_n NUMBER, posted_n NUMBER, failed_n NUMBER, cover_pct NUMBER, closed_at DATE, closed_by VARCHAR2(100), close_note VARCHAR2(2000), CONSTRAINT wms_dc_cycles_uk UNIQUE (pod, bu_id, period))",
+        WMS_DC_CYCLE_CHECKS: "CREATE TABLE wms_dc_cycle_checks (cycle_id VARCHAR2(40) NOT NULL, check_id VARCHAR2(40) NOT NULL, title VARCHAR2(300), area VARCHAR2(60), severity VARCHAR2(10), kind VARCHAR2(10), status VARCHAR2(20), rows_n NUMBER, amount NUMBER, ms NUMBER, error_text VARCHAR2(2000), sql_text CLOB, sample_json CLOB, ran_at DATE, ran_by VARCHAR2(100), bypass_note VARCHAR2(2000), bypass_by VARCHAR2(100), bypass_at DATE, CONSTRAINT wms_dc_cycle_checks_pk PRIMARY KEY (cycle_id, check_id))",
+        WMS_DC_CYCLE_BAL: "CREATE TABLE wms_dc_cycle_bal (cycle_id VARCHAR2(40) NOT NULL, account_number VARCHAR2(60) NOT NULL, account_name VARCHAR2(360), currency VARCHAR2(10), balance NUMBER, overdue NUMBER, cur_amt NUMBER, d30 NUMBER, d60 NUMBER, d90 NUMBER, d90p NUMBER, items_n NUMBER, email VARCHAR2(1000), delivery VARCHAR2(10), why VARCHAR2(400), score NUMBER, prev_balance NUMBER, CONSTRAINT wms_dc_cycle_bal_pk PRIMARY KEY (cycle_id, account_number))",
+        WMS_DC_CYCLE_EVENTS: 'CREATE TABLE wms_dc_cycle_events (event_id VARCHAR2(40) PRIMARY KEY, cycle_id VARCHAR2(40), event VARCHAR2(40), detail VARCHAR2(2000), by_user VARCHAR2(100), event_at DATE DEFAULT SYSDATE)'
     };
     S.INDEXES = [
         'CREATE INDEX wms_dc_stmts_acct ON wms_dc_stmts (bu_id, account_number)', 'CREATE INDEX wms_dc_stmts_tok ON wms_dc_stmts (token)',
@@ -162,6 +168,12 @@
             return missing.reduce(function (p, t) { return p.then(function () { return S.write(S.DDL[t]).catch(function (e) { if (!/ORA-00955/.test(e.message)) throw e; }); }); }, Promise.resolve())
                 .then(function () { if (missing.indexOf('WMS_DC_STMTS') < 0 && missing.indexOf('WMS_DC_ACTIVITY') < 0) return; return S.INDEXES.reduce(function (p, d) { return p.then(function () { return S.write(d).catch(function () { }); }); }, Promise.resolve()); })
                 .then(function () { if (missing.indexOf('WMS_DC_GIF') >= 0) return S.write("INSERT INTO wms_dc_gif (id, gif) SELECT 1, TO_BLOB(HEXTORAW('47494638396101000100800000FFFFFF00000021F90401000000002C00000000010001000002024401003B')) FROM dual WHERE NOT EXISTS (SELECT 1 FROM wms_dc_gif WHERE id = 1)"); })
+                .then(function () {   // tables made before statement cycles get the cycle column
+                    return S.rows("SELECT table_name AS T FROM user_tab_columns WHERE table_name IN ('WMS_DC_STMTS', 'WMS_DC_RUNS') AND column_name = 'CYCLE_ID'", 5).then(function (c) {
+                        var has = {}; c.forEach(function (x) { has[String(x.T).toUpperCase()] = 1; });
+                        return ['WMS_DC_STMTS', 'WMS_DC_RUNS'].filter(function (t) { return !has[t]; }).reduce(function (p, t) { return p.then(function () { return S.write('ALTER TABLE ' + t.toLowerCase() + ' ADD (cycle_id VARCHAR2(40))').catch(function (e) { if (!/ORA-01430/.test(e.message)) throw e; }); }); }, Promise.resolve());
+                    });
+                })
                 .then(function () { return { created: missing }; });
         }).catch(function (e) { ensured = null; throw e; });
         return ensured;
@@ -216,8 +228,8 @@
     S.run = {
         start: function (r) {
             return S.ensure().then(function () {
-                return S.write('INSERT INTO wms_dc_runs (run_id, pod, bu_id, bu_name, stmt_date, title, customers, total_balance, status, method, mailbox, source_kind, app_user, machine, started_at, note) VALUES (' +
-                    [S.lit(r.id), S.lit(r.pod), S.lit(r.buId), S.lit(r.buName, 240), S.lit(r.stmtDate), S.lit(r.title, 300), S.num(r.customers), S.num(r.total), "'RUNNING'", S.lit(r.method), S.lit(r.mailbox, 320), S.lit(r.sourceKind), S.lit(S.user(), 100), S.lit(r.machine, 100), 'SYSDATE', S.lit(r.note, 1000)].join(', ') + ')');
+                return S.write('INSERT INTO wms_dc_runs (run_id, cycle_id, pod, bu_id, bu_name, stmt_date, title, customers, total_balance, status, method, mailbox, source_kind, app_user, machine, started_at, note) VALUES (' +
+                    [S.lit(r.id), S.lit(r.cycleId), S.lit(r.pod), S.lit(r.buId), S.lit(r.buName, 240), S.lit(r.stmtDate), S.lit(r.title, 300), S.num(r.customers), S.num(r.total), "'RUNNING'", S.lit(r.method), S.lit(r.mailbox, 320), S.lit(r.sourceKind), S.lit(S.user(), 100), S.lit(r.machine, 100), 'SYSDATE', S.lit(r.note, 1000)].join(', ') + ')');
             });
         },
         finish: function (id, c, status) {
@@ -231,14 +243,14 @@
     };
 
     // ── statements ────────────────────────────────────────────────
-    var STMT_COLS = ['STMT_ID', 'RUN_ID', 'POD', 'BU_ID', 'BU_NAME', 'COMPANY', 'ACCOUNT_NUMBER', 'ACCOUNT_NAME', 'STMT_DATE', 'CURRENCY', 'BALANCE', 'OVERDUE', 'AGING_JSON', 'DELIVERY', 'EMAIL_TO', 'EMAIL_CC', 'SUBJECT', 'FILE_NAME', 'FILE_PATH', 'SHA256', 'BYTES_N', 'STATUS', 'ERROR_TEXT', 'METHOD', 'MAILBOX', 'APP_USER', 'MACHINE', 'TOKEN', 'TRACKED', 'OPENS', 'LAST_AGENT', 'BOUNCE_TEXT', 'RESP_STATUS', 'RESP_COMMENT', 'RESP_AGENT', 'RESENT_OF']
+    var STMT_COLS = ['STMT_ID', 'RUN_ID', 'CYCLE_ID', 'POD', 'BU_ID', 'BU_NAME', 'COMPANY', 'ACCOUNT_NUMBER', 'ACCOUNT_NAME', 'STMT_DATE', 'CURRENCY', 'BALANCE', 'OVERDUE', 'AGING_JSON', 'DELIVERY', 'EMAIL_TO', 'EMAIL_CC', 'SUBJECT', 'FILE_NAME', 'FILE_PATH', 'SHA256', 'BYTES_N', 'STATUS', 'ERROR_TEXT', 'METHOD', 'MAILBOX', 'APP_USER', 'MACHINE', 'TOKEN', 'TRACKED', 'OPENS', 'LAST_AGENT', 'BOUNCE_TEXT', 'RESP_STATUS', 'RESP_COMMENT', 'RESP_AGENT', 'RESENT_OF']
         .map(function (c) { return c.toLowerCase() + ' AS ' + c; })
         .concat(['CREATED_AT', 'GENERATED_AT', 'SENT_AT', 'FIRST_OPEN', 'LAST_OPEN', 'DELIVERED_AT', 'READ_AT', 'BOUNCED_AT', 'RESP_AT'].map(function (c) { return 'TO_CHAR(' + c.toLowerCase() + ', ' + TS + ') AS ' + c; })).join(', ');
     S.stmt = {
         /** a new statement row before anything is sent: status GENERATED / FAILED / POSTED / SKIPPED … */
         insert: function (s) {
-            return S.write('INSERT INTO wms_dc_stmts (stmt_id, run_id, pod, bu_id, bu_name, company, account_number, account_name, stmt_date, currency, balance, overdue, aging_json, delivery, email_to, email_cc, subject, file_name, file_path, sha256, bytes_n, status, error_text, app_user, machine, created_at, generated_at, token, tracked, resent_of) VALUES (' +
-                [S.lit(s.id), S.lit(s.runId), S.lit(s.pod), S.lit(s.buId), S.lit(s.buName, 240), S.lit(s.company, 200), S.lit(s.account, 60), S.lit(s.name, 360), S.lit(s.stmtDate), S.lit(s.currency, 10), S.num(s.balance), S.num(s.overdue), S.lit(s.aging ? JSON.stringify(s.aging) : null, 1000),
+            return S.write('INSERT INTO wms_dc_stmts (stmt_id, run_id, cycle_id, pod, bu_id, bu_name, company, account_number, account_name, stmt_date, currency, balance, overdue, aging_json, delivery, email_to, email_cc, subject, file_name, file_path, sha256, bytes_n, status, error_text, app_user, machine, created_at, generated_at, token, tracked, resent_of) VALUES (' +
+                [S.lit(s.id), S.lit(s.runId), S.lit(s.cycleId), S.lit(s.pod), S.lit(s.buId), S.lit(s.buName, 240), S.lit(s.company, 200), S.lit(s.account, 60), S.lit(s.name, 360), S.lit(s.stmtDate), S.lit(s.currency, 10), S.num(s.balance), S.num(s.overdue), S.lit(s.aging ? JSON.stringify(s.aging) : null, 1000),
                     S.lit(s.delivery, 10), S.lit(s.to, 1000), S.lit(s.cc, 1000), S.lit(s.subject, 400), S.lit(s.fileName, 300), S.lit(s.filePath, 600), S.lit(s.sha), S.num(s.bytes), S.lit(s.status), S.lit(s.error, 2000), S.lit(S.user(), 100), S.lit(s.machine, 100), 'SYSDATE', s.sha ? 'SYSDATE' : 'NULL', S.lit(s.token), S.lit(s.tracked ? 'Y' : 'N'), S.lit(s.resentOf)].join(', ') + ')');
         },
         /** after the send: SENT / DRAFT / FAILED with how and from which mailbox */
@@ -260,6 +272,7 @@
             if (f.account) w.push('account_number = ' + S.lit(f.account));
             if (f.stmtDate) w.push('stmt_date = ' + S.lit(f.stmtDate));
             if (f.runId) w.push('run_id = ' + S.lit(f.runId));
+            if (f.cycleId) w.push('cycle_id = ' + S.lit(f.cycleId));
             if (f.status) w.push('status = ' + S.lit(f.status));
             if (f.resp) w.push('resp_status = ' + S.lit(f.resp));
             if (f.q) { var q = S.lit('%' + String(f.q).toUpperCase().replace(/[\\%_]/g, function (c) { return '\\' + c; }) + '%', 200); w.push('(UPPER(account_number) LIKE ' + q + " ESCAPE '\\' OR UPPER(account_name) LIKE " + q + " ESCAPE '\\' OR UPPER(email_to) LIKE " + q + " ESCAPE '\\')"); }
@@ -302,6 +315,79 @@
                 return S.rowsAll("SELECT bu_id AS BU_ID, account_number AS ACCOUNT_NUMBER, TO_CHAR(MAX(at_), 'YYYY-MM-DD') AS LAST_AT FROM (SELECT bu_id, account_number, created_at AS at_ FROM wms_dc_activity WHERE source = 'USER' AND kind IN ('CALL', 'EMAIL', 'VISIT', 'PROMISE', 'NOTE') UNION ALL SELECT bu_id, account_number, sent_at FROM wms_dc_stmts WHERE status = 'SENT') GROUP BY bu_id, account_number ORDER BY 1, 2", 50000);
             });
         }
+    };
+
+    // ── statement cycles ─────────────────────────────────────────
+    /** sets {col: value} → "col = literal, …"; 'SYSDATE' stays a function, numbers stay numbers, {sql} is written as is */
+    function setList(sets) {
+        return Object.keys(sets).map(function (k) { var v = sets[k]; return k + ' = ' + (v === 'SYSDATE' ? 'SYSDATE' : v && typeof v === 'object' && v.sql ? v.sql : typeof v === 'number' ? S.num(v) : S.lit(v, 2000)); }).join(', ');
+    }
+    var CY_DATES = ['CREATED_AT', 'CHECKS_AT', 'SNAP_AT', 'REVIEW_AT', 'CLOSED_AT'];
+    var CY_COLS = ['CYCLE_ID', 'POD', 'BU_ID', 'BU_NAME', 'PERIOD', 'STMT_DATE', 'TITLE', 'STATUS', 'OWNER_USER', 'DUE_DATE', 'TOLERANCE', 'NOTE', 'CREATED_BY', 'CHECKS_BY', 'CHECKS_SCORE', 'SNAP_BY', 'SNAP_SOURCE', 'CUSTOMERS', 'TOTAL_DUE', 'OWED', 'OVERDUE', 'CUR_AMT', 'D30', 'D60', 'D90', 'D90P',
+        'CREDIT_N', 'CREDIT_AMT', 'EMAIL_N', 'POST_N', 'NONE_N', 'ITEMS_N', 'NEW_N', 'CLEARED_N', 'UP_N', 'DOWN_N', 'PREV_TOTAL', 'STMT_PATH', 'STMT_DM', 'STMT_SHA', 'STMT_CHANGED', 'REVIEW_BY', 'REVIEW_NOTE', 'SENT_N', 'POSTED_N', 'FAILED_N', 'COVER_PCT', 'CLOSED_BY', 'CLOSE_NOTE']
+        .map(function (c) { return c.toLowerCase() + ' AS ' + c; }).concat(CY_DATES.map(function (c) { return 'TO_CHAR(' + c.toLowerCase() + ', ' + TS + ') AS ' + c; })).join(', ');
+    var CK_COLS = "cycle_id AS CYCLE_ID, check_id AS CHECK_ID, title AS TITLE, area AS AREA, severity AS SEVERITY, kind AS KIND, status AS STATUS, rows_n AS ROWS_N, amount AS AMOUNT, ms AS MS, error_text AS ERROR_TEXT, ran_by AS RAN_BY, TO_CHAR(ran_at, " + TS + ") AS RAN_AT, bypass_note AS BYPASS_NOTE, bypass_by AS BYPASS_BY, TO_CHAR(bypass_at, " + TS + ") AS BYPASS_AT";
+    S.cycle = {
+        list: function () { return S.ensure().then(function () { return S.rowsAll('SELECT ' + CY_COLS + ' FROM wms_dc_cycles ORDER BY period DESC, bu_name, cycle_id', 2000); }); },
+        get: function (id) { return S.rows('SELECT ' + CY_COLS + ' FROM wms_dc_cycles WHERE cycle_id = ' + S.lit(id), 2).then(function (r) { return r[0] || null; }); },
+        create: function (c) {
+            return S.ensure().then(function () {
+                return S.write('INSERT INTO wms_dc_cycles (cycle_id, pod, bu_id, bu_name, period, stmt_date, title, status, owner_user, due_date, tolerance, note, created_by, created_at) VALUES (' +
+                    [S.lit(c.id), S.lit(c.pod), S.lit(c.buId), S.lit(c.buName, 240), S.lit(c.period), S.lit(c.stmtDate), S.lit(c.title, 300), "'OPEN'", S.lit(c.owner, 100), S.lit(c.due), S.num(c.tolerance), S.lit(c.note, 2000), S.lit(S.user(), 100), 'SYSDATE'].join(', ') + ')');
+            }).catch(function (e) { if (/ORA-00001|unique constraint/i.test(e.message)) throw new Error('There is already a cycle for this business unit and month on ' + c.pod + '.'); throw e; });
+        },
+        set: function (id, sets) { return S.write('UPDATE wms_dc_cycles SET ' + setList(sets) + ' WHERE cycle_id = ' + S.lit(id)); },
+        sql: function (id) { return S.readClob('wms_dc_cycles', 'stmt_sql', 'cycle_id', [id]).then(function (m) { return m[id] || ''; }); },
+        def: function (id) { return S.readClob('wms_dc_cycles', 'stmt_def', 'cycle_id', [id]).then(function (m) { return m[id] || ''; }); },
+        saveSql: function (id, sqlText, defText) { return S.writeClob('wms_dc_cycles', 'stmt_sql', 'cycle_id = ' + S.lit(id), sqlText).then(function () { return defText != null ? S.writeClob('wms_dc_cycles', 'stmt_def', 'cycle_id = ' + S.lit(id), defText) : null; }); },
+        /** the latest earlier cycle of the same business unit and pod with a captured statement query / an archive */
+        previous: function (c, what) {
+            var cond = what === 'sql' ? 'stmt_sha IS NOT NULL' : 'snap_at IS NOT NULL';
+            return S.rows('SELECT cycle_id AS CYCLE_ID, period AS PERIOD, stmt_sha AS STMT_SHA FROM wms_dc_cycles WHERE pod = ' + S.lit(c.POD) + ' AND bu_id = ' + S.lit(c.BU_ID) + ' AND period < ' + S.lit(c.PERIOD) + ' AND ' + cond + ' ORDER BY period DESC FETCH FIRST 1 ROWS ONLY', 2).then(function (r) { return r[0] || null; });
+        },
+        event: function (id, ev, detail) {
+            return S.write('INSERT INTO wms_dc_cycle_events (event_id, cycle_id, event, detail, by_user, event_at) VALUES (' + [S.lit('ev' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)), S.lit(id), S.lit(ev, 40), S.lit(detail, 2000), S.lit(S.user(), 100), 'SYSDATE'].join(', ') + ')').catch(function (e) { console.warn('[DC] cycle event not kept', e); });
+        },
+        events: function (id) { return S.rows("SELECT event AS EVENT, detail AS DETAIL, by_user AS BY_USER, TO_CHAR(event_at, " + TS + ") AS EVENT_AT FROM wms_dc_cycle_events WHERE cycle_id = " + S.lit(id) + ' ORDER BY event_at DESC, event_id DESC', 1000); },
+        checks: function (id) { return S.rows('SELECT ' + CK_COLS + ' FROM wms_dc_cycle_checks WHERE cycle_id = ' + S.lit(id) + ' ORDER BY check_id', 200); },
+        /** one check's result: the row, then the SQL that ran and the first 50 exception rows as CLOBs */
+        saveCheck: function (id, c, r) {
+            var k = 'cycle_id = ' + S.lit(id) + ' AND check_id = ' + S.lit(c.id);
+            var sets = { title: c.title, area: c.area, severity: c.severity, kind: c.kind, status: r.status, rows_n: r.rows == null ? null : +r.rows, amount: r.amount == null ? null : +r.amount, ms: r.ms == null ? null : +r.ms, error_text: r.error || null, ran_at: 'SYSDATE', ran_by: S.user(), bypass_note: null, bypass_by: null, bypass_at: { sql: 'NULL' } };
+            return S.write('MERGE INTO wms_dc_cycle_checks t USING (SELECT ' + S.lit(id) + ' AS cycle_id, ' + S.lit(c.id) + ' AS check_id FROM dual) s ON (t.cycle_id = s.cycle_id AND t.check_id = s.check_id) WHEN NOT MATCHED THEN INSERT (cycle_id, check_id) VALUES (' + S.lit(id) + ', ' + S.lit(c.id) + ')')
+                .then(function () { return S.write('UPDATE wms_dc_cycle_checks SET ' + setList(sets) + ' WHERE ' + k); })
+                .then(function () { return S.writeClob('wms_dc_cycle_checks', 'sql_text', k, r.sql || ''); })
+                .then(function () { return S.writeClob('wms_dc_cycle_checks', 'sample_json', k, JSON.stringify((r.sample || []).slice(0, 50))); });
+        },
+        bypass: function (id, checkId, note) {
+            return S.write('UPDATE wms_dc_cycle_checks SET bypass_note = ' + S.lit(note, 2000) + ', bypass_by = ' + S.lit(S.user(), 100) + ', bypass_at = SYSDATE WHERE cycle_id = ' + S.lit(id) + ' AND check_id = ' + S.lit(checkId));
+        },
+        checkDetail: function (id, checkId) {
+            var key = id + '|' + checkId, where = "cycle_id || '|' || check_id";
+            return Promise.all([S.readClob('wms_dc_cycle_checks', 'sql_text', where, [key]), S.readClob('wms_dc_cycle_checks', 'sample_json', where, [key])]).then(function (r) {
+                var sample = []; try { sample = JSON.parse(r[1][key] || '[]'); } catch (e) { }
+                return { sql: r[0][key] || '', sample: sample };
+            });
+        },
+        /** the archive: every row replaced in INSERT … SELECT … FROM dual UNION ALL chunks of 40 */
+        saveBal: function (id, rows) {
+            return S.write('DELETE FROM wms_dc_cycle_bal WHERE cycle_id = ' + S.lit(id)).then(function () {
+                return chunks(rows, 40).reduce(function (p, g) {
+                    return p.then(function () {
+                        return S.write('INSERT INTO wms_dc_cycle_bal (cycle_id, account_number, account_name, currency, balance, overdue, cur_amt, d30, d60, d90, d90p, items_n, email, delivery, why, score, prev_balance) ' + g.map(function (r) {
+                            var a = r.aging || {};
+                            return 'SELECT ' + [S.lit(id), S.lit(r.account, 60), S.lit(r.name, 360), S.lit(r.currency, 10), S.num(r.balance), S.num(r.overdue), r.aging ? S.num(a.current) : 'NULL', r.aging ? S.num(a.d30) : 'NULL', r.aging ? S.num(a.d60) : 'NULL', r.aging ? S.num(a.d90) : 'NULL', r.aging ? S.num(a.d90p) : 'NULL',
+                                S.num(r.items), S.lit(r.email, 1000), S.lit(r.delivery, 10), S.lit(r.why, 400), S.num(r.score), S.num(r.prev)].join(', ') + ' FROM dual';
+                        }).join(' UNION ALL '));
+                    });
+                }, Promise.resolve());
+            }).then(function () { return S.rows('SELECT COUNT(*) AS N FROM wms_dc_cycle_bal WHERE cycle_id = ' + S.lit(id), 2); }).then(function (r) {
+                var n = r.length ? +r[0].N : -1;
+                if (n !== rows.length) throw new Error('APEX kept ' + n + ' of the ' + rows.length + ' archived balances');
+                return n;
+            });
+        },
+        bal: function (id) { return S.rowsAll('SELECT cycle_id AS CYCLE_ID, account_number AS ACCOUNT_NUMBER, account_name AS ACCOUNT_NAME, currency AS CURRENCY, balance AS BALANCE, overdue AS OVERDUE, cur_amt AS CUR_AMT, d30 AS D30, d60 AS D60, d90 AS D90, d90p AS D90P, items_n AS ITEMS_N, email AS EMAIL, delivery AS DELIVERY, why AS WHY, score AS SCORE, prev_balance AS PREV_BALANCE FROM wms_dc_cycle_bal WHERE cycle_id = ' + S.lit(id) + ' ORDER BY account_number', 50000); }
     };
 
     // ── the public links: the tracking picture and the agree / dispute page ──
