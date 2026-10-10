@@ -107,19 +107,41 @@ namespace WMSApp
 
         private static async Task<object> OmBipAsync(string path, Dictionary<string, string> prms, string instance, bool pdf, string fileName)
         {
+            var r = await BipRunBytesAsync(path, prms, instance, pdf ? "pdf" : "xml");
+            if (r.Error != null) return new { ok = false, error = r.Error, ms = r.Ms };
+            if (pdf)
+            {
+                string inst = Path.Combine(OM_ROOT, instance);
+                Directory.CreateDirectory(inst);
+                string safe = Regex.Replace(fileName ?? "order", @"[^A-Za-z0-9_\-]+", "_");
+                if (safe.Length > 120) safe = safe.Substring(0, 120);
+                string file = Path.Combine(inst, safe + ".pdf");
+                File.WriteAllBytes(file, r.Bytes);
+                return new { ok = true, base64 = Convert.ToBase64String(r.Bytes), path = file, ms = r.Ms };
+            }
+            string xml = Encoding.UTF8.GetString(r.Bytes);
+            var rows = OmXmlRows(xml);
+            return new { ok = true, rows, count = rows.Count, ms = r.Ms };
+        }
+
+        /// <summary>Runs one BI Publisher report (/Custom/…xdo) with named parameters in the given format (pdf | xml | csv …) → the output bytes,
+        /// or an error in plain words. Shared by Order Management and Debtors Control; the Fusion credentials never leave the host.</summary>
+        internal static async Task<(byte[] Bytes, string Error, long Ms)> BipRunBytesAsync(string path, Dictionary<string, string> prms, string instance, string format)
+        {
             path = (path ?? "").Trim();
             if (!path.StartsWith("/")) path = "/" + path;
             if (!Regex.IsMatch(path, @"^/Custom/[^<>&""]+\.xdo$", RegexOptions.IgnoreCase) || path.Contains(".."))
-                return new { ok = false, error = "Only BI Publisher reports under /Custom/ (…xdo) can be run." };
+                return (null, "Only BI Publisher reports under /Custom/ (…xdo) can be run.", 0);
+            if (!Regex.IsMatch(format ?? "", "^[a-z]{2,8}$")) format = "pdf";
             var (user, pass) = await FusionCredentialsService.GetAsync();
-            if (string.IsNullOrEmpty(user)) return new { ok = false, error = "Oracle Fusion credentials are not available." };
+            if (string.IsNullOrEmpty(user)) return (null, "Oracle Fusion credentials are not available.", 0);
 
             var items = new StringBuilder();
-            foreach (var kv in prms)
+            foreach (var kv in prms ?? new Dictionary<string, string>())
                 items.Append("<v2:item><v2:name>").Append(System.Security.SecurityElement.Escape(kv.Key)).Append("</v2:name><v2:values><v2:item>")
                      .Append(System.Security.SecurityElement.Escape(kv.Value ?? "")).Append("</v2:item></v2:values></v2:item>");
             string soap = "<?xml version=\"1.0\" encoding=\"utf-8\"?><soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\" xmlns:v2=\"http://xmlns.oracle.com/oxp/service/v2\">" +
-                "<soapenv:Header/><soapenv:Body><v2:runReport><v2:reportRequest><v2:attributeFormat>" + (pdf ? "pdf" : "xml") + "</v2:attributeFormat>" +
+                "<soapenv:Header/><soapenv:Body><v2:runReport><v2:reportRequest><v2:attributeFormat>" + format + "</v2:attributeFormat>" +
                 "<v2:parameterNameValues><v2:listOfParamNameValues>" + items + "</v2:listOfParamNameValues></v2:parameterNameValues>" +
                 "<v2:reportAbsolutePath>" + System.Security.SecurityElement.Escape(path) + "</v2:reportAbsolutePath><v2:sizeOfDataChunkDownload>-1</v2:sizeOfDataChunkDownload></v2:reportRequest>" +
                 "<v2:userID>" + System.Security.SecurityElement.Escape(user) + "</v2:userID><v2:password>" + System.Security.SecurityElement.Escape(pass) + "</v2:password></v2:runReport></soapenv:Body></soapenv:Envelope>";
@@ -134,28 +156,18 @@ namespace WMSApp
                 if (!res.IsSuccessStatusCode)
                 {
                     var fault = Regex.Match(text, @"<faultstring>([\s\S]*?)</faultstring>");
-                    return new { ok = false, error = "Report " + path + ": " + (fault.Success ? System.Net.WebUtility.HtmlDecode(fault.Groups[1].Value).Trim() : "HTTP " + (int)res.StatusCode), ms = sw.ElapsedMilliseconds };
+                    return (null, "Report " + path + ": " + (fault.Success ? System.Net.WebUtility.HtmlDecode(fault.Groups[1].Value).Trim() : "HTTP " + (int)res.StatusCode), sw.ElapsedMilliseconds);
                 }
             }
-            catch (TaskCanceledException) { return new { ok = false, error = "The report did not answer within 4 minutes: " + path }; }
-            catch (HttpRequestException ex) { return new { ok = false, error = "Could not reach Fusion: " + ex.Message }; }
+            catch (TaskCanceledException) { return (null, "The report did not answer within 4 minutes: " + path, sw.ElapsedMilliseconds); }
+            catch (HttpRequestException ex) { return (null, "Could not reach Fusion: " + ex.Message, sw.ElapsedMilliseconds); }
 
             var m = Regex.Match(text, @"<(?:\w+:)?reportBytes>([\s\S]*?)</(?:\w+:)?reportBytes>");
-            if (!m.Success) return new { ok = false, error = "The report returned no data: " + path };
-            string b64 = Regex.Replace(m.Groups[1].Value, @"\s+", "");
-            if (pdf)
-            {
-                string inst = Path.Combine(OM_ROOT, instance);
-                Directory.CreateDirectory(inst);
-                string safe = Regex.Replace(fileName ?? "order", @"[^A-Za-z0-9_\-]+", "_");
-                if (safe.Length > 120) safe = safe.Substring(0, 120);
-                string file = Path.Combine(inst, safe + ".pdf");
-                File.WriteAllBytes(file, Convert.FromBase64String(b64));
-                return new { ok = true, base64 = b64, path = file, ms = sw.ElapsedMilliseconds };
-            }
-            string xml = Encoding.UTF8.GetString(Convert.FromBase64String(b64));
-            var rows = OmXmlRows(xml);
-            return new { ok = true, rows, count = rows.Count, ms = sw.ElapsedMilliseconds };
+            if (!m.Success) return (null, "The report returned no data: " + path, sw.ElapsedMilliseconds);
+            byte[] bytes;
+            try { bytes = Convert.FromBase64String(Regex.Replace(m.Groups[1].Value, @"\s+", "")); }
+            catch (FormatException) { return (null, "The report answer could not be read: " + path, sw.ElapsedMilliseconds); }
+            return (bytes, null, sw.ElapsedMilliseconds);
         }
 
         /// <summary>BI Publisher data XML → rows: the most repeated element whose children are all leaves (G_1, ROW …).</summary>

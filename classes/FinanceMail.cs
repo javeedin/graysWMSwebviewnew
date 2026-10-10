@@ -44,7 +44,7 @@ namespace WMSApp
             public string SmtpFrom { get; set; } = "";
         }
         public class Attachment { public string Name, ContentType, Cid; public byte[] Bytes; }
-        public class Message { public string To, Cc, Bcc, Subject, Html; public List<Attachment> Attachments = new List<Attachment>(); public bool Display, ReadReceipt, DeliveryReceipt; }
+        public class Message { public string To, Cc, Bcc, Subject, Html; public List<Attachment> Attachments = new List<Attachment>(); public bool Display, ReadReceipt, DeliveryReceipt, NoSignature; }
 
         private static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GraysWMS", "Finance");
         private static string FilePath => Path.Combine(Dir, "mail.json");
@@ -358,7 +358,7 @@ namespace WMSApp
             if (!Addresses(m.To).Any() && !(how == "OUTLOOK" && (m.Display || !s.OutlookSend))) throw new InvalidOperationException("Add at least one recipient (To).");
             if (Addresses(m.To).Count + Addresses(m.Cc).Count + Addresses(m.Bcc).Count > 100) throw new InvalidOperationException("At most 100 recipients per message.");
             if (m.Attachments.Sum(a => (long)a.Bytes.Length) > 30L * 1024 * 1024) throw new InvalidOperationException("The attachments are larger than 30 MB.");
-            if (!string.IsNullOrWhiteSpace(s.Signature)) m.Html = AddSignature(m.Html, s.Signature);
+            if (!m.NoSignature && !string.IsNullOrWhiteSpace(s.Signature)) m.Html = AddSignature(m.Html, s.Signature);
             string result, by;
             if (how == "GRAPH") { by = await GraphSendAsync(s, user, m, ct).ConfigureAwait(false); result = "sent"; }
             else if (how == "SMTP") { by = await SmtpSendAsync(s, m, ct).ConfigureAwait(false); result = "sent"; }

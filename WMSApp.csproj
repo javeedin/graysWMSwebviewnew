@@ -202,6 +202,9 @@
     <Content Include="bip\**\*" Exclude="bip\tests\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="debtors\**\*" Exclude="debtors\tests\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="fieldapps\**\*" Exclude="fieldapps\tests\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>

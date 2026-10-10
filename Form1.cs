@@ -2361,6 +2361,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleFieldAppAction(wv, action, root, requestId);
                                     break;
 
+                                // Fusion Debtors Control (debtors/index.html): statement PDFs from BI Publisher, statements e-mailed through the Finance Lens mail setup
+                                case var dcAction when IsDebtorsAction(dcAction):
+                                    await HandleDebtorsAction(wv, action, root, requestId);
+                                    break;
+
                                 // Oracle BIP Reporting (bip/index.html): catalog, parameters, runs streamed to disk, the SQL of a data model
                                 case var bipAction when IsBipAction(bipAction):
                                     await HandleBipAction(wv, action, root, requestId);

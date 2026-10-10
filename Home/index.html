@@ -457,6 +457,15 @@
                 <span class="card-badge">NEW</span>
             </a>
 
+            <!-- Fusion Debtors Control: customer statements recorded in APEX (who got what, opened, agreed / queried), customer CRM -->
+            <a href="../debtors/index.html" class="module-card"
+               style="--card-color:#0f766e; --card-bg:rgba(15,118,110,0.1); --card-text:#115e59;">
+                <div class="card-icon">📬</div>
+                <div class="card-title">Fusion Debtors Control</div>
+                <div class="card-desc">Send customer statements from Fusion and keep a record of every one — who got it, when, opened, agreed or queried — with calls, promises to pay and disputes on one customer timeline.</div>
+                <span class="card-badge">NEW</span>
+            </a>
+
             <!-- AI Agent (beta): LangGraph supervisor + specialists over Fusion SQL, WMS, orders, loads and reports; replaces the AI Digital Employee in stages -->
             <a href="../aiagent/index.html" class="module-card" id="aiagent-card"
                style="--card-color:#4338ca; --card-bg:rgba(67,56,202,0.1); --card-text:#4338ca;">
@@ -620,8 +629,8 @@
             var finance = type === 'FINANCE';
             document.querySelectorAll('.modules-grid .module-card').forEach(function (card) {
                 var m = /\.\.\/([^\/]+)\//.exec(card.getAttribute('href') || ''), f = m ? m[1].toLowerCase() : '';
-                // FINANCE users: Finance Lens + the AI Digital Employee; Finance Lens never for anyone else
-                if (finance ? (f !== 'finance' && f !== 'aianalysis') : f === 'finance') card.remove();
+                // FINANCE users: Finance Lens, Debtors Control + the AI Digital Employee; Finance Lens never for anyone else
+                if (finance ? (f !== 'finance' && f !== 'aianalysis' && f !== 'debtors') : f === 'finance') card.remove();
             });
             if (finance) document.body.classList.add('finance-user');
             if (/[?&]blocked=finance\b/.test(location.search)) {
@@ -652,7 +661,7 @@
         (function () {
             var GROUPS = [
                 { id: 'wms', title: 'Warehouse & Orders', icon: 'fa-warehouse', color: '#667eea', folders: ['wms', 'wms2', 'om', 'inventory', 'fieldapps'] },
-                { id: 'finance', title: 'Finance', icon: 'fa-sack-dollar', color: '#0d9488', folders: ['finance'] },
+                { id: 'finance', title: 'Finance', icon: 'fa-sack-dollar', color: '#0d9488', folders: ['finance', 'debtors'] },
                 { id: 'fusion', title: 'Oracle Fusion', icon: 'fa-cloud', color: '#c74634', folders: ['fscm', 'fusionsql', 'bip', 'dataload', 'fusionmodel', 'powerbi'] },
                 { id: 'ai', title: 'AI', icon: 'fa-wand-magic-sparkles', color: '#7c3aed', folders: ['aiagent', 'aihub', 'teachme', 'aianalysis', 'rag', 'agentflow', 'internetsearch'] },
                 { id: 'tools', title: 'Tools', icon: 'fa-screwdriver-wrench', color: '#0f766e', folders: [] }
