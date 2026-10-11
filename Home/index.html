@@ -223,6 +223,7 @@
         .pin.on { color: #f59e0b; }
         .pin:hover { color: #f59e0b; transform: scale(1.15); }
         .module-card.match-hide { display: none; }
+        html.acc-wait .modules-grid, html.acc-wait .section { visibility: hidden; }
         .module-card.first-match { border-color: var(--card-color); box-shadow: 0 0 0 3px color-mix(in srgb, var(--card-color) 18%, transparent); }
         .no-match { display: none; text-align: center; color: #94a3b8; padding: 30px; font-size: .9rem; }
 
@@ -538,12 +539,12 @@
                 <span class="card-badge">PRIVATE</span>
             </a>
 
-            <!-- Admin (dev PC only - not in the client package, so Home hides it there) -->
+            <!-- Admin: shown to logins with the admin module (User Access), or on the PC with the source repo -->
             <a href="../admin/index.html" class="module-card" id="admin-card"
                style="display:none; --card-color:#0f766e; --card-bg:rgba(15,118,110,0.1); --card-text:#0f766e;">
                 <div class="card-icon">🛠️</div>
                 <div class="card-title">Admin</div>
-                <div class="card-desc">Build tools — Create ZIP file builds the app and packages the release in one click, with live status.</div>
+                <div class="card-desc">Create ZIP file (build + package the release) and User Access — which modules each login sees.</div>
                 <span class="card-badge">ADMIN</span>
             </a>
 
@@ -629,26 +630,55 @@
             });
         })();
     </script>
+    <script src="access.js"></script>
     <script>
-        // User type from the login (login.html / the host save localStorage 'userType' from the /login answer):
-        // FINANCE users see Finance Lens and the AI Digital Employee only; ADMIN sees everything; everyone else never sees Finance Lens. Runs before the sections are built.
+        // Module access per login (Admin › User Access → APEX WMS_USER_MODULE_ACCESS, Home/access.js): only the modules given
+        // to the signed-in user are shown. This PC's copy of the last answer hides the tiles at once; APEX is asked again in
+        // the background and the page is drawn again when the answer changed. Runs before the sections are built.
         (function () {
-            var type = ''; try { type = (localStorage.getItem('userType') || '').trim().toUpperCase(); } catch (e) { }
-            if (type === 'ADMIN') return;   // ADMIN users see every module, Finance Lens included
-            var finance = type === 'FINANCE';
-            document.querySelectorAll('.modules-grid .module-card').forEach(function (card) {
-                var m = /\.\.\/([^\/]+)\//.exec(card.getAttribute('href') || ''), f = m ? m[1].toLowerCase() : '';
-                // FINANCE users: Finance Lens, Debtors Control + the AI Digital Employee; Finance Lens never for anyone else
-                if (finance ? (f !== 'finance' && f !== 'aianalysis' && f !== 'debtors') : f === 'finance') card.remove();
-            });
-            if (finance) document.body.classList.add('finance-user');
-            if (/[?&]blocked=finance\b/.test(location.search)) {
+            var A = window.WMSACCESS; if (!A) return;
+            var loggedIn = false; try { loggedIn = localStorage.getItem('loggedIn') === 'true'; } catch (e) { }
+            var user = A.me();
+            function note(text, bad) {
                 var n = document.createElement('div');
-                n.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:999;background:#b91c1c;color:#fff;padding:10px 18px;border-radius:10px;font:600 14px Segoe UI,system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.2)';
-                n.textContent = 'Finance Lens is for FINANCE users — sign in with a finance user to open it.';
-                document.body.appendChild(n); setTimeout(function () { n.remove(); }, 7000);
-                try { history.replaceState(null, '', location.pathname); } catch (e) { }
+                n.className = 'acc-note';
+                n.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:999;background:' + (bad ? '#b91c1c' : '#334155') + ';color:#fff;padding:10px 18px;border-radius:10px;font:600 14px Segoe UI,system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.2);max-width:90vw';
+                n.textContent = text; document.body.appendChild(n); setTimeout(function () { n.remove(); }, 8000);
             }
+            var m = /[?&]blocked=([^&]+)/.exec(location.search);
+            if (m) { note('You do not have access to ' + decodeURIComponent(m[1]) + ' — ask your administrator (Admin › User Access).', true); try { history.replaceState(null, '', location.pathname); } catch (e) { } }
+            if (!loggedIn || !user) return;
+            function apply(list) {
+                var ok = {}; list.forEach(function (c) { ok[String(c).toLowerCase()] = 1; });
+                document.querySelectorAll('.modules-grid .module-card').forEach(function (card) {
+                    var code = A.codeOf(card.getAttribute('href')).toLowerCase();
+                    if (!ok[code]) card.remove(); else if (code === 'admin') { card.style.display = ''; card.dataset.access = '1'; }
+                });
+                if (!list.length) {
+                    var g = document.querySelector('.modules-grid');
+                    var e = document.createElement('div'); e.id = 'acc-empty';
+                    e.style.cssText = 'padding:40px 20px;text-align:center;color:#64748b;font:15px Segoe UI,system-ui,sans-serif';
+                    e.innerHTML = '<div style="font-size:34px;margin-bottom:10px">🔒</div><b>No modules are given to ' + user.replace(/[<&>]/g, '') + ' yet.</b><br>Ask your administrator to give you access (Admin › User Access).';
+                    if (g && g.parentNode) g.parentNode.insertBefore(e, g);
+                }
+            }
+            var c = A.cached(user), sig = function (x) { return x ? (x.modules || []).join(',') : ''; };
+            if (c && c.state === 'ok') apply(c.modules); else document.documentElement.classList.add('acc-wait');
+            var day = new Date().toISOString().slice(0, 10), ens = Promise.resolve();
+            try { if (localStorage.getItem('access.ensured') !== day) ens = A.ensure().then(function () { localStorage.setItem('access.ensured', day); }, function () { }); } catch (e) { }
+            ens.then(function () { return A.forUser(user); }).then(function (x) {
+                document.documentElement.classList.remove('acc-wait');
+                if (x.state === 'ok') {
+                    if (!c || c.state !== 'ok' || sig(c) !== sig(x)) {
+                        var n = +(sessionStorage.getItem('access.reload') || 0);
+                        if (n < 2) { sessionStorage.setItem('access.reload', n + 1); location.reload(); return; }
+                    }
+                    sessionStorage.removeItem('access.reload');
+                } else if (x.state === 'notable') {
+                    try { localStorage.removeItem('access.mods.' + user); } catch (e) { }
+                    if (c) location.reload();
+                } else if (!c) note('Could not read your module access (' + (x.error || 'no answer') + ') — showing every module.', true);
+            });
         })();
     </script>
     <script>
@@ -659,7 +689,7 @@
             var id = 'home_admin_' + Date.now();
             window.chrome.webview.addEventListener('message', function (ev) {
                 var r = ev.data; if (typeof r === 'string') { try { r = JSON.parse(r); } catch (e) { return; } }
-                if (r && r.requestId === id && r.data && r.data.repoRoot) card.style.display = '';
+                if (r && r.requestId === id && r.data && r.data.repoRoot && card.isConnected) card.style.display = '';
             });
             setTimeout(function () { window.chrome.webview.postMessage({ action: 'adminReleaseInfo', requestId: id }); }, 400);
         })();

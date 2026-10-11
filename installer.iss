@@ -72,6 +72,8 @@ Source: "api-log.js";               DestDir: "{app}"; Flags: ignoreversion
 ; ── Module folders ──
 Source: "wms\*";   DestDir: "{app}\wms";  Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "Home\*";  DestDir: "{app}\Home"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Admin page: User Access works on any PC (the ZIP tab needs the source repo)
+Source: "admin\*"; DestDir: "{app}\admin"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "mobile\*"; DestDir: "{app}\mobile"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 Source: "ap\*";    DestDir: "{app}\ap";   Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "ar\*";    DestDir: "{app}\ar";   Flags: ignoreversion recursesubdirs createallsubdirs
