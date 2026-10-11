@@ -409,3 +409,12 @@ i.dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; ve
 .wbt .v { font-size: 38px; font-weight: 800; line-height: 1.1; margin: 4px 0; }
 .wbt.bad .v { color: var(--bad); }
 .wbt .s { font-size: 12px; color: var(--muted); }
+/* Opportunities › What to scan */
+.sdmodes { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin-bottom: 12px; }
+.sdm { border: 1px solid var(--line, #e2e8f0); border-radius: 10px; padding: 10px; cursor: pointer; display: block; }
+.sdm.on { border-color: var(--pri, #2563eb); background: rgba(37, 99, 235, .06); }
+.sdm input { margin-right: 4px; }
+.sdvals { display: flex; flex-wrap: wrap; gap: 6px; max-height: 220px; overflow: auto; margin: 8px 0; }
+.sdvals .chip { border: 1px solid var(--line, #e2e8f0); border-radius: 999px; padding: 3px 10px; font-size: 12px; cursor: pointer; display: inline-flex; gap: 5px; align-items: center; }
+.sdvals .chip.on { border-color: var(--pri, #2563eb); background: rgba(37, 99, 235, .1); font-weight: 600; }
+#mbox textarea#gr-sd-list { width: 100%; font-family: monospace; }

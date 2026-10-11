@@ -46,6 +46,7 @@
     G.ACTIONS = { NONE: 'Worklist only', TASK: 'Follow-up task for the owner', TICKET: 'Open a ticket', PLAYBOOK: 'Start a playbook' };
     G.DEFAULTS = {
         dim: 'PROFIT_CENTER',            // what LAPSED / WHITESPACE look at: PROFIT_CENTER | SUPPLIER (the item DFF columns of the CRM setup)
+        scope: null,                     // the customers the automatic scan reads (null = not chosen yet → no automatic scan)
         auto: true,                      // the scan runs by itself …
         scanHours: 24,                   // … when the last one is older than this (any PC with the CRM open)
         months: 24,
@@ -156,13 +157,81 @@
     var LATEST = "NOT EXISTS (SELECT 1 FROM doo_headers_all x WHERE x.source_order_system = h.source_order_system AND x.source_order_number = h.source_order_number AND x.change_version_number > h.change_version_number)";
     var LATEST_MAX = "h.change_version_number = (SELECT MAX(x.change_version_number) FROM doo_headers_all x WHERE x.header_id = h.header_id OR (x.source_order_number = h.source_order_number AND x.source_order_system = h.source_order_system))";
     G.PAGE = 2500;
+    G.sql = {};
+    /**
+     * Which customers a scan reads — the user picks it before every Scan now, and the automatic scan uses the saved one:
+     *   {mode: 'all'} · {mode: 'range', from, to} (account numbers, compared as text) · {mode: 'list', accounts: [..]} (≤ 1,000) ·
+     *   {mode: 'field', field: {t: 'STD' | 'A' | 'P' | 'O', col, label}, values: [..]} — a customer class / type (HZ_CUST_ACCOUNTS) or a
+     *   DFF of the account (A), party (P) or organization profile (O), compared without case or spaces.
+     */
+    G.SCOPE_STD = { CUSTOMER_CLASS_CODE: 'Customer class', CUSTOMER_TYPE: 'Customer type', SALES_CHANNEL_CODE: 'Sales channel' };
+    function scopeCol(f) {
+        if (!f) return '';
+        var col = String(f.col || '').toUpperCase();
+        if (f.t === 'STD') return G.SCOPE_STD[col] ? 'ca.' + col.toLowerCase() : '';
+        if (!/^ATTRIBUTE(_CHAR|_NUMBER)?\d{1,2}$|^ATTRIBUTE_CATEGORY$/.test(col)) return '';
+        return f.t === 'A' ? 'ca.' + col.toLowerCase() : f.t === 'P' ? 'p.' + col.toLowerCase() : f.t === 'O' ? 'op.' + col.toLowerCase() : '';
+    }
+    /** the scope → {sql (a condition on ca / p, '' = everyone), error} */
+    G.scopeSql = function (sc) {
+        sc = sc || { mode: 'all' };
+        if (sc.mode === 'all' || !sc.mode) return { sql: '' };
+        if (sc.mode === 'range') {
+            var a = String(sc.from || '').trim(), b = String(sc.to || '').trim();
+            if (!a && !b) return { error: 'Give the first and / or the last account number' };
+            return { sql: [a ? 'ca.account_number >= ' + q(a) : '', b ? 'ca.account_number <= ' + q(b) : ''].filter(Boolean).join(' AND ') };
+        }
+        if (sc.mode === 'list') {
+            var l = (sc.accounts || []).map(function (x) { return String(x).trim(); }).filter(Boolean);
+            if (!l.length) return { error: 'Paste at least one account number' };
+            if (l.length > 1000) return { error: 'At most 1,000 accounts in a list (' + l.length + ' given)' };
+            return { sql: 'ca.account_number IN (' + l.map(q).join(', ') + ')' };
+        }
+        if (sc.mode === 'field') {
+            var col = scopeCol(sc.field), vals = (sc.values || []).map(function (v) { return String(v).trim().toUpperCase(); }).filter(Boolean);
+            if (!col) return { error: 'Choose the customer field' };
+            if (!vals.length) return { error: 'Tick or type at least one value' };
+            var cond = 'UPPER(TRIM(' + col + ')) IN (' + vals.slice(0, 500).map(q).join(', ') + ')';
+            if (sc.field.t === 'O') return { sql: 'EXISTS (SELECT 1 FROM hz_organization_profiles op WHERE op.party_id = ca.party_id AND ' + cond + ')' };
+            return { sql: cond };
+        }
+        return { error: 'Unknown scope' };
+    };
+    /** the scope as a condition on a table that only has ACCOUNT_NUMBER (the kept scan rows): '' = every customer, null = cannot say (a field) */
+    G.scopeAccountSql = function (sc) {
+        sc = sc || { mode: 'all' };
+        if (sc.mode === 'range' || sc.mode === 'list') { var r = G.scopeSql(sc); return r.error ? null : r.sql.replace(/ca\.account_number/g, 'account_number'); }
+        return sc.mode === 'field' ? null : '';
+    };
+    /** the scope in words */
+    G.scopeText = function (sc) {
+        sc = sc || { mode: 'all' };
+        if (sc.mode === 'range') return 'accounts ' + (sc.from || '…') + ' to ' + (sc.to || '…');
+        if (sc.mode === 'list') return (sc.accounts || []).length + ' account' + ((sc.accounts || []).length === 1 ? '' : 's') + ' from a list';
+        if (sc.mode === 'field') return ((sc.field || {}).label || (sc.field || {}).col || 'field') + ' = ' + (sc.values || []).join(', ');
+        return 'every customer';
+    };
+    /** is an account inside the scope — so a scoped scan never closes the signals of customers it did not read (field: the accounts read) */
+    G.inScope = function (sc, account, readSet) {
+        sc = sc || { mode: 'all' }; account = String(account || '');
+        if (sc.mode === 'range') return (!sc.from || account >= String(sc.from).trim()) && (!sc.to || account <= String(sc.to).trim());
+        if (sc.mode === 'list') return (sc.accounts || []).map(function (x) { return String(x).trim(); }).indexOf(account) >= 0;
+        if (sc.mode === 'field') return !!(readSet && readSet[account]);
+        return true;
+    };
+    /** Fusion: the values a customer field holds and how many accounts have each (for the scope dialog) */
+    G.sql.scopeValues = function (field) {
+        var col = scopeCol(field); if (!col) return [];
+        var from = field.t === 'O' ? 'hz_cust_accounts ca JOIN hz_organization_profiles op ON op.party_id = ca.party_id' : 'hz_cust_accounts ca JOIN hz_parties p ON p.party_id = ca.party_id';
+        return ['SELECT TRIM(' + col + ') AS v, COUNT(DISTINCT ca.cust_account_id) AS n FROM ' + from + " WHERE ca.status = 'A' AND " + col + ' IS NOT NULL GROUP BY TRIM(' + col + ') ORDER BY n DESC FETCH FIRST 300 ROWS ONLY'];
+    };
     /**
      * one row per customer account: amount ordered per month (M0 = this month … M23), orders in the last 12 months, the first and
      * last order date, the class and name — every account that ordered in `months`, paged by account number (after = the last one).
      * Alternatives: the business unit + NOT EXISTS latest version, the correlated MAX() latest version, any business unit, plain.
      */
-    G.sql = {};
-    G.sql.portfolio = function (bu, after, size) {
+    G.sql.portfolio = function (bu, after, size, scope) {
+        var sw = scope ? ' AND (' + scope + ')' : '';
         var m = []; for (var k = 0; k < 24; k++) m.push("SUM(CASE WHEN TRUNC(h.ordered_date, 'MM') = ADD_MONTHS(TRUNC(SYSDATE, 'MM'), -" + k + ") THEN fl.extended_amount END) AS M" + k);
         function one(latest, useBu, cls) {
             return "SELECT ca.account_number, MAX(p.party_name) AS customer, " + (cls ? 'MAX(ca.customer_class_code)' : "''") + " AS class,\n       " + m.join(',\n       ') + ",\n" +
@@ -171,7 +240,7 @@
                 "       TO_CHAR(MAX(h.ordered_date), 'YYYY-MM-DD') AS last_order, TO_CHAR(MIN(h.ordered_date), 'YYYY-MM-DD') AS first_order\n" +
                 "  FROM doo_fulfill_lines_all fl\n  JOIN doo_headers_all h ON h.header_id = fl.header_id\n  JOIN hz_cust_accounts ca ON ca.party_id = h.sold_to_party_id\n  JOIN hz_parties p ON p.party_id = ca.party_id\n" +
                 " WHERE h.ordered_date >= ADD_MONTHS(TRUNC(SYSDATE, 'MM'), -23) AND NVL(fl.status_code, 'X') NOT IN ('CANCELED', 'CANCELLED')\n" +
-                "   AND " + latest + (useBu && digits(bu) ? ' AND h.org_id = ' + digits(bu) : '') + (after ? ' AND ca.account_number > ' + q(after) : '') + "\n" +
+                "   AND " + latest + (useBu && digits(bu) ? ' AND h.org_id = ' + digits(bu) : '') + (after ? ' AND ca.account_number > ' + q(after) : '') + sw + "\n" +
                 " GROUP BY ca.account_number\n ORDER BY ca.account_number\n FETCH FIRST " + (+size || G.PAGE) + " ROWS ONLY";
         }
         var list = [one(LATEST, true, true), one(LATEST_MAX, true, true), one(LATEST, true, false), one(LATEST, false, true), one('1 = 1', false, false)];
@@ -183,18 +252,19 @@
      * last 3 months and the last month it was bought — what LAPSED and WHITESPACE read. Paged by account (a page that ends inside
      * an account drops that account; the next page starts with it).
      */
-    G.sql.groups = function (bu, col, after, size) {
+    G.sql.groups = function (bu, col, after, size, scope) {
         var c = G.dffCol(col); if (!c) return [];
+        var sw = scope ? ' AND (' + scope + ')' : '';
         function one(latest, useBu) {
             return "SELECT ca.account_number, NVL(i." + c.toLowerCase() + ", '(none)') AS grp,\n" +
                 "       SUM(CASE WHEN h.ordered_date >= ADD_MONTHS(TRUNC(SYSDATE, 'MM'), -11) THEN fl.extended_amount END) AS now12,\n" +
                 "       SUM(CASE WHEN h.ordered_date < ADD_MONTHS(TRUNC(SYSDATE, 'MM'), -11) THEN fl.extended_amount END) AS prev12,\n" +
                 "       SUM(CASE WHEN h.ordered_date >= ADD_MONTHS(TRUNC(SYSDATE, 'MM'), -2) THEN fl.extended_amount END) AS last3,\n" +
                 "       TO_CHAR(MAX(h.ordered_date), 'YYYY-MM') AS last_month, COUNT(DISTINCT fl.inventory_item_id) AS items\n" +
-                "  FROM doo_fulfill_lines_all fl\n  JOIN doo_headers_all h ON h.header_id = fl.header_id\n  JOIN hz_cust_accounts ca ON ca.party_id = h.sold_to_party_id\n" +
+                "  FROM doo_fulfill_lines_all fl\n  JOIN doo_headers_all h ON h.header_id = fl.header_id\n  JOIN hz_cust_accounts ca ON ca.party_id = h.sold_to_party_id\n" + (/\bp\./.test(sw) ? '  JOIN hz_parties p ON p.party_id = ca.party_id\n' : '') +
                 "  LEFT JOIN egp_system_items_b i ON i.inventory_item_id = fl.inventory_item_id AND i.organization_id = fl.fulfill_org_id\n" +
                 " WHERE h.ordered_date >= ADD_MONTHS(TRUNC(SYSDATE, 'MM'), -23) AND NVL(fl.status_code, 'X') NOT IN ('CANCELED', 'CANCELLED')\n" +
-                "   AND " + latest + (useBu && digits(bu) ? ' AND h.org_id = ' + digits(bu) : '') + (after ? ' AND ca.account_number > ' + q(after) : '') + "\n" +
+                "   AND " + latest + (useBu && digits(bu) ? ' AND h.org_id = ' + digits(bu) : '') + (after ? ' AND ca.account_number > ' + q(after) : '') + sw + "\n" +
                 " GROUP BY ca.account_number, NVL(i." + c.toLowerCase() + ", '(none)')\n ORDER BY ca.account_number, 2\n FETCH FIRST " + (+size || G.GROUP_PAGE) + " ROWS ONLY";
         }
         var list = [one(LATEST, true), one(LATEST_MAX, true), one(LATEST, false)];
@@ -209,13 +279,13 @@
         return { rows: keep, next: keep[keep.length - 1][keyCol] };
     };
     /** cheques / receipts reversed in Fusion in the last `days` days (the business unit when it is known) */
-    G.sql.bounced = function (bu, days) {
-        var d = clamp(+days || 14, 1, 120);
+    G.sql.bounced = function (bu, days, scope) {
+        var d = clamp(+days || 14, 1, 120), sw = scope ? ' AND (' + scope + ')' : '';
         function one(useBu, cat) {
             return "SELECT cr.cash_receipt_id, cr.receipt_number, TO_CHAR(cr.receipt_date, 'YYYY-MM-DD') AS receipt_date, TO_CHAR(cr.reversal_date, 'YYYY-MM-DD') AS reversal_date,\n" +
                 "       " + (cat ? 'cr.reversal_category' : "''") + " AS reversal_category, cr.amount, cr.currency_code AS currency, ca.account_number, p.party_name AS customer\n" +
                 "  FROM ar_cash_receipts_all cr\n  JOIN hz_cust_accounts ca ON ca.cust_account_id = cr.pay_from_customer\n  JOIN hz_parties p ON p.party_id = ca.party_id\n" +
-                " WHERE cr.reversal_date >= TRUNC(SYSDATE) - " + d + (useBu && digits(bu) ? ' AND cr.org_id = ' + digits(bu) : '') + "\n ORDER BY cr.reversal_date DESC FETCH FIRST 2000 ROWS ONLY";
+                " WHERE cr.reversal_date >= TRUNC(SYSDATE) - " + d + (useBu && digits(bu) ? ' AND cr.org_id = ' + digits(bu) : '') + sw + "\n ORDER BY cr.reversal_date DESC FETCH FIRST 2000 ROWS ONLY";
         }
         var list = [one(true, true), one(false, true), one(false, false)];
         return list.filter(function (x, i) { return list.indexOf(x) === i; });
@@ -401,11 +471,11 @@
      * {add: new signals, touch: still there (score / detail refreshed), gone: stored NEW / OPEN ones the scan no longer finds}.
      * A signal dismissed or done stays closed; a snoozed one wakes up after its date.
      */
-    G.merge = function (fresh, stored) {
+    G.merge = function (fresh, stored, inScope) {
         var have = {}; (stored || []).forEach(function (r) { have[r.SIGNAL_KEY] = r; });
         var add = [], touch = [], now = {};
         fresh.forEach(function (s) { now[s.key] = 1; if (!have[s.key]) add.push(s); else touch.push(Object.assign({ row: have[s.key] }, s)); });
-        var gone = (stored || []).filter(function (r) { return !now[r.SIGNAL_KEY] && (r.STATUS === 'NEW' || r.STATUS === 'OPEN') && G.scanned(r.KIND); });
+        var gone = (stored || []).filter(function (r) { return !now[r.SIGNAL_KEY] && (r.STATUS === 'NEW' || r.STATUS === 'OPEN') && G.scanned(r.KIND) && (!inScope || inScope(r.ACCOUNT_NUMBER)); });
         return { add: add, touch: touch, gone: gone };
     };
     /** kinds the scan re-checks every time (the others — none today — would only close by hand) */

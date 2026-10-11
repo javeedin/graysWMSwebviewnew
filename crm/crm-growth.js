@@ -2,9 +2,12 @@
  * Zoho brought into the CRM on the data it already has (engine: crm-growth-engine.js = CRMG):
  *   Signals    one portfolio scan (Fusion sales of every customer: account × month and account × profit centre / supplier, bounced
  *              cheques; APEX: MRA failures, cancelled lines) → orders dropping, ranges stopped, cross-sell, service risks. The scan
- *              runs by itself when the last one is older than the rules say (any PC with the CRM open; a lease in WMS_CRM_SETTINGS
- *              GROWTH_SCAN_<pod> keeps two PCs from scanning at once), or from Scan now. The rows read are kept on this PC
- *              (DuckDB w2_crm_g_rows) so new rules can be tried without Fusion; the signals are shared in APEX WMS_CRM_SIGNALS
+ *              Scan now first asks which customers (an account range, a customer category = class / type / sales channel or a
+ *              customer DFF, a pasted list, or all of them once); "Remember" makes it the automatic scan's scope — without one
+ *              nothing scans by itself (any PC with the CRM open; a lease in WMS_CRM_SETTINGS GROWTH_SCAN_<pod> keeps two PCs from
+ *              scanning at once). The rows read are kept on this PC (DuckDB w2_crm_g_rows, a scoped scan keeps the other customers)
+ *              and in APEX WMS_CRM_SCAN_ROWS (one row per customer and source), so new rules can be tried without Fusion on any PC;
+ *              the signals are shared in APEX WMS_CRM_SIGNALS
  *              (NEW → OPEN → DONE / DISMISSED / SNOOZED; GONE when the scan no longer finds them).
  *   Rules      per kind: on / off, thresholds, and what a new signal does — worklist only, a follow-up task (Debtors timeline),
  *              a ticket, or a playbook; only one PC acts on a signal (CRMS.signals.claim).
@@ -51,37 +54,74 @@
     function custName(acct) { return (C.master[acct] || {}).CUSTOMER || ''; }
 
     // ── the scan ──────────────────────────────────────────────────
-    /** read every source (each failing soft), keep the rows on this PC, work out the signals, merge them into APEX and act on the new ones */
-    GR.scan = function (auto) {
+    /** read the sources for the customers of `scope` (each failing soft), keep the rows on this PC and in APEX, work out the signals,
+     *  merge them into APEX and act on the new ones. The automatic scan uses the scope saved with "Remember" and does nothing without one. */
+    GR.scan = function (auto, scope, opts) {
+        opts = opts || {};
         if (GR.run) return Promise.resolve();
+        if (auto) { scope = GR.st.scope; if (!scope) return Promise.resolve(); }
+        scope = scope || { mode: 'all' };
+        var sc = G.scopeSql(scope);
+        if (sc.error) { if (!auto) C.toast(sc.error, 'bad'); return Promise.resolve(); }
         if (!D.hasHost()) { if (!auto) C.toast('Open the CRM inside the app to scan Fusion.', 'warn'); return Promise.resolve(); }
-        var me = C.me(), key = 'GROWTH_SCAN_' + C.pod, t0 = Date.now();
-        var run = GR.run = { step: 'Checking the last scan…', errors: [], counts: {}, started: S.now(), ok: {} };
+        var me = C.me(), key = 'GROWTH_SCAN_' + C.pod, t0 = Date.now(), scanId = 'SC' + t0.toString(36) + Math.random().toString(36).slice(2, 6);
+        var all = scope.mode === 'all', who = all ? 'every customer' : G.scopeText(scope);
+        var run = GR.run = { step: 'Checking the last scan…', errors: [], counts: {}, started: S.now(), ok: {}, scope: scope };
         paintRun();
         return S.settings.get(key).catch(function () { return null; }).then(function (m) {
             var now = Date.now();
             if (auto && m && m.at && (now - Date.parse(String(m.at).replace(' ', 'T'))) < (+GR.st.scanHours || 24) * 3600e3) { GR.meta = m; throw { skip: 'recent' }; }
             if (m && m.running && m.until && Date.parse(m.until) > now && m.by !== me) { GR.meta = m; throw { skip: 'running', by: m.by }; }
-            return S.settings.save(key, Object.assign({}, m || {}, { running: true, by: me, until: new Date(now + 30 * 60e3).toISOString() }));
+            var save = S.settings.save(key, Object.assign({}, m || {}, { running: true, by: me, until: new Date(now + 30 * 60e3).toISOString() }));
+            // "Remember" — the automatic scan uses this scope from now on
+            if (opts.remember !== undefined) { var st = JSON.parse(JSON.stringify(GR.st)); st.scope = opts.remember ? scope : null; save = save.then(function () { return S.settings.save('GROWTH', st).then(function () { GR.st = G.settings(st); }); }); }
+            return save;
         }).then(function () {
-            var parts = {};
+            var parts = {}, full = {}, readSet = {}, kept = null;
             function step(label) { run.step = label; paintRun(); }
-            function soft(part, p) { return p.then(function (rows) { parts[part] = rows; run.ok[part] = true; run.counts[part] = rows.length; return S.duck.keepScan(C.pod, part, rows); }, function (e) { run.errors.push({ part: part, error: errText(e), sql: e && e.sql || '' }); }); }
-            var bu = GR.st.bu || '';
-            return soft('portfolio', keyset(function (after) { return G.sql.portfolio(bu, after); }, G.PAGE, function (n) { step('Sales of every customer · ' + n.toLocaleString() + ' customers read'); }))
-                .then(function () { var col = dimCol(); if (!G.dffCol(col)) { run.errors.push({ part: 'groups', error: 'No item DFF column for ' + dimLabel().toLowerCase() + ' in Setup › General' }); return; } return soft('groups', keyset(function (after) { return G.sql.groups(bu, col, after); }, G.GROUP_PAGE, function (n) { step(dimLabel() + ' per customer · ' + n.toLocaleString() + ' rows read'); })); })
-                .then(function () { if (!GR.st.rules.BOUNCED.on) return; step('Bounced cheques…'); return soft('bounced', C.fusionFirst(G.sql.bounced(bu, GR.st.rules.BOUNCED.days), 2000, 300000).then(function (r) { return r.rows; })); })
-                .then(function () { if (!GR.st.rules.MRA.on) return; step('MRA failures…'); return soft('mra', D.rows(G.sql.mraFailed(C.pod, GR.st.rules.MRA.days)[0], 1000)); })
+            function inScope(a) { return G.inScope(scope, a, readSet); }
+            // a scoped scan keeps the other customers' rows this PC already has (DuckDB holds every customer read so far)
+            function keep(part, rows, acct) {
+                full[part] = rows;
+                if (all) return S.duck.keepScan(C.pod, part, rows);
+                kept = kept || S.duck.scanRows(C.pod);
+                return kept.then(function (x) { var old = ((x.parts || {})[part] || []).filter(function (r) { return !inScope(String(r[acct] || '')); }); full[part] = old.concat(rows); return S.duck.keepScan(C.pod, part, full[part]); });
+            }
+            function soft(part, p, acct) {
+                return p.then(function (rows) {
+                    acct = acct || 'ACCOUNT_NUMBER';
+                    if (!all && (part === 'mra' || part === 'cancels')) rows = rows.filter(function (r) { return inScope(String(r[acct] || '')); });   // APEX sources: only the customers of the scope
+                    if (part === 'portfolio' || part === 'bounced') rows.forEach(function (r) { readSet[String(r.ACCOUNT_NUMBER || '')] = 1; });
+                    parts[part] = rows; run.ok[part] = true; run.counts[part] = rows.length; return keep(part, rows, acct);
+                }, function (e) { run.errors.push({ part: part, error: errText(e), sql: e && e.sql || '' }); });
+            }
+            var bu = GR.st.bu || '', where = sc.sql;
+            return soft('portfolio', keyset(function (after) { return G.sql.portfolio(bu, after, G.PAGE, where); }, G.PAGE, function (n) { step('Sales of ' + who + ' · ' + n.toLocaleString() + ' customers read'); }))
+                .then(function () { var col = dimCol(); if (!G.dffCol(col)) { run.errors.push({ part: 'groups', error: 'No item DFF column for ' + dimLabel().toLowerCase() + ' in Setup › General' }); return; } return soft('groups', keyset(function (after) { return G.sql.groups(bu, col, after, G.GROUP_PAGE, where); }, G.GROUP_PAGE, function (n) { step(dimLabel() + ' per customer · ' + n.toLocaleString() + ' rows read'); })); })
+                .then(function () { if (!GR.st.rules.BOUNCED.on) return; step('Bounced cheques…'); return soft('bounced', C.fusionFirst(G.sql.bounced(bu, GR.st.rules.BOUNCED.days, where), 2000, 300000).then(function (r) { return r.rows; })); })
+                .then(function () { if (!GR.st.rules.MRA.on) return; step('MRA failures…'); return soft('mra', D.rows(G.sql.mraFailed(C.pod, GR.st.rules.MRA.days)[0], 1000), 'CUSTOMER_NUMBER'); })
                 .then(function () { if (!GR.st.rules.CANCEL.on) return; step('Cancelled lines…'); return soft('cancels', D.rows(G.sql.cancels(C.pod, GR.st.rules.CANCEL.days)[0], 1000)); })
-                .then(function () { step('Working out the signals…'); return apply(parts, run); })
+                // the signals are worked out on every customer kept (peers for cross-sell), but a scoped scan only changes its own customers' signals
+                .then(function () { step('Working out the signals…'); return apply(all ? parts : full, run, all ? null : inScope); })
                 .then(function (res) {
-                    var meta = { at: S.now(), by: me, ms: Date.now() - t0, counts: run.counts, errors: run.errors.map(function (x) { return { part: x.part, error: x.error }; }), signals: res.total, added: res.added, gone: res.gone, acted: res.acted, running: false };
+                    // the rows read → APEX too (one row per customer and source), so any PC can re-apply the rules without Fusion
+                    var gone = G.scopeAccountSql(scope);
+                    return ['portfolio', 'groups', 'bounced'].filter(function (k) { return run.ok[k]; }).reduce(function (p, k) {
+                        return p.then(function () {
+                            return S.scan.put(C.pod, k, parts[k], scanId, gone, function (d, n) { step('Copying the ' + k + ' rows to APEX · ' + d.toLocaleString() + ' / ' + n.toLocaleString() + ' customers'); })
+                                .then(function (n) { run.apex = (run.apex || 0) + n; }, function (e) { run.errors.push({ part: 'APEX copy of ' + k, error: errText(e) }); });
+                        });
+                    }, Promise.resolve()).then(function () { return res; });
+                })
+                .then(function (res) {
+                    var meta = { at: S.now(), by: me, ms: Date.now() - t0, counts: run.counts, errors: run.errors.map(function (x) { return { part: x.part, error: x.error }; }), signals: res.total, added: res.added, gone: res.gone, acted: res.acted, running: false,
+                        scope: scope, scopeText: G.scopeText(scope), customers: Object.keys(readSet).length, apex: run.apex || 0, scanId: scanId };
                     GR.meta = meta;
                     return S.settings.save(key, meta).then(function () { return res; });
                 });
         }).then(function (res) {
             GR.run = null;
-            C.toast('Scan done · ' + res.total + ' signals (' + res.added + ' new' + (res.acted ? ', ' + res.acted + ' acted on' : '') + (res.gone ? ', ' + res.gone + ' no longer found' : '') + ')' + (run.errors.length ? ' · ' + run.errors.length + ' source' + (run.errors.length > 1 ? 's' : '') + ' failed' : ''), run.errors.length ? 'warn' : 'ok', 7000);
+            C.toast('Scan of ' + who + ' done · ' + res.total + ' signals (' + res.added + ' new' + (res.acted ? ', ' + res.acted + ' acted on' : '') + (res.gone ? ', ' + res.gone + ' no longer found' : '') + ')' + (run.errors.length ? ' · ' + run.errors.length + ' source' + (run.errors.length > 1 ? 's' : '') + ' failed' : ''), run.errors.length ? 'warn' : 'ok', 7000);
             return GR.load();
         }, function (e) {
             GR.run = null;
@@ -102,15 +142,16 @@
         return next('');
     }
     /** the rows read (now, or this PC's copy) → signals → APEX; the new ones get their action */
-    function apply(parts, run) {
+    function apply(parts, run, inScope) {
         var fresh = G.scan({ portfolio: parts.portfolio, groups: parts.groups, bounced: parts.bounced, mra: parts.mra, cancels: parts.cancels, now: new Date(), settings: GR.st, dimLabel: dimLabel() });
+        if (inScope) fresh = fresh.filter(function (s) { return inScope(String(s.account || '')); });
         fresh.forEach(function (s) { s.bu = C.buOf(s.account); if (!s.name) s.name = custName(s.account); });
         // a source that failed (or was off) keeps its signals as they are: only kinds read this time can be "gone"
         var kindsRead = {}; if (run.ok.portfolio) kindsRead.CHURN = 1; if (run.ok.portfolio && run.ok.groups) { kindsRead.LAPSED = 1; kindsRead.WHITESPACE = 1; }
         if (run.ok.bounced) kindsRead.BOUNCED = 1; if (run.ok.mra) kindsRead.MRA = 1; if (run.ok.cancels) kindsRead.CANCEL = 1;
         Object.keys(GR.st.rules).forEach(function (k) { if (!GR.st.rules[k].on) kindsRead[k] = 1; });
         return S.signals.list(C.pod).then(function (stored) {
-            var mg = G.merge(fresh, stored), gone = mg.gone.filter(function (r) { return kindsRead[r.KIND]; }).map(function (r) { return r.SIGNAL_KEY; });
+            var mg = G.merge(fresh, stored, inScope), gone = mg.gone.filter(function (r) { return kindsRead[r.KIND]; }).map(function (r) { return r.SIGNAL_KEY; });
             run.step = 'Saving ' + fresh.length + ' signals to APEX…'; paintRun();
             return S.signals.upsert(C.pod, fresh, function (d, n) { run.step = 'Saving signals to APEX · ' + d + ' / ' + n; paintRun(); })
                 .then(function () { return gone.length ? S.signals.gone(C.pod, gone) : null; })
@@ -162,8 +203,13 @@
         var run = GR.run = { step: 'Reading this PC\'s copy of the last scan…', errors: [], counts: {}, ok: {} };
         paintRun();
         S.duck.scanRows(C.pod).then(function (x) {
+            if (x.parts.portfolio || x.parts.bounced) return x;
+            run.step = 'This PC has no copy — reading the scan kept in APEX…'; paintRun();
+            return S.scan.read(C.pod).then(function (y) { y.parts.portfolio = y.parts.portfolio || []; y.src = 'apex'; return y; });
+        }).then(function (x) {
             var parts = x.parts;
-            if (!parts.portfolio && !parts.bounced) throw new Error('This PC has no scan yet — press Scan now');
+            if (!(parts.portfolio || []).length && !(parts.bounced || []).length) throw new Error('No scan kept on this PC or in APEX yet — press Scan now');
+            if (x.src === 'apex') Object.keys(parts).forEach(function (k) { S.duck.keepScan(C.pod, k, parts[k]); });
             Object.keys(parts).forEach(function (k) { run.ok[k] = true; run.counts[k] = parts[k].length; });
             return apply(parts, run);
         }).then(function (res) { GR.run = null; C.toast('Rules applied to the last scan · ' + res.total + ' signals (' + res.added + ' new)', 'ok', 6000); return GR.load(); }, function (e) { GR.run = null; C.toast(errText(e), 'bad', 7000); })
@@ -176,11 +222,100 @@
     function runHtml() {
         if (GR.run) return '<span class="spin"></span> ' + esc(GR.run.step) + (GR.run.errors.length ? ' · <span class="warnc">' + GR.run.errors.length + ' source failed</span>' : '');
         var m = GR.meta;
-        if (!m || !m.at) return '<span class="muted">Never scanned on ' + esc(C.pod) + ' — Scan now reads the sales of every customer from Fusion (a few minutes).</span>';
-        return '<span class="muted">Last scan ' + C.when(m.at) + ' by ' + esc(m.by || '') + (m.ms ? ' · ' + Math.round(m.ms / 1000) + ' s' : '') + ' · ' + (m.signals || 0) + ' signals' + (m.counts && m.counts.portfolio ? ' from ' + m.counts.portfolio.toLocaleString() + ' customers' : '') +
+        var auto = GR.st.scope ? ' · <a data-act="grScan" title="Change what the automatic scan reads">automatic: ' + esc(G.scopeText(GR.st.scope)) + ' every ' + (+GR.st.scanHours || 24) + ' h</a>' : ' · <span title="Scan now › Remember as the automatic scan">no automatic scan</span>';
+        if (!m || !m.at) return '<span class="muted">Never scanned on ' + esc(C.pod) + ' — Scan now asks which customers to read (a range, a category or all of them once).' + auto + '</span>';
+        return '<span class="muted">Last scan ' + C.when(m.at) + ' by ' + esc(m.by || '') + (m.ms ? ' · ' + Math.round(m.ms / 1000) + ' s' : '') + (m.scopeText ? ' · <b>' + esc(m.scopeText) + '</b>' : '') + ' · ' + (m.signals || 0) + ' signals' + (m.counts && m.counts.portfolio ? ' from ' + m.counts.portfolio.toLocaleString() + ' customers' : '') +
+            (m.apex ? ' · <span title="One row per customer and source in WMS_CRM_SCAN_ROWS — any PC can re-apply the rules without Fusion"><i class="fas fa-database"></i> APEX + this PC</span>' : '') + auto +
             (m.errors && m.errors.length ? ' · <a data-act="grErrs" class="warnc">' + m.errors.length + ' source' + (m.errors.length > 1 ? 's' : '') + ' failed</a>' : '') + (m.running ? ' · <b>running on ' + esc(m.by) + '</b>' : '') + '</span>';
     }
-    C.ACT.grScan = function () { GR.scan(false); };
+    // ── What to scan (asked before every Scan now) ──
+    var SD = GR.sd = C.ls('gr.sd', { mode: 'range', from: '', to: '', list: '', fkey: 'STD|CUSTOMER_CLASS_CODE', values: [], typed: '' });
+    if (!Array.isArray(SD.values)) SD.values = []; ['from', 'to', 'list', 'typed'].forEach(function (k) { if (typeof SD[k] !== 'string') SD[k] = ''; }); if (!SD.fkey) SD.fkey = 'STD|CUSTOMER_CLASS_CODE';
+    SD.vals = null; SD.valErr = '';
+    function fieldOpts() {
+        var out = Object.keys(G.SCOPE_STD).map(function (c) { return { key: 'STD|' + c, t: 'STD', col: c, label: G.SCOPE_STD[c] }; });
+        var dx = (C.cs && C.cs.dff && C.cs.dff[C.pod]) || null, spec = dx && dx.spec, seen = {};
+        if (spec) Object.keys(spec).forEach(function (k) {
+            (spec[k].labels || []).forEach(function (l) {
+                if (!/^ATTRIBUTE(_CHAR|_NUMBER)?\d{1,2}$/.test(l.col)) return;
+                var key = k + '|' + l.col; if (seen[key]) { seen[key].label += ' / ' + l.label; return; }
+                out.push(seen[key] = { key: key, t: k, col: l.col, label: l.label + ' (' + ((E.DFF_TABLES || {})[k] || {}).label + ' DFF' + (l.ctx && l.ctx !== 'Global Data Elements' ? ' · ' + l.ctx : '') + ')' });
+            });
+        });
+        return out;
+    }
+    function fieldOf(key) { var f = fieldOpts().filter(function (x) { return x.key === key; })[0]; if (f) return f; var p = String(key || '').split('|'); return p.length === 2 ? { key: key, t: p[0], col: p[1], label: p[1] } : null; }
+    function sdScope() {
+        if (SD.mode === 'all') return { mode: 'all' };
+        if (SD.mode === 'range') return { mode: 'range', from: SD.from.trim(), to: SD.to.trim() };
+        if (SD.mode === 'list') return { mode: 'list', accounts: SD.list.split(/[\s,;]+/).map(function (x) { return x.trim(); }).filter(function (x, i, l) { return x && l.indexOf(x) === i; }) };
+        var f = fieldOf(SD.fkey), typed = SD.typed.split(/[\n,;]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+        return { mode: 'field', field: f && { t: f.t, col: f.col, label: f.label.replace(/ \(.*$/, '') }, values: SD.values.concat(typed).filter(function (x, i, l) { return l.indexOf(x) === i; }) };
+    }
+    function sdBody() {
+        var m = SD.mode, opts = fieldOpts(), sc = sdScope(), chk = G.scopeSql(sc);
+        function radio(v, ic, t, sub) { return '<label class="sdm' + (m === v ? ' on' : '') + '"><input type="radio" name="gr-sdm" value="' + v + '" data-ch="grSd" data-f="mode"' + (m === v ? ' checked' : '') + '> <i class="fas ' + ic + '"></i> <b>' + t + '</b><div class="small muted">' + sub + '</div></label>'; }
+        var h = '<div class="sdmodes">' + radio('range', 'fa-arrows-left-right', 'Account range', 'From one account number to another') + radio('field', 'fa-tags', 'Customer category', 'Customer class / type / sales channel, or a customer DFF') +
+            radio('list', 'fa-list', 'Account list', 'Paste the account numbers') + radio('all', 'fa-globe', 'All customers', 'One full scan — every customer with sales in 2 years') + '</div>';
+        if (m === 'range') h += '<div class="row"><label>From account <input id="gr-sd-from" data-in="grSd" data-f="from" value="' + esc(SD.from) + '" placeholder="e.g. 10000"></label><label>To account <input id="gr-sd-to" data-in="grSd" data-f="to" value="' + esc(SD.to) + '" placeholder="e.g. 19999"></label></div><div class="small muted">Account numbers are compared as text, the way Fusion stores them. Leave one side empty for "from" or "up to".</div>';
+        if (m === 'list') h += '<textarea id="gr-sd-list" data-in="grSd" data-f="list" rows="6" placeholder="Paste account numbers — one per line, or separated by commas / spaces">' + esc(SD.list) + '</textarea><div class="small muted">' + sc.accounts.length + ' account' + (sc.accounts.length === 1 ? '' : 's') + ' (at most 1,000).</div>';
+        if (m === 'field') {
+            h += '<div class="row"><label>Customer field <select id="gr-sd-field" data-ch="grSd" data-f="fkey">' + opts.map(function (o) { return '<option value="' + esc(o.key) + '"' + (o.key === SD.fkey ? ' selected' : '') + '>' + esc(o.label) + '</option>'; }).join('') +
+                (fieldOf(SD.fkey) && !opts.some(function (o) { return o.key === SD.fkey; }) ? '<option value="' + esc(SD.fkey) + '" selected>' + esc(SD.fkey) + '</option>' : '') + '</select></label>' +
+                '<button class="btn sm" data-act="grSdVals"><i class="fas fa-rotate"></i> Read the values from Fusion</button>' + (!(C.cs && C.cs.dff && C.cs.dff[C.pod] && C.cs.dff[C.pod].spec) ? ' <button class="btn ghost sm" data-act="grSdDff" title="Read the customer DFF labels from Fusion so the DFF segments appear in the list"><i class="fas fa-tag"></i> List the customer DFFs</button>' : '') + '</div>';
+            if (SD.vals === 'loading') h += '<div class="muted"><span class="spin"></span> Reading the values…</div>';
+            else if (SD.valErr) h += '<div class="note bad">' + esc(SD.valErr) + '</div>';
+            else if (SD.vals && SD.vals.length) h += '<div class="sdvals">' + SD.vals.map(function (v) { var on = SD.values.indexOf(v.v) >= 0; return '<label class="chip' + (on ? ' on' : '') + '"><input type="checkbox" data-ch="grSdVal" value="' + esc(v.v) + '"' + (on ? ' checked' : '') + '> ' + esc(v.v) + ' <span class="muted">' + (+v.n || 0).toLocaleString() + '</span></label>'; }).join('') + '</div>';
+            else if (SD.vals) h += '<div class="muted small">No values in this field.</div>';
+            h += '<label>Or type the values <input id="gr-sd-typed" data-in="grSd" data-f="typed" value="' + esc(SD.typed) + '" placeholder="e.g. RETAIL, PHARMACY"></label><div class="small muted">Compared without case or spaces.' + (SD.values.length ? ' Ticked: ' + SD.values.map(esc).join(', ') : '') + '</div>';
+        }
+        if (m === 'all') h += '<div class="note warn"><i class="fas fa-circle-info"></i> A full scan reads the sales of every customer of the last 2 years from Fusion — fine once, it takes a few minutes on a big pod. For the automatic scan pick a range or a category.</div>';
+        h += '<div class="note">' + (chk.error ? '<span class="badc">' + esc(chk.error) + '</span>' : 'Will read: <b>' + esc(G.scopeText(sc)) + '</b>' + (GR.st.bu ? ' · business unit ' + esc(GR.st.bu) : '')) + '</div>' +
+            '<label class="chk"><input type="checkbox" id="gr-sd-rem"' + (SD.remember ? ' checked' : '') + ' data-ch="grSd" data-f="remember"> Remember as the automatic scan (every ' + (+GR.st.scanHours || 24) + ' h on any PC with the CRM open)</label>' +
+            (GR.st.scope ? '<div class="small muted">The automatic scan now reads: ' + esc(G.scopeText(GR.st.scope)) + '. Untick to keep it as it is; <a data-act="grSdStopAuto">stop the automatic scan</a>.</div>' : '<div class="small muted">No automatic scan is set — it only runs once a scope is remembered.</div>') +
+            '<div class="small muted"><i class="fas fa-database"></i> Kept: the rows read on this PC (DuckDB) and one row per customer in APEX (WMS_CRM_SCAN_ROWS); the signals, playbooks and the last scan in APEX for every PC.</div>';
+        return h;
+    }
+    function sdPaint() { var b = document.querySelector('#mbox .mb'); if (b && $('gr-sd-rem')) b.innerHTML = sdBody(); }
+    function sdSave() { var o = {}; ['mode', 'from', 'to', 'list', 'fkey', 'values', 'typed'].forEach(function (k) { o[k] = SD[k]; }); C.lsSet('gr.sd', o); }
+    C.ACT.grScan = function () {
+        if (GR.run) return;
+        if (!SD.mode) SD.mode = 'range';
+        SD.remember = !!GR.st.scope || SD.mode !== 'all' ? !GR.st.scope : false;
+        C.modal('<i class="fas fa-satellite-dish"></i> What to scan', sdBody(), '<button class="btn" data-act="mclose">Cancel</button><button class="btn pri" data-act="grScanGo"><i class="fas fa-play"></i> Scan</button>', true);
+    };
+    function sdNote() { var n = document.querySelector('#mbox .note:not(.warn):not(.bad)'); if (n) { var chk = G.scopeSql(sdScope()); n.innerHTML = chk.error ? '<span class="badc">' + esc(chk.error) + '</span>' : 'Will read: <b>' + esc(G.scopeText(sdScope())) + '</b>'; } }
+    C.IN.grSd = function (el) { SD[el.dataset.f] = el.value; sdSave(); sdNote(); };
+    C.CH.grSd = function (el) {
+        var f = el.dataset.f;
+        if (f === 'remember') { SD.remember = el.checked; return; }
+        SD[f] = el.value; if (f === 'fkey') { SD.values = []; SD.vals = null; SD.valErr = ''; }
+        if (f === 'mode' && el.value === 'all') SD.remember = false;
+        sdSave(); sdPaint();
+        if ((f === 'fkey' || (f === 'mode' && el.value === 'field')) && !SD.vals) C.ACT.grSdVals();
+    };
+    C.CH.grSdVal = function (el) { var v = el.value, i = SD.values.indexOf(v); if (el.checked && i < 0) SD.values.push(v); if (!el.checked && i >= 0) SD.values.splice(i, 1); sdSave(); el.parentNode.classList.toggle('on', el.checked); sdNote(); };
+    C.ACT.grSdVals = function () {
+        var f = fieldOf(SD.fkey); if (!f) return;
+        var q = G.sql.scopeValues(f); if (!q.length) { SD.valErr = 'This field cannot be read'; sdPaint(); return; }
+        if (!D.hasHost()) { SD.valErr = 'Open the CRM inside the app to read the values from Fusion — or type them below.'; sdPaint(); return; }
+        SD.vals = 'loading'; SD.valErr = ''; sdPaint();
+        C.fusionFirst(q, 300, 180000).then(function (r) { SD.vals = (r.rows || []).map(function (x) { return { v: String(x.V == null ? '' : x.V), n: x.N }; }).filter(function (x) { return x.v; }); }, function (e) { SD.vals = null; SD.valErr = 'Fusion: ' + errText(e) + ' — type the values instead.'; }).then(sdPaint);
+    };
+    C.ACT.grSdDff = function () { if (!C.cs || !C.cs.dffSpec) return; SD.valErr = ''; C.cs.dffSpec(true).then(function (x) { if (!(x && x.spec)) C.toast('DFF labels: ' + (x && x.error || 'not readable'), 'warn', 7000); sdPaint(); }); };
+    C.ACT.grSdStopAuto = function () {
+        if (!confirm('Stop the automatic scan? Scan now still works.')) return;
+        var st = JSON.parse(JSON.stringify(GR.st)); st.scope = null;
+        S.settings.save('GROWTH', st).then(function () { GR.st = G.settings(st); C.toast('Automatic scan stopped', 'ok'); sdPaint(); paintRun(); }, function (e) { C.toast(errText(e), 'bad'); });
+    };
+    C.ACT.grScanGo = function () {
+        var sc = sdScope(), chk = G.scopeSql(sc);
+        if (chk.error) { C.toast(chk.error, 'bad'); return; }
+        var rem = $('gr-sd-rem') ? $('gr-sd-rem').checked : false;
+        if (rem && sc.mode === 'all' && !confirm('Scan every customer automatically every ' + (+GR.st.scanHours || 24) + ' h? A full scan is heavy — a range or a category is usually enough.')) return;
+        C.mclose();
+        GR.scan(false, sc, { remember: rem ? true : undefined });
+    };
     C.ACT.grRecompute = function () { GR.recompute(); };
     C.ACT.grErrs = function () {
         var m = GR.meta || {}, list = (GR.run || {}).errors || m.errors || [];
@@ -640,6 +775,6 @@
     // ── start ─────────────────────────────────────────────────────
     C.after.growth = function () { if (!GR.loaded && C.ready) GR.load().then(function () { if (C.tab === 'growth') C.render(); }); };
     /** the scan runs by itself after the CRM started, when the last one is older than the rules say (checked once an hour) */
-    function autoScan() { if (C.ready && GR.loaded && GR.st.auto !== false && D.hasHost() && !GR.run && !document.hidden) GR.scan(true); }
+    function autoScan() { if (C.ready && GR.loaded && GR.st.auto !== false && GR.st.scope && D.hasHost() && !GR.run && !document.hidden) GR.scan(true); }
     setTimeout(function wait() { if (!C.ready || !GR.loaded) { setTimeout(wait, 5000); return; } if (C.info && C.info.machine) S.machine = C.info.machine; setTimeout(autoScan, 20000); setInterval(autoScan, 3600e3); }, 5000);
 })();

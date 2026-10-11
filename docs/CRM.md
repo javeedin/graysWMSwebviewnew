@@ -160,7 +160,18 @@ Ideas from Salesforce (Consumer Goods Cloud), Dynamics 365, HubSpot and Zoho, bu
 
 ### The scan
 
-One scan reads every customer's buying and the service records. Each source fails on its own, and a failed source keeps its signals as they were.
+One scan reads the chosen customers' buying and the service records. Each source fails on its own, and a failed source keeps its signals as they were.
+
+**Which customers** — *Scan now* asks first (*What to scan*):
+
+| Choice | Sent to Fusion |
+|--------|----------------|
+| Account range (from / to, compared as text; one side may be empty) | `ca.account_number >= … AND <= …` |
+| Customer category — Customer class, Customer type, Sales channel, or any account / party / organization **DFF** segment (labels from Customers › DFF labels); the values are read from Fusion with their counts to tick, or typed | `UPPER(TRIM(column)) IN (…)` (organization DFF through `EXISTS` on `HZ_ORGANIZATION_PROFILES`) |
+| Account list (pasted, ≤ 1,000) | `ca.account_number IN (…)` |
+| All customers — one full scan, fine once; heavy on a big pod | nothing |
+
+The condition goes into the portfolio, the ranges and the bounced-cheque queries; the MRA and cancelled-lines rows (APEX) are kept to the same customers. A scoped scan only adds, refreshes or closes the signals of its own customers — the others stay as they were — and works out cross-sell against every customer kept (so a narrow scope still has its peers). Only DFF columns `ATTRIBUTEn` / `ATTRIBUTE_CHARn` / `ATTRIBUTE_NUMBERn` and the three standard columns can reach SQL (`CRMG.scopeSql`).
 
 | Source | What | Signal |
 |--------|------|--------|
@@ -172,8 +183,8 @@ One scan reads every customer's buying and the service records. Each source fail
 
 Every signal has a stable key (one *orders dropping* per customer and month), a score 0–100, the money at stake per year and the reason in plain words.
 
-- **When it runs**: *Scan now*, or by itself on any PC with the CRM open when the last scan is older than the rules say (default 24 h, checked hourly). `WMS_CRM_SETTINGS` `GROWTH_SCAN_<pod>` holds the last scan (when, who, counts, failed sources) and a 30-minute lease so two PCs never scan at once.
-- **Kept on this PC**: the rows read go to DuckDB `w2_crm_g_rows`, so **Re-apply rules** tries new rules without Fusion.
+- **When it runs**: *Scan now*, or by itself — only once a scope was saved with *Remember as the automatic scan* (it is in `GROWTH` as `scope`; *stop the automatic scan* in the dialog removes it) — on any PC with the CRM open when the last scan is older than the rules say (default 24 h, checked hourly). Without a remembered scope nothing scans by itself. `WMS_CRM_SETTINGS` `GROWTH_SCAN_<pod>` holds the last scan (when, who, the scope, counts, failed sources) and a 30-minute lease so two PCs never scan at once.
+- **Kept on this PC and in APEX**: the rows read go to DuckDB `w2_crm_g_rows` (a scoped scan keeps the other customers' rows) and to APEX `WMS_CRM_SCAN_ROWS` (one row per pod × source × customer: the sales profile, the ranges, the bounced cheques as JSON ≤ 4,000 bytes; a scan removes the rows of customers in its range / list it no longer found). **Re-apply rules** tries new rules on this PC's copy, or on the APEX copy when this PC has none — no Fusion either way.
 - **Shared**: the signals are in APEX `WMS_CRM_SIGNALS` (MERGE by pod × key). Statuses: NEW → OPEN (someone works on it) → DONE / DISMISSED, SNOOZED (comes back on its date), GONE (the scan no longer finds it; a GONE one found again is NEW). Dismissed and done signals stay closed.
 
 ### Rules

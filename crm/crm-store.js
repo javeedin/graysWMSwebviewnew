@@ -76,6 +76,8 @@
         WMS_CRM_PLAYS: 'CREATE TABLE wms_crm_plays (play_id VARCHAR2(40) PRIMARY KEY, pod VARCHAR2(20), playbook_id VARCHAR2(40), playbook_name VARCHAR2(200), account_number VARCHAR2(60), account_name VARCHAR2(360), bu_id VARCHAR2(30), ' +
             "signal_key VARCHAR2(300), owner VARCHAR2(100), status VARCHAR2(20) DEFAULT 'ACTIVE', step_n NUMBER DEFAULT 0, stop_on_order VARCHAR2(1) DEFAULT 'N', reason VARCHAR2(1000), " +
             'started_at DATE DEFAULT SYSDATE, last_done_at DATE, ended_at DATE, end_reason VARCHAR2(400), created_by VARCHAR2(100))',
+        WMS_CRM_SCAN_ROWS: 'CREATE TABLE wms_crm_scan_rows (pod VARCHAR2(20) NOT NULL, part VARCHAR2(20) NOT NULL, account_number VARCHAR2(60) NOT NULL, row_json VARCHAR2(4000), scan_id VARCHAR2(40), ' +
+            'read_by VARCHAR2(100), read_at DATE DEFAULT SYSDATE, CONSTRAINT wms_crm_scan_rows_pk PRIMARY KEY (pod, part, account_number))',
         WMS_CRM_PLAY_STEPS: 'CREATE TABLE wms_crm_play_steps (step_id VARCHAR2(40) PRIMARY KEY, play_id VARCHAR2(40) NOT NULL, step_n NUMBER, kind VARCHAR2(20), title VARCHAR2(400), outcome VARCHAR2(20), note VARCHAR2(2000), ref_id VARCHAR2(60), by_user VARCHAR2(100), done_at DATE DEFAULT SYSDATE)'
     };
     C.SEQ = 'CREATE SEQUENCE wms_crm_ticket_seq START WITH 1 INCREMENT BY 1 NOCACHE';
@@ -85,7 +87,7 @@
         'CREATE INDEX wms_crm_msg_acct ON wms_crm_messages (account_number)', 'CREATE INDEX wms_crm_ct_acct ON wms_crm_contacts (account_number)',
         'CREATE INDEX wms_crm_c360_acct ON wms_crm_c360 (pod, account_number)', 'CREATE INDEX wms_crm_cust_ph ON wms_crm_customers (pod, phone_digits)', 'CREATE INDEX wms_crm_cust_id ON wms_crm_customers (pod, cust_account_id)',
         'CREATE INDEX wms_crm_sig_acct ON wms_crm_signals (pod, account_number)', 'CREATE INDEX wms_crm_sig_status ON wms_crm_signals (pod, status)', 'CREATE INDEX wms_crm_play_acct ON wms_crm_plays (pod, account_number)',
-        'CREATE INDEX wms_crm_play_status ON wms_crm_plays (status)', 'CREATE INDEX wms_crm_pstep_play ON wms_crm_play_steps (play_id)'
+        'CREATE INDEX wms_crm_play_status ON wms_crm_plays (status)', 'CREATE INDEX wms_crm_pstep_play ON wms_crm_play_steps (play_id)', 'CREATE INDEX wms_crm_scan_scan ON wms_crm_scan_rows (pod, part, scan_id)'
     ];
     /** columns added after the first release of a table → run on an older table (ALTER, never DROP) */
     C.UPGRADES = [
@@ -324,6 +326,62 @@
                 .then(function () { return D.rows('SELECT action_by AS A FROM wms_crm_signals WHERE pod = ' + lit(pod) + ' AND signal_key = ' + lit(key, 300), 2); })
                 .then(function (r) { return !!(r[0] && r[0].A === me.slice(0, 100)); });
         }
+    };
+
+    // ── the opportunity scan's rows in APEX (one row per customer and source — another PC can re-apply the rules without Fusion) ──
+    var SCAN_KEEP = { portfolio: 1, groups: 1, bounced: 1 };
+    /** one customer's rows of a part → JSON ≤ 4,000 bytes: portfolio = the row (empty values left out); groups / bounced = arrays, the biggest first,
+     *  as many as fit (a row is never cut in the middle) */
+    function scanJson(part, rows) {
+        function slim(r) { var o = {}; Object.keys(r).forEach(function (k) { var v = r[k]; if (v !== null && v !== undefined && v !== '' && k !== 'ACCOUNT_NUMBER') o[k] = v; }); return o; }
+        if (part === 'portfolio') { var j = JSON.stringify(slim(rows[0])); return utf8Len(j) <= 4000 ? j : JSON.stringify({ CUSTOMER: rows[0].CUSTOMER, LAST_ORDER: rows[0].LAST_ORDER, ORD12: rows[0].ORD12, cut: 1 }); }
+        var big = function (r) { return Math.abs(+r.NOW12 || 0) + Math.abs(+r.PREV12 || 0) + Math.abs(+r.AMOUNT || 0); };
+        var list = rows.slice().sort(function (a, b) { return big(b) - big(a); }).map(slim), out = [], n = 2;
+        for (var i = 0; i < list.length; i++) { var t = JSON.stringify(list[i]), w = utf8Len(t) + 1; if (n + w > 4000) break; out.push(t); n += w; }
+        return '[' + out.join(',') + ']';
+    }
+    function utf8Len(s) { var b = 0; for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); b += c < 0x80 ? 1 : c < 0x800 ? 2 : (c >= 0xD800 && c <= 0xDBFF) ? (i++, 4) : 3; } return b; }
+    C.scanJson = scanJson;
+    C.scan = {
+        /** keep a part of a scan: MERGE per customer, then (whole scope read) the rows of customers in the scope that this scan no longer found
+         *  are removed — `where` = a condition on account_number ('' = every customer, null = keep the others) */
+        put: function (pod, part, rows, scanId, where, onStep) {
+            if (!SCAN_KEEP[part]) return Promise.resolve(0);
+            var by = {}, order = [];
+            (rows || []).forEach(function (r) { var a = String(r.ACCOUNT_NUMBER || ''); if (!a) return; if (!by[a]) { by[a] = []; order.push(a); } by[a].push(r); });
+            var sel = order.map(function (a) { return 'SELECT ' + [lit(pod) + ' AS pod', lit(part) + ' AS part', lit(a, 60) + ' AS account_number', lit(scanJson(part, by[a])) + ' AS row_json', lit(scanId, 40) + ' AS scan_id', lit(D.user(), 100) + ' AS read_by'].join(', ') + ' FROM dual'; });
+            var size = part === 'portfolio' ? 40 : 15, chunks = []; for (var i = 0; i < sel.length; i += size) chunks.push(sel.slice(i, i + size));
+            var done = 0;
+            return C.ensure().then(function () {
+                return chunks.reduce(function (p, c) {
+                    return p.then(function () {
+                        return D.write('MERGE INTO wms_crm_scan_rows t USING (' + c.join(' UNION ALL ') + ') s ON (t.pod = s.pod AND t.part = s.part AND t.account_number = s.account_number) ' +
+                            'WHEN MATCHED THEN UPDATE SET row_json = s.row_json, scan_id = s.scan_id, read_by = s.read_by, read_at = SYSDATE ' +
+                            'WHEN NOT MATCHED THEN INSERT (pod, part, account_number, row_json, scan_id, read_by, read_at) VALUES (s.pod, s.part, s.account_number, s.row_json, s.scan_id, s.read_by, SYSDATE)')
+                            .then(function () { done += c.length; if (onStep) onStep(done, sel.length); });
+                    });
+                }, Promise.resolve());
+            }).then(function () {
+                if (where === null || where === undefined) return;
+                return D.write('DELETE FROM wms_crm_scan_rows WHERE pod = ' + lit(pod) + ' AND part = ' + lit(part) + ' AND NVL(scan_id, \'-\') <> ' + lit(scanId, 40) + (where ? ' AND (' + where + ')' : ''));
+            }).then(function () { return order.length; });
+        },
+        /** every kept row of the pod → {parts: {portfolio: [rows], groups: [rows], bounced: [rows]}, at, n} */
+        read: function (pod) {
+            return C.ensure().then(function () {
+                return D.rowsAll("SELECT part AS PART, account_number AS ACCOUNT_NUMBER, row_json AS ROW_JSON, TO_CHAR(read_at, " + TS + ") AS READ_AT FROM wms_crm_scan_rows WHERE pod = " + lit(pod) + ' ORDER BY part, account_number', 400000);
+            }).then(function (rows) {
+                var parts = {}, at = '';
+                rows.forEach(function (r) {
+                    var v; try { v = JSON.parse(r.ROW_JSON || 'null'); } catch (e) { return; }
+                    var list = Array.isArray(v) ? v : v ? [v] : [], out = parts[r.PART] || (parts[r.PART] = []);
+                    list.forEach(function (x) { x.ACCOUNT_NUMBER = r.ACCOUNT_NUMBER; out.push(x); });
+                    if (r.READ_AT > at) at = r.READ_AT;
+                });
+                return { parts: parts, at: at ? D.local(at) : '', n: rows.length };
+            });
+        },
+        count: function (pod) { return D.rows('SELECT part AS PART, COUNT(*) AS N, TO_CHAR(MAX(read_at), ' + TS + ') AS AT FROM wms_crm_scan_rows WHERE pod = ' + lit(pod) + ' GROUP BY part', 20).catch(function () { return []; }); }
     };
 
     // ── playbook enrolments and the steps done ──

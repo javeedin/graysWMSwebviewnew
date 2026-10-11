@@ -94,6 +94,10 @@ eq(G.actionFor(cx[0], settings), { action: 'TASK', playbook: 'service' }, 'cance
 
 // merge with what APEX holds
 var stored = [{ SIGNAL_KEY: 'CHURN|200|2026-10', STATUS: 'NEW', KIND: 'CHURN' }, { SIGNAL_KEY: 'LAPSED|9|X', STATUS: 'OPEN', KIND: 'LAPSED' }, { SIGNAL_KEY: 'LAPSED|8|Y', STATUS: 'DISMISSED', KIND: 'LAPSED' }];
+eq(G.scopeAccountSql({ mode: 'range', from: '1', to: '2' }), "account_number >= '1' AND account_number <= '2'", 'kept rows: range');
+eq(G.scopeAccountSql({ mode: 'all' }), '', 'kept rows: all');
+eq(G.scopeAccountSql({ mode: 'field', field: { t: 'A', col: 'ATTRIBUTE1' }, values: ['X'] }), null, 'kept rows: a field cannot be told');
+eq(G.scopeSql({ mode: 'field', field: { t: 'A', col: 'ATTRIBUTE_NUMBER2' }, values: ['5'] }).sql, "UPPER(TRIM(ca.attribute_number2)) IN ('5')", 'number DFF');
 var mg = G.merge(all, stored);
 eq(mg.touch.map(function (x) { return x.key; }), ['CHURN|200|2026-10'], 'a signal already in APEX is touched, not added');
 eq(mg.add.length, 3, 'the others are new');
@@ -181,6 +185,34 @@ var amy = wb.agents.filter(function (a) { return a.agent === 'amy'; })[0];
 ok(amy.open === 1 && amy.breached === 1 && amy.calls === 1 && amy.talk === 120 && amy.solved === 1, 'per agent');
 ok(wb.plays.active === 1 && wb.plays.due === 1, 'playbook steps due');
 eq(wb.signals.open, 2, 'open signals');
+
+// ── scan scope ──
+eq(G.scopeSql({ mode: 'all' }).sql, '', 'all = no condition');
+eq(G.scopeSql(null).sql, '', 'no scope = everyone');
+eq(G.scopeSql({ mode: 'range', from: '1000', to: '1999' }).sql, "ca.account_number >= '1000' AND ca.account_number <= '1999'", 'range');
+eq(G.scopeSql({ mode: 'range', from: '5' }).sql, "ca.account_number >= '5'", 'open-ended range');
+ok(G.scopeSql({ mode: 'range' }).error, 'empty range refused');
+eq(G.scopeSql({ mode: 'list', accounts: ['1', ' 2 ', "O'K"] }).sql, "ca.account_number IN ('1', '2', 'O''K')", 'list, quotes doubled');
+ok(G.scopeSql({ mode: 'list', accounts: new Array(1001).fill('1') }).error, 'over 1,000 refused');
+eq(G.scopeSql({ mode: 'field', field: { t: 'A', col: 'ATTRIBUTE3' }, values: ['shop', 'Pharmacy '] }).sql, "UPPER(TRIM(ca.attribute3)) IN ('SHOP', 'PHARMACY')", 'account DFF');
+eq(G.scopeSql({ mode: 'field', field: { t: 'STD', col: 'CUSTOMER_CLASS_CODE' }, values: ['RETAIL'] }).sql, "UPPER(TRIM(ca.customer_class_code)) IN ('RETAIL')", 'customer class');
+ok(/^EXISTS \(SELECT 1 FROM hz_organization_profiles op/.test(G.scopeSql({ mode: 'field', field: { t: 'O', col: 'ATTRIBUTE1' }, values: ['X'] }).sql), 'org profile DFF = EXISTS');
+ok(G.scopeSql({ mode: 'field', field: { t: 'A', col: 'ATTRIBUTE1; DROP' }, values: ['X'] }).error, 'a column that is not a DFF is refused');
+ok(G.scopeSql({ mode: 'field', field: { t: 'STD', col: 'PARTY_NAME' }, values: ['X'] }).error, 'a standard column not offered is refused');
+ok(G.scopeSql({ mode: 'field', field: { t: 'A', col: 'ATTRIBUTE1' }, values: [] }).error, 'no values refused');
+eq(G.scopeText({ mode: 'range', from: '1', to: '9' }), 'accounts 1 to 9', 'scope text');
+eq(G.scopeText({ mode: 'field', field: { label: 'Channel' }, values: ['A', 'B'] }), 'Channel = A, B', 'scope text field');
+ok(G.inScope({ mode: 'range', from: '100', to: '199' }, '150') && !G.inScope({ mode: 'range', from: '100', to: '199' }, '250'), 'inScope range');
+ok(G.inScope({ mode: 'list', accounts: ['7'] }, '7') && !G.inScope({ mode: 'list', accounts: ['7'] }, '8'), 'inScope list');
+ok(G.inScope({ mode: 'field' }, 'A', { A: 1 }) && !G.inScope({ mode: 'field' }, 'B', { A: 1 }), 'inScope field = accounts read');
+ok(G.sql.portfolio('1', '', 10, "ca.account_number >= '5'").every(function (x) { return x.indexOf("AND (ca.account_number >= '5')") > 0; }), 'scope in every portfolio alternative');
+ok(G.sql.groups('1', 'ATTRIBUTE1', '', 10, "UPPER(TRIM(p.attribute2)) IN ('X')")[0].indexOf('JOIN hz_parties p') > 0, 'groups joins the party when the scope needs it');
+ok(G.sql.bounced('1', 14, "ca.account_number IN ('1')")[0].indexOf("AND (ca.account_number IN ('1'))") > 0, 'scope in bounced');
+eq(G.sql.scopeValues({ t: 'A', col: 'ATTRIBUTE2' }).length, 1, 'values query');
+eq(G.sql.scopeValues({ t: 'A', col: 'NAME' }).length, 0, 'values query refused for a non-DFF');
+var mg = G.merge([], [{ SIGNAL_KEY: 'a', STATUS: 'OPEN', KIND: 'CHURN', ACCOUNT_NUMBER: '150' }, { SIGNAL_KEY: 'b', STATUS: 'OPEN', KIND: 'CHURN', ACCOUNT_NUMBER: '900' }],
+    function (a) { return G.inScope({ mode: 'range', from: '100', to: '199' }, a); });
+ok(mg.gone.length === 1 && mg.gone[0].SIGNAL_KEY === 'a', 'a scoped scan closes only signals inside its scope');
 
 console.log(n + ' checks, ' + bad + ' failed');
 process.exit(bad ? 1 : 0);
