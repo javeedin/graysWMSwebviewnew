@@ -186,37 +186,75 @@
             (u ? ' WHERE app_user = ' + lit(A.key(u)) : '') + ' ORDER BY logged_at DESC, log_id DESC FETCH FIRST ' + (n || 300) + ' ROWS ONLY', 1000);
     };
 
-    /** the app's logins: the table the /login handler reads (else a table with a username + password column) — never the password */
+    /** the app's logins: GR_MOBILE_USER (the mobile app's users, what the admin searches) + the table the /login handler reads
+     *  (else a table with a username + password column) — never a password / secret column */
     var SECRET = /PASS|PWD|SECRET|TOKEN|HASH|SALT|PIN$|OTP/;
     var USER_COLS = ['USERNAME', 'USER_NAME', 'LOGIN_NAME', 'LOGIN_ID', 'LOGIN', 'USER_ID', 'USERID'];
-    var NAME_COLS = ['FULL_NAME', 'DISPLAY_NAME', 'EMPLOYEE_NAME', 'NAME', 'FIRST_NAME'];
+    var NAME_COLS = ['FULL_NAME', 'DISPLAY_NAME', 'EMPLOYEE_NAME', 'PICKER_NAME', 'NAME', 'FIRST_NAME'];
     var TYPE_COLS = ['USER_TYPE', 'USERTYPE', 'USER_ROLE', 'ROLE', 'USER_CATEGORY', 'DEPARTMENT', 'TYPE'];
+    var MOBILE = /^GR_MOBILE_USERS?$/;
+    function userColOf(cols) {
+        var names = cols.map(function (c) { return c.C; });
+        return USER_COLS.filter(function (c) { return names.indexOf(c) >= 0; })[0] ||
+            names.filter(function (c) { return /USER|LOGIN/.test(c) && !SECRET.test(c) && !/TYPE|ROLE|_ID$|^ID$|DATE|_BY$/.test(c); })[0] || '';
+    }
+    /** one table → [{user, name, type, active, src, row}] (DISTINCT of its non-secret, non-LOB columns) */
+    function readLogins(table, userCol) {
+        return A.rows("SELECT column_name AS C, data_type AS DT FROM user_tab_columns WHERE table_name = " + lit(table) + ' ORDER BY column_id', 300).then(function (cols) {
+            userCol = userCol || userColOf(cols);
+            if (!userCol) return [];
+            var pick = cols.filter(function (c) { return !SECRET.test(c.C) && !/LOB|RAW|LONG|XML|BLOB/.test(c.DT); }).map(function (c) { return c.C; }).slice(0, 25);
+            if (pick.indexOf(userCol) < 0) pick.unshift(userCol);
+            return A.rowsAll('SELECT DISTINCT ' + pick.join(', ') + ' FROM ' + table + ' ORDER BY ' + userCol, 5000).then(function (rows) {
+                var by = {}, out = [];
+                rows.forEach(function (r) {
+                    var u = A.key(r[userCol]); if (!u || by[u]) return;
+                    var name = NAME_COLS.map(function (c) { return r[c]; }).filter(Boolean)[0] || '';
+                    var type = TYPE_COLS.map(function (c) { return r[c]; }).filter(Boolean)[0] || '';
+                    var st = String(r.ACTIVE || r.STATUS || r.IS_ACTIVE || r.ENABLED || r.ACTIVE_FLAG || '').toUpperCase();
+                    by[u] = { user: u, name: String(name), type: String(type).toUpperCase(), active: !(st === 'N' || st === 'NO' || st === '0' || st === 'INACTIVE' || st === 'DISABLED'), src: table, row: r };
+                    out.push(by[u]);
+                });
+                return out;
+            });
+        });
+    }
     A.logins = function () {
         var handlerSql = "SELECT TO_CHAR(SUBSTR(h.source, 1, 3000)) AS SRC FROM user_ords_handlers h JOIN user_ords_templates t ON t.id = h.template_id WHERE LOWER(t.uri_template) LIKE 'login%'";
-        var colsSql = "SELECT table_name AS T, column_name AS C, data_type AS DT FROM user_tab_columns WHERE column_name IN (" + USER_COLS.concat(['PASSWORD', 'PASSWD', 'PWD', 'USER_PASSWORD']).map(function (c) { return lit(c); }).join(', ') + ')';
-        return Promise.all([A.rows(handlerSql, 10).catch(function () { return []; }), A.rows(colsSql, 1000)]).then(function (res) {
+        var colsSql = "SELECT table_name AS T, column_name AS C, data_type AS DT FROM user_tab_columns WHERE column_name IN (" + USER_COLS.concat(['PASSWORD', 'PASSWD', 'PWD', 'USER_PASSWORD']).map(function (c) { return lit(c); }).join(', ') + ')' +
+            " OR table_name IN ('GR_MOBILE_USER', 'GR_MOBILE_USERS')";
+        return Promise.all([A.rows(handlerSql, 10).catch(function () { return []; }), A.rows(colsSql, 2000)]).then(function (res) {
             var fromHandler = {}; res[0].forEach(function (r) { var m, re = /\b(?:FROM|JOIN)\s+("?[A-Za-z0-9_$#]+"?)/gi, src = String(r.SRC || ''); while ((m = re.exec(src))) fromHandler[m[1].replace(/"/g, '').toUpperCase()] = 1; });
             var tables = {}; res[1].forEach(function (r) { (tables[r.T] = tables[r.T] || []).push(r.C); });
+            var mobile = Object.keys(tables).filter(function (t) { return MOBILE.test(t); }).sort()[0] || '';
             var best = null, bestScore = 0;
             Object.keys(tables).forEach(function (t) {
                 var cols = tables[t], u = USER_COLS.filter(function (c) { return cols.indexOf(c) >= 0; })[0];
-                if (!u || /^GR_MOBILE_USER/.test(t)) return;
+                if (!u || MOBILE.test(t)) return;
                 var score = (fromHandler[t] ? 20 : 0) + (cols.some(function (c) { return /PASS|PWD/.test(c); }) ? 5 : 0) + (/USER/.test(t) ? 2 : 0) - (/LOG$|_LOG|HIST|AUDIT|ACCESS|_V$/.test(t) ? 10 : 0);
                 if (score > bestScore) { bestScore = score; best = { table: t, userCol: u }; }
             });
-            if (!best) return { table: '', users: [] };
-            return A.rows("SELECT column_name AS C, data_type AS DT FROM user_tab_columns WHERE table_name = " + lit(best.table) + ' ORDER BY column_id', 300).then(function (cols) {
-                var pick = cols.filter(function (c) { return !SECRET.test(c.C) && !/LOB|RAW|LONG|XML|BLOB/.test(c.DT); }).map(function (c) { return c.C; }).slice(0, 25);
-                return A.rowsAll('SELECT DISTINCT ' + pick.join(', ') + ' FROM ' + best.table + ' ORDER BY ' + best.userCol, 5000).then(function (rows) {
-                    var by = {};
-                    rows.forEach(function (r) {
-                        var u = A.key(r[best.userCol]); if (!u || by[u]) return;
-                        var name = NAME_COLS.map(function (c) { return r[c]; }).filter(Boolean)[0] || '';
-                        var type = TYPE_COLS.map(function (c) { return r[c]; }).filter(Boolean)[0] || '';
-                        by[u] = { user: u, name: String(name), type: String(type).toUpperCase(), active: !(r.ACTIVE === 'N' || r.STATUS === 'INACTIVE' || r.IS_ACTIVE === 'N'), row: r };
+            var srcs = [];
+            if (mobile) srcs.push({ table: mobile });
+            if (best) srcs.push(best);
+            return Promise.all(srcs.map(function (s) {
+                return readLogins(s.table, s.userCol).then(function (u) { return { table: s.table, users: u }; }, function (e) { return { table: s.table, users: [], error: e.message }; });
+            })).then(function (got) {
+                var by = {};
+                got.forEach(function (g) {        // GR_MOBILE_USER first: its row wins, the other table only adds its name
+                    g.users.forEach(function (u) {
+                        var x = by[u.user];
+                        if (!x) { by[u.user] = u; u.srcs = [u.src]; return; }
+                        if (x.srcs.indexOf(u.src) < 0) x.srcs.push(u.src);
+                        if (!x.name && u.name) x.name = u.name;
+                        if (!x.type && u.type) x.type = u.type;
                     });
-                    return { table: best.table, users: Object.keys(by).sort().map(function (k) { return by[k]; }) };
                 });
+                return {
+                    table: got.map(function (g) { return g.table; }).join(' + '),
+                    tables: got.map(function (g) { return { table: g.table, n: g.users.length, error: g.error || '' }; }),
+                    users: Object.keys(by).sort().map(function (k) { return by[k]; })
+                };
             });
         });
     };

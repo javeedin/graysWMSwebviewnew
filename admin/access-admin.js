@@ -10,7 +10,7 @@
     function color(s) { var h = 0; s = String(s || ''); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360; return 'hsl(' + h + ',55%,45%)'; }
     function initials(s) { var p = String(s || '?').replace(/[._@-]+/g, ' ').trim().split(/\s+/); return ((p[0] || '?')[0] + (p[1] ? p[1][0] : (p[0] || '').slice(1, 2))).toUpperCase(); }
 
-    var ACC = root.ACC = { st: { loaded: false, busy: false, modules: [], rows: [], logins: [], src: '', sel: localStorage.getItem('acc.sel') || '', added: [], err: '', saving: {} } };
+    var ACC = root.ACC = { st: { loaded: false, busy: false, modules: [], rows: [], logins: [], src: '', srcs: [], sel: localStorage.getItem('acc.sel') || '', added: [], err: '', saving: {} } };
     var st = ACC.st;
 
     ACC.me = function () { return A.me(); };
@@ -29,14 +29,14 @@
             return Promise.all([A.modules(), A.access(), A.logins().catch(function (e) { return { table: '', users: [], error: e.message }; })]);
         }).then(function (res) {
             st.modules = res[0].filter(function (m) { return m.ACTIVE !== 'N'; });
-            st.rows = res[1]; st.logins = res[2].users || []; st.src = res[2].table || ''; st.srcErr = res[2].error || '';
+            st.rows = res[1]; st.logins = res[2].users || []; st.src = res[2].table || ''; st.srcs = res[2].tables || []; st.srcErr = res[2].error || (st.srcs.filter(function (t) { return t.error; }).map(function (t) { return t.table + ': ' + t.error; })[0] || '');
             st.loaded = true;
         }, function (e) { st.err = e.message || String(e); }).then(function () { st.busy = false; paint(); });
     };
 
     function users() {
         var by = {};
-        st.logins.forEach(function (u) { by[u.user] = { user: u.user, name: u.name, type: u.type, active: u.active, login: true }; });
+        st.logins.forEach(function (u) { by[u.user] = { user: u.user, name: u.name, type: u.type, active: u.active, login: true, srcs: u.srcs || [u.src].filter(Boolean) }; });
         st.rows.forEach(function (r) { if (!by[r.APP_USER]) by[r.APP_USER] = { user: r.APP_USER, name: '', type: '', active: true, login: false }; });
         st.added.forEach(function (u) { if (!by[u]) by[u] = { user: u, name: '', type: '', active: true, login: false, added: true }; });
         return Object.keys(by).sort().map(function (k) { var x = by[k]; x.n = count(k); return x; });
@@ -52,7 +52,7 @@
         var me = A.me(), withAcc = users().filter(function (u) { return u.n; }).length;
         el.innerHTML = '<span class="chip ok"><i class="fa-solid fa-database"></i> WMS_APP_MODULES · ' + st.modules.length + ' modules</span>' +
             '<span class="chip ok"><i class="fa-solid fa-users"></i> ' + withAcc + ' logins with access</span>' +
-            (st.src ? '<span title="The table the /login handler reads — no password column is read">Logins from <b>' + esc(st.src) + '</b> (' + st.logins.length + ')</span>' : '<span class="chip warn">No login table found' + (st.srcErr ? ' — ' + esc(st.srcErr) : '') + ' — add logins by name</span>') +
+            (st.srcs.length ? '<span title="GR_MOBILE_USER and the table the /login handler reads — no password column is read">Logins from ' + st.srcs.map(function (t) { return '<b>' + esc(t.table) + '</b> (' + t.n + ')'; }).join(' + ') + ' · ' + st.logins.length + ' in all</span>' + (st.srcErr ? '<span class="chip warn">' + esc(st.srcErr) + '</span>' : '') : '<span class="chip warn">No login table found' + (st.srcErr ? ' — ' + esc(st.srcErr) : '') + ' — add logins by name</span>') +
             (st.created && st.created.length ? '<span class="chip warn">Created now: ' + esc(st.created.join(', ')) + '</span>' : '') +
             '<span style="margin-left:auto">Signed in as <b>' + esc(me || '—') + '</b> · ' + (ACC.canEdit() ? '<span class="chip ok"><i class="fa-solid fa-pen"></i> may change access</span>' : '<span class="chip warn"><i class="fa-solid fa-eye"></i> read only</span>') + '</span>' +
             (st.busy ? ' <i class="fa-solid fa-spinner spin"></i>' : '');
@@ -63,11 +63,13 @@
         var list = users().filter(function (u) {
             if (f === 'with' && !u.n) return false;
             if (f === 'without' && u.n) return false;
-            return !q || (u.user + ' ' + u.name + ' ' + u.type).toUpperCase().indexOf(q) >= 0;
+            if (!q) return true;
+            var hay = (u.user + ' ' + u.name + ' ' + u.type + ' ' + (u.srcs || []).join(' ')).toUpperCase();
+            return q.split(/\s+/).every(function (w) { return hay.indexOf(w) >= 0; });
         });
         el.innerHTML = list.length ? list.map(function (u) {
             return '<div class="acc-u' + (u.user === st.sel ? ' on' : '') + '" data-u="' + esc(u.user) + '"><span class="acc-av" style="background:' + color(u.user) + '">' + esc(initials(u.name || u.user)) + '</span>' +
-                '<span class="tx"><b>' + esc(u.user) + '</b><small>' + esc([u.name && u.name.toUpperCase() !== u.user ? u.name : '', u.type, u.login ? '' : u.added ? 'added here' : 'not in the login table', u.active ? '' : 'inactive'].filter(Boolean).join(' · ') || ' ') + '</small></span>' +
+                '<span class="tx"><b>' + esc(u.user) + '</b><small>' + esc([u.name && u.name.toUpperCase() !== u.user ? u.name : '', u.type, u.login ? (u.srcs || []).join(' + ') : u.added ? 'added here' : 'not in GR_MOBILE_USER or the login table', u.active ? '' : 'inactive'].filter(Boolean).join(' · ') || ' ') + '</small></span>' +
                 '<span class="acc-n' + (u.n ? ' some' : '') + '">' + u.n + ' / ' + total + '</span></div>';
         }).join('') : '<div class="acc-empty">' + (st.loaded ? 'No login matches.' : '…') + '</div>';
     };
