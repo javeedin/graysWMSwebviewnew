@@ -227,6 +227,22 @@ Hover a badge for the detail. A click opens that customer's list with a tab per 
 
 The dialog's foot has **New ticket** and **Open Customer 360**. The badges follow at once when something is done.
 
+**Calls that do not connect are recorded at once.** *No answer*, *Busy* and *Voicemail* on an outgoing call, and *Missed / declined* on an incoming one (also when the softphone hangs up an unanswered call), save the call the moment it ends — nothing to press, and Discard cannot lose it. The softphone then offers a call-back: in 30 min, 1 h, 3 h, tomorrow 9:00 or a time you pick; *No call-back*; or *Try again now*. A customer you tried and did not reach (no answer / busy / voicemail in the last 7 days, and nobody has talked to them since) shows a **Not reached** badge.
+
+**The bell** (header, beside the phone) lists every follow-up whose time has passed:
+- call-backs past their time (yours, or nobody's)
+- missed calls not returned
+- calls that did not get through (the latest try)
+- promises to pay past their date
+- Debtors follow-ups past their date
+- your tickets past the SLA
+
+It is worked out again after every refresh and every minute, so a call-back rings when its time comes. New ones ring the bell and show one toast. The red number is what you have not seen yet; opening the bell marks them as seen. A click opens that customer's list on the right tab (or the ticket); the phone button calls back.
+
+**Customer statement** — the statement icon on every Customers row, *Statement* in the Customer 360 header, and *View* on each statement in the Statements tab:
+- the statements recorded in Debtors Control, each shown here when its PDF is on this PC (a file whose fingerprint differs from the record gets a warning)
+- **Make a statement now**: the business unit's statement report as at a date, shown here and **not recorded or sent**. *Send it…* opens the normal statement e-mail, which records it first. *Save* and *Open in the PDF app* are on the viewer's bar; Esc closes it.
+
 **Pins** are kept in APEX `WMS_CRM_PINS` (agent, pod, account, BU, name, note, order, pinned at; created by the page) and on this PC in DuckDB `w2_crm_pins`. The Pinned tab draws this PC's copy at once, then reads APEX, which wins and replaces this PC's copy. **Pin / Unpin** sits in each Customers row (the pin icon) and in the Customer 360 header. A pin that APEX refuses is taken back with the reason.
 
 **Browsing.** With the box empty, the Customers grid lists every customer of this copy in pages, sorted by name:
@@ -271,9 +287,10 @@ It also has the Debtors tools (balances, open items, statements, follow-ups) and
 
 ## Tests
 
-- `node crm/tests/crm-engine.test.js` (CI) covers business hours and the SLA (with pause), routing, phone numbers, the health score, the timeline, KPIs, naive Bayes, similar tickets, the ask parser, the *Needs you* flags, the read-only 360 SQL (incl. the order currency column and its fallbacks), the customer-master pages, rows and search, and the AR 360 totals and rating.
+- `node crm/tests/crm-engine.test.js` (CI) covers business hours and the SLA (with pause), routing, phone numbers, the health score, the timeline, KPIs, naive Bayes, similar tickets, the ask parser, the *Needs you* flags (incl. Not reached), the bell's notifications, the read-only 360 SQL (incl. the order currency column and its fallbacks), the customer-master pages, rows and search, and the AR 360 totals and rating.
 - AI Hub: `test_crm_customer_desk_routing_tools_and_module_threads`, plus the evals `crm_sla` and `crm_missed`.
-- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 135 checks. They include:
+- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 148 checks. They include:
+  - calls that do not connect recorded at once (no answer, missed), the call-back choice, *Not reached*, the bell (items, seen, a click to the customer's list), the statement viewer (make one now: shown, not recorded)
   - the *Needs you* badges (ticket past the SLA, late callback, late promise, a missed call not returned), the per-customer dialog, Done, a ticket row, the 360 header
   - customer tabs (5 at most, the 6th replaces the oldest, ×, middle-click, back after a reload)
   - pins (360 header, grid, Pinned tab, note, unpin, APEX + DuckDB, after a reload)

@@ -313,12 +313,12 @@
                 [function (r) { return C.flagIcons(flags[r.account], r); }, 'Needs you'],
                 [function (r) { return lastBy[r.account] ? C.when(lastBy[r.account]) : ''; }, 'Last call'],
                 [function (r) { return C.pill(esc(r.src), /just read/.test(r.src) ? 'info' : 'muted'); }, 'Found in'],
-                [function (r) { var ph = E.phoneList(r.phone)[0] || '', busy = C.cs && C.cs.busy[r.account]; return (C.pinButton ? C.pinButton(r.account, r.bu, r.name) : '') + '<button class="btn sm ghost cu-sync' + (busy ? ' spinning' : '') + '" data-act="cuSync1" data-acct="' + esc(r.account) + '"' + (busy ? ' disabled' : '') + ' title="Refresh this customer from Fusion (this PC + APEX)"><i class="fas fa-rotate"></i></button>' + '<button class="btn sm ghost' + (r.dff ? ' dffon' : '') + '" data-act="cuDff" data-acct="' + esc(r.account) + '" title="' + (r.dff ? 'Account / party / organization DFFs' : 'DFFs — read from Fusion') + '"><i class="fas fa-tags"></i></button> ' + (ph ? '<button class="btn sm" data-act="dialNum" data-num="' + esc(ph) + '" data-acct="' + esc(r.account) + '" title="Call ' + esc(ph) + '"><i class="fas fa-phone"></i></button>' : '') + ' <button class="btn sm pri" data-act="open360" data-bu="' + esc(r.bu) + '" data-acct="' + esc(r.account) + '" data-name="' + esc(r.name) + '">Open</button>'; }, '', 'r']
+                [function (r) { var ph = E.phoneList(r.phone)[0] || '', busy = C.cs && C.cs.busy[r.account]; return (C.pinButton ? C.pinButton(r.account, r.bu, r.name) : '') + '<button class="btn sm ghost" data-act="stmtView" data-acct="' + esc(r.account) + '" data-bu="' + esc(r.bu || '') + '" data-name="' + esc(r.name || '') + '" title="View the customer\'s statement"><i class="fas fa-file-invoice"></i></button>' + '<button class="btn sm ghost cu-sync' + (busy ? ' spinning' : '') + '" data-act="cuSync1" data-acct="' + esc(r.account) + '"' + (busy ? ' disabled' : '') + ' title="Refresh this customer from Fusion (this PC + APEX)"><i class="fas fa-rotate"></i></button>' + '<button class="btn sm ghost' + (r.dff ? ' dffon' : '') + '" data-act="cuDff" data-acct="' + esc(r.account) + '" title="' + (r.dff ? 'Account / party / organization DFFs' : 'DFFs — read from Fusion') + '"><i class="fas fa-tags"></i></button> ' + (ph ? '<button class="btn sm" data-act="dialNum" data-num="' + esc(ph) + '" data-acct="' + esc(r.account) + '" title="Call ' + esc(ph) + '"><i class="fas fa-phone"></i></button>' : '') + ' <button class="btn sm pri" data-act="open360" data-bu="' + esc(r.bu) + '" data-acct="' + esc(r.account) + '" data-name="' + esc(r.name) + '">Open</button>'; }, '', 'r']
             ], rows, { empty: cu.loading || cu.kept == null ? 'Reading…' : cu.searching ? 'Nobody here — reading Fusion…' : q ? 'No customer matches here or in Fusion.' : 'No customers on this PC yet — Load all Fusion customers above.' }) + (total > cu.size ? pager : '') + '</div>';
     };
     /** what each customer needs now (open tickets, callbacks, missed calls, promises, disputes, follow-ups) — E.custFlags */
     C.custFlags = function () { return E.custFlags({ tickets: C.tickets, calls: C.calls, acts: C.dcOpen }, new Date(), 7); };
-    var FLAG_IC = { tickets: 'fa-ticket', callbacks: 'fa-phone-flip', missed: 'fa-phone-slash', promises: 'fa-hand-holding-dollar', disputes: 'fa-scale-unbalanced', followups: 'fa-flag' };
+    var FLAG_IC = { tickets: 'fa-ticket', callbacks: 'fa-phone-flip', missed: 'fa-phone-slash', unreached: 'fa-user-clock', promises: 'fa-hand-holding-dollar', disputes: 'fa-scale-unbalanced', followups: 'fa-flag' };
     C.flagIcons = function (x, r) {
         if (!x || !x.flags.length) return '<span class="small muted" title="Nothing open for this customer">—</span>';
         return '<span class="cflags">' + x.flags.map(function (f) {
@@ -331,12 +331,13 @@
             case 'tickets': return '<b>' + f.n + '</b> open';
             case 'callbacks': return n + 'Call back' + (x.callbacks.late ? ' · late' : x.callbacks.today ? ' · today' : '');
             case 'missed': return n + 'Missed';
+            case 'unreached': return n + 'Not reached';
             case 'promises': return n + 'Promise' + (x.promises.late ? ' · late' : '');
             case 'disputes': return n + 'Dispute';
             default: return n + 'Follow-up';
         }
     }
-    var FLAG_TABS = [['tickets', 'Open tickets'], ['callbacks', 'Callbacks'], ['missed', 'Missed calls'], ['promises', 'Promises to pay'], ['disputes', 'Disputes'], ['followups', 'Follow-ups']];
+    var FLAG_TABS = [['tickets', 'Open tickets'], ['callbacks', 'Callbacks'], ['missed', 'Missed calls'], ['unreached', 'Not reached'], ['promises', 'Promises to pay'], ['disputes', 'Disputes'], ['followups', 'Follow-ups']];
     C.flagDlg = null;
     /** one customer's open items, the clicked kind first — tickets open the ticket, callbacks / missed calls can be called or closed */
     C.ACT.cuFlag = function (el) { C.flagDlg = { account: el.dataset.acct, bu: el.dataset.bu, name: el.dataset.name, k: el.dataset.k }; paintFlags(); };
@@ -350,11 +351,11 @@
         var ids = x[d.k].ids, body;
         function byId(list, key) { return list.filter(function (r) { return ids.indexOf(r[key]) >= 0; }); }
         if (d.k === 'tickets') body = C.ticketTable(byId(C.tickets, 'TICKET_ID'), 'cuFlagTicket');
-        else if (d.k === 'callbacks' || d.k === 'missed') {
+        else if (d.k === 'callbacks' || d.k === 'missed' || d.k === 'unreached') {
             var calls = byId(C.calls, 'CALL_ID').sort(function (a, b) { return String(d.k === 'callbacks' ? a.CALLBACK_AT : b.STARTED_AT).localeCompare(String(d.k === 'callbacks' ? b.CALLBACK_AT : a.STARTED_AT)); }), t0 = today();
             body = C.table([
-                [function (c) { var w = String(d.k === 'callbacks' ? c.CALLBACK_AT : c.STARTED_AT); return d.k === 'callbacks' ? C.pill(esc(w.slice(0, 16)), w.slice(0, 10) < t0 ? 'bad' : w.slice(0, 10) === t0 ? 'warn' : 'info') : esc(w.slice(0, 16)); }, d.k === 'callbacks' ? 'Call back' : 'Missed at'],
-                [function (c) { return esc(c.CONTACT_NAME || ''); }, 'Contact'], ['NUMBER_RAW', 'Number'], [function (c) { return '<span class="small">' + esc(c.NOTES || '') + '</span>'; }, 'Notes'], ['AGENT', 'Agent'],
+                [function (c) { var w = String(d.k === 'callbacks' ? c.CALLBACK_AT : c.STARTED_AT); return d.k === 'callbacks' ? C.pill(esc(w.slice(0, 16)), w.slice(0, 10) < t0 ? 'bad' : w.slice(0, 10) === t0 ? 'warn' : 'info') : esc(w.slice(0, 16)); }, d.k === 'callbacks' ? 'Call back' : d.k === 'unreached' ? 'Tried at' : 'Missed at'],
+                [function (c) { return esc(c.CONTACT_NAME || '') + (d.k === 'unreached' ? ' ' + C.pill(esc(E.CALL_OUTCOMES[c.OUTCOME] || c.OUTCOME), 'warn') : ''); }, 'Contact'], ['NUMBER_RAW', 'Number'], [function (c) { return '<span class="small">' + esc(c.NOTES || '') + '</span>'; }, 'Notes'], ['AGENT', 'Agent'],
                 [function (c) { return '<button class="btn sm ok" data-act="cuFlagCall" data-id="' + esc(c.CALL_ID) + '"><i class="fas fa-phone"></i> Call</button> ' + (d.k === 'callbacks' ? '<button class="btn sm" data-act="cuFlagDone" data-id="' + esc(c.CALL_ID) + '">Done</button>' : ''); }, '', 'r']
             ], calls);
         } else {

@@ -378,7 +378,7 @@
     E.custFlags = function (src, now, missedDays) {
         src = src || {};
         var n = E.parse(now) || new Date(), today = E.iso(n), since = E.iso(new Date(n.getTime() - (missedDays || 7) * 864e5)), out = {};
-        function of(a) { a = String(a || '').trim(); if (!a) return null; return out[a] || (out[a] = { tickets: { n: 0, breached: 0, risk: 0, waiting: 0, ids: [] }, callbacks: { n: 0, late: 0, today: 0, next: '', ids: [] }, missed: { n: 0, last: '', ids: [] }, promises: { n: 0, late: 0, amount: 0, ids: [] }, disputes: { n: 0, ids: [] }, followups: { n: 0, late: 0, ids: [] } }); }
+        function of(a) { a = String(a || '').trim(); if (!a) return null; return out[a] || (out[a] = { tickets: { n: 0, breached: 0, risk: 0, waiting: 0, ids: [] }, callbacks: { n: 0, late: 0, today: 0, next: '', ids: [] }, missed: { n: 0, last: '', ids: [] }, unreached: { n: 0, last: '', ids: [] }, promises: { n: 0, late: 0, amount: 0, ids: [] }, disputes: { n: 0, ids: [] }, followups: { n: 0, late: 0, ids: [] } }); }
         (src.tickets || []).forEach(function (t) {
             if (!E.isOpen(t)) return; var x = of(t.ACCOUNT_NUMBER); if (!x) return;
             var s = E.sla(t, n).state;
@@ -386,8 +386,8 @@
             if (s === 'breached') x.tickets.breached++; else if (s === 'risk') x.tickets.risk++;
             if (/^PENDING/.test(t.STATUS || '')) x.tickets.waiting++;
         });
-        var calls = (src.calls || []).slice().sort(function (a, b) { return String(a.STARTED_AT || '').localeCompare(String(b.STARTED_AT || '')); }), lastReach = {};
-        calls.forEach(function (c) { if (c.ACCOUNT_NUMBER && (c.DIRECTION === 'OUT' || c.OUTCOME === 'ANSWERED')) lastReach[c.ACCOUNT_NUMBER] = String(c.STARTED_AT || ''); });
+        var calls = (src.calls || []).slice().sort(function (a, b) { return String(a.STARTED_AT || '').localeCompare(String(b.STARTED_AT || '')); }), lastReach = {}, lastTalk = {};
+        calls.forEach(function (c) { if (!c.ACCOUNT_NUMBER) return; if (c.DIRECTION === 'OUT' || c.OUTCOME === 'ANSWERED') lastReach[c.ACCOUNT_NUMBER] = String(c.STARTED_AT || ''); if (c.OUTCOME === 'ANSWERED') lastTalk[c.ACCOUNT_NUMBER] = String(c.STARTED_AT || ''); });
         calls.forEach(function (c) {
             var x = of(c.ACCOUNT_NUMBER); if (!x) return;
             if (c.CALLBACK_AT && c.CALLBACK_DONE !== 'Y') {
@@ -399,6 +399,10 @@
             var at = String(c.STARTED_AT || '');
             if (c.OUTCOME === 'MISSED' && c.DIRECTION !== 'OUT' && at.slice(0, 10) >= since && !(lastReach[c.ACCOUNT_NUMBER] > at)) {
                 x.missed.n++; x.missed.ids.push(c.CALL_ID); if (at > x.missed.last) x.missed.last = at;
+            }
+            // we called and did not get through (no answer / busy / voicemail / could not connect) and nobody has talked to them since
+            if (c.DIRECTION === 'OUT' && E.UNREACHED.indexOf(c.OUTCOME) >= 0 && at.slice(0, 10) >= since && !(lastTalk[c.ACCOUNT_NUMBER] > at)) {
+                x.unreached.n++; x.unreached.ids.push(c.CALL_ID); if (at > x.unreached.last) x.unreached.last = at;
             }
         });
         (src.acts || []).forEach(function (a) {
@@ -413,13 +417,52 @@
             if (tk.n) f.push({ k: 'tickets', n: tk.n, cls: tk.breached ? 'bad' : tk.risk ? 'warn' : 'info', label: tk.n + ' open ticket' + (tk.n > 1 ? 's' : '') + (tk.breached ? ' · ' + tk.breached + ' past the SLA' : '') + (tk.risk ? ' · ' + tk.risk + ' at risk' : '') + (tk.waiting ? ' · ' + tk.waiting + ' waiting for the customer' : '') });
             if (cb.n) f.push({ k: 'callbacks', n: cb.n, cls: cb.late ? 'bad' : cb.today ? 'warn' : 'info', label: cb.n + ' callback' + (cb.n > 1 ? 's' : '') + ' to make' + (cb.late ? ' · ' + cb.late + ' late' : '') + (cb.today ? ' · ' + cb.today + ' today' : '') + (!cb.late && !cb.today ? ' · next ' + cb.next.slice(0, 16) : '') });
             if (x.missed.n) f.push({ k: 'missed', n: x.missed.n, cls: 'bad', label: x.missed.n + ' missed call' + (x.missed.n > 1 ? 's' : '') + ' not returned · last ' + x.missed.last.slice(0, 16) });
+            if (x.unreached.n) f.push({ k: 'unreached', n: x.unreached.n, cls: 'warn', label: 'Not reached ' + x.unreached.n + ' time' + (x.unreached.n > 1 ? 's' : '') + ' (no answer / busy / voicemail) · last try ' + x.unreached.last.slice(0, 16) });
             if (x.promises.n) f.push({ k: 'promises', n: x.promises.n, cls: x.promises.late ? 'bad' : 'vio', label: x.promises.n + ' promise' + (x.promises.n > 1 ? 's' : '') + ' to pay' + (x.promises.late ? ' · ' + x.promises.late + ' past the date' : '') });
             if (x.disputes.n) f.push({ k: 'disputes', n: x.disputes.n, cls: 'warn', label: x.disputes.n + ' open dispute' + (x.disputes.n > 1 ? 's' : '') });
             if (x.followups.n) f.push({ k: 'followups', n: x.followups.n, cls: x.followups.late ? 'bad' : 'info', label: x.followups.n + ' follow-up' + (x.followups.n > 1 ? 's' : '') + (x.followups.late ? ' · ' + x.followups.late + ' overdue' : '') });
             x.flags = f;
-            x.score = tk.breached * 5 + cb.late * 4 + x.missed.n * 3 + x.promises.late * 3 + cb.today * 2 + tk.risk * 2 + x.disputes.n * 2 + x.followups.late * 2 + tk.n + cb.n;
+            x.score = tk.breached * 5 + cb.late * 4 + x.missed.n * 3 + x.promises.late * 3 + cb.today * 2 + tk.risk * 2 + x.disputes.n * 2 + x.followups.late * 2 + x.unreached.n + tk.n + cb.n;
         });
         return out;
+    };
+    /** outcomes of a call that did not get through */
+    E.UNREACHED = ['NO_ANSWER', 'BUSY', 'VOICEMAIL', 'FAILED'];
+    /**
+     * The bell: every follow-up whose time has passed — callbacks past their time, missed calls not returned, calls that did
+     * not get through, promises to pay past the pay-by date, Debtors follow-ups past their date, tickets past the SLA (mine or
+     * nobody's). → [{key, k, sev bad|warn, at, account, name, title, detail, id}] newest problem first; `key` is stable so the
+     * page can tell new ones from ones already seen.
+     */
+    E.notifications = function (src, now, me) {
+        src = src || {};
+        var n = E.parse(now) || new Date(), nowS = E.stamp(n), today = E.iso(n), since = E.iso(new Date(n.getTime() - 7 * 864e5)), out = [];
+        var mine = function (who) { return !who || (me && String(who).toLowerCase() === String(me).toLowerCase()); };
+        var calls = (src.calls || []).slice().sort(function (a, b) { return String(a.STARTED_AT || '').localeCompare(String(b.STARTED_AT || '')); }), lastReach = {}, lastTalk = {};
+        calls.forEach(function (c) { if (!c.ACCOUNT_NUMBER) return; if (c.DIRECTION === 'OUT' || c.OUTCOME === 'ANSWERED') lastReach[c.ACCOUNT_NUMBER] = String(c.STARTED_AT || ''); if (c.OUTCOME === 'ANSWERED') lastTalk[c.ACCOUNT_NUMBER] = String(c.STARTED_AT || ''); });
+        calls.forEach(function (c) {
+            var who = c.ACCOUNT_NAME || c.CONTACT_NAME || c.NUMBER_RAW || 'unknown number', at = String(c.STARTED_AT || '');
+            if (c.CALLBACK_AT && c.CALLBACK_DONE !== 'Y' && String(c.CALLBACK_AT).slice(0, 16) <= nowS.slice(0, 16) && mine(c.AGENT))
+                out.push({ key: 'cb:' + c.CALL_ID, k: 'callbacks', sev: String(c.CALLBACK_AT).slice(0, 10) < today ? 'bad' : 'warn', at: String(c.CALLBACK_AT), account: c.ACCOUNT_NUMBER, name: who, id: c.CALL_ID, num: c.NUMBER_RAW,
+                    title: 'Call back ' + who, detail: 'was due ' + String(c.CALLBACK_AT).slice(0, 16) + (c.NOTES ? ' · ' + String(c.NOTES).slice(0, 80) : '') });
+            if (c.OUTCOME === 'MISSED' && c.DIRECTION !== 'OUT' && at.slice(0, 10) >= since && !(c.ACCOUNT_NUMBER && lastReach[c.ACCOUNT_NUMBER] > at))
+                out.push({ key: 'mc:' + c.CALL_ID, k: 'missed', sev: 'bad', at: at, account: c.ACCOUNT_NUMBER, name: who, id: c.CALL_ID, num: c.NUMBER_RAW, title: 'Missed call · ' + who, detail: (c.NUMBER_RAW || '') + ' at ' + at.slice(0, 16) + ' — not returned' });
+            if (c.DIRECTION === 'OUT' && E.UNREACHED.indexOf(c.OUTCOME) >= 0 && at.slice(0, 10) >= since && c.ACCOUNT_NUMBER && !(lastTalk[c.ACCOUNT_NUMBER] > at) && mine(c.AGENT)
+                && !calls.some(function (x) { return x.ACCOUNT_NUMBER === c.ACCOUNT_NUMBER && x.DIRECTION === 'OUT' && String(x.STARTED_AT || '') > at; }))
+                out.push({ key: 'nr:' + c.CALL_ID, k: 'unreached', sev: 'warn', at: at, account: c.ACCOUNT_NUMBER, name: who, id: c.CALL_ID, num: c.NUMBER_RAW, title: 'Not reached · ' + who, detail: (E.CALL_OUTCOMES[c.OUTCOME] || c.OUTCOME) + ' at ' + at.slice(0, 16) + ' — try again' });
+        });
+        (src.acts || []).forEach(function (a) {
+            if (a.STATUS && a.STATUS !== 'OPEN') return;
+            var d = String(a.DUE_DATE || '').slice(0, 10); if (!d || d >= today) return;
+            if (a.KIND === 'PROMISE') out.push({ key: 'pp:' + a.ACT_ID, k: 'promises', sev: 'bad', at: d, account: a.ACCOUNT_NUMBER, name: a.ACCOUNT_NAME || a.ACCOUNT_NUMBER, id: a.ACT_ID, title: 'Promise to pay not kept · ' + (a.ACCOUNT_NAME || a.ACCOUNT_NUMBER), detail: (a.AMOUNT ? E.money(+a.AMOUNT) + ' ' : '') + 'by ' + d });
+            else if (a.KIND !== 'DISPUTE' && mine(a.ASSIGNED_TO || a.CREATED_BY)) out.push({ key: 'fu:' + a.ACT_ID, k: 'followups', sev: 'warn', at: d, account: a.ACCOUNT_NUMBER, name: a.ACCOUNT_NAME || a.ACCOUNT_NUMBER, id: a.ACT_ID, title: 'Follow-up overdue · ' + (a.ACCOUNT_NAME || a.ACCOUNT_NUMBER), detail: (a.SUBJECT || a.KIND) + ' · due ' + d });
+        });
+        (src.tickets || []).forEach(function (t) {
+            if (!E.isOpen(t) || !mine(t.ASSIGNED_TO)) return;
+            var s = E.sla(t, n); if (s.state !== 'breached') return;
+            out.push({ key: 'sla:' + t.TICKET_ID + ':' + (t.FIRST_RESPONSE_AT ? 'r' : 'f'), k: 'tickets', sev: 'bad', at: String(t.FIRST_RESPONSE_AT ? t.DUE_RESOLVE : t.DUE_FIRST || ''), account: t.ACCOUNT_NUMBER, name: t.ACCOUNT_NAME || t.CONTACT_NAME || '', id: t.TICKET_ID, title: t.TICKET_NO + ' past its SLA', detail: (t.SUBJECT || '') + ' · ' + s.label });
+        });
+        return out.sort(function (a, b) { return (a.sev === b.sev ? 0 : a.sev === 'bad' ? -1 : 1) || String(b.at).localeCompare(String(a.at)); });
     };
     /** SLA compliance, first reply and resolution times of the tickets closed in a period */
     E.slaStats = function (tickets, hours) {

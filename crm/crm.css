@@ -354,3 +354,29 @@ i.dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; ve
 .pcard .pfacts i { margin-right: 4px; }
 .pcard .pnote { width: 100%; font-size: 12px; }
 .pcard .pneeds:empty { display: none; }
+/* the bell: follow-ups whose time has passed (crm-notify.js) */
+.bellbtn { margin-right: 6px; }
+.bellbtn .n { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--bad); color: #fff; font-size: 11px; font-weight: 800; line-height: 18px; }
+.bellbtn .n:empty { display: none; }
+.bellbtn.has { background: rgba(251, 191, 36, .35); }
+.bellbtn.new i { animation: bellsw 1.6s ease-in-out infinite; transform-origin: 50% 0; }
+.bellbtn.bell-ring i { animation: bellring .9s ease-in-out 2; transform-origin: 50% 0; }
+@keyframes bellsw { 0%, 70%, 100% { transform: rotate(0); } 78% { transform: rotate(14deg); } 86% { transform: rotate(-12deg); } 94% { transform: rotate(6deg); } }
+@keyframes bellring { 0%, 100% { transform: rotate(0); } 20% { transform: rotate(22deg); } 40% { transform: rotate(-20deg); } 60% { transform: rotate(12deg); } 80% { transform: rotate(-8deg); } }
+.bellpop { position: fixed; top: 58px; right: 70px; width: 420px; max-height: 72vh; overflow: auto; background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 18px 50px rgba(15, 23, 42, .25); z-index: 950; }
+.bellpop[hidden] { display: none; }
+.bellpop .bh { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--card); }
+.bellpop .bh a { font-size: 12px; cursor: pointer; color: var(--pri); }
+.bellpop .bgh { padding: 8px 14px 4px; font-size: 11px; font-weight: 800; text-transform: uppercase; color: var(--muted); letter-spacing: .03em; }
+.bellpop .bi { position: relative; padding: 8px 46px 8px 14px; border-left: 3px solid transparent; cursor: pointer; }
+.bellpop .bi:hover { background: var(--soft); }
+.bellpop .bi.bad { border-left-color: var(--bad); } .bellpop .bi.warn { border-left-color: #f59e0b; }
+.bellpop .bi.unseen .t::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--bad); margin-right: 6px; vertical-align: middle; }
+.bellpop .bi .t { font-weight: 700; font-size: 13px; } .bellpop .bi .d { font-size: 12px; color: var(--muted); }
+.bellpop .bi .btn { position: absolute; right: 10px; top: 10px; }
+.bellpop .empty { padding: 18px 14px; }
+/* statement PDF over the page */
+.svpdf { position: fixed; inset: 0; z-index: 1200; background: rgba(15, 23, 42, .75); display: flex; flex-direction: column; padding: 14px; }
+.svpdf .svbar { display: flex; align-items: center; gap: 8px; background: #fff; border-radius: 12px 12px 0 0; padding: 8px 12px; }
+.svpdf .svbar .small { color: var(--muted); }
+.svpdf iframe { flex: 1; border: 0; background: #fff; border-radius: 0 0 12px 12px; }

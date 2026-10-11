@@ -15,6 +15,7 @@
     <div class="ask"><i class="fas fa-magnifying-glass"></i><input id="ask" type="search" autocomplete="off" placeholder="Find a customer, ticket CS-…, phone, or ask: last statement of …   (Ctrl+K)"><div class="askpop" id="askpop"></div></div>
     <span class="sp"></span>
     <span class="hb" id="busy"></span>
+    <button class="phonebtn bellbtn" id="bellbtn" data-act="bellToggle" title="Follow-ups due"><i class="fas fa-bell"></i><span class="n" id="n-bell"></span></button>
     <button class="phonebtn" id="phonebtn" data-act="phoneToggle" title="Softphone (Ctrl+Shift+P)"><i class="fas fa-phone"></i><span class="dot" id="phonedot"></span></button>
     <div class="who" id="who"></div>
   </header>
@@ -46,11 +47,13 @@
 <script src="crm-core.js"></script>
 <script src="crm-c360.js"></script>
 <script src="crm-pins.js"></script>
+<script src="crm-notify.js"></script>
 <script src="crm-customers.js"></script>
 <script src="crm-tickets.js"></script>
 <script src="crm-phone.js"></script>
 <script src="crm-mail.js"></script>
 <script src="crm-setup.js"></script>
 <script src="crm-autopilot.js"></script>
+<div class="bellpop" id="bellpop" hidden></div>
 </body>
 </html>

@@ -24,6 +24,8 @@ namespace WMSApp
     ///   crmSaveRecording  a call recording from the page (base64, webm / ogg / wav / mp3) → C:\fusion\crm\recordings\{yyyy-MM}\{callId}.{ext}
     ///                     with its SHA-256 (recorded with the call in APEX)
     ///   crmRecording      a recording back as base64 to play it (only files under C:\fusion\crm)
+    ///   crmPdf            a statement / CRM PDF back as base64 to show it in the page (only .pdf under C:\fusion\crm,
+    ///                     C:\fusion\debtors or C:\fusion\OM, ≤ 30 MB, must start with %PDF-)
     ///   crmOpenFolder     Explorer on a CRM file / folder
     ///   crmDial           hand a number to the PC's softphone: tel: / sip: / sips: / callto: / im: links only (Teams, Zoiper, MicroSIP, 3CX …)
     ///   crmSend           an e-mail through the Finance Lens mail setup (Outlook / Microsoft 365 / SMTP) with attachments from the page
@@ -85,6 +87,19 @@ namespace WMSApp
                             string ext = fi.Extension.TrimStart('.').ToLowerInvariant();
                             string mime = ext == "wav" ? "audio/wav" : ext == "mp3" ? "audio/mpeg" : ext == "ogg" ? "audio/ogg" : ext == "m4a" ? "audio/mp4" : "audio/webm";
                             data = new { ok = true, base64 = Convert.ToBase64String(bytes), mime, bytes = bytes.Length, sha256 = DcSha(bytes) };
+                            break;
+                        }
+
+                    case "crmPdf":
+                        {
+                            string file = CrmAttachPath(OmStr(root, "path"));
+                            if (file == null || !file.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase)) { data = new { ok = false, error = "Only a PDF under C:\\fusion\\crm, C:\\fusion\\debtors or C:\\fusion\\OM can be shown here." }; break; }
+                            if (!File.Exists(file)) { data = new { ok = false, error = "The PDF is not on this PC (it was made on another PC, or moved)." }; break; }
+                            var fi = new FileInfo(file);
+                            if (fi.Length > 30L * 1024 * 1024) { data = new { ok = false, error = "The PDF is too large to show here — open it instead." }; break; }
+                            byte[] bytes = await File.ReadAllBytesAsync(file);
+                            if (bytes.Length < 5 || bytes[0] != (byte)'%' || bytes[1] != (byte)'P' || bytes[2] != (byte)'D' || bytes[3] != (byte)'F') { data = new { ok = false, error = "The file is not a PDF." }; break; }
+                            data = new { ok = true, base64 = Convert.ToBase64String(bytes), name = Path.GetFileName(file), bytes = bytes.Length, sha256 = DcSha(bytes) };
                             break;
                         }
 

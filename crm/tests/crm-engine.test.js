@@ -192,5 +192,28 @@ eq(cf.A3.missed.n, 0, 'an outgoing call after the missed one returns it');
 ok(!cf.A4 || !cf.A4.flags.length, 'an old missed call and a done callback raise nothing');
 ok(cf.A1.score > cf.A2.score, 'A1 needs more than A2');
 
+// calls that did not get through + the bell
+var cf2 = E.custFlags({ calls: [
+    { CALL_ID: 'o1', ACCOUNT_NUMBER: 'B1', STARTED_AT: '2026-10-09 10:00', DIRECTION: 'OUT', OUTCOME: 'NO_ANSWER' },
+    { CALL_ID: 'o2', ACCOUNT_NUMBER: 'B1', STARTED_AT: '2026-10-09 15:00', DIRECTION: 'OUT', OUTCOME: 'BUSY' },
+    { CALL_ID: 'o3', ACCOUNT_NUMBER: 'B2', STARTED_AT: '2026-10-08 10:00', DIRECTION: 'OUT', OUTCOME: 'VOICEMAIL' },
+    { CALL_ID: 'o4', ACCOUNT_NUMBER: 'B2', STARTED_AT: '2026-10-09 10:00', DIRECTION: 'IN', OUTCOME: 'ANSWERED' }] }, '2026-10-10 11:00', 7);
+eq([cf2.B1.unreached.n, cf2.B1.flags.map(function (f) { return f.k; }).join()], [2, 'unreached'], 'no answer + busy, nobody talked to them since → Not reached ×2');
+ok(!cf2.B2 || !cf2.B2.unreached.n, 'a voicemail followed by a call that was answered is not flagged');
+var nt = E.notifications({
+    calls: [{ CALL_ID: 'k1', ACCOUNT_NUMBER: 'A1', ACCOUNT_NAME: 'Alpha', STARTED_AT: '2026-10-09 09:00', DIRECTION: 'IN', OUTCOME: 'ANSWERED', CALLBACK_AT: '2026-10-10 10:30', AGENT: 'amy' },
+        { CALL_ID: 'k2', ACCOUNT_NUMBER: 'A1', ACCOUNT_NAME: 'Alpha', STARTED_AT: '2026-10-09 09:30', DIRECTION: 'IN', OUTCOME: 'ANSWERED', CALLBACK_AT: '2026-10-10 15:00', AGENT: 'amy' },
+        { CALL_ID: 'k3', ACCOUNT_NUMBER: 'A2', ACCOUNT_NAME: 'Beta', STARTED_AT: '2026-10-10 08:00', DIRECTION: 'IN', OUTCOME: 'MISSED' },
+        { CALL_ID: 'k4', ACCOUNT_NUMBER: 'A3', ACCOUNT_NAME: 'Gamma', STARTED_AT: '2026-10-09 08:00', DIRECTION: 'OUT', OUTCOME: 'NO_ANSWER', AGENT: 'amy' },
+        { CALL_ID: 'k5', ACCOUNT_NUMBER: 'A4', ACCOUNT_NAME: 'Delta', STARTED_AT: '2026-10-09 08:00', DIRECTION: 'IN', OUTCOME: 'ANSWERED', CALLBACK_AT: '2026-10-09 12:00', AGENT: 'bob' }],
+    acts: [{ ACT_ID: 'p9', ACCOUNT_NUMBER: 'A1', ACCOUNT_NAME: 'Alpha', KIND: 'PROMISE', STATUS: 'OPEN', AMOUNT: 1000, DUE_DATE: '2026-10-08' },
+        { ACT_ID: 'f9', ACCOUNT_NUMBER: 'A2', ACCOUNT_NAME: 'Beta', KIND: 'TASK', STATUS: 'OPEN', SUBJECT: 'Send copy invoice', DUE_DATE: '2026-10-09', CREATED_BY: 'amy' },
+        { ACT_ID: 'f8', ACCOUNT_NUMBER: 'A2', KIND: 'TASK', STATUS: 'OPEN', DUE_DATE: '2026-10-12', CREATED_BY: 'amy' }],
+    tickets: [{ TICKET_ID: 't9', TICKET_NO: 'CS-000009', ACCOUNT_NUMBER: 'A1', STATUS: 'OPEN', PRIORITY: 'P1', CREATED_AT: '2026-10-10 08:00', DUE_FIRST: '2026-10-10 09:00', DUE_RESOLVE: '2026-10-10 16:00', ASSIGNED_TO: 'amy' }]
+}, '2026-10-10 11:00', 'AMY');
+eq(nt.map(function (x) { return x.key; }).sort(), ['cb:k1', 'fu:f9', 'mc:k3', 'nr:k4', 'pp:p9', 'sla:t9:f'], 'bell: callback past its time, missed call, not reached, broken promise, overdue follow-up, my ticket past SLA');
+ok(!nt.some(function (x) { return x.id === 'k2' || x.id === 'k5' || x.id === 'f8'; }), 'bell: a callback later today, someone else\'s callback and a follow-up not yet due are left out');
+eq(nt[0].sev, 'bad', 'bell: the serious ones first');
+
 console.log((n - bad) + ' / ' + n + ' passed');
 if (bad) process.exit(1);

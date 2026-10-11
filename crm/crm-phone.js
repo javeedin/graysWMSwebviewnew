@@ -63,7 +63,14 @@
             (P.match && P.match.length > 1 && !c ? '<div class="muted small">' + (P.match.length - 1) + ' more customers with this number: ' + P.match.slice(1, 4).map(function (m, i) { return '<a data-act="phPick" data-i="' + (i + 1) + '">' + esc(m.name || m.account) + '</a>'; }).join(', ') + '</div>' : '')
             : P.looking ? '<div class="who2 muted"><span class="spin"></span> looking up the number…</div>' : P.num && E.phone(P.num).last7.length >= 7 ? '<div class="who2 muted">Unknown number · <a data-act="phTicket">New ticket</a></div>' : '';
         var body;
-        if (!c || c.state === 'idle') {
+        if ((!c || c.state === 'idle') && P.after) {
+            var a = P.after, an = a.cust;
+            body = '<div class="st" style="margin-top:6px"><i class="fas fa-circle-check" style="color:#22c55e"></i> Recorded · ' + esc(E.CALL_OUTCOMES[a.outcome] || a.outcome) + ' · ' + esc(a.number) + '</div>' +
+                (an ? '<div class="who2"><b>' + esc(an.name || an.account) + '</b><div class="muted small">' + esc(an.account) + '</div></div>' : '') +
+                '<label>Call back</label><div class="row2"><button data-act="phCbIn" data-m="30">in 30 min</button><button data-act="phCbIn" data-m="60">in 1 h</button><button data-act="phCbIn" data-m="180">in 3 h</button><button data-act="phCbIn" data-m="tomorrow">tomorrow 9:00</button></div>' +
+                '<div class="row2"><input type="datetime-local" id="ph-cbat" style="flex:1"><button data-act="phCbIn" data-m="pick">Set</button></div>' +
+                '<div class="row2"><button data-act="phCbNo">No call-back</button>' + (a.dir === 'OUT' ? '<button data-act="phRedial">Try again now</button>' : '<button data-act="phRedial">Call back now</button>') + '</div>';
+        } else if (!c || c.state === 'idle') {
             body = '<input class="num" id="ph-num" data-in="phNum" value="' + esc(P.num) + '" placeholder="Number">' + who +
                 '<div class="pad">' + '123456789*0#'.split('').map(function (k) { return '<button data-act="phKey" data-k="' + k + '">' + k + '</button>'; }).join('') + '</div>' +
                 ((P.ctx && P.ctx.numbers && P.ctx.numbers.length > 1) ? '<div class="muted small" style="margin-bottom:6px">Other numbers: ' + P.ctx.numbers.map(function (n) { return '<a data-act="phSet" data-n="' + esc(n) + '">' + esc(n) + '</a>'; }).join(' · ') + '</div>' : '') +
@@ -105,6 +112,7 @@
     };
 
     function newCall(dir, number, extra) {
+        P.after = null;
         if (P.call && P.call.state === 'wrap') saveCall(true);
         var p = E.phone(number, C.setup.phone.country);
         P.call = Object.assign({ id: 'cl' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8), dir: dir, number: number, e164: p.e164, startedAt: new Date(), state: dir === 'IN' ? 'ringing' : 'dialing', cust: P.match && P.match[0], ticketId: P.ctx && P.ctx.ticketId }, extra || {});
@@ -120,10 +128,27 @@
     };
     C.ACT.phConnected = function () { var c = P.call; c.state = 'live'; c.answeredAt = new Date(); c.outcome = 'ANSWERED'; paint(); autoRecord(); };
     C.ACT.phAnswer = function () { var c = P.call; c.state = 'live'; c.answeredAt = new Date(); c.outcome = 'ANSWERED'; $('ringbox').hidden = true; paint(); autoRecord(); var cu = cust(); if (cu) C.open360(cu.bu, cu.account, cu.name); };
-    C.ACT.phNoAnswer = function (el) { var c = P.call; c.state = 'wrap'; c.endedAt = new Date(); c.outcome = el.dataset.o; paint(); };
-    C.ACT.phMissed = function () { var c = P.call; c.state = 'wrap'; c.endedAt = new Date(); c.outcome = 'MISSED'; $('ringbox').hidden = true; paint(); };
+    C.ACT.phNoAnswer = function (el) { var c = P.call; c.state = 'wrap'; c.endedAt = new Date(); c.outcome = el.dataset.o; notReached(); };
+    C.ACT.phMissed = function () { var c = P.call; c.state = 'wrap'; c.endedAt = new Date(); c.outcome = 'MISSED'; $('ringbox').hidden = true; notReached(); };
+    /** a call that did not connect (no answer / busy / voicemail / missed) is recorded at once — nobody has to press Save, and
+     *  Discard cannot lose it; the panel then offers a call-back time (it lands on the bell when it is due) */
+    function notReached() {
+        var c = P.call; if (!c) return;
+        var after = { id: c.id, outcome: c.outcome, number: c.number, dir: c.dir, cust: cust(), at: new Date() };
+        $('phone').hidden = false;
+        saveCall(true).then(function () { P.after = after; paint(); });
+    }
+    C.ACT.phCbIn = function (el) {
+        var a = P.after; if (!a) return;
+        var d = new Date(), m = el.dataset.m;
+        if (m === 'tomorrow') { d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); } else if (m === 'pick') { var v = ($('ph-cbat') || {}).value; if (!v) { C.toast('Pick a date and time', 'warn'); return; } d = new Date(v); } else d = new Date(d.getTime() + (+m) * 60000);
+        var at = E.stamp(d);
+        S.calls.set(a.id, { callback_at: { at: at }, callback_done: 'N' }).then(function () { C.toast('Call-back set for ' + at + ' — the bell reminds you', 'ok'); P.after = null; return C.loadCore(); }, function (e) { C.toast(C.errText(e), 'bad'); }).then(function () { paint(); if (C.tab === 'calls' || C.tab === 'today') C.render(); });
+    };
+    C.ACT.phCbNo = function () { P.after = null; paint(); };
     C.ACT.phHang = function () { hang(); };
-    function hang() { var c = P.call; if (!c) return; c.state = 'wrap'; c.endedAt = new Date(); stopRec(); $('phone').hidden = false; paint(); }
+    function hang() { var c = P.call; if (!c) return; c.state = 'wrap'; c.endedAt = new Date(); stopRec(); $('phone').hidden = false; if (!c.answeredAt && (c.outcome === 'MISSED' || E.UNREACHED.indexOf(c.outcome) >= 0)) { notReached(); return; } paint(); }
+    C.ACT.phRedial = function () { var a = P.after; if (!a) return; P.after = null; P.num = a.number; P.ctx = a.cust ? { account: a.cust.account, bu: a.cust.bu, name: a.cust.name } : {}; C.ACT.phCall(); };
     C.ACT.phLogIn = function () { var num = (P.num || '').trim(); newCall('IN', num || 'unknown'); P.call.state = 'live'; P.call.answeredAt = new Date(); P.call.outcome = 'ANSWERED'; paint(); };
     C.ACT.phDiscard = function () { if (!window.confirm('Discard this call without saving it?')) return; stopRec(); P.call = null; P.num = ''; paint(); };
     C.ACT.phSave = function () { saveCall(false); };
