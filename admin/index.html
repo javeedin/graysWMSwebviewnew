@@ -482,11 +482,25 @@ function renderHistory() {
     }).join('') : '<tr><td colspan="6" class="muted">No builds yet.</td></tr>';
 }
 
-document.addEventListener('DOMContentLoaded', function () { renderMods(); renderHistory(); setTimeout(loadInfo, 300); showTab(lsGet('admin.tab', 'zip')); });
+// The ZIP file tab (release builds) is for JAVEED only — hard-coded on purpose; everyone else sees User Access alone.
+var ZIP_USERS = ['JAVEED'];
+function zipAllowed() {
+    var u = ''; try { u = (window.WMSACCESS && WMSACCESS.me && WMSACCESS.me()) || localStorage.getItem('username') || localStorage.getItem('wms_user') || ''; } catch (e) { }
+    return ZIP_USERS.indexOf(String(u || '').trim().toUpperCase()) >= 0;
+}
+document.addEventListener('DOMContentLoaded', function () {
+    if (!zipAllowed()) {
+        var b = document.querySelector('#tabs button[data-tab=zip]'); if (b) b.remove();
+        var z = $('tab-zip'); if (z) z.remove();
+        showTab('access'); return;
+    }
+    renderMods(); renderHistory(); setTimeout(loadInfo, 300); showTab(lsGet('admin.tab', 'zip'));
+});
 function showTab(t) {
     if (t !== 'access') t = 'zip';
+    if (t === 'zip' && !zipAllowed()) t = 'access';
     document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === t); });
-    $('tab-zip').hidden = t !== 'zip'; $('tab-access').hidden = t !== 'access';
+    if ($('tab-zip')) $('tab-zip').hidden = t !== 'zip'; $('tab-access').hidden = t !== 'access';
     lsSet('admin.tab', t);
     if (t === 'access' && window.ACC) ACC.load(false);
 }
