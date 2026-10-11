@@ -12,6 +12,8 @@
     var SUBS = [['overview', 'fa-gauge', 'Overview'], ['timeline', 'fa-timeline', 'Timeline'], ['ar', 'fa-file-invoice-dollar', 'Invoices & AR'], ['orders', 'fa-cart-shopping', 'Sales orders'], ['items', 'fa-boxes-stacked', 'Items'],
         ['stmts', 'fa-file-invoice', 'Statements'], ['tickets', 'fa-ticket', 'Tickets'], ['calls', 'fa-phone', 'Calls'], ['mail', 'fa-envelope', 'E-mails'], ['contacts', 'fa-address-book', 'Contacts'], ['details', 'fa-circle-info', 'Details']];
     var AUTO = ['master', 'open', 'sales'];
+    // other scripts add sub-tabs: C.C360_SUBS (insert [key, icon, label]), C.C360_VIEWS[key] = function (c, a, m, card, h) → html, C.C360_COUNT[key] = function (c, a) → n
+    C.C360_SUBS = SUBS; C.C360_COUNT = {};
 
     // ── customer tabs: every customer opens in a tab of its own, at most C.CTAB_MAX; one more replaces the one looked at longest ago ──
     C.CTAB_MAX = 5;
@@ -269,14 +271,14 @@
             (C.pinButton ? C.pinButton(c.account, c.bu, c.name, true) : '') + '<button class="btn ghost" data-act="askAbout" title="Ask the Autopilot about this customer"><i class="fas fa-robot"></i> Ask</button><span class="sp"></span><button class="btn ghost" data-act="c360Refresh" title="Read everything again"><i class="fas fa-rotate"></i></button></div></div>' +
             (h ? ring(h) : '') + '</div></div>';
         var tabs = '<div class="subtabs">' + SUBS.map(function (s) {
-            var n = !a ? '' : s[0] === 'tickets' ? a.tickets.filter(E.isOpen).length : s[0] === 'calls' ? a.calls.length : s[0] === 'stmts' ? a.stmts.length : s[0] === 'mail' ? a.msgs.length : '';
+            var n = !a ? '' : C.C360_COUNT[s[0]] ? C.C360_COUNT[s[0]](c, a) : s[0] === 'tickets' ? a.tickets.filter(E.isOpen).length : s[0] === 'calls' ? a.calls.length : s[0] === 'stmts' ? a.stmts.length : s[0] === 'mail' ? a.msgs.length : '';
             return '<button data-act="c360Sub" data-sub="' + s[0] + '" class="' + (c.sub === s[0] ? 'on' : '') + '"><i class="fas ' + s[1] + '"></i> ' + s[2] + (n ? ' <span class="pill">' + n + '</span>' : '') + '</button>';
         }).join('') + '</div>';
         if (c.loading && !a) return head + tabs + '<div class="empty"><span class="spin"></span> Reading the customer…</div>';
         var body = (SV[c.sub] || SV.overview)(c, a, m, card, h);
         return head + tabs + body;
     };
-    var SV = {};
+    var SV = C.C360_VIEWS = {};
 
     SV.overview = function (c, a, m, card, h) {
         var ar = arSum(), tr = E.salesTrend(rowsOf('sales')), lc = lastContact(a), st = a.stmts[0];

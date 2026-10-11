@@ -14,13 +14,16 @@
 
     // ── the bell ──────────────────────────────────────────────────
     var B = C.bell = { items: [], open: false, seen: C.ls('bell.seen', {}) || {}, lastNew: 0 };
-    var K_ICON = { callbacks: 'fa-phone-flip', missed: 'fa-phone-slash', unreached: 'fa-user-clock', promises: 'fa-hand-holding-dollar', followups: 'fa-flag', tickets: 'fa-ticket' };
-    var K_NAME = { callbacks: 'Call-backs due', missed: 'Missed calls', unreached: 'Not reached', promises: 'Promises not kept', followups: 'Follow-ups overdue', tickets: 'Tickets past the SLA' };
+    var K_ICON = { callbacks: 'fa-phone-flip', missed: 'fa-phone-slash', unreached: 'fa-user-clock', promises: 'fa-hand-holding-dollar', followups: 'fa-flag', tickets: 'fa-ticket', plays: 'fa-route', signals: 'fa-seedling' };
+    var K_NAME = { callbacks: 'Call-backs due', missed: 'Missed calls', unreached: 'Not reached', promises: 'Promises not kept', followups: 'Follow-ups overdue', tickets: 'Tickets past the SLA', plays: 'Playbook steps due', signals: 'New risks & opportunities' };
+    /** other scripts add items: C.bellExtra = [function () → [{key, k, sev, at, account, name, id, title, detail}]]; C.bellGo[k] = function (item) opens it */
+    C.bellExtra = []; C.bellGo = {};
     function unseen() { return B.items.filter(function (x) { return !B.seen[x.key]; }); }
     B.compute = function (quiet) {
         if (!C.ready) return;
         var before = {}; B.items.forEach(function (x) { before[x.key] = 1; });
         B.items = E.notifications({ calls: C.calls, tickets: C.tickets, acts: C.dcOpen }, new Date(), C.me());
+        C.bellExtra.forEach(function (f) { try { B.items = B.items.concat(f() || []); } catch (e) { console.warn('[CRM] bell:', e); } });
         // forget seen keys that are no longer due (so the same callback re-rings if it is moved and comes due again)
         var keys = {}; B.items.forEach(function (x) { keys[x.key] = 1; });
         Object.keys(B.seen).forEach(function (k) { if (!keys[k]) delete B.seen[k]; });
@@ -45,7 +48,7 @@
     function paintPop() {
         var p = $('bellpop'); if (!p) return;
         var groups = {}; B.items.forEach(function (x) { (groups[x.k] = groups[x.k] || []).push(x); });
-        var order = ['callbacks', 'missed', 'unreached', 'promises', 'followups', 'tickets'];
+        var order = ['callbacks', 'missed', 'unreached', 'plays', 'promises', 'followups', 'tickets', 'signals'];
         p.innerHTML = '<div class="bh"><b><i class="fas fa-bell"></i> Follow-ups due</b><span class="sp"></span>' + (B.items.length ? '<a data-act="bellSeenAll">mark all as seen</a>' : '') + '<button class="btn sm ghost" data-act="bellToggle"><i class="fas fa-xmark"></i></button></div>' +
             (B.items.length ? order.filter(function (k) { return groups[k]; }).map(function (k) {
                 return '<div class="bg"><div class="bgh"><i class="fas ' + K_ICON[k] + '"></i> ' + K_NAME[k] + ' <span class="pill">' + groups[k].length + '</span></div>' + groups[k].map(function (x) {
@@ -65,6 +68,7 @@
         if (e && e.target.closest('[data-act=bellCall]')) return;
         var x = itemOf(el.dataset.key); if (!x) return;
         B.seen[x.key] = Date.now(); C.lsSet('bell.seen', B.seen); C.ACT.bellToggle();
+        if (C.bellGo[x.k]) { C.bellGo[x.k](x); return; }
         if (x.k === 'tickets') { C.openTicketById(x.id); return; }
         if (!x.account) { C.cl.f.outcome = x.k === 'missed' ? 'MISSED' : ''; C.go('calls'); return; }
         C.ACT.cuFlag({ dataset: { acct: x.account, bu: C.buOf(x.account) || '', name: x.name, k: x.k } });

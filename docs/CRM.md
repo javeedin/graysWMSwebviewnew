@@ -154,6 +154,51 @@ The CRM suggests a **category and priority** for every new ticket and lists simi
 - Until a model is trained, a **naive-Bayes** model built in the page (`CRME.nbTrain` / `nbPredict`) is used.
 - *Similar tickets* use TF-IDF cosine similarity (`CRME.similar`).
 
+## Opportunities (risks, cross-sell, playbooks)
+
+Ideas from Salesforce (Consumer Goods Cloud), Dynamics 365, HubSpot and Zoho, built on the data the CRM already has. Tab **Opportunities** (`crm/crm-growth.js`, pure engine `crm/crm-growth-engine.js` = `CRMG`).
+
+### The scan
+
+One scan reads every customer's buying and the service records. Each source fails on its own, and a failed source keeps its signals as they were.
+
+| Source | What | Signal |
+|--------|------|--------|
+| Fusion, every customer × month (24 months, keyset pages of 2,500 accounts) | `CRMG.sql.portfolio` | **Orders dropping** (`CHURN`): the last 3 full months well below the customer's *own* normal (the 12 months before), or no order for far longer than the usual gap between order days |
+| Fusion, every customer × profit centre (or supplier — the item DFF of Setup › General) | `CRMG.sql.groups` | **Stopped buying a range** (`LAPSED`) and **Cross-sell** (`WHITESPACE`): a range most similar customers buy (same customer class, else the same size band) and this one never did, with an expected yearly value |
+| Fusion `AR_CASH_RECEIPTS_ALL` reversals | `CRMG.sql.bounced` | **Bounced cheque** |
+| APEX `WMS_MRA_INTERFACE_STATUS` | latest try per order failed | **Invoice refused by MRA** |
+| APEX `WMS_W2_CANCEL_LOG` × `WMS_TRIP_DETAILS` | lines cancelled out of stock | **Lines cancelled** — tell the customer before they call |
+
+Every signal has a stable key (one *orders dropping* per customer and month), a score 0–100, the money at stake per year and the reason in plain words.
+
+- **When it runs**: *Scan now*, or by itself on any PC with the CRM open when the last scan is older than the rules say (default 24 h, checked hourly). `WMS_CRM_SETTINGS` `GROWTH_SCAN_<pod>` holds the last scan (when, who, counts, failed sources) and a 30-minute lease so two PCs never scan at once.
+- **Kept on this PC**: the rows read go to DuckDB `w2_crm_g_rows`, so **Re-apply rules** tries new rules without Fusion.
+- **Shared**: the signals are in APEX `WMS_CRM_SIGNALS` (MERGE by pod × key). Statuses: NEW → OPEN (someone works on it) → DONE / DISMISSED, SNOOZED (comes back on its date), GONE (the scan no longer finds it; a GONE one found again is NEW). Dismissed and done signals stay closed.
+
+### Rules
+
+Opportunities › Rules & playbooks (`WMS_CRM_SETTINGS` `GROWTH`). Per kind: on / off, the thresholds, and what a **new** signal does by itself — *worklist only*, *a follow-up task* (Debtors timeline, due in n days), *a ticket* (in the chosen queue), or *a playbook* — from a minimum score. Only one PC acts on a signal: it claims it first (`action_by`), so two PCs scanning never create two tickets.
+
+### Signals worklist
+
+Filters by kind, status, owner and words; per signal: call, start a playbook, task, ticket, take it, snooze, done, dismiss (with a note); CSV. *Orders dropping* shows a 24-month spark with the last 3 months in red.
+
+### Playbooks
+
+Outreach cadences: steps *day | CALL / EMAIL / VISIT / TASK / TICKET | title | note or e-mail body | subject*, edited as text in Rules & playbooks. Five come with the CRM: *Win back — orders dropping* (stops by itself when the customer orders again), *Introduce a new range*, *Bounced cheque recovery*, *Service recovery*, *New customer onboarding*.
+
+- Started from a signal, a customer's 360, the library (search a customer) or by a rule. One playbook runs at most once at a time per customer (`WMS_CRM_PLAYS`).
+- A step is due at 09:00 on start + its day, never before the previous step was done. Due steps ring the **bell**, show on **Today**, as a *Playbook* badge in **Needs you** and in Opportunities › Playbooks.
+- **Do it** shows the note, *Call* (softphone) or *Write the e-mail* (the compose dialog with the subject and body filled — {CONTACT} {CUSTOMER} {RANGE} {REF} …), then the outcome (done / reached / not reached / skipped) and a note. Every step is kept in `WMS_CRM_PLAY_STEPS` and goes on the customer's timeline (Debtors activity).
+
+### Also
+
+- **Customer 360 › Opportunities**: the customer's risks and opportunities with the same actions, its playbooks with every step done, *Start a playbook*.
+- **Customer 360 › Deliveries**: its orders on WMS trips (APEX `WMS_TRIP_DETAILS` × `WMS_TRIP_HEADER`, 30–365 days) with the trip, lorry, picker, release, actual ship date, MRA and a stage (planned / on today's trip / picking / shipped / trip passed). It answers *where is my order*. Alternatives drop the picker / MRA / ship-date lookups when those tables are missing.
+- **Insights › Live wallboard** (`CRMG.wallboard`): open tickets, past the SLA, calls today and answer rate, missed calls not returned, call-backs due, talk time, playbook steps due, open signals, queues, agents today, calls by hour. It refreshes every 30 s and has *Full screen*.
+- **Tickets › Draft with AI**: the AI Hub (`hubApi` POST `/v1/chat`, task `default`; the host checks the kill switch and audits) drafts the reply from the ticket, the conversation, the internal notes and how similar tickets were solved. It never invents facts — it writes `[check: …]` for the agent. Without the AI Hub, the draft comes from the canned replies and a similar solved ticket. Nothing is sent until the agent sends it.
+
 ## Where things live
 
 **APEX** (created by the page; the same DDL is in `apex_sql/100_crm.sql`):
@@ -169,6 +214,9 @@ The CRM suggests a **category and priority** for every new ticket and lists simi
 | `WMS_CRM_C360` | The Customer 360 Fusion sections as last read (rows JSON up to 250,000 characters, plus the SQL) |
 | `WMS_CRM_CUSTOMERS` | The whole Fusion customer master per pod |
 | `WMS_CRM_PINS` | Each agent's pinned customers per pod (note, order) |
+| `WMS_CRM_SIGNALS` | The opportunity scan's signals per pod × key: kind, score, money at stake, why, status, owner, the action taken |
+| `WMS_CRM_PLAYS` | Playbook enrolments: customer, playbook, owner, the next step, why, how it ended |
+| `WMS_CRM_PLAY_STEPS` | Every playbook step done: outcome, note, who, when |
 
 Statements, Debtors cards and the Debtors timeline are the **Debtors Control** tables. The CRM loads `../debtors/dc-*.js`, so a release with `crm` always carries `debtors`.
 
@@ -289,7 +337,9 @@ It also has the Debtors tools (balances, open items, statements, follow-ups) and
 
 - `node crm/tests/crm-engine.test.js` (CI) covers business hours and the SLA (with pause), routing, phone numbers, the health score, the timeline, KPIs, naive Bayes, similar tickets, the ask parser, the *Needs you* flags (incl. Not reached), the bell's notifications, the read-only 360 SQL (incl. the order currency column and its fallbacks), the customer-master pages, rows and search, and the AR 360 totals and rating.
 - AI Hub: `test_crm_customer_desk_routing_tools_and_module_threads`, plus the evals `crm_sla` and `crm_missed`.
-- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 148 checks. They include:
+- `node crm/tests/crm-growth.test.js` (CI) covers the opportunity signals (orders dropping by the customer's own normal and by the order gap, ranges stopped, cross-sell by peers, bounced cheques, MRA failures, cancelled lines), the rules and their actions, the merge with APEX (new / still there / gone), snoozes, playbooks (due dates, the text form, the bell, stop on order), the wallboard and the scan SQL.
+- A browser run with a fake host, a SQLite stand-in for the APEX gateway and a fake DuckDB covers 181 checks. They include:
+  - Opportunities: the scan (every signal kind, the rules' actions claimed once, the rows kept on this PC, a second scan doubling nothing, the automatic scan skipping), filter, dismiss, snooze, rules saved and re-applied without Fusion, playbooks (steps due, Do it, the step on the timeline, stop on order), the bell, Today, Needs you, 360 › Opportunities and › Deliveries, the wallboard, Draft with AI (and without the AI Hub)
   - calls that do not connect recorded at once (no answer, missed), the call-back choice, *Not reached*, the bell (items, seen, a click to the customer's list), the statement viewer (make one now: shown, not recorded)
   - the *Needs you* badges (ticket past the SLA, late callback, late promise, a missed call not returned), the per-customer dialog, Done, a ticket row, the 360 header
   - customer tabs (5 at most, the 6th replaces the oldest, ×, middle-click, back after a reload)

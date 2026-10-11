@@ -32,7 +32,7 @@
         var t = new Date(d.getTime() - (D.offset || 0));
         return "TO_DATE('" + stamp(t) + "', 'YYYY-MM-DD HH24:MI')";
     };
-    var DATES = ['CREATED_AT', 'CHANGED_AT', 'DUE_FIRST', 'DUE_RESOLVE', 'FIRST_RESPONSE_AT', 'RESOLVED_AT', 'CLOSED_AT', 'PAUSED_AT', 'EVENT_AT', 'STARTED_AT', 'ANSWERED_AT', 'ENDED_AT', 'CALLBACK_AT', 'SENT_AT', 'CSAT_AT', 'LAST_CUSTOMER_AT', 'PINNED_AT'];
+    var DATES = ['CREATED_AT', 'CHANGED_AT', 'DUE_FIRST', 'DUE_RESOLVE', 'FIRST_RESPONSE_AT', 'RESOLVED_AT', 'CLOSED_AT', 'PAUSED_AT', 'EVENT_AT', 'STARTED_AT', 'ANSWERED_AT', 'ENDED_AT', 'CALLBACK_AT', 'SENT_AT', 'CSAT_AT', 'LAST_CUSTOMER_AT', 'PINNED_AT', 'SNOOZE_UNTIL', 'ACTION_AT', 'FIRST_SEEN', 'LAST_SEEN', 'CLOSED_AT', 'LAST_DONE_AT', 'ENDED_AT', 'DONE_AT'];
     function loc(rows) { (rows || []).forEach(function (r) { DATES.forEach(function (k) { if (r[k]) r[k] = D.local(r[k]); }); }); return rows; }
     function cols(list) { return list.map(function (c) { return DATES.indexOf(c) >= 0 ? 'TO_CHAR(' + c.toLowerCase() + ', ' + TS + ') AS ' + c : c.toLowerCase() + ' AS ' + c; }).join(', '); }
     function like(q) { return lit('%' + String(q).toUpperCase().replace(/[\\%_]/g, function (c) { return '\\' + c; }) + '%', 200); }
@@ -68,14 +68,24 @@
             'status VARCHAR2(10), customer_type VARCHAR2(30), customer_class VARCHAR2(60), tax_reference VARCHAR2(100), bill_to_address VARCHAR2(1000), email VARCHAR2(320), phone VARCHAR2(400), phone_digits VARCHAR2(200), ' +
             'changed VARCHAR2(20), hay VARCHAR2(4000), dff_json VARCHAR2(4000), read_at DATE DEFAULT SYSDATE, CONSTRAINT wms_crm_customers_pk PRIMARY KEY (pod, account_number))',
         WMS_CRM_PINS: 'CREATE TABLE wms_crm_pins (app_user VARCHAR2(100) NOT NULL, pod VARCHAR2(20) NOT NULL, account_number VARCHAR2(60) NOT NULL, bu_id VARCHAR2(30), account_name VARCHAR2(360), note VARCHAR2(1000), ' +
-            'sort_n NUMBER, pinned_at DATE DEFAULT SYSDATE, CONSTRAINT wms_crm_pins_pk PRIMARY KEY (app_user, pod, account_number))'
+            'sort_n NUMBER, pinned_at DATE DEFAULT SYSDATE, CONSTRAINT wms_crm_pins_pk PRIMARY KEY (app_user, pod, account_number))',
+        WMS_CRM_SIGNALS: 'CREATE TABLE wms_crm_signals (pod VARCHAR2(20) NOT NULL, signal_key VARCHAR2(300) NOT NULL, kind VARCHAR2(20), account_number VARCHAR2(60), account_name VARCHAR2(360), bu_id VARCHAR2(30), ' +
+            "score NUMBER, value NUMBER, title VARCHAR2(400), detail VARCHAR2(2000), data_json VARCHAR2(4000), status VARCHAR2(20) DEFAULT 'NEW', snooze_until DATE, owner VARCHAR2(100), " +
+            'action VARCHAR2(20), action_ref VARCHAR2(100), action_by VARCHAR2(100), action_at DATE, note VARCHAR2(1000), first_seen DATE DEFAULT SYSDATE, last_seen DATE DEFAULT SYSDATE, closed_by VARCHAR2(100), closed_at DATE, ' +
+            'CONSTRAINT wms_crm_signals_pk PRIMARY KEY (pod, signal_key))',
+        WMS_CRM_PLAYS: 'CREATE TABLE wms_crm_plays (play_id VARCHAR2(40) PRIMARY KEY, pod VARCHAR2(20), playbook_id VARCHAR2(40), playbook_name VARCHAR2(200), account_number VARCHAR2(60), account_name VARCHAR2(360), bu_id VARCHAR2(30), ' +
+            "signal_key VARCHAR2(300), owner VARCHAR2(100), status VARCHAR2(20) DEFAULT 'ACTIVE', step_n NUMBER DEFAULT 0, stop_on_order VARCHAR2(1) DEFAULT 'N', reason VARCHAR2(1000), " +
+            'started_at DATE DEFAULT SYSDATE, last_done_at DATE, ended_at DATE, end_reason VARCHAR2(400), created_by VARCHAR2(100))',
+        WMS_CRM_PLAY_STEPS: 'CREATE TABLE wms_crm_play_steps (step_id VARCHAR2(40) PRIMARY KEY, play_id VARCHAR2(40) NOT NULL, step_n NUMBER, kind VARCHAR2(20), title VARCHAR2(400), outcome VARCHAR2(20), note VARCHAR2(2000), ref_id VARCHAR2(60), by_user VARCHAR2(100), done_at DATE DEFAULT SYSDATE)'
     };
     C.SEQ = 'CREATE SEQUENCE wms_crm_ticket_seq START WITH 1 INCREMENT BY 1 NOCACHE';
     C.INDEXES = [
         'CREATE INDEX wms_crm_tk_acct ON wms_crm_tickets (account_number)', 'CREATE INDEX wms_crm_tk_status ON wms_crm_tickets (status)', 'CREATE INDEX wms_crm_tk_tok ON wms_crm_tickets (token)',
         'CREATE INDEX wms_crm_ev_tk ON wms_crm_ticket_events (ticket_id)', 'CREATE INDEX wms_crm_call_acct ON wms_crm_calls (account_number)', 'CREATE INDEX wms_crm_call_e164 ON wms_crm_calls (number_e164)',
         'CREATE INDEX wms_crm_msg_acct ON wms_crm_messages (account_number)', 'CREATE INDEX wms_crm_ct_acct ON wms_crm_contacts (account_number)',
-        'CREATE INDEX wms_crm_c360_acct ON wms_crm_c360 (pod, account_number)', 'CREATE INDEX wms_crm_cust_ph ON wms_crm_customers (pod, phone_digits)', 'CREATE INDEX wms_crm_cust_id ON wms_crm_customers (pod, cust_account_id)'
+        'CREATE INDEX wms_crm_c360_acct ON wms_crm_c360 (pod, account_number)', 'CREATE INDEX wms_crm_cust_ph ON wms_crm_customers (pod, phone_digits)', 'CREATE INDEX wms_crm_cust_id ON wms_crm_customers (pod, cust_account_id)',
+        'CREATE INDEX wms_crm_sig_acct ON wms_crm_signals (pod, account_number)', 'CREATE INDEX wms_crm_sig_status ON wms_crm_signals (pod, status)', 'CREATE INDEX wms_crm_play_acct ON wms_crm_plays (pod, account_number)',
+        'CREATE INDEX wms_crm_play_status ON wms_crm_plays (status)', 'CREATE INDEX wms_crm_pstep_play ON wms_crm_play_steps (play_id)'
     ];
     /** columns added after the first release of a table → run on an older table (ALTER, never DROP) */
     C.UPGRADES = [
@@ -271,6 +281,82 @@
         },
         set: function (pod, account, sets) { return D.write('UPDATE wms_crm_pins SET ' + setList(sets) + ' WHERE app_user = ' + lit(D.user()) + ' AND pod = ' + lit(pod) + ' AND account_number = ' + lit(account)); },
         remove: function (pod, account) { return D.write('DELETE FROM wms_crm_pins WHERE app_user = ' + lit(D.user()) + ' AND pod = ' + lit(pod) + ' AND account_number = ' + lit(account)); }
+    };
+
+    // ── growth signals (one row per pod × signal key, shared by every agent) ──
+    var SG = ['POD', 'SIGNAL_KEY', 'KIND', 'ACCOUNT_NUMBER', 'ACCOUNT_NAME', 'BU_ID', 'SCORE', 'VALUE', 'TITLE', 'DETAIL', 'DATA_JSON', 'STATUS', 'SNOOZE_UNTIL', 'OWNER', 'ACTION', 'ACTION_REF', 'ACTION_BY', 'ACTION_AT', 'NOTE', 'FIRST_SEEN', 'LAST_SEEN', 'CLOSED_BY', 'CLOSED_AT'];
+    function sigRow(pod, s) {
+        return 'SELECT ' + [lit(pod), lit(s.key, 300), lit(s.kind, 20), lit(s.account, 60), lit(fitBytes(s.name, 360)), lit(s.bu, 30), num(s.score), num(s.value), lit(fitBytes(s.title, 400)), lit(fitBytes(s.detail, 2000)), lit(fitBytes(JSON.stringify(s.data || {}), 4000))]
+            .map(function (v, i) { return v + ' AS ' + ['pod', 'signal_key', 'kind', 'account_number', 'account_name', 'bu_id', 'score', 'value', 'title', 'detail', 'data_json'][i]; }).join(', ') + ' FROM dual';
+    }
+    C.signals = {
+        /** live signals (NEW / OPEN / SNOOZED) + the ones closed in the last `days` days */
+        list: function (pod, days) {
+            return C.ensure().then(function () {
+                return D.rowsAll('SELECT ' + cols(SG) + ' FROM wms_crm_signals WHERE pod = ' + lit(pod) + " AND (status IN ('NEW', 'OPEN', 'SNOOZED') OR last_seen >= SYSDATE - " + (+days || 30) + ') ORDER BY score DESC, signal_key', 20000);
+            }).then(loc);
+        },
+        /** new signals in, signals still found refreshed (score, detail, last seen; a GONE one comes back as NEW) — MERGE in chunks of 25 */
+        upsert: function (pod, list, onStep) {
+            var parts = []; for (var i = 0; i < list.length; i += 25) parts.push(list.slice(i, i + 25));
+            var done = 0;
+            return C.ensure().then(function () {
+                return parts.reduce(function (p, part) {
+                    return p.then(function () {
+                        return D.write('MERGE INTO wms_crm_signals t USING (' + part.map(function (s) { return sigRow(pod, s); }).join(' UNION ALL ') + ') s ON (t.pod = s.pod AND t.signal_key = s.signal_key) ' +
+                            "WHEN MATCHED THEN UPDATE SET score = s.score, value = s.value, title = s.title, detail = s.detail, data_json = s.data_json, account_name = NVL(s.account_name, t.account_name), last_seen = SYSDATE, status = CASE WHEN t.status = 'GONE' THEN 'NEW' ELSE t.status END " +
+                            'WHEN NOT MATCHED THEN INSERT (pod, signal_key, kind, account_number, account_name, bu_id, score, value, title, detail, data_json, status, first_seen, last_seen) VALUES (s.pod, s.signal_key, s.kind, s.account_number, s.account_name, s.bu_id, s.score, s.value, s.title, s.detail, s.data_json, ' + "'NEW', SYSDATE, SYSDATE)")
+                            .then(function () { done += part.length; if (onStep) onStep(done, list.length); });
+                    });
+                }, Promise.resolve());
+            });
+        },
+        /** signals the scan no longer finds (still NEW / OPEN) → GONE */
+        gone: function (pod, keys) {
+            var parts = []; for (var i = 0; i < keys.length; i += 100) parts.push(keys.slice(i, i + 100));
+            return parts.reduce(function (p, part) { return p.then(function () { return D.write("UPDATE wms_crm_signals SET status = 'GONE', closed_by = 'scan', closed_at = SYSDATE WHERE pod = " + lit(pod) + " AND status IN ('NEW', 'OPEN') AND signal_key IN (" + part.map(function (k) { return lit(k, 300); }).join(', ') + ')'); }); }, Promise.resolve());
+        },
+        set: function (pod, key, sets) { return D.write('UPDATE wms_crm_signals SET ' + setList(sets) + ' WHERE pod = ' + lit(pod) + ' AND signal_key = ' + lit(key, 300)); },
+        /** one PC takes the automatic action of a signal: true when this PC got it (another PC may have been first) */
+        claim: function (pod, key) {
+            var me = D.user() + ' @ ' + (C.machine || 'PC') + ' ' + Date.now().toString(36);
+            return D.write('UPDATE wms_crm_signals SET action_by = ' + lit(me, 100) + ', action_at = SYSDATE WHERE pod = ' + lit(pod) + ' AND signal_key = ' + lit(key, 300) + ' AND action_by IS NULL')
+                .then(function () { return D.rows('SELECT action_by AS A FROM wms_crm_signals WHERE pod = ' + lit(pod) + ' AND signal_key = ' + lit(key, 300), 2); })
+                .then(function (r) { return !!(r[0] && r[0].A === me.slice(0, 100)); });
+        }
+    };
+
+    // ── playbook enrolments and the steps done ──
+    var PL = ['PLAY_ID', 'POD', 'PLAYBOOK_ID', 'PLAYBOOK_NAME', 'ACCOUNT_NUMBER', 'ACCOUNT_NAME', 'BU_ID', 'SIGNAL_KEY', 'OWNER', 'STATUS', 'STEP_N', 'STOP_ON_ORDER', 'REASON', 'STARTED_AT', 'LAST_DONE_AT', 'ENDED_AT', 'END_REASON', 'CREATED_BY'];
+    var PS = ['STEP_ID', 'PLAY_ID', 'STEP_N', 'KIND', 'TITLE', 'OUTCOME', 'NOTE', 'REF_ID', 'BY_USER', 'DONE_AT'];
+    C.plays = {
+        /** active enrolments + the ones ended in the last `days` days (or one customer's, all of them) */
+        list: function (pod, f) {
+            f = f || {};
+            var w = ' WHERE pod = ' + lit(pod) + (f.account ? ' AND account_number = ' + lit(f.account) : " AND (status = 'ACTIVE' OR ended_at >= SYSDATE - " + (+f.days || 30) + ')');
+            return C.ensure().then(function () { return D.rowsAll('SELECT ' + cols(PL) + ' FROM wms_crm_plays' + w + ' ORDER BY started_at DESC, play_id', 5000); }).then(loc);
+        },
+        /** start a playbook for a customer (refused when the same playbook is already active for them) → the new id, or '' */
+        start: function (pod, p) {
+            var id = root.CRME ? root.CRME.uid('PL') : 'PL' + Date.now().toString(36);
+            return C.ensure().then(function () {
+                return D.write('INSERT INTO wms_crm_plays (play_id, pod, playbook_id, playbook_name, account_number, account_name, bu_id, signal_key, owner, status, step_n, stop_on_order, reason, started_at, created_by) SELECT ' +
+                    [lit(id), lit(pod), lit(p.playbook, 40), lit(fitBytes(p.name, 200)), lit(p.account, 60), lit(fitBytes(p.accountName, 360)), lit(p.bu, 30), lit(p.signal, 300), lit(p.owner, 100), "'ACTIVE'", '0', lit(p.stopOnOrder ? 'Y' : 'N'), lit(fitBytes(p.reason, 1000)), 'SYSDATE', lit(D.user())].join(', ') +
+                    " FROM dual WHERE NOT EXISTS (SELECT 1 FROM wms_crm_plays WHERE pod = " + lit(pod) + ' AND account_number = ' + lit(p.account, 60) + ' AND playbook_id = ' + lit(p.playbook, 40) + " AND status = 'ACTIVE')");
+            }).then(function () { return D.rows('SELECT play_id AS ID FROM wms_crm_plays WHERE play_id = ' + lit(id), 2); }).then(function (r) { return r.length ? id : ''; });
+        },
+        /** a step done (or skipped) → logged, the enrolment moves to the next step (DONE after the last) */
+        step: function (play, st, outcome, note, ref, total) {
+            var n = +play.STEP_N || 0, last = n + 1 >= total;
+            return D.write('INSERT INTO wms_crm_play_steps (step_id, play_id, step_n, kind, title, outcome, note, ref_id, by_user, done_at) VALUES (' + [lit(root.CRME ? root.CRME.uid('PS') : 'PS' + Date.now()), lit(play.PLAY_ID), num(n), lit(st.kind, 20), lit(fitBytes(st.title, 400)), lit(outcome, 20), lit(fitBytes(note, 2000)), lit(ref, 60), lit(D.user()), 'SYSDATE'].join(', ') + ')')
+                .then(function () { return D.write('UPDATE wms_crm_plays SET step_n = ' + (n + 1) + ', last_done_at = SYSDATE' + (last ? ", status = 'DONE', ended_at = SYSDATE, end_reason = 'every step done'" : '') + ' WHERE play_id = ' + lit(play.PLAY_ID) + ' AND step_n = ' + n); });
+        },
+        stop: function (id, reason, status) { return D.write('UPDATE wms_crm_plays SET status = ' + lit(status || 'STOPPED') + ', ended_at = SYSDATE, end_reason = ' + lit(fitBytes(reason, 400)) + " WHERE play_id = " + lit(id) + " AND status = 'ACTIVE'"); },
+        set: function (id, sets) { return D.write('UPDATE wms_crm_plays SET ' + setList(sets) + ' WHERE play_id = ' + lit(id)); },
+        steps: function (ids) {
+            if (!ids.length) return Promise.resolve([]);
+            return D.rowsAll('SELECT ' + cols(PS) + ' FROM wms_crm_play_steps WHERE play_id IN (' + ids.slice(0, 900).map(function (x) { return lit(x); }).join(', ') + ') ORDER BY done_at, step_n', 5000).then(loc);
+        }
     };
 
     // ── Customer 360 sections in APEX: what one PC read from Fusion, every PC opens at once ──
@@ -503,6 +589,8 @@
         w2_crm_phone: ['phone', 'last7', 'bu', 'account', 'name', 'contact', 'source', 'read_at'],
         w2_crm_drill: ['pod', 'dkey', 'part', 'json', 'sql_text', 'read_at'],
         w2_crm_pins: ['app_user', 'pod', 'account_number', 'bu_id', 'account_name', 'note', 'sort_n', 'pinned_at'],
+        w2_crm_g_rows: ['pod', 'part', 'chunk', 'json', 'read_at'],
+        w2_crm_g_scan: ['pod', 'at', 'by_user', 'json'],
         w2_crm_customers: ['pod', 'account_number', 'cust_account_id', 'customer', 'party_number', 'account_name', 'status', 'customer_type', 'customer_class', 'tax_reference', 'bill_to_address', 'email', 'phone', 'phone_digits', 'changed', 'hay', 'dff_json', 'read_at']
     };
     C.duck = {
@@ -578,6 +666,20 @@
         keepPins: function (pod, list, user) {
             user = user || D.user();
             return C.duck.put('w2_crm_pins', { app_user: user, pod: pod }, (list || []).map(function (p) { return { app_user: user, pod: pod, account_number: p.ACCOUNT_NUMBER, bu_id: p.BU_ID || '', account_name: p.ACCOUNT_NAME || '', note: p.NOTE || '', sort_n: p.SORT_N || 0, pinned_at: p.PINNED_AT || '' }; }));
+        },
+        /** the portfolio scan as read from Fusion / APEX: part = portfolio | groups | bounced | mra | cancels — one part replaces what this PC had */
+        keepScan: function (pod, part, rows) {
+            var chunks = []; for (var i = 0; i < rows.length; i += 2000) chunks.push(rows.slice(i, i + 2000));
+            if (!chunks.length) chunks.push([]);
+            var now = C.now();
+            return C.duck.put('w2_crm_g_rows', { pod: pod, part: part }, chunks.map(function (c, i) { return { pod: pod, part: part, chunk: i, json: JSON.stringify(c), read_at: now }; }));
+        },
+        scanRows: function (pod) {
+            return C.duck.qs(['SELECT part, chunk, json, read_at FROM w2_crm_g_rows WHERE pod = ' + C.duck.lit(pod) + ' ORDER BY part, CAST(chunk AS INTEGER)']).then(function (r) {
+                var out = {}, at = {};
+                (r[0] || []).forEach(function (x) { try { out[x.part] = (out[x.part] || []).concat(JSON.parse(x.json)); at[x.part] = x.read_at; } catch (e) { } });
+                return { parts: out, at: at };
+            }, function () { return { parts: {}, at: {} }; });
         },
         custByPhone: function (pod, last7) {
             if (!/^\d{7}$/.test(last7 || '')) return Promise.resolve([]);

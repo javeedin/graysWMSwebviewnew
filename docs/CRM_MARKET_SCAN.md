@@ -86,6 +86,8 @@ Value for a B2B FMCG distributor H / M / L · our effort S / M / L.
 | 35 | Leaderboards | Collected vs target, promises kept, tickets solved | HighRadius, Freshworks | L | S | Debtors activities + receipts |
 | 36 | Data-quality checks | Duplicates, missing e-mail / phone, bad addresses | SF, Zoho, D365 | L | S | `w2_crm_customers`, DFF contacts |
 
+**Built** (Opportunities tab, `crm/crm-growth.js`, see `docs/CRM.md`): 1 lapsed ranges + cross-sell by peers, 2 orders-dropping alert, 3 deliveries in the 360, 5 proactive service rules (bounced cheque, MRA failure, cancelled lines → task / ticket / playbook), 7 AI reply drafting, 8 supervisor wallboard, 9 outreach sequences (playbooks).
+
 **Suggested order**
 1. Quick wins: 1, 2, 3, 5, 4, 6, 7, 8, 9, 10 — they reuse engines we already have.
 2. Next wave: 11, 12, 13, 14, 15, 16, 17, 18, 19 — closes the gap with collections and route-to-market tools.

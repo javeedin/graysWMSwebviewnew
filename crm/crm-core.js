@@ -318,14 +318,17 @@
     };
     /** what each customer needs now (open tickets, callbacks, missed calls, promises, disputes, follow-ups) — E.custFlags */
     C.custFlags = function () { return E.custFlags({ tickets: C.tickets, calls: C.calls, acts: C.dcOpen }, new Date(), 7); };
-    var FLAG_IC = { tickets: 'fa-ticket', callbacks: 'fa-phone-flip', missed: 'fa-phone-slash', unreached: 'fa-user-clock', promises: 'fa-hand-holding-dollar', disputes: 'fa-scale-unbalanced', followups: 'fa-flag' };
+    var FLAG_IC = C.FLAG_IC = { tickets: 'fa-ticket', callbacks: 'fa-phone-flip', missed: 'fa-phone-slash', unreached: 'fa-user-clock', promises: 'fa-hand-holding-dollar', disputes: 'fa-scale-unbalanced', followups: 'fa-flag' };
     C.flagIcons = function (x, r) {
         if (!x || !x.flags.length) return '<span class="small muted" title="Nothing open for this customer">—</span>';
         return '<span class="cflags">' + x.flags.map(function (f) {
             return '<button class="cflag ' + f.cls + '" data-act="cuFlag" data-k="' + f.k + '" data-acct="' + esc(r.account) + '" data-bu="' + esc(r.bu || '') + '" data-name="' + esc(r.name || '') + '" title="' + esc(f.label) + ' — click to see them"><i class="fas ' + FLAG_IC[f.k] + '"></i>' + flagWord(f, x) + '</button>';
         }).join('') + '</span>';
     };
+    /** more kinds (signals, playbooks …) add their word here: C.FLAG_WORD[k] = function (f, x) → html */
+    C.FLAG_WORD = {};
     function flagWord(f, x) {
+        if (C.FLAG_WORD[f.k]) return C.FLAG_WORD[f.k](f, x);
         var n = f.n > 1 ? '<b>' + f.n + '</b> ' : '';
         switch (f.k) {
             case 'tickets': return '<b>' + f.n + '</b> open';
@@ -337,20 +340,25 @@
             default: return n + 'Follow-up';
         }
     }
-    var FLAG_TABS = [['tickets', 'Open tickets'], ['callbacks', 'Callbacks'], ['missed', 'Missed calls'], ['unreached', 'Not reached'], ['promises', 'Promises to pay'], ['disputes', 'Disputes'], ['followups', 'Follow-ups']];
+    var FLAG_TABS = C.FLAG_TABS = [['tickets', 'Open tickets'], ['callbacks', 'Callbacks'], ['missed', 'Missed calls'], ['unreached', 'Not reached'], ['promises', 'Promises to pay'], ['disputes', 'Disputes'], ['followups', 'Follow-ups']];
     C.flagDlg = null;
+    /** more kinds paint their own list in the dialog: C.FLAG_BODY[k] = function (x[k], dialog) → html; C.FLAG_SUB[k] = the 360 tab to open */
+    C.FLAG_BODY = {};
+    C.FLAG_SUB = { tickets: 'tickets', callbacks: 'calls', missed: 'calls' };
+    C.paintFlags = function () { paintFlags(); };
     /** one customer's open items, the clicked kind first — tickets open the ticket, callbacks / missed calls can be called or closed */
     C.ACT.cuFlag = function (el) { C.flagDlg = { account: el.dataset.acct, bu: el.dataset.bu, name: el.dataset.name, k: el.dataset.k }; paintFlags(); };
     C.ACT.cuFlagTab = function (el) { C.flagDlg.k = el.dataset.k; paintFlags(); };
     function paintFlags() {
         var d = C.flagDlg; if (!d) return;
         var x = C.custFlags()[d.account];
-        var tabs = FLAG_TABS.filter(function (t) { return x && x[t[0]].n; });
+        var tabs = FLAG_TABS.filter(function (t) { return x && x[t[0]] && x[t[0]].n; });
         if (!tabs.length) { C.mclose(); C.flagDlg = null; C.toast('Nothing open for ' + (d.name || d.account) + ' any more', 'ok'); if (C.tab === 'customers') C.render(); return; }
         if (!x[d.k] || !x[d.k].n) d.k = tabs[0][0];
         var ids = x[d.k].ids, body;
         function byId(list, key) { return list.filter(function (r) { return ids.indexOf(r[key]) >= 0; }); }
-        if (d.k === 'tickets') body = C.ticketTable(byId(C.tickets, 'TICKET_ID'), 'cuFlagTicket');
+        if (C.FLAG_BODY[d.k]) body = C.FLAG_BODY[d.k](x[d.k], d);
+        else if (d.k === 'tickets') body = C.ticketTable(byId(C.tickets, 'TICKET_ID'), 'cuFlagTicket');
         else if (d.k === 'callbacks' || d.k === 'missed' || d.k === 'unreached') {
             var calls = byId(C.calls, 'CALL_ID').sort(function (a, b) { return String(d.k === 'callbacks' ? a.CALLBACK_AT : b.STARTED_AT).localeCompare(String(d.k === 'callbacks' ? b.CALLBACK_AT : a.STARTED_AT)); }), t0 = today();
             body = C.table([
@@ -386,7 +394,7 @@
     };
     C.ACT.cuFlag360 = function () {
         var d = C.flagDlg; if (!d) return; C.mclose(); C.flagDlg = null;
-        C.open360(d.bu, d.account, d.name, { tickets: 'tickets', callbacks: 'calls', missed: 'calls' }[d.k] || 'overview');
+        C.open360(d.bu, d.account, d.name, C.FLAG_SUB[d.k] || 'overview');
     };
     C.ACT.cuFlagNew = function () { var d = C.flagDlg; if (!d) return; C.mclose(); C.flagDlg = null; C.newTicket({ account: d.account, bu: d.bu, name: d.name }); };
     C.after.customers = function () { if (C.cs && !C.cs.st.apex && !C.cs.run) C.cs.status(); };
