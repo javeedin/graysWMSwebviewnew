@@ -83,6 +83,39 @@
     // write and read is checked against LENGTH() — a CLOB that does not round-trip throws instead of running damaged.
     FAS.CLOB_READ = 600; FAS.CLOB_WRITE = 1000; FAS.CLOB_WRITE_BYTES = 3800; FAS.CLOB_COLS = 200;
     FAS.cpLen = function (s) { s = String(s == null ? '' : s); var pairs = s.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g); return s.length - (pairs ? pairs.length : 0); };
+    /** Emoji and other characters outside the BMP (a surrogate pair in JS) are never stored in a CLOB: Oracle keeps a CLOB of an
+     *  AL32UTF8 database in UTF-16 and LENGTH / SUBSTR count UTF-16 units there — an emoji is 2, and a 600-unit piece can end
+     *  in the middle of one (the publish check of an APEX app with the icon 🧩 said "1,613 of the 1,612 written").
+     *  So they are written as escapes that mean exactly the same thing: JSON \uD83E\uDDE9 in a manifest, and in app code
+     *  JS escapes inside <script>, CSS escapes inside <style>, HTML entities everywhere else. The escaped text is what is hashed
+     *  and signed, so the phones verify what APEX holds. */
+    var ASTRAL = /[\uD800-\uDBFF][\uDC00-\uDFFF]/g;
+    function cpOf(pair) { return (pair.charCodeAt(0) - 0xD800) * 0x400 + (pair.charCodeAt(1) - 0xDC00) + 0x10000; }
+    function u4(c) { return '\\u' + ('000' + c.toString(16).toUpperCase()).slice(-4); }
+    FAS.hasAstral = function (s) { return /[\uD800-\uDBFF][\uDC00-\uDFFF]/.test(String(s == null ? '' : s)); };
+    FAS.bmpJson = function (s) { return String(s == null ? '' : s).replace(ASTRAL, function (m) { return u4(m.charCodeAt(0)) + u4(m.charCodeAt(1)); }); };
+    FAS.bmpHtml = function (s) {
+        s = String(s == null ? '' : s);
+        if (!FAS.hasAstral(s)) return s;
+        var out = '', last = 0, re = /(<(script|style)\b[^>]*>)([\s\S]*?)(<\/\2\s*>)/gi, m;
+        function html(t) { return t.replace(ASTRAL, function (x) { return '&#x' + cpOf(x).toString(16).toUpperCase() + ';'; }); }
+        while ((m = re.exec(s))) {
+            out += html(s.slice(last, m.index)) + m[1];
+            out += /^script$/i.test(m[2]) ? m[3].replace(ASTRAL, function (x) { return u4(x.charCodeAt(0)) + u4(x.charCodeAt(1)); })
+                : m[3].replace(ASTRAL, function (x) { return '\\' + cpOf(x).toString(16).toUpperCase() + ' '; });
+            out += m[4]; last = m.index + m[0].length;
+        }
+        return out + html(s.slice(last));
+    };
+    /** app code as stored: a JSON launcher (APEX apps) keeps JSON escapes, everything else is HTML */
+    FAS.bmpCode = function (s) {
+        s = String(s == null ? '' : s);
+        if (!FAS.hasAstral(s)) return s;
+        if (/^\s*[\[{]/.test(s)) { try { JSON.parse(s); return FAS.bmpJson(s); } catch (e) { } }
+        return FAS.bmpHtml(s);
+    };
+    /** Oracle's LENGTH of a CLOB may count code points (VARCHAR2-like) or UTF-16 units (AL32UTF8 CLOBs) — both are right */
+    FAS.sameLen = function (text, oracleLen) { text = String(text == null ? '' : text); return oracleLen === FAS.cpLen(text) || oracleLen === text.length; };
     FAS.utf8Len = function (s) { s = String(s == null ? '' : s); var n = 0; for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); if (c < 0x80) n += 1; else if (c < 0x800) n += 2; else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xFC00) === 0xDC00) { n += 4; i++; } else n += 3; } return n; };
     /** Cuts a string into pieces of at most `chars` code points and (when given) `bytes` UTF-8 bytes — a quote counts twice when `dq` (it will be doubled). */
     FAS.pieces = function (s, chars, bytes, dq) {
@@ -112,7 +145,7 @@
             return FAS.rows('SELECT NVL(LENGTH(' + col + '), 0) AS L FROM ' + table + ' WHERE ' + where, 2);
         }).then(function (r) {
             var want = FAS.cpLen(text), got = r.length ? +r[0].L || 0 : -1;
-            if (got !== want) throw new Error('APEX kept ' + (got < 0 ? 'no row' : got.toLocaleString() + ' characters') + ' of the ' + want.toLocaleString() + ' written to ' + table + '.' + col + ' — the write is damaged, nothing was changed on the phones');
+            if (got < 0 || !FAS.sameLen(text, got)) throw new Error('APEX kept ' + (got < 0 ? 'no row' : got.toLocaleString() + ' characters') + ' of the ' + want.toLocaleString() + ' written to ' + table + '.' + col + ' — the write is damaged, nothing was changed on the phones');
             return want;
         });
     };
@@ -133,7 +166,7 @@
                 });
             }, Promise.resolve());
         }).then(function () {
-            Object.keys(out).forEach(function (k) { var got = FAS.cpLen(out[k]); if (got !== lens[k]) throw new Error(table + '.' + col + ' of ' + k + ' came back damaged from APEX: ' + got.toLocaleString() + ' of ' + lens[k].toLocaleString() + ' characters'); });
+            Object.keys(out).forEach(function (k) { var got = FAS.cpLen(out[k]); if (!FAS.sameLen(out[k], lens[k])) throw new Error(table + '.' + col + ' of ' + k + ' came back damaged from APEX: ' + got.toLocaleString() + ' of ' + lens[k].toLocaleString() + ' characters'); });
             return out;
         });
     };
@@ -252,6 +285,9 @@
         },
         /** a = {appId, name, kind, version, status, pod, icon, manifest (string), code (string), codeSha256, manifestSha256, signature, keyId, expiresAt, notes, publish} */
         save: function (a) {
+            a = Object.assign({}, a);
+            if (a.manifest != null) a.manifest = FAS.bmpJson(a.manifest);
+            if (a.code != null) a.code = FAS.bmpCode(a.code);
             var me = FAS.lit(FAS.user());
             var set = 'name = ' + FAS.lit(a.name, 200) + ', kind = ' + FAS.lit(a.kind || 'CODE') + ', version = ' + FAS.num(a.version != null ? a.version : 1) + ', status = ' + FAS.lit(a.status || 'DRAFT') + ', pod = ' + FAS.lit(a.pod, 20) + ', icon = ' + FAS.lit(a.icon, 16) +
                 ', code_sha256 = ' + FAS.lit(a.codeSha256) + ', manifest_sha256 = ' + FAS.lit(a.manifestSha256) + ', signature = ' + FAS.lit(a.signature) + ', key_id = ' + FAS.lit(a.keyId) + ', code_bytes = ' + FAS.num(a.code ? FAS.utf8Len(a.code) : 0) +

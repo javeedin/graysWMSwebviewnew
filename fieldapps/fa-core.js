@@ -122,7 +122,7 @@
      *  A damaged round trip leaves the row a draft with no signature and says where the stored code differs. */
     function publish(e) {
         var man = e.manifestObj, version = (e.version || 0) + 1; man.version = version;
-        var manifest = JSON.stringify(man), code = e.code;
+        var manifest = FAS.bmpJson(JSON.stringify(man)), code = FAS.bmpCode(e.code);    // stored, hashed and signed without emoji (see FAS.bmpJson)
         if (!code || code.length < 20) return Promise.reject(new Error('The app has no code'));
         if (e.kind === 'APEX') { var ck = FAX.check((FAX.read(code) || {}).url, (FAX.read(code) || {}).hosts); if (!ck.ok) return Promise.reject(new Error('Not published: ' + ck.why)); }
         var row = { appId: e.appId, name: e.name, kind: e.kind || 'CODE', version: version, pod: e.pod, icon: e.icon, expiresAt: e.expiresAt, notes: e.notes };

@@ -14,7 +14,7 @@ const utf8 = s => Buffer.byteLength(s, 'utf8');
 
 // code points vs UTF-16 units
 check('cpLen: ASCII', FAS.cpLen('abc') === 3);
-check('cpLen: an emoji is one character to Oracle', FAS.cpLen('a🧾b') === 3 && 'a🧾b'.length === 4);
+check('cpLen: an emoji is one code point', FAS.cpLen('a🧾b') === 3 && 'a🧾b'.length === 4);
 check('cpLen: box drawing is one character', FAS.cpLen('── x ──') === 7);
 check('utf8Len matches Buffer', ['abc', 'a🧾b', '── x ──', 'é à ç', 'x\u0000y', ''].every(s => FAS.utf8Len(s) === utf8(s)));
 
@@ -43,6 +43,31 @@ check('firstDiff: same → null', FAS.firstDiff('abc\ndef', 'abc\ndef') === null
 const d = FAS.firstDiff('abc\ndef\nghi', 'abc\ndeX\nghi');
 check('firstDiff: position, line and context', d && d.at === 6 && d.line === 2 && d.expected.slice(0, 1) === 'f' && d.got.slice(0, 1) === 'X', d);
 check('firstDiff: a cut tail', (() => { const x = FAS.firstDiff('a🧾bcd', 'a🧾b'); return x && x.at === 3 && x.lenA === 5 && x.lenB === 3; })());
+
+// no emoji in a CLOB: escapes that mean the same thing (an AL32UTF8 CLOB counts an emoji as 2 UTF-16 units)
+const man = JSON.stringify({ id: 'picker-tasks', name: 'Picker Tasks', icon: '🧩', settings: { tenders: ['💵 Cash', 'Card'] } });
+const manS = FAS.bmpJson(man);
+check('bmpJson: no surrogate pair left', !FAS.hasAstral(manS) && FAS.hasAstral(man));
+check('bmpJson: parses to exactly the same object', JSON.stringify(JSON.parse(manS)) === man);
+check('bmpJson: ASCII-safe length = code points = UTF-16 units', FAS.cpLen(manS) === manS.length);
+check('bmpJson: idempotent and a no-op without emoji', FAS.bmpJson(manS) === manS && FAS.bmpJson('{"a":1}') === '{"a":1}');
+const page = '<!doctype html><html><head><title>Sale 🧾</title><style>.r::before{content:"🧾"}</style></head><body title="👤">Hi 👥 <b>x</b>' +
+  '<script>var L = { cash: "💵 Cash", re: /🔄/ }; window.__out = L.cash + "|" + "🧾".length + "|" + L.re.test("a🔄b"); // 🖨 comment\n</script></body></html>';
+const pageS = FAS.bmpHtml(page);
+check('bmpHtml: no surrogate pair left', !FAS.hasAstral(pageS), pageS);
+check('bmpHtml: HTML text and attributes become entities', /Sale &#x1F9FE;/.test(pageS) && /title="&#x1F464;"/.test(pageS) && /Hi &#x1F465;/.test(pageS));
+check('bmpHtml: CSS gets a CSS escape', /content:"\\1F9FE "/.test(pageS), pageS);
+const scr = /<script>([\s\S]*?)<\/script>/.exec(pageS)[1], sb = {}; vm.runInNewContext(scr, { window: sb });
+check('bmpHtml: the escaped script gives exactly the same strings', sb.__out === '💵 Cash|2|true', sb.__out);
+check('bmpHtml: idempotent', FAS.bmpHtml(pageS) === pageS);
+const launcher = JSON.stringify({ type: 'apex', url: 'https://x.oraclecloudapps.com/ords/f?p=1', hosts: [], toolbar: true, note: '🧩' });
+check('bmpCode: a JSON launcher keeps JSON (escapes, still parses the same)', JSON.parse(FAS.bmpCode(launcher)).note === '🧩' && !FAS.hasAstral(FAS.bmpCode(launcher)));
+const pos = fs.readFileSync(path.join(__dirname, '..', 'apps', 'pos.app.js'), 'utf8');
+const posCode = (() => { const w = {}; vm.runInNewContext(pos, { window: w }); const a = w.FA_APPS && w.FA_APPS.pos; return a && a.code; })();
+check('the built-in POS: has emoji, stored without them', !!posCode && FAS.hasAstral(posCode) && !FAS.hasAstral(FAS.bmpCode(posCode)));
+check('the built-in POS: every script still parses after the escapes', (() => { const re = /<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi; let m, ok = true; const t = FAS.bmpCode(posCode); while ((m = re.exec(t))) { try { new vm.Script(m[1]); } catch (e) { ok = false; console.log(e.message); } } return ok; })());
+check('sameLen: Oracle counting code points or UTF-16 units both pass', FAS.sameLen('a🧩b', 3) && FAS.sameLen('a🧩b', 4) && !FAS.sameLen('a🧩b', 5));
+check('the reported case: 1,612 code points with one emoji = 1,613 UTF-16 units → accepted', (() => { const t = '🧩' + 'x'.repeat(1611); return FAS.cpLen(t) === 1612 && FAS.sameLen(t, 1613); })());
 
 console.log((bad ? 'FAILED ' + bad + ' of ' : 'ok ') + n + ' CLOB checks');
 process.exit(bad ? 1 : 0);

@@ -61,6 +61,13 @@ therefore writes `TO_CLOB` literals of at most 1,000 characters / 3,800 bytes (n
 pair), reads pieces of 600 characters as columns of one query, and checks every write and read against
 `LENGTH()`; a CLOB that does not round-trip throws instead of running damaged.
 
+**No emoji in a CLOB.** In an AL32UTF8 database Oracle keeps a CLOB in UTF-16, so `LENGTH` and `SUBSTR` count an emoji (or any
+character outside the Basic Multilingual Plane) as 2 units, and a read piece can end in the middle of one. The page therefore never
+stores one: the manifest is written with JSON escapes (`"🧩"` → `"\uD83E\uDDE9"`), and app code with JS escapes inside `<script>`,
+CSS escapes inside `<style>` and HTML entities (`&#x1F9E9;`) everywhere else. They mean exactly the same thing to the app, and the
+escaped text is what is hashed and signed, so the phones verify what APEX holds. The length checks accept Oracle counting either
+way, so drafts saved before this change still read back.
+
 **Preview** runs the app in a phone frame with this page as the host: the queries go through the gateway,
 the submissions land in APEX exactly as a phone's would, photos come from the webcam or a file and go
 through `field/photos` with the desktop's own device key, the console shows every host call, and the
