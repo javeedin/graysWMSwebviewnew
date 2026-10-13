@@ -24,6 +24,8 @@ MERGE INTO wms_app_modules t USING (SELECT 'fieldapps' AS module_code FROM dual)
   WHEN NOT MATCHED THEN INSERT (module_code, title, group_name, href, description, sort_n, active, created_at) VALUES ('fieldapps', 'Field Apps', 'Warehouse & Orders', '../fieldapps/index.html', 'Apps and the POS for the pickers'' phones', 6, 'Y', SYSDATE);
 MERGE INTO wms_app_modules t USING (SELECT 'crm' AS module_code FROM dual) s ON (t.module_code = s.module_code)
   WHEN NOT MATCHED THEN INSERT (module_code, title, group_name, href, description, sort_n, active, created_at) VALUES ('crm', 'Customer CRM', 'Warehouse & Orders', '../crm/index.html', 'Customers, tickets, calls, opportunities', 7, 'Y', SYSDATE);
+MERGE INTO wms_app_modules t USING (SELECT 'saleslens' AS module_code FROM dual) s ON (t.module_code = s.module_code)
+  WHEN NOT MATCHED THEN INSERT (module_code, title, group_name, href, description, sort_n, active, created_at) VALUES ('saleslens', 'Sales Lens', 'Warehouse & Orders', '../saleslens/index.html', 'Missed sales, causes, lost margin, simulations', 8, 'Y', SYSDATE);
 MERGE INTO wms_app_modules t USING (SELECT 'finance' AS module_code FROM dual) s ON (t.module_code = s.module_code)
   WHEN NOT MATCHED THEN INSERT (module_code, title, group_name, href, description, sort_n, active, created_at) VALUES ('finance', 'Finance Lens', 'Finance', '../finance/index.html', 'Statements, KPIs, board packs', 8, 'Y', SYSDATE);
 MERGE INTO wms_app_modules t USING (SELECT 'debtors' AS module_code FROM dual) s ON (t.module_code = s.module_code)

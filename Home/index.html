@@ -476,6 +476,15 @@
                 <span class="card-badge">NEW</span>
             </a>
 
+            <!-- Sales Lens: missed sales per customer x item, causes with evidence, lost margin, predictions, Simulation Lab -->
+            <a href="../saleslens/index.html" class="module-card"
+               style="--card-color:#c2410c; --card-bg:rgba(194,65,12,0.1); --card-text:#9a3412;">
+                <div class="card-icon">🔎</div>
+                <div class="card-title">Sales Lens</div>
+                <div class="card-desc">Which sales did we miss, why, what did they cost in margin, and what should the team do now — expected vs actual per customer and product, causes with evidence, risk predictions and a Simulation Lab.</div>
+                <span class="card-badge">NEW</span>
+            </a>
+
             <!-- AI Agent (beta): LangGraph supervisor + specialists over Fusion SQL, WMS, orders, loads and reports; replaces the AI Digital Employee in stages -->
             <a href="../aiagent/index.html" class="module-card" id="aiagent-card"
                style="--card-color:#4338ca; --card-bg:rgba(67,56,202,0.1); --card-text:#4338ca;">
@@ -664,7 +673,8 @@
             }
             var c = A.cached(user), sig = function (x) { return x ? (x.modules || []).join(',') : ''; };
             if (c && c.state === 'ok') apply(c.modules); else document.documentElement.classList.add('acc-wait');
-            var day = new Date().toISOString().slice(0, 10), ens = Promise.resolve();
+            // once a day, and at once when the module catalog changed (a new tile: JAVEED gets it, the catalog row exists)
+            var day = new Date().toISOString().slice(0, 10) + '|' + A.MODULES.map(function (m) { return m.code; }).join(','), ens = Promise.resolve();
             try { if (localStorage.getItem('access.ensured') !== day) ens = A.ensure().then(function () { localStorage.setItem('access.ensured', day); }, function () { }); } catch (e) { }
             ens.then(function () { return A.forUser(user); }).then(function (x) {
                 document.documentElement.classList.remove('acc-wait');
@@ -699,7 +709,7 @@
         // this package; the tiles keep their hrefs (release filter / trial badges).
         (function () {
             var GROUPS = [
-                { id: 'wms', title: 'Warehouse & Orders', icon: 'fa-warehouse', color: '#667eea', folders: ['wms', 'wms2', 'om', 'inventory', 'fieldapps', 'crm'] },
+                { id: 'wms', title: 'Warehouse & Orders', icon: 'fa-warehouse', color: '#667eea', folders: ['wms', 'wms2', 'om', 'inventory', 'fieldapps', 'crm', 'saleslens'] },
                 { id: 'finance', title: 'Finance', icon: 'fa-sack-dollar', color: '#0d9488', folders: ['finance', 'debtors'] },
                 { id: 'fusion', title: 'Oracle Fusion', icon: 'fa-cloud', color: '#c74634', folders: ['fscm', 'fusionsql', 'bip', 'dataload', 'fusionmodel', 'powerbi'] },
                 { id: 'ai', title: 'AI', icon: 'fa-wand-magic-sparkles', color: '#7c3aed', folders: ['aiagent', 'aihub', 'teachme', 'aianalysis', 'rag', 'agentflow', 'internetsearch'] },

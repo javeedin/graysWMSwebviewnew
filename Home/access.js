@@ -22,6 +22,7 @@
         ['Inventory', 'Inventory', 'Warehouse & Orders', '../Inventory/index.html', 'Items, on-hand, transactions, receiving'],
         ['fieldapps', 'Field Apps', 'Warehouse & Orders', '../fieldapps/index.html', 'Apps and the POS for the pickers\' phones'],
         ['crm', 'Customer CRM', 'Warehouse & Orders', '../crm/index.html', 'Customers, tickets, calls, opportunities'],
+        ['saleslens', 'Sales Lens', 'Warehouse & Orders', '../saleslens/index.html', 'Missed sales, causes, lost margin, simulations'],
         ['finance', 'Finance Lens', 'Finance', '../finance/index.html', 'Statements, KPIs, board packs'],
         ['debtors', 'Fusion Debtors Control', 'Finance', '../debtors/index.html', 'Customer statements and follow-ups'],
         ['fscm-om', 'Fusion Order Management', 'Oracle Fusion', '../fscm/om.html', 'Order Hub, POS order, customers'],

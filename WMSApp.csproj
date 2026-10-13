@@ -209,6 +209,9 @@
     <Content Include="crm\**\*" Exclude="crm\tests\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="saleslens\**\*" Exclude="saleslens\tests\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="fieldapps\**\*" Exclude="fieldapps\tests\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>

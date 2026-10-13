@@ -1,0 +1,28 @@
+/* Sales Lens · desktop page (the Debtors / CRM look) */
+:root { --top: linear-gradient(100deg, #431407, #9a3412 55%, #c2410c); --bg: #f3f5f9; --card: #fff; --ink: #0f172a; --muted: #64748b; --line: #e2e8f0; --soft: #f1f5f9; --pri: #c2410c; --radius: 12px; --shadow: 0 4px 16px rgba(2,6,23,.06); }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.45 Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+button { font: inherit; cursor: pointer; }
+.shell { height: 100%; display: flex; flex-direction: column; }
+.top { background: var(--top); color: #fff; min-height: 54px; display: flex; align-items: center; gap: 12px; padding: 0 16px; flex: none; }
+.top .home { color: #fff; text-decoration: none; font-size: 18px; opacity: .9; }
+.top .ttl { font-weight: 800; font-size: 17px; }
+.top .sub { font-size: 12px; opacity: .8; }
+.top .sp { flex: 1; }
+.top .chip { background: rgba(255,255,255,.18); border-radius: 999px; padding: 3px 10px; font-weight: 700; font-size: 12px; }
+.tabs { display: flex; gap: 2px; padding: 8px 16px 0; background: var(--card); border-bottom: 1px solid var(--line); flex: none; overflow-x: auto; }
+.tabs button { border: 0; background: transparent; padding: 10px 14px; border-radius: 10px 10px 0 0; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; white-space: nowrap; }
+.tabs button.on { color: var(--pri); border-bottom-color: var(--pri); background: var(--soft); }
+.main { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+.card { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 18px; margin-bottom: 14px; max-width: 1100px; }
+.card h2 { margin: 0 0 6px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.card p { margin: 6px 0; color: #334155; }
+.card ul { margin: 6px 0 0; padding-left: 20px; color: #334155; }
+.card li { margin: 3px 0; }
+.muted { color: var(--muted); } .small { font-size: 12px; }
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--soft); color: var(--muted); white-space: nowrap; }
+.pill.now { background: #ffedd5; color: #9a3412; }
+.phases { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 8px; }
+.phase { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.phase b { display: block; margin-bottom: 4px; }
+.phase .small { color: var(--muted); }
