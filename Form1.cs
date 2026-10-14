@@ -2308,6 +2308,11 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleAiHubAction(wv, action, root, requestId);
                                     break;
 
+                                // Sales Lens (saleslens/index.html): Setup › Python install / check / self-test
+                                case var slAction when IsSalesLensAction(slAction):
+                                    await HandleSalesLensAction(wv, action, root, requestId);
+                                    break;
+
                                 // Finance Lens (finance/index.html): journal balances, statements, analytics
                                 case var finAction when IsFinanceAction(finAction):
                                     await HandleFinanceAction(wv, action, root, requestId);

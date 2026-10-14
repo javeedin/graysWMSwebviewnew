@@ -18,7 +18,7 @@
         risk: { title: 'Order risk', phase: '3', icon: 'fa-truck-fast', what: ['Open orders likely to ship late, partly or be cancelled', 'Why (stock, lead time, customer history), what to do'] },
         sim: { title: 'Simulation Lab', phase: '5', icon: 'fa-sliders', what: ['Sliders for stock, fill rate, lead time, price and discount', 'Baseline vs scenario revenue and margin, the customers / orders / products affected', 'Every run saved with its assumptions — results are estimates, not promises'] },
         models: { title: 'Models', phase: '3', icon: 'fa-diagram-project', what: ['Each model with its version, training window and accuracy', 'Top factors, drift checks, retraining history'] },
-        setup: { title: 'Setup', phase: '1', icon: 'fa-gear', what: ['Install / update the Python packages (pandas, statsmodels, scikit-learn, LightGBM, duckdb, pyarrow) with versions and a self-test', 'Data sources, lines left out (BOGO, crates, consignment, van transfers), units of measure', 'Thresholds and the nightly schedule — nothing hard-coded', 'Where it is saved: APEX (shared record) and DuckDB (full copy on this PC)'] }
+        setup: { title: 'Setup & data', phase: '1', icon: 'fa-gear', what: ['Data sources, lines left out (BOGO, crates, consignment, van transfers), units of measure', 'Thresholds and the nightly schedule — nothing hard-coded', 'Where it is saved: APEX (shared record) and DuckDB (full copy on this PC)'] }
     };
     var main = document.getElementById('main');
     function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -31,6 +31,8 @@
         var t = TABS[tab] || TABS.dash;
         document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === tab); });
         try { localStorage.setItem('saleslens.tab', tab); } catch (e) { }
+        if (tab !== 'setup' && window.SalesLensSetup) window.SalesLensSetup.leave();
+        if (tab === 'setup' && window.SalesLensSetup) { window.SalesLensSetup.render(main, t); return; }
         main.innerHTML = '<div class="card"><h2><i class="fas ' + t.icon + '"></i> ' + esc(t.title) + ' <span class="pill now">Phase ' + t.phase + '</span></h2>' +
             '<p class="muted">This page is being built. It will show:</p><ul>' + t.what.map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') + '</ul></div>' +
             (tab === 'dash' ? '<div class="card"><h2><i class="fas fa-road"></i> How Sales Lens is being built</h2>' +
