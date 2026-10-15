@@ -211,7 +211,7 @@ def backtest(dense, lf, tiers, pc):
 
 
 def opp_id(acct, item, w_end):
-    return hashlib.sha1(f"{acct}|{item}|{w_end}".encode()).hexdigest()[:16]
+    return hashlib.sha256(f"{acct}|{item}|{w_end}".encode()).hexdigest()[:16]  # an id, not a secret; SHA-256 so scanners do not flag it
 
 
 def find(lines, cm, dense, ctx, cfg):
