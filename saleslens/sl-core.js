@@ -1,45 +1,122 @@
-/* Sales Lens — page shell. The module is being built in phases (docs: the Sales Opportunity Intelligence RD);
-   each tab says what it will hold and in which phase it arrives. */
+/* Sales Lens — page core: tabs, the filter bar, shared reference data and the "no results yet" states.
+ * Screens live in sl-views.js (Dashboard, Worklist, Customers, Products, Order risk), sl-sim.js (Simulation Lab),
+ * sl-models.js (Models) and sl-setup.js (Setup & data). */
 (function () {
     'use strict';
-    var PHASES = [
-        ['1', 'Setup & data', 'One-click Python install, 24–36 months of order lines, shipments, cancellations, prices, costs and returns from Fusion, checked against Fusion totals, daily stock snapshot.'],
-        ['2', 'Missed sales (MVP)', 'Expected vs actual per customer × item × month, lost revenue and margin, the recoverable part, causes with evidence, ranked worklist, export, feedback.'],
-        ['3', 'Predictions', 'Customers likely to buy less, orders likely to ship late, partly or be cancelled — each score with its top reasons.'],
-        ['4', 'Next best action', 'What to do, who does it and by when; outcomes tracked against the action.'],
-        ['5', 'Simulation Lab', 'What if: more stock, better fill rate, shorter lead time, other price or discount — baseline vs scenario.'],
-        ['6', 'Cross-sell & pricing', 'Products a customer should be buying, price and discount response.']
-    ];
-    var TABS = {
-        dash: { title: 'Dashboard', phase: '2', icon: 'fa-gauge-high', what: ['Missed revenue and missed margin for the period', 'Top causes (stock-out, cancellation, late shipment, price / discount change …)', 'Recovered so far from acted-on opportunities', 'Customers at risk', 'Scenario uplift from the Simulation Lab'] },
-        work: { title: 'Worklist', phase: '2', icon: 'fa-list-ol', what: ['Ranked customer × product opportunities: value, margin, score, confidence', 'Primary and secondary cause with the evidence in plain words', 'Recommended action, owner and due date', 'Accept / reject / outcome feedback, export to CSV and Excel'] },
-        cust: { title: 'Customers', phase: '2', icon: 'fa-users', what: ['Expected vs actual buying, month by month', 'Products dropped or slowing, margins, delays and returns', 'Risk score with its reasons, recommendations'] },
-        prod: { title: 'Products', phase: '2', icon: 'fa-box', what: ['Demand trend and the loss from stock-outs', 'Customers and regions buying less', 'Price and discount performance'] },
-        risk: { title: 'Order risk', phase: '3', icon: 'fa-truck-fast', what: ['Open orders likely to ship late, partly or be cancelled', 'Why (stock, lead time, customer history), what to do'] },
-        sim: { title: 'Simulation Lab', phase: '5', icon: 'fa-sliders', what: ['Sliders for stock, fill rate, lead time, price and discount', 'Baseline vs scenario revenue and margin, the customers / orders / products affected', 'Every run saved with its assumptions — results are estimates, not promises'] },
-        models: { title: 'Models', phase: '3', icon: 'fa-diagram-project', what: ['Each model with its version, training window and accuracy', 'Top factors, drift checks, retraining history'] },
-        setup: { title: 'Setup & data', phase: '1', icon: 'fa-gear', what: ['Data sources, lines left out (BOGO, crates, consignment, van transfers), units of measure', 'Thresholds and the nightly schedule — nothing hard-coded', 'Where it is saved: APEX (shared record) and DuckDB (full copy on this PC)'] }
-    };
+    var SL = window.SL;
+    var TABS = ['dash', 'work', 'cust', 'prod', 'risk', 'sim', 'models', 'setup'];
+    SL.views = {};
+    SL.f = { bu: '', pc: '', tier: '', rep: '', q: '' };
+    SL.ref = null;            // {run, bus, pcs, reps, settings}
+    SL.settings = {};
     var main = document.getElementById('main');
-    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
-    function phasesHtml() {
-        return '<div class="phases">' + PHASES.map(function (p) {
-            return '<div class="phase"><b>Phase ' + p[0] + ' · ' + esc(p[1]) + '</b><div class="small">' + esc(p[2]) + '</div></div>';
-        }).join('') + '</div>';
+    var bar = document.getElementById('fbar');
+    var current = 'dash';
+
+    function lsGet(k, d) { try { var v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } }
+    function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { } }
+
+    /** the business units this login may see (settings.allowedBus[LOGIN]); null = every one */
+    SL.allowedBus = function () {
+        var m = (SL.settings || {}).allowedBus || {}, u = SL.user().toUpperCase();
+        var l = m[u] || m[SL.user()];
+        return Array.isArray(l) && l.length ? l.map(String) : null;
+    };
+    /** WHERE for tables with bu_id / profit_center / tier / salesperson columns (missing columns are left out by the caller) */
+    SL.where = function (o) {
+        o = o || {}; var w = ['1 = 1'], al = o.alias ? o.alias + '.' : '';
+        var allowed = SL.allowedBus();
+        if (o.bu !== false) {
+            if (SL.f.bu) w.push(al + 'bu_id = ' + SL.lit(SL.f.bu));
+            else if (allowed) w.push(al + 'bu_id IN (' + allowed.map(SL.lit).join(', ') + ')');
+        }
+        if (o.pc !== false && SL.f.pc) w.push(al + 'profit_center = ' + SL.lit(SL.f.pc));
+        if (o.tier !== false && SL.f.tier) w.push(al + 'tier = ' + SL.lit(SL.f.tier));
+        if (o.rep !== false && SL.f.rep) w.push(al + 'salesperson = ' + SL.lit(SL.f.rep));
+        if (o.q && SL.f.q) {
+            var words = SL.f.q.toLowerCase().split(/\s+/).filter(Boolean);
+            words.forEach(function (x) { w.push('(' + o.q.map(function (c) { return 'lower(CAST(' + c + ' AS VARCHAR)) LIKE ' + SL.lit('%' + x + '%'); }).join(' OR ') + ')'); });
+        }
+        return w.join(' AND ');
+    };
+
+    SL.loadRef = function (force) {
+        if (SL.ref && !SL.ref.missing && !force) return Promise.resolve(SL.ref);
+        return Promise.all([
+            SL.host('salesLensSettings', {}, 20000).catch(function () { return {}; }),
+            SL.qs(['SELECT * FROM sl_runs ORDER BY built_at DESC LIMIT 1', 'SELECT bu_id, bu_name FROM sl_bus',
+                "SELECT DISTINCT profit_center FROM sl_items WHERE profit_center IS NOT NULL AND profit_center <> '' ORDER BY 1",
+                "SELECT DISTINCT salesperson FROM sl_customers WHERE salesperson IS NOT NULL AND salesperson <> '' ORDER BY 1"]).catch(function (e) { var r = [[], [], [], []]; r.missing = true; r.error = e.message; return r; })
+        ]).then(function (x) {
+            SL.settings = (x[0] && x[0].settings) || {};
+            SL.cur = SL.settings.reportingCurrency || 'MUR';
+            var d = x[1];
+            var run = d[0][0] || null;
+            SL.ref = { run: run, summary: run ? SL.json(run.summary, {}) : null, bus: d[1], pcs: d[2].map(function (r) { return r.profit_center; }), reps: d[3].map(function (r) { return r.salesperson; }), missing: d.missing || !run };
+            paintBar();
+            return SL.ref;
+        });
+    };
+
+    function paintBar() {
+        var r = SL.ref || {}, allowed = SL.allowedBus();
+        var bus = (r.bus || []).filter(function (b) { return !allowed || allowed.indexOf(String(b.bu_id)) >= 0; });
+        var s = r.summary;
+        bar.innerHTML = (s ? '<span class="chip run" title="Run ' + SL.esc(r.run.run_id) + ' · model ' + SL.esc(r.run.version) + '"><i class="fas fa-database"></i> ' +
+            SL.esc(SL.month((s.window || [])[0])) + '–' + SL.esc(SL.month((s.window || []).slice(-1)[0])) + ' · built ' + SL.esc(String(r.run.built_at || '').replace('T', ' ').slice(0, 16)) + '</span>' : '<span class="chip warn">No results yet</span>') +
+            '<label>BU <select data-f="bu"><option value="">' + (allowed ? 'My business units' : 'All') + '</option>' + bus.map(function (b) { return '<option value="' + SL.esc(b.bu_id) + '"' + (SL.f.bu === String(b.bu_id) ? ' selected' : '') + '>' + SL.esc(b.bu_name || b.bu_id) + '</option>'; }).join('') + '</select></label>' +
+            '<label>Profit centre <select data-f="pc"><option value="">All</option>' + (r.pcs || []).map(function (p) { return '<option' + (SL.f.pc === p ? ' selected' : '') + '>' + SL.esc(p) + '</option>'; }).join('') + '</select></label>' +
+            '<label>Tier <select data-f="tier"><option value="">All</option>' + ['A', 'B', 'C'].map(function (t) { return '<option' + (SL.f.tier === t ? ' selected' : '') + '>' + t + '</option>'; }).join('') + '</select></label>' +
+            '<label>Salesperson <select data-f="rep"><option value="">All</option>' + (r.reps || []).map(function (p) { return '<option' + (SL.f.rep === p ? ' selected' : '') + '>' + SL.esc(p) + '</option>'; }).join('') + '</select></label>' +
+            '<input data-f="q" placeholder="Customer, item…" value="' + SL.esc(SL.f.q) + '"><span class="sp"></span>' +
+            '<button class="btn sm ghost" id="f-clear" title="Clear the filters"><i class="fas fa-filter-circle-xmark"></i></button>';
+        bar.querySelectorAll('[data-f]').forEach(function (e) {
+            var k = e.dataset.f;
+            e.addEventListener(e.tagName === 'INPUT' ? 'input' : 'change', function () {
+                SL.f[k] = e.value; lsSet('saleslens.f', JSON.stringify(SL.f));
+                clearTimeout(paintBar.t); paintBar.t = setTimeout(function () { show(current, true); }, e.tagName === 'INPUT' ? 350 : 0);
+            });
+        });
+        document.getElementById('f-clear').onclick = function () { SL.f = { bu: '', pc: '', tier: '', rep: '', q: '' }; lsSet('saleslens.f', '{}'); paintBar(); show(current, true); };
+        bar.style.display = current === 'setup' || current === 'sim' || current === 'models' ? 'none' : '';
     }
-    function show(tab) {
-        var t = TABS[tab] || TABS.dash;
+
+    SL.empty = function (el, why) {
+        el.innerHTML = '<div class="card empty-state"><h2><i class="fas fa-seedling"></i> No results on this PC yet</h2>' +
+            '<p>' + SL.esc(why || 'Sales Lens reads your Fusion order lines, builds expected demand per customer × item and finds the sales you missed.') + '</p>' +
+            '<ol><li>Install Python (Setup & data › Python) — once per PC.</li><li>Sync the order lines from Fusion (Setup & data › Data) — 24 months the first time.</li>' +
+            '<li>Build &amp; score — it runs by itself after a sync.</li></ol>' +
+            '<p class="muted">Want to look around first? <button class="btn sm" id="go-demo"><i class="fas fa-flask"></i> Try it with demo data</button> on this PC.</p>' +
+            '<button class="btn pri" id="go-setup"><i class="fas fa-gear"></i> Open Setup &amp; data</button></div>';
+        el.querySelector('#go-setup').onclick = function () { show('setup'); };
+        el.querySelector('#go-demo').onclick = function () { show('setup'); setTimeout(function () { if (SL.views.setup && SL.views.setup.demo) SL.views.setup.demo(); }, 300); };
+    };
+
+    function show(tab, keep) {
+        if (TABS.indexOf(tab) < 0) tab = 'dash';
+        if (current === 'setup' && tab !== 'setup' && window.SalesLensSetup) window.SalesLensSetup.leave();
+        current = tab;
+        lsSet('saleslens.tab', tab);
         document.querySelectorAll('#tabs button').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === tab); });
-        try { localStorage.setItem('saleslens.tab', tab); } catch (e) { }
-        if (tab !== 'setup' && window.SalesLensSetup) window.SalesLensSetup.leave();
-        if (tab === 'setup' && window.SalesLensSetup) { window.SalesLensSetup.render(main, t); return; }
-        main.innerHTML = '<div class="card"><h2><i class="fas ' + t.icon + '"></i> ' + esc(t.title) + ' <span class="pill now">Phase ' + t.phase + '</span></h2>' +
-            '<p class="muted">This page is being built. It will show:</p><ul>' + t.what.map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') + '</ul></div>' +
-            (tab === 'dash' ? '<div class="card"><h2><i class="fas fa-road"></i> How Sales Lens is being built</h2>' +
-                '<p>Python in the pipeline server does the modelling; every result is saved in APEX (shared by every PC) and in DuckDB on this PC.</p>' + phasesHtml() + '</div>' : '');
+        bar.style.display = tab === 'setup' || tab === 'sim' || tab === 'models' ? 'none' : '';
+        SL.destroyCharts();
+        SL.close();
+        if (tab === 'setup') { window.SalesLensSetup.render(main); return; }
+        if (!keep) main.innerHTML = '<div class="card muted"><i class="fas fa-spinner fa-spin"></i> Reading this PC\'s results…</div>';
+        SL.loadRef().then(function (ref) {
+            if (ref.missing) { SL.empty(main); return; }
+            var v = SL.views[tab];
+            if (v) return v(main);
+        }).catch(function (e) {
+            main.innerHTML = '<div class="card"><h2><i class="fas fa-triangle-exclamation"></i> Could not read the results</h2><p class="r">' + SL.esc(e.message) + '</p></div>';
+        });
     }
+    SL.show = show;
+    SL.refresh = function () { SL.ref = null; show(current); };
+    SL.current = function () { return current; };
+
+    try { var f = JSON.parse(lsGet('saleslens.f', '{}')); if (f && typeof f === 'object') SL.f = Object.assign(SL.f, f); } catch (e) { }
     document.getElementById('tabs').addEventListener('click', function (e) { var b = e.target.closest('button[data-tab]'); if (b) show(b.dataset.tab); });
-    var start = 'dash'; try { start = localStorage.getItem('saleslens.tab') || 'dash'; } catch (e) { }
-    show(TABS[start] ? start : 'dash');
-    window.SalesLens = { show: show, TABS: TABS, PHASES: PHASES };
+    window.SalesLens = { show: show, refresh: SL.refresh };
+    window.addEventListener('load', function () { show(lsGet('saleslens.tab', 'dash')); });
 })();

@@ -121,6 +121,7 @@ try
                 StartMobileListener();
                 try { PowerBiService.StartScheduler(); } catch (Exception pbiEx) { System.Diagnostics.Debug.WriteLine("[PowerBI] scheduler start: " + pbiEx.Message); }
                 StartModelEngineIfRefresher();
+                try { StartSalesLensScheduler(); } catch (Exception slEx) { System.Diagnostics.Debug.WriteLine("[SalesLens] scheduler start: " + slEx.Message); }
             }
             catch (Exception ex)
             {

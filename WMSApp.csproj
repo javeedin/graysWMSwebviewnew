@@ -209,7 +209,7 @@
     <Content Include="crm\**\*" Exclude="crm\tests\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="saleslens\**\*" Exclude="saleslens\tests\**">
+    <Content Include="saleslens\**\*" Exclude="saleslens\tests\**;saleslens\python\tests\**;saleslens\**\__pycache__\**;saleslens\**\.pytest_cache\**;saleslens\**\.ruff_cache\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="fieldapps\**\*" Exclude="fieldapps\tests\**">

@@ -45,6 +45,19 @@ jobs:
       - run: pip install -r requirements.txt pytest
       - run: python -m pytest -q
 
+  saleslens:
+    name: Sales Lens engine (ruff, pytest on the demo wholesaler)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: saleslens/python } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: saleslens/python/requirements.txt }
+      - run: pip install -r requirements.txt pytest ruff
+      - run: ruff check sales_intel tests sl_check.py
+      - run: python -m pytest -q
+      - run: python sl_check.py selftest
+
   web:
     name: Web pages (syntax, ESLint for aiagent)
     runs-on: ubuntu-latest
