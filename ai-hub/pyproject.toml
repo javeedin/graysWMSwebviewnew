@@ -1,0 +1,22 @@
+# Quality settings for the AI Hub (ruff = lint + import order, mypy = types, pytest). CI: .github/workflows/ci.yml
+[tool.ruff]
+line-length = 180
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I"]
+ignore = ["E731", "E741"]        # lambdas as small helpers and short names (I, l) are used on purpose
+
+[tool.ruff.lint.isort]
+known-first-party = ["ai_hub"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+check_untyped_defs = false
+warn_unused_ignores = false
+follow_imports = "silent"         # LangGraph / LangChain overloads are checked by the tests, not here
+files = ["ai_hub/db.py", "ai_hub/agents/catalog.py", "ai_hub/agents/jobs.py", "ai_hub/config.py", "ai_hub/usage.py", "ai_hub/secrets.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,42 @@
+{
+  "id": "pos",
+  "name": "POS",
+  "icon": "🧾",
+  "kind": "CODE",
+  "version": 1,
+  "description": "Till for vans and shop counters: the catalogue on the phone, a cart priced exactly like the Order Pad (discount rules, VAT, deposits, crates), cash / card / mobile money / on account, receipts on the Bluetooth or WiFi printer, shifts with cash count — works offline and sends every sale to APEX.",
+  "chrome": false,
+  "queries": {
+    "items": {
+      "sql": "SELECT item_code, description, uom, barcode, list_price, tax_code, cons, cons_item, crt_item, crt_price, crt_min_qty, crt_default_qty, category, sub_category, brand, supplier, profit_center, group_code, item_type, image_url FROM wms_pos_items WHERE pod = {{POD}} AND NVL(active, 'Y') = 'Y' ORDER BY description, item_code",
+      "maxRows": 50000
+    },
+    "customers": {
+      "sql": "SELECT customer_number, customer_name, category, customer_class, credit_limit, vat, brn, phone FROM wms_pos_customers WHERE pod = {{POD}} AND NVL(active, 'Y') = 'Y' ORDER BY customer_name",
+      "maxRows": 20000
+    },
+    "discounts": {
+      "sql": "SELECT * FROM wms_om_discounts WHERE NVL(active, 'Y') <> 'N'",
+      "maxRows": 20000
+    }
+  },
+  "kinds": ["pos_sale", "pos_shift"],
+  "requires": ["scan", "print"],
+  "settings": {
+    "currency": "Rs",
+    "precision": 2,
+    "cashRounding": 0,
+    "maxDiscountPct": 20,
+    "allowPriceEdit": false,
+    "allowReturns": true,
+    "receiptCols": 32,
+    "receiptCopies": 1,
+    "catalogueHours": 12,
+    "numberPrefix": "POS",
+    "taxRates": { "GROT1.4": 15, "GRTESTOUT17": 17, "GROT1.2": 0, "GROTCONS": 0 },
+    "tenders": ["CASH", "CARD", "MOBILE", "CREDIT"],
+    "quickCash": [100, 200, 500, 1000, 2000],
+    "language": "en",
+    "shop": { "name": "Gray's", "address": "", "phone": "", "brn": "", "vat": "", "footer": "Thank you for your purchase" }
+  }
+}

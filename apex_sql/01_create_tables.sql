@@ -185,8 +185,8 @@ INSERT INTO wms_printer_config (
     printer_name, fusion_instance, fusion_username,
     fusion_password, auto_download, auto_print
 ) VALUES (
-    'Microsoft Print to PDF', 'TEST', 'shaik',
-    'fusion1234', 'Y', 'Y'
+    'Microsoft Print to PDF', 'TEST', 'YOUR_FUSION_USERNAME',
+    'YOUR_FUSION_PASSWORD', 'Y', 'Y'
 );
 
 COMMIT;

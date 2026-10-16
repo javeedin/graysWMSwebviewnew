@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sales Lens</title>
+<script src="../Home/access-guard.js" data-module="saleslens" data-title="Sales Lens"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="sl.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <a class="home" href="../Home/index.html" title="Home"><i class="fas fa-house"></i></a>
+    <div class="brand"><div class="ttl">Sales Lens</div><div class="sub">Missed sales, why they were missed, what they cost, and what to do now</div></div>
+    <span class="sp"></span>
+    <button class="hbtn" id="h-refresh" title="Read the results again"><i class="fas fa-rotate"></i></button>
+  </header>
+  <nav class="tabs" id="tabs">
+    <button data-tab="dash" class="on"><i class="fas fa-gauge-high"></i> Dashboard</button>
+    <button data-tab="work"><i class="fas fa-list-ol"></i> Worklist</button>
+    <button data-tab="cust"><i class="fas fa-users"></i> Customers</button>
+    <button data-tab="prod"><i class="fas fa-box"></i> Products</button>
+    <button data-tab="risk"><i class="fas fa-truck-fast"></i> Order risk</button>
+    <button data-tab="sim"><i class="fas fa-sliders"></i> Simulation Lab</button>
+    <button data-tab="models"><i class="fas fa-diagram-project"></i> Models</button>
+    <button data-tab="setup"><i class="fas fa-gear"></i> Setup &amp; data</button>
+  </nav>
+  <div class="fbar" id="fbar"></div>
+  <main class="main" id="main"></main>
+</div>
+<script src="sl-api.js"></script>
+<script src="sl-core.js"></script>
+<script src="sl-views.js"></script>
+<script src="sl-sim.js"></script>
+<script src="sl-models.js"></script>
+<script src="sl-setup.js"></script>
+<script>document.getElementById('h-refresh').onclick = function () { window.SalesLens.refresh(); };</script>
+</body>
+</html>

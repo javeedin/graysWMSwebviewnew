@@ -1,0 +1,12 @@
+{
+  "urls": "http://0.0.0.0:5088",
+  "sharedRoot": "\\\\fileserver\\FusionModel",
+  "cacheRoot": "cache",
+  "readMode": "CACHE",
+  "isRefresher": false,
+  "apexQueryUrl": "",
+  "tokensPath": "tokens.json",
+  "licencePath": "licence.json",
+  "trialDays": 30,
+  "maxRows": 100000
+}

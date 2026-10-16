@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Internet Search — Setup</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #f4f6fb; color: #0f172a; }
+        .topbar { background: #fff; border-bottom: 1px solid #e6eaf2; padding: 12px 20px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; position: sticky; top: 0; z-index: 50; }
+        .brand { font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 9px; }
+        .brand i { color: #0f766e; }
+        .brand small { font-size: 10px; font-weight: 800; color: #92400e; background: #fef3c7; padding: 2px 8px; border-radius: 10px; }
+        .spacer { flex: 1; }
+        .btn { border: 1px solid #e2e8f0; background: #f8fafc; color: #334155; border-radius: 9px; padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 7px; }
+        .btn:hover { background: #eef2f7; }
+        .btn-primary { background: #0f766e; color: #fff; border-color: #0f766e; }
+        .btn-primary:hover { background: #0b5c55; }
+        .wrap { max-width: 760px; margin: 0 auto; padding: 20px; }
+        .h1 { font-size: 20px; font-weight: 800; margin: 0 0 4px; }
+        .sub { font-size: 12.5px; color: #64748b; margin-bottom: 16px; }
+        .note { background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; border-radius: 10px; padding: 11px 14px; font-size: 12.5px; margin-bottom: 16px; }
+        .note b { color: #1e3a8a; }
+        .savebar { position: sticky; bottom: 0; background: #f4f6fb; padding: 14px 0; display: flex; align-items: center; gap: 12px; }
+        #is-save-note { font-size: 12.5px; color: #16a34a; font-weight: 700; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <div class="brand"><i class="fas fa-gear"></i> Internet Search — Setup <small>PRIVATE</small></div>
+        <div class="spacer"></div>
+        <a class="btn" href="index.html"><i class="fas fa-magnifying-glass"></i> Back to Search</a>
+        <a class="btn" href="../Home/index.html"><i class="fas fa-house"></i> Home</a>
+    </div>
+
+    <div class="wrap">
+        <div class="h1">Job sources &amp; API keys</div>
+        <div class="sub">Enable the sources you want and paste any free API keys. Everything here is stored only on this PC (browser localStorage) — nothing is sent anywhere except the job sites themselves when you search.</div>
+
+        <div class="note">
+            <b>Adzuna needs two values:</b> an <b>app_id</b> (short, ~8 chars) <i>and</i> an <b>app_key</b> (long, 32 chars).
+            Get both from your <a href="https://developer.adzuna.com/admin/access_details" target="_blank" rel="noopener">Adzuna dashboard</a>
+            (free — <a href="https://developer.adzuna.com/signup" target="_blank" rel="noopener">sign up here</a> if you haven't).
+        </div>
+
+        <div id="is-setup"></div>
+
+        <div class="savebar">
+            <button class="btn btn-primary" onclick="JobSearch.saveSettings()"><i class="fas fa-floppy-disk"></i> Save settings</button>
+            <span id="is-save-note"></span>
+        </div>
+    </div>
+
+    <!-- ── WebView bridge (JS ↔ C#) ── -->
+    <script>
+        window.pendingRequests = window.pendingRequests || {};
+        function generateRequestId() { return 'req_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8); }
+        function sendMessageToCSharp(message, callback) {
+            if (!(window.chrome && window.chrome.webview)) {
+                if (callback) callback('WebView2 bridge not available (open this page inside the WMS app)', null);
+                return;
+            }
+            var requestId = generateRequestId();
+            message.requestId = requestId;
+            if (callback) window.pendingRequests[requestId] = callback;
+            window.chrome.webview.postMessage(message);
+        }
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.addEventListener('message', function (event) {
+                var r = event.data;
+                if (!r || !r.requestId) return;
+                var cb = window.pendingRequests[r.requestId];
+                if (!cb) return;
+                delete window.pendingRequests[r.requestId];
+                if (r.action === 'error') { cb(r.message || (r.data && r.data.message) || 'Unknown error', null); }
+                else if (r.action === 'restResponse') {
+                    if (r.success === false) cb('HTTP ' + r.statusCode, null);
+                    else cb(null, r.data);
+                }
+                else cb(null, r);
+            });
+        }
+    </script>
+    <script src="jobsearch.js"></script>
+    <script>JobSearch.mountSettings('is-setup');</script>
+</body>
+</html>

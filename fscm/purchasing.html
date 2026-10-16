@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fusion Purchasing — Gray's</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="fscm.css">
+    <link rel="stylesheet" href="purchasing.css">
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="core.js"></script>
+    <script src="purchasing.js"></script>
+    <script src="po-create.js"></script>
+    <script src="receiving.js"></script>
+    <script src="suppliers.js"></script>
+    <script src="po-loading.js"></script>
+    <script>
+        FX.start({
+            module: 'purchasing',
+            sub: 'Purchase orders, receiving, ASNs, returns and suppliers — live from Oracle Fusion',
+            views: [
+                { id: 'pos', label: 'Manage POs', icon: 'fa-file-invoice', group: 'Purchase Orders', desc: 'Search, open, submit and follow purchase orders', render: purManagePOs },
+                { id: 'po-create', label: 'Create PO', icon: 'fa-file-circle-plus', group: 'Purchase Orders', desc: 'Create or edit a draft purchase order', render: purCreatePO },
+                { id: 'lifecycle', label: 'PO Life Cycle', icon: 'fa-timeline', group: 'Purchase Orders', desc: 'Receipts, invoices, payments and returns of one PO', render: purLifeCycleView },
+                { id: 'receipts', label: 'Expected Receipts', icon: 'fa-truck-ramp-box', group: 'Receiving', desc: 'PO schedules waiting to be received — receive and deliver', render: purReceipts },
+                { id: 'asn', label: 'Create ASN', icon: 'fa-truck-fast', group: 'Receiving', desc: 'Advance shipment notice for open PO lines', render: purCreateASN },
+                { id: 'returns', label: 'Supplier Returns', icon: 'fa-rotate-left', group: 'Receiving', desc: 'Return received quantities to the supplier', render: purReturns },
+                { id: 'suppliers', label: 'Manage Suppliers', icon: 'fa-building', group: 'Suppliers', desc: 'Supplier records, sites, addresses and contacts', render: purSuppliers },
+                { id: 'balance', label: 'Supplier Balance', icon: 'fa-scale-balanced', group: 'Suppliers', desc: 'Invoices, payments and open balance from Fusion', render: purBalance },
+                { id: 'poload', label: 'PO Loading', icon: 'fa-file-excel', group: 'Data Loading', desc: 'Excel → validated draft purchase orders', render: purPoLoading }
+            ]
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,291 @@
+// ============================================================
+// LOCAL JOB RUNNER — the frontend ("LOCAL" lane) scheduler
+// ============================================================
+// DB-lane jobs run inside Oracle (DBMS_SCHEDULER). LOCAL-lane jobs are
+// stored in the SAME wms_ai_jobs table (lane='LOCAL') but Oracle does NOT
+// run them — THIS app does, because their steps need the PC (printing, PDF
+// download, email, local files). The app polls for due LOCAL jobs, claims
+// one atomically (so two open apps don't double-run it), executes its steps
+// via the WebView IPC bridge, then reports the run back so the frontend
+// monitors them exactly like DB jobs (runs, status, next run).
+//
+// Endpoints (script apex_sql/56_ai_jobs_local_lane.sql):
+//   GET  ai/jobs/list?lane=LOCAL&status=SCHEDULED   (existing list, lane-aware)
+//   POST ai/jobs/localclaim   {jobId, machine}  -> {claimed, runId, stepsJson, ...}
+//   POST ai/jobs/localreport  {jobId, runId, status, log, done, error}
+// ============================================================
+(function () {
+    'use strict';
+
+    var AI = (typeof AI_BASE !== 'undefined')
+        ? AI_BASE
+        : 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
+
+    var POLL_MS = 60000;        // check for due LOCAL jobs every minute
+
+    // ── safety: what a job / task step may do without an approval card ──
+    // ipc steps: only these local actions (mail, Teams, files, printing, PDFs). Anything else - Fusion
+    // writes, database writes, AI decisions, admin - is refused, because a step runs with no card.
+    var IPC_ALLOWED = {
+        sendSmtpEmail: 1, postToTeams: 1, saveLocalFile: 1, printOrder: 1, printSalesOrder: 1,
+        downloadOrderPdf: 1, checkPdfExists: 1, aiListPrinters: 1, getPrintJobs: 1
+    };
+    function auditBlocked(kind, target, why) {
+        try { ipc({ action: 'aiAudit', source: 'JOB', actionKey: 'job_step', outcome: 'BLOCKED', target: String(target || '').slice(0, 380), detail: kind + ': ' + why }).catch(function () { }); } catch (e) { }
+    }
+    // rest steps that change data: only the app's own ORDS endpoints, never the raw SQL-write gateway
+    function restWriteBlocked(url) {
+        var host = '';
+        try { host = new URL(url).host.toLowerCase(); } catch (e) { return 'not a valid URL'; }
+        var own = ''; try { own = new URL(AI).host.toLowerCase(); } catch (e) { }
+        if (host !== own) return 'writes are only allowed to the app\'s own APEX endpoints (' + own + '), not ' + host;
+        if (/\/ai\/executewrite/i.test(url)) return 'the raw SQL-write gateway (ai/executewrite) cannot be called from a job';
+        return null;
+    }
+    var running = {};           // jobId -> true while this app is executing it
+    var timer = null;
+
+    function machineId() {
+        try {
+            var m = localStorage.getItem('wms_local_runner_id');
+            if (!m) { m = 'APP-' + Math.random().toString(36).slice(2, 8).toUpperCase(); localStorage.setItem('wms_local_runner_id', m); }
+            return m;
+        } catch (e) { return 'APP'; }
+    }
+    function appUser() { try { return (typeof appUserName === 'function' ? appUserName() : (localStorage.getItem('loggedInUser') || 'JOBRUNNER')); } catch (e) { return 'JOBRUNNER'; } }
+    function inst() { try { return (typeof currentInstance === 'function' ? currentInstance() : 'PROD'); } catch (e) { return 'PROD'; } }
+
+    // ── IPC bridge as a promise ─────────────────────────────
+    function ipc(msg) {
+        return new Promise(function (resolve, reject) {
+            if (typeof sendMessageToCSharp !== 'function') { reject('bridge unavailable'); return; }
+            sendMessageToCSharp(msg, function (err, data) { err ? reject(err) : resolve(data); });
+        });
+    }
+    function getJson(url) {
+        return ipc({ action: 'executeGet', fullUrl: url }).then(function (d) { return typeof d === 'string' ? JSON.parse(d) : d; });
+    }
+    function postJson(url, body) {
+        return ipc({ action: 'executePost', fullUrl: url, body: JSON.stringify(body) }).then(function (d) { try { return typeof d === 'string' ? JSON.parse(d) : d; } catch (e) { return d; } });
+    }
+    // read query via the guarded gateway; returns {columns, rows}
+    function query(sql) {
+        return postJson(AI + '/executequery', { sql: sql, maxRows: 500, appUser: appUser() });
+    }
+
+    // ── {VAR} substitution + 1-based JSON path (mirrors the DB lane) ──
+    function subst(v, vars) {
+        if (v == null) return v;
+        if (typeof v === 'string') return v.replace(/#([A-Za-z0-9_]+)#|\{([A-Za-z0-9_]+)\}/g, function (m, a, b) {
+            var k = a || b; return (vars[k] !== undefined && vars[k] !== null) ? String(vars[k]) : m;
+        });
+        if (Array.isArray(v)) return v.map(function (x) { return subst(x, vars); });
+        if (typeof v === 'object') { var o = {}; Object.keys(v).forEach(function (k) { o[k] = subst(v[k], vars); }); return o; }
+        return v;
+    }
+    function jsonPath(obj, path) {
+        // "items[1].FULFILL_LINE_ID" — arrays are 1-BASED like the DB runner
+        var cur = obj, re = /([A-Za-z0-9_]+)|\[(\d+)\]/g, m;
+        while ((m = re.exec(path)) !== null) {
+            if (cur == null) return null;
+            if (m[2] !== undefined) cur = cur[parseInt(m[2], 10) - 1];
+            else cur = cur[m[1]];
+        }
+        return cur;
+    }
+
+    // a proper MARKDOWN table for a query result, so it renders as a table
+    // (not raw pipes) in the task Result via marked.
+    function previewTable(cols, rows, limit) {
+        cols = cols || []; rows = rows || [];
+        if (!cols.length && !rows.length) return '';
+        var n = Math.min(rows.length, limit || 12);
+        function cell(c) { var s = String(c == null ? '' : c).replace(/\|/g, '\\|').replace(/\n/g, ' '); return s.length > 40 ? s.slice(0, 39) + '…' : s; }
+        var head = '| ' + cols.map(cell).join(' | ') + ' |';
+        var sep = '| ' + cols.map(function () { return '---'; }).join(' | ') + ' |';
+        var body = rows.slice(0, n).map(function (r) { return '| ' + (r || []).map(cell).join(' | ') + ' |'; }).join('\n');
+        var more = rows.length > n ? '\n\n… +' + (rows.length - n) + ' more row(s)' : '';
+        return head + '\n' + sep + '\n' + body + more;
+    }
+
+    // ── one step ────────────────────────────────────────────
+    // returns { log: [..], rows?: [...] }  (throws on hard failure)
+    function runStep(step, vars, log) {
+        var type = (step.type || 'rest').toLowerCase();
+
+        if (type === 'rest') {
+            var method = (step.method || 'GET').toUpperCase();
+            var url = subst(step.url, vars);
+            if (method !== 'GET') {
+                var why = restWriteBlocked(url);
+                if (why) { auditBlocked('rest ' + method, url, why); return Promise.reject('blocked rest ' + method + ': ' + why); }
+            }
+            var body = step.body ? JSON.stringify(subst(step.body, vars)) : '{}';
+            var call = method === 'GET' ? ipc({ action: 'executeGet', fullUrl: url })
+                                        : ipc({ action: 'executePost', fullUrl: url, body: body });
+            return call.then(function (d) {
+                var j; try { j = typeof d === 'string' ? JSON.parse(d) : d; } catch (e) { j = null; }
+                if (step.extract && j) Object.keys(step.extract).forEach(function (k) { vars[k] = jsonPath(j, step.extract[k]); });
+                log.push('rest ' + method + ' ' + url + ' -> ok');
+                return {};
+            });
+        }
+        if (type === 'query' || type === 'report') {
+            return query(subst(step.sql, vars)).then(function (r) {
+                var rows = (r && r.rows) || [], cols = (r && r.columns) || [];
+                if (step.extract && cols.length) {
+                    var ix = {}; cols.forEach(function (c, i) { ix[String(c).toUpperCase()] = i; });
+                    var first = rows[0] || [];
+                    Object.keys(step.extract).forEach(function (k) { var col = String(step.extract[k]).toUpperCase(); vars[k] = first[ix[col]]; });
+                }
+                // include a compact data preview so the run RESULT shows the actual
+                // data (report-style tasks), not just a row count.
+                var prev = previewTable(cols, rows, type === 'report' ? 50 : 20);
+                log.push('**' + rows.length + ' row(s)**');
+                if (prev) { log.push(''); log.push(prev); log.push(''); }
+                return { rows: rows, columns: cols };
+            });
+        }
+        if (type === 'print') {
+            return ipc({ action: 'printOrder', orderNumber: subst(step.orderNumber, vars), tripId: subst(step.tripId, vars) || '', printerName: subst(step.printer, vars) || '', instance: inst(), silent: true })
+                .then(function () { log.push('print order ' + subst(step.orderNumber, vars)); return {}; });
+        }
+        if (type === 'download_pdf') {
+            return ipc({ action: 'downloadOrderPdf', orderNumber: subst(step.orderNumber, vars), tripId: subst(step.tripId, vars) || '', instance: inst() })
+                .then(function () { log.push('download pdf ' + subst(step.orderNumber, vars)); return {}; });
+        }
+        if (type === 'ipc') {
+            // escape hatch: ANY local IPC action the app supports, with the
+            // exact params the model provides (email, saveLocalFile, device ops…)
+            if (!IPC_ALLOWED[step.action]) {
+                auditBlocked('ipc', step.action, 'not an allowed local action');
+                return Promise.reject('blocked ipc "' + step.action + '": not allowed in a job/task step (allowed: ' + Object.keys(IPC_ALLOWED).join(', ') + ')');
+            }
+            var msg = Object.assign({ action: step.action }, subst(step.params || {}, vars));
+            return ipc(msg).then(function () { log.push('ipc ' + step.action); return {}; });
+        }
+        if (type === 'foreach') {
+            // { type:'forEach', query:{sql}, itemVar?, do:[ steps using {COL} ] }
+            return query(subst(step.query && step.query.sql, vars)).then(function (r) {
+                var cols = (r && r.columns) || [], rows = (r && r.rows) || [];
+                var ix = {}; cols.forEach(function (c, i) { ix[String(c).toUpperCase()] = i; });
+                log.push('forEach -> ' + rows.length + ' row(s)');
+                return rows.reduce(function (p, row) {
+                    return p.then(function () {
+                        var rowVars = Object.assign({}, vars);
+                        cols.forEach(function (c) { rowVars[String(c).toUpperCase()] = row[ix[String(c).toUpperCase()]]; });
+                        return (step.do || []).reduce(function (pp, s) { return pp.then(function () { return runStep(s, rowVars, log); }); }, Promise.resolve());
+                    });
+                }, Promise.resolve());
+            });
+        }
+        log.push('skip unknown step type "' + type + '"');
+        return Promise.resolve({});
+    }
+
+    // ── run one claimed job end-to-end ──────────────────────
+    function executeClaimed(jobId, claim) {
+        var vars = {}, log = [];
+        var steps = [];
+        try { var s = typeof claim.stepsJson === 'string' ? JSON.parse(claim.stepsJson) : claim.stepsJson; steps = (s && s.steps) || []; } catch (e) { log.push('bad stepsJson: ' + e); }
+
+        var chain = steps.reduce(function (p, step) { return p.then(function () { return runStep(step, vars, log); }); }, Promise.resolve());
+
+        return chain.then(function () {
+            // completion check for REPEAT_UNTIL_DONE
+            if (claim.scheduleType === 'REPEAT_UNTIL_DONE' && claim.completionSql) {
+                return query(claim.completionSql).then(function (r) {
+                    var n = ((r && r.rows) || []).length;
+                    log.push('completionSql -> ' + n + ' row(s) ' + (n === 0 ? '(DONE)' : '(more to do)'));
+                    return { ok: true, done: n === 0 };
+                }).catch(function (e) { log.push('completionSql error: ' + e); return { ok: true, done: false }; });
+            }
+            return { ok: true, done: false };
+        }).then(function (res) {
+            return report(jobId, claim.runId, res.ok ? 'SUCCESS' : 'FAILED', log.join('\n'), res.done, '');
+        }).catch(function (err) {
+            log.push('FAILED: ' + err);
+            return report(jobId, claim.runId, 'FAILED', log.join('\n'), false, String(err));
+        });
+    }
+    function report(jobId, runId, status, log, done, error) {
+        return postJson(AI + '/jobs/localreport', { jobId: jobId, runId: runId, status: status, log: log, done: !!done, error: error || '' })
+            .then(function () { if (typeof loadJobs === 'function' && document.getElementById('jb-list')) { try { loadJobs(); } catch (e) { } } })
+            .catch(function () { });
+    }
+
+    // ── poll: find due LOCAL jobs, claim + run them ─────────
+    function poll() {
+        // kill switch (AI Digital Employee > Control): a paused AI claims nothing
+        ipc({ action: 'aiControlStatus' }).then(function (st) {
+            if (st && st.enabled === false) { console.log('[LocalJobs] AI paused - not claiming jobs'); return; }
+            pollDue();
+        }, function () { pollDue(); });
+    }
+    function pollDue() {
+        var url = AI + '/jobs/list?lane=LOCAL&status=SCHEDULED&t=' + Date.now();
+        getJson(url).then(function (parsed) {
+            var jobs = (parsed && parsed.jobs) || [];
+            jobs.forEach(function (j) {
+                if (j.lane && j.lane !== 'LOCAL') return;
+                if (running[j.jobId]) return;                       // this app already running it
+                if (j.instance && inst() && j.instance !== inst()) return; // only run current-instance jobs
+                running[j.jobId] = true;
+                postJson(AI + '/jobs/localclaim', { jobId: j.jobId, machine: machineId() })
+                    .then(function (c) {
+                        if (!c || !c.claimed) { delete running[j.jobId]; return; }
+                        return executeClaimed(j.jobId, c).then(function () { delete running[j.jobId]; });
+                    })
+                    .catch(function () { delete running[j.jobId]; });
+            });
+        }).catch(function () { /* endpoint not deployed yet — stay quiet */ });
+    }
+
+    // ── shared step runner (reused by the Daily Tasks "Execute" button) ──
+    window.LocalJobRunner = {
+        // steps: array or {steps:[...]}; opts.instance ignored (uses current); onLog(line)
+        runSteps: function (steps, opts, onLog) {
+            var vars = (opts && opts.vars) ? Object.assign({}, opts.vars) : {}, log = [];
+            var arr = Array.isArray(steps) ? steps : ((steps && steps.steps) || []);
+            return arr.reduce(function (p, s) {
+                return p.then(function () {
+                    var before = log.length;
+                    return runStep(s, vars, log).then(function () { if (onLog) for (var i = before; i < log.length; i++) onLog(log[i]); });
+                });
+            }, Promise.resolve())
+                .then(function () { return { ok: true, log: log, vars: vars }; })
+                .catch(function (e) { log.push('FAILED: ' + e); return { ok: false, log: log, vars: vars, error: String(e) }; });
+        },
+        // one line per step for a review dialog; flags the ones that change something
+        describe: function (steps) {
+            var arr = Array.isArray(steps) ? steps : ((steps && steps.steps) || []);
+            function one(s, ind) {
+                var t = String(s.type || 'rest').toLowerCase(), m = String(s.method || 'GET').toUpperCase(), line;
+                if (t === 'rest') line = (m === 'GET' ? '' : '⚠ ') + 'REST ' + m + ' ' + (s.url || '') + (m !== 'GET' && restWriteBlocked(String(s.url || '').replace(/\{[A-Za-z0-9_]+\}/g, 'x')) ? '   (will be BLOCKED)' : '');
+                else if (t === 'query' || t === 'report') line = t + ': ' + String(s.sql || '').replace(/\s+/g, ' ').slice(0, 160);
+                else if (t === 'ipc') line = (IPC_ALLOWED[s.action] ? '⚠ ' : '⛔ ') + 'local action ' + s.action + (IPC_ALLOWED[s.action] ? '' : '   (will be BLOCKED)');
+                else if (t === 'foreach') return [ind + 'for each row of: ' + String(s.query && s.query.sql || '').replace(/\s+/g, ' ').slice(0, 140)].concat((s.do || []).map(function (x) { return one(x, ind + '    ')[0]; }));
+                else line = '⚠ ' + t + ' ' + (s.orderNumber || '');
+                return [ind + line];
+            }
+            var out = [];
+            arr.forEach(function (s, i) { one(s, '').forEach(function (l, k) { out.push((k === 0 ? (i + 1) + '. ' : '   ') + l); }); });
+            return out;
+        },
+        // returns the number of rows a completion SELECT returns (0 = done); -1 on error
+        completionCount: function (sql) {
+            return query(sql).then(function (r) { return ((r && r.rows) || []).length; }).catch(function () { return -1; });
+        }
+    };
+
+    window.LocalJobs = {
+        init: function () {
+            if (timer) return;
+            // small delay so the WebView bridge + AI_BASE are ready
+            setTimeout(poll, 4000);
+            timer = setInterval(poll, POLL_MS);
+        },
+        pollNow: poll,
+        stop: function () { if (timer) { clearInterval(timer); timer = null; } }
+    };
+})();

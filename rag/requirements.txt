@@ -1,0 +1,19 @@
+# ─────────────────────────────────────────────────────────────
+#  Gray's WMS RAG Service — Python 3.14+ compatible
+#  Zero C++ / Rust compilation required — all binary wheels
+# ─────────────────────────────────────────────────────────────
+
+# Web server (pure Python)
+flask==3.1.0
+flask-cors==5.0.0
+
+# ONNX-based embeddings — no torch, no Rust (replaces sentence-transformers)
+fastembed>=0.3.0
+
+# Numerics — cp314 binary wheels available via PyPI
+numpy>=2.0.0
+
+# HTTP + AI providers (pure Python)
+requests==2.32.3
+anthropic==0.40.0
+openai>=1.0.0

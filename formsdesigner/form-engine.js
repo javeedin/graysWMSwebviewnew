@@ -1,0 +1,1503 @@
+// ============================================================
+// WMS FORM ENGINE - renders and executes DB-stored form definitions
+// ============================================================
+// A form is ONE JSON document (WMS_AI_FORMS.definition). The engine
+// renders it and executes its actions - no code per form.
+//
+// Definition contract:
+// {
+//   "title": "Sales Order", "icon": "file-invoice", "width": 1050,
+//   "header": { "columns": 4, "fields": [
+//     { "key","label","type": "text|number|date|textarea|checkbox|select|picker|readonly|computed|barcode|signature",
+//       "default": "value | $TODAY | $USER", "required": true, "span": 2,
+//       "min","max","pattern","hint",
+//       select:  "listSql" (aliases VALUE,LABEL - or 1st/2nd column; may
+//                reference other header fields as :FIELDKEY -> the list
+//                reloads when that field changes = DEPENDENT LIST)
+//       picker:  "pickerSql" (:SEARCH placeholder), "display" (column
+//                shown in the field), "map": { headerKey: COLUMN }
+//       computed:"formula" e.g. "qty_total * 1.15" over header keys and grid totals
+//                (<detailKey>_<totalColumn>, <detailKey>_count), e.g. "lines_amount * 1.15"
+//       big: true on readonly/computed = large POS-style figure
+//       barcode: scan box - a USB/Bluetooth scanner types + Enter; "camera": true adds
+//                a webcam scan button. "addTo": detailKey + "scanSql" (:CODE = the scanned
+//                text, aliases = column keys) adds the item as a row, or +1 on "qtyKey" when
+//                the row whose "matchKey" column equals it already exists. Without addTo the
+//                scanned text is just the field value (lookups/lists react to it).
+//       signature: finger/mouse/pen pad; value = PNG data URL ("" until signed), "height" px } ] },
+//   "details": [ { "key": "lines", "title": "Order Lines",
+//     "pickerSql": ":SEARCH + header :FIELDKEY placeholders",
+//     "pickerMap": { columnKey: SQLCOLUMN },   // fills new rows
+//     "allowManualRow": true, "allowDelete": true, "qtyKey": "qty",
+//     "columns": [ { "key","label","type":"text|number|computed",
+//                    "editable": true, "formula": "qty*price", "width" } ],
+//     "totals": ["qty","net"],
+//     "lineRulesSql": ":KEYCOL + header placeholders -> companion rows
+//                     (aliases = column keys; BUY_QTY/GET_QTY compute the
+//                     companion qty from the parent row's qtyKey)" } ],
+//   "rules": { "submitChecks": [ { "sql","message","mode":
+//              "FAIL_IF_ROWS|FAIL_IF_NO_ROWS" } ] },
+//   "actions": [ { "key","label","icon","style":"primary|danger|default",
+//     "validate": true, "confirm": "Are you sure?",
+//     "type": "ords",       "method","url","bodyTemplate","successMessage"
+//     "type": "sql",        "statement" ({key} -> escaped literal)
+//     "type": "local_file", "folder","fileName" ("{key}/{TIMESTAMP}" ok)
+//     "type": "chat",       "prompt" (sent to the AI with the values)
+//     "type": "close" } ]
+// }
+//
+// Placeholders. In ANY SQL: :SEARCH (pickers only) and :FIELDKEY
+// (uppercase header key -> quoted literal from the live header). In
+// bodyTemplate / url / fileName / prompt / statement: {key} -> header
+// value; a string that is EXACTLY "{HEADER}" / "{TOTALS}" / "{<detailKey>}"
+// becomes the raw object/array; "{VALUES}" the whole payload;
+// {TIMESTAMP} / {FORM_KEY} also available in strings.
+//
+// API:
+//   WMSFormEngine.open(def, opts)      opts: { formKey, values, mode:'run'|'preview',
+//                                              chatHandoff(action,payload), onClose() }
+//   WMSFormEngine.openByKey(formKey, opts)   loads from WMS_AI_FORMS first
+// ============================================================
+
+(function () {
+    var DEFAULT_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
+    function aiBase() { return window.WMS_AI_BASE_URL || DEFAULT_BASE; }
+
+    var st = null;   // current open form state
+
+    // ── helpers ─────────────────────────────────────────────
+    function esc(s) {
+        return String(s === undefined || s === null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function num(v) { var n = Number(v); return isNaN(n) ? 0 : n; }
+    function fmt(v) { return num(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    function sqlLit(v) { return "'" + String(v === undefined || v === null ? '' : v).replace(/'/g, "''") + "'"; }
+    function todayIso() { return new Date().toISOString().slice(0, 10); }
+    function userName() {
+        try { if (typeof appUserName === 'function') return appUserName(); } catch (e) { }
+        return localStorage.getItem('wms_user') || 'WMSUSER';
+    }
+
+    function runSql(sql, cb) {
+        if (typeof sendMessageToCSharp !== 'function') { cb('WebView bridge unavailable', null); return; }
+        sendMessageToCSharp({
+            action: 'executePost', fullUrl: aiBase() + '/executequery',
+            body: JSON.stringify({ sql: sql, maxRows: 500, appUser: userName() })
+        }, function (err, data) {
+            if (err) { cb(String(err), null); return; }
+            try {
+                var r = typeof data === 'string' ? JSON.parse(data) : data;
+                if (!r.success) { cb(r.error || 'query failed', null); return; }
+                var cols = r.columns || [];
+                cb(null, (r.rows || []).map(function (row) {
+                    var o = {};
+                    cols.forEach(function (c, i) { o[String(c).toUpperCase()] = row[i]; });
+                    return o;
+                }));
+            } catch (e) { cb(e.message, null); }
+        });
+    }
+
+    // header-field placeholders in SQL (:FIELDKEY -> quoted literal)
+    function bindHeaderSql(sql) {
+        var out = String(sql);
+        Object.keys(st.values).forEach(function (k) {
+            out = out.replace(new RegExp(':' + k.toUpperCase() + '\\b', 'g'), sqlLit(st.values[k]));
+        });
+        return out;
+    }
+    function bindSearch(sql, text) {
+        return String(sql).replace(/:SEARCH\b/g, "'%" + String(text || '').replace(/'/g, "''").toUpperCase() + "%'");
+    }
+    // Auto-binding safety net for PICKER SQL: any placeholder still left
+    // after :SEARCH and the header fields takes the search text as a plain
+    // literal - users often write :ITEM or :TEXT instead of :SEARCH, which
+    // would otherwise hit ORA-01008 (not all variables bound).
+    function bindLeftoverSearch(sql, text) {
+        var lit = "'" + String(text || '').replace(/'/g, "''").toUpperCase() + "'";
+        var out = String(sql).replace(/:[A-Za-z_]\w*/g, lit);
+        if (out !== String(sql)) console.warn('[FormEngine] picker SQL had unbound placeholders - bound them to the search text. Prefer :SEARCH.');
+        return out;
+    }
+    // which header fields does this SQL depend on?
+    function sqlDeps(sql) {
+        var deps = [];
+        Object.keys((st && st.values) || {}).forEach(function (k) {
+            if (new RegExp(':' + k.toUpperCase() + '\\b').test(String(sql))) deps.push(k);
+        });
+        return deps;
+    }
+
+    // safe-ish arithmetic evaluator for computed fields/columns
+    function evalFormula(formula, scope) {
+        var f = String(formula || '');
+        if (!/^[\w\s+\-*/().,]*$/.test(f)) { console.warn('[FormEngine] formula rejected:', f); return 0; }
+        var body = f.replace(/[A-Za-z_]\w*/g, function (id) {
+            if (/^\d/.test(id)) return id;
+            return '(' + num(scope[id]) + ')';
+        });
+        try { var v = Function('"use strict"; return (' + body + ');')(); return isNaN(v) ? 0 : v; }
+        catch (e) { console.warn('[FormEngine] formula error:', f, e.message); return 0; }
+    }
+
+    // ── values / totals ─────────────────────────────────────
+    function computeRow(det, row) {
+        (det.columns || []).forEach(function (c) {
+            if (c.type === 'computed' && c.formula) row[c.key] = evalFormula(c.formula, row);
+        });
+    }
+    function detailTotals(det) {
+        var t = {};
+        (det.totals || []).forEach(function (k) {
+            t[k] = (st.details[det.key] || []).reduce(function (s, r) { return s + num(r[k]); }, 0);
+        });
+        return t;
+    }
+    function headerComputed() {
+        // header formulas also see every grid total as <detailKey>_<column> (e.g. lines_amount)
+        // and the row count as <detailKey>_count
+        var scope = Object.assign({}, st.values);
+        (st.def.details || []).forEach(function (det) {
+            var t = detailTotals(det);
+            Object.keys(t).forEach(function (k) { scope[det.key + '_' + k] = t[k]; });
+            scope[det.key + '_count'] = (st.details[det.key] || []).filter(function (r) { return !r._rule; }).length;
+        });
+        (st.def.header.fields || []).forEach(function (f) {
+            if (f.type === 'computed' && f.formula) { st.values[f.key] = evalFormula(f.formula, scope); scope[f.key] = st.values[f.key]; }
+        });
+    }
+    function buildPayload() {
+        captureHeader();
+        headerComputed();
+        var payload = { header: {}, totals: {} };
+        Object.keys(st.values).forEach(function (k) { payload.header[k] = st.values[k]; });
+        (st.def.details || []).forEach(function (det) {
+            var rows = (st.details[det.key] || []).map(function (r) {
+                var o = {};
+                (det.columns || []).forEach(function (c) { o[c.key] = r[c.key]; });
+                if (r._rule) { o._rule = true; o._rule_ref = r._rule_ref || ''; }
+                return o;
+            });
+            payload[det.key] = rows;
+            payload.totals[det.key] = detailTotals(det);
+        });
+        return payload;
+    }
+
+    function captureHeader() {
+        (st.def.header.fields || []).forEach(function (f) {
+            // picker/readonly/computed values are set programmatically (a
+            // pick, a lookup, a formula) - never read them back from the
+            // DOM, or a re-render right after the set would wipe them
+            if (f.type === 'picker' || f.type === 'readonly' || f.type === 'computed' || f.type === 'signature') return;
+            var el = document.getElementById('fe-h-' + f.key);
+            if (!el) return;
+            if (f.type === 'checkbox') st.values[f.key] = el.checked ? 'Y' : 'N';
+            else st.values[f.key] = el.value;
+        });
+    }
+
+    // ── template resolution for actions ─────────────────────
+    function strSub(s, payload) {
+        return String(s)
+            .replace(/\{TIMESTAMP\}/g, new Date().toISOString().replace(/[:.]/g, '-'))
+            .replace(/\{FORM_KEY\}/g, st.formKey || '')
+            .replace(/\{(\w+)\}/g, function (m, k) {
+                if (payload.header[k] !== undefined) return String(payload.header[k]);
+                return m;
+            });
+    }
+    function resolveTemplate(t, payload) {
+        if (t === null || t === undefined) return t;
+        if (typeof t === 'string') {
+            var exact = t.match(/^\{(\w+)\}$/);
+            if (exact) {
+                var k = exact[1];
+                if (k === 'HEADER') return payload.header;
+                if (k === 'TOTALS') return payload.totals;
+                if (k === 'VALUES') return payload;
+                if (payload[k] !== undefined) return payload[k];          // detail rows
+                if (payload.header[k] !== undefined) return payload.header[k];
+            }
+            return strSub(t, payload);
+        }
+        if (Array.isArray(t)) return t.map(function (x) { return resolveTemplate(x, payload); });
+        if (typeof t === 'object') {
+            var o = {};
+            Object.keys(t).forEach(function (k) { o[k] = resolveTemplate(t[k], payload); });
+            return o;
+        }
+        return t;
+    }
+
+    // ── conditional visibility (showWhen) ───────────────────
+    // showWhen on a field, detail block, report or action:
+    //   { field, op, value }  or an ARRAY of those (all must pass).
+    // Ops: eq, ne, gt, lt, gte, lte, in (value = array or csv),
+    //      empty, notEmpty. Evaluated against the live header values;
+    //      hidden fields are also skipped by validation.
+    function condOk(c) {
+        if (!c) return true;
+        if (Array.isArray(c)) return c.every(condOk);
+        var v = st.values[c.field];
+        var t = c.value;
+        switch (String(c.op || 'eq')) {
+            case 'eq':  return String(v) === String(t);
+            case 'ne':  return String(v) !== String(t);
+            case 'gt':  return num(v) > num(t);
+            case 'lt':  return num(v) < num(t);
+            case 'gte': return num(v) >= num(t);
+            case 'lte': return num(v) <= num(t);
+            case 'in':  return (Array.isArray(t) ? t : String(t || '').split(','))
+                .map(function (x) { return String(x).trim(); }).indexOf(String(v)) >= 0;
+            case 'empty':    return v === '' || v === undefined || v === null;
+            case 'notEmpty': return !(v === '' || v === undefined || v === null);
+            default: return true;
+        }
+    }
+    function visibleNow(item) { return !item.showWhen || condOk(item.showWhen); }
+    // which conditional items are visible right now (render stores it; change handlers compare)
+    function visSig() {
+        var d = st.def, out = '';
+        [((d.header && d.header.fields) || []), d.details || [], d.reports || [], d.actions || [], d.sections || [], d.regions || []].forEach(function (list) {
+            list.forEach(function (x) { if (x.showWhen) out += visibleNow(x) ? '1' : '0'; });
+        });
+        return out;
+    }
+    function defHasConds() {
+        var d = st.def;
+        return (((d.header && d.header.fields) || []).some(function (f) { return f.showWhen; }))
+            || ((d.details || []).some(function (x) { return x.showWhen; }))
+            || ((d.reports || []).some(function (x) { return x.showWhen; }))
+            || ((d.actions || []).some(function (x) { return x.showWhen; }));
+    }
+
+    // ── sections (regions) ──────────────────────────────────
+    // def.sections = [ { key, title, tab, columns, display:
+    //   'inline' (heading + rule) | 'card' (boxed) | 'plain',
+    //   sourceSql (a record query; with fetchOnOpen the first row
+    //   fills matching field keys - APEX form-on-table style),
+    //   style: { headingColor, lineColor, background, font, fontSize } } ]
+    // Items join a section via field.section / detail.section.
+    function fetchSection(s) {
+        runSql(bindHeaderSql(s.sourceSql), function (err, rows) {
+            if (!st) return;
+            if (err) { console.warn('[FormEngine] section fetch', s.key, 'failed:', err); return; }
+            if (!rows.length) return;
+            var r0 = rows[0];
+            var touched = false;
+            ((st.def.header && st.def.header.fields) || []).forEach(function (f) {
+                var v = r0[f.key.toUpperCase()];
+                if (v !== undefined) { st.values[f.key] = v === null ? '' : v; touched = true; }
+            });
+            if (touched) { headerComputed(); render(true); }
+        });
+    }
+    // detail.sourceSql: rows loaded on open into the editable grid
+    function loadDetailRows(det) {
+        runSql(bindHeaderSql(det.sourceSql), function (err, rows) {
+            if (!st) return;
+            if (err) { console.warn('[FormEngine] detail source', det.key, 'failed:', err); return; }
+            st.details[det.key] = rows.map(function (r) {
+                var row = {};
+                (det.columns || []).forEach(function (c) {
+                    var v = r[c.key.toUpperCase()];
+                    row[c.key] = v !== undefined && v !== null ? v : (c.type === 'number' ? 0 : '');
+                });
+                computeRow(det, row);
+                return row;
+            });
+            render(true);
+        });
+    }
+
+    function fieldsGrid(fs, cols) {
+        return '<div style="display:grid;grid-template-columns:repeat(' + cols + ',1fr);gap:8px 12px;">' +
+            fs.map(fieldHtml).join('') + '</div>';
+    }
+
+    // ── regions (data-bound units INSIDE sections) ──────────
+    // def.regions = [ { key, title, section (parent section key; empty =
+    //   top level), tab (for top-level regions), display: 'single'
+    //   (one record - fields join via field.region) | 'multi' (rows -
+    //   a detail grid joins via detail.region), columns, sourceSql,
+    //   fetchOnOpen, showWhen } ]
+    // A SECTION groups and styles; a REGION binds to data.
+    function regionHtml(r, hFields, allDets, defaultCols) {
+        var inner;
+        if (r.display === 'multi') {
+            var det = allDets.find(function (dd) { return dd.region === r.key; });
+            inner = det ? detailHtml(det) : '<div style="font-size:10px;color:#94a3b8;padding:6px 0;">Multi-row region "' + esc(r.key) + '" has no grid yet - use Generate in the designer.</div>';
+        } else {
+            inner = fieldsGrid(hFields.filter(function (f) { return f.region === r.key; }), r.columns || defaultCols);
+        }
+        var head = r.title
+            ? '<div style="font-size:10.5px;font-weight:700;color:#64748b;margin:8px 0 5px;text-transform:uppercase;letter-spacing:.3px;">' + esc(r.title) + '</div>'
+            : '';
+        return '<div style="margin-top:6px;">' + head + inner + '</div>';
+    }
+    function fetchRegion(r) {
+        runSql(bindHeaderSql(r.sourceSql), function (err, rows) {
+            if (!st) return;
+            if (err) { console.warn('[FormEngine] region fetch', r.key, 'failed:', err); return; }
+            if (!rows.length) return;
+            var r0 = rows[0];
+            var touched = false;
+            ((st.def.header && st.def.header.fields) || []).forEach(function (f) {
+                if (f.region !== r.key) return;
+                var v = r0[f.key.toUpperCase()];
+                if (v !== undefined) { st.values[f.key] = v === null ? '' : v; touched = true; }
+            });
+            if (touched) { headerComputed(); render(true); }
+        });
+    }
+    function sectionHtml(s, fs, sdets, defaultCols, extraHtml) {
+        var stl = s.style || {};
+        var cols = s.columns || defaultCols;
+        var inner = fieldsGrid(fs, cols) + sdets.map(detailHtml).join('') + (extraHtml || '');
+        var headHtml = '';
+        if (s.display !== 'plain' && (s.title || s.key)) {
+            headHtml = '<div style="display:flex;align-items:center;gap:10px;margin:0 0 9px;">' +
+                '<div style="font-size:' + (stl.fontSize || 12) + 'px;font-weight:800;color:' + esc(stl.headingColor || '#0f766e') + ';' +
+                (stl.font ? 'font-family:' + esc(stl.font) + ';' : '') + '">' + esc(s.title || s.key) + '</div>' +
+                '<div style="flex:1;height:2px;background:' + esc(stl.lineColor || '#e2e8f0') + ';border-radius:1px;"></div></div>';
+        }
+        if (s.display === 'card') {
+            return '<div style="background:' + esc(stl.background || '#f8fafc') + ';border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;margin-top:12px;' +
+                (stl.font ? 'font-family:' + esc(stl.font) + ';' : '') + '">' + headHtml + inner + '</div>';
+        }
+        return '<div style="margin-top:14px;' + (stl.background ? 'background:' + esc(stl.background) + ';border-radius:10px;padding:8px 10px;' : '') +
+            (stl.font ? 'font-family:' + esc(stl.font) + ';' : '') + '">' + headHtml + inner + '</div>';
+    }
+
+    // ── rendering ───────────────────────────────────────────
+    function inputCss() { return 'width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;outline:none;'; }
+
+    function fieldHtml(f) {
+        var v = st.values[f.key];
+        var span = f.span ? 'grid-column:span ' + f.span + ';' : '';
+        var req = f.required ? ' <span style="color:#dc2626;">*</span>' : '';
+        var inner;
+        switch (f.type) {
+            case 'select':
+                // static options array, or rows loaded from listSql
+                var list = st.lists[f.key] || (Array.isArray(f.options) ? f.options.map(function (o) {
+                    return typeof o === 'object' ? o : { value: o, label: o };
+                }) : []);
+                inner = '<select id="fe-h-' + f.key + '" data-fkey="' + f.key + '" class="fe-hin" style="' + inputCss() + '">' +
+                    '<option value=""></option>' +
+                    list.map(function (o) {
+                        return '<option value="' + esc(o.value) + '"' + (String(o.value) === String(v) ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+                    }).join('') + '</select>';
+                break;
+            case 'picker':
+                inner = '<div style="display:flex;gap:4px;">' +
+                    '<input type="text" id="fe-h-' + f.key + '" value="' + esc(v) + '" readonly style="' + inputCss() + 'background:#f8fafc;">' +
+                    '<button onclick="WMSFormEngine._pick(\'' + f.key + '\')" style="border:1px solid #e2e8f0;background:#eff6ff;color:#1d4ed8;border-radius:6px;cursor:pointer;padding:0 9px;" title="Search"><i class="fas fa-search"></i></button></div>';
+                break;
+            case 'textarea':
+                inner = '<textarea id="fe-h-' + f.key + '" data-fkey="' + f.key + '" class="fe-hin" style="' + inputCss() + 'min-height:52px;resize:vertical;">' + esc(v) + '</textarea>';
+                break;
+            case 'checkbox':
+                inner = '<label style="display:flex;align-items:center;gap:6px;font-size:12px;padding-top:5px;cursor:pointer;">' +
+                    '<input type="checkbox" id="fe-h-' + f.key + '" data-fkey="' + f.key + '" class="fe-hin"' + (v === 'Y' || v === true ? ' checked' : '') + '> ' + esc(f.checkLabel || 'Yes') + '</label>';
+                break;
+            case 'readonly': case 'computed':
+                inner = '<input type="text" id="fe-h-' + f.key + '" value="' + esc(f.type === 'computed' && v !== '' ? fmt(v) : v) + '" readonly style="' + inputCss() + 'background:#f8fafc;' +
+                    (f.big ? 'font-size:24px;font-weight:800;color:' + esc(f.color || '#0f766e') + ';text-align:right;padding:8px 12px;border:2px solid ' + esc(f.color || '#0f766e') + '33;' : '') + '">';
+                break;
+            case 'barcode':
+                inner = '<div style="display:flex;gap:4px;align-items:stretch;">' +
+                    '<div style="position:relative;flex:1;"><i class="fas fa-barcode" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#0f766e;"></i>' +
+                    '<input type="text" id="fe-h-' + f.key + '" data-fkey="' + f.key + '" data-scan="' + f.key + '" class="fe-hin" value="' + (f.addTo ? '' : esc(v)) + '" autocomplete="off" placeholder="' + esc(f.placeholder || 'Scan or type a code, press Enter') + '" style="' + inputCss() + 'padding-left:32px;font-size:14px;font-weight:600;border:2px solid #99f6e4;"></div>' +
+                    (f.camera ? '<button type="button" onclick="WMSFormEngine._camera(\'' + f.key + '\')" title="Scan with the camera" style="border:none;background:linear-gradient(135deg,#14b8a6,#0f766e);color:white;border-radius:6px;cursor:pointer;padding:0 12px;font-size:14px;"><i class="fas fa-camera"></i></button>' : '') +
+                    '</div><div id="fe-scanmsg-' + f.key + '" style="font-size:10px;min-height:13px;margin-top:2px;"></div>';
+                break;
+            case 'signature':
+                inner = '<div style="position:relative;border:2px dashed #cbd5e1;border-radius:10px;background:#fff;">' +
+                    '<canvas id="fe-sig-' + f.key + '" data-sig="' + f.key + '" style="display:block;width:100%;height:' + (f.height || 140) + 'px;touch-action:none;cursor:crosshair;border-radius:10px;"></canvas>' +
+                    '<div style="position:absolute;left:14px;right:14px;bottom:26px;border-bottom:1px solid #e2e8f0;pointer-events:none;"></div>' +
+                    '<div style="position:absolute;left:14px;bottom:8px;font-size:9px;color:#94a3b8;pointer-events:none;"><i class="fas fa-pen-nib"></i> ' + esc(f.placeholder || 'Sign here') + '</div>' +
+                    '<button type="button" onclick="WMSFormEngine._sigClear(\'' + f.key + '\')" style="position:absolute;right:6px;top:6px;border:1px solid #e2e8f0;background:white;color:#64748b;border-radius:6px;cursor:pointer;padding:2px 8px;font-size:10px;"><i class="fas fa-eraser"></i> Clear</button></div>';
+                break;
+            case 'date':
+                inner = '<input type="date" id="fe-h-' + f.key + '" data-fkey="' + f.key + '" class="fe-hin" value="' + esc(v) + '" style="' + inputCss() + '">';
+                break;
+            case 'number':
+                inner = '<input type="number" id="fe-h-' + f.key + '" data-fkey="' + f.key + '" class="fe-hin" value="' + esc(v) + '"' +
+                    (f.min !== undefined ? ' min="' + f.min + '"' : '') + (f.max !== undefined ? ' max="' + f.max + '"' : '') +
+                    ' style="' + inputCss() + 'text-align:right;">';
+                break;
+            default:
+                inner = '<input type="text" id="fe-h-' + f.key + '" data-fkey="' + f.key + '" class="fe-hin" value="' + esc(v) + '" style="' + inputCss() + '">';
+        }
+        return '<div style="' + span + '"><label style="display:block;font-size:10px;font-weight:700;color:#475569;margin-bottom:2px;">' + esc(f.label || f.key) + req + '</label>' + inner +
+            (f.hint ? '<div style="font-size:9px;color:#94a3b8;margin-top:1px;">' + esc(f.hint) + '</div>' : '') + '</div>';
+    }
+
+    function detailHtml(det) {
+        var rows = st.details[det.key] || [];
+        var cols = det.columns || [];
+        var t = detailTotals(det);
+        var body = rows.map(function (r, ri) {
+            return '<tr>' +
+                '<td style="padding:4px 6px;text-align:center;color:#94a3b8;">' + (ri + 1) + '</td>' +
+                cols.map(function (c) {
+                    var val = r[c.key];
+                    if (c.editable && c.type !== 'computed')
+                        return '<td style="padding:2px;"><input type="' + (c.type === 'number' ? 'number' : 'text') + '" value="' + esc(val) + '" data-det="' + det.key + '" data-ri="' + ri + '" data-ck="' + c.key + '" class="fe-cell" style="width:' + (c.width || 80) + 'px;padding:4px;border:1px solid #e2e8f0;border-radius:5px;font-size:11px;' + (c.type === 'number' ? 'text-align:right;' : '') + '"></td>';
+                    var disp = (c.type === 'number' || c.type === 'computed') ? fmt(val) : esc(val);
+                    var tag = r._rule && c.key === cols[0].key ? ' <span style="font-size:8.5px;font-weight:800;padding:1px 6px;border-radius:8px;background:#dcfce7;color:#166534;">RULE</span>' : '';
+                    return '<td style="padding:4px 6px;' + ((c.type === 'number' || c.type === 'computed') ? 'text-align:right;' : '') + '">' + disp + tag + '</td>';
+                }).join('') +
+                (det.allowDelete !== false ? '<td style="padding:4px;text-align:center;"><i class="fas fa-trash" onclick="WMSFormEngine._delRow(\'' + det.key + '\',' + ri + ')" style="cursor:pointer;color:#f87171;font-size:11px;"></i></td>' : '<td></td>') +
+                '</tr>';
+        }).join('');
+
+        return '<div style="margin-top:12px;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+              '<div style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.4px;">' + esc(det.title || det.key) + ' (' + rows.length + ')</div>' +
+              '<div style="display:flex;gap:6px;">' +
+              (det.pickerSql ? '<button onclick="WMSFormEngine._pickRows(\'' + det.key + '\')" style="border:none;background:linear-gradient(135deg,#0ea5e9,#0369a1);color:white;border-radius:7px;cursor:pointer;padding:5px 12px;font-size:11px;font-weight:700;"><i class="fas fa-plus"></i> Add…</button>' : '') +
+              (det.allowManualRow ? '<button onclick="WMSFormEngine._addRow(\'' + det.key + '\')" style="border:1px solid #e2e8f0;background:white;color:#334155;border-radius:7px;cursor:pointer;padding:5px 12px;font-size:11px;font-weight:700;"><i class="fas fa-plus"></i> Row</button>' : '') +
+              '</div></div>' +
+            '<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:auto;max-height:300px;">' +
+              '<table style="width:100%;border-collapse:collapse;font-size:11px;">' +
+                '<thead><tr style="background:#f8fafc;position:sticky;top:0;"><th style="padding:6px;">#</th>' +
+                cols.map(function (c) { return '<th style="padding:6px;text-align:' + ((c.type === 'number' || c.type === 'computed') ? 'right' : 'left') + ';">' + esc(c.label || c.key) + '</th>'; }).join('') +
+                '<th></th></tr></thead>' +
+                '<tbody id="fe-det-' + det.key + '">' + (body || '<tr><td colspan="' + (cols.length + 2) + '" style="padding:1.2rem;text-align:center;color:#94a3b8;">No rows</td></tr>') + '</tbody>' +
+                ((det.totals || []).length ?
+                '<tfoot><tr style="background:#f8fafc;font-weight:800;"><td style="padding:5px;"></td>' +
+                cols.map(function (c) {
+                    return '<td style="padding:5px;text-align:right;color:#0f172a;">' + (det.totals.indexOf(c.key) >= 0 ? fmt(t[c.key]) : '') + '</td>';
+                }).join('') + '<td></td></tr></tfoot>' : '') +
+              '</table></div></div>';
+    }
+
+    function actionsHtml() {
+        var styles = {
+            primary: 'border:none;background:#16a34a;color:white;',
+            danger: 'border:none;background:#dc2626;color:white;',
+            default: 'border:1px solid #e2e8f0;background:white;color:#334155;'
+        };
+        return (st.def.actions || []).map(function (a, i) {
+            if (!visibleNow(a)) return '';
+            return '<button id="fe-act-' + i + '" onclick="WMSFormEngine._act(' + i + ')" style="' + (styles[a.style] || styles.default) + 'border-radius:8px;cursor:pointer;padding:7px 16px;font-size:12px;font-weight:800;">' +
+                (a.icon ? '<i class="fas fa-' + esc(a.icon) + '"></i> ' : '') + esc(a.label || a.key) + '</button>';
+        }).join('');
+    }
+
+    // ── tab pages (header + details) ────────────────────────
+    function headerTabs() {
+        var fields = (st.def.header && st.def.header.fields) || [];
+        if (!fields.some(function (f) { return f.tab; })) return [];
+        var tabs = [];
+        fields.forEach(function (f) { var t = f.tab || 'Main'; if (tabs.indexOf(t) < 0) tabs.push(t); });
+        return tabs;
+    }
+    function detailTabs() {
+        var dets = st.def.details || [];
+        if (!dets.some(function (d) { return d.tab; })) return [];
+        var tabs = [];
+        dets.forEach(function (d) { var t = d.tab || 'Main'; if (tabs.indexOf(t) < 0) tabs.push(t); });
+        return tabs;
+    }
+    function tabBarHtml(tabs, active, fn) {
+        if (!tabs.length) return '';
+        return '<div style="display:flex;gap:4px;border-bottom:2px solid #e2e8f0;margin-bottom:9px;flex-wrap:wrap;">' +
+            tabs.map(function (t) {
+                var on = t === active;
+                return '<div onclick="WMSFormEngine.' + fn + '(\'' + esc(t).replace(/'/g, "\\'") + '\')" style="padding:5px 14px;font-size:11px;font-weight:800;cursor:pointer;border-radius:7px 7px 0 0;' +
+                    (on ? 'background:#0f766e;color:white;' : 'background:#f1f5f9;color:#475569;') + '">' + esc(t) + '</div>';
+            }).join('') + '</div>';
+    }
+
+    // ── reports (query grids with print) ────────────────────
+    function reportHtml(r) {
+        var data = st.reports[r.key];
+        var body;
+        if (!data) body = '<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;">Click Refresh to run this report.</div>';
+        else if (data.error) body = '<div style="padding:1rem;color:#dc2626;font-size:11px;">' + esc(data.error) + '</div>';
+        else if (!data.rows.length) body = '<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;">No data.</div>';
+        else {
+            var cols = Object.keys(data.rows[0]);
+            body = '<table style="width:100%;border-collapse:collapse;font-size:11px;">' +
+                '<thead><tr style="background:#f8fafc;position:sticky;top:0;">' + cols.map(function (c) { return '<th style="padding:6px;text-align:left;">' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+                data.rows.map(function (row) {
+                    return '<tr style="border-bottom:1px solid #f1f5f9;">' + cols.map(function (c) { return '<td style="padding:5px 6px;">' + esc(row[c]) + '</td>'; }).join('') + '</tr>';
+                }).join('') + '</tbody></table>';
+        }
+        return '<div style="margin-top:12px;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+              '<div style="font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.4px;"><i class="fas fa-chart-simple"></i> ' + esc(r.title || r.key) +
+              (data && data.rows ? ' (' + data.rows.length + ')' : '') + '</div>' +
+              '<div style="display:flex;gap:6px;">' +
+                '<button onclick="WMSFormEngine._runReport(\'' + esc(r.key) + '\')" style="border:1px solid #e2e8f0;background:white;color:#334155;border-radius:7px;cursor:pointer;padding:5px 12px;font-size:11px;font-weight:700;"><i class="fas fa-rotate"></i> Refresh</button>' +
+                '<button onclick="WMSFormEngine._print(\'' + esc(r.key) + '\')" style="border:1px solid #e2e8f0;background:white;color:#334155;border-radius:7px;cursor:pointer;padding:5px 12px;font-size:11px;font-weight:700;"><i class="fas fa-print"></i> Print</button>' +
+              '</div></div>' +
+            '<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:auto;max-height:320px;">' + body + '</div></div>';
+    }
+    function runReport(key) {
+        var r = (st.def.reports || []).find(function (x) { return x.key === key; });
+        if (!r || !r.sql) return;
+        captureHeader();
+        st.reports[key] = null;
+        runSql(bindHeaderSql(r.sql), function (err, rows) {
+            if (!st) return;
+            st.reports[key] = err ? { error: err, rows: [] } : { rows: rows };
+            render();
+        });
+    }
+
+    // ── printing ────────────────────────────────────────────
+    function printableTable(title, rows) {
+        if (!rows || !rows.length) return '';
+        var cols = Object.keys(rows[0]).filter(function (c) { return c.charAt(0) !== '_'; });
+        return '<h3>' + esc(title) + '</h3><table><thead><tr>' +
+            cols.map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+            rows.map(function (r) { return '<tr>' + cols.map(function (c) { return '<td>' + esc(r[c]) + '</td>'; }).join('') + '</tr>'; }).join('') +
+            '</tbody></table>';
+    }
+    function buildPrintHtml(scope) {
+        var def = st.def;
+        var payload = buildPayload();
+        var body = '<h2>' + esc(def.title || st.formKey) + '</h2>' +
+            '<div class="meta">' + esc(new Date().toLocaleString()) + ' — ' + esc(userName()) + '</div>';
+        if (scope === 'form' || !scope) {
+            body += '<table class="hdr">' + ((def.header && def.header.fields) || []).map(function (f) {
+                var pv = payload.header[f.key];
+                if (f.type === 'signature') return '<tr><th>' + esc(f.label || f.key) + '</th><td>' + (pv ? '<img src="' + esc(pv) + '" style="height:70px;">' : '') + '</td></tr>';
+                return '<tr><th>' + esc(f.label || f.key) + '</th><td>' + esc(pv) + '</td></tr>';
+            }).join('') + '</table>';
+            (def.details || []).forEach(function (det) {
+                body += printableTable(det.title || det.key, payload[det.key]);
+            });
+            (def.reports || []).forEach(function (r) {
+                var data = st.reports[r.key];
+                if (data && data.rows && data.rows.length) body += printableTable(r.title || r.key, data.rows);
+            });
+        } else {
+            var rep = (def.reports || []).find(function (x) { return x.key === scope; });
+            var data = st.reports[scope];
+            body += printableTable((rep && rep.title) || scope, (data && data.rows) || []);
+        }
+        return '<html><head><title>' + esc(def.title || 'Form') + '</title><style>' +
+            'body{font-family:Segoe UI,Arial,sans-serif;font-size:12px;color:#111;margin:24px;}' +
+            'h2{margin:0 0 2px;}h3{margin:16px 0 4px;}.meta{color:#666;font-size:10px;margin-bottom:12px;}' +
+            'table{border-collapse:collapse;width:100%;margin-bottom:8px;}th,td{border:1px solid #bbb;padding:4px 7px;text-align:left;font-size:11px;}' +
+            'th{background:#f0f0f0;}.hdr th{width:180px;}' +
+            '</style></head><body>' + body + '</body></html>';
+    }
+    function doPrint(scope) {
+        var html = buildPrintHtml(scope);
+        var frame = document.createElement('iframe');
+        frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+        document.body.appendChild(frame);
+        frame.contentDocument.open();
+        frame.contentDocument.write(html);
+        frame.contentDocument.close();
+        setTimeout(function () {
+            try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch (e) { console.warn('[FormEngine] print failed:', e); }
+            setTimeout(function () { frame.remove(); }, 3000);
+        }, 250);
+    }
+
+    function render(skipCapture) {
+        if (!skipCapture) captureHeader();
+        headerComputed();
+        st.ui.visSig = visSig();
+        var def = st.def;
+        var mob = st.mobile ? (def.mobile || {}) : null;
+
+        var hTabs = headerTabs();
+        var hAct = hTabs.length ? (hTabs.indexOf(st.ui.headerTab) >= 0 ? st.ui.headerTab : hTabs[0]) : null;
+        // wizard: header tab pages become steps with Back/Next
+        var wiz = !!def.wizard && hTabs.length > 1;
+        var stepIdx = wiz ? hTabs.indexOf(hAct) : -1;
+        var lastStep = !wiz || stepIdx === hTabs.length - 1;
+
+        var allFields = ((def.header && def.header.fields) || []).slice();
+        if (mob) {
+            var hid = mob.hidden || [];
+            allFields = allFields.filter(function (f) { return hid.indexOf(f.key) < 0; });
+            var ord = mob.order || [];
+            if (ord.length) allFields.sort(function (a, b) {
+                var ia = ord.indexOf(a.key), ib = ord.indexOf(b.key);
+                return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+            });
+        }
+        var hFields = allFields.filter(function (f) { return (!hTabs.length || (f.tab || hTabs[0]) === hAct) && visibleNow(f); });
+        var hCols = mob ? (mob.columns || 1) : ((def.header && def.header.columns) || 4);
+
+        // sections visible on this tab/step
+        var secKeys = (def.sections || []).map(function (s) { return s.key; });
+        var secs = (def.sections || []).filter(function (s) {
+            if (!visibleNow(s)) return false;
+            if (wiz) return s.tab ? s.tab === hAct : true;
+            return !hTabs.length || (s.tab || hTabs[0]) === hAct;
+        });
+        // regions: data-bound units; those with a parent section render
+        // inside it, top-level ones follow their own tab
+        var allRegs = (def.regions || []).filter(visibleNow);
+        var regKeys = allRegs.map(function (r) { return r.key; });
+        var looseRegs = allRegs.filter(function (r) {
+            if (r.section && secKeys.indexOf(r.section) >= 0) return false;
+            if (wiz) return r.tab ? r.tab === hAct : true;
+            return !hTabs.length || (r.tab || hTabs[0]) === hAct;
+        });
+        // fields not owned by a section or region render in the main grid
+        var looseFields = hFields.filter(function (f) {
+            if (f.region && regKeys.indexOf(f.region) >= 0) return false;
+            return !f.section || secKeys.indexOf(f.section) < 0;
+        });
+
+        var allDets = (def.details || []).filter(visibleNow);
+        var dTabs = detailTabs();
+        var dAct = dTabs.length ? (dTabs.indexOf(st.ui.detailTab) >= 0 ? st.ui.detailTab : dTabs[0]) : null;
+        // a detail owned by a section or a multi-row region follows it
+        var dets = allDets.filter(function (d) {
+            if (d.region && regKeys.indexOf(d.region) >= 0) return false;
+            if (d.section && secKeys.indexOf(d.section) >= 0) return false;
+            if (wiz) return d.tab ? d.tab === hAct : lastStep;
+            return !dTabs.length || (d.tab || dTabs[0]) === dAct;
+        });
+        var reps = ((wiz && !lastStep) ? [] : (def.reports || [])).filter(visibleNow);
+
+        var wizBar = wiz
+            ? '<div style="display:flex;align-items:flex-end;gap:6px;margin-bottom:14px;">' +
+              hTabs.map(function (t, i) {
+                  return '<div style="flex:1;text-align:center;">' +
+                      '<div style="height:4px;border-radius:2px;background:' + (i <= stepIdx ? '#0f766e' : '#e2e8f0') + ';margin-bottom:3px;"></div>' +
+                      '<div style="font-size:9.5px;font-weight:' + (i === stepIdx ? '800' : '600') + ';color:' + (i === stepIdx ? '#0f766e' : '#94a3b8') + ';">' + (i + 1) + '. ' + esc(t) + '</div></div>';
+              }).join('') + '</div>'
+            : '';
+
+        var fstyle = def.style || {};
+        var secsHtml = secs.map(function (s) {
+            var fs = hFields.filter(function (f) { return f.section === s.key && !(f.region && regKeys.indexOf(f.region) >= 0); });
+            var sdets = allDets.filter(function (dd) { return dd.section === s.key && !(dd.region && regKeys.indexOf(dd.region) >= 0); });
+            var sregs = allRegs.filter(function (r) { return r.section === s.key; });
+            var sregsHtml = sregs.map(function (r) { return regionHtml(r, hFields, allDets, s.columns || hCols); }).join('');
+            return sectionHtml(s, fs, sdets, hCols, sregsHtml);
+        }).join('');
+        var looseRegsHtml = looseRegs.map(function (r) { return regionHtml(r, hFields, allDets, hCols); }).join('');
+        var bodyHtml =
+            '<div style="padding:0.9rem 1.2rem;overflow-y:auto;flex:1;' +
+            (fstyle.background ? 'background:' + esc(fstyle.background) + ';' : '') +
+            (fstyle.font ? 'font-family:' + esc(fstyle.font) + ';' : '') + '">' +
+              (wiz ? wizBar : tabBarHtml(hTabs, hAct, '_htab')) +
+              fieldsGrid(looseFields, hCols) +
+              secsHtml +
+              looseRegsHtml +
+              (wiz ? '' : tabBarHtml(dTabs, dAct, '_dtab').replace('margin-bottom:9px', 'margin-top:12px;margin-bottom:2px')) +
+              dets.map(detailHtml).join('') +
+              reps.map(reportHtml).join('') +
+            '</div>';
+
+        // side panel with icon buttons wired to actions
+        var sb = (def.sidebar && Array.isArray(def.sidebar.items) && def.sidebar.items.length) ? def.sidebar : null;
+        var sbHtml = sb
+            ? '<div style="width:52px;flex-shrink:0;background:#f8fafc;border-' + (sb.position === 'left' ? 'right' : 'left') + ':1px solid #e2e8f0;display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:7px;">' +
+              sb.items.map(function (it) {
+                  return '<button onclick="WMSFormEngine._sideAct(\'' + esc(it.action || '') + '\')" title="' + esc(it.label || it.action || '') + '" style="width:38px;height:38px;border:1px solid #e2e8f0;border-radius:9px;background:white;color:#0f766e;cursor:pointer;font-size:14px;"><i class="fas fa-' + esc(it.icon || 'circle') + '"></i></button>';
+              }).join('') + '</div>'
+            : '';
+        var middleHtml = '<div style="display:flex;flex:1;overflow:hidden;min-height:0;">' +
+            (sb && sb.position === 'left' ? sbHtml : '') + bodyHtml + (sb && sb.position !== 'left' ? sbHtml : '') + '</div>';
+
+        var wizBtnsHtml = wiz
+            ? '<button onclick="WMSFormEngine._wizStep(-1)" ' + (stepIdx === 0 ? 'disabled ' : '') + 'style="padding:7px 16px;border:1px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer;font-size:12px;font-weight:700;color:#334155;' + (stepIdx === 0 ? 'opacity:0.4;' : '') + '"><i class="fas fa-chevron-left"></i> Back</button>' +
+              (!lastStep ? '<button onclick="WMSFormEngine._wizStep(1)" style="padding:7px 20px;border:none;border-radius:8px;background:#0f766e;cursor:pointer;font-size:12px;font-weight:800;color:white;">Next <i class="fas fa-chevron-right"></i></button>' : '')
+            : '';
+        var footHtml =
+            '<div style="padding:0.7rem 1.2rem;border-top:1px solid #f1f5f9;flex-shrink:0;">' +
+              '<div id="fe-result" style="font-size:11px;margin-bottom:6px;"></div>' +
+              '<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">' +
+                wizBtnsHtml + (lastStep ? actionsHtml() : '') +
+              '</div>' +
+            '</div>';
+        var titleHtml =
+            '<div style="padding:0.8rem 1.2rem;background:' + (fstyle.accent ? esc(fstyle.accent) : 'linear-gradient(135deg,#0f766e,#134e4a)') + ';display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">' +
+              '<div style="font-weight:800;font-size:14px;color:white;"><i class="fas fa-' + esc(def.icon || 'wpforms') + '"></i> ' + esc(def.title || st.formKey || 'Form') +
+              (st.mode === 'preview' ? ' <span style="font-size:9px;background:rgba(255,255,255,0.25);padding:2px 8px;border-radius:8px;">PREVIEW</span>' : '') + '</div>' +
+              (st.container ? '' : '<button onclick="WMSFormEngine.close()" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button>') +
+            '</div>';
+        var hStyle = def.height ? 'height:' + def.height + 'px;max-height:94vh;' : 'max-height:94vh;';
+
+        if (st.container) {
+            st.container.innerHTML =
+                '<div id="fe-modal" style="background:white;width:100%;max-width:' + (def.width || 1000) + 'px;' + (def.height ? 'height:' + def.height + 'px;' : '') +
+                'border:1px solid #e2e8f0;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,0.08);">' +
+                titleHtml + bodyHtml + footHtml + '</div>';
+        } else {
+            var old = document.getElementById('fe-overlay');
+            if (old) old.remove();
+            document.body.insertAdjacentHTML('beforeend',
+                '<div id="fe-overlay" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:29000;display:flex;align-items:center;justify-content:center;">' +
+                '<div id="fe-modal" style="background:white;width:96%;max-width:' + (def.width || 1000) + 'px;' + hStyle + 'border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+                titleHtml + bodyHtml + footHtml + '</div></div>');
+        }
+
+        // header inputs: keep state + dependent lists + computed in sync
+        Array.prototype.forEach.call(document.querySelectorAll('#fe-modal .fe-hin'), function (el) {
+            el.addEventListener('change', function () {
+                var k = el.getAttribute('data-fkey');
+                st.values[k] = el.type === 'checkbox' ? (el.checked ? 'Y' : 'N') : el.value;
+                refreshDependentLists(k);
+                refreshLookups(k, 0);
+                headerComputed();
+                syncComputedHeaderCells();
+                // conditional visibility may have flipped - repaint only when it did, so a
+                // button clicked right after typing is not replaced under the mouse
+                if (defHasConds() && visSig() !== st.ui.visSig) render(true);
+            });
+        });
+        wireScanAndSign();
+        // detail cells
+        Array.prototype.forEach.call(document.querySelectorAll('#fe-modal .fe-cell'), function (el) {
+            el.addEventListener('input', function () {
+                var det = findDetail(el.getAttribute('data-det'));
+                var row = (st.details[det.key] || [])[Number(el.getAttribute('data-ri'))];
+                if (!row) return;
+                row[el.getAttribute('data-ck')] = el.value;
+                computeRow(det, row);
+                syncRuleRows(det);
+                refreshDetail(det);
+            });
+            // column lookup (auto-fill the rest of the row) runs on change,
+            // not per keystroke - e.g. type an item code, get desc + price
+            el.addEventListener('change', function () {
+                var det = findDetail(el.getAttribute('data-det'));
+                var ck = el.getAttribute('data-ck');
+                var col = ((det && det.columns) || []).find(function (c) { return c.key === ck; });
+                var row = (st.details[det.key] || [])[Number(el.getAttribute('data-ri'))];
+                if (col && col.lookupSql && row && String(row[ck]) !== '') runRowLookup(det, row, col);
+            });
+        });
+    }
+
+    function findDetail(key) {
+        return (st.def.details || []).find(function (d) { return d.key === key; });
+    }
+
+    function syncComputedHeaderCells() {
+        (st.def.header.fields || []).forEach(function (f) {
+            if (f.type !== 'computed') return;
+            var el = document.getElementById('fe-h-' + f.key);
+            if (el) el.value = fmt(st.values[f.key]);
+        });
+    }
+
+    // update computed cells + totals of one detail without full re-render
+    function refreshDetail(det) {
+        var tbody = document.getElementById('fe-det-' + det.key);
+        if (!tbody) return;
+        var cols = det.columns || [];
+        var rows = st.details[det.key] || [];
+        Array.prototype.forEach.call(tbody.rows, function (tr, ri) {
+            var r = rows[ri];
+            if (!r) return;
+            cols.forEach(function (c, ci) {
+                var td = tr.cells[ci + 1];
+                if (!td) return;
+                if (c.editable && c.type !== 'computed') {
+                    var inp = td.querySelector('input');
+                    if (inp && document.activeElement !== inp) inp.value = r[c.key];
+                } else if (c.type === 'number' || c.type === 'computed') {
+                    td.textContent = fmt(r[c.key]);
+                } else if (!(r._rule && ci === 0)) {
+                    // plain text cells too (filled by row lookups); keep the
+                    // RULE tag on a rule row's first cell intact
+                    td.textContent = r[c.key] === undefined || r[c.key] === null ? '' : String(r[c.key]);
+                }
+            });
+        });
+        // totals row
+        var tfoot = tbody.parentElement.querySelector('tfoot tr');
+        if (tfoot) {
+            var t = detailTotals(det);
+            cols.forEach(function (c, ci) {
+                var td = tfoot.cells[ci + 1];
+                if (td && (det.totals || []).indexOf(c.key) >= 0) td.textContent = fmt(t[c.key]);
+            });
+        }
+        headerComputed();
+        syncComputedHeaderCells();
+    }
+
+    // ── lists (select + dependent) ──────────────────────────
+    function loadSelectList(f, cb) {
+        if (!f.listSql) { if (cb) cb(); return; }
+        runSql(bindHeaderSql(f.listSql), function (err, rows) {
+            if (err) { console.warn('[FormEngine] list', f.key, 'failed:', err); if (cb) cb(); return; }
+            st.lists[f.key] = rows.map(function (r) {
+                var ks = Object.keys(r);
+                return { value: r.VALUE !== undefined ? r.VALUE : r[ks[0]], label: r.LABEL !== undefined ? r.LABEL : (r[ks[1]] !== undefined ? r[ks[1]] : r[ks[0]]) };
+            });
+            if (cb) cb();
+        });
+    }
+    function loadAllLists(cb) {
+        var fields = ((st.def.header && st.def.header.fields) || []).filter(function (f) { return f.type === 'select' && f.listSql; });
+        var left = fields.length;
+        if (!left) { cb(); return; }
+        fields.forEach(function (f) { loadSelectList(f, function () { if (--left === 0) cb(); }); });
+    }
+    function refreshDependentLists(changedKey) {
+        ((st.def.header && st.def.header.fields) || []).forEach(function (f) {
+            if (f.type !== 'select' || !f.listSql) return;
+            if (sqlDeps(f.listSql).indexOf(changedKey) < 0) return;
+            loadSelectList(f, function () {
+                var el = document.getElementById('fe-h-' + f.key);
+                if (!el) return;
+                var cur = st.values[f.key];
+                el.innerHTML = '<option value=""></option>' + (st.lists[f.key] || []).map(function (o) {
+                    return '<option value="' + esc(o.value) + '"' + (String(o.value) === String(cur) ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+                }).join('');
+            });
+        });
+    }
+
+    // ── lookup fields (auto-populate from SQL) ──────────────
+    // A field with valueSql fetches its own value: the SQL returns one
+    // row and the field takes the first column (or the VALUE alias).
+    // :OTHERFIELD placeholders make it react - whenever a referenced
+    // field changes (typed, picked or itself looked up), the lookup
+    // re-runs. Cascades are followed up to 4 levels deep.
+    function runLookup(f, depth) {
+        var sql = bindHeaderSql(f.valueSql);
+        console.log('[FormEngine] lookup', f.key, 'SQL:', sql);
+        runSql(sql, function (err, rows) {
+            if (!st) return;
+            if (err) { console.warn('[FormEngine] lookup', f.key, 'failed:', err); return; }
+            var v = '';
+            if (rows.length) {
+                var r0 = rows[0];
+                v = r0.VALUE !== undefined ? r0.VALUE : r0[Object.keys(r0)[0]];
+            }
+            if (v === undefined || v === null) v = '';
+            if (String(st.values[f.key]) === String(v)) return;
+            st.values[f.key] = v;
+            var el = document.getElementById('fe-h-' + f.key);
+            if (el) {
+                if (el.type === 'checkbox') el.checked = (v === 'Y' || v === true);
+                else el.value = v;
+            }
+            headerComputed(); syncComputedHeaderCells();
+            refreshDependentLists(f.key);
+            refreshLookups(f.key, (depth || 0) + 1);
+        });
+    }
+    function refreshLookups(changedKey, depth) {
+        if ((depth || 0) > 4) return;
+        ((st.def.header && st.def.header.fields) || []).forEach(function (f) {
+            if (!f.valueSql || f.key === changedKey) return;
+            if (sqlDeps(f.valueSql).indexOf(changedKey) < 0) return;
+            runLookup(f, depth || 0);
+        });
+    }
+    // on open: run lookups whose referenced fields already carry values
+    function initLookups() {
+        ((st.def.header && st.def.header.fields) || []).forEach(function (f) {
+            if (!f.valueSql) return;
+            var deps = sqlDeps(f.valueSql);
+            var ready = deps.every(function (k) { return st.values[k] !== '' && st.values[k] !== undefined && st.values[k] !== null; });
+            if (ready) runLookup(f, 0);
+        });
+    }
+
+    // ── pickers ─────────────────────────────────────────────
+    function pickerDialog(title, onSearch, footer) {
+        var old = document.getElementById('fe-picker');
+        if (old) old.remove();
+        var html =
+        '<div id="fe-picker" style="position:fixed;inset:0;background:rgba(15,23,42,0.55);z-index:29500;display:flex;align-items:center;justify-content:center;">' +
+          '<div style="background:white;width:92%;max-width:760px;max-height:80vh;border-radius:12px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.35);">' +
+            '<div style="padding:0.7rem 1rem;background:#f8fafc;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">' +
+              '<div style="font-weight:800;font-size:12.5px;color:#334155;"><i class="fas fa-search"></i> ' + esc(title) + '</div>' +
+              '<button onclick="document.getElementById(\'fe-picker\').remove()" style="background:none;border:none;font-size:1.2rem;color:#64748b;cursor:pointer;">&times;</button>' +
+            '</div>' +
+            '<div style="padding:0.6rem 1rem;display:flex;gap:6px;">' +
+              '<input type="text" id="fe-picker-q" placeholder="search… (empty = first rows)" style="' + inputCss() + '">' +
+              '<button id="fe-picker-go" style="border:none;background:#0f766e;color:white;border-radius:7px;cursor:pointer;padding:0 14px;font-size:12px;font-weight:700;">Search</button>' +
+            '</div>' +
+            '<div id="fe-picker-res" style="flex:1;overflow-y:auto;padding:0 1rem 0.6rem;"></div>' +
+            (footer || '') +
+          '</div></div>';
+        document.body.insertAdjacentHTML('beforeend', html);
+        var go = function () {
+            document.getElementById('fe-picker-res').innerHTML = '<div style="padding:1rem;text-align:center;color:#64748b;"><i class="fas fa-spinner fa-spin"></i> Searching…</div>';
+            onSearch(document.getElementById('fe-picker-q').value.trim());
+        };
+        document.getElementById('fe-picker-go').addEventListener('click', go);
+        document.getElementById('fe-picker-q').addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
+        setTimeout(function () { document.getElementById('fe-picker-q').focus(); }, 50);
+    }
+
+    // header picker field
+    function pickHeaderField(fkey) {
+        var f = ((st.def.header && st.def.header.fields) || []).find(function (x) { return x.key === fkey; });
+        if (!f || !f.pickerSql) { alert('No picker SQL configured for ' + fkey); return; }
+        pickerDialog(f.label || fkey, function (q) {
+            var sql = bindLeftoverSearch(bindSearch(bindHeaderSql(f.pickerSql), q), q);
+            console.log('[FormEngine] picker SQL:', sql);
+            runSql(sql, function (err, rows) {
+                var box = document.getElementById('fe-picker-res');
+                if (!box) return;
+                if (err) { box.innerHTML = '<div style="padding:1rem;color:#dc2626;font-size:11px;">' + esc(err) + '</div>'; return; }
+                if (!rows.length) { box.innerHTML = '<div style="padding:1rem;color:#94a3b8;font-size:11px;text-align:center;">No matches.</div>'; return; }
+                var cols = Object.keys(rows[0]);
+                box.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="background:#f8fafc;">' +
+                    cols.map(function (c) { return '<th style="padding:5px;text-align:left;">' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+                    rows.map(function (r, i) {
+                        return '<tr class="fe-pick-row" data-i="' + i + '" style="border-bottom:1px solid #f1f5f9;cursor:pointer;" onmouseover="this.style.background=\'#f0fdfa\'" onmouseout="this.style.background=\'\'">' +
+                            cols.map(function (c) { return '<td style="padding:5px;">' + esc(r[c]) + '</td>'; }).join('') + '</tr>';
+                    }).join('') + '</tbody></table>';
+                Array.prototype.forEach.call(box.querySelectorAll('.fe-pick-row'), function (el) {
+                    el.addEventListener('click', function () {
+                        var r = rows[Number(el.getAttribute('data-i'))];
+                        captureHeader();
+                        var map = f.map || {};
+                        Object.keys(map).forEach(function (hk) { st.values[hk] = r[String(map[hk]).toUpperCase()]; });
+                        if (f.display) st.values[f.key] = r[String(f.display).toUpperCase()];
+                        document.getElementById('fe-picker').remove();
+                        loadAllLists(function () {
+                            if (!st) return;
+                            render(true);   // just-picked values are newer than the DOM
+                            // lookup fields that reference the picked/mapped keys
+                            refreshLookups(f.key, 0);
+                            Object.keys(map).forEach(function (hk) { refreshLookups(hk, 0); });
+                        });
+                    });
+                });
+            });
+        });
+    }
+
+    // detail rows picker (multi-select)
+    function pickDetailRows(detKey) {
+        var det = findDetail(detKey);
+        if (!det || !det.pickerSql) return;
+        var found = [];
+        pickerDialog(det.title || detKey,
+            function (q) {
+                captureHeader();
+                var sql = bindLeftoverSearch(bindSearch(bindHeaderSql(det.pickerSql), q), q);
+                console.log('[FormEngine] detail picker SQL:', sql);
+                runSql(sql, function (err, rows) {
+                    var box = document.getElementById('fe-picker-res');
+                    if (!box) return;
+                    if (err) { box.innerHTML = '<div style="padding:1rem;color:#dc2626;font-size:11px;">' + esc(err) + '</div>'; return; }
+                    if (!rows.length) { box.innerHTML = '<div style="padding:1rem;color:#94a3b8;font-size:11px;text-align:center;">No matches.</div>'; return; }
+                    found = rows;
+                    var cols = Object.keys(rows[0]);
+                    box.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="background:#f8fafc;"><th></th>' +
+                        cols.map(function (c) { return '<th style="padding:5px;text-align:left;">' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+                        rows.map(function (r, i) {
+                            return '<tr style="border-bottom:1px solid #f1f5f9;"><td style="padding:5px;text-align:center;"><input type="checkbox" class="fe-det-cb" data-i="' + i + '"></td>' +
+                                cols.map(function (c) { return '<td style="padding:5px;">' + esc(r[c]) + '</td>'; }).join('') + '</tr>';
+                        }).join('') + '</tbody></table>';
+                });
+            },
+            '<div style="padding:0.6rem 1rem;border-top:1px solid #f1f5f9;text-align:right;"><button id="fe-picker-add" style="border:none;background:#16a34a;color:white;border-radius:7px;cursor:pointer;padding:7px 16px;font-size:12px;font-weight:700;"><i class="fas fa-plus"></i> Add selected</button></div>');
+        setTimeout(function () {
+            var addBtn = document.getElementById('fe-picker-add');
+            if (!addBtn) return;
+            addBtn.addEventListener('click', function () {
+                var cbs = document.querySelectorAll('#fe-picker .fe-det-cb:checked');
+                if (!cbs.length) return;
+                var newIdxs = [];
+                Array.prototype.forEach.call(cbs, function (cb) {
+                    var r = found[Number(cb.getAttribute('data-i'))];
+                    var row = {};
+                    (det.columns || []).forEach(function (c) {
+                        var srcCol = (det.pickerMap && det.pickerMap[c.key]) ? String(det.pickerMap[c.key]).toUpperCase() : c.key.toUpperCase();
+                        row[c.key] = r[srcCol] !== undefined ? r[srcCol] : (c.default !== undefined ? c.default : (c.type === 'number' ? 0 : ''));
+                    });
+                    computeRow(det, row);
+                    newIdxs.push((st.details[det.key] = st.details[det.key] || []).length);
+                    st.details[det.key].push(row);
+                });
+                document.getElementById('fe-picker').remove();
+                captureHeader(); render();
+                applyLineRules(det, newIdxs, function (added) { if (added) { captureHeader(); render(); } });
+            });
+        }, 60);
+    }
+
+    // ── column lookup: typed value auto-fills the row ───────
+    // A column with lookupSql runs when its cell changes: :COLUMNKEY
+    // placeholders bind from the row, header :FIELDKEY placeholders from
+    // the form. The first result row's aliases (= column keys) fill the
+    // other columns of the same row. E.g. type an item code -> the
+    // description, price and tax arrive from the price list.
+    function runRowLookup(det, row, col) {
+        var sql = bindHeaderSql(String(col.lookupSql));
+        (det.columns || []).forEach(function (c) {
+            sql = sql.replace(new RegExp(':' + c.key.toUpperCase() + '\\b', 'g'), sqlLit(row[c.key]));
+        });
+        console.log('[FormEngine] row lookup', col.key, 'SQL:', sql);
+        runSql(sql, function (err, rows) {
+            if (!st) return;
+            if (err) { console.warn('[FormEngine] row lookup failed:', err); return; }
+            if (!rows.length) return;
+            var r0 = rows[0];
+            (det.columns || []).forEach(function (c) {
+                var v = r0[c.key.toUpperCase()];
+                if (v !== undefined && c.key !== col.key) row[c.key] = v;
+            });
+            computeRow(det, row);
+            syncRuleRows(det);
+            refreshDetail(det);
+        });
+    }
+
+    // ── line rules (companion rows, e.g. BOGO) ──────────────
+    function applyLineRules(det, rowIdxs, after) {
+        if (!det.lineRulesSql || !rowIdxs.length) { if (after) after(0); return; }
+        var queue = rowIdxs.slice();
+        var added = 0;
+        var firstCol = (det.columns && det.columns[0] && det.columns[0].key) || 'item_code';
+        var qtyKey = det.qtyKey || 'qty';
+        (function next() {
+            if (!st) return;
+            if (!queue.length) { if (after) after(added); return; }
+            var ri = queue.shift();
+            var parent = (st.details[det.key] || [])[ri];
+            if (!parent || parent._rule) { next(); return; }
+            var refVal = parent[firstCol];
+            var dup = (st.details[det.key] || []).some(function (r) { return r._rule && r._rule_ref === refVal; });
+            if (dup) { next(); return; }
+            var sql = bindHeaderSql(det.lineRulesSql);
+            (det.columns || []).forEach(function (c) {
+                sql = sql.replace(new RegExp(':' + c.key.toUpperCase() + '\\b', 'g'), sqlLit(parent[c.key]));
+            });
+            console.log('[FormEngine] line rule SQL:', sql);
+            runSql(sql, function (err, rows) {
+                if (!st) return;
+                if (err) { console.warn('[FormEngine] line rule failed:', err); next(); return; }
+                (rows || []).forEach(function (r) {
+                    var row = { _rule: true, _rule_ref: refVal };
+                    (det.columns || []).forEach(function (c) {
+                        var v = r[c.key.toUpperCase()];
+                        row[c.key] = v !== undefined ? v : (c.type === 'number' ? 0 : '');
+                    });
+                    var buy = num(r.BUY_QTY) || 1, get = num(r.GET_QTY) || 1;
+                    row._buy_qty = buy; row._get_qty = get;
+                    row[qtyKey] = Math.floor(num(parent[qtyKey]) / buy) * get;
+                    if (num(row[qtyKey]) <= 0) return;
+                    computeRow(det, row);
+                    st.details[det.key].push(row);
+                    added++;
+                });
+                next();
+            });
+        })();
+    }
+    // keep rule rows in sync with their parent's qty
+    function syncRuleRows(det) {
+        var qtyKey = det.qtyKey || 'qty';
+        var firstCol = (det.columns && det.columns[0] && det.columns[0].key) || 'item_code';
+        (st.details[det.key] || []).forEach(function (r) {
+            if (!r._rule || !r._buy_qty) return;
+            var parent = (st.details[det.key] || []).find(function (p) { return !p._rule && p[firstCol] === r._rule_ref; });
+            if (!parent) return;
+            r[qtyKey] = Math.floor(num(parent[qtyKey]) / r._buy_qty) * (r._get_qty || 1);
+            computeRow(det, r);
+        });
+    }
+
+    // ── barcode scan + signature pad ────────────────────────
+    function headerField(key) { return ((st.def.header && st.def.header.fields) || []).find(function (x) { return x.key === key; }); }
+    function scanMsg(key, ok, text) {
+        var el = document.getElementById('fe-scanmsg-' + key);
+        if (el) el.innerHTML = text ? '<span style="color:' + (ok ? '#15803d' : '#b91c1c') + ';font-weight:700;"><i class="fas fa-' + (ok ? 'check' : 'triangle-exclamation') + '"></i> ' + esc(text) + '</span>' : '';
+    }
+    function beep(ok) {
+        try {
+            var ac = new (window.AudioContext || window.webkitAudioContext)(), o = ac.createOscillator(), g = ac.createGain();
+            o.frequency.value = ok ? 1250 : 330; g.gain.value = 0.05; o.connect(g); g.connect(ac.destination);
+            o.start(); o.stop(ac.currentTime + (ok ? 0.08 : 0.25));
+        } catch (e) { }
+    }
+    // a scanned / typed code: add the item to the grid (or bump its qty), else just set the field
+    function handleScan(key, code) {
+        var f = headerField(key); code = String(code || '').trim();
+        if (!f || !code) return;
+        if (!f.addTo || !f.scanSql) {
+            st.values[key] = code;
+            refreshDependentLists(key); refreshLookups(key, 0); headerComputed(); syncComputedHeaderCells();
+            scanMsg(key, true, code); beep(true);
+            return;
+        }
+        var det = findDetail(f.addTo);
+        if (!det) { scanMsg(key, false, 'Grid "' + f.addTo + '" not found'); return; }
+        captureHeader();
+        var qtyKey = f.qtyKey || det.qtyKey || 'qty';
+        var matchKey = f.matchKey || ((det.columns && det.columns[0]) || {}).key;
+        var rows = st.details[det.key] = st.details[det.key] || [];
+        var hit = rows.find(function (r) { return !r._rule && String(r[matchKey]).toUpperCase() === code.toUpperCase(); });
+        if (hit) {
+            hit[qtyKey] = num(hit[qtyKey]) + 1; computeRow(det, hit);
+            scanMsg(key, true, code + ' · qty ' + hit[qtyKey]); beep(true);
+            clearScan(key); render(true); focusScan(key);
+            return;
+        }
+        var sql = bindHeaderSql(String(f.scanSql)).replace(/:CODE\b/g, sqlLit(code));
+        scanMsg(key, true, 'Looking up ' + code + '…');
+        runSql(sql, function (err, res) {
+            if (!st) return;
+            if (err || !res.length) { scanMsg(key, false, err ? 'Lookup failed: ' + err : code + ' not found'); beep(false); clearScan(key); focusScan(key); return; }
+            var r0 = res[0], row = {};
+            (det.columns || []).forEach(function (c) {
+                var v = r0[c.key.toUpperCase()];
+                row[c.key] = v !== undefined && v !== null ? v : (c.default !== undefined ? c.default : (c.type === 'number' ? 0 : ''));
+            });
+            if (!num(row[qtyKey])) row[qtyKey] = 1;
+            computeRow(det, row);
+            rows.push(row);
+            scanMsg(key, true, (row[matchKey] || code) + ' added'); beep(true);
+            clearScan(key); render(true); focusScan(key);
+            applyLineRules(det, [rows.length - 1], function (added) { if (st && added) { captureHeader(); render(); focusScan(key); } });
+        });
+    }
+    function clearScan(key) { var f = headerField(key); if (f && f.addTo) st.values[key] = ''; var el = document.getElementById('fe-h-' + key); if (el && f && f.addTo) el.value = ''; }
+    function focusScan(key) { setTimeout(function () { var el = document.getElementById('fe-h-' + key); if (el) el.focus(); }, 30); }
+
+    function drawSig(canvas, dataUrl) {
+        var ctx = canvas.getContext('2d'), r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.round(r.width * dpr)); canvas.height = Math.max(1, Math.round(r.height * dpr));
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#0f172a';
+        if (dataUrl) { var img = new Image(); img.onload = function () { ctx.drawImage(img, 0, 0, r.width, r.height); }; img.src = dataUrl; }
+        return ctx;
+    }
+    function wireScanAndSign() {
+        Array.prototype.forEach.call(document.querySelectorAll('#fe-modal [data-scan]'), function (el) {
+            el.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); handleScan(el.getAttribute('data-scan'), el.value); }
+            });
+        });
+        Array.prototype.forEach.call(document.querySelectorAll('#fe-modal [data-sig]'), function (canvas) {
+            var key = canvas.getAttribute('data-sig'), ctx = drawSig(canvas, st.values[key]), drawing = false, last = null;
+            function pt(e) { var r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+            canvas.addEventListener('pointerdown', function (e) { drawing = true; last = pt(e); canvas.setPointerCapture(e.pointerId); ctx.beginPath(); ctx.arc(last.x, last.y, 1, 0, Math.PI * 2); ctx.fillStyle = '#0f172a'; ctx.fill(); });
+            canvas.addEventListener('pointermove', function (e) {
+                if (!drawing) return;
+                var p = pt(e); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); last = p;
+            });
+            function end() { if (!drawing) return; drawing = false; st.values[key] = canvas.toDataURL('image/png'); }
+            canvas.addEventListener('pointerup', end); canvas.addEventListener('pointerleave', end); canvas.addEventListener('pointercancel', end);
+        });
+    }
+    // webcam scanning: the browser's BarcodeDetector when present, else ZXing loaded on demand
+    function loadZxing(cb) {
+        if (window.ZXingBrowser) { cb(null); return; }
+        var s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/@zxing/browser@0.1.5/umd/zxing-browser.min.js';
+        s.onload = function () { cb(window.ZXingBrowser ? null : 'scanner library did not load'); };
+        s.onerror = function () { cb('could not load the scanner library (offline?)'); };
+        document.head.appendChild(s);
+    }
+    function openCamera(key) {
+        var old = document.getElementById('fe-cam'); if (old) old.remove();
+        document.body.insertAdjacentHTML('beforeend',
+            '<div id="fe-cam" style="position:fixed;inset:0;background:rgba(15,23,42,0.8);z-index:29600;display:flex;align-items:center;justify-content:center;">' +
+            '<div style="background:#0f172a;border-radius:14px;padding:12px;width:92%;max-width:520px;text-align:center;color:white;">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-weight:800;font-size:13px;"><span><i class="fas fa-camera"></i> Point the camera at the barcode</span>' +
+            '<button id="fe-cam-x" style="background:none;border:none;color:white;font-size:1.3rem;cursor:pointer;">&times;</button></div>' +
+            '<div style="position:relative;"><video id="fe-cam-v" playsinline muted style="width:100%;border-radius:10px;background:black;"></video>' +
+            '<div style="position:absolute;left:12%;right:12%;top:45%;height:2px;background:#f43f5e;box-shadow:0 0 12px #f43f5e;"></div></div>' +
+            '<div id="fe-cam-msg" style="font-size:11px;color:#94a3b8;margin-top:6px;">Starting the camera…</div></div></div>');
+        var video = document.getElementById('fe-cam-v'), stream = null, stop = false, zx = null;
+        function done(code) {
+            stop = true;
+            try { if (zx) zx.stop(); } catch (e) { }
+            if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+            var o = document.getElementById('fe-cam'); if (o) o.remove();
+            if (code) handleScan(key, code);
+        }
+        document.getElementById('fe-cam-x').onclick = function () { done(null); };
+        var msg = function (t) { var m = document.getElementById('fe-cam-msg'); if (m) m.textContent = t; };
+        if ('BarcodeDetector' in window) {
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function (sm) {
+                stream = sm; video.srcObject = sm; video.play(); msg('Scanning…');
+                var det = new window.BarcodeDetector();
+                (function tick() {
+                    if (stop) return;
+                    det.detect(video).then(function (codes) { if (codes && codes.length) done(codes[0].rawValue); else setTimeout(tick, 150); })
+                        .catch(function () { setTimeout(tick, 300); });
+                })();
+            }).catch(function (e) { msg('Camera not available: ' + e.message); });
+        } else {
+            loadZxing(function (err) {
+                if (err) { msg(err); return; }
+                var reader = new window.ZXingBrowser.BrowserMultiFormatReader();
+                msg('Scanning…');
+                reader.decodeFromVideoDevice(undefined, video, function (result, e, controls) {
+                    zx = controls;
+                    if (result && !stop) done(result.getText());
+                }).then(function (c) { zx = c; if (stop) c.stop(); }).catch(function (e) { msg('Camera not available: ' + (e && e.message || e)); });
+            });
+        }
+    }
+
+    // ── validation ──────────────────────────────────────────
+    function validate(cb) {
+        captureHeader();
+        var errs = [];
+        ((st.def.header && st.def.header.fields) || []).forEach(function (f) {
+            if (!visibleNow(f)) return;   // hidden by showWhen = not validated
+            var v = st.values[f.key];
+            if (f.required && (v === '' || v === undefined || v === null)) errs.push((f.label || f.key) + ' is required.');
+            if (f.type === 'number' && v !== '' && v !== undefined) {
+                if (f.min !== undefined && num(v) < f.min) errs.push((f.label || f.key) + ' must be >= ' + f.min);
+                if (f.max !== undefined && num(v) > f.max) errs.push((f.label || f.key) + ' must be <= ' + f.max);
+            }
+            if (f.pattern && v) { try { if (!new RegExp(f.pattern).test(String(v))) errs.push((f.label || f.key) + ' is not in the expected format.'); } catch (e) { } }
+        });
+        (st.def.details || []).forEach(function (det) {
+            if (det.required && !(st.details[det.key] || []).length) errs.push('Add at least one row to ' + (det.title || det.key) + '.');
+        });
+        if (errs.length) { cb(errs.join('\n')); return; }
+
+        var checks = ((st.def.rules && st.def.rules.submitChecks) || []).slice();
+        (function next() {
+            if (!checks.length) { cb(null); return; }
+            var chk = checks.shift();
+            if (!chk || !chk.sql) { next(); return; }
+            runSql(bindHeaderSql(chk.sql), function (err, rows) {
+                if (err) { cb((chk.message || 'Validation') + ' — check failed to run: ' + err); return; }
+                var mode = String(chk.mode || 'FAIL_IF_ROWS').toUpperCase();
+                var bad = mode === 'FAIL_IF_NO_ROWS' ? !rows.length : !!rows.length;
+                if (bad) { cb(chk.message || 'A validation rule failed.'); return; }
+                next();
+            });
+        })();
+    }
+
+    // ── actions ─────────────────────────────────────────────
+    function showResult(ok, msg) {
+        var box = document.getElementById('fe-result');
+        if (!box) return;
+        box.innerHTML = '<span style="color:' + (ok ? '#15803d' : '#b91c1c') + ';font-weight:700;">' +
+            '<i class="fas fa-' + (ok ? 'check-circle' : 'times-circle') + '"></i> ' + esc(msg) + '</span>';
+    }
+
+    function runAction(i) {
+        var a = (st.def.actions || [])[i];
+        if (!a) return;
+        if (a.type === 'close') { WMSFormEngine.close(); return; }
+        if (a.type === 'print') { doPrint('form'); return; }
+        if (st.mode === 'preview') { showResult(true, 'Preview mode — "' + (a.label || a.key) + '" would run type=' + a.type + '.'); return; }
+        if (a.confirm && !window.confirm(strSub(a.confirm, buildPayload()))) return;
+
+        var btn = document.getElementById('fe-act-' + i);
+        var restore = btn ? btn.innerHTML : '';
+        var busy = function (on) {
+            if (!btn) return;
+            btn.disabled = on;
+            btn.innerHTML = on ? '<i class="fas fa-spinner fa-spin"></i> Working…' : restore;
+        };
+
+        var proceed = function () {
+            var payload = buildPayload();
+            if (a.type === 'ords') {
+                var url = strSub(a.url || '', payload);
+                var body = a.bodyTemplate ? resolveTemplate(a.bodyTemplate, payload) : payload;
+                var msg = String(a.method || 'POST').toUpperCase() === 'GET'
+                    ? { action: 'executeGet', fullUrl: url }
+                    : { action: 'executePost', fullUrl: url, body: JSON.stringify(body) };
+                busy(true);
+                sendMessageToCSharp(msg, function (err, data) {
+                    busy(false);
+                    var respText = err ? String(err) : (typeof data === 'string' ? data : JSON.stringify(data));
+                    var ok = !err;
+                    try { var ro = JSON.parse(respText); if (ro && ro.success === false) ok = false; } catch (e) { }
+                    showResult(ok, ok ? (a.successMessage || 'Done.') : ('Failed: ' + respText.slice(0, 300)));
+                });
+            } else if (a.type === 'sql') {
+                var stmt = String(a.statement || '').replace(/\{(\w+)\}/g, function (m, k) {
+                    return payload.header[k] !== undefined ? String(payload.header[k]).replace(/'/g, "''") : m;
+                });
+                busy(true);
+                sendMessageToCSharp({
+                    action: 'executePost', fullUrl: aiBase() + '/executewrite',
+                    body: JSON.stringify({ sql: stmt, appUser: userName() })
+                }, function (err, data) {
+                    busy(false);
+                    var d = null;
+                    try { d = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
+                    var ok = !err && d && d.success === true;
+                    showResult(ok, ok ? (a.successMessage || 'Saved (' + (d.rowsAffected || 0) + ' row(s)).') : ('Failed: ' + String(err || (d && d.error) || 'unknown').slice(0, 300)));
+                });
+            } else if (a.type === 'local_file') {
+                var fileName = strSub(a.fileName || (st.formKey || 'form') + '_{TIMESTAMP}.json', payload);
+                var content = a.bodyTemplate ? resolveTemplate(a.bodyTemplate, payload) : payload;
+                var b64 = btoa(unescape(encodeURIComponent(JSON.stringify(content, null, 2))));
+                busy(true);
+                sendMessageToCSharp({
+                    action: 'saveLocalFile', folder: a.folder || 'forms', fileName: fileName, dataBase64: b64
+                }, function (err, data) {
+                    busy(false);
+                    var d = null;
+                    try { d = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { d = data; }
+                    var ok = !err && d && d.success !== false;
+                    showResult(ok, ok ? ('Saved locally: ' + ((d && d.path) || fileName)) : ('Save failed: ' + String(err || (d && d.error) || 'is the app updated with saveLocalFile support?').slice(0, 300)));
+                });
+            } else if (a.type === 'chat') {
+                if (typeof st.chatHandoff === 'function') {
+                    st.chatHandoff(a, payload);
+                    WMSFormEngine.close();
+                } else {
+                    showResult(false, 'This button hands the values to the AI chat — open the form from the AI Digital Employee module to use it.');
+                }
+            } else {
+                showResult(false, 'Unknown action type: ' + a.type);
+            }
+        };
+
+        if (a.validate) {
+            busy(true);
+            validate(function (errMsg) {
+                busy(false);
+                if (errMsg) { showResult(false, errMsg); alert('Validation failed:\n\n' + errMsg); return; }
+                proceed();
+            });
+        } else proceed();
+    }
+
+    // ── public API ──────────────────────────────────────────
+    window.WMSFormEngine = {
+        open: function (def, opts) {
+            opts = opts || {};
+            if (typeof def === 'string') { try { def = JSON.parse(def); } catch (e) { } }       // double-encoded
+            if (def && !def.header && def.definition && def.definition.header) def = def.definition;   // envelope
+            if (!def || !def.header) { alert('Invalid form definition (no header section).' + (def ? ' Keys: ' + Object.keys(def).join(', ') : '')); return; }
+            var container = opts.container;
+            if (typeof container === 'string') container = document.getElementById(container);
+            // mobile layout: forced via opts.layout, else by viewport width
+            var mobile = opts.layout === 'mobile' ||
+                (opts.layout !== 'desktop' && typeof window !== 'undefined' && window.innerWidth <= 700);
+            st = {
+                def: def, formKey: opts.formKey || '', mode: opts.mode || 'run',
+                values: {}, details: {}, lists: {}, reports: {},
+                ui: { headerTab: null, detailTab: null },
+                mobile: mobile,
+                container: container || null,
+                chatHandoff: opts.chatHandoff, onClose: opts.onClose
+            };
+            var pre = opts.values || {};
+            ((def.header && def.header.fields) || []).forEach(function (f) {
+                var d = f.default;
+                if (d === '$TODAY') d = todayIso();
+                else if (d === '$USER') d = userName();
+                st.values[f.key] = pre[f.key] !== undefined ? pre[f.key] : (d !== undefined ? d : '');
+            });
+            (def.details || []).forEach(function (det) {
+                st.details[det.key] = Array.isArray(pre[det.key]) ? pre[det.key].map(function (r) {
+                    var row = {};
+                    (det.columns || []).forEach(function (c) { row[c.key] = r[c.key] !== undefined ? r[c.key] : (c.type === 'number' ? 0 : ''); });
+                    computeRow(det, row);
+                    return row;
+                }) : [];
+            });
+            loadAllLists(function () {
+                if (!st) return;
+                render();
+                // rules cover prefilled rows too
+                (def.details || []).forEach(function (det) {
+                    var idxs = (st.details[det.key] || []).map(function (_, i) { return i; });
+                    if (idxs.length && det.lineRulesSql)
+                        applyLineRules(det, idxs, function (added) { if (st && added) { captureHeader(); render(); } });
+                });
+                // auto-run reports flagged autoRun
+                (def.reports || []).forEach(function (r) { if (r.autoRun) runReport(r.key); });
+                // lookup fields whose referenced values were prefilled
+                initLookups();
+                // SQL-sourced sections fill their fields from the first row
+                (def.sections || []).forEach(function (s) { if (s.sourceSql && s.fetchOnOpen) fetchSection(s); });
+                // single-row regions fetch their record the same way
+                (def.regions || []).forEach(function (r) {
+                    if (r.sourceSql && r.fetchOnOpen && r.display !== 'multi') fetchRegion(r);
+                });
+                // SQL-sourced details load their rows (unless prefilled)
+                (def.details || []).forEach(function (det) {
+                    if (det.sourceSql && !(st.details[det.key] || []).length) loadDetailRows(det);
+                });
+            });
+            render();   // immediate paint; lists re-render when loaded
+        },
+        openByKey: function (formKey, opts) {
+            runSql("SELECT definition FROM wms_ai_forms WHERE form_key = " + sqlLit(formKey) + " AND active = 'Y'", function (err, rows) {
+                if (err) { alert('Could not load form "' + formKey + '": ' + err); return; }
+                if (!rows.length) { alert('Form "' + formKey + '" not found or inactive.'); return; }
+                var raw = rows[0].DEFINITION, def;
+                if (raw == null || String(raw).trim() === '' || String(raw).trim() === 'null') {
+                    alert('Form "' + formKey + '" has no stored definition. If it is a large form, deploy apex_sql/35d (the CLOB read fix), then re-save it.'); return;
+                }
+                try { def = JSON.parse(raw); }
+                catch (e) { alert('Form "' + formKey + '" has an invalid definition (not valid JSON — it may have been truncated; deploy apex_sql/35d).'); return; }
+                if (typeof def === 'string') { try { def = JSON.parse(def); } catch (e) { } }   // double-encoded
+                if (def && !def.header && def.definition && def.definition.header) def = def.definition;   // stored as an envelope
+                WMSFormEngine.open(def, Object.assign({}, opts, { formKey: formKey }));
+            });
+        },
+        close: function () {
+            if (st && st.container) st.container.innerHTML = '';
+            var o = document.getElementById('fe-overlay'); if (o) o.remove();
+            var p = document.getElementById('fe-picker'); if (p) p.remove();
+            if (st && typeof st.onClose === 'function') st.onClose();
+            st = null;
+        },
+        _htab: function (t) { captureHeader(); st.ui.headerTab = t; render(); },
+        _dtab: function (t) { captureHeader(); st.ui.detailTab = t; render(); },
+        _wizStep: function (dir) {
+            captureHeader();
+            var tabs = headerTabs();
+            var idx = tabs.indexOf(st.ui.headerTab);
+            if (idx < 0) idx = 0;
+            var next = Math.min(Math.max(idx + dir, 0), tabs.length - 1);
+            st.ui.headerTab = tabs[next];
+            render();
+        },
+        _sideAct: function (key) {
+            var i = (st.def.actions || []).findIndex(function (a) { return a.key === key; });
+            if (i >= 0) runAction(i);
+            else showResult(false, 'Sidebar button points to unknown action "' + key + '".');
+        },
+        _camera: openCamera,
+        _sigClear: function (key) {
+            st.values[key] = '';
+            var c = document.getElementById('fe-sig-' + key);
+            if (c) drawSig(c, '');
+        },
+        _runReport: runReport,
+        _print: doPrint,
+        _pick: pickHeaderField,
+        _pickRows: pickDetailRows,
+        _addRow: function (detKey) {
+            var det = findDetail(detKey);
+            if (!det) return;
+            var row = {};
+            (det.columns || []).forEach(function (c) { row[c.key] = c.default !== undefined ? c.default : (c.type === 'number' ? 0 : ''); });
+            computeRow(det, row);
+            (st.details[detKey] = st.details[detKey] || []).push(row);
+            captureHeader(); render();
+        },
+        _delRow: function (detKey, ri) {
+            var det = findDetail(detKey);
+            var rows = st.details[detKey] || [];
+            var gone = rows[ri];
+            rows.splice(ri, 1);
+            if (gone && !gone._rule) {
+                var firstCol = (det.columns && det.columns[0] && det.columns[0].key) || 'item_code';
+                st.details[detKey] = rows.filter(function (r) { return !(r._rule && r._rule_ref === gone[firstCol]); });
+            }
+            captureHeader(); render();
+        },
+        _act: runAction
+    };
+})();

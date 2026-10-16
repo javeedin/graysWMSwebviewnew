@@ -1,0 +1,10 @@
+[tool.ruff]
+line-length = 200
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I"]
+ignore = ["B905"]   # zip() over columns of the same frame: equal length by construction
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

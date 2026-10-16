@@ -1,0 +1,58 @@
+/* Pending Shipment Lines › "Identify lines to Cancel" (wms/pending-cancel.js): the button, the progress / result chips,
+   the floating chip on other pages, the review dialog and the clickable bell notification. */
+.pc-identify { background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%); color: #fff; border: none; padding: .5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: .4rem; }
+.pc-identify:disabled { opacity: .6; cursor: default; }
+.pc-chip { display: inline-flex; align-items: center; gap: .4rem; font-size: 11px; font-weight: 600; border-radius: 6px; padding: .35rem .75rem; border: 1px solid #fecaca; background: #fef2f2; color: #991b1b; }
+.pc-chip.run { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+.pc-chip.none { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+.pc-chip.err { border-color: #fecaca; background: #fef2f2; color: #7f1d1d; }
+.pc-chip button.pc-mini { border: 1px solid currentColor; background: transparent; color: inherit; border-radius: 4px; padding: 1px 7px; font-size: 10px; font-weight: 700; cursor: pointer; }
+.pc-float { position: fixed; right: 18px; bottom: 18px; z-index: 9001; background: #0f172a; color: #e2e8f0; border-radius: 12px; padding: 10px 14px; display: flex; align-items: center; gap: 10px; font-size: .8rem; box-shadow: 0 10px 30px rgba(2, 6, 23, .35); cursor: pointer; max-width: 420px; }
+.pc-float.up { bottom: 74px; }
+.pc-float i { color: #fca5a5; } .pc-float b { color: #fff; }
+.pc-float .pc-mini { border: 1px solid #334155; background: #1e293b; color: #e2e8f0; border-radius: 6px; padding: 3px 8px; font-size: .72rem; cursor: pointer; }
+.pc-ov { position: fixed; inset: 0; background: rgba(15, 23, 42, .55); z-index: 1000001; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.pc-dlg { background: #fff; border-radius: 14px; width: 1180px; max-width: 98vw; max-height: 94vh; display: flex; flex-direction: column; box-shadow: 0 24px 60px rgba(2, 6, 23, .4); overflow: hidden; }
+.pc-head { padding: 14px 18px 10px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pc-head h3 { margin: 0; font-size: 1.05rem; color: #0f172a; display: flex; align-items: center; gap: 8px; }
+.pc-head h3 i { color: #dc2626; }
+.pc-head .sub { color: #64748b; font-size: .78rem; }
+.pc-head .x { margin-left: auto; border: none; background: #f1f5f9; border-radius: 8px; width: 30px; height: 30px; cursor: pointer; color: #475569; font-size: 1rem; }
+.pc-kpis { display: flex; gap: 8px; padding: 10px 18px 0; flex-wrap: wrap; }
+.pc-kpi { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 6px 12px; min-width: 96px; }
+.pc-kpi b { display: block; font-size: 1.1rem; color: #0f172a; line-height: 1.2; }
+.pc-kpi span { font-size: .68rem; color: #64748b; text-transform: uppercase; letter-spacing: .03em; }
+.pc-kpi.bad b { color: #b91c1c; } .pc-kpi.warn b { color: #b45309; } .pc-kpi.good b { color: #15803d; }
+.pc-body { padding: 10px 18px; overflow: auto; flex: 1; }
+.pc-scroll { max-height: 48vh; overflow: auto; border: 1px solid #e2e8f0; border-radius: 10px; }
+.pc-grid { width: 100%; border-collapse: collapse; font-size: .78rem; }
+.pc-grid th { position: sticky; top: 0; background: #0b2545; color: #fff; padding: 6px 8px; text-align: left; font-weight: 600; white-space: nowrap; z-index: 1; }
+.pc-grid .pc-filters th { top: 29px; background: #f1f5f9; padding: 3px 6px; }
+.pc-grid .pc-filters input { width: 100%; box-sizing: border-box; border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px 5px; font-size: .72rem; min-width: 50px; }
+.pc-grid td { padding: 5px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: top; white-space: nowrap; }
+.pc-grid tr.off td { color: #94a3b8; }
+.pc-grid tr.pc-first td { border-top: 2px solid #e2e8f0; }
+.pc-grid td.desc { white-space: normal; max-width: 260px; }
+.pc-grid td.num { text-align: right; }
+.pc-grid .ord b { display: block; } .pc-grid .ord small { color: #64748b; }
+.pc-grid input[type=checkbox] { width: 15px; height: 15px; cursor: pointer; }
+.pc-tag { display: inline-block; border-radius: 999px; padding: 1px 8px; font-size: .68rem; font-weight: 700; }
+.pc-tag.MAIN { background: #fee2e2; color: #991b1b; } .pc-tag.SUB { background: #fef3c7; color: #92400e; } .pc-tag.BOGO { background: #ede9fe; color: #5b21b6; }
+.pc-res { font-weight: 700; } .pc-res.DONE { color: #15803d; } .pc-res.FAILED { color: #b91c1c; } .pc-res.NOTHING, .pc-res.SKIPPED { color: #b45309; }
+.pc-grid td.msg { white-space: normal; max-width: 320px; color: #475569; font-size: .72rem; }
+.pc-fold { margin-top: 10px; border: 1px solid #e2e8f0; border-radius: 10px; }
+.pc-fold summary { padding: 8px 12px; cursor: pointer; font-weight: 600; font-size: .82rem; color: #334155; }
+.pc-fold .pc-scroll { border: none; border-top: 1px solid #e2e8f0; border-radius: 0; max-height: 30vh; }
+.pc-foot { padding: 12px 18px; border-top: 1px solid #e2e8f0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.pc-foot .grow { flex: 1; font-size: .78rem; color: #64748b; min-width: 120px; }
+.pc-btn { border: 1px solid #cbd5e1; background: #fff; color: #0f172a; border-radius: 8px; padding: 7px 12px; font-size: .8rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.pc-btn:hover { border-color: #94a3b8; } .pc-btn:disabled { opacity: .55; cursor: default; }
+.pc-btn.danger { background: #dc2626; border-color: #dc2626; color: #fff; } .pc-btn.primary { background: #1e3a8a; border-color: #1e3a8a; color: #fff; }
+.pc-callout { border-radius: 10px; padding: 10px 14px; font-size: .82rem; margin-bottom: 10px; border: 1px solid #fde68a; background: #fffbeb; color: #78350f; }
+.pc-callout.bad { border-color: #fecaca; background: #fef2f2; color: #7f1d1d; } .pc-callout.good { border-color: #bbf7d0; background: #f0fdf4; color: #14532d; }
+.pc-callout ul { margin: 6px 0 0 18px; padding: 0; }
+.pc-empty { padding: 30px; text-align: center; color: #64748b; }
+.pc-status { font-size: .8rem; color: #334155; margin: 6px 0 10px; display: flex; align-items: center; gap: 8px; }
+.pc-check { display: flex; align-items: center; gap: 8px; font-size: .85rem; margin: 12px 0; }
+.pc-notif { cursor: pointer; } .pc-notif:hover { background: #eef2ff !important; }
+@media (max-width: 800px) { .pc-dlg { width: 100vw; max-width: 100vw; border-radius: 0; max-height: 100vh; } .pc-scroll { max-height: 40vh; } }

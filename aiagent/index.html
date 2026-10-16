@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent — Fusion Client</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="embed.js"></script>
+    <link rel="stylesheet" href="aiagent.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+    <header class="top">
+        <a class="back" href="../Home/index.html" title="Home"><i class="fa-solid fa-arrow-left"></i></a>
+        <div class="logo"><i class="fa-solid fa-robot"></i></div>
+        <div class="ttl">
+            <h1>AI Agent <span class="ver">v12.1.0</span> <span class="beta">BETA</span> <span id="hubchip"></span></h1>
+            <p>A team of specialists that finds the data, checks it, asks before acting — and shows its work</p>
+        </div>
+        <div class="tools-top">
+            <div class="seg" id="pod-seg" title="Fusion pod the agent works on">
+                <button data-pod="PROD">PROD</button><button data-pod="TEST">TEST</button>
+            </div>
+            <select id="model-sel" title="Model: Auto = the AI Hub router (fallback, budget, data policy)"><option value="">Model: Auto (router)</option></select>
+            <button class="hbtn" id="btn-tech" title="Track tech — which technology answers each prompt" onclick="TECH.headerClick()"><i class="fa-solid fa-layer-group"></i></button>
+            <button class="hbtn on" id="btn-results" title="Show / hide the results panel"><i class="fa-solid fa-table-columns"></i><span class="badge" id="res-badge" hidden></span></button>
+            <button class="hbtn" id="btn-rollout" title="Roll-out: evals and the switch from the AI Digital Employee"><i class="fa-solid fa-flag-checkered"></i></button>
+            <button class="hbtn" id="btn-jobs" title="Scheduled jobs"><i class="fa-regular fa-clock"></i><span class="badge" id="jobs-badge" hidden></span></button>
+            <button class="hbtn" id="btn-calls" title="Phone calls: the agent calls and answers the phone" onclick="PHONE.show()"><i class="fa-solid fa-phone"></i><span class="badge" id="calls-badge" hidden></span></button>
+            <button class="hbtn" id="btn-memory" title="What the agent remembers about you"><i class="fa-solid fa-brain"></i></button>
+            <button class="hbtn" id="btn-hub" title="AI Hub on this PC: start, stop, restart, update"><i class="fa-solid fa-server"></i></button>
+            <button class="hbtn" id="btn-help" title="How it works"><i class="fa-regular fa-circle-question"></i></button>
+        </div>
+    </header>
+    <nav class="ag-tabs"><button data-tab="chat" class="on"><i class="fa-regular fa-comments"></i> Chat</button><button data-tab="code"><i class="fa-solid fa-code"></i> Code</button><button data-tab="vision"><i class="fa-solid fa-eye"></i> Vision</button></nav>
+    <div class="codews" id="codews" hidden></div>
+    <div class="visionws" id="visionws" hidden></div>
+    <div class="shell">
+        <aside class="side">
+            <button class="btn primary wide" id="btn-new"><i class="fa-solid fa-plus"></i> New conversation</button>
+            <div class="side-h">Specialist</div>
+            <div class="specs" id="specs"></div>
+            <div class="side-h row"><span class="grow">Today's tasks</span><button class="icon" title="Refresh" onclick="AG.loadTasks()"><i class="fa-solid fa-rotate"></i></button></div>
+            <div class="tasks" id="tasks"></div>
+            <div class="side-h row"><span class="grow">Conversations</span><input type="text" id="th-filter" placeholder="Filter…"></div>
+            <div class="threads" id="threads"></div>
+        </aside>
+        <section class="chat">
+            <div class="chat-h" id="chat-h"></div>
+            <div class="timeline" id="timeline"></div>
+            <div class="composer">
+                <div class="model-banner" id="model-banner" hidden></div>
+                <div class="cards" id="cards"></div>
+                <div class="files" id="files"></div>
+                <div class="compose-row">
+                    <button class="btn send" id="btn-attach" title="Attach files (PDF, images, CSV, text) - or drop / paste them"><i class="fa-solid fa-paperclip"></i></button>
+                    <button class="btn send" id="btn-camera" title="Camera — take a photo of a document, label or product and ask about it" onclick="CAM.forMessage()"><i class="fa-solid fa-camera"></i></button>
+                    <input type="file" id="file-in" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.csv,.txt,.json,.xml,.sql,.md,.log">
+                    <textarea id="input" rows="2" placeholder="Ask about Fusion data, trips, orders, loads or reports…  (Enter to send, Shift+Enter for a new line, @wms / @orders / @fbdi / @report to pick a specialist)"></textarea>
+                    <button class="btn send dictate-btn" id="btn-dictate" title="Dictate — speech to text on this PC (Ctrl+Shift+D)" onclick="DICT.toggle()"><i class="fa-solid fa-microphone-lines"></i></button>
+                    <button class="btn send voice-btn" id="btn-voice" title="Talk with the agent — hands-free voice mode (Ctrl+Shift+V)" onclick="VOICE.toggle()"><i class="fa-solid fa-microphone"></i></button>
+                    <button class="btn primary send" id="btn-send" title="Send"><i class="fa-solid fa-paper-plane"></i></button>
+                    <button class="btn danger send" id="btn-stop" title="Stop" hidden><i class="fa-solid fa-stop"></i></button>
+                </div>
+                <div class="compose-meta" id="compose-meta"></div>
+            </div>
+        </section>
+        <button class="res-edge" id="res-tab-edge" hidden title="Show the results panel"><i class="fa-solid fa-angles-left"></i> Results<span id="res-edge-n"></span></button>
+        <section class="results" id="results">
+            <div class="res-h"><b><i class="fa-solid fa-table"></i> Results</b><span class="grow"></span><button class="icon" id="res-collapse" title="Hide results"><i class="fa-solid fa-angles-right"></i></button></div>
+            <div class="res-tabs" id="res-tabs"></div>
+            <div class="res-body" id="res-body"><div class="empty"><i class="fa-regular fa-chart-bar big"></i><p>Query results, charts and reports appear here.</p></div></div>
+        </section>
+    </div>
+    <div class="modal" id="modal"><div class="modal-box"><div class="modal-h"><b id="modal-t"></b><button class="icon" onclick="closeModal()"><i class="fa-solid fa-xmark"></i></button></div><div class="modal-b" id="modal-b"></div><div class="modal-f" id="modal-f"></div></div></div>
+    <div class="toasts" id="toasts"></div>
+    <script src="../dataload/fbdi-catalog.js"></script>
+    <script src="../fusionsql/knowledge-engine.js"></script>
+    <script src="core.js"></script>
+    <script src="format.js"></script>
+    <script src="tools.js"></script>
+    <script src="tools-fusion.js"></script>
+    <script src="tools-wms.js"></script>
+    <script src="tools-business.js"></script>
+    <script src="../debtors/dc-engine.js"></script>
+    <script src="../debtors/dc-cycle.js"></script>
+    <script src="../debtors/dc-store.js"></script>
+    <script src="tools-debtors.js"></script>
+    <script src="../crm/crm-engine.js"></script>
+    <script src="../crm/crm-store.js"></script>
+    <script src="tools-crm.js"></script>
+    <script src="../aianalysis/api-catalog.js"></script>
+    <script src="../aianalysis/local-jobs.js"></script>
+    <script src="tools-aide.js"></script>
+    <script src="results.js"></script>
+    <script src="rollout.js"></script>
+    <script src="voice.js"></script>
+    <script src="dictate.js"></script>
+    <script src="phone.js"></script>
+    <script src="camera.js"></script>
+    <script src="tech.js"></script>
+    <script src="code.js"></script>
+    <script src="vision.js"></script>
+    <script src="vision-watch.js"></script>
+    <script>AG.init();</script>
+</body>
+</html>

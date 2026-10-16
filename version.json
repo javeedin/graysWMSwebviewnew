@@ -1,0 +1,17 @@
+{
+    "version": "12.1.0",
+    "build_date": "2026-10-06",
+    "files": {
+        "index.html": "2026-09-11",
+        "app.js": "2026-09-11",
+        "monitor-printing.js": "2026-06-09",
+        "styles.css": "2026-06-09",
+        "wms/shipping-agent.js": "2026-09-11",
+        "wms/picker-view.html": "2026-06-09",
+        "printer-management-new.js": "2026-06-09",
+        "api-log.js": "2026-06-09",
+        "fusionsql/index.html": "2026-09-30",
+        "fusionmodel/index.html": "2026-09-30"
+    },
+    "changelog": "v12.1.0 \u2014 WMS 2.0 (beta: control tower, trips with the WMS trip page, day pick release with actual ship date, MRA page from the status history, cancellation autopilot every 45+ min, background refresh without flicker), WMS trip grid MRA / picker date / actual ship date columns, Future Trip 9999. Finance Lens: paste mapping from Excel, main groups & totals, drill any amount by month, standard labels and fonts, templates bar on top, Inter company, planning, cost allocation, IFRS pack. v12.0.0 \u2014 Fusion Model: a shared DuckDB dataset (one file per module) loaded from APEX, Oracle Fusion SQL and BICC extracts, with a DAX-compatible measure language, Fusion packs (GL, AP, AR, PO, OM, INV), reconciliation checks, Ask AI, Reports and Power BI-style Dashboards with Copilot; Fusion SQL results can be sent to the Fusion Model (Send to Fusion Model). Power BI module, Data Loading (FBDI templates, Prepare & Load, Setup Projects, Fusion API), DLL Explorer, AI control plane (kill switch, audit, approval inbox). Fusion SQL included in every release."
+}

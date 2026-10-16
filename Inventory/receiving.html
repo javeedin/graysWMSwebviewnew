@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PO Receiving — Fusion Client</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f7;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #f56565 0%, #c53030 100%);
+            color: white;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 60px;
+            box-shadow: 0 2px 12px rgba(245,101,101,0.35);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            flex-shrink: 0;
+        }
+        .header-left { display: flex; align-items: center; gap: 14px; }
+        .back-btn {
+            background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.35);
+            color: white; width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
+            font-size: .85rem; display: flex; align-items: center; justify-content: center;
+            text-decoration: none; transition: background .2s;
+        }
+        .back-btn:hover { background: rgba(255,255,255,0.35); }
+        .breadcrumb { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
+        .breadcrumb a { color: rgba(255,255,255,.75); text-decoration: none; transition: color .15s; }
+        .breadcrumb a:hover { color: white; }
+        .breadcrumb .sep { color: rgba(255,255,255,.45); font-size: .75rem; }
+        .breadcrumb .current { font-weight: 600; }
+
+        .content {
+            flex: 1; display: flex; align-items: center; justify-content: center;
+            padding: 40px 24px;
+        }
+
+        .coming-soon-card {
+            background: white; border-radius: 20px;
+            box-shadow: 0 8px 40px rgba(0,0,0,.1);
+            padding: 56px 48px; text-align: center;
+            max-width: 480px; width: 100%;
+        }
+
+        .cs-icon-wrap {
+            width: 96px; height: 96px; border-radius: 24px;
+            background: rgba(245,101,101,.1); border: 2px solid rgba(245,101,101,.25);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 40px; color: #f56565;
+            margin: 0 auto 24px;
+        }
+
+        .cs-badge {
+            display: inline-block; background: #fff5f5; color: #c53030;
+            font-size: .72rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .8px; padding: 4px 12px; border-radius: 12px;
+            border: 1px solid #fed7d7; margin-bottom: 16px;
+        }
+
+        .coming-soon-card h1 {
+            font-size: 1.5rem; font-weight: 800; color: #1a202c; margin-bottom: 10px;
+        }
+
+        .coming-soon-card p {
+            color: #718096; font-size: .92rem; line-height: 1.6; margin-bottom: 8px;
+        }
+
+        .cs-divider {
+            width: 48px; height: 3px; background: linear-gradient(90deg, #f56565, #fc8181);
+            border-radius: 2px; margin: 20px auto;
+        }
+
+        .cs-features {
+            list-style: none; text-align: left; margin: 0 0 28px;
+            display: flex; flex-direction: column; gap: 8px;
+        }
+        .cs-features li {
+            display: flex; align-items: center; gap: 10px;
+            font-size: .85rem; color: #4a5568;
+        }
+        .cs-features li i { color: #f56565; width: 16px; font-size: .8rem; }
+
+        .cs-btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 12px 24px; background: #f56565; color: white;
+            border-radius: 10px; font-size: .9rem; font-weight: 600;
+            text-decoration: none; transition: background .15s, transform .1s;
+            box-shadow: 0 4px 12px rgba(245,101,101,.35);
+        }
+        .cs-btn:hover { background: #e53e3e; transform: translateY(-1px); }
+        .cs-btn:active { transform: translateY(0); }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="header-left">
+            <a href="index.html" class="back-btn" title="Back to Inventory">
+                <i class="fa-solid fa-arrow-left"></i>
+            </a>
+            <div class="breadcrumb">
+                <a href="../Home/index.html"><i class="fa-solid fa-house"></i></a>
+                <span class="sep"><i class="fa-solid fa-chevron-right"></i></span>
+                <a href="index.html">Inventory</a>
+                <span class="sep"><i class="fa-solid fa-chevron-right"></i></span>
+                <span class="current">PO Receiving</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="content">
+        <div class="coming-soon-card">
+            <div class="cs-icon-wrap">
+                <i class="fa-solid fa-truck-ramp-box"></i>
+            </div>
+            <span class="cs-badge">Coming Soon</span>
+            <h1>PO Receiving</h1>
+            <p>Receive purchase orders, inspect items and complete receiving transactions.</p>
+            <div class="cs-divider"></div>
+            <ul class="cs-features">
+                <li><i class="fa-solid fa-clock"></i> PO receipt entry and confirmation</li>
+                <li><i class="fa-solid fa-clock"></i> Item inspection and quality checks</li>
+                <li><i class="fa-solid fa-clock"></i> Lot and serial number capture</li>
+                <li><i class="fa-solid fa-clock"></i> Receiving transaction history</li>
+            </ul>
+            <p style="font-size:.8rem;color:#a0aec0;margin-bottom:24px;">
+                This module is under development and will be available in a future release.
+            </p>
+            <a class="cs-btn" href="index.html">
+                <i class="fa-solid fa-arrow-left"></i> Back to Inventory Home
+            </a>
+        </div>
+    </div>
+
+</body>
+</html>

@@ -361,3 +361,20 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+
+# WebView2 runtime cache & temp files
+dist/*.exe.WebView2/
+dist/*.WebView2/
+
+# Build output of create-distribution-folder.bat - never commit it: stale runtime
+# DLLs checked out over a fresh build break the app (type initializer errors)
+dist/
+dist-release/
+# Compiled binaries in dist (built by CI/publish, not source)
+dist/*.dll
+dist/*.exe
+Home/modules.js
+
+# Fusion Model product release output (publish-fusion-model.bat)
+dist-model/

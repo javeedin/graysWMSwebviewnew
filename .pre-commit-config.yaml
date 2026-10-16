@@ -1,0 +1,26 @@
+# Optional local hooks (pip install pre-commit && pre-commit install). Scoped to the newer modules so legacy files
+# are never rewritten; CI (.github/workflows/ci.yml) runs the same checks.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.10
+    hooks:
+      - id: ruff
+        files: ^ai-hub/
+        args: [--config, ai-hub/pyproject.toml]
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.3
+    hooks:
+      - id: gitleaks
+  - repo: local
+    hooks:
+      - id: node-check
+        name: page scripts parse (node --check)
+        entry: node --check
+        language: system
+        files: ^(aiagent|aihub|fusionsql|om|fscm|dataload|fusionmodel|powerbi)/.*\.js$
+        exclude: (/lib/|\.min\.js$)
+      - id: eslint-aiagent
+        name: ESLint (aiagent)
+        entry: npx -y eslint@9 -c aiagent/eslint.config.mjs
+        language: system
+        files: ^aiagent/.*\.js$

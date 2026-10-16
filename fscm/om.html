@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fusion Order Management — Gray's</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="fscm.css">
+    <link rel="stylesheet" href="fom.css">
+    <!-- Fusion Order Management (spec D): Order Hub sales orders (search, view, create / change / copy / return, POS),
+         customers (BI Publisher via omBip), price lists, shipping (pick release / confirm / ship confirm), AutoInvoice and
+         AR. Fusion REST goes through the host relay (dataLoadFusionRest); discard draft through omRest DELETE. No
+         credentials in the page. SheetJS reads Excel / CSV for "Add Multiple Lines" and writes the exports. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <script src="core.js"></script>
+    <script src="fom-util.js"></script>
+    <script src="fom-eff.js"></script>
+    <script src="fom-ship.js"></script>
+    <script src="fom-bill.js"></script>
+    <script src="fom-orders.js"></script>
+    <script src="fom-edit.js"></script>
+    <script src="fom-lines.js"></script>
+    <script src="fom-add.js"></script>
+    <script src="fom-extra.js"></script>
+    <script src="fom-pos.js"></script>
+    <script src="fom-cust.js"></script>
+    <script src="fom.js"></script>
+</body>
+</html>

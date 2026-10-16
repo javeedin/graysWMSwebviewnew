@@ -55,6 +55,9 @@ namespace WMSApp
                 case "executeget":
                     HandleExecuteGet(message);
                     break;
+                case "opennewinstance":
+                    HandleOpenNewInstance(message);
+                    break;
                 default:
                     SendErrorResponse($"Unknown action: {message.Action}");
                     break;
@@ -109,6 +112,30 @@ namespace WMSApp
             {
                 System.Diagnostics.Debug.WriteLine($"[HANDLE EXECUTE] Setup failed: {ex.Message}");
                 SendErrorResponse($"API call setup failed: {ex.Message}", message.RequestId);
+            }
+        }
+
+        private void HandleOpenNewInstance(WebMessage message)
+        {
+            try
+            {
+                var exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+                if (!string.IsNullOrEmpty(exePath))
+                {
+                    var startInfo = new System.Diagnostics.ProcessStartInfo(exePath)
+                    {
+                        UseShellExecute = true,
+                        WorkingDirectory = System.IO.Path.GetDirectoryName(exePath)
+                    };
+                    // Pass page hint if provided so the new window can navigate there
+                    if (!string.IsNullOrEmpty(message.ModuleCode))
+                        startInfo.Arguments = $"--page={message.ModuleCode}";
+                    System.Diagnostics.Process.Start(startInfo);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[OpenNewInstance] Failed: {ex.Message}");
             }
         }
 

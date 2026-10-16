@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fusion Shipping — Gray's</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="fscm.css">
+    <link rel="stylesheet" href="fom.css">
+    <!-- Fusion Shipping: the shipping views of Fusion Order Management (Shipment Lines, Confirm Picks, pick release,
+         ship confirm) as a module of their own, plus a shipping cockpit and a batch release / ship desk. It loads the same
+         fom-*.js engine as om.html (one copy of the code — a fix there is a fix here); fom-shipping.js replaces fom.js as
+         the entry. Fusion REST goes through the host relay (dataLoadFusionRest). No credentials in the page. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <script src="core.js"></script>
+    <script src="fom-util.js"></script>
+    <script src="fom-eff.js"></script>
+    <script src="fom-ship.js"></script>
+    <script src="fom-bill.js"></script>
+    <script src="fom-orders.js"></script>
+    <script src="fom-edit.js"></script>
+    <script src="fom-lines.js"></script>
+    <script src="fom-add.js"></script>
+    <script src="fom-extra.js"></script>
+    <script src="fom-pos.js"></script>
+    <script src="fom-cust.js"></script>
+    <script src="fom-shipping.js"></script>
+</body>
+</html>

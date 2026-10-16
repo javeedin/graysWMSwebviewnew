@@ -11,8 +11,8 @@ const API_CONFIG = {
     // Enable/disable console logging
     DEBUG: true,
 
-    // API timeout in milliseconds
-    TIMEOUT: 30000
+    // API timeout in milliseconds (5 minutes)
+    TIMEOUT: 300000
 };
 
 // Export for use in other modules
