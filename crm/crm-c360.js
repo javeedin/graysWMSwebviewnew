@@ -287,7 +287,7 @@
         var max = Math.max.apply(null, tr.series.map(function (x) { return x.amount; }).concat([1]));
         var k = '<div class="kpis">' + C.kpi('Balance', ar ? money(ar.total) : '…', ar ? ar.n + ' open items' : 'reading', ar && ar.total > 0 ? 'info' : 'ok', 'c360Sub', ' data-sub="ar"') +
             C.kpi('Overdue', ar ? money(ar.overdue) : '…', ar ? (ar.oldest ? 'oldest ' + ar.oldest + ' days' : 'nothing late') : '', ar && ar.overdue > 0 ? 'bad' : 'ok', 'c360Sub', ' data-sub="ar"') +
-            (function () { var have = (c.f.apps || {}).rows && (c.f.invoices || {}).rows, rt = have ? arData().rating : null; return C.kpi('Rating', rt ? rt.grade + ' · ' + rt.score : '—', rt ? rt.text : 'open Invoices & AR to rate', rt ? rt.cls : '', 'c360Sub', ' data-sub="ar"'); })() +
+            (AR_DASH ? (function () { var have = (c.f.apps || {}).rows && (c.f.invoices || {}).rows, rt = have ? arData().rating : null; return C.kpi('Rating', rt ? rt.grade + ' · ' + rt.score : '—', rt ? rt.text : 'open Invoices & AR to rate', rt ? rt.cls : '', 'c360Sub', ' data-sub="ar"'); })() : '') +
             C.kpi('Sales 12 months', rowsOf('sales').length ? money(tr.m12, 0) : '…', chg == null ? '' : (chg >= 0 ? '▲ ' : '▼ ') + Math.abs(chg) + '% on the year before', chg != null && chg < -10 ? 'warn' : 'pri', 'c360Sub', ' data-sub="orders"') +
             C.kpi('Open tickets', openT.length, a.tickets.length + ' in total', openT.length ? 'warn' : 'ok', 'c360Sub', ' data-sub="tickets"') +
             C.kpi('Last contact', lc ? E.ago(lc) : 'never', lc || '', lc ? '' : 'warn', 'c360Sub', ' data-sub="timeline"') +
@@ -344,6 +344,12 @@
     // ── Invoices & AR: the whole receivables picture of the customer ──
     var ARV = [['summary', 'fa-gauge', 'Summary'], ['open', 'fa-hourglass-half', 'Open items'], ['trx', 'fa-file-invoice-dollar', 'All transactions'], ['pay', 'fa-money-bill-wave', 'Payments'],
         ['apps', 'fa-link', 'Applications'], ['bounced', 'fa-rotate-left', 'Bounced cheques'], ['returns', 'fa-box-open', 'Returns & credit notes'], ['adjust', 'fa-sliders', 'Adjustments']];
+    // The AR dashboard (Summary, rating, applications, bounced, returns, adjustments) is hidden until its numbers are fixed;
+    // true brings it back. Hidden, the tab has the menu items it had before: open items, transactions, payments.
+    var AR_DASH = false;
+    var AR_KEEP = ['open', 'trx', 'pay'];
+    if (!AR_DASH) ARV = ARV.filter(function (t) { return AR_KEEP.indexOf(t[0]) >= 0; });
+    function arView(c) { var v = c.arv || (AR_DASH ? 'summary' : 'open'); return ARV.some(function (t) { return t[0] === v; }) ? v : ARV[0][0]; }
     var AR_SECS = ['open', 'invoices', 'receipts', 'apps', 'adjust', 'returns'];
     function arData() { return E.ar360({ trx: rowsOf('invoices'), receipts: rowsOf('receipts'), apps: rowsOf('apps'), adjustments: rowsOf('adjust'), returns: rowsOf('returns'), open: rowsOf('open'), creditLimit: master().CREDIT_LIMIT }); }
     C.c360Ar = arData;
@@ -367,7 +373,7 @@
             v === 'returns' ? rowsOf('returns') : v === 'adjust' ? rowsOf('adjust') : [];
     }
     SV.ar = function (c) {
-        var v = c.arv || 'summary', x = c.arx = arData(), ar = arSum();
+        var v = arView(c), x = c.arx = arData(), ar = arSum();
         var cnt = { open: rowsOf('open').length, trx: rowsOf('invoices').length, pay: rowsOf('receipts').length, apps: rowsOf('apps').length, bounced: x.bounced.length, returns: rowsOf('returns').length + rowsOf('invoices').filter(function (r) { return String(r.CLASS).toUpperCase() === 'CM'; }).length, adjust: rowsOf('adjust').length };
         var busy = AR_SECS.some(function (k) { return (c.f[k] || {}).loading; });
         var bar = '<div class="card arbar"><div class="filters"><div class="seg wrap">' + ARV.map(function (t) {
@@ -378,13 +384,13 @@
             '<button class="btn sm" data-act="sendStmt"><i class="fas fa-paper-plane"></i> Send statement</button>' +
             (v !== 'summary' ? '<button class="btn sm" data-act="arCsv"><i class="fas fa-download"></i> CSV</button>' : '') +
             '<button class="btn sm" data-act="arReload"' + (busy ? ' disabled' : '') + '><i class="fas fa-rotate"></i> ' + (busy ? 'Reading…' : 'Read again') + '</button></div></div>';
-        return bar + (AV[v] || AV.summary)(c, x, ar);
+        return bar + (AV[v] || AV[ARV[0][0]])(c, x, ar);
     };
     C.ACT.arView = function (el) { C.cust.arv = el.dataset.v; C.render(); };
     C.IN.arQ = function (el) { C.cust.arq = el.value; C.keepFocus('ar-q', C.render); };
     C.ACT.arReload = function () { AR_SECS.forEach(function (k) { fetchSection(k, true); }); };
     C.ACT.arCsv = function () {
-        var v = C.cust.arv || 'summary', r = filt(v === 'returns' ? rowsOf('returns').concat(rowsOf('invoices').filter(function (y) { return String(y.CLASS).toUpperCase() === 'CM'; })) : arRows(v));
+        var v = arView(C.cust), r = filt(v === 'returns' ? rowsOf('returns').concat(rowsOf('invoices').filter(function (y) { return String(y.CLASS).toUpperCase() === 'CM'; })) : arRows(v));
         var keys = []; r.forEach(function (y) { Object.keys(y).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); }); });
         C.csv(v + '-' + C.cust.account + '.csv', keys.map(function (k) { return [k, k]; }), r);
     };
